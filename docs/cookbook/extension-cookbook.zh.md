@@ -102,7 +102,7 @@ export function apply(ctx: Context) {
 | `/loop` | 在 `turn/end` 会话事件上 `send()` 下一次迭代；或强制继续 |
 | 动态工作流 | `ctx.workflows` + worker-thread 引擎 + `workflow` 工具；结构化的进程内子任务通过作用域化的 prompt/工具注册、单调工具守卫、最终 `tools/result` 提交（包括外层 `run_code`）和终端 `agent/turn-stop` 来强制输出 |
 | 排队消息 + steering（中途引导） | 核心 `Agent.send()` / `Agent.steer()` |
-| 上下文压缩（context compaction）（自动 + 手动） | `ctx.compact` seam + 串行 `agent/pre-step` seam 上的后端（`dsh-compact-basic`）；自动 = 每步之前的 token 压力检查；手动触发调用同一个 `ctx.compact` 例程（[压缩 RFC](../rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)——面向模型的 `/compact` 消费方工具已推迟） |
+| 上下文压缩（context compaction）（自动 + 手动） | `ctx.compact` seam + `dsh-compact-basic`；自动压力检查运行在串行 `agent/post-step`，规范化溢出恢复运行在 `agent/request-error`，手动调用方使用同一个压缩服务（[压缩 RFC](../rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)——面向模型的 `/compact` 消费方工具已推迟） |
 | 系统提示词可配置性 | `ctx.systemPrompt.section()`，支持排序与作用域局部覆盖 |
 | AGENTS.md（根目录） | 一个读取该文件的 section provider |
 | AGENTS.md（子目录，按需触发）+ 文件变更通知 | 从 watcher / tool-result 监听器调用 `agent.inject()` |

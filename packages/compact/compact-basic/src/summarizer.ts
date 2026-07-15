@@ -106,7 +106,7 @@ export async function summarizeWithLlm(
   if (!summary.some(block => block.text.trim().length > 0)) {
     throw new Error('summarization produced no text summary content')
   }
-  return { summary, model, maxTokens: config.maxTokens }
+  return { summary, model: options.model, maxTokens: config.maxTokens }
 }
 
 /**

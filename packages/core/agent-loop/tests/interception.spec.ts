@@ -118,7 +118,7 @@ describe('agent/prompt-submit', () => {
 
   it('a prompt-submit rewrite + additionalContext is VISIBLE to the agent/pre-step seam (merged ordering)', async () => {
     // Prompt rewrites and injected context land before `agent/pre-step`, so a
-    // compaction listener measures the current surface before the single derive.
+    // surface listener sees the current state before the single derive.
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -130,8 +130,7 @@ describe('agent/prompt-submit', () => {
         additionalContext: { content: [{ type: 'text', text: 'injected ctx' }], source: { kind: 'plugin', plugin: 'test' } },
       }))
 
-    // The pre-step seam (where compaction lives) derives the surface it would act
-    // on. Capture what it sees on the first step.
+    // Capture the surface visible at the generic pre-step seam on the first step.
     let preStepDerived: string | undefined
     ctx.on('agent/pre-step', (subject, _turn, step) => {
       if (subject === agent && step === 1) preStepDerived = JSON.stringify(subject.session.deriveMessages())
@@ -375,7 +374,7 @@ describe('agent/session-prefix', () => {
     expect(agent.session.deriveMessages()[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'go' }] })
   })
 
-  it('composes before the first pre-step and hands the prefix to the seam (pressure gates see the real value)', async () => {
+  it('composes before the first pre-step and records the prefix on the request header', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -386,20 +385,15 @@ describe('agent/session-prefix', () => {
       order.push('compose')
       return [reminder, ...await next()]
     })
-    const seen: (readonly Message[])[] = []
-    ctx.on('agent/pre-step', (_agent, _turn, _step, _system, sessionPrefix) => {
+    ctx.on('agent/pre-step', () => {
       order.push('pre-step')
-      seen.push(sessionPrefix)
     })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
-    // Composition precedes the pre-step seam, and the seam receives THIS
-    // instance's composed prefix — a token-pressure gate (compaction) counts
-    // what the request will actually carry, never a stale logged prefix.
     expect(order).toEqual(['compose', 'pre-step'])
-    expect(seen[0]).toEqual([reminder])
+    expect(agent.session.requestHeader()?.messagePrefix).toEqual([reminder])
   })
 
   it('the canonical prepend pattern composes contributions in registration order', async () => {

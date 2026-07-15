@@ -276,7 +276,7 @@ async function runTurn(
       const abort = new AbortController()
       handle.setAbort(abort)
 
-      // Assemble once before pre-step so pressure checks and the request share the same prompt.
+      // Assemble once before pre-step so listener work and the request share one prompt value.
       const assembly = await ctx.systemPrompt.assemble(assembleContextFor(agent))
       const fullSystemPrompt = renderPrompt(assembly)
 
@@ -287,9 +287,9 @@ async function runTurn(
         break
       }
 
-      // Compose the request-only prefix once per loop instance before pressure
-      // checks. It precedes all derived history and is recorded only in the
-      // request header, not as session history.
+      // Compose the request-only prefix once per loop instance before the first
+      // request boundary. It precedes all derived history and is recorded only
+      // in the request header, not as session history.
       if (transmission.sessionPrefix === undefined) {
         const emptyPrefix: Message[] = deepFreeze([])
         const composed = await events.waterfall(
@@ -306,8 +306,8 @@ async function runTurn(
         transmission.sessionPrefix = deepFreeze(structuredClone(composed))
       }
 
-      // Await surface mutations outside the step; pressure checks receive the pending prefix.
-      await events.serial('agent/pre-step', turn, step, fullSystemPrompt, transmission.sessionPrefix, abort.signal)
+      // Await surface mutations outside the step before snapshotting history.
+      await events.serial('agent/pre-step', turn, step, abort.signal)
 
       // Interruption landing during the pre-step seam: do not open an empty step.
       if (handle.isCancelled() || handle.isDisposed()) {

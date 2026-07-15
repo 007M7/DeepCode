@@ -7,10 +7,9 @@
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { CompactService } from '@deepseek-ai/dsh-compact'
-import type { CompactionResult } from '@deepseek-ai/dsh-compact'
-import { canonicalHeader } from '@deepseek-ai/dsh-session'
-import type { EpochHeader, Session } from '@deepseek-ai/dsh-session'
-import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
+import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compact'
+import type { Session } from '@deepseek-ai/dsh-session'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { ModelTokenMeter } from '@deepseek-ai/dsh-token-meter'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { registerAutomaticCompaction } from './automatic.ts'
@@ -36,24 +35,10 @@ function effectiveModel(agent: Agent): string | undefined {
   return agent.session.requestHeader()?.config.model ?? agent.options.model
 }
 
-/**
- * Build the provisional pre-step request envelope. Prompt and prefix are exact;
- * tools and non-model call config come from the latest logged request because
- * later request middleware has not run yet.
- */
-function provisionalHeader(
-  model: string,
-  session: Session,
-  fullSystemPrompt: string,
-  sessionPrefix: readonly Message[],
-): EpochHeader {
-  const latest = session.requestHeader()
-  return canonicalHeader({
-    config: latest === undefined ? { model } : { ...latest.config, model },
-    ...fullSystemPrompt.length === 0 ? {} : { system: fullSystemPrompt },
-    ...latest?.tools === undefined ? {} : { tools: latest.tools },
-    ...sessionPrefix.length === 0 ? {} : { messagePrefix: [...sessionPrefix] },
-  })
+/** Resolve the exact model durably routed for the latest provider request. */
+function routedModel(session: Session): string | undefined {
+  const model = session.requestHeader()?.config.model
+  return model === undefined || model.length === 0 ? undefined : model
 }
 
 /**
@@ -75,6 +60,7 @@ export class BasicCompactService extends CompactService {
     summarizationModel: z.string().default(''),
     maxTokens: z.number().step(1).min(1).default(8192),
     compactionRetries: z.number().step(1).min(0).default(1),
+    maxOverflowRetries: z.number().step(1).min(0).default(1),
     auto: z.boolean().default(true),
   })
 
@@ -106,29 +92,33 @@ export class BasicCompactService extends CompactService {
   }
 
   /**
-   * Check replayed pressure for the provisional pre-step envelope and compact
-   * a tool-balanced head until it falls below the effective model threshold.
-   * A genuinely model-less router-first step skips this provisional check;
-   * naming an unconfigured model throws the token meter's typed error.
-   * @param agent - agent whose session and provisional model are measured.
-   * @param fullSystemPrompt - current assembled system prompt override.
-   * @param sessionPrefix - current request-only prefix override.
-   * @param signal - live step cancellation signal forwarded to summarization.
+   * Compact for replayed post-step pressure or one provider-confirmed context
+   * overflow. Both triggers price the latest durable routed request model;
+   * overflow bypasses the normal threshold and retained-tail policy so it can
+   * force one useful balanced reduction.
+   * @param agent - agent whose latest durable routed request is measured.
+   * @param trigger - normal post-step pressure or context-overflow recovery.
+   * @param signal - live turn cancellation signal forwarded to summarization.
    * @returns the latest compaction result, or `null` when no check/work applies.
    */
   override async compactIfNeeded(
     agent: Agent,
-    fullSystemPrompt: string,
-    sessionPrefix: readonly Message[],
+    trigger: CompactionTrigger,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
-    const model = effectiveModel(agent)
-    if (model === undefined || model.length === 0) return null
+    const model = routedModel(agent.session)
+    if (model === undefined) return null
     const meter = this.ctx.tokenMeter.resolve(model)
     const policy = this._modelConfig(meter)
-    const requestHeader = provisionalHeader(model, agent.session, fullSystemPrompt, sessionPrefix)
+    if (trigger === 'context-overflow') {
+      const surface = meter.measureSurface(agent.session)
+      const range = selectCompactableRange(agent.session, surface, 0)
+      if (range === null) return null
+      return this.compactRegion(agent.session, range.start, range.end, agent, signal)
+    }
+
     const threshold = Math.floor(policy.contextWindow * policy.thresholdRatio)
-    let measurement = meter.measure(agent.session, requestHeader)
+    let measurement = meter.measure(agent.session)
     if (measurement.totalTokens < threshold) return null
 
     let result: CompactionResult | null = null
@@ -147,7 +137,7 @@ export class BasicCompactService extends CompactService {
         break
       }
       result = await this.compactRegion(agent.session, range.start, range.end, agent, signal)
-      measurement = meter.measure(agent.session, requestHeader)
+      measurement = meter.measure(agent.session)
       if (measurement.totalTokens < threshold) return result
     }
 

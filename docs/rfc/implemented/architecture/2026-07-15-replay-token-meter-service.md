@@ -32,13 +32,13 @@ Usage sums the disjoint input, cache-read, cache-write, and output buckets. Reas
 
 `dsh-compact-basic` requires `ctx.tokenMeter`; `CompactService` gains no token methods or types. The backend is factored into configuration, automatic triggering, region transaction, and summarizer modules, while `summarize()` remains its sole subclass hook. The conversation model's meter consistently prices pressure, retention, shadowed content, provenance, and non-shrinking-summary rejection.
 
-Every metered model receives a compact policy with defaults: threshold ratio `0.8`, retained tail `floor(contextWindow × 0.16)`, summarization model `''`, maximum summary output `8192`, one extra compaction attempt, and automatic triggering enabled. Per-model compact overrides merge `thresholdRatio` and `retainTokens`; retention must remain below the resulting threshold. Empty summarization model resolves the latest logged routed model, then `AgentOptions.model`.
+Every metered model receives a compact policy with defaults: threshold ratio `0.8`, retained tail `floor(contextWindow × 0.16)`, summarization model `''`, maximum summary output `8192`, one extra pressure-compaction attempt, one context-overflow retry, and automatic triggering enabled. Per-model compact overrides merge `thresholdRatio` and `retainTokens`; retention must remain below the resulting threshold. Empty summarization model resolves the latest logged routed model, then `AgentOptions.model`.
 
-The pre-step trigger measures a provisional envelope: the current prompt and prefix override logged values, while the latest logged header supplies model, tools, and other call config. A model-less router-only agent skips that provisional check because `agent/request` can route later; naming an unknown model remains an error.
+Automatic pressure runs at `agent/post-step` and measures the canonical durable envelope under the model actually selected by `agent/request`. A headerless session has no completed routed request to assess and produces no work; a durable unknown routed model remains an exact typed error. Canonical overflow recovery uses the same meter for forced range selection, and retries only after a proven surface replacement.
 
 ## Testing
 
-Unit coverage pins profiles, field-wise overrides, custom and unknown models, envelope invalidation, model switching, usage and missing-usage paths, seeded append/replace replay, signed deltas, provenance modes, malformed boundaries, immutable snapshots, listener ordering, reload, compact defaults, routing fallback, retention, convergence, and transaction rollback. A real Loader/Include YAML fixture loads the exact zero-config token-meter and compact-basic package names in dependency order.
+Unit coverage pins profiles, field-wise overrides, custom and unknown models, envelope invalidation, model switching, usage and missing-usage paths, seeded append/replace replay, signed deltas, provenance modes, malformed boundaries, immutable snapshots, listener ordering, reload, compact defaults, actual routing, retention, convergence, forced overflow, and transaction rollback. A real Loader/Include YAML fixture loads the exact zero-config token-meter and compact-basic package names in dependency order.
 
 ## Alternatives considered
 
@@ -54,4 +54,4 @@ Unit coverage pins profiles, field-wise overrides, custom and unknown models, en
 - Defaults make the bundled DeepSeek composition usable with two zero-config plugin entries, while custom models must state the one fact that cannot be guessed safely: context capacity.
 - Heuristic density and provider usage remain estimates of provider behavior. Maintainers must update built-in profiles and overflow wording as models evolve.
 - Measurements fail loudly on malformed durable boundaries. This turns corrupted replay into a named integration failure instead of silently drifting pressure.
-- The pre-step compact integration can skip a router-only first check and can miss tool or routing changes applied later in request middleware.
+- Post-step pressure reads the exact logged routing/tools/prefix boundary; provider overflow classification remains the adapter-maintained backstop for requests rejected before a successful usage anchor.

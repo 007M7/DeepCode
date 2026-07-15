@@ -228,7 +228,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'seam',
     implementations: ['compact-basic'],
     consumers: ['compact-basic'],
-    note: 'The basic backend currently consumes the pre-step event directly; a model-facing compact tool remains deferred.',
+    note: 'The basic backend consumes post-step pressure and request-error recovery events; a model-facing compact tool remains deferred.',
   },
   {
     key: 'subagents',
@@ -840,6 +840,8 @@ function renderLifecycle(): string {
     '```',
     '',
     'The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.',
+    '',
+    '`dsh-compact-basic` uses `agent/post-step` for pressure after those durable facts and `agent/request-error` only for canonical context overflow. Recovery compacts between the closed failed step and a fresh retry step, and returns retry only when the surface replacement generation advances; otherwise the original request error remains authoritative.',
     '',
     'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.',
     '',

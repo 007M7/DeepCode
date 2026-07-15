@@ -108,7 +108,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'compact',
     summary: 'Abstract compaction service.',
     methods: [
-      'abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>',
+      'abstract compactIfNeeded( agent: CompactAgentContext, trigger: CompactionTrigger, signal: AbortSignal, ): Promise<CompactionResult | null>',
       'abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
     ],
   },
@@ -289,8 +289,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/pre-step',
     mode: 'serial',
-    signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void',
-    summary: 'Awaited serial checkpoint for session-surface mutation after prompt assembly and before `step/start`; appends land outside the pending step.',
+    signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void',
+    summary: 'Awaited serial checkpoint before `step/start`; appends land outside the pending step and are included when the loop derives request history.',
   },
   {
     name: 'agent/prompt-submit',
@@ -655,6 +655,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CompactionResult',
     declaration: 'export interface CompactionResult {\n    startSeq: number;\n    summarySeq: number;\n    endSeq: number;\n    summary: ContentBlock[];\n    shadowedRange: {\n        start: number;\n        end: number;\n    };\n    shadowedSeqs: number[];\n    shadowedTokenCount: number;\n}',
+  },
+  {
+    name: 'CompactionTrigger',
+    declaration: 'export type CompactionTrigger = \'pressure\' | \'context-overflow\';',
   },
   {
     name: 'ConfinedArgv',

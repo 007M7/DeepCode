@@ -89,13 +89,11 @@ Source: [`packages/code-runtime/code-runtime/src/index.ts:31`](../../packages/co
 Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
 
 ```ts cordis-catalog
-abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>
+abstract compactIfNeeded( agent: CompactAgentContext, trigger: CompactionTrigger, signal: AbortSignal, ): Promise<CompactionResult | null>
 abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
-Types: [Message](../core-data-structures/core.md)
-
-Source: [`packages/compact/compact/src/index.ts:38`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:40`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 

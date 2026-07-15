@@ -219,6 +219,48 @@ describe('agent post-step and request-error lifecycle', () => {
     })
   })
 
+  it('closes the successful step as disposed when disposal lands during post-step', async () => {
+    const adapter = new FailureScriptAdapter([
+      toolCallResponse('dispose-call', 'work', {}),
+      textResponse('must not continue'),
+    ])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'work',
+      description: 'do work',
+      parameters: {},
+      async execute() { return [{ type: 'text', text: 'worked' }] },
+    }))
+    const agent = ctx.agentLoop.create(AgentId('dispose-post-step'), { model: 'mock' })
+    let entered!: () => void
+    const postStepEntered = new Promise<void>((resolve) => { entered = resolve })
+    ctx.on('agent/post-step', async (_agent, turn, step, signal) => {
+      expect({ turn, step }).toEqual({ turn: 1, step: 1 })
+      entered()
+      await new Promise<void>((resolve) => {
+        signal.addEventListener('abort', () => { resolve() }, { once: true })
+      })
+    })
+
+    send(agent)
+    await postStepEntered
+    await ctx.fiber.dispose()
+
+    expect(adapter.requests).toHaveLength(1)
+    const boundaries = agent.session.events.filter(event =>
+      event.type === 'step/start' || event.type === 'step/end',
+    )
+    expect(boundaries.map(event => event.type)).toEqual(['step/start', 'step/end'])
+    expect(boundaries.map(event => event.data)).toEqual([
+      { turn: 1, step: 1 },
+      { turn: 1, step: 1 },
+    ])
+    expect(agent.session.events.at(-1)).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'disposed' } },
+    })
+  })
+
   it.each([
     ['thrown', contextError()],
     ['in-band', [{ type: 'finish', reason: { kind: 'error', message: 'too large', code: CONTEXT_WINDOW_EXCEEDED_CODE } }] satisfies StreamChunk[]],

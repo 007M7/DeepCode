@@ -58,7 +58,7 @@ Plugin failure ends the current turn, not the loop. Only final adapter dispatch/
 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
 - Hooks and policy: the relevant `agent/*` checkpoints plus the guarded `tools/pre-execute` → `tools/execute` → `tools/post-execute` → `tools/result` pipeline; exact signatures and modes live in the [generated event catalog](../../../docs/cordis-catalog/events.md)
-- Compaction: `agent/pre-step`
+- Compaction: pressure on `agent/post-step`; canonical context overflow on `agent/request-error`
 - Sandbox, permission, plan mode: `tools/pre-execute` for extensible deny/ask, `tools.guard()` for monotonic owner policy, `tools/post-execute` for result decisions, and `tools/result` for final observation
 - Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while child streaming/progress and background/poll collection remain deferred.
 - Persistence: `session/event` + `session/flush`

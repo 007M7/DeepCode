@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:314`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:308`](../../packages/core/agent/src/types.ts)
 
 ### `agent/post-step` — serial
 
@@ -59,19 +59,19 @@ Awaited serial checkpoint after the response, tool results, injected context, an
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:267`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:261`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
-Awaited serial checkpoint for session-surface mutation after prompt assembly and before `step/start`; appends land outside the pending step. The loop derives history once afterward, so compaction records and replacements are included without rewriting an assembled request. The prompt and prefix are the exact pressure inputs for that request, and `signal` cancels listener work. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+Awaited serial checkpoint before `step/start`; appends land outside the pending step and are included when the loop derives request history. `signal` cancels listener work. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
 ```ts cordis-catalog
-'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void
+'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:208`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:202`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -83,7 +83,7 @@ Allow, rewrite, or block one drained prompt before it becomes a user message. Ca
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:218`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:212`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -107,7 +107,7 @@ Replace the frozen call configuration. Model-visible content must use logged cha
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:230`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:224`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-error` — waterfall
 
@@ -119,11 +119,11 @@ Recover a model-request failure after its failed step has closed. `retry` opens 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:281`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:275`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
-Compose request-only messages placed before derived history. The frozen result is computed once per loop instance, logged on its anchoring request header, and reused so the provider prefix remains stable. Interrupted composition is discarded. Composition precedes the first `agent/pre-step` and request boundary, so listener appends join the current request and pressure accounting sees the composed prefix. Changing context belongs in history; contributors should prepend to `await next()` to preserve registration order. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+Compose request-only messages placed before derived history. The frozen result is computed once per loop instance, logged on its anchoring request header, and reused so the provider prefix remains stable. Interrupted composition is discarded. Composition precedes the first `agent/pre-step` and request boundary, so listener appends join the current request. Changing context belongs in history; contributors should prepend to `await next()` to preserve registration order. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
 ```ts cordis-catalog
 'agent/session-prefix'(this: Scoped<Agent>, agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>
@@ -131,7 +131,7 @@ Compose request-only messages placed before derived history. The frozen result i
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:245`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:239`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -167,7 +167,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:256`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -179,7 +179,7 @@ Override whether the turn continues. The default continues after tool calls or s
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:291`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:285`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -191,7 +191,7 @@ Monotonic terminal-stop checkpoint after continuation and steering are folded; a
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:301`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:295`](../../packages/core/agent/src/types.ts)
 
 ## `approval/*`
 

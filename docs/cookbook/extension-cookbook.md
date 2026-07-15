@@ -102,7 +102,7 @@ Every product feature maps to a listener on a documented extension seam — the 
 | `/loop` | on the `turn/end` session event, `send()` the next iteration; or force-continue |
 | Dynamic workflow | `ctx.workflows` + the worker-thread engine + the `workflow` tool; structured in-process children enforce output with scoped prompt/tool registrations, a monotonic tool guard, final `tools/result` commit (including enclosing `run_code`), and terminal `agent/turn-stop` |
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
-| Context compaction (auto + manual) | the `ctx.compact` seam + a backend (`dsh-compact-basic`) on the serial `agent/pre-step` seam; auto = token-pressure check before each step; a manual trigger invokes the same `ctx.compact` routine ([compaction RFC](../rfc/implemented/feature/2026-06-18-compaction-capability-seam.md) — the model-facing `/compact` consumer tool is deferred) |
+| Context compaction (auto + manual) | the `ctx.compact` seam + `dsh-compact-basic`; automatic pressure runs on serial `agent/post-step`, canonical overflow recovery runs on `agent/request-error`, and manual callers use the same compact service ([compaction RFC](../rfc/implemented/feature/2026-06-18-compaction-capability-seam.md) — the model-facing `/compact` consumer tool is deferred) |
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering and scope-local shadowing |
 | AGENTS.md (root) | a section provider reading the file |
 | AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |

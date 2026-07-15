@@ -189,23 +189,17 @@ declare module 'cordis' {
 
     // ---- step/request extension seams (serial + waterfall) ----
     /**
-     * Awaited serial checkpoint for session-surface mutation after prompt
-     * assembly and before `step/start`; appends land outside the pending step.
-     * The loop derives history once afterward, so compaction records and
-     * replacements are included without rewriting an assembled request. The
-     * prompt and prefix are the exact pressure inputs for that request, and
+     * Awaited serial checkpoint before `step/start`; appends land outside the
+     * pending step and are included when the loop derives request history.
      * `signal` cancels listener work.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @param agent - the agent opening the step.
      * @param turn - the open turn number.
      * @param step - the pending step number.
-     * @param fullSystemPrompt - the assembled prompt.
-     * @param sessionPrefix - the frozen request prefix.
      * @param signal - the turn abort signal.
      * @mode serial
      */
-    // TODO: Move prompt-pressure inputs behind a compaction-specific seam if no second consumer appears.
-    'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void
+    'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
     /**
      * Allow, rewrite, or block one drained prompt before it becomes a user
      * message. Call `next()` for the unchanged default.
@@ -233,9 +227,9 @@ declare module 'cordis' {
      * result is computed once per loop instance, logged on its anchoring request
      * header, and reused so the provider prefix remains stable. Interrupted
      * composition is discarded. Composition precedes the first `agent/pre-step`
-     * and request boundary, so listener appends join the current request and
-     * pressure accounting sees the composed prefix. Changing context belongs in
-     * history; contributors should prepend to `await next()` to preserve registration order.
+     * and request boundary, so listener appends join the current request.
+     * Changing context belongs in history; contributors should prepend to
+     * `await next()` to preserve registration order.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @param agent - the agent whose session prefix is being composed.
      * @param prefix - the frozen seed; return an extended replacement.

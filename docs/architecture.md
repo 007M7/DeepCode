@@ -105,6 +105,8 @@ Each step renders one prompt assembly. Plugins contribute ordered sections, tool
 
 Post-tool context follows all results, preserving call/result adjacency. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering while the step signal remains open. Leftover steering becomes next-turn input. `agent/turn-stop` is terminal through close and flush: later steering is discarded, while ordinary queued prompts survive.
 
+When loaded, `dsh-compact-basic` consumes that post-step checkpoint for `ctx.tokenMeter` pressure under the actual routed header. It also consumes canonical context overflow at `agent/request-error`, but authorizes retry only after a tool-balanced compaction advances `surface.replaceGeneration`. The same turn signal owns both summarization paths.
+
 ### Failure Boundaries
 
 The turn is the containment boundary. `LlmService` preserves and privately tags errors from final adapter selection, dispatch, and iteration. Those errors and terminal in-band error/aborted finishes close the failed step before `agent/request-error`; retry reconstructs the next numbered step from the log, while decline or failed recovery preserves the provider error. Attempts count consecutive failures and reset after success.

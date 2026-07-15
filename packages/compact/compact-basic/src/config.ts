@@ -47,6 +47,7 @@ export function resolveConfig(
       summarizationModel: '',
       maxTokens: 8192,
       compactionRetries: 1,
+      maxOverflowRetries: 1,
       auto: true,
     }, meter)
   }
@@ -56,10 +57,12 @@ export function resolveConfig(
     summarizationModel: config.summarizationModel ?? '',
     maxTokens: config.maxTokens ?? 8192,
     compactionRetries: config.compactionRetries ?? 1,
+    maxOverflowRetries: config.maxOverflowRetries ?? 1,
     auto: config.auto ?? true,
   }
   assertPositiveInteger('maxTokens', resolved.maxTokens)
   assertNonNegativeInteger('compactionRetries', resolved.compactionRetries)
+  assertNonNegativeInteger('maxOverflowRetries', resolved.maxOverflowRetries)
   if (typeof resolved.summarizationModel !== 'string') {
     throw new Error('BasicCompactConfig: summarizationModel must be a string')
   }
