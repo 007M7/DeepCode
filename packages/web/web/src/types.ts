@@ -8,19 +8,6 @@
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 
 /**
- * Execution control threaded from the tool layer through the seam into a
- * provider's network requests, stream readers, and expensive decoding. It is
- * NOT business input: the first version carries only `signal` so `tool-web` can
- * propagate turn cancellation, tool timeout, and agent disposal. It deliberately
- * does NOT carry `ToolExecution`, which would make `dsh-web` depend on
- * `dsh-tools`.
- */
-export interface WebExecContext {
-  /** Abort signal a provider must honor for its network/decoding work. */
-  readonly signal?: AbortSignal
-}
-
-/**
  * What one search-capable backend can return. The model-facing argument is just
  * a query; `maxResults` is a `dsh-tool-web`-layer bound passed through unchanged
  * and enforced on the way back by the seam (see {@link WebSearchResult}).
@@ -44,10 +31,6 @@ export interface WebSearchRequest {
  * when it cut `sources[]` down to `maxResults`.
  */
 export interface WebSearchResult {
-  /** Id of the provider that produced this result. */
-  readonly providerId: string
-  /** Echo of the query the provider answered. */
-  readonly query: string
   /** Optional provider-generated answer text, search context, or summary. */
   readonly content?: string
   /** Citeable sources, already truncated to the request's `maxResults`. */
@@ -71,14 +54,13 @@ export interface WebSearchSource {
 }
 
 /**
- * What one fetch-capable backend is asked to retrieve. `timeoutMs` is an
- * optional positive hint the provider caps. The request deliberately omits
- * `format`, `prompt`, and extraction controls — those are presentation or
- * higher-level LLM concerns, not safe-retrieval inputs.
+ * What one fetch-capable backend is asked to retrieve. The request deliberately
+ * omits timeout, format, prompt, and extraction controls: cancellation is a
+ * direct execution argument, while presentation and higher-level LLM concerns
+ * belong outside safe retrieval.
  */
 export interface WebFetchRequest {
   readonly url: string
-  readonly timeoutMs?: number
 }
 
 /**
@@ -88,8 +70,6 @@ export interface WebFetchRequest {
  * represent the resource.
  */
 export interface WebFetchResult {
-  /** Id of the provider that produced this result. */
-  readonly providerId: string
   /** The final URL after allowed redirects (the request URL is in the request). */
   readonly url: string
   /** HTTP status code of the fetched response. */
@@ -114,27 +94,15 @@ export type WebFetchBody =
   | { readonly kind: 'text'; readonly content: string }
 
 /**
- * Whether one concrete provider implementation is usable, by cheap local checks
- * only (credential presence, parseable endpoint config). A provider `status()`
- * must NOT make network calls. It is an input to execution-time selection, not
- * a health system: `WebService.search()`/`fetch()` read it to pick a usable
- * provider, and selection failure surfaces as the structured {@link WebError}
- * codes callers route on.
- */
-export type WebProviderStatus =
-  | { readonly available: true }
-  | { readonly available: false; readonly reason: 'missing-credential' | 'misconfigured' }
-
-/**
  * A search-capable backend. Registered with `ctx.web.registerSearchProvider`.
  * `id` is a stable string, unique within the search capability kind.
  */
 export interface WebSearchProvider {
   readonly id: string
   /** Cheap local usability check; must not make network calls. */
-  status(): WebProviderStatus
-  /** Run one search; honor `exec.signal` for cancellation. */
-  search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>
+  available(): boolean
+  /** Run one search; honor `signal` for cancellation. */
+  search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>
 }
 
 /**
@@ -144,9 +112,9 @@ export interface WebSearchProvider {
 export interface WebFetchProvider {
   readonly id: string
   /** Cheap local usability check; must not make network calls. */
-  status(): WebProviderStatus
-  /** Retrieve one URL; honor `exec.signal` for cancellation. */
-  fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
+  available(): boolean
+  /** Retrieve one URL; honor `signal` for cancellation. */
+  fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 }
 
 /**
