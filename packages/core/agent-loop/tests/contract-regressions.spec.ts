@@ -44,7 +44,7 @@ function send(agent: Agent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
-describe('HIGH: session log records what agent/step-result actually produced', () => {
+describe('session log records what agent/step-result actually produced', () => {
   it('a step-result rewrite is what the log, derived history, and tool dispatch all see', async () => {
     const adapter = new MockAdapter([textResponse('original'), textResponse('done')])
     const ctx = await harness(adapter)
@@ -94,7 +94,7 @@ describe('HIGH: session log records what agent/step-result actually produced', (
   })
 })
 
-describe('HIGH: abort during tool execution ends the turn', () => {
+describe('abort during tool execution ends the turn', () => {
   it('aborting the in-flight step inside a tool prevents both remaining tools and the next model step', async () => {
     const adapter = new MockAdapter([
       // model asks for two tool calls in one step
@@ -146,7 +146,7 @@ describe('HIGH: abort during tool execution ends the turn', () => {
   })
 })
 
-describe('HIGH: steering from late extension points is never stranded', () => {
+describe('steering from late extension points is never stranded', () => {
   it('steer() from an agent/turn-continuation listener overrides a stop decision', async () => {
     const adapter = new MockAdapter([
       textResponse('no tools, would stop here'),
@@ -268,7 +268,7 @@ describe('HIGH: steering from late extension points is never stranded', () => {
   })
 })
 
-describe('HIGH: plugin exceptions are contained', () => {
+describe('plugin exceptions are contained', () => {
   it('a throwing agent/turn-continuation listener ends the turn with an error, loop survives', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
@@ -323,7 +323,7 @@ describe('HIGH: plugin exceptions are contained', () => {
   })
 })
 
-describe('MEDIUM: disposed status is part of the agent/status contract', () => {
+describe('disposed status is part of the agent/status contract', () => {
   it('disposing the fiber emits agent/status(disposed) and ends the turn with reason disposed', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
@@ -370,7 +370,7 @@ describe('MEDIUM: disposed status is part of the agent/status contract', () => {
   })
 })
 
-describe('MEDIUM: misc registry and config fixes', () => {
+describe('misc registry and config fixes', () => {
   it('duplicate adapter registration is rejected', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -529,7 +529,7 @@ describe('MEDIUM: misc registry and config fixes', () => {
   })
 })
 
-describe('MEDIUM: turn numbering continues across seeded (forked) sessions', () => {
+describe('turn numbering continues across seeded (forked) sessions', () => {
   it('a forked agent continues turn numbers after the seed log', async () => {
     const first = new MockAdapter([textResponse('turn one')])
     const ctx = await harness(first)
@@ -567,7 +567,7 @@ describe('MEDIUM: turn numbering continues across seeded (forked) sessions', () 
   })
 })
 
-describe('LOW: discriminated SessionEvent narrows without casts', () => {
+describe('discriminated SessionEvent narrows without casts', () => {
   it('narrows event.data from event.type', () => {
     const session = new Session(SessionId('s'))
     const appended: SessionEvent = session.append('tool/call', {
@@ -585,7 +585,7 @@ describe('LOW: discriminated SessionEvent narrows without casts', () => {
   })
 })
 
-describe('HIGH: a finish-error stream chunk ends the turn as error, not completed', () => {
+describe('a finish-error stream chunk ends the turn as error, not completed', () => {
   it('translates finish {kind:error} into a turn error with a logged error event', async () => {
     // The second sanctioned adapter error path (besides throwing): an
     // adapter that cannot throw mid-stream ends the stream with a
