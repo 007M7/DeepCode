@@ -14,9 +14,9 @@ flowchart LR
   cfg --> plugin_coding_llm_deepseek
   plugin_coding_bash["bash<br/>@deepseek-ai/dsh-bash-local"]
   cfg --> plugin_coding_bash
-  plugin_coding_stdio_agent["stdio-agent<br/>@deepseek-ai/dsh-stdio-agent"]
+  plugin_coding_stdio_agent["stdio-agent<br/>@deepseek-ai/dsh-stdio-demo"]
   cfg --> plugin_coding_stdio_agent
-  plugin_coding_stdio_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-core"]
+  plugin_coding_stdio_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
   plugin_coding_stdio_agent --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
   plugin_coding_stdio_agent --> frontdoor_stdio["readline UI<br/>console logger<br/>pre-created main agent"]
   bundle_agent_core --> spine_llm["ctx.llm"]
@@ -54,7 +54,7 @@ flowchart LR
 | `hmr` | `@cordisjs/plugin-hmr` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
-| `stdio-agent` | `@deepseek-ai/dsh-stdio-agent` |
+| `stdio-agent` | `@deepseek-ai/dsh-stdio-demo` |
 | `compact-basic` | `@deepseek-ai/dsh-compact-basic` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |

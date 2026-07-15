@@ -37,7 +37,7 @@ const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
  * them from its own `import.meta.url`.
  */
 export interface AgentUnderTest {
-  /** The agent bin entry (e.g. `packages/ui/acp-agent/src/bin.ts`), run unbuilt via tsx. */
+  /** The agent bin entry (e.g. `packages/examples/acp-demo/src/bin.ts`), run unbuilt via tsx. */
   binScript: string
   /**
    * The example's live `cordis.yml`. Under `DSH_SNAPSHOT=replay` the bin swaps

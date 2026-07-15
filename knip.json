@@ -82,11 +82,11 @@
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
-    "packages/ui/acp-agent": {
+    "packages/examples/acp-demo": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
-    "packages/ui/stdio-agent": {
+    "packages/examples/stdio-demo": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
@@ -94,7 +94,7 @@
       "entry": ["tests/**/*.spec.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
-    "packages/ui/jsonrpc-agent": {
+    "packages/examples/jsonrpc-demo": {
       "project": ["src/**/*.ts"]
     },
     "packages/subagent/subagent-spawn": {

@@ -9,8 +9,8 @@ import { spawn } from 'node:child_process'
 // the overlay config (the stdio bin keeps --expose-internals for the cordis
 // Loader's HMR path).
 const UIS = new Map([
-  ['repl', ['--expose-internals', '--import', 'tsx', 'packages/ui/stdio-agent/src/bin.ts', 'examples/coding-agent/code-mode.cordis.yml']],
-  ['acp', ['--import', 'tsx', 'packages/ui/acp-agent/src/bin.ts', '--config', 'examples/acp-agent/code-mode.cordis.yml']],
+  ['repl', ['--expose-internals', '--import', 'tsx', 'packages/examples/stdio-demo/src/bin.ts', 'examples/coding-agent/code-mode.cordis.yml']],
+  ['acp', ['--import', 'tsx', 'packages/examples/acp-demo/src/bin.ts', '--config', 'examples/acp-agent/code-mode.cordis.yml']],
 ])
 
 const ui = process.argv[2] ?? 'repl'

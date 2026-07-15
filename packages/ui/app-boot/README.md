@@ -1,6 +1,6 @@
 # `@deepseek-ai/dsh-app-boot`
 
-Shared boot glue for the app bins ([`dsh-stdio-agent`](../stdio-agent/README.md), [`dsh-acp-agent`](../acp-agent/README.md)): each bin is a thin self-executing composition over these helpers, parameterized by its diagnostic prefix, so the loader-failure lore lives once — under the per-file coverage gate — instead of drifting between two published artifacts.
+Shared boot glue for the app bins ([`dsh-stdio-demo`](../../examples/stdio-demo/README.md), [`dsh-acp-demo`](../../examples/acp-demo/README.md)): each bin is a thin self-executing composition over these helpers, parameterized by its diagnostic prefix, so the loader-failure lore lives once — under the per-file coverage gate — instead of drifting between two published artifacts.
 
 | Export | Role |
 |---|---|
