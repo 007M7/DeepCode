@@ -281,9 +281,14 @@ interface Agent {
 
   /**
    * Inject in-session context (file-change notices, skill content, cron
-   * notifications, …): appends a `context/message` session event the next model
-   * request sees at its chronological position, rendered as tagged synthetic
-   * context rather than a user prompt. Does not run the model.
+   * notifications, …): accepts context for a `context/message` session event
+   * the next model request sees, rendered as tagged synthetic context rather
+   * than a user prompt. Does not run the model.
+   *
+   * In an open turn, inject appends at the current log position except while
+   * the current tool-call batch executes: accepted context waits FIFO until the
+   * batch settles, then appends after every recorded result and before turn
+   * close even when execution is interrupted.
    *
    * Turn-enclosure (the turn-enclosure RFC): an inject while a turn is open joins that turn;
    * an inject while idle wraps its `context/message` in a one-shot `injection`
