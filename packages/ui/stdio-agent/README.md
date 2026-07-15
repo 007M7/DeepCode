@@ -15,7 +15,7 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by confirmation tools |
 | `@deepseek-ai/dsh-tool-ask-user` | the model-facing `ask_user_question` tool |
-| `stdio-chat` (in-package module) | the readline UI, holding the app-owned agent object directly and rendering it as `main` |
+| `@deepseek-ai/dsh-stdio` | the readline UI, bound to the exact app-owned agent/session identity and rendering it as `main` |
 
 `@cordisjs/plugin-hmr` (the dev/demo edit-reload loop) is deliberately a **leaf** entry, NOT baked in here: it is a Loader-only, subprocess-only dev plugin — its constructor throws without `node --expose-internals` + a live `loader`, and the in-process test tier cannot even import it (so a package whose `apply` statically pulled it in could never carry the per-file coverage gate). Unlike the console logger, a stray `hmr` is not a stdout-purity footgun, so leaving it at the leaf costs no safety. The `demo:echo` / `demo:repl` leaves load it and pass `--expose-internals`.
 
@@ -38,7 +38,7 @@ Fresh stdio sessions use the process launch directory as `session.header.cwd` an
 
 ## The bin
 
-`dsh-stdio-agent [path-to-cordis.yml]` (default `./cordis.yml`) loads a gitignored `.env` from the cwd (`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`), then drives the cordis Loader against the config and awaits the whole plugin tree before returning. Run it under `node --expose-internals`: the cordis Loader resolves the config's bare plugin specifiers (`@deepseek-ai/dsh-*`, npm packages) through its internal module loader, which is only active under that flag. The `demo:echo` / `demo:repl` scripts invoke it that way.
+`dsh-stdio-agent [path-to-cordis.yml]` (default `./cordis.yml`) loads a gitignored `.env` from the cwd (`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`), then drives the cordis Loader against the config and awaits the whole plugin tree before returning. Run it under `node --expose-internals`, or install the Loader's optional `node-addon-require-builtin` fallback, so the Loader can resolve the config's bare plugin specifiers (`@deepseek-ai/dsh-*`, npm packages). The `demo:echo` / `demo:repl` scripts use `--expose-internals`.
 
 ## Example leaf `cordis.yml`
 

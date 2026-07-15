@@ -36,6 +36,9 @@
       "path": "../user-interaction"
     },
     {
+      "path": "../stdio"
+    },
+    {
       "path": "../tool-ask-user"
     },
     {
