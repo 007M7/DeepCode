@@ -6,8 +6,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { buildWindow, READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from '@deepseek-ai/dsh-tool-fs'
-import type { ReadWindow } from '@deepseek-ai/dsh-tool-fs'
+import { buildWindow, READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from '../src/read-render.ts'
+import type { ReadWindow } from '../src/read-render.ts'
 
 const DEFAULT_CAPS = { maxLineLength: READ_MAX_LINE_LENGTH, maxBytes: READ_MAX_BYTES }
 const READ_ALL: ReadWindow = { offset: 1, limit: 2000, ...DEFAULT_CAPS }

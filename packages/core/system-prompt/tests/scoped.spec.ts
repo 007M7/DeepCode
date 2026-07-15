@@ -139,7 +139,7 @@ describe('scoped assemble dispatch', () => {
     scope.ctx.on('system-prompt/assemble', async (_assembly: PromptAssembly, context, next: () => Promise<PromptAssembly>) => {
       shaped.push(context.scope)
       const result = await next()
-      result.sections.push({ name: 'listener:extra', order: 999, text: 'listener text' })
+      result.sections.push({ name: 'listener:extra', text: 'listener text' })
       return result
     })
 

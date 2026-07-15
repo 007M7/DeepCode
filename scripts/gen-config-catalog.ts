@@ -478,6 +478,15 @@ function walkSchemaExpr(
       }
       return
     }
+    // A union of objects (discriminated union config): collect keys from all
+    // variants. Each variant is visited the same way as an intersect element.
+    if (method === 'union' && call.arguments[0] && ts.isArrayLiteralExpression(call.arguments[0])) {
+      for (const el of call.arguments[0].elements) {
+        const part = unwrapExpr(el)
+        if (ts.isCallExpression(part)) { visit(part); continue }
+      }
+      return
+    }
     // A chained refinement (`z.object({…}).default(…)` etc.): the keys live on
     // the call the chain hangs off — keep unwrapping toward it.
     const base = unwrapExpr(call.expression.expression)
