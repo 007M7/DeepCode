@@ -2,6 +2,8 @@
 
 Local-subprocess implementation of the `@deepseek-ai/dsh-bash` executor seam: `LocalBashExecutor` spawns `bash -c <command>` per call in its own process group, collects bounded output with full-stream spill files, and escalates kills SIGTERM→SIGKILL across the whole group.
 
+The package root exports the default and named `LocalBashExecutor` plugin plus its `Config`; subprocess plumbing stays internal to the implementation package.
+
 ## Config
 
 ```yaml

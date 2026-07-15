@@ -15,7 +15,6 @@ import { SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedSandboxMode, SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-bash-local'
-import type { RunningBash } from '@deepseek-ai/dsh-bash-local'
 
 /**
  * Plugin config: the local executor's knobs plus the sandbox policy. All
@@ -185,11 +184,10 @@ export class SandboxBashExecutor extends LocalBashExecutor {
    * Stamp per-process sandbox facts before `done` settles. Full-access processes
    * have no facts; signal deaths are not denials.
    */
-  protected override onProcessDone(proc: BashProcess, running: RunningBash): void {
+  protected override onProcessDone(proc: BashProcess, stderr: string): void {
     const facts = this.processFacts.get(proc)
     if (facts !== undefined) {
       this.processFacts.delete(proc)
-      const stderr = running.stderr.readFrom(0).text
       // Runner failure outranks denial (the command never ran; the runner's
       // own error text can contain denial words). A settled task has no
       // error channel left, so the fact IS the surface here — the foreground
@@ -202,7 +200,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
         ...(runnerFailed ? { runnerFailed } : {}),
       }
     }
-    super.onProcessDone(proc, running)
+    super.onProcessDone(proc, stderr)
   }
 
   /**

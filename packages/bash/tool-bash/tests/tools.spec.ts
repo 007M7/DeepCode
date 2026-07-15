@@ -16,7 +16,8 @@ import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
-import { processOutcome, renderProcessRead, renderResult } from '@deepseek-ai/dsh-tool-bash'
+import { processOutcome } from '../src/background.ts'
+import { renderProcessRead, renderResult } from '../src/render.ts'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-tool-bash-spec-'))
 
@@ -123,7 +124,6 @@ class RecordingSandboxExecutor extends BashExecutor {
   start(spec: BashExecSpec): BashProcess {
     this.modes.push(spec.sandboxMode)
     return {
-      command: spec.command,
       status: 'completed',
       exitCode: 0,
       signal: null,
@@ -145,10 +145,9 @@ class CountingStartExecutor extends BashExecutor {
 
   run(): Promise<BashRunResult> { return Promise.reject(new Error('unused')) }
 
-  start(spec: BashExecSpec): BashProcess {
+  start(): BashProcess {
     this.starts += 1
     return {
-      command: spec.command,
       status: 'completed',
       exitCode: 0,
       signal: null,
@@ -652,7 +651,6 @@ describe('renderProcessRead', () => {
 describe('processOutcome', () => {
   function settled(over: Partial<BashProcess>): BashProcess {
     return {
-      command: 'x',
       status: 'completed',
       exitCode: 0,
       signal: null,
@@ -955,9 +953,8 @@ describe('the model-facing bash tool builds its request from named args only (no
         stdout: { text: 'ok', truncated: false }, stderr: { text: '', truncated: false },
       })
     }
-    start(spec: BashExecSpec): BashProcess {
+    start(): BashProcess {
       return {
-        command: spec.command,
         status: 'completed',
         exitCode: 0,
         signal: null,

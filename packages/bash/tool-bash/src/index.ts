@@ -38,7 +38,8 @@ import type {} from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { effectiveSandboxMode } from '@deepseek-ai/dsh-bash'
-import type { BashProcess, BashProcessRead, BashRunResult, BashSandboxInfo, CollectedOutput } from '@deepseek-ai/dsh-bash'
+import { processOutcome } from './background.ts'
+import { parseExitStatus, renderProcessRead, renderResult } from './render.ts'
 
 export const name = 'tool-bash'
 export const inject = ['tools', 'bash', 'systemPrompt']
@@ -128,110 +129,6 @@ function bashDescription(backgroundEnabled: boolean, escalationModes: readonly S
     + 'it — but it does not forbid attempting or escalating other commands later.'
 }
 
-/** Append the truncation notice (with the full-output spill path) to a stream's text. */
-function streamText(output: CollectedOutput): string {
-  if (!output.truncated) return output.text
-  return `${output.text}\n[output truncated; full output: ${output.spillPath ?? '(unavailable)'}]`
-}
-
-/**
- * Shape one finished run into model-visible stdout, marked stderr, and status
- * facts. Non-zero exits and sandbox denials remain ordinary results; only
- * infrastructure failure or abort makes the tool call itself fail.
- *
- * @param result - the completed foreground run from the executor.
- * @param escalationModes - escalation targets advertised by this composition.
- * @returns the model-facing text: output body (or `(no output)`), then any sandbox/timeout/signal/exit markers, each on its own line.
- */
-export function renderResult(result: BashRunResult, escalationModes: readonly SandboxMode[] = []): string {
-  const out = streamText(result.stdout)
-  const err = streamText(result.stderr)
-
-  let body = out
-  if (err.length > 0) {
-    // Single newline between sections (stdout usually ends with one already).
-    if (body.length > 0 && !body.endsWith('\n')) body += '\n'
-    body += `[stderr]\n${err}`
-  }
-  if (body.length === 0) body = '(no output)'
-
-  const markers: string[] = []
-  if (result.sandbox?.denied) {
-    markers.push(`[sandbox: file access denied under ${result.sandbox.mode} mode]`)
-    if (escalationModes.length > 0) {
-      markers.push('[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]')
-    }
-  }
-  // Timeout is reported independently of how the process actually ended: a
-  // command can trap SIGTERM and exit 0 after our timer fired (e.g.
-  // `trap "exit 0" TERM; sleep 60`), giving timedOut:true / exitCode:0 /
-  // signal:null — the model must still see that the command was cut short.
-  if (result.timedOut) markers.push(`[timed out after ${result.timeoutMs}ms]`)
-  if (result.signal !== null) {
-    markers.push(`[killed by signal: ${result.signal}]`)
-  } else if (result.exitCode !== 0) {
-    markers.push(`[exit code: ${result.exitCode}]`)
-  }
-  if (markers.length === 0) return body
-
-  if (!body.endsWith('\n')) body += '\n'
-  return body + markers.join('\n')
-}
-
-/**
- * Shape one background-process read into the `task_output` delta the model
- * sees: the incremental delta, plus the lossy-read notice (with full-stream
- * spill paths) when in-memory truncation dropped unread bytes. Empty-delta
- * rendering (`(no new output)`) is the control surface's job, not this
- * producer's. Exported for tests.
- * @param read - one incremental read from the process handle.
- * @param sandbox - settled sandbox facts, when this was a confined process.
- * @param escalationModes - escalation targets advertised by this composition.
- * @returns the delta text with any loss or sandbox notice appended.
- */
-export function renderProcessRead(
-  read: BashProcessRead,
-  sandbox?: BashSandboxInfo,
-  escalationModes: readonly SandboxMode[] = [],
-): string {
-  const notices: string[] = []
-  if (read.lossy) {
-    const paths = [read.stdoutSpillPath, read.stderrSpillPath].filter((p): p is string => p !== undefined)
-    notices.push(`[some output was dropped from memory; full output: ${paths.length > 0 ? paths.join(', ') : '(unavailable)'}]`)
-  }
-  if (sandbox?.runnerFailed) {
-    notices.push(`[sandbox: the sandbox runner itself failed under ${sandbox.mode} mode — the command did not run; this is a sandbox problem, not a command failure]`)
-  } else if (sandbox?.denied) {
-    notices.push(`[sandbox: file access denied under ${sandbox.mode} mode]`)
-    if (escalationModes.length > 0) {
-      notices.push('[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]')
-    }
-  }
-  if (notices.length === 0) return read.delta
-  return `${read.delta}${read.delta.length > 0 && !read.delta.endsWith('\n') ? '\n' : ''}${notices.join('\n')}`
-}
-
-/**
- * Map a settled background process onto the generic task-outcome vocabulary:
- * `killed` stays `killed` (detail: the signal when one is known), everything
- * else is `completed` with the exit code as detail — a nonzero exit is
- * REPORTED, not failed, exactly like the foreground rendering. Exported for
- * tests.
- * @param proc - the settled process handle.
- * @returns the outcome for the `ctx.tasks` registration.
- */
-export function processOutcome(proc: BashProcess): { status: 'completed' | 'killed'; detail: string } {
-  // TODO(background-infrastructure-outcome): widen BashProcess with an explicit
-  // infrastructure-failure outcome, then map spawn failures and
-  // sandbox.runnerFailed to task `failed`. The current seam aliases a spawn
-  // failure with a signal-less kill and a runner failure with an ordinary
-  // wrapper exit; real nonzero command exits must remain `completed`.
-  if (proc.status === 'killed') {
-    return { status: 'killed', detail: proc.signal !== null ? `signal: ${proc.signal}` : 'killed before exit' }
-  }
-  return { status: 'completed', detail: `exit code: ${proc.exitCode ?? 0}` }
-}
-
 // ---------------------------------------------------------------------------
 // UI presentation (tool-owned). These shape how a UI (e.g. the ACP bridge)
 // renders a bash call's pending and completed states. They are display-only and
@@ -300,18 +197,6 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
   // A finished foreground run supplies raw output and parsed exit status.
   // The bridge derives the no-capability fenced fallback from `output`.
   return { card: 'terminal', output: raw, ...parseExitStatus(raw) }
-}
-
-/**
- * Recover exit status from the final marked line emitted by {@link renderResult}.
- * A program whose own final line exactly mimics a marker remains ambiguous for UI display.
- */
-function parseExitStatus(text: string): { exitCode: number } | { signal: string } {
-  const signal = /\n\[killed by signal: ([^\]\n]+)\]$/.exec(text)
-  if (signal?.[1] !== undefined) return { signal: signal[1] }
-  const exit = /\n\[exit code: (\d+)\]$/.exec(text)
-  if (exit?.[1] !== undefined) return { exitCode: Number(exit[1]) }
-  return { exitCode: 0 }
 }
 
 /**

@@ -134,7 +134,6 @@ describe('LocalBashExecutor.start (background process handles)', () => {
     const before = Date.now()
     const proc = bash.start(bash.resolve({ command: 'sleep 0.2; echo done' }))
     expect(Date.now() - before).toBeLessThan(150)
-    expect(proc.command).toBe('sleep 0.2; echo done')
     expect(proc.status).toBe('running')
     await proc.done
     expect(proc.status).toBe('completed')

@@ -575,7 +575,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BashProcess',
-    declaration: 'export interface BashProcess {\n    readonly command: string;\n    status: BashProcessStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n    sandbox?: BashSandboxInfo;\n    readOutput(): BashProcessRead;\n    kill(): boolean;\n}',
+    declaration: 'export interface BashProcess {\n    status: BashProcessStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n    sandbox?: BashSandboxInfo;\n    readOutput(): BashProcessRead;\n    kill(): boolean;\n}',
   },
   {
     name: 'BashProcessRead',

@@ -152,8 +152,6 @@ export interface BashProcessRead {
  * and awaits {@link done}.
  */
 export interface BashProcess {
-  /** The command line this process runs. */
-  readonly command: string
   /** Process lifecycle state (settled exactly once). */
   status: BashProcessStatus
   /** Exit code once finished (null = killed by signal / still running). */

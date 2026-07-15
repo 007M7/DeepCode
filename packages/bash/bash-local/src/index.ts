@@ -23,9 +23,6 @@ import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_GRACE_MS, runBash } from './run.ts'
 import type { RunInternals, RunningBash } from './run.ts'
 
-export { DEFAULT_GRACE_MS, ENV_OVERRIDES, killGroup, OutputCollector, runBash } from './run.ts'
-export type { RunInternals, RunningBash, SpawnOutcome, SpawnSpec } from './run.ts'
-
 /** Plugin config (all optional — `static Config` supplies the defaults). */
 export interface Config {
   /** Default working directory for commands (default: process.cwd()). */
@@ -171,7 +168,6 @@ export class LocalBashExecutor extends BashExecutor {
     let stdoutOffset = 0
     let stderrOffset = 0
     const proc: BashProcess = {
-      command: spec.command,
       status: 'running',
       exitCode: null,
       signal: null,
@@ -184,7 +180,7 @@ export class LocalBashExecutor extends BashExecutor {
         }
         proc.exitCode = outcome.exitCode
         proc.signal = outcome.signal
-        this.onProcessDone(proc, running)
+        this.onProcessDone(proc, running.stderr.readFrom(0).text)
         this.live.delete(proc)
       }, (error: unknown) => {
         // Spawn-level failure (bad workdir, …): the process never ran. The
@@ -192,7 +188,7 @@ export class LocalBashExecutor extends BashExecutor {
         // suffices — runBash only rejects with Error instances.
         proc.status = 'killed'
         running.stderr.push(Buffer.from(`spawn failed: ${String(error)}`))
-        this.onProcessDone(proc, running)
+        this.onProcessDone(proc, running.stderr.readFrom(0).text)
         this.live.delete(proc)
       }),
       readOutput: (): BashProcessRead => {
@@ -230,9 +226,9 @@ export class LocalBashExecutor extends BashExecutor {
    * {@link BashProcess.done} resolves. The base implementation is intentionally
    * empty.
    * @param _proc - the settled process handle.
-   * @param _running - the process collectors, including full in-memory stderr.
+   * @param _stderr - the process's retained stderr tail used by subclasses for settlement classification.
    */
-  protected onProcessDone(_proc: BashProcess, _running: RunningBash): void {}
+  protected onProcessDone(_proc: BashProcess, _stderr: string): void {}
 }
 
 export default LocalBashExecutor

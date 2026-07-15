@@ -154,7 +154,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/bash-local/src/index.ts:30`](../packages/bash/bash-local/src/index.ts)
+Source: [`packages/bash/bash-local/src/index.ts:27`](../packages/bash/bash-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-sandbox`
 
@@ -181,7 +181,7 @@ export interface Config extends LocalConfig {
 
 Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local) · [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/bash/bash-sandbox/src/index.ts:27`](../packages/bash/bash-sandbox/src/index.ts)
+Source: [`packages/bash/bash-sandbox/src/index.ts:26`](../packages/bash/bash-sandbox/src/index.ts)
 
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
@@ -847,7 +847,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/tool-bash/src/index.ts:47`](../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/tool-bash/src/index.ts:48`](../packages/bash/tool-bash/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 

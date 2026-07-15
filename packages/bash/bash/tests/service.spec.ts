@@ -32,9 +32,8 @@ class StubExecutor extends BashExecutor {
     }
   }
 
-  start(spec: BashExecSpec): BashProcess {
+  start(): BashProcess {
     const proc: BashProcess = {
-      command: spec.command,
       status: 'running',
       exitCode: null,
       signal: null,
@@ -62,7 +61,6 @@ describe('BashExecutor service seam', () => {
     expect(result.stdout.text).toBe('ok')
 
     const proc = ctx.bash.start(spec)
-    expect(proc.command).toBe('echo hi')
     expect(proc.status).toBe('running')
     expect(proc.readOutput()).toEqual({ delta: '', lossy: false })
     expect(proc.kill()).toBe(true)
