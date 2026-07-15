@@ -42,63 +42,93 @@ export interface DocsPage {
 }
 
 interface MirroredPage {
-  source: string
+  source: string | Record<DocsLocale, string>
   route: string
-  contentLocale: DocsPage['contentLocale']
+  contentLocale: DocsPage['contentLocale'] | Record<DocsLocale, DocsPage['contentLocale']>
   label: Record<DocsLocale, string>
   sidebar: Record<DocsLocale, DocsSidebar | null>
   section: Record<DocsLocale, string>
   order: number
+  sourceAliases?: string[] | Partial<Record<DocsLocale, string[]>>
+}
+
+type PairedPage = Omit<MirroredPage, 'source' | 'contentLocale' | 'sourceAliases'> & {
+  /** English side of a sibling `foo.md` / `foo.zh.md` pair. */
+  source: string
+  /** Language-neutral repository aliases, such as the directory of an index page. */
   sourceAliases?: string[]
 }
 
-function mirroredPages(pages: MirroredPage[]): DocsPage[] {
-  return pages.flatMap(page => (['root', 'en'] as const).map(locale => ({
-    locale,
-    contentLocale: page.contentLocale,
-    source: page.source,
-    route: locale === 'root' ? page.route : `en/${page.route}`,
-    label: page.label[locale],
-    sidebar: page.sidebar[locale],
-    section: page.section[locale],
-    order: page.order,
-    ...(page.sourceAliases === undefined ? {} : { sourceAliases: page.sourceAliases }),
-  })))
+function localized<T>(value: T | Record<DocsLocale, T>, locale: DocsLocale): T {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<DocsLocale, T>)[locale]
+    : value
 }
 
-const homeAndGuide = mirroredPages([
+function mirroredPages(pages: MirroredPage[]): DocsPage[] {
+  return pages.flatMap(page => (['root', 'en'] as const).map((locale) => {
+    const aliases = page.sourceAliases === undefined
+      ? undefined
+      : Array.isArray(page.sourceAliases) ? page.sourceAliases : page.sourceAliases[locale]
+    return {
+      locale,
+      contentLocale: localized(page.contentLocale, locale),
+      source: localized(page.source, locale),
+      route: locale === 'root' ? page.route : `en/${page.route}`,
+      label: page.label[locale],
+      sidebar: page.sidebar[locale],
+      section: page.section[locale],
+      order: page.order,
+      ...(aliases === undefined ? {} : { sourceAliases: aliases }),
+    }
+  }))
+}
+
+function pairedPages(pages: PairedPage[]): DocsPage[] {
+  return mirroredPages(pages.map((page) => {
+    const chineseSource = page.source.replace(/\.md$/, '.zh.md')
+    const sharedAliases = page.sourceAliases ?? []
+    return {
+      ...page,
+      source: { root: chineseSource, en: page.source },
+      contentLocale: { root: 'zh-CN', en: 'en-US' },
+      sourceAliases: {
+        root: [...sharedAliases, page.source],
+        en: [...sharedAliases, chineseSource],
+      },
+    }
+  }))
+}
+
+const homeAndGuide = pairedPages([
   {
-    source: 'docs/user/zh-CN/index.md',
+    source: 'docs/user/index.md',
     route: 'index.md',
-    contentLocale: 'zh-CN',
     label: { root: 'DeepSeek Harness', en: 'DeepSeek Harness' },
     sidebar: { root: null, en: null },
     section: { root: '首页', en: 'Home' },
     order: 0,
   },
   {
-    source: 'docs/user/zh-CN/guide/index.md',
+    source: 'docs/user/guide/index.md',
     route: 'guide/index.md',
-    contentLocale: 'zh-CN',
     label: { root: '介绍', en: 'Introduction' },
     sidebar: { root: 'zh-guide', en: 'en-guide' },
     section: { root: '入门', en: 'Guide' },
     order: 1,
-    sourceAliases: ['docs/user/zh-CN/guide'],
+    sourceAliases: ['docs/user/guide'],
   },
   {
-    source: 'docs/user/zh-CN/guide/quickstart.md',
+    source: 'docs/user/guide/quickstart.md',
     route: 'guide/quickstart.md',
-    contentLocale: 'zh-CN',
     label: { root: '快速开始', en: 'Quick start' },
     sidebar: { root: 'zh-guide', en: 'en-guide' },
     section: { root: '入门', en: 'Guide' },
     order: 2,
   },
   {
-    source: 'docs/user/zh-CN/guide/config.md',
+    source: 'docs/user/guide/config.md',
     route: 'guide/config.md',
-    contentLocale: 'zh-CN',
     label: { root: '配置文件', en: 'Configuration' },
     sidebar: { root: 'zh-guide', en: 'en-guide' },
     section: { root: '入门', en: 'Guide' },
@@ -106,77 +136,69 @@ const homeAndGuide = mirroredPages([
   },
 ])
 
-const develop = mirroredPages([
+const develop = pairedPages([
   {
-    source: 'docs/user/zh-CN/develop/basic/index.md',
+    source: 'docs/user/develop/basic/index.md',
     route: 'develop/basic/index.md',
-    contentLocale: 'zh-CN',
     label: { root: '第一个插件', en: 'First plugin' },
     sidebar: { root: 'zh-develop', en: 'en-develop' },
     section: { root: '基础', en: 'Basics' },
     order: 1,
-    sourceAliases: ['docs/user/zh-CN/develop/basic'],
+    sourceAliases: ['docs/user/develop/basic'],
   },
   {
-    source: 'docs/user/zh-CN/develop/basic/tool.md',
+    source: 'docs/user/develop/basic/tool.md',
     route: 'develop/basic/tool.md',
-    contentLocale: 'zh-CN',
     label: { root: '开发一个 Tool', en: 'Build a tool' },
     sidebar: { root: 'zh-develop', en: 'en-develop' },
     section: { root: '基础', en: 'Basics' },
     order: 2,
   },
   {
-    source: 'docs/user/zh-CN/develop/basic/config.md',
+    source: 'docs/user/develop/basic/config.md',
     route: 'develop/basic/config.md',
-    contentLocale: 'zh-CN',
     label: { root: '插件配置', en: 'Plugin configuration' },
     sidebar: { root: 'zh-develop', en: 'en-develop' },
     section: { root: '基础', en: 'Basics' },
     order: 3,
   },
   {
-    source: 'docs/user/zh-CN/develop/framework/index.md',
+    source: 'docs/user/develop/framework/index.md',
     route: 'develop/framework/index.md',
-    contentLocale: 'zh-CN',
     label: { root: '插件与生命周期', en: 'Plugin lifecycle' },
     sidebar: { root: 'zh-develop', en: 'en-develop' },
     section: { root: '框架能力', en: 'Framework' },
     order: 1,
-    sourceAliases: ['docs/user/zh-CN/develop/framework'],
+    sourceAliases: ['docs/user/develop/framework'],
   },
   {
-    source: 'docs/user/zh-CN/develop/framework/service.md',
+    source: 'docs/user/develop/framework/service.md',
     route: 'develop/framework/service.md',
-    contentLocale: 'zh-CN',
     label: { root: '服务与依赖', en: 'Services and dependencies' },
     sidebar: { root: 'zh-develop', en: 'en-develop' },
     section: { root: '框架能力', en: 'Framework' },
     order: 2,
   },
   {
-    source: 'docs/user/zh-CN/develop/framework/events.md',
+    source: 'docs/user/develop/framework/events.md',
     route: 'develop/framework/events.md',
-    contentLocale: 'zh-CN',
     label: { root: '事件系统', en: 'Event system' },
     sidebar: { root: 'zh-develop', en: 'en-develop' },
     section: { root: '框架能力', en: 'Framework' },
     order: 3,
   },
   {
-    source: 'docs/user/zh-CN/develop/practice/index.md',
+    source: 'docs/user/develop/practice/index.md',
     route: 'develop/practice/index.md',
-    contentLocale: 'zh-CN',
     label: { root: '能力的三层拆分', en: 'Capability layering' },
     sidebar: { root: 'zh-develop', en: 'en-develop' },
     section: { root: '实战', en: 'Practice' },
     order: 1,
-    sourceAliases: ['docs/user/zh-CN/develop/practice'],
+    sourceAliases: ['docs/user/develop/practice'],
   },
   {
-    source: 'docs/user/zh-CN/develop/practice/llm-adapter.md',
+    source: 'docs/user/develop/practice/llm-adapter.md',
     route: 'develop/practice/llm-adapter.md',
-    contentLocale: 'zh-CN',
     label: { root: 'LLM 适配器', en: 'LLM adapter' },
     sidebar: { root: 'zh-develop', en: 'en-develop' },
     section: { root: '实战', en: 'Practice' },

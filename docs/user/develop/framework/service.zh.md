@@ -1,15 +1,17 @@
 # 服务与依赖
 
+[English](service.md) | 中文
+
 服务 (Service) 是插件对外暴露能力的方式。依赖 (inject) 是插件声明自己需要哪些服务。
 
 ## 什么是服务
 
 在 Harness 中，`tools`、`llm`、`agents` 都是服务。服务是挂载在 `ctx` 上的命名能力：
 
-```typescript
-ctx.tools    // ToolRegistry 服务
-ctx.llm      // LLM 服务
-ctx.agents   // Agent 服务
+```ts ignore-check
+ctx.tools    // ToolRegistry service
+ctx.llm      // LLM service
+ctx.agents   // Agent service
 ```
 
 任何插件都可以提供一个新服务，供其他插件使用。
@@ -18,11 +20,11 @@ ctx.agents   // Agent 服务
 
 声明 `inject` 来使用已有服务：
 
-```typescript
+```ts ignore-check
 export const inject = ['tools']
 
 export function apply(ctx: Context) {
-  // ctx.tools 在这里一定存在且就绪
+  // ctx.tools exists and is ready here.
   ctx.tools.register(/* ... */)
 }
 ```
@@ -33,17 +35,17 @@ export function apply(ctx: Context) {
 
 ### 使用 Service 基类
 
-```typescript
+```ts
 import { Service, type Context } from 'cordis'
 
 export default class MetricsService extends Service {
-  static inject = ['llm']  // 本服务也可以依赖其他服务
+  static inject = ['llm']  // A service may depend on other services.
 
   constructor(ctx: Context) {
-    super(ctx, 'metrics')  // 'metrics' 是服务名
+    super(ctx, 'metrics')  // 'metrics' is the service name.
   }
 
-  // 服务的公开方法
+  // Public service method.
   record(event: string, value: number) {
     // ...
   }
@@ -52,7 +54,7 @@ export default class MetricsService extends Service {
 
 加载这个插件后，其他插件就可以通过 `ctx.metrics` 访问它：
 
-```typescript
+```ts ignore-check
 export const inject = ['metrics']
 
 export function apply(ctx: Context) {
@@ -64,7 +66,7 @@ export function apply(ctx: Context) {
 
 使用 TypeScript 声明合并让 `ctx.metrics` 有正确类型：
 
-```typescript
+```ts
 import { Service, type Context } from 'cordis'
 
 declare module 'cordis' {
@@ -86,11 +88,11 @@ export default class MetricsService extends Service {
 
 ### 必选依赖 vs 可选依赖
 
-```typescript
-// 必选：服务不存在时，插件不会加载
+```ts ignore-check
+// Required: the plugin does not load while the service is absent.
 export const inject = ['tools']
 
-// 可选：不写入 inject，使用时通过 ctx.get() 查询
+// Optional: omit inject and query with ctx.get() at the use site.
 export function apply(ctx: Context) {
   const metrics = ctx.get('metrics')
   metrics?.record('plugin_loaded', 1)
@@ -138,7 +140,7 @@ export function apply(ctx: Context) {
 
 ## Harness 内置服务
 
-服务名、公开方法和源码位置由仓库自动生成，见[服务目录](../../../../cordis-catalog/services.md)。开发插件时应以该目录和服务接口的 TypeScript 类型为准，不要复制一份静态清单。
+服务名、公开方法和源码位置由仓库自动生成，见[服务目录](../../../cordis-catalog/services.md)。开发插件时应以该目录和服务接口的 TypeScript 类型为准，不要复制一份静态清单。
 
 ## 下一步
 

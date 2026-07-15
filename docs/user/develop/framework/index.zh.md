@@ -1,5 +1,7 @@
 # 插件与生命周期
 
+[English](index.md) | 中文
+
 深入了解 Cordis 插件模型和生命周期状态机。
 
 ## Fiber 状态机
@@ -25,11 +27,11 @@ ACTIVE → UNLOADING → DISPOSED
 
 声明了 `inject` 的插件不会立即加载，而是等待依赖的服务就绪：
 
-```typescript
+```ts ignore-check
 export const inject = ['tools', 'llm']
 
 export function apply(ctx: Context) {
-  // 到这里时，ctx.tools 和 ctx.llm 一定存在
+  // ctx.tools and ctx.llm are ready here.
 }
 ```
 
@@ -39,12 +41,12 @@ export function apply(ctx: Context) {
 
 通过 `ctx` 做的任何注册，在插件卸载时都会自动撤销：
 
-```typescript
+```ts ignore-check
 export function apply(ctx: Context) {
-  // 事件监听——卸载时自动移除
+  // Event listener: removed automatically on unload.
   ctx.on('some-event', handler)
 
-  // 自定义资源——卸载时调用返回的函数
+  // Custom resource: the returned disposer runs on unload.
   ctx.effect(() => {
     const connection = createConnection()
     return () => connection.close()
@@ -58,18 +60,18 @@ export function apply(ctx: Context) {
 - `ctx.llm.registerAdapter(names, adapter)` — LLM 适配器注册
 - `ctx.effect(() => cleanup)` — 自定义资源
 
-插件卸载时，这些注册按倒序逐个撤销。
+插件卸载时，处置器按注册顺序的反向发起，但多个异步处置器会并发执行，不保证逐个完成。存在顺序依赖的清理步骤必须放进同一个 `ctx.effect()` 返回的处置器中，由该处置器负责串行等待。
 
 ## 嵌套上下文
 
 `ctx.plugin()` 创建子 Fiber，它继承父上下文但有独立的生命周期：
 
-```typescript
+```ts ignore-check
 export function apply(ctx: Context) {
-  // 注册一个子插件
+  // Register a child plugin.
   ctx.plugin(childPlugin)
 
-  // 子插件有自己的 Fiber，父卸载时子也卸载
+  // The child has its own Fiber and unloads with its parent.
 }
 ```
 
@@ -77,10 +79,10 @@ export function apply(ctx: Context) {
 
 当你需要提前终止一个插件实例：
 
-```typescript
+```ts ignore-check
 const fiber = ctx.plugin(myPlugin)
 
-// 之后可以手动 dispose
+// Dispose it manually later.
 fiber.dispose()
 ```
 
@@ -101,7 +103,7 @@ fiber.dispose()
 
 ## 实战：理解生命周期
 
-```typescript
+```ts ignore-check
 export function apply(ctx: Context) {
   console.log('plugin loading')
 

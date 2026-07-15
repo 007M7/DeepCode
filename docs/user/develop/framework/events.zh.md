@@ -1,20 +1,22 @@
 # 事件系统
 
+[English](events.md) | 中文
+
 事件是 Cordis 插件间通信的核心机制。Harness 大量使用事件来实现松耦合的扩展点。
 
 ## 基本用法
 
 ### 监听事件
 
-```typescript
+```ts ignore-check
 ctx.on('event-name', (payload) => {
-  // 处理事件
+  // Handle the event.
 })
 ```
 
 ### 触发事件
 
-```typescript
+```ts ignore-check
 ctx.emit('event-name', payload)
 ```
 
@@ -26,11 +28,11 @@ Cordis 提供多种事件触发模式，适用于不同场景：
 
 所有监听器同步执行，不关心返回值：
 
-```typescript
-// 触发
+```ts ignore-check
+// Emit
 ctx.emit('my-plugin/ready', { id: 'worker-1' })
 
-// 监听
+// Listen
 ctx.on('my-plugin/ready', ({ id }) => {
   console.log(`${id} is ready`)
 })
@@ -40,14 +42,14 @@ ctx.on('my-plugin/ready', ({ id }) => {
 
 依次调用监听器，第一个返回非 `undefined` 值的结果作为最终值：
 
-```typescript
-// 触发
+```ts ignore-check
+// Dispatch
 const result = ctx.bail('some-check', input)
 
-// 监听（返回值阻止后续监听器）
+// Listen: a returned value stops later listeners.
 ctx.on('some-check', (input) => {
   if (shouldBlock(input)) return 'blocked'
-  // 返回 undefined 继续传递给下一个监听器
+  // Return undefined to continue to the next listener.
 })
 ```
 
@@ -55,7 +57,7 @@ ctx.on('some-check', (input) => {
 
 监听器按注册顺序依次执行，并等待异步结果；第一个返回非空值的监听器会终止后续执行：
 
-```typescript
+```ts ignore-check
 await ctx.serial('setup-phase', context)
 ```
 
@@ -63,11 +65,11 @@ await ctx.serial('setup-phase', context)
 
 每个监听器可以包装下游返回值，形成处理链。**必须调用 `next()` 传递给下游**，不调用即为否决：
 
-```typescript
-// 触发
+```ts ignore-check
+// Dispatch
 const output = await ctx.waterfall('my-plugin/transform', input, async () => input)
 
-// 监听（必须调用 next）
+// Listen: next() is mandatory.
 ctx.on('my-plugin/transform', async (_input, next) => {
   const downstream = await next()
   return downstream.trim()
@@ -82,7 +84,9 @@ Waterfall 监听器**必须调用 `next()`**。不调用 `next` 等于否决整�
 
 Harness 使用 TypeScript 声明合并来为事件提供类型安全：
 
-```typescript
+```ts
+import 'cordis'
+
 declare module 'cordis' {
   interface Events {
     'my-plugin/ready': (payload: { id: string }) => void
@@ -91,13 +95,13 @@ declare module 'cordis' {
   }
 }
 
-// 现在 ctx.on('my-plugin/ready', ...) 和 ctx.emit('my-plugin/ready', ...)
-// 都有正确的类型推导
+// ctx.on('my-plugin/ready', ...) and ctx.emit('my-plugin/ready', ...)
+// are now inferred correctly.
 ```
 
 ## Cordis 事件与会话记录
 
-Harness 的 Cordis 事件遵循 `namespace/action` 命名，例如 `agent/pre-step`、`agent/request`、`agent/step-result`、`tools/result` 和 `session/event`。完整签名与触发模式见[Events 目录](../../../../cordis-catalog/events.md)。
+Harness 的 Cordis 事件遵循 `namespace/action` 命名，例如 `agent/pre-step`、`agent/request`、`agent/step-result`、`tools/result` 和 `session/event`。完整签名与触发模式见[Events 目录](../../../cordis-catalog/events.md)。
 
 `turn/*`、`step/*`、`tool/call`、`tool/result` 和 `compact/*` 是持久化的会话事件类型，不是同名 Cordis 事件。需要观察它们时，监听 `session/event` 并检查 `event.type`。
 
@@ -105,9 +109,9 @@ Harness 的 Cordis 事件遵循 `namespace/action` 命名，例如 `agent/pre-st
 
 通过 `ctx.on()` 注册的监听器会在插件卸载时自动移除：
 
-```typescript
+```ts ignore-check
 export function apply(ctx: Context) {
-  // 这个监听器在插件 dispose 时自动清理
+  // This listener is removed when the plugin disposes.
   ctx.on('tools/result', handler)
 }
 ```
@@ -116,8 +120,9 @@ export function apply(ctx: Context) {
 
 一个记录所有 tool 调用的简单插件：
 
-```typescript
+```ts
 import type { Context } from 'cordis'
+import '@deepseek-ai/dsh-tools'
 
 export const name = 'tool-logger'
 

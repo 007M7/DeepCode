@@ -23,6 +23,13 @@ interface Replacement {
   value: string
 }
 
+interface DestinationRange {
+  start: number
+  end: number
+}
+
+type RewritableNode = Extract<Nodes, { type: 'link' | 'image' | 'definition' }>
+
 /** Inputs for rewriting one canonical Markdown page. */
 export interface RewriteMarkdownOptions {
   locale: DocsLocale
@@ -42,6 +49,75 @@ function isExternalOrSiteAbsolute(url: string): boolean {
     || url.startsWith('//')
     || url.startsWith('/')
     || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)
+}
+
+function skipWhitespace(source: string, start: number): number {
+  let index = start
+  while (/\s/.test(source[index] ?? '')) index += 1
+  return index
+}
+
+function labelEnd(source: string): number {
+  const first = source.indexOf('[')
+  if (first === -1) return -1
+  let depth = 0
+  for (let index = first; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === '\\') {
+      index += 1
+    } else if (char === '[') {
+      depth += 1
+    } else if (char === ']') {
+      depth -= 1
+      if (depth === 0) return index
+    }
+  }
+  return -1
+}
+
+function destinationRange(rawNode: string, type: 'link' | 'image' | 'definition'): DestinationRange {
+  const endOfLabel = labelEnd(rawNode)
+  if (endOfLabel === -1) {
+    throw new Error(`project-doc-site: cannot locate label end in ${JSON.stringify(rawNode)}.`)
+  }
+
+  let start: number
+  if (type === 'definition') {
+    const colon = rawNode.indexOf(':', endOfLabel + 1)
+    if (colon === -1) {
+      throw new Error(`project-doc-site: cannot locate definition separator in ${JSON.stringify(rawNode)}.`)
+    }
+    start = skipWhitespace(rawNode, colon + 1)
+  } else {
+    if (rawNode[endOfLabel + 1] !== '(') {
+      throw new Error(`project-doc-site: cannot locate inline destination in ${JSON.stringify(rawNode)}.`)
+    }
+    start = skipWhitespace(rawNode, endOfLabel + 2)
+  }
+
+  if (rawNode[start] === '<') {
+    for (let index = start + 1; index < rawNode.length; index += 1) {
+      if (rawNode[index] === '\\') index += 1
+      else if (rawNode[index] === '>') return { start: start + 1, end: index }
+    }
+    throw new Error(`project-doc-site: cannot locate angle-bracket destination end in ${JSON.stringify(rawNode)}.`)
+  }
+
+  let depth = 0
+  for (let index = start; index < rawNode.length; index += 1) {
+    const char = rawNode[index]
+    if (char === '\\') {
+      index += 1
+    } else if (char === '(') {
+      depth += 1
+    } else if (char === ')') {
+      if (depth === 0) return { start, end: index }
+      depth -= 1
+    } else if (/\s/.test(char ?? '') && depth === 0) {
+      return { start, end: index }
+    }
+  }
+  return { start, end: rawNode.length }
 }
 
 function splitTarget(url: string): { path: string; suffix: string } {
@@ -76,6 +152,12 @@ function sourceMap(pages: DocsPage[]): Map<string, Map<DocsLocale, DocsPage>> {
     }
   }
   return map
+}
+
+function counterpartSource(source: string): string {
+  return source.endsWith('.zh.md')
+    ? source.replace(/\.zh\.md$/, '.md')
+    : source.replace(/\.md$/, '.zh.md')
 }
 
 function resolveRepositoryTarget(sourceAbs: string, rawPath: string, repoRoot: string): { absPath: string; line?: number } {
@@ -129,13 +211,17 @@ export function rewriteMarkdown(source: string, options: RewriteMarkdownOptions)
   const tree = fromMarkdown(source, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] })
   const replacements: Replacement[] = []
 
-  const rewrite = (node: Nodes & { url: string }): void => {
+  const rewrite = (node: RewritableNode): void => {
     if (isExternalOrSiteAbsolute(node.url)) return
     const { path, suffix } = splitTarget(node.url)
     if (path === '') return
     const { absPath, line } = resolveRepositoryTarget(sourceAbs, path, options.repoRoot)
     const targetPath = repoPath(absPath, options.repoRoot)
-    const page = published.get(targetPath)?.get(options.locale)
+    const isLanguageSwitcher = targetPath === counterpartSource(options.sourcePath)
+    const targetLocale: DocsLocale = isLanguageSwitcher
+      ? options.locale === 'root' ? 'en' : 'root'
+      : options.locale
+    const page = published.get(targetPath)?.get(targetLocale)
     const nextUrl = page === undefined
       ? githubTarget(absPath, line, suffix, options.repositoryRef, options.repoRoot, node.type === 'image')
       : routeTarget(options.route, page.route, suffix)
@@ -146,13 +232,10 @@ export function rewriteMarkdown(source: string, options: RewriteMarkdownOptions)
       throw new Error(`project-doc-site: link ${JSON.stringify(node.url)} has no source offsets.`)
     }
     const rawNode = source.slice(start, end)
-    const urlOffset = rawNode.lastIndexOf(node.url)
-    if (urlOffset === -1) {
-      throw new Error(`project-doc-site: cannot locate raw target ${JSON.stringify(node.url)} in ${JSON.stringify(rawNode)}.`)
-    }
+    const rawDestination = destinationRange(rawNode, node.type)
     replacements.push({
-      start: start + urlOffset,
-      end: start + urlOffset + node.url.length,
+      start: start + rawDestination.start,
+      end: start + rawDestination.end,
       value: nextUrl,
     })
   }

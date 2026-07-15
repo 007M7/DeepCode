@@ -1,5 +1,7 @@
 # 介绍
 
+[English](index.md) | 中文
+
 DeepSeek Harness 是一个**插件化的 Agent 开发框架**，基于 [Cordis](https://github.com/cordiverse/cordis) 微内核构建。它的核心理念是：**一切皆插件**。
 
 ## 它是什么
@@ -7,12 +9,12 @@ DeepSeek Harness 是一个**插件化的 Agent 开发框架**，基于 [Cordis](
 Harness 将一个 AI Agent（智能体） 所需要的所有能力——LLM 调用、工具执行、会话管理、子任务分配——全部构建为可组合的插件。你通过一个 `cordis.yml` 配置文件来声明加载哪些插件、使用什么参数，就能组装出一个完整的 Agent。
 
 ```yaml
-# 选择 LLM 后端
+# Select the LLM backend
 - name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
 
-# 选择应用模板
+# Select the application template
 - name: '@deepseek-ai/dsh-stdio-agent'
   config:
     model: deepseek-v4-flash

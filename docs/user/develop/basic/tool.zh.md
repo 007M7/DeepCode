@@ -1,10 +1,12 @@
 # 开发一个 Tool
 
+[English](tool.md) | 中文
+
 Tool 是模型可以调用的能力。本文介绍如何用 `defineTool` 编写一个 tool。
 
 ## 最小示例
 
-```typescript
+```ts
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
@@ -19,7 +21,7 @@ export function apply(ctx: Context) {
       name: { type: 'string', required: true, description: 'The name to greet' },
     },
     async execute(args) {
-      // args 自动推导为 { name: string }
+      // args is inferred as { name: string }.
       return [{ type: 'text', text: `Hello, ${args.name}!` }]
     },
   }))
@@ -32,28 +34,28 @@ export function apply(ctx: Context) {
 
 ### 基本类型
 
-```typescript
-parameters: {
+```ts
+export const parameters = {
   path: { type: 'string', required: true },
   limit: { type: 'number' },
   recursive: { type: 'boolean' },
 }
-// 推导类型: { path: string; limit?: number; recursive?: boolean }
+// Inferred type: { path: string; limit?: number; recursive?: boolean }
 ```
 
 ### 枚举
 
-```typescript
-parameters: {
+```ts
+export const parameters = {
   mode: { type: 'string', required: true, enum: ['read', 'write', 'append'] },
 }
-// 推导类型: { mode: string }  (运行时校验 enum 值)
+// Inferred type: { mode: string } (enum values are validated at runtime)
 ```
 
 ### 嵌套对象
 
-```typescript
-parameters: {
+```ts
+export const parameters = {
   options: {
     type: 'object',
     properties: {
@@ -62,19 +64,19 @@ parameters: {
     },
   },
 }
-// 推导类型: { options?: { timeout?: number; retries?: number } }
+// Inferred type: { options?: { timeout?: number; retries?: number } }
 ```
 
 ### 数组
 
-```typescript
-parameters: {
+```ts
+export const parameters = {
   tags: {
     type: 'array',
     items: { type: 'string' },
   },
 }
-// 推导类型: { tags?: string[] }
+// Inferred type: { tags?: string[] }
 ```
 
 ### 每个属性的字段
@@ -92,25 +94,34 @@ parameters: {
 
 `execute` 接收经过校验的 `args`（类型自动推导）和一个 `exec` 上下文对象：
 
-```typescript
-async execute(args, exec) {
-  // args: 根据 parameters 自动推导的类型
-  // exec: ToolExecution 对象，提供执行上下文
+```ts
+import { defineTool } from '@deepseek-ai/dsh-tools'
 
-  // 返回 ContentBlock 数组
-  return [{ type: 'text', text: 'result here' }]
-}
+export const tool = defineTool({
+  name: 'example',
+  description: 'Return an example result.',
+  parameters: {},
+  async execute(args, exec) {
+    // args: inferred from parameters
+    // exec: ToolExecution context
+
+    // Return a ContentBlock array.
+    void args
+    void exec
+    return [{ type: 'text', text: 'result here' }]
+  },
+})
 ```
 
 ### 返回值
 
 `execute` 必须返回一个 `ContentBlock[]`，告诉模型 tool 的执行结果：
 
-```typescript
-// 文本结果
+```ts ignore-check
+// Text result
 return [{ type: 'text', text: 'file content here...' }]
 
-// 多个 block
+// Multiple blocks
 return [
   { type: 'text', text: 'Found 3 matches:' },
   { type: 'text', text: matchResults.join('\n') },
@@ -127,7 +138,7 @@ return [
 
 Tool 可以定义 UI 渲染方法，用于在终端或 ACP 客户端中展示 tool call 和 result：
 
-```typescript
+```ts ignore-check
 defineTool({
   name: 'bash',
   // ...
@@ -152,18 +163,18 @@ defineTool({
 
 `ctx.tools.register()` 返回值就是 disposer。但由于你在 `ctx` 上调用，框架已经自动追踪了这个注册——插件卸载时会自动移除 tool。你不需要手动调用 disposer。
 
-```typescript
-// 这样就够了:
+```ts ignore-check
+// This is sufficient:
 ctx.tools.register(defineTool({ /* ... */ }))
 
-// 不需要额外保存 disposer 或注册清理逻辑
+// No saved disposer or extra cleanup registration is needed.
 ```
 
 ## 完整实战示例
 
 一个文件计数 tool：
 
-```typescript
+```ts
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readdir } from 'node:fs/promises'

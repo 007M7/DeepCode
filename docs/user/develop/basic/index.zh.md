@@ -1,18 +1,20 @@
 # 第一个插件
 
+[English](index.md) | 中文
+
 本文带你编写一个最小的 Harness 插件并加载到 Agent 中。
 
 ## 插件是什么
 
 在 Harness 中，插件是一个导出 `apply` 函数的 TypeScript 模块。框架在加载时调用 `apply`，传入一个 `ctx`（上下文对象），你通过 `ctx` 注册能力：
 
-```typescript
+```ts
 import type { Context } from 'cordis'
 
 export const name = 'my-plugin'
 
 export function apply(ctx: Context) {
-  // 在这里注册能力
+  // Register capabilities here.
 }
 ```
 
@@ -22,14 +24,14 @@ export function apply(ctx: Context) {
 
 在你的项目目录下创建 `src/my-plugin.ts`：
 
-```typescript
+```ts
 import type { Context } from 'cordis'
 
 export const name = 'hello-plugin'
 
 export function apply(ctx: Context) {
-  // apply 被调用时，插件的必选依赖已就绪
-  console.log('[hello-plugin] 插件已加载!')
+  // Required dependencies are ready before apply runs.
+  console.log('[hello-plugin] plugin loaded!')
 }
 ```
 
@@ -42,7 +44,7 @@ export function apply(ctx: Context) {
   name: './src/my-plugin.ts'
 ```
 
-启动后你会在控制台看到 `[hello-plugin] 插件已加载!`。
+启动后你会在控制台看到 `[hello-plugin] plugin loaded!`。
 
 ## 自动清理
 
@@ -50,14 +52,16 @@ export function apply(ctx: Context) {
 
 如果你有需要手动清理的资源（比如一个网络连接），用 `ctx.effect()` 告诉框架怎么清理：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+
 export function apply(ctx: Context) {
   ctx.effect(() => {
     const timer = setInterval(() => {
       console.log('heartbeat')
     }, 5000)
 
-    // 返回的函数会在插件卸载时被调用
+    // The returned function runs when the plugin unloads.
     return () => clearInterval(timer)
   })
 }
@@ -67,12 +71,14 @@ export function apply(ctx: Context) {
 
 如果你的插件需要使用其他服务（如 `tools`、`llm`），需要声明 `inject`：
 
-```typescript
+```ts ignore-check
+import type { Context } from 'cordis'
+
 export const name = 'my-tool-plugin'
 export const inject = ['tools']
 
 export function apply(ctx: Context) {
-  // ctx.tools 现在可用
+  // ctx.tools is ready here.
   ctx.tools.register(/* ... */)
 }
 ```
@@ -85,7 +91,9 @@ export function apply(ctx: Context) {
 
 ### 对象形式
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+
 export default {
   name: 'my-plugin',
   inject: ['tools'],
@@ -97,7 +105,7 @@ export default {
 
 ### 类形式
 
-```typescript
+```ts
 import { Service, type Context } from 'cordis'
 
 export default class MyService extends Service {
@@ -105,7 +113,7 @@ export default class MyService extends Service {
 
   constructor(ctx: Context) {
     super(ctx, 'myService')
-    // 构造函数内完成同步初始化
+    // Perform synchronous initialization in the constructor.
   }
 }
 ```
@@ -116,7 +124,7 @@ export default class MyService extends Service {
 
 参考仓库中的 `examples/echo-agent/src/echo-tool.ts`，这是一个注册 tool 的插件：
 
-```typescript
+```ts
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 

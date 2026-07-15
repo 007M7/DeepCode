@@ -19,3 +19,7 @@ features:
   - title: 开箱即用
     details: 内置 LLM 调用、文件读写、Bash 执行、子代理委派等完整工具链，复制模板即可运行。
 ---
+
+# DeepSeek Harness
+
+[English](index.md) | 中文

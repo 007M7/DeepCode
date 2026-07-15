@@ -1,5 +1,7 @@
 # 快速开始
 
+[English](quickstart.md) | 中文
+
 本指南带你在 5 分钟内跑起一个 Agent。
 
 ## 环境准备
@@ -8,8 +10,8 @@
 - [pnpm](https://pnpm.io/) 11（建议通过 Corepack 使用仓库固定的版本）
 
 ```sh
-# 确认版本
-node -v   # v22.19.x，或 v24.x 及更高版本
+# Check versions
+node -v   # v22.19.x, or v24.x and newer
 corepack enable
 pnpm -v   # 11.x
 ```
@@ -19,14 +21,14 @@ pnpm -v   # 11.x
 echo-agent 不需要 API key，装好依赖就能跑。
 
 ```sh
-# 克隆仓库
+# Clone the repository
 git clone https://github.com/deepseek-harness/deepseek-harness.git
 cd deepseek-harness
 
-# 安装依赖
+# Install dependencies
 pnpm install
 
-# 启动 echo-agent
+# Start echo-agent
 pnpm run demo:echo
 ```
 
@@ -84,7 +86,7 @@ agent REPL ready. Give it a coding task.
 试着给它一个任务：
 
 ```
-> 在当前目录创建一个 hello.js，内容是打印 "Hello from Harness!"，然后运行它
+> Create hello.js in the current directory, print "Hello from Harness!", and run it
 ```
 
 ## 回头看

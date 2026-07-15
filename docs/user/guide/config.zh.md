@@ -1,14 +1,16 @@
 # 配置文件
 
+[English](config.md) | 中文
+
 Harness 使用 `cordis.yml` 描述 Agent 加载哪些插件以及每个插件的参数。配置文件负责组合能力；每个包真正支持的字段和默认值由源码生成的配置目录负责记录，避免两份手写表格逐渐不一致。
 
 ## 从真实配置开始
 
 仓库中的示例就是可以运行的配置，也是新项目最可靠的起点：
 
-- [echo-agent](../../../../examples/echo-agent/cordis.yml) 使用本地 mock 模型，不需要 API key。
-- [coding-agent](../../../../examples/coding-agent/cordis.yml) 组合 DeepSeek 模型、Bash、文件系统、压缩、子代理和工作流。
-- [acp-agent](../../../../examples/acp-agent/cordis.yml) 通过 ACP 接入编辑器客户端。
+- [echo-agent](../../../examples/echo-agent/cordis.yml) 使用本地 mock 模型，不需要 API key。
+- [coding-agent](../../../examples/coding-agent/cordis.yml) 组合 DeepSeek 模型、Bash、文件系统、压缩、子代理和工作流。
+- [acp-agent](../../../examples/acp-agent/cordis.yml) 通过 ACP 接入编辑器客户端。
 
 最小配置由一组插件条目组成：
 
@@ -54,4 +56,4 @@ config:
 
 ## 精确配置参考
 
-每个插件当前支持的字段、类型和默认值见自动生成的[插件配置目录](../../../config-catalog.md)。理解插件如何组合可继续阅读[架构说明](../../../architecture.md)和[能力接口](../../../capability-seams.md)；要创建自己的配置，优先复制并修改[示例目录说明](../../../../examples/README.md)中最接近的例子。
+每个插件当前支持的字段、类型和默认值见自动生成的[插件配置目录](../../config-catalog.md)。理解插件如何组合可继续阅读[架构说明](../../architecture.md)和[能力接口](../../capability-seams.md)；要创建自己的配置，优先复制并修改[示例目录说明](../../../examples/README.md)中最接近的例子。

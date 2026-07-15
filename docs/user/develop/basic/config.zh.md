@@ -1,12 +1,14 @@
 # 插件配置
 
+[English](config.md) | 中文
+
 让你的插件接受用户在 `cordis.yml` 中传入的配置。
 
 ## 定义 Config 类型
 
 在插件中导出一个 `Config` 类型和同名的 Schemastery schema；默认值直接写在 schema 中：
 
-```typescript
+```ts
 import type { Context } from 'cordis'
 import Schema from 'schemastery'
 
@@ -25,7 +27,7 @@ export const Config: Schema<Config> = Schema.object({
 })
 
 export function apply(ctx: Context, config: Config) {
-  console.log(config.greeting)  // 用户配置或默认值
+  console.log(config.greeting)  // User value or schema default.
 }
 ```
 
@@ -44,7 +46,7 @@ export function apply(ctx: Context, config: Config) {
 
 对于需要严格校验的场景，使用 Schemastery 定义 schema：
 
-```typescript
+```ts
 import type { Context } from 'cordis'
 import Schema from 'schemastery'
 
@@ -63,7 +65,7 @@ export const Config = Schema.object({
 })
 
 export function apply(ctx: Context, config: Config) {
-  // config 已经过校验，类型安全
+  // config is validated and type-safe.
 }
 ```
 
@@ -75,13 +77,13 @@ Schema 在插件加载时执行校验。如果配置不合法，插件会加载�
 
 Harness 的约定：**任何两个部署可能想要不同值的东西，都应该是配置字段**。
 
-```typescript
-// 错误 — 硬编码超时时间
+```ts
+// Wrong: hardcoded timeout.
 const TIMEOUT = 30000
 
-// 正确 — 可配置
+// Correct: configurable.
 export interface Config {
-  timeoutMs: number  // 默认 30000
+  timeoutMs: number  // Defaults to 30000.
 }
 ```
 
@@ -91,7 +93,7 @@ export interface Config {
 
 如果配置引用了不存在的东西（比如一个不存在的模型名），应该尽早报错，而不是静默跳过：
 
-```typescript
+```ts ignore-check
 export function apply(ctx: Context, config: Config) {
   if (!ctx.llm.models().includes(config.model)) {
     throw new Error(`Model "${config.model}" is not registered by any LLM adapter`)
