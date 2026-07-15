@@ -4,7 +4,6 @@ import WebService, {
   WebError,
   type WebFetchProvider,
   type WebFetchResult,
-  type WebProviderStatus,
   type WebSearchProvider,
   type WebSearchRequest,
   type WebSearchResult,
@@ -13,25 +12,25 @@ import WebService, {
 /** A scripted search provider for contract tests. */
 function makeSearchProvider(
   id: string,
-  status: WebProviderStatus,
+  available: boolean,
   search: (request: WebSearchRequest) => Promise<WebSearchResult>,
 ): WebSearchProvider {
-  return { id, status: () => status, search: request => search(request) }
+  return { id, available: () => available, search: request => search(request) }
 }
 
-function makeFetchProvider(id: string, status: WebProviderStatus, result: WebFetchResult): WebFetchProvider {
-  return { id, status: () => status, fetch: () => Promise.resolve(result) }
+function makeFetchProvider(id: string, available: boolean, result: WebFetchResult): WebFetchProvider {
+  return { id, available: () => available, fetch: () => Promise.resolve(result) }
 }
 
-const available: WebProviderStatus = { available: true }
-const unavailable: WebProviderStatus = { available: false, reason: 'missing-credential' }
+const available = true
+const unavailable = false
 
-function searchResult(providerId: string, overrides: Partial<WebSearchResult> = {}): WebSearchResult {
-  return { providerId, query: 'q', sources: [], truncated: false, ...overrides }
+function searchResult(marker: string, overrides: Partial<WebSearchResult> = {}): WebSearchResult {
+  return { content: marker, sources: [], truncated: false, ...overrides }
 }
 
-function fetchResult(providerId: string): WebFetchResult {
-  return { providerId, url: 'https://example.com', statusCode: 200, body: { kind: 'text', content: 'hi' }, truncated: false }
+function fetchResult(marker: string): WebFetchResult {
+  return { url: 'https://example.com', statusCode: 200, body: { kind: 'text', content: marker }, truncated: false }
 }
 
 /** Mount a WebService on a fresh root context with the given config. */
@@ -46,7 +45,7 @@ describe('WebService registration', () => {
     const { web } = await mountWeb()
 
     const dispose = web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
-    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ providerId: 'exa' })
+    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ content: 'exa' })
 
     dispose()
     await expect(web.search({ query: 'q' })).rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_UNAVAILABLE' }))
@@ -70,7 +69,7 @@ describe('WebService registration', () => {
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       inner.web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
     }, { inject: ['web'] }))
-    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ providerId: 'exa' })
+    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ content: 'exa' })
     await fiber.dispose()
     await expect(web.search({ query: 'q' })).rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_UNAVAILABLE' }))
   })
@@ -111,26 +110,26 @@ describe('WebService execution resolution', () => {
     const { web } = await mountWeb({ searchProvider: 'perplexity' })
     web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
     web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
-    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ providerId: 'perplexity' })
+    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ content: 'perplexity' })
   })
 
   it('ignores unusable providers when auto-selecting', async () => {
     const { web } = await mountWeb()
     web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
     web.registerSearchProvider(makeSearchProvider('perplexity', unavailable, () => Promise.resolve(searchResult('perplexity'))))
-    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ providerId: 'exa' })
+    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ content: 'exa' })
   })
 
   it('does not let registration order change auto-selection', async () => {
     const a = await mountWeb()
     a.web.registerSearchProvider(makeSearchProvider('exa', unavailable, () => Promise.resolve(searchResult('exa'))))
     a.web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
-    await expect(a.web.search({ query: 'q' })).resolves.toMatchObject({ providerId: 'perplexity' })
+    await expect(a.web.search({ query: 'q' })).resolves.toMatchObject({ content: 'perplexity' })
 
     const b = await mountWeb()
     b.web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
     b.web.registerSearchProvider(makeSearchProvider('exa', unavailable, () => Promise.resolve(searchResult('exa'))))
-    await expect(b.web.search({ query: 'q' })).resolves.toMatchObject({ providerId: 'perplexity' })
+    await expect(b.web.search({ query: 'q' })).resolves.toMatchObject({ content: 'perplexity' })
   })
 
   it('runs the selected provider and returns its result', async () => {
@@ -139,7 +138,6 @@ describe('WebService execution resolution', () => {
       searchResult('exa', { content: 'answer', sources: [{ url: 'https://a' }] }),
     )))
     const result = await web.search({ query: 'q' })
-    expect(result.providerId).toBe('exa')
     expect(result.content).toBe('answer')
     expect(result.sources).toEqual([{ url: 'https://a' }])
   })
@@ -149,11 +147,11 @@ describe('WebService execution resolution', () => {
     const seen: (AbortSignal | undefined)[] = []
     web.registerSearchProvider({
       id: 'exa',
-      status: () => available,
-      search: (_request, exec) => { seen.push(exec?.signal); return Promise.resolve(searchResult('exa')) },
+      available: () => available,
+      search: (_request, signal) => { seen.push(signal); return Promise.resolve(searchResult('exa')) },
     })
     const controller = new AbortController()
-    await web.search({ query: 'q' }, { signal: controller.signal })
+    await web.search({ query: 'q' }, controller.signal)
     expect(seen[0]).toBe(controller.signal)
   })
 })
@@ -195,7 +193,7 @@ describe('WebService fetch capability', () => {
     const { web } = await mountWeb()
     web.registerFetchProvider(makeFetchProvider('local-http', available, fetchResult('local-http')))
     const result = await web.fetch({ url: 'https://example.com' })
-    expect(result.providerId).toBe('local-http')
+    expect(result.body.content).toBe('local-http')
     expect(result.statusCode).toBe(200)
   })
 

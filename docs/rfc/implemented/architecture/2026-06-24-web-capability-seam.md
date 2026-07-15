@@ -64,7 +64,7 @@ flowchart LR
   toolWeb -->|ctx.tools.register| webFetch["tool: web_fetch"]
 ```
 
-`@deepseek-ai/dsh-web` depends only on Cordis and low-level harness support. It declares `ctx.web`, provider interfaces, request/result types, the provider status type, and error codes. It does not import tool, agent, session, LLM, or provider packages.
+`@deepseek-ai/dsh-web` depends only on Cordis and low-level harness support. It declares `ctx.web`, provider interfaces, request/result types, the provider availability contract, and error codes. It does not import tool, agent, session, LLM, or provider packages.
 
 Provider packages depend only on `dsh-web` and Cordis. They own credentials, endpoints, wire mapping, parsing, and `WebError` translation, using platform `fetch`. Each provider injects the shared service and registers a backend; only `dsh-web` owns the `ctx.web` key. Provider-private protocol shapes do not create dependencies on `ctx.llm` or a Cordis HTTP service.
 
@@ -77,52 +77,42 @@ Provider packages depend only on `dsh-web` and Cordis. They own credentials, end
 ```ts
 interface WebSearchProvider {
   readonly id: string
-  status(): WebProviderStatus
-  search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>
+  available(): boolean
+  search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>
 }
 
 interface WebFetchProvider {
   readonly id: string
-  status(): WebProviderStatus
-  fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
+  available(): boolean
+  fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 }
 
 interface WebService {
   registerSearchProvider(provider: WebSearchProvider): () => void
   registerFetchProvider(provider: WebFetchProvider): () => void
 
-  search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>
-  fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
-}
-
-interface WebExecContext {
-  readonly signal?: AbortSignal
+  search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>
+  fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 }
 ```
 
-`WebExecContext` is execution control, not business input. It carries only `signal`, so `tool-web` propagates turn cancellation, tool timeout, and agent disposal into provider network requests, SSE readers, and expensive decoding. It does not pass `ToolExecution` through the seam — that would make `dsh-web` depend on `dsh-tools`.
+The optional signal is execution control, not business input: `tool-web` passes `exec.signal` directly so turn cancellation, tool timeout, and agent disposal reach provider network requests, stream readers, and expensive decoding. The seam does not pass `ToolExecution` through — that would make `dsh-web` depend on `dsh-tools`.
 
 Provider ids are stable strings and unique within their capability kind. Registering a duplicate search provider id or duplicate fetch provider id fails rather than silently replacing the old provider. Provider registration returns a disposer and follows the existing `ctx.tools.register()` / `ctx.systemPrompt.section()` pattern: the mutation is wrapped in `ctx.effect()` so the registration is torn down with the contributing fiber.
 
-## Provider status and selection
+## Provider availability and selection
 
-Provider status and capability selection are separate concepts, but both stay minimal. A provider reports only whether that concrete implementation is usable by cheap local checks such as credential presence or parseable endpoint config. A provider `status()` must not make network calls.
+Provider availability and capability selection are separate concepts, but both stay minimal. A provider reports only whether that concrete implementation is usable by cheap local checks such as credential presence or parseable endpoint config. A provider `available()` must not make network calls.
 
-`LlmService` has no status type at all: availability is expressed as registry membership plus a resolution-time throw. `ctx.web` follows the same discipline. The seam exposes no aggregated capability-status query — `search()` / `fetch()` derive the selection on each call from the configured provider id, the registered providers, and each provider's cheap local `status()`, and a selection failure is the structured `WebError` thrown at execution time, whose code answers "in which broad category does this capability fail" and whose message answers "exactly which provider/ids/reason." A caller that needs to know whether a capability can run executes and routes that error; nothing is stored as mutable service state.
+`LlmService` has no status type at all: availability is expressed as registry membership plus a resolution-time throw. `ctx.web` follows the same discipline. The seam exposes no aggregated capability-status query — `search()` / `fetch()` derive the selection on each call from the configured provider id, the registered providers, and each provider's cheap local `available()` boolean, and a selection failure is the structured `WebError` thrown at execution time. A caller that needs to know whether a capability can run executes and routes that error; nothing is stored as mutable service state.
 
-`WebProviderStatus` is an input to selection, not a health system. `tool-web` never calls a provider's `status()` directly — its only path into the seam is `search()` / `fetch()` — so selection policy has one owner.
-
-```ts
-type WebProviderStatus =
-  | { readonly available: true }
-  | { readonly available: false; readonly reason: 'missing-credential' | 'misconfigured' }
-```
+The boolean is an input to selection, not a health system. `tool-web` never calls a provider's `available()` directly — its only path into the seam is `search()` / `fetch()` — so selection policy has one owner.
 
 Selection must not depend on registration order. Cordis load order, config ordering, and HMR timing are not product semantics.
 
 | Situation | Execution behavior |
 |---|---|
-| A configured provider id is registered and `status().available === true` | runs that provider |
+| A configured provider id is registered and `available() === true` | runs that provider |
 | A configured provider id is not registered | fails with `WEB_PROVIDER_CONFIGURED_MISSING` |
 | A configured provider id is registered but unavailable | fails with `WEB_PROVIDER_CONFIGURED_UNAVAILABLE` |
 | No provider id is configured and exactly one provider for that kind is registered and available | runs that single provider |
@@ -184,8 +174,6 @@ interface WebSearchRequest {
 }
 
 interface WebSearchResult {
-  readonly providerId: string
-  readonly query: string
   readonly content?: string
   readonly sources: readonly WebSearchSource[]
   readonly truncated: boolean
@@ -212,20 +200,17 @@ The `web_fetch` implementation is an anonymous public HTTP(S) fetch provider, `l
 The seam request stays smaller than OpenCode's model-facing tool:
 
 - `url`: required HTTP(S) URL.
-- `timeoutMs`: optional positive number capped by the provider.
 
-The seam request deliberately does not include `format`, `prompt`, or provider-specific extraction controls. `format` is a presentation decision over a fetched resource; `prompt` is a higher-level LLM summarization instruction; extraction APIs such as Firecrawl, Exa, Tavily, or Parallel may not expose a concrete HTTP response. If the product later needs provider-backed page extraction, that is a separate `web_extract` capability or a deliberate widening of this seam — extract semantics are never smuggled into `web_fetch` by making every HTTP field optional.
+The seam request deliberately does not include a per-call timeout, `format`, `prompt`, or provider-specific extraction controls. Cancellation is the direct optional execution signal, while the fetch provider owns one deployment-configured timeout backstop. `format` is a presentation decision over a fetched resource; `prompt` is a higher-level LLM summarization instruction; extraction APIs such as Firecrawl, Exa, Tavily, or Parallel may not expose a concrete HTTP response. If the product later needs provider-backed page extraction, that is a separate `web_extract` capability or a deliberate widening of this seam — extract semantics are never smuggled into `web_fetch` by making every HTTP field optional.
 
 HTTP status is part of the fetched resource state, not automatically a tool failure. A successful network fetch of a `404` or `500` response returns `WebFetchResult` with the status code and a bounded decoded body when the content type is supported. `WebError` is for failures to safely retrieve or represent the resource: invalid or blocked URL, redirect policy violation, timeout, abort, response too large, unsupported content type, provider failure, or network failure.
 
 ```ts
 interface WebFetchRequest {
   readonly url: string
-  readonly timeoutMs?: number
 }
 
 interface WebFetchResult {
-  readonly providerId: string
   readonly url: string
   readonly statusCode: number
   readonly body: WebFetchBody
@@ -257,11 +242,11 @@ SSRF / private-network protection (blocking private, loopback, link-local, multi
 
 `dsh-tool-web` owns two `ToolDefinition`s: `web_search` and `web_fetch`. It owns model-facing JSON schemas, snake_case argument names, prompt sections, result rendering to `ContentBlock[]`, `presentCall`, and `presentResult`.
 
-`dsh-tool-web` must not enumerate providers or call provider `status()` directly. Its only path into the seam is `ctx.web.search()` / `ctx.web.fetch()`. That keeps provider selection in one layer; otherwise the tool package could decide one provider is usable while execution resolves a different state.
+`dsh-tool-web` must not enumerate providers or call provider `available()` directly. Its only path into the seam is `ctx.web.search()` / `ctx.web.fetch()`. That keeps provider selection in one layer; otherwise the tool package could decide one provider is usable while execution resolves a different state.
 
 Tool registration is a minimal stable sync: on plugin startup the `dsh-tool-web` `Config` (`search?: boolean`, `fetch?: boolean`, both default `true`) enables or disables each web tool; an enabled tool is registered with a fiber-scoped disposer via the effect-based registry; neither tool is disposed merely because its selected provider is missing, unusable, or ambiguous; disposing the `tool-web` fiber tears down its registrations automatically.
 
-Provider status changes affect execution results and diagnostics, not whether the model-facing schema exists. If a product wants no web tools at all, it disables `dsh-tool-web` or the individual web tool in config; if it wants web tools but the backend is misconfigured, the model sees a structured tool error at execution time.
+Provider availability changes affect execution results and diagnostics, not whether the model-facing schema exists. If a product wants no web tools at all, it disables `dsh-tool-web` or the individual web tool in config; if it wants web tools but the backend is misconfigured, the model sees a structured tool error at execution time.
 
 The prompt guidance explains the semantic split — `web_search` for discovery and current information, `web_fetch` when the model needs the content of a specific URL — and the prompt and tool result tell the model to cite relevant URLs with markdown links.
 
