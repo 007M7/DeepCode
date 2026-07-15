@@ -72,11 +72,21 @@ describe('LlmService', () => {
     const original = new LlmError(`${field} getter failed`, 'RESULT_GETTER_FAILED')
     const result = field === 'done' ? {} : { done: false }
     Object.defineProperty(result, field, { get: () => { throw original } })
+    let cleanupLookups = 0
+    const iterator: AsyncIterator<StreamChunk> = {
+      next: () => Promise.resolve(result as unknown as IteratorResult<StreamChunk>),
+    }
+    Object.defineProperty(iterator, 'return', {
+      get: () => {
+        cleanupLookups += 1
+        throw new Error('return getter must not run after iteration fails')
+      },
+    })
     const adapter = new class extends LlmAdapter {
       stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
         return {
           [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
-            return { next: () => Promise.resolve(result as unknown as IteratorResult<StreamChunk>) }
+            return iterator
           },
         }
       }
@@ -94,6 +104,7 @@ describe('LlmService', () => {
 
     expect(caught).toBe(original)
     expect(isLlmAdapterFailure(caught)).toBe(true)
+    expect(cleanupLookups).toBe(0)
   })
 
   it.each(['dispatch', 'iterator'] as const)('tags synchronous adapter %s failures without replacing their Error', async (boundary) => {
@@ -119,7 +130,7 @@ describe('LlmService', () => {
     expect(isLlmAdapterFailure(caught)).toBe(true)
   })
 
-  it('tags adapter iteration failures without replacing the original Error or cleanup outcome', async () => {
+  it('propagates a rejected next promptly without awaiting a non-settling return', async () => {
     const original = new LlmError('provider failed', 'PROVIDER_FAILED')
     let cleanupCalls = 0
     const adapter = new class extends LlmAdapter {
@@ -130,7 +141,49 @@ describe('LlmService', () => {
               next: () => Promise.reject(original),
               return: () => {
                 cleanupCalls += 1
-                return Promise.reject(new Error('cleanup failed'))
+                return new Promise<IteratorResult<StreamChunk>>(() => {})
+              },
+            }
+          },
+        }
+      }
+    }()
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['test-model'], adapter)
+
+    const failure = (async (): Promise<unknown> => {
+      try {
+        for await (const _chunk of ctx.llm.stream({ model: 'test-model', messages: [] })) { /* drain */ }
+      } catch (error: unknown) {
+        return error
+      }
+      return new Error('expected adapter iteration to fail')
+    })()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<Error>((resolve) => {
+      timer = setTimeout(() => { resolve(new Error('adapter failure did not settle promptly')) }, 100)
+    })
+    const caught = await Promise.race([failure, timeout])
+    if (timer !== undefined) clearTimeout(timer)
+
+    expect(caught).toBe(original)
+    expect(isLlmAdapterFailure(caught)).toBe(true)
+    expect(cleanupCalls).toBe(0)
+  })
+
+  it('awaits one adapter return on downstream close and leaves its rejection unclassified', async () => {
+    const cleanup = new Error('cleanup failed')
+    let cleanupCalls = 0
+    const adapter = new class extends LlmAdapter {
+      stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
+        return {
+          [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
+            return {
+              next: () => Promise.resolve({ done: false, value: SCRIPT[0]! }),
+              return: () => {
+                cleanupCalls += 1
+                return Promise.reject(cleanup)
               },
             }
           },
@@ -143,45 +196,37 @@ describe('LlmService', () => {
 
     let caught: unknown
     try {
-      for await (const _chunk of ctx.llm.stream({ model: 'test-model', messages: [] })) { /* drain */ }
+      for await (const _chunk of ctx.llm.stream({ model: 'test-model', messages: [] })) break
     } catch (error: unknown) {
       caught = error
     }
 
-    expect(caught).toBe(original)
-    expect(isLlmAdapterFailure(caught)).toBe(true)
+    expect(caught).toBe(cleanup)
+    expect(isLlmAdapterFailure(caught)).toBe(false)
     expect(cleanupCalls).toBe(1)
   })
 
-  it('contains a throwing iterator.return getter after next fails without replacing the original Error', async () => {
-    const original = new LlmError('provider failed', 'PROVIDER_FAILED')
-    let cleanupLookups = 0
-    const iterator: AsyncIterator<StreamChunk> = { next: () => Promise.reject(original) }
-    Object.defineProperty(iterator, 'return', {
-      get: () => {
-        cleanupLookups += 1
-        throw new Error('return getter failed')
-      },
-    })
+  it('allows downstream close when the adapter iterator has no return method', async () => {
     const adapter = new class extends LlmAdapter {
       stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
-        return { [Symbol.asyncIterator]: () => iterator }
+        return {
+          [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
+            return { next: () => Promise.resolve({ done: false, value: SCRIPT[0]! }) }
+          },
+        }
       }
     }()
     const ctx = new Context()
     await ctx.plugin(LlmService)
     ctx.llm.registerAdapter(['test-model'], adapter)
 
-    let caught: unknown
-    try {
-      for await (const _chunk of ctx.llm.stream({ model: 'test-model', messages: [] })) { /* drain */ }
-    } catch (error: unknown) {
-      caught = error
+    let chunks = 0
+    for await (const _chunk of ctx.llm.stream({ model: 'test-model', messages: [] })) {
+      chunks += 1
+      break
     }
 
-    expect(caught).toBe(original)
-    expect(isLlmAdapterFailure(caught)).toBe(true)
-    expect(cleanupLookups).toBe(1)
+    expect(chunks).toBe(1)
   })
 
   it('normalizes and tags non-Error adapter failures once', async () => {

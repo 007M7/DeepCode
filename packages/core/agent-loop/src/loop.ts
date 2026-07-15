@@ -650,7 +650,8 @@ async function runStep(
     session, turn, step, message.content, assembler.usage, chunkSeqs,
   )
 
-  // Tool execution stays sequential; recheck abort around each normalized result.
+  // Tool execution stays sequential; cancellation latches synthetic results for
+  // every remaining call while preserving one complete result batch.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
   // Buffer context until all results are appended to preserve call/result adjacency.
   const pendingContext: HookContext[] = []
@@ -692,9 +693,6 @@ async function runStep(
     if (result.additionalContext) pendingContext.push(result.additionalContext)
     if (signal.aborted) aborted = true
   }
-
-  /* v8 ignore next -- signal.reason always set by cancellation or disposal. */
-  if (aborted) throw new Error(String(signal.reason ?? 'aborted'))
 
   // Append buffered context after the complete result batch.
   for (const context of pendingContext) {

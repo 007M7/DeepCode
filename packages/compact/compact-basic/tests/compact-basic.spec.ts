@@ -848,6 +848,21 @@ describe('automatic listener and loader composition', () => {
     expect(compact.calls).toHaveLength(1)
   })
 
+  it('skips post-step pressure when the step signal is already aborted', async () => {
+    const ctx = createContext()
+    const compact = new TestCompactService(ctx, {
+      models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+    })
+    const pressured = conversation(4)
+    const compactIfNeeded = vi.spyOn(compact, 'compactIfNeeded')
+
+    await expect(postStep(ctx, agent(pressured, MODEL), AbortSignal.abort('step aborted')))
+      .resolves.toBeUndefined()
+
+    expect(compactIfNeeded).not.toHaveBeenCalled()
+    expect(pressured.events.some(event => event.type === 'compact/start')).toBe(false)
+  })
+
   it('warns and continues after operational failures, including non-Errors', async () => {
     const ctx = createContext()
     const warnings: string[] = []

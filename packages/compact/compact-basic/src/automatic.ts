@@ -45,6 +45,7 @@ export function registerAutomaticCompaction(
     _step: number,
     signal: AbortSignal,
   ) => {
+    if (signal.aborted) return
     try {
       const result = await service.compactIfNeeded(agent, 'pressure', signal)
       if (result !== null) logResult(result, 'post-step pressure')

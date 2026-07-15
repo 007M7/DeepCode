@@ -124,8 +124,9 @@ export class LlmService extends Service {
    * Final adapter boundary. It tags only failures from adapter selection,
    * synchronous dispatch, iterator construction, or iteration while preserving
    * the original Error object. Middleware outside this generator remains
-   * distinguishable as plugin work. Adapter cleanup is best-effort after an
-   * earlier failure or downstream close and never masks the winning error.
+   * distinguishable as plugin work. An iteration failure skips adapter cleanup
+   * so it cannot suppress the primary provider error. A downstream close awaits
+   * adapter cleanup, whose failures remain ordinary untagged work.
    */
   private async * adapterStream(options: GenerateOptions): AsyncGenerator<StreamChunk> {
     let iterator: AsyncIterator<StreamChunk>
@@ -137,6 +138,7 @@ export class LlmService extends Service {
     }
 
     let completed = false
+    let iterationFailed = false
     try {
       while (true) {
         let value: StreamChunk
@@ -148,6 +150,7 @@ export class LlmService extends Service {
           }
           value = item.value
         } catch (error: unknown) {
+          iterationFailed = true
           throw markLlmAdapterFailure(error)
         }
         // End the adapter-owned try before yielding: consumer/middleware
@@ -155,14 +158,10 @@ export class LlmService extends Service {
         yield value
       }
     } finally {
-      if (!completed) {
-        try {
-          const close = iterator.return?.bind(iterator)
-          if (close) await close()
-        } catch {
-          // Lookup and invocation are both adapter-owned cleanup following an
-          // existing failure/downstream close; neither can replace it.
-        }
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the iteration catch sets its latch before entering finally.
+      if (!completed && !iterationFailed) {
+        const close = iterator.return?.bind(iterator)
+        if (close) await close()
       }
     }
   }
