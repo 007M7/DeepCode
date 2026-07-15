@@ -1,8 +1,8 @@
 # AGENTS.md — Examples
 
-Runnable harness compositions. **Examples are not workspaces:** private package stubs are not built. App bins load each `cordis.yml` through `tsx`; package names resolve through root `tsconfig.json` paths, not `node_modules`.
+Runnable harness compositions. **Examples are NOT workspaces**: their private `package.json` files are dependency-free stubs, and the cordis Loader boots each `cordis.yml` unbuilt through `tsx` plus the root tsconfig paths.
 
-Keep wiring, demo fixtures, and e2e/snapshot scenarios here. Move reusable logic into `packages/`, with coverage and a README. App bins own bootstrapping; examples have no `start.ts`.
+Extract reusable logic into `packages/`, where per-file coverage and README gates apply. Examples keep only `cordis.yml` wiring, demo artifacts, and e2e/snapshot scenarios; app package bins own boot glue.
 
 ## E2E smokes
 

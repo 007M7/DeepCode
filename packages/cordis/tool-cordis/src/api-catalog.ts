@@ -84,17 +84,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'bash',
-    summary: 'Registers one `ctx.bash` implementation.',
+    summary: 'Abstract bash execution service.',
     methods: [
       'abstract resolve(request: BashExecRequest): BashExecSpec',
       'abstract run(spec: BashExecSpec): Promise<BashRunResult>',
-      'abstract start(spec: BashExecSpec): BashTask',
-      'abstract get(id: BashTaskId): BashTask | undefined',
-      'abstract ownerOf(id: BashTaskId): OwnerToken | undefined',
-      'abstract list(): BashTask[]',
-      'abstract readOutput(id: BashTaskId): BashTaskRead',
-      'abstract kill(id: BashTaskId): boolean',
-      'onTaskDone(listener: BashTaskListener): () => void',
+      'abstract start(spec: BashExecSpec): BashProcess',
     ],
   },
   {
@@ -212,6 +206,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'tools(provider: (context: AssembleContext) => ToolProviderResult): () => void',
       'variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void',
       'async assemble(context: AssembleContext = {}): Promise<PromptAssembly>',
+    ],
+  },
+  {
+    key: 'tasks',
+    summary: 'The `tasks` service: the runtime-global background task registry.',
+    methods: [
+      'start(spec: TaskStart): TaskId',
+      'list(caller?: Agent): TaskSnapshot[]',
+      'get(id: TaskId, caller?: Agent): TaskSnapshot',
+      'read(id: TaskId, caller?: Agent): TaskRead',
+      'kill(id: TaskId, caller?: Agent, reason?: string): \'requested\' | \'already-finished\'',
+      'async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>',
+      'onTaskDone(listener: TaskDoneListener): () => void',
+      'attachSurface(name: string): () => void',
     ],
   },
   {
@@ -559,11 +567,23 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BashExecRequest',
-    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner?: OwnerToken | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
   },
   {
     name: 'BashExecSpec',
-    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner: OwnerToken | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
+  },
+  {
+    name: 'BashProcess',
+    declaration: 'export interface BashProcess {\n    status: BashProcessStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n    sandbox?: BashSandboxInfo;\n    readOutput(): BashProcessRead;\n    kill(): boolean;\n}',
+  },
+  {
+    name: 'BashProcessRead',
+    declaration: 'export interface BashProcessRead {\n    delta: string;\n    lossy: boolean;\n    stdoutSpillPath?: string;\n    stderrSpillPath?: string;\n}',
+  },
+  {
+    name: 'BashProcessStatus',
+    declaration: 'export type BashProcessStatus = \'running\' | \'completed\' | \'killed\';',
   },
   {
     name: 'BashRunResult',
@@ -572,26 +592,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'BashSandboxInfo',
     declaration: 'export interface BashSandboxInfo {\n    mode: SandboxMode;\n    denied: boolean;\n    enforcement?: SandboxEnforcement;\n    runnerFailed?: boolean;\n}',
-  },
-  {
-    name: 'BashTask',
-    declaration: 'export interface BashTask {\n    readonly id: BashTaskId;\n    status: BashTaskStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n    sandbox?: BashSandboxInfo;\n}',
-  },
-  {
-    name: 'BashTaskId',
-    declaration: 'export type BashTaskId = Branded<\'BashTaskId\'>;',
-  },
-  {
-    name: 'BashTaskListener',
-    declaration: 'export type BashTaskListener = (task: BashTask) => void;',
-  },
-  {
-    name: 'BashTaskRead',
-    declaration: 'export interface BashTaskRead {\n    task: BashTask;\n    delta: string;\n    lossy: boolean;\n    stdoutSpillPath?: string;\n    stderrSpillPath?: string;\n}',
-  },
-  {
-    name: 'BashTaskStatus',
-    declaration: 'export type BashTaskStatus = \'running\' | \'completed\' | \'killed\';',
   },
   {
     name: 'Branded',
@@ -744,10 +744,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MessageSourceMap',
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    };\n}',
-  },
-  {
-    name: 'OwnerToken',
-    declaration: 'export type OwnerToken = Branded<\'OwnerToken\'>;',
   },
   {
     name: 'PresetOption',
@@ -924,6 +920,46 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SurfaceOp',
     declaration: 'export type SurfaceOp = \'append\' | {\n    op: \'replace\';\n    start: number;\n    end: number;\n};',
+  },
+  {
+    name: 'TaskDoneListener',
+    declaration: 'export type TaskDoneListener = (snapshot: TaskSnapshot, owner: Agent | undefined) => void | PromiseLike<void>;',
+  },
+  {
+    name: 'TaskHooks',
+    declaration: 'export interface TaskHooks {\n    cancel(reason?: string): void;\n    done: Promise<TaskOutcome>;\n    readOutput?(): string;\n}',
+  },
+  {
+    name: 'TaskId',
+    declaration: 'export type TaskId = Branded<\'TaskId\'>;',
+  },
+  {
+    name: 'TaskKind',
+    declaration: 'export type TaskKind = TaskKindMap[keyof TaskKindMap];',
+  },
+  {
+    name: 'TaskKindMap',
+    declaration: 'export interface TaskKindMap {\n    bash: \'bash\';\n    subagent: \'subagent\';\n}',
+  },
+  {
+    name: 'TaskOutcome',
+    declaration: 'export interface TaskOutcome {\n    status: \'completed\' | \'killed\' | \'failed\';\n    detail?: string;\n    output?: string;\n}',
+  },
+  {
+    name: 'TaskRead',
+    declaration: 'export interface TaskRead {\n    text: string;\n    snapshot: TaskSnapshot;\n}',
+  },
+  {
+    name: 'TaskSnapshot',
+    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: TaskKind;\n    label: string;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
+  },
+  {
+    name: 'TaskStart',
+    declaration: 'export interface TaskStart {\n    kind: TaskKind;\n    label: string;\n    owner?: Agent;\n    run(): TaskHooks;\n}',
+  },
+  {
+    name: 'TaskStatus',
+    declaration: 'export type TaskStatus = \'running\' | \'stopping\' | \'completed\' | \'killed\' | \'failed\';',
   },
   {
     name: 'TerminalCallView',
