@@ -160,6 +160,29 @@ jobs:
       - name: Run complete keyless Python suite
         run: uv run --python 3.10 --group test --project python/sdk pytest
 
+  # Windows build lane: install + `pnpm run build` (tsc -b + tsdown) on native
+  # Windows. Windows path/shell support is still partial, so this lane covers
+  # the build surface only — tests and gates are not run here yet. Wired into
+  # all-checks-passed so a native-Windows build regression cannot land silently.
+  windows-build:
+    runs-on: windows-2025
+    name: windows / build
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (tsc -b + tsdown)
+        run: pnpm run build
+
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
   # node versions evolve. Every other job in THIS workflow must be listed in
@@ -171,7 +194,7 @@ jobs:
   all-checks-passed:
     name: all checks passed
     runs-on: ubuntu-latest
-    needs: [node-24, node-compat, python-sdk]
+    needs: [node-24, node-compat, python-sdk, windows-build]
     if: always()
     steps:
       - name: Fail if any needed job did not succeed
