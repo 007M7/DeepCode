@@ -12,7 +12,7 @@ ACP render intent: all three are `generic` cards (`read`/`read`/`execute`) — a
 
 ## Completion notices
 
-On `onTaskDone`, injects `background task <id> (<kind>: <label>) finished [status: …]. Read its output with task_output.` into the owning agent's session (`agent.inject()` — durable context for the next request, not a wake-up). Suppressed when the snapshot is `reported` (the model already killed it, or a read/wait returned the end) — never a redundant "finished". The disposed-owner race is contained; a missing agent registry drops the notice.
+On `onTaskDone`, injects `background task <id> (<kind>: <label>) finished [status: …]. Read its output with task_output.` through the exact owner `Agent` captured at task start (`agent.inject()` — durable context for the next request, not a wake-up). It never re-resolves a reusable agent/session id to a replacement. Suppressed when the snapshot is `reported` (the model already killed it, or a read/wait returned the end) — never a redundant "finished"; the disposed-owner race is contained.
 
 ## Config
 

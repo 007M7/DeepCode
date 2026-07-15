@@ -65,7 +65,7 @@ Registrations are NOT effect-scoped to the registering fiber: a task belongs to 
 
 ## Authorization and the service surface
 
-Cross-session isolation lives IN the runtime so every consumer gets the same rule for free: read/kill/wait/get take the caller (`Agent | undefined`), and a task whose owner session differs from the caller's session is rejected (`!== undefined` comparison — an unowned task is open, a no-agent caller cannot match an owned one). `list(caller)` returns only the caller-visible tasks (owned-by-caller or unowned) — a global listing would leak other sessions' labels. The snapshot carries that owner as the canonical branded `SessionId`, not a package-local token or bare string. Lifecycle ownership is checked independently at start: the supplied owner must be the exact live `Agent` instance currently registered under its id, so an old object cannot attach its session's work to a replacement agent's cleanup after id reuse.
+Cross-session isolation lives IN the runtime so every consumer gets the same rule for free: read/kill/wait/get take the caller (`Agent | undefined`), and a task whose owner session differs from the caller's session is rejected (`!== undefined` comparison — an unowned task is open, a no-agent caller cannot match an owned one). `list(caller)` returns only the caller-visible tasks (owned-by-caller or unowned) — a global listing would leak other sessions' labels. The snapshot carries that authorization identity as the canonical branded `SessionId`, not a package-local token or bare string. Lifecycle ownership is independent: start retains the exact live `Agent` instance, owner cleanup selects by object identity, and completion listeners receive that exact owner, so id reuse cannot redirect cleanup or notices to a replacement.
 
 ```ts ignore-check
 class TaskService extends Service {           // ctx.tasks
@@ -75,7 +75,7 @@ class TaskService extends Service {           // ctx.tasks
   read(id: TaskId, caller?: Agent): TaskRead               // delta (stream kinds, consuming) or final output (final kinds, idempotent) + snapshot
   kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-terminal'
   wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
-  onTaskDone(listener: (snapshot: TaskSnapshot) => void): () => void   // effect-scoped, contained, never fires after dispose
+  onTaskDone(listener: (snapshot: TaskSnapshot, owner: Agent | undefined) => void): () => void   // exact lifecycle owner; effect-scoped, contained
   attachSurface(name: string): () => void     // the misconfiguration fence, below
 }
 ```
@@ -96,7 +96,7 @@ class TaskService extends Service {           // ctx.tasks
 
 One system-prompt section (order 106, next to `tool:bash`) teaches the cross-call habit the per-tool descriptions cannot: track every returned task id; you are notified in-session when a task finishes, so do not busy-poll or sleep on one — keep working on independent steps and do not duplicate a running task's work; do not produce a final answer while a relevant task still runs — call `task_output` (with `wait` when blocked) to collect it first; `task_kill` tasks that stopped mattering. The do-not-poll and do-not-duplicate sentences are near-verbatim convergent across Claude Code, Kimi Code, and OpenCode — they are the two failure modes every peer engineered against.
 
-Completion notices stay durable context, not a wake-up (`agent.inject()` appends a logged `context/message` the next model request sees; it does not run the model): on `onTaskDone`, `dsh-tool-tasks` injects `background task <id> (<kind>: <label>) finished [status: …]. Read its output with task_output.` into the owning agent's session, with the same disposed-race containment `dsh-tool-bash` used to carry. Notices are deduplicated the way Claude Code and Kimi Code both learned to: a task the model explicitly killed, or whose terminal state a read/wait already returned (including a wait pending at the moment of settlement), is marked `reported` and its notice suppressed — never a redundant "finished" for work the model just collected or ended. The model-visible ⟺ logged invariant holds with no new session event type.
+Completion notices stay durable context, not a wake-up (`agent.inject()` appends a logged `context/message` the next model request sees; it does not run the model): on `onTaskDone`, `dsh-tool-tasks` injects `background task <id> (<kind>: <label>) finished [status: …]. Read its output with task_output.` through the exact owner captured at start, never a replacement found through a reused agent/session id, with the disposed-race contained. Notices are deduplicated the way Claude Code and Kimi Code both learned to: a task the model explicitly killed, or whose terminal state a read/wait already returned (including a wait pending at the moment of settlement), is marked `reported` and its notice suppressed — never a redundant "finished" for work the model just collected or ended. The model-visible ⟺ logged invariant holds with no new session event type.
 
 ## Producer opt-in and schema exposure
 
@@ -106,7 +106,7 @@ Whether a producer tool offers `run_in_background` is that producer's own defaul
 
 A contract-compliant background task must not outlive its owner: the subagent case leaks live child agents/sessions otherwise, and `agent/disposed` is an observe-only notification rather than a quiescence seam. Every live agent already owns an awaited structural registration scope ([agent-scope contract](2026-07-08-agent-scope-contexts.md)), so the task runtime uses that single lifecycle mechanism:
 
-- After validating the exact registered owner instance, the first task for that owner registers an async effect through `owner.ctx`. The effect belongs to the agent scope, survives producer reloads, cancels that owner's live tasks, awaits each terminal record, and drops the snapshots.
+- After validating and retaining the exact registered owner instance, the first task for that owner registers an async effect through `owner.ctx`. The effect belongs to the agent scope, survives producer reloads, selects tasks by exact owner identity, cancels them, awaits each terminal record, and drops the snapshots; a replacement reusing the same ids is outside that set.
 - `AgentHandle.dispose()` stops and drains the driver, detaches the agent and session, then awaits scope disposal. The task cleanup therefore participates in the same memoized quiescence boundary as every other agent-owned registration; no task-specific link exists in `AgentRegistry` or the loop.
 - The tasks service retains each exact owner-effect disposer so service reload can detach callbacks from still-live scopes after global task teardown, rather than leaving a dead service retained until every agent exits.
 

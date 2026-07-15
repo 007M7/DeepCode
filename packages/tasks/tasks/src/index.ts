@@ -32,7 +32,6 @@
 
 import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { SessionId } from '@deepseek-ai/dsh-session'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { TaskId } from './types.ts'
 import type { TaskDoneListener, TaskOutcome, TaskRead, TaskSnapshot, TaskStart, TaskStatus } from './types.ts'
@@ -67,8 +66,8 @@ interface TrackedTask {
   id: TaskId
   kind: string
   label: string
-  /** The owner's session id (`session.header.id`), or undefined for an unowned task. */
-  ownerSession: SessionId | undefined
+  /** Exact lifecycle owner; session-id authorization is derived from it. */
+  owner: Agent | undefined
   cancel: (reason?: string) => void
   readOutput: (() => string) | undefined
   status: TaskStatus
@@ -159,7 +158,7 @@ export class TaskService extends Service {
       id,
       kind: spec.kind,
       label: spec.label,
-      ownerSession: spec.owner?.session.header.id,
+      owner: spec.owner,
       cancel: hooks.cancel.bind(hooks),
       readOutput: hooks.readOutput?.bind(hooks),
       status: 'running',
@@ -197,7 +196,7 @@ export class TaskService extends Service {
   list(caller?: Agent): TaskSnapshot[] {
     const session = caller?.session.header.id
     return [...this.store.values()]
-      .filter(task => task.ownerSession === undefined || task.ownerSession === session)
+      .filter(task => task.owner === undefined || task.owner.session.header.id === session)
       .map(task => this.snapshot(task))
   }
 
@@ -349,10 +348,11 @@ export class TaskService extends Service {
 
   /**
    * Register a completion listener, called exactly once per terminal task
-   * record with its snapshot. Effect-scoped (disposed with the calling fiber);
-   * per-listener containment (one throwing listener is logged, never starves
-   * the rest); never fires after this service is disposed.
-   * @param listener - called with each settling task's terminal snapshot.
+   * record with its snapshot and exact lifecycle owner (or `undefined` for an
+   * unowned task). Effect-scoped (disposed with the calling fiber); per-listener
+   * containment (one throwing listener is logged, never starves the rest);
+   * never fires after this service is disposed.
+   * @param listener - called with each terminal snapshot and its exact owner.
    * @returns the disposer that unregisters the listener.
    */
   onTaskDone(listener: TaskDoneListener): () => void {
@@ -398,18 +398,19 @@ export class TaskService extends Service {
    * open, and a no-agent caller can never match an owned one).
    */
   private assertAccess(task: TrackedTask, caller?: Agent): void {
-    if (task.ownerSession !== undefined && task.ownerSession !== caller?.session.header.id) {
+    if (task.owner !== undefined && task.owner.session.header.id !== caller?.session.header.id) {
       throw new Error(`task ${task.id} belongs to another session`)
     }
   }
 
   /** Project a fresh read-only snapshot from the mutable record. */
   private snapshot(task: TrackedTask): TaskSnapshot {
+    const ownerSession = task.owner?.session.header.id
     return {
       id: task.id,
       kind: task.kind,
       label: task.label,
-      ...task.ownerSession !== undefined ? { ownerSession: task.ownerSession } : {},
+      ...ownerSession !== undefined ? { ownerSession } : {},
       status: task.status,
       ...task.detail !== undefined ? { detail: task.detail } : {},
       startedAt: task.startedAt,
@@ -439,7 +440,7 @@ export class TaskService extends Service {
       const snapshot = this.snapshot(task)
       for (const listener of this.listeners) {
         try {
-          listener(snapshot)
+          listener(snapshot, task.owner)
         } catch (error: unknown) {
           this.selfCtx.logger.warn(`tasks: onTaskDone listener threw for ${task.id}: ${String(error)}`)
         }
@@ -474,19 +475,18 @@ export class TaskService extends Service {
       throw new Error(`agent "${ownerId}" is not the registered agent instance (background task owner must be live)`)
     }
     if (this.ownerCleanups.has(owner)) return
-    const ownerSession = owner.session.header.id
     // Attach FIRST, record after: an already-disposing scope rejects effects,
     // and marking the owner as covered before that would poison later starts.
     const detach = owner.ctx.effect(() => async () => {
       this.ownerCleanups.delete(owner)
-      await this.disposeOwned(ownerSession)
+      await this.disposeOwned(owner)
     }, 'tasks.ownerCleanup()')
     this.ownerCleanups.set(owner, detach)
   }
 
-  /** Cancel, await terminal records, and drop every task owned by one session. */
-  private async disposeOwned(ownerSession: SessionId): Promise<void> {
-    const owned = [...this.store.values()].filter(task => task.ownerSession === ownerSession)
+  /** Cancel, await terminal records, and drop every task owned by one exact agent lifecycle. */
+  private async disposeOwned(owner: Agent): Promise<void> {
+    const owned = [...this.store.values()].filter(task => task.owner === owner)
     this.cancelForTeardown(owned, 'owner disposed')
     await Promise.all(owned.map(task => task.settled))
     for (const task of owned) this.store.delete(task.id)

@@ -10,6 +10,8 @@ import type { TaskHooks, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { statusLine } from '@deepseek-ai/dsh-tool-tasks'
 
+const agentRegistryDisposers = new WeakMap<Agent, () => void>()
+
 async function setup(config: ToolTasks.Config = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
@@ -21,10 +23,9 @@ async function setup(config: ToolTasks.Config = {}) {
 }
 
 /**
- * A fake agent whose session token is `sessionId`, registered in `ctx.agents`
- * (the notice path finds the owner by scanning the registry for a matching
- * `session.header.id` — the agent id is deliberately DIFFERENT so a
- * wrong-field match fails the test).
+ * A fake agent whose session token is `sessionId`, registered in `ctx.agents`.
+ * The agent id is deliberately different so session authorization and exact
+ * lifecycle ownership cannot be confused in tests.
  */
 function fakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void = () => {}): Agent {
   const scopeFiber = ctx.plugin(() => {})
@@ -34,8 +35,14 @@ function fakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[])
     inject,
     session: { header: { version: 0, id: sessionId, createdAt: 0 } },
   } as unknown as Agent
-  ctx.agents.register(agent)
+  agentRegistryDisposers.set(agent, ctx.agents.register(agent))
   return agent
+}
+
+function detachAgent(agent: Agent): void {
+  const dispose = agentRegistryDisposers.get(agent)
+  if (dispose === undefined) throw new Error(`missing registry disposer for agent "${agent.id}"`)
+  dispose()
 }
 
 /** A controllable producer start-spec (settle `done` on demand, record cancels). */
@@ -278,6 +285,23 @@ describe('completion notices', () => {
     expect(inject).toHaveBeenCalledTimes(1)
   })
 
+  it('does not route an old owner completion notice to a same-session replacement', async () => {
+    const { ctx } = await setup()
+    const oldInject = vi.fn(() => { throw new Error('agent "agent-shared" is disposed') })
+    const oldOwner = fakeAgent(ctx, 'shared', oldInject)
+    const p = producer({ owner: oldOwner })
+    ctx.tasks.start(p.spec)
+
+    detachAgent(oldOwner)
+    const replacementInject = vi.fn()
+    fakeAgent(ctx, 'shared', replacementInject)
+    p.settle({ status: 'completed' })
+    await tick()
+
+    expect(oldInject).toHaveBeenCalledTimes(1)
+    expect(replacementInject).not.toHaveBeenCalled()
+  })
+
   it('propagates a non-disposed inject failure (a real bug must surface)', async () => {
     const { ctx } = await setup()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
@@ -291,15 +315,15 @@ describe('completion notices', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('unexpected inject bug'))
   })
 
-  it('drops the notice when no live agent matches and when the agent registry is gone', async () => {
+  it('keeps using the exact owner after the agent registry is gone', async () => {
     const { ctx, agentsFiber } = await setup()
     const inject = vi.fn()
     const owner = fakeAgent(ctx, 'sess-1', inject)
 
-    // Owner known at registration, unregistered before settlement → no match.
+    // Settlement must not depend on a later registry lookup: the exact owner
+    // supplied at start remains the destination while its own scope is live.
     const p1 = producer({ owner })
     ctx.tasks.start(p1.spec)
-    // A second task whose settlement happens after the whole registry is gone.
     const p2 = producer({ owner })
     ctx.tasks.start(p2.spec)
 
@@ -307,6 +331,6 @@ describe('completion notices', () => {
     p1.settle({ status: 'completed' })
     p2.settle({ status: 'failed' })
     await tick()
-    expect(inject).not.toHaveBeenCalled()
+    expect(inject).toHaveBeenCalledTimes(2)
   })
 })

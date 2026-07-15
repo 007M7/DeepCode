@@ -506,6 +506,39 @@ describe('TaskService owner cleanup', () => {
     expect(ctx.tasks.list(owner)).toEqual([])
   })
 
+  it('does not let an old scope cleanup cancel a same-id/session replacement task', async () => {
+    const ctx = await harness()
+    const oldOwner = stubAgent(ctx, 'owner', 'shared-session')
+    const detachOld = ctx.agents.register(oldOwner)
+    const cancels: string[] = []
+
+    function start(owner: Agent, label: string): TaskId {
+      let settle!: (outcome: TaskOutcome) => void
+      return ctx.tasks.start({
+        kind: 'bash',
+        label,
+        owner,
+        run: () => ({
+          cancel() { cancels.push(label); settle({ status: 'killed' }) },
+          done: new Promise<TaskOutcome>((resolve) => { settle = resolve }),
+        }),
+      })
+    }
+
+    start(oldOwner, 'old task')
+    detachOld()
+    const replacement = stubAgent(ctx, 'owner', 'shared-session')
+    ctx.agents.register(replacement)
+    const replacementId = start(replacement, 'replacement task')
+
+    await disposeAgentScope(oldOwner)
+    expect(cancels).toEqual(['old task'])
+    expect(ctx.tasks.list(replacement).map(task => task.id)).toEqual([replacementId])
+
+    await disposeAgentScope(replacement)
+    expect(cancels).toEqual(['old task', 'replacement task'])
+  })
+
   it('registers owner cleanup on the agent scope rather than the tasks fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)

@@ -136,11 +136,12 @@ export interface TaskSnapshot {
   /** The producer-supplied one-line label. */
   label: string
   /**
-   * The owner's session id (`session.header.id`), for surfaces that must
-   * reach the owning agent (the completion-notice injector); absent for
-   * unowned tasks. Session ids are runtime-shared identifiers, not secrets —
-   * the read/kill/wait/list FENCE is what isolation rests on. The shared
-   * {@link SessionId} brand is preserved across this package boundary.
+   * The owner's session id (`session.header.id`), for authorization and
+   * correlation; absent for unowned tasks. A listener that must reach the
+   * lifecycle owner receives the exact Agent separately through
+   * {@link TaskDoneListener}. Session ids are runtime-shared identifiers, not
+   * secrets — the read/kill/wait/list FENCE is what isolation rests on. The
+   * shared {@link SessionId} brand is preserved across this package boundary.
    */
   ownerSession?: SessionId
   /** Current lifecycle state. */
@@ -177,5 +178,9 @@ export interface TaskRead {
   snapshot: TaskSnapshot
 }
 
-/** Completion callback registered via {@link TaskService.onTaskDone}. */
-export type TaskDoneListener = (snapshot: TaskSnapshot) => void
+/**
+ * Completion callback registered via {@link TaskService.onTaskDone}.
+ * `owner` is the exact lifecycle instance supplied at start, not a registry
+ * lookup by reusable agent or session id; it is absent for unowned tasks.
+ */
+export type TaskDoneListener = (snapshot: TaskSnapshot, owner: Agent | undefined) => void

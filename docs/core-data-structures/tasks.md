@@ -99,11 +99,12 @@ interface TaskSnapshot {
   /** The producer-supplied one-line label. */
   label: string
   /**
-   * The owner's session id (`session.header.id`), for surfaces that must
-   * reach the owning agent (the completion-notice injector); absent for
-   * unowned tasks. Session ids are runtime-shared identifiers, not secrets —
-   * the read/kill/wait/list FENCE is what isolation rests on. The shared
-   * {@link SessionId} brand is preserved across this package boundary.
+   * The owner's session id (`session.header.id`), for authorization and
+   * correlation; absent for unowned tasks. A listener that must reach the
+   * lifecycle owner receives the exact Agent separately through
+   * {@link TaskDoneListener}. Session ids are runtime-shared identifiers, not
+   * secrets — the read/kill/wait/list FENCE is what isolation rests on. The
+   * shared {@link SessionId} brand is preserved across this package boundary.
    */
   ownerSession?: SessionId
   /** Current lifecycle state. */
@@ -140,4 +141,4 @@ interface TaskRead {
 
 ## The service
 
-`TaskService` (`ctx.tasks` — [`packages/tasks/tasks/src/index.ts`](../../packages/tasks/tasks/src/index.ts)): `start` (preflight → producer `run()` → atomic commit, fenced by `attachSurface`), non-consuming `get`/`list` (caller-scoped — owned-by-caller plus unowned only), `read` (consuming for stream kinds), `kill` (producer `cancel` first; a throw leaves the task untouched), `wait` (bounded, abort cancels the wait only), and `onTaskDone` (a `TaskDoneListener` per terminal record, effect-scoped, contained). Start validates that an owned task names the exact live Agent instance currently registered under its id, so an old reference cannot bind work to a replacement agent's cleanup after id reuse. Every read/kill/wait/get separately compares the task's owner session with the caller's and rejects a foreign one. Owned tasks register one async cleanup through the exact owner's `agent.ctx`; scope disposal cancels them and normally awaits producer quiescence. A teardown cancel that throws force-fails only the registry record and reports that the underlying work may be orphaned, preventing disposal deadlock without claiming quiescence. The model-facing surface over all of this is [dsh-tool-tasks](../../packages/tasks/tool-tasks/README.md).
+`TaskService` (`ctx.tasks` — [`packages/tasks/tasks/src/index.ts`](../../packages/tasks/tasks/src/index.ts)): `start` (preflight → producer `run()` → atomic commit, fenced by `attachSurface`), non-consuming `get`/`list` (caller-scoped — owned-by-caller plus unowned only), `read` (consuming for stream kinds), `kill` (producer `cancel` first; a throw leaves the task untouched), `wait` (bounded, abort cancels the wait only), and `onTaskDone` (a `TaskDoneListener` per terminal record, given the exact lifecycle owner, effect-scoped, contained). Start retains the exact live Agent instance validated under its id; owner-scope cleanup selects by that identity, so a reused agent/session id cannot make an old scope cancel replacement work. Read/kill/wait/get authorization remains session-based and rejects a foreign session. A teardown cancel that throws force-fails only the registry record and reports that the underlying work may be orphaned, preventing disposal deadlock without claiming quiescence. The model-facing surface over all of this is [dsh-tool-tasks](../../packages/tasks/tool-tasks/README.md).

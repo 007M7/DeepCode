@@ -93,19 +93,15 @@ export function apply(ctx: Context, config: Config): void {
     text: 'Track every background task id you start. You are notified in-session when a task finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running task\'s work. Before giving a final answer, collect every still-relevant task with task_output (set wait: true only when you are genuinely blocked on it), and task_kill tasks that stopped mattering.',
   })
 
-  // Background completion → inject a notice into the owning agent's session.
-  // `ctx.get('agents')` (not static inject): this listener runs from a
-  // detached settlement continuation on the tasks fiber — a foreign fiber —
-  // where the `ctx.agents` property proxy would throw; `ctx.get` is the
-  // topology-independent lookup. No registry mounted → drop the notice.
-  ctx.tasks.onTaskDone((snapshot) => {
+  // Background completion → inject a notice through the exact lifecycle owner.
+  // Re-resolving by a reusable agent/session id could target a replacement
+  // while the old owner's scope is still unwinding.
+  ctx.tasks.onTaskDone((snapshot, owner) => {
     // A reported terminal state was already surfaced by an explicit
     // read/wait/kill response — a notice would be a redundant "finished".
-    if (snapshot.reported || snapshot.ownerSession === undefined) return
-    const agent = ctx.get('agents')?.list().find(a => a.session.header.id === snapshot.ownerSession)
-    if (!agent) return
+    if (snapshot.reported || owner === undefined) return
     try {
-      agent.inject(
+      owner.inject(
         [{ type: 'text', text: `background task ${snapshot.id} (${snapshot.kind}: ${snapshot.label}) finished ${statusLine(snapshot)}. Read its output with task_output.` }],
         { source: { kind: 'plugin', plugin: 'tool-tasks' } },
       )
