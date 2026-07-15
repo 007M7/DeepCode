@@ -20,17 +20,26 @@ export async function main(boot: SdkBootContext) {
 {{/if}}
   const ctx = await startSDK(new URL('./cordis.yml', import.meta.url))
 {{#if isStdio}}
-  if (resume === undefined) {
-    await ctx.agents.create({
-      sessionId,
-      meta: { cwd: boot.cwd },
-      agentOptions: { model },
-    })
-  } else {
-    await ctx.agents.resume({
-      resumeSessionId: sessionId,
-      agentOptions: { model },
-    })
+  try {
+    if (resume === undefined) {
+      await ctx.agents.create({
+        sessionId,
+        meta: { cwd: boot.cwd },
+        agentOptions: { model },
+      })
+    } else {
+      await ctx.agents.resume({
+        resumeSessionId: sessionId,
+        agentOptions: { model },
+      })
+    }
+  } catch (error) {
+    try {
+      await ctx.fiber.dispose()
+    } catch (disposeError) {
+      throw new AggregateError([error, disposeError], 'stdio startup and cleanup failed')
+    }
+    throw error
   }
 {{else}}
 {{#if isEmbed}}
