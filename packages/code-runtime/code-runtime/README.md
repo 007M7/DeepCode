@@ -16,7 +16,7 @@ Semantics every implementation must honor (contract details in the class JSDoc):
 
 ## Vocabulary
 
-`CodeRunRequest` (`program`, `bindings`, `signal?`) carries everything the runtime acts on — defaulting (time budgets, output caps) is the implementation's validated config, never a hidden `??` inside `run()`. `bindings` is a list of `CodeBindingNamespace`s (`global` + `functions`), each exposed to the program as one global object of async callables. `CodeRunResult` reports the completion `value?`, the ordered `logs` (`CodeLogEntry`: `console`/`stdout`/`stderr` source, console `level`, capped text), and the `error?` (`CodeRunFailure`: `kind` + model-feedable `message`). See `src/types.ts` for the full contracts.
+`CodeRunRequest` (`program`, `bindings`, `signal?`) carries everything the runtime acts on — defaulting (time budgets, output caps) is the implementation's validated config, never a hidden `??` inside `run()`. `bindings` is a list of `CodeBindingNamespace`s (`global` + `functions`), each exposed to the program as one global object of async callables. `CodeRunResult` reports the completion `value?`, ordered capped `logs: string[]`, and the `error?` (`CodeRunFailure`: `kind` + model-feedable `message`). See `src/types.ts` for the full contracts.
 
 ## Model Experience
 

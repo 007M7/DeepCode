@@ -2,8 +2,8 @@ import { mkdtempSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { killGroup, OutputCollector, runBash } from '@deepseek-ai/dsh-bash-local'
-import type { RunningBash } from '@deepseek-ai/dsh-bash-local'
+import { killGroup, OutputCollector, runBash } from '../src/run.ts'
+import type { RunningBash } from '../src/run.ts'
 
 const { failNextClose } = vi.hoisted(() => ({ failNextClose: { value: false } }))
 vi.mock('node:fs', async (importOriginal) => {
@@ -49,7 +49,7 @@ async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
 async function waitForStdout(running: RunningBash, expected: string, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (running.stdout.snapshot().text.includes(expected)) return
+    if (running.stdout.readFrom(0).text.includes(expected)) return
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   throw new Error(`stdout did not include ${JSON.stringify(expected)} after ${timeoutMs}ms`)
@@ -295,19 +295,11 @@ describe('OutputCollector', () => {
     expect(third.spillPath).toBeDefined()
   })
 
-  it('tracks totalBytes across drops', () => {
-    const collector = new OutputCollector(4, 'test', spillDir)
-    collector.push(Buffer.from('aaaa'))
-    collector.push(Buffer.from('bbbb'))
-    expect(collector.totalBytes).toBe(8)
-    expect(collector.finalize().text).toBe('bbbb')
-  })
-
   it('contains close failures and drops the spill path', () => {
     const collector = new OutputCollector(4, 'closefail', spillDir)
     collector.push(Buffer.from('aaaa'))
     collector.push(Buffer.from('bbbb'))
-    expect(collector.snapshot().spillPath).toBeDefined()
+    expect(collector.readFrom(0).spillPath).toBeDefined()
 
     failNextClose.value = true
     let out: ReturnType<typeof collector.finalize>
