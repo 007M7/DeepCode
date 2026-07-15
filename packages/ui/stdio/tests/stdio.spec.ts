@@ -6,7 +6,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
-import { createStdioChat, type Config, type StdioRuntime } from '../src/stdio-chat.ts'
+import { createStdioChat, mountStdio, type Config, type StdioRuntime } from '../src/index.ts'
 
 /**
  * Unit tests for the stdio UI plugin. They drive the REAL plugin body
@@ -92,6 +92,55 @@ async function setup(config: Config = CONFIG, runtimeOver: Partial<StdioRuntime>
 function flushExit(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 250))
 }
+
+describe('mountStdio readiness', () => {
+  it('leaves stdin untouched until the configured agent is created', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const { runtime, out } = makeRuntime()
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      mountStdio(inner, CONFIG, runtime)
+    }, { inject: ['agents', 'userInteraction'] }))
+
+    expect(out.text()).toBe('')
+    ctx.agents.register(makeAgent('other'))
+    expect(out.text()).toBe('')
+    ctx.agents.register(makeAgent('main'))
+    expect(out.text()).toBe('hi there\n> ')
+    await fiber.dispose()
+  })
+
+  it('opens immediately when the configured agent already exists', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    ctx.agents.register(makeAgent('main'))
+    const { runtime, out } = makeRuntime()
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      mountStdio(inner, CONFIG, runtime)
+    }, { inject: ['agents', 'userInteraction'] }))
+
+    expect(out.text()).toBe('hi there\n> ')
+    await fiber.dispose()
+  })
+
+  it('waits for main when no target agent is configured', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const { runtime, out } = makeRuntime()
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      mountStdio(inner, { welcome: 'ready' }, runtime)
+    }, { inject: ['agents', 'userInteraction'] }))
+
+    ctx.agents.register(makeAgent('other'))
+    expect(out.text()).toBe('')
+    ctx.agents.register(makeAgent('main'))
+    expect(out.text()).toBe('ready\n> ')
+    await fiber.dispose()
+  })
+})
 
 describe('createStdioChat rendering', () => {
   it('writes the welcome banner and prompt on start', async () => {

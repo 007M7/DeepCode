@@ -189,7 +189,7 @@ export class Fiber {
       this._runner = {
         epoch: INACTIVE,
         getOuterStack,
-        execute: () => {
+        execute: function () {
           if (isConstructor(runtime.callback)) {
             // eslint-disable-next-line new-cap
             const instance = new runtime.callback(this.ctx, this.config)
@@ -307,7 +307,7 @@ export class Fiber {
           throw new TypeError('Invalid effect')
         }
       }
-      const effect: Effect = runner.execute()
+      const effect: Effect = runner.execute.call(this)
       if (typeof effect === 'function') {
         return runner.collect(effect)
       } else if (isNullable(effect)) {

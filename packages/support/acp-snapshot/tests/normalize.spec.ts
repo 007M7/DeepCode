@@ -5,6 +5,7 @@ import {
   normalizeStdout,
   scrubRequestHeaders,
   scrubSystemPrompts,
+  scrubToolSchemas,
 } from '../src/normalize.ts'
 
 /**
@@ -236,5 +237,47 @@ describe('scrubSystemPrompts', () => {
     expect(out).toContain('changed prefix')
     expect(out.split('\n')[2]).toBe(toolsOnly)
     expect(scrubSystemPrompts(out)).toBe(out)
+  })
+})
+
+describe('scrubToolSchemas', () => {
+  it('scrubs only tool-schema payloads while keeping prompts and prefixes verbatim', () => {
+    const header = JSON.stringify({
+      type: 'request/header', seq: 1, time: 2,
+      data: {
+        header: {
+          system: 'full prompt',
+          tools: [{ name: 'read', description: 'full schema', parameters: { type: 'object' } }],
+          messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'full prefix' }] }],
+        },
+        reason: 'initial',
+      },
+    })
+    const changed = JSON.stringify({
+      type: 'request/header', seq: 2, time: 3,
+      data: {
+        header: {
+          system: 'new prompt',
+          tools: [{ name: 'grep', description: 'new schema' }],
+          messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'changed prefix' }] }],
+        },
+        reason: 'change',
+      },
+    })
+    const systemOnly = JSON.stringify({
+      type: 'request/header', seq: 3, time: 4,
+      data: { header: { system: 'prompt only' }, reason: 'resume' },
+    })
+
+    const out = scrubToolSchemas(`${header}\n${changed}\n${systemOnly}\n`)
+    expect(out.match(/"tools":"{{tools}}"/g)).toHaveLength(2)
+    expect(out).not.toContain('full schema')
+    expect(out).not.toContain('new schema')
+    expect(out).toContain('full prompt')
+    expect(out).toContain('new prompt')
+    expect(out).toContain('full prefix')
+    expect(out).toContain('changed prefix')
+    expect(out.split('\n')[2]).toBe(systemOnly)
+    expect(scrubToolSchemas(out)).toBe(out)
   })
 })
