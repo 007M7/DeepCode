@@ -7,7 +7,7 @@ The [`dsh-code-review`](../../.agents/skills/dsh-code-review/SKILL.md) skill is 
 Run the private tool daily with a two-UTC-day overlap; until the proposed scheduler has completed its acceptance run, the operator invokes the wrapper manually at the same cadence. A manual weekly recovery run uses a seven-day window. The workflow:
 
 1. It selects PRs merged in the chosen window (default two UTC days for the daily cadence, seven for weekly) whose merge commit is reachable from `origin/master`. PRs whose merge commit is not reachable (stacked branches whose parent was squashed) or that exceed a 250-commit acquisition cap are logged to `skipped-pulls.json` and skipped rather than aborting the run.
-2. It collects pre-merge human review feedback with commit anchors (inline comments and review submissions) plus post-feedback diff evidence. It does not acquire PR conversation comments because current GitHub state cannot give them a force-push-safe feedback-time baseline.
+2. It collects pre-merge human review feedback with commit anchors (inline comments and review submissions), then compares feedback-time and final landed PR patches. It does not acquire PR conversation comments because current GitHub state cannot give them a force-push-safe feedback-time baseline, and it excludes target-branch-only changes from adoption evidence.
 3. Two independently configured reviewer adapters classify provenance and adoption, then classify agreed-adopted items against the current skill.
 4. The primary adapter drafts a complete revised `SKILL.md`; both adapters review the same diff; blocking findings loop until both approve.
 5. `pnpm run doc-sync` and `pnpm run lint` run against the candidate before the tool declares success.
