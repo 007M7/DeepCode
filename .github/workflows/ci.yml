@@ -160,10 +160,9 @@ jobs:
       - name: Run complete keyless Python suite
         run: uv run --python 3.10 --group test --project python/sdk pytest
 
-  # Windows build lane: install + `pnpm run build` (tsc -b + tsdown) on native
-  # Windows. Windows path/shell support is still partial, so this lane covers
-  # the build surface only — tests and gates are not run here yet. Wired into
-  # all-checks-passed so a native-Windows build regression cannot land silently.
+  # Blocking Windows build lane: keep the already-green native build protected
+  # while the broader observational gate matrix below exposes the remaining
+  # portability work without blocking mainline merges.
   windows-build:
     runs-on: windows-2025
     name: windows / build
@@ -183,11 +182,89 @@ jobs:
       - name: Build (tsc -b + tsdown)
         run: pnpm run build
 
+  # Observational, non-blocking Windows static, lint, and artifact lanes. Coverage
+  # and snapshot stay Linux-only until their platform-specific runtime failures
+  # have dedicated support. Run the gates from native PowerShell: an MSYS parent
+  # would change the environment being measured. This job intentionally stays
+  # out of all-checks-passed.needs.
+  windows-gates:
+    continue-on-error: true
+    runs-on: windows-2025
+    name: windows node 24 / ${{ matrix.lane }}
+    env:
+      DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
+      DSH_PUBLINT_CONCURRENCY: ${{ matrix.publint_concurrency }}
+      DSH_ESLINT_CACHE: ${{ matrix.eslint_cache }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: static
+            command: pnpm run check:ci:static
+            gate_concurrency: '4'
+            publint_concurrency: '8'
+            eslint_cache: ''
+          - lane: lint
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            publint_concurrency: '8'
+            eslint_cache: '1'
+          - lane: artifacts
+            command: pnpm run check:ci:artifacts
+            gate_concurrency: '3'
+            publint_concurrency: '8'
+            eslint_cache: ''
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Enable Developer Mode (symlink support)
+        shell: pwsh
+        run: >-
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
+          /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack (pnpm)
+        shell: pwsh
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        id: pnpm-store
+        shell: pwsh
+        run: '"path=$(pnpm store path --silent)" >> $env:GITHUB_OUTPUT'
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - name: Install (immutable)
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions/cache@v4
+        if: matrix.lane == 'lint'
+        with:
+          path: .cache/eslint
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-
+
+      - name: Run gates
+        shell: pwsh
+        run: ${{ matrix.command }}
+
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
-  # node versions evolve. Every other job in THIS workflow must be listed in
-  # `needs` (`needs` cannot reach across workflow files; e2e.yml stays its own
-  # check). `if: always()` is load-bearing: without it a failed dependency
+  # node versions evolve. Every blocking job in THIS workflow must be listed in
+  # `needs`; explicitly observational jobs such as windows-gates stay out
+  # (`needs` cannot reach across workflow files; e2e.yml stays its own check).
+  # `if: always()` is load-bearing: without it a failed dependency
   # would SKIP this job, and GitHub counts a skipped required check as passing
   # — so this job always runs and fails on any non-success result, including
   # 'cancelled' and 'skipped'.
