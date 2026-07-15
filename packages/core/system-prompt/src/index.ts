@@ -65,10 +65,6 @@ export interface PromptSection {
 export interface AssembledSection {
   /** The contributing section's unique name. */
   name: string
-  // TODO(assembled-section-order): drop this output field; registry order has
-  // already sorted the array, and no production renderer/listener reads it.
-  /** The contributing section's order (sections arrive sorted ascending). */
-  order: number
   /** The resolved (but not yet interpolated) section text. */
   text: string
 }
@@ -403,12 +399,11 @@ export class SystemPrompt extends Service {
     }
     const assembly: PromptAssembly = {
       sections: [...sectionByName.values()]
+        .sort((a, b) => a.order - b.order)
         .map(section => ({
           name: section.name,
-          order: section.order,
           text: typeof section.text === 'function' ? section.text(context) : section.text,
-        }))
-        .sort((a, b) => a.order - b.order),
+        })),
       tools: orderTools(collected, this.toolOrder, knownNames),
       variables,
     }
