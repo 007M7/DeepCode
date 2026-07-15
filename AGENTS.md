@@ -26,12 +26,12 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP/stdio/JSON-RPC bridges; boot glue, approval, and interaction plugins
-  examples/    demo app bundles: the agent-spine bundle + stdio/ACP/JSON-RPC app bins the runnable leaves load
+  ui/          ACP/stdio/JSON-RPC bridges; boot, approval, interaction plugins
+  examples/    demo bundles (agent-spine + stdio/ACP/JSON-RPC bins) leaves load
   support/     dev/test infrastructure packages
   util/        zero-dependency utilities
 python/      Python SDK and bundled runtime (see python/README.md)
-examples/    Runnable cordis.yml leaves that load the packages/examples bundles (see examples/AGENTS.md)
+examples/    Runnable cordis.yml leaves over packages/examples bundles (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
 scripts/     repo gates and generators
 ```

@@ -1,10 +1,10 @@
 # @deepseek-ai/dsh-jsonrpc-demo
 
-Bin-only app that boots an external `cordis.yml`; its [`jsonrpc`](../jsonrpc/README.md) entry serves SDK clients over newline-delimited stdio. The config composes the spine, backends, and serving plugin. `lib/bin.js` is also the [single-executable runtime](../../../docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) entry.
+Bin-only app that boots an external `cordis.yml`; its [`jsonrpc`](../../ui/jsonrpc/README.md) entry serves SDK clients over newline-delimited stdio. The config composes the spine, backends, and serving plugin. `lib/bin.js` is also the [single-executable runtime](../../../docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) entry.
 
 ## Config discovery
 
-The first non-empty channel wins: `$DSH_CORDIS_CONFIG`, then positional `argv[2]`. If neither names an existing file, the bin prints one-line usage to stderr and exits 1; there is no working-directory or built-in fallback. [`dsh-app-boot`](../app-boot/README.md) makes plugin load failures fatal. This protocol does not use `DSH_SNAPSHOT`.
+The first non-empty channel wins: `$DSH_CORDIS_CONFIG`, then positional `argv[2]`. If neither names an existing file, the bin prints one-line usage to stderr and exits 1; there is no working-directory or built-in fallback. [`dsh-app-boot`](../../ui/app-boot/README.md) makes plugin load failures fatal. This protocol does not use `DSH_SNAPSHOT`.
 
 A config without `dsh-jsonrpc` is valid and serves nothing; the bin does not designate a server plugin.
 
