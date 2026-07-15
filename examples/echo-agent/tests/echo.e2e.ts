@@ -1,111 +1,43 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 
 /**
- * Keyless Loader-path smoke for examples/echo-agent: boot the real example through the
- * `@deepseek-ai/dsh-stdio-agent` bin against this example's `cordis.yml` (the cordis Loader,
- * `unwrapExports`, the whole plugin tree), pipe a script of stdin lines, and assert the
- * rendered stdout. The mock adapter is network-free, making this the complete
- * smoke; inputs cover both the echo-tool round trip and direct-reply branch.
+ * Keyless-by-nature Loader-path coverage for examples/echo-agent. The real
+ * tree uses its deterministic mock model, so this suite is both the boot smoke
+ * and the complete behavior proof for the example.
  */
 
-// The temp-cwd child needs absolute bin and config paths.
 const binScript = fileURLToPath(new URL('../../../packages/ui/stdio-agent/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
-// The temp cwd is outside the repo, so point tsx at the root config that resolves
-// unbuilt workspace packages through `paths`.
-const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
-// Under parallel e2e load, cold tsx/Loader startup can exceed a tight deadline;
-// 30s still detects a wedged child.
-const PROCESS_TIMEOUT_MS = 30_000
-// Leave enough room for the process-owned timeout to report captured output
-// before Vitest aborts the test itself.
-const TEST_TIMEOUT_MS = PROCESS_TIMEOUT_MS + 15_000
+const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
-let child: ChildProcessWithoutNullStreams | undefined
-let workdir: string | undefined
-
-afterEach(async () => {
-  if (child !== undefined && child.exitCode === null) child.kill('SIGKILL')
-  child = undefined
-  if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
-  workdir = undefined
-})
-
-/**
- * Boot echo-agent, write `lines` to its stdin, close stdin, and resolve with
- * the full stdout once the process exits (the stdio UI exits on EOF after the
- * agent settles). Rejects on a non-zero exit or the process deadline.
- */
-async function runEcho(lines: string[]): Promise<{ stdout: string; code: number }> {
-  workdir = await mkdtemp(join(tmpdir(), 'echo-smoke-'))
-  const cwd = workdir
-  return new Promise((resolve, reject) => {
-    const proc = spawn(
-      process.execPath,
-      // --expose-internals: the example's cordis.yml loads the HMR plugin, which requires it
-      // (mirrors the `demo:echo` script).
-      ['--expose-internals', '--import', tsxLoader, binScript, configPath],
-      {
-        cwd,
-        env: {
-          ...process.env,
-          TSX_TSCONFIG_PATH: repoTsconfig,
-          DSH_HOME: join(cwd, '.dsh'),
-          DSH_AGENTS_HOME: join(cwd, '.agents'),
-        },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      },
-    )
-    child = proc
-    let stdout = ''
-    let stderr = ''
-    proc.stdout.setEncoding('utf8')
-    proc.stdout.on('data', (chunk: string) => { stdout += chunk })
-    proc.stderr.setEncoding('utf8')
-    proc.stderr.on('data', (chunk: string) => { stderr += chunk })
-
-    const timer = setTimeout(() => {
-      proc.kill('SIGKILL')
-      reject(new Error(`echo-agent did not exit within ${PROCESS_TIMEOUT_MS / 1_000}s. stdout:\n${stdout}\nstderr:\n${stderr}`))
-    }, PROCESS_TIMEOUT_MS)
-
-    proc.on('exit', (code) => {
-      clearTimeout(timer)
-      if (code === 0) resolve({ stdout, code })
-      else reject(new Error(`echo-agent exited ${code}. stderr:\n${stderr}`))
-    })
-    proc.on('error', (err) => { clearTimeout(timer); reject(err) })
-
-    // Feed the script, then EOF so the stdio UI exits after the agent settles.
-    for (const line of lines) proc.stdin.write(`${line}\n`)
-    proc.stdin.end()
+async function runEcho(stdinLines: readonly string[]): Promise<string> {
+  const { stdout } = await runLoaderSmoke({
+    label: 'echo-agent',
+    tempDirPrefix: 'echo-smoke-',
+    binScript,
+    configPath,
+    tsconfigPath,
+    stdinLines,
   })
+  return stdout
 }
 
 describe('echo-agent keyless smoke (real cordis.yml via the Loader)', () => {
   it('boots, prints its welcome banner, and exits cleanly on stdin EOF', async () => {
-    const { stdout, code } = await runEcho([])
-    expect(code).toBe(0)
-    expect(stdout).toContain('echo-agent ready.')
-  }, TEST_TIMEOUT_MS)
+    expect(await runEcho([])).toContain('echo-agent ready.')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('runs the echo tool round-trip for an "echo …" line', async () => {
-    const { stdout } = await runEcho(['echo hello world'])
-    // mock-llm.ts emits a tool-call for the echo tool; echo-tool.ts uppercases.
+    const stdout = await runEcho(['echo hello world'])
     expect(stdout).toContain('[tool call] echo')
     expect(stdout).toContain('[tool result] ECHO: HELLO WORLD')
-  }, TEST_TIMEOUT_MS)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('streams a direct canned reply for a non-echo line', async () => {
-    const { stdout } = await runEcho(['just chatting'])
-    // The direct-response branch of mock-llm.ts quotes the input back.
+    const stdout = await runEcho(['just chatting'])
     expect(stdout).toContain('just chatting')
     expect(stdout).not.toContain('[tool call]')
-  }, TEST_TIMEOUT_MS)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

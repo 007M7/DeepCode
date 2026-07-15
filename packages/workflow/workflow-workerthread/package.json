@@ -34,7 +34,7 @@
     "@deepseek-ai/dsh-subagent": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
     "@deepseek-ai/dsh-workflow": "^0.0.1",
-    "cordis": "^4.0.0-rc.6"
+    "cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
     "schemastery": "^3.18.0"
@@ -51,7 +51,7 @@
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-workflow": "workspace:^",
-    "cordis": "^4.0.0-rc.6",
+    "cordis": "^4.0.0-rc.7",
     "tsx": "^4.19.2"
   }
 }
