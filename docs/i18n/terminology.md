@@ -33,7 +33,7 @@
 | English | 中文 | 首次出现 | 不要译作 | 备注 |
 |---|---|---|---|---|
 | agent | agent | agent（智能体） | | |
-| agent harness | agent harness | | | agent 组合词（agent harness/workflow/loop/skill 等）整体保留英文；未括注过 agent 时首现按 agent 行处理 |
+| agent harness | agent harness | agent harness（智能体框架） | | agent 组合词（agent harness/workflow/loop/skill 等）整体保留英文；未括注过 agent 时首现按对应组合词或 agent 行处理 |
 | agent loop | agent loop | agent loop（智能体循环） | | |
 | backlog | backlog | backlog（待翻清单） | | 仅在双语翻译语境里括注`待翻清单` |
 | blob hash | blob hash | | | `git hash-object` 的结果 |
@@ -76,6 +76,7 @@
 | backend | 后端 | | | |
 | background task | 后台任务 | | | |
 | block | 块 | | | |
+| build target | 构建目标 | | | |
 | cancel | 取消 | | | |
 | capability | 能力 | | | |
 | checkpoint | 检查点 | | | |
@@ -104,7 +105,7 @@
 | extension point | 扩展点 | | | 注意与 `seam` 区分 |
 | fail-fast | 快速失败 | | | |
 | fenced code block | 围栏代码块 | | | 沿用 MDN 中文翻译 |
-| fingerprint | 指纹 | | | i18n 配对机制用语：`.zh.md` 首行记录英文源 blob hash 的注释 |
+| fingerprint | 指纹 | | | 通用内容指纹；双语配对机制使用 sidecar record 记录两侧 blob hash |
 | finish reason | 结束原因 | | | |
 | foreground run | 前台运行 | | | |
 | freshness | 新鲜度 | | | 沿用 MDN 中文翻译；在本项目中指译文相对源文的同步状态 |
@@ -171,3 +172,5 @@
 | vocabulary | 词汇 | | | |
 | wire format | 协议格式 | 协议格式（wire format） | | |
 | workflow | 工作流 | | | |
+| wrapper | 包装层 | | | 软件层或 SDK 包装层 |
+| wrapper script | 包装脚本 | | | 可执行脚本包装层 |

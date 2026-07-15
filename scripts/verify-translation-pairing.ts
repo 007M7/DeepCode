@@ -10,10 +10,15 @@
 import { createHash } from 'node:crypto'
 import { existsSync, globSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve, sep } from 'node:path'
-import { fromMarkdown } from 'mdast-util-from-markdown'
-import { gfmFromMarkdown } from 'mdast-util-gfm'
-import { gfm } from 'micromark-extension-gfm'
-import type { Nodes } from 'mdast'
+import {
+  datedDocumentDate,
+  linksTo,
+  parseTranslationMarkdown,
+  parseTranslationPairingManifest,
+  requiresPairByDate,
+  translationStructureDiff,
+  translationStructureSignature,
+} from './translation-pairing.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const listMode = process.argv.includes('--list')
@@ -22,14 +27,7 @@ const writeMode = process.argv.includes('--write')
 /** Scope of the bilingual contract: the root README, the docs tree, and the Python SDK tree. */
 const SCOPE_PATTERNS = ['README.md', 'README.zh.md', 'README.i18n.yaml', 'docs/**/*.md', 'docs/**/*.i18n.yaml', 'python/**/*.md', 'python/**/*.i18n.yaml']
 
-/** The enforcement frontier and the never-paired set (docs/i18n/README.md § Scope). */
-interface Manifest {
-  required: string[]
-  excluded: string[]
-  /** Date-named documents (yyyy-mm-dd-*.md, i.e. RFCs) dated on/after this day must merge bilingual. */
-  requiredSince: string
-}
-const manifest = JSON.parse(readFileSync(join(root, 'scripts/translation-pairing.manifest.json'), 'utf8')) as Manifest
+const manifest = parseTranslationPairingManifest(readFileSync(join(root, 'scripts/translation-pairing.manifest.json'), 'utf8'))
 
 /**
  * An excluded entry ending in `/` excludes the whole directory. The trailing
@@ -81,98 +79,6 @@ function renderMeta(source: string, sourceHash: string, zh: string, zhHash: stri
   ].join('\n')
 }
 
-/**
- * The structural signature the two sides must share, as ordered sequences so
- * a swap or a level change is caught, not just a count change. Prose is
- * deliberately absent: the gate checks shape, never wording.
- */
-interface Signature {
-  /** Heading depths in document order (h2 → 2). */
-  headings: number[]
-  /** Fenced code blocks verbatim: info string + content, in order. */
-  code: string[]
-  /** Column count of each table, in order. */
-  tables: number[]
-  /** Each list's kind (ordered vs bullet), in order. */
-  lists: string[]
-  /** Every link target in order, the language switcher's excluded. */
-  links: string[]
-}
-
-/** Whether the tree contains a link to exactly `target` (the switcher check). */
-function linksTo(tree: Nodes, target: string): boolean {
-  let found = false
-  const visit = (node: Nodes): void => {
-    if (node.type === 'link' && node.url === target) found = true
-    if ('children' in node) for (const child of node.children) visit(child)
-  }
-  visit(tree)
-  return found
-}
-
-/** Collect the structural signature, skipping links to `switcherTarget`. */
-function signatureOf(tree: Nodes, switcherTarget: string): Signature {
-  const sig: Signature = { headings: [], code: [], tables: [], lists: [], links: [] }
-  const visit = (node: Nodes): void => {
-    switch (node.type) {
-      case 'heading':
-        sig.headings.push(node.depth)
-        break
-      case 'code':
-        sig.code.push(`\`\`\`${node.lang ?? ''}${node.meta ? ` ${node.meta}` : ''}\n${node.value}`)
-        break
-      case 'table':
-        sig.tables.push(node.children[0]?.children.length ?? 0)
-        break
-      case 'list':
-        sig.lists.push(node.ordered ? 'ordered' : 'bullet')
-        break
-      case 'link':
-        if (node.url !== switcherTarget) sig.links.push(node.url)
-        break
-      default:
-        // Every other node kind is prose or container — not part of the signature.
-        break
-    }
-    if ('children' in node) for (const child of node.children) visit(child)
-  }
-  visit(tree)
-  return sig
-}
-
-/** Render a signature element for an error message, truncated for readability. */
-function show(value: string | number | undefined): string {
-  if (value === undefined) return 'nothing'
-  const text = JSON.stringify(value)
-  return text.length > 72 ? `${text.slice(0, 72)}…` : text
-}
-
-/** First divergence between two signatures, as messages; empty when identical. */
-function signatureDiff(source: Signature, zh: Signature): string[] {
-  const out: string[] = []
-  const fields: [string, (string | number)[], (string | number)[]][] = [
-    ['heading (depth)', source.headings, zh.headings],
-    ['code block', source.code, zh.code],
-    ['table (column count)', source.tables, zh.tables],
-    ['list (kind)', source.lists, zh.lists],
-    ['link target', source.links, zh.links],
-  ]
-  for (const [field, s, z] of fields) {
-    const length = Math.max(s.length, z.length)
-    for (let i = 0; i < length; i++) {
-      if (s[i] !== z[i]) {
-        out.push(`${field} #${i + 1} diverges between the pair: ${show(s[i])} vs ${show(z[i])}`)
-        break
-      }
-    }
-  }
-  return out
-}
-
-function parse(content: string): Nodes {
-  return fromMarkdown(content, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] })
-}
-
 // Enumerate the scope once.
 const files = new Set<string>()
 for (const pattern of SCOPE_PATTERNS) {
@@ -218,14 +124,13 @@ for (const req of manifest.required) {
 // 2. Date-named documents (RFCs) dated on/after the requiredSince cutoff merge
 // bilingual: a new RFC lands with its pair or not at all. Deterministic from
 // the filename alone — no git history, so it holds on shallow CI checkouts.
-const DATED = /(?:^|\/)(\d{4}-\d{2}-\d{2})-[^/]*\.md$/
 for (const source of sources) {
   if (isExcluded(source)) continue
-  const dated = DATED.exec(source)
-  if (!dated?.[1] || dated[1] < manifest.requiredSince) continue
+  const date = datedDocumentDate(source)
+  if (!requiresPairByDate(source, manifest.requiredSince) || date === undefined) continue
   const { zh } = pairPaths(source)
   if (!existsSync(join(root, zh))) {
-    errors.push(`${source}: dated ${dated[1]} — documents dated on/after ${manifest.requiredSince} merge bilingual (docs/i18n/README.md); add the counterpart and record the pair`)
+    errors.push(`${source}: dated ${date} — documents dated on/after ${manifest.requiredSince} merge bilingual (docs/i18n/README.md); add the counterpart and record the pair`)
     state.set(source, 'missing')
   }
 }
@@ -273,15 +178,18 @@ for (const source of [...pairAnchors].sort()) {
     continue
   }
 
-  const sourceTree = parse(sourceContent.toString('utf8'))
-  const zhTree = parse(zhContent.toString('utf8'))
+  const sourceTree = parseTranslationMarkdown(sourceContent.toString('utf8'))
+  const zhTree = parseTranslationMarkdown(zhContent.toString('utf8'))
   if (!linksTo(zhTree, basename(source))) {
     errors.push(`${zh}: missing language switcher — no link to ${basename(source)}`)
   }
   if (!linksTo(sourceTree, basename(zh))) {
     errors.push(`${source}: missing language switcher — no link back to ${basename(zh)}`)
   }
-  for (const divergence of signatureDiff(signatureOf(sourceTree, basename(zh)), signatureOf(zhTree, basename(source)))) {
+  for (const divergence of translationStructureDiff(
+    translationStructureSignature(sourceTree, basename(zh)),
+    translationStructureSignature(zhTree, basename(source)),
+  )) {
     errors.push(`${source} ↔ ${zh}: ${divergence}`)
   }
   if (!state.has(source)) state.set(source, 'ok')
@@ -297,8 +205,7 @@ if (listMode) {
   const rows = [...state.entries()].sort((a, b) => order[a[1]] - order[b[1]] || a[0].localeCompare(b[0]))
   for (const [file, status] of rows) {
     const required = manifest.required.includes(file)
-    const date = DATED.exec(file)?.[1]
-    const tag = required ? '  (required)' : date && date >= manifest.requiredSince ? '  (required by date)' : '  (backlog)'
+    const tag = required ? '  (required)' : requiresPairByDate(file, manifest.requiredSince) ? '  (required by date)' : '  (backlog)'
     console.log(`${status.padEnd(11)} ${file}${status === 'missing' ? tag : ''}`)
   }
   const counts = { 'ok': 0, 'out-of-sync': 0, 'missing': 0 }
