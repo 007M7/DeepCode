@@ -33,10 +33,15 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     // Reasoning tokens require a larger generation cap than the retained checkpoint.
     ctx = await codingHarness(workdir, {
       persona: SYSTEM_PROMPT,
+      tokenMeter: {
+        models: {
+          'deepseek-v4-flash': { contextWindow: 2000 },
+        },
+      },
       compact: {
-        contextWindow: 2000,
-        thresholdRatio: 0.5,
-        retainTokens: 400,
+        models: {
+          'deepseek-v4-flash': { thresholdRatio: 0.5, retainTokens: 400 },
+        },
         summarizationModel: '',
         maxTokens: 1024,
         compactionRetries: 1,

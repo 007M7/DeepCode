@@ -16,6 +16,7 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | Sub-page | Owns |
 |---|---|
 | [llm-streaming.md](llm-streaming.md) | the `StreamChunk` wire protocol + adapter contract, `BlockAssembler`, the `LlmAdapter` seam |
+| [token-meter.md](token-meter.md) | immutable scalar and positional replay measurements with consumed-log revisions |
 | [scope.md](scope.md) | scoped registration identity, dispatch carriers, and the owned `Scope` context |
 | [session.md](session.md) | the full `SessionEventMap` variant catalog, `TurnTrigger`/`TurnEndReason`, `deriveMessages()`, the turn-enclosure invariant |
 | [persistence.md](persistence.md) | the durability seam: `SessionPersistence`, JSONL + SQLite backends, `session/flush`, crash recovery, `SessionHeader` |

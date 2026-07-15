@@ -331,6 +331,12 @@ export type SurfaceOp =
  */
 export interface SurfaceIntent {
   surfaceOp: SurfaceOp
+  /**
+   * Complete known provenance source set. `assistant/message` may use a
+   * present empty array for a known empty provider stream; omission means its
+   * provenance was not recorded. Other surface events require a non-empty set
+   * when this field is present.
+   */
   sourceEventSeqs?: number[]
 }
 
@@ -359,7 +365,9 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /**
      * Seq numbers of events that are provenance sources of this event
      * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
-     * or the surface nodes shadowed by a compaction replace node).
+     * or the surface nodes shadowed by a compaction replace node). An
+     * `assistant/message` may carry a present empty array for a known empty
+     * provider stream; omission means unrecorded provenance.
      */
     sourceEventSeqs?: number[]
     /** How this event entered the surface; absent for non-surface events. */

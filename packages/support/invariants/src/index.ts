@@ -118,8 +118,8 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
     }
   }
   if (se.sourceEventSeqs !== undefined) {
-    if (se.sourceEventSeqs.length === 0) {
-      throw new InvariantError('sourceEventSeqs must not be empty when present')
+    if (se.sourceEventSeqs.length === 0 && event.type !== 'assistant/message') {
+      throw new InvariantError('sourceEventSeqs must not be empty except on assistant/message')
     }
     const unique = new Set(se.sourceEventSeqs)
     if (unique.size !== se.sourceEventSeqs.length) {

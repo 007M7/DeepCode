@@ -13,6 +13,7 @@
     { "path": "./packages/util/brand" },
     { "path": "./packages/util/timeout" },
     { "path": "./packages/llm/llm" },
+    { "path": "./packages/llm/token-meter" },
     { "path": "./packages/core/session" },
     { "path": "./packages/core/scope" },
     { "path": "./packages/session-persistence/session-persistence" },

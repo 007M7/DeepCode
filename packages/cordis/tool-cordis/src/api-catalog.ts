@@ -215,6 +215,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'tokenMeter',
+    summary: 'Concrete registry and replay owner for all configured model meters.',
+    methods: [
+      'resolve(model: string): ModelTokenMeter',
+    ],
+  },
+  {
     key: 'tools',
     summary: 'Tool registry and execution pipeline.',
     methods: [
@@ -670,6 +677,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DiffResultView {\n    card: \'diff\';\n    title?: string;\n    diffs: FileDiff[];\n}',
   },
   {
+    name: 'EpochHeader',
+    declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    system?: string;\n    tools?: ToolSchema[];\n    messagePrefix?: Message[];\n}',
+  },
+  {
     name: 'FileDiff',
     declaration: 'export interface FileDiff {\n    path: string;\n    oldText: string | null;\n    newText: string;\n}',
   },
@@ -738,6 +749,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n}',
   },
   {
+    name: 'LlmCallConfig',
+    declaration: 'export interface LlmCallConfig {\n    model: string;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n}',
+  },
+  {
     name: 'Message',
     declaration: 'export interface Message {\n    role: \'system\' | \'user\' | \'assistant\';\n    content: ContentBlock[];\n}',
   },
@@ -748,6 +763,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MessageSourceMap',
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    };\n}',
+  },
+  {
+    name: 'ModelTokenMeter',
+    declaration: 'export interface ModelTokenMeter {\n    readonly model: string;\n    readonly contextWindow: number;\n    readonly charsPerToken: number;\n    measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement;\n    measureSurface(session: Session): TokenSurfaceMeasurement;\n    estimateMessage(message: Message): number;\n}',
   },
   {
     name: 'OwnerToken',
@@ -940,6 +959,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TodoItem',
     declaration: 'export interface TodoItem {\n    content: string;\n    status: \'pending\' | \'in_progress\' | \'completed\';\n}',
+  },
+  {
+    name: 'TokenMeasurement',
+    declaration: 'export interface TokenMeasurement {\n    readonly model: string;\n    readonly logRevision: number;\n    readonly baseline: TokenMeasurementBaseline;\n    readonly surfaceDeltaTokens: number;\n    readonly totalTokens: number;\n}',
+  },
+  {
+    name: 'TokenMeasurementBaseline',
+    declaration: 'export type TokenMeasurementBaseline = {\n    readonly kind: \'none\';\n    readonly tokens: 0;\n} | {\n    readonly kind: \'estimated\';\n    readonly tokens: number;\n} | {\n    readonly kind: \'usage\';\n    readonly tokens: number;\n    readonly usage: Readonly<TokenUsage>;\n};',
+  },
+  {
+    name: 'TokenSurfaceMeasurement',
+    declaration: 'export interface TokenSurfaceMeasurement {\n    readonly model: string;\n    readonly logRevision: number;\n    readonly totalTokens: number;\n    readonly nodes: readonly TokenSurfaceNode[];\n}',
+  },
+  {
+    name: 'TokenSurfaceNode',
+    declaration: 'export interface TokenSurfaceNode {\n    readonly seq: number;\n    readonly tokens: number;\n}',
   },
   {
     name: 'TokenUsage',

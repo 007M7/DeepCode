@@ -7,14 +7,14 @@ This package is the interface tier of the compaction capability, split so each c
 | Package | Role |
 |---|---|
 | `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + tool-pairing boundary helpers + the shared transcript renderer (`renderTranscript`/`renderContentBlocks`) |
-| `@deepseek-ai/dsh-compact-basic` | a backend: chars-per-token estimation (`charsPerToken`, default 4) + token-budget retention + `llm.stream()` summarization |
+| `@deepseek-ai/dsh-compact-basic` | a backend: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-tool-compact` (deferred) | the model-facing `/compact` tool over `ctx.compact` |
 
 Unlike the bash seam, this interface depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "interface depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
 
 ## Service API (`ctx.compact`)
 
-Both methods are **abstract** — the backend owns the entire strategy (token estimation, retention policy, event sequencing, summarization).
+Both methods are **abstract** — the backend owns trigger policy, retention, event sequencing, and summarization. Reusable request measurement is a separate service, [`ctx.tokenMeter`](../../llm/token-meter/README.md), rather than part of this interface.
 
 | Member | Semantics |
 |---|---|
@@ -53,7 +53,7 @@ The `compact/*` events extend `SessionEventMap` (merge-extensible) via declarati
 
 ## Implementing a backend
 
-Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and load the subclass as a plugin — it registers as `ctx.compact`. A tokenizer-, template-, or model-backed implementation can live as a sibling package without changing callers.
+Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and load the subclass as a plugin — it registers as `ctx.compact`. A template- or model-backed implementation can live as a sibling package without changing callers or the shared token meter.
 
 ## Model Experience
 

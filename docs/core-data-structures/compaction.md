@@ -50,7 +50,7 @@ interface CompactionResult {
 
 ## The service
 
-`CompactService` exposes `compactIfNeeded(...)` for pressure-triggered compaction, returning `null` when no compaction is needed, and `compactRegion(...)` for an explicit inclusive surface range. The pre-step caller supplies the agent, full prompt, session prefix, and abort signal; implementations must forward that signal to summarization. Estimation, retention, event sequencing, and summarization remain backend policy.
+`CompactService` exposes `compactIfNeeded(...)` for pressure-triggered compaction, returning `null` when no compaction is needed, and `compactRegion(...)` for an explicit inclusive surface range. The pre-step caller supplies the agent, full prompt, session prefix, and abort signal; implementations must forward that signal to summarization. The seam owns no pricing API: `dsh-compact-basic` resolves the routed model through [`ctx.tokenMeter`](token-meter.md), whose model-bound handle owns estimation and replay, while the backend owns retention, event sequencing, and summarization.
 
 Auto-compaction runs at serial `agent/pre-step`, before the step and request derivation, so it can replace surface nodes while keeping trace events outside the step. Region boundaries preserve tool-call/result pairing but do not preserve whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compact-basic` owns the retention and failure details.
 

@@ -1075,9 +1075,10 @@ describe('tool result call identity', () => {
   })
 })
 
-describe('surface: assistant/message omits sourceEventSeqs when no chunks streamed', () => {
-  it('a step-result listener injecting content over an empty stream appends with surfaceOp but no sourceEventSeqs', async () => {
-    // Injected result content with no chunks must omit empty sourceEventSeqs.
+describe('surface: assistant/message records exact empty provenance when no chunks streamed', () => {
+  it('a step-result listener injecting content over an empty stream records sourceEventSeqs []', async () => {
+    // The explicit empty source set distinguishes a known empty provider
+    // stream from legacy events whose provenance was not recorded.
     const adapter = new MockAdapter([[]])
     const ctx = await harness(adapter)
     await ctx.plugin(Invariants)
@@ -1094,7 +1095,7 @@ describe('surface: assistant/message omits sourceEventSeqs when no chunks stream
     const recorded = agent.session.events.find(e => e.type === 'assistant/message')!
     expect(recorded.type).toBe('assistant/message')
     expect(recorded.surfaceOp).toBe('append')
-    expect(recorded.sourceEventSeqs).toBeUndefined()
+    expect(recorded.sourceEventSeqs).toEqual([])
     // The injected content reaches derived history.
     expect(JSON.stringify(agent.session.deriveMessages())).toContain('injected')
   })

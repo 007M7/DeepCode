@@ -29,10 +29,11 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract compaction service. Implementations own token estimation, retention,
- * and summarization, but a successful run must replace the selected surface span
- * with one summary node and prevent concurrent compaction of the same session.
- * Load one implementation per context as `ctx.compact`.
+ * Abstract compaction service. Implementations own trigger policy, retention,
+ * and summarization, and may consume a separate measurement service. A
+ * successful run replaces the selected surface span with one summary node and
+ * prevents concurrent compaction of the same session. Load one implementation
+ * per context as `ctx.compact`.
  */
 export abstract class CompactService extends Service {
   constructor(ctx: Context) {

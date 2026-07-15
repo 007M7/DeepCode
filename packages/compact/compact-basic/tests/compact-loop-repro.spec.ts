@@ -11,6 +11,7 @@ import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
+import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
 
 /**
@@ -20,13 +21,7 @@ import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
  * surface-position semantics rather than raw-log scanning.
  */
 
-const TOKENS_PER_BLOCK = 10
-
 class ReproCompactService extends BasicCompactService {
-  override estimateContentTokens(blocks: readonly ContentBlock[]): number {
-    return blocks.length * TOKENS_PER_BLOCK
-  }
-
   override async summarize(): Promise<{ summary: ContentBlock[]; model: string }> {
     return { summary: [{ type: 'text', text: 'CHECKPOINT SUMMARY' }], model: 'stub' }
   }
@@ -67,6 +62,9 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(TokenMeterService, {
+    models: { mock: { contextWindow: 64, charsPerToken: 1_000 } },
+  })
   ctx.llm.registerAdapter(['mock'], new StepwiseToolAdapter(toolSteps))
   ctx.tools.register(defineTool({
     name: 'work',
@@ -80,9 +78,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
   // fires within the runaway turn.
   const compact = new ReproCompactService(ctx, {
     auto: true,
-    contextWindow: 64,
-    thresholdRatio: 0.5,
-    retainTokens: 20,
+    models: { mock: { thresholdRatio: 0.5, retainTokens: 20 } },
     summarizationModel: '',
     maxTokens: 8192,
     compactionRetries: 1,

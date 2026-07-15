@@ -528,15 +528,14 @@ async function runStep(
   if (assembler.finish.kind === 'max-tokens') {
     let message: Message = withoutToolCalls(assembler.message())
     message = withoutToolCalls(await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message)))
-    // Preserve usage even when max-token truncation produced no content.
-    if (message.content.length > 0 || assembler.usage) {
-      // The finish chunk guarantees non-empty provenance here.
-      session.append(
-        'assistant/message',
-        { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
-        { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
-      )
-    }
+    // Every successful call records its completion anchor. Empty content is
+    // skipped by deriveMessages(), while exact chunk provenance lets replay
+    // distinguish a known empty provider stream from unrecorded provenance.
+    session.append(
+      'assistant/message',
+      { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
+      { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
+    )
     return { hadToolCalls: false, finish: assembler.finish }
   }
 
@@ -544,14 +543,14 @@ async function runStep(
   let message: Message = assembler.message()
   message = await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message))
 
-  // Empty messages exist only to carry usage; omit empty provenance.
-  if (message.content.length > 0 || assembler.usage) {
-    session.append(
-      'assistant/message',
-      { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
-      { surfaceOp: 'append', ...(chunkSeqs.length > 0 ? { sourceEventSeqs: chunkSeqs } : {}) },
-    )
-  }
+  // Every successful call records its completion anchor. A present empty
+  // source set means the provider stream was known to contain no chunks;
+  // omission remains the conservative legacy/unrecorded representation.
+  session.append(
+    'assistant/message',
+    { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
+    { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
+  )
 
   // Tool execution stays sequential; recheck abort around each normalized result.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')

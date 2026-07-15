@@ -86,7 +86,7 @@ Source: [`packages/code-runtime/code-runtime/src/index.ts:31`](../../packages/co
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
-Abstract compaction service. Implementations own token estimation, retention, and summarization, but a successful run must replace the selected surface span with one summary node and prevent concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
+Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
 
 ```ts cordis-catalog
 abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>
@@ -95,7 +95,7 @@ abstract compactRegion( session: Session, start: number, end: number, agent: Com
 
 Types: [Message](../core-data-structures/core.md)
 
-Source: [`packages/compact/compact/src/index.ts:37`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:38`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
@@ -240,6 +240,16 @@ async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
 Source: [`packages/core/system-prompt/src/index.ts:213`](../../packages/core/system-prompt/src/index.ts)
+
+## `ctx.tokenMeter` — `TokenMeterService`
+
+Concrete registry and replay owner for all configured model meters.
+
+```ts cordis-catalog
+resolve(model: string): ModelTokenMeter
+```
+
+Source: [`packages/llm/token-meter/src/index.ts:145`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

@@ -1,0 +1,66 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { afterEach, describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import Loader from '@cordisjs/plugin-loader'
+import Include from '@cordisjs/plugin-include'
+import LlmService from '@deepseek-ai/dsh-llm'
+import TokenMeterService from '@deepseek-ai/dsh-token-meter'
+import BasicCompactService from '@deepseek-ai/dsh-compact-basic'
+
+let root: string | undefined
+let context: Context | undefined
+
+afterEach(async () => {
+  await context?.fiber.dispose()
+  context = undefined
+  if (root !== undefined) await rm(root, { recursive: true, force: true })
+  root = undefined
+})
+
+describe('real Loader composition', () => {
+  it('loads the zero-config token-meter then compact-basic YAML pair', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-token-meter-loader-'))
+    const configPath = join(root, 'cordis.yml')
+    await writeFile(configPath, [
+      "- name: '@deepseek-ai/dsh-llm'",
+      "- name: '@deepseek-ai/dsh-token-meter'",
+      "- name: '@deepseek-ai/dsh-compact-basic'",
+      '',
+    ].join('\n'))
+
+    context = new Context()
+    context.baseUrl = pathToFileURL(root).href + '/'
+    await context.plugin(Loader)
+    context.loader.builtins.include = Include
+    const modules = new Map<string, unknown>([
+      ['@deepseek-ai/dsh-llm', LlmService],
+      ['@deepseek-ai/dsh-token-meter', TokenMeterService],
+      ['@deepseek-ai/dsh-compact-basic', BasicCompactService],
+    ])
+    context.loader.internal = {
+      version: 'v2',
+      async import(specifier: string) {
+        if (!modules.has(specifier)) throw new Error(`unexpected Loader import: ${specifier}`)
+        return modules.get(specifier)
+      },
+    } as unknown as NonNullable<typeof context.loader.internal>
+    await context.loader.create({
+      name: 'cordis:include',
+      config: { path: pathToFileURL(configPath).href },
+    })
+    await context.loader.await()
+
+    const unloaded = [...context.loader.entries()]
+      .filter(entry => entry.fiber === undefined && !entry.disabled)
+      .map(entry => entry.options.name)
+    expect(unloaded).toEqual([])
+    expect(context.tokenMeter.resolve('deepseek-v4-flash')).toMatchObject({
+      contextWindow: 128_000,
+      charsPerToken: 4,
+    })
+    expect(context.get('compact')).toBeInstanceOf(BasicCompactService)
+  })
+})
