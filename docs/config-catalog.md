@@ -52,6 +52,10 @@ export interface Config {
   persistenceRoot?: string
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
+  /** Model-facing bash tool config forwarded through agent-core. */
+  toolBash?: NonNullable<agentCore.Config['toolBash']>
+  /** Generic background-task control-tool config forwarded through agent-core. */
+  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
 }
 ```
 
@@ -86,13 +90,19 @@ Source: [`packages/core/agent-loop/src/index.ts:322`](../packages/core/agent-loo
 
 ```ts config-catalog
 /**
- * Bundle config: each field forwarded verbatim to the child that owns it — `agents` to the
- * agent loop (an app that pre-creates no agents, like the ACP bridge, omits it),
- * `persona` and `toolOrder` to the system-prompt plugin (the deployment's persona section and
- * the explicit model-facing tool order), the `tools` object to the tool registry (its
- * presentation `mode`), and `skills` to the skill registry/local provider/tool consumer.
- * The schema intersects the owners' schemas, which supply defaults for every
- * optional input and keep validation from drifting.
+ * Bundle config: each field forwarded verbatim to the child that owns it —
+ * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
+ * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
+ * plugin (the deployment's persona section and the explicit model-facing tool
+ * order), the `tools` object to the tool registry (its presentation `mode`),
+ * and `toolBash`/`toolTasks` to the two model-facing tool plugins this bundle
+ * owns. Producer opt-in stays producer-local: `toolBash` configures bash only;
+ * future background-capable tools remain independently composed plugins.
+ * Every field is optional INPUT here because each owner's schema
+ * supplies the default (`[]` / `''` / absent — lexicographic / `native`); the
+ * schema is the INTERSECTION of the owners' own schemas (the registry's
+ * nested under its `tools` key), so validation and defaulting can never
+ * drift from them.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
@@ -105,6 +115,10 @@ export interface Config {
   tools?: ToolsConfig
   /** Skill registry, local provider, and model-facing consumer config. */
   skills?: SkillConfig
+  /** Model-facing bash tool config, including this producer's background opt-in. */
+  toolBash?: toolBash.Config
+  /** Generic background-task control-tool wait bounds. */
+  toolTasks?: toolTasks.Config
 }
 
 /** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
@@ -118,9 +132,9 @@ export interface SkillConfig {
 }
 ```
 
-Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts)
+Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts)
 
-Source: [`packages/examples/agent-spine-demo/src/index.ts:46`](../packages/examples/agent-spine-demo/src/index.ts)
+Source: [`packages/examples/agent-spine-demo/src/index.ts:55`](../packages/examples/agent-spine-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -140,7 +154,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/bash-local/src/index.ts:18`](../packages/bash/bash-local/src/index.ts)
+Source: [`packages/bash/bash-local/src/index.ts:17`](../packages/bash/bash-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-sandbox`
 
@@ -151,7 +165,7 @@ Requires: `sandbox`
  * Plugin config: the local executor's knobs plus the sandbox policy. All
  * optional — `static Config` supplies the defaults (`mode: 'read-only'` is the
  * fail-safe default; an example that wants a workspace-writable agent opts in
- * explicitly). The runner choice is NOT configured here: which platform
+ * explicitly). The runner choice is not configured here: which platform
  * backend confines the command is the `ctx.sandbox` provider's config.
  */
 export interface Config extends LocalConfig {
@@ -703,6 +717,10 @@ export interface Config {
   welcome?: string
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
+  /** Model-facing bash tool config forwarded through agent-core. */
+  toolBash?: NonNullable<agentCore.Config['toolBash']>
+  /** Generic background-task control-tool config forwarded through agent-core. */
+  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /**
    * If set, the `main` agent RESUMES this persisted session id instead of
    * starting fresh. Sourced from an env var in the leaf `cordis.yml`
@@ -863,6 +881,20 @@ export interface Config {
 
 Source: [`packages/context/time-context/src/index.ts:22`](../packages/context/time-context/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-bash`
+
+Requires: `tools` · `bash` · `systemPrompt`
+
+```ts config-catalog
+/** Configures whether the model may background commands. */
+export interface Config {
+  /** Expose `run_in_background` (default true); disabled calls are also rejected. */
+  enableRunInBackground?: boolean
+}
+```
+
+Source: [`packages/bash/tool-bash/src/index.ts:30`](../packages/bash/tool-bash/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-cordis`
 
 Requires: `tools`
@@ -925,34 +957,29 @@ export interface Config {
   /** The `ctx.subagents` provider name to start runs on (e.g. `spawn`, `acp`). */
   provider: string
   /**
-   * The model-facing tool name to register (default `subagent`). To expose more
-   * than one transport, load this plugin once per provider — each load MUST set
-   * a distinct `toolName` (the tool registry rejects a duplicate name), e.g.
-   * `{ provider: 'spawn', toolName: 'subagent' }` and
-   * `{ provider: 'acp', toolName: 'subagent_acp' }`.
+   * Model-facing tool name (default `subagent`). Each loaded instance must use
+   * a distinct name.
    */
   toolName?: string
   /**
-   * Default per-child agent options (model) applied to every spawned child.
-   * Omitted fields fall back to the child loop's own defaults.
+   * Expose `run_in_background` (default true). Disabled instances omit the
+   * parameter and reject forced background calls.
+   */
+  enableRunInBackground?: boolean
+  /**
+   * Agent options applied to every child; omitted fields use child-loop defaults.
    */
   agentOptions?: AgentOptions
   /**
-   * Per-child persona applied to every child this tool spawns: a scoped
-   * `deployment:persona` section shadowing the deployment's persona for the
-   * child alone. Requires the bound provider's `persona` capability
-   * (in-process backends support it; a request against one that doesn't is
-   * rejected at start). Omitted ⇒ the child renders the deployment persona.
+   * Per-child persona that shadows `deployment:persona`. Requires the
+   * provider's `persona` capability; omission preserves the deployment persona.
    */
   persona?: string
   /**
-   * Tool scoping applied to every child this tool spawns (see
-   * `SubagentStartRequest.toolFilter`): the named global tools vanish from
-   * the child's prompt AND refuse to execute. Requires the provider's
-   * `toolFilter` capability. Unknown names fail the spawn loudly. Note the
-   * child otherwise sees every global tool — including this delegation tool
-   * itself; `deny`-listing it (or setting `maxDepth`) is how a deployment
-   * bounds recursion.
+   * Tool filter applied to every child. Filtered tools disappear from its
+   * prompt and reject execution. Requires the provider's `toolFilter`
+   * capability; unknown names fail startup. Children otherwise see this tool,
+   * so deny it or set `maxDepth` to bound recursion.
    */
   toolFilter?: {
     /** Global tool names the child keeps; everything else is removed. */
@@ -961,12 +988,8 @@ export interface Config {
     deny?: string[]
   }
   /**
-   * Recursion cap applied to every child this tool spawns (see
-   * `SubagentStartRequest.maxDepth`): a spawn whose child would sit deeper
-   * than this in the delegation tree is rejected. Requires the provider's
-   * `depthLimit` capability. Must be a non-negative safe integer and is
-   * validated when the plugin loads. Omitted ⇒ unbounded (bound it in
-   * deployments that expose this tool to children).
+   * Maximum child depth. Requires the provider's `depthLimit` capability and a
+   * non-negative safe integer. Omission is unbounded.
    */
   maxDepth?: number
 }
@@ -974,7 +997,23 @@ export interface Config {
 
 Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts)
 
-Source: [`packages/subagent/tool-subagent/src/index.ts:24`](../packages/subagent/tool-subagent/src/index.ts)
+Source: [`packages/subagent/tool-subagent/src/index.ts:23`](../packages/subagent/tool-subagent/src/index.ts)
+
+## `@deepseek-ai/dsh-tool-tasks`
+
+Requires: `tools` · `tasks` · `systemPrompt`
+
+```ts config-catalog
+/** Configures bounded `task_output` waits. */
+export interface Config {
+  /** Wait duration applied when `task_output` sets `wait` without `timeout_ms` (default 30s). */
+  waitTimeoutMs?: number
+  /** Hard cap on any single wait; a larger model-supplied `timeout_ms` is clamped down to it (default 10min). */
+  maxWaitTimeoutMs?: number
+}
+```
+
+Source: [`packages/tasks/tool-tasks/src/index.ts:21`](../packages/tasks/tool-tasks/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-web`
 
@@ -1216,9 +1255,9 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
+- `@deepseek-ai/dsh-tasks` ([`packages/tasks/tasks/src/index.ts`](../packages/tasks/tasks/src/index.ts))
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
-- `@deepseek-ai/dsh-tool-bash` — requires `tools` · `bash` · `systemPrompt` ([`packages/bash/tool-bash/src/index.ts`](../packages/bash/tool-bash/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
 - `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
 
