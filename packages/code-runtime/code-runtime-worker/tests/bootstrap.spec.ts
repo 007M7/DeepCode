@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { LogBuffer, makeConsoleShim, makeNamespaces, captureStreamWrites, prepareValue, runWorkerMain, truncateUtf8Bytes, wireReplies } from '@deepseek-ai/dsh-code-runtime-worker/src/bootstrap.ts'
-import type { BootstrapPort, PatchableStream, PendingCall } from '@deepseek-ai/dsh-code-runtime-worker/src/bootstrap.ts'
-import type { ReplyMessage, WorkerToHost } from '@deepseek-ai/dsh-code-runtime-worker/src/protocol.ts'
-import type { CodeLogEntry } from '@deepseek-ai/dsh-code-runtime'
+import { LogBuffer, makeConsoleShim, makeNamespaces, captureStreamWrites, prepareValue, runWorkerMain, truncateUtf8Bytes, wireReplies } from '../src/bootstrap.ts'
+import type { BootstrapPort, PatchableStream, PendingCall } from '../src/bootstrap.ts'
+import type { ReplyMessage, WorkerToHost } from '../src/protocol.ts'
 
 /**
  * An in-process stand-in for the worker's parentPort: the test plays the
@@ -31,8 +30,8 @@ class FakePort implements BootstrapPort {
     this.emitter.emit('message', message)
   }
 
-  logs(): CodeLogEntry[] {
-    return this.sent.filter(message => message.type === 'log').map(message => message.entry)
+  logs(): string[] {
+    return this.sent.filter(message => message.type === 'log').map(message => message.text)
   }
 
   done(): WorkerToHost | undefined {
@@ -48,12 +47,12 @@ const BOOT = { maxLogBytes: 65_536, maxValueBytes: 32_768 }
 
 describe('LogBuffer', () => {
   it('streams entries to the sink until the byte budget, then emits one marker and drops the rest', () => {
-    const seen: CodeLogEntry[] = []
-    const buffer = new LogBuffer(10, entry => seen.push(entry))
-    buffer.push({ source: 'console', level: 'log', text: '12345' })
-    buffer.push({ source: 'console', level: 'log', text: '123456' })
-    buffer.push({ source: 'console', level: 'log', text: 'dropped' })
-    expect(seen.map(entry => entry.text)).toEqual([
+    const seen: string[] = []
+    const buffer = new LogBuffer(10, text => seen.push(text))
+    buffer.push('12345')
+    buffer.push('123456')
+    buffer.push('dropped')
+    expect(seen).toEqual([
       '12345',
       '[dsh-code-runtime-worker] log capture truncated at 10 bytes',
     ])
@@ -61,40 +60,37 @@ describe('LogBuffer', () => {
 })
 
 describe('makeConsoleShim', () => {
-  it('captures the five levels and renders non-strings inspect-style', () => {
-    const seen: CodeLogEntry[] = []
-    const shim = makeConsoleShim(new LogBuffer(1_000, entry => seen.push(entry)))
+  it('captures the five methods and renders non-strings inspect-style', () => {
+    const seen: string[] = []
+    const shim = makeConsoleShim(new LogBuffer(1_000, text => seen.push(text)))
     shim.log('plain', { a: 1 })
     shim.info('i')
     shim.warn('w')
     shim.error('e')
     shim.debug('d')
-    expect(seen.map(entry => entry.level)).toEqual(['log', 'info', 'warn', 'error', 'debug'])
-    expect(seen[0]?.text).toBe('plain { a: 1 }')
-    expect(seen.every(entry => entry.source === 'console')).toBe(true)
+    expect(seen).toEqual(['plain { a: 1 }', 'i', 'w', 'e', 'd'])
   })
 })
 
 describe('captureStreamWrites', () => {
   it('redirects writes into the buffer and restores on request', () => {
-    const seen: CodeLogEntry[] = []
-    const buffer = new LogBuffer(1_000, entry => seen.push(entry))
+    const seen: string[] = []
+    const buffer = new LogBuffer(1_000, text => seen.push(text))
     let underlying = ''
     const stream: PatchableStream = { write: (chunk: unknown) => { underlying += String(chunk); return true } }
-    const restore = captureStreamWrites(buffer, stream, 'stdout')
+    const restore = captureStreamWrites(buffer, stream)
     stream.write('captured', 'utf8')
     stream.write(Buffer.from('bytes'))
     restore()
     stream.write('after')
-    expect(seen.map(entry => entry.text)).toEqual(['captured', 'bytes'])
-    expect(seen[0]).toMatchObject({ source: 'stdout' })
+    expect(seen).toEqual(['captured', 'bytes'])
     expect(underlying).toBe('after')
   })
 
   it('invokes the write callback asynchronously, in both optional-encoding shapes', async () => {
     const buffer = new LogBuffer(1_000, () => {})
     const stream: PatchableStream = { write: () => true }
-    captureStreamWrites(buffer, stream, 'stdout')
+    captureStreamWrites(buffer, stream)
     const calls: (Error | null | undefined)[] = []
     stream.write('two-arg', (error?: Error | null) => calls.push(error))
     stream.write('three-arg', 'utf8', (error?: Error | null) => calls.push(error))
@@ -107,7 +103,7 @@ describe('captureStreamWrites', () => {
   it('still fires the callback for a write the exhausted budget drops', async () => {
     const buffer = new LogBuffer(4, () => {})
     const stream: PatchableStream = { write: () => true }
-    captureStreamWrites(buffer, stream, 'stdout')
+    captureStreamWrites(buffer, stream)
     stream.write('this write overflows the budget and is dropped')
     await new Promise<void>(resolve => stream.write('also dropped', resolve))
   })
@@ -210,7 +206,7 @@ describe('runWorkerMain', () => {
       code: 'const doubled = await tools.double({ n: 21 }); console.log("got", doubled); return { doubled };',
       namespaces: [{ global: 'tools', names: ['double'] }],
     }, fakeStreams())
-    expect(port.logs()).toEqual([{ source: 'console', level: 'log', text: 'got 42' }])
+    expect(port.logs()).toEqual(['got 42'])
     expect(port.done()).toEqual({ type: 'done', value: { doubled: 42 } })
   })
 
@@ -268,6 +264,6 @@ describe('runWorkerMain', () => {
     // The patch stays installed for the worker's lifetime; writes during the
     // program landed in order. Here the program wrote nothing via streams, so
     // only the post-run write above went through the patched slot.
-    expect(port.logs().at(-1)).toMatchObject({ source: 'stdout' })
+    expect(port.logs().at(-1)).toBe('never seen — already restored? no: patch persists in worker')
   })
 })
