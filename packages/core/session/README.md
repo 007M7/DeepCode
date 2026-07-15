@@ -75,7 +75,7 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 ### Extension points
 
 - Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`, `session.header`) is what such a backend stores beside the log.
-- Replay/fork: `ctx.sessions.create(id, { seed })` seeds a new session with an existing event log. The surface rebuilds deterministically from `surfaceOp` markers in the seeded events. The constructor reads each seed entry once and uses the same one-pass lossless-JSON snapshot and exact surface-metadata shape checks as `append`, then enforces contiguous seqs and deep-freezes every accepted record; a stateful caller, exotic nested value, marker-less or malformed surface event, metadata on a non-surface event, or retained seed reference therefore cannot silently change the reconstructed history. Broader turn-enclosure checks stay in `dsh-invariants` and persistence repair. Ordinary live-session forks use `ctx.sessions.fork(source, boundary?, childSessionId?)`, where `boundary` is the inclusive source event seq to fork through.
+- Replay/fork: `create(id, { seed })` validates and freezes a contiguous log and rebuilds its surface. `fork(source, boundary?, childSessionId?)` selects a completed-turn prefix and records lineage.
 - Compaction: the `dsh-compact-basic` plugin appends a `user/message` with `surfaceOp: { op: 'replace', start, end }` to shadow old surface nodes behind a summary checkpoint.
 
 ## Model Experience
