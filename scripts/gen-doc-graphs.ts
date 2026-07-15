@@ -5,7 +5,7 @@
  * `--check` verifies the generated set.
  */
 
-import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
 import { collectEvents, collectServices } from './gen-cordis-catalog.ts'
@@ -15,6 +15,7 @@ import {
   graphNodeId as nodeId,
   type PackageGraphNode,
 } from './package-graph.ts'
+import { TypeScriptProject } from './ts-project.ts'
 
 const root = resolve(import.meta.dirname, '..')
 type Pkg = PackageGraphNode
@@ -44,6 +45,14 @@ interface EventRelation {
   dispatchers: Map<string, Set<string>>
   listeners: Set<string>
 }
+
+interface PackageSource {
+  rel: string
+  pkg: string
+  sourceFile: ts.SourceFile
+}
+
+type EventReceiverKind = 'context' | 'agent-dispatch' | 'events-service'
 
 const GROUP_ORDER = [
   'util',
@@ -240,51 +249,6 @@ const SERVICE_ROLES: ServiceRole[] = [
     consumers: ['tool-workflow'],
     note: 'One engine per context (bash shape, no named-provider registry); the worker-thread engine fans agent() calls out through ctx.subagents.',
   },
-]
-
-const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: string }> = [
-  // Creation notifications preserve synchronous veto/rollback but observe
-  // returned promises explicitly so async listener rejection is not unhandled.
-  { event: 'agent/created', pkg: 'agent', method: 'events.dispatch' },
-  // Registry disposal reuses the stable carrier captured before entry commit
-  // and contains each listener directly rather than rebuilding via agentEvents.
-  { event: 'agent/disposed', pkg: 'agent', method: 'events.dispatch' },
-  { event: 'session/created', pkg: 'session', method: 'events.dispatch' },
-  // Session event callbacks are likewise resolved before the log push, then
-  // invoked individually after commit so observer failures are contained.
-  { event: 'session/event', pkg: 'session', method: 'events.dispatch' },
-  // Flush resolves the scoped callback set directly so internal instrumentation
-  // cannot substitute the accepted session before parallel invocation.
-  { event: 'session/flush', pkg: 'session', method: 'events.dispatch' },
-  // Session disposal uses direct callback resolution so teardown contains each
-  // synchronous throw and returned-promise rejection independently.
-  { event: 'session/disposed', pkg: 'session', method: 'events.dispatch' },
-  // tools/result uses ctx.events.dispatch directly so the registry can invoke
-  // every synchronous observer while containing each callback independently.
-  { event: 'tools/result', pkg: 'tools', method: 'events.dispatch' },
-  // Subagent lifecycle events intentionally bypass ctx.emit and call
-  // ctx.events.dispatch directly so one throwing listener cannot starve later
-  // listeners or strand an already-started child run.
-  { event: 'subagent/start', pkg: 'subagent', method: 'events.dispatch' },
-  { event: 'subagent/end', pkg: 'subagent', method: 'events.dispatch' },
-  // provider-removed fires inside the provider registration's DISPOSER and
-  // routes through the same contained dispatch (see emitLifecycle in
-  // dsh-subagent), so the AST scan cannot attribute it either.
-  { event: 'subagent/provider-removed', pkg: 'subagent', method: 'events.dispatch' },
-  // The workflow/* lifecycle events dispatch the same way, for the same
-  // per-listener-containment reason (WorkflowService.emitWorkflowEvent).
-  { event: 'workflow/start', pkg: 'workflow', method: 'events.dispatch' },
-  { event: 'workflow/phase', pkg: 'workflow', method: 'events.dispatch' },
-  { event: 'workflow/log', pkg: 'workflow', method: 'events.dispatch' },
-  { event: 'workflow/agent-start', pkg: 'workflow', method: 'events.dispatch' },
-  { event: 'workflow/agent-end', pkg: 'workflow', method: 'events.dispatch' },
-  { event: 'workflow/end', pkg: 'workflow', method: 'events.dispatch' },
-]
-
-const DYNAMIC_EVENT_LISTENERS: Array<{ event: string; pkg: string }> = [
-  // The invariants oracle marks the session started from its global
-  // internal/dispatch listener before product session-start callbacks run.
-  { event: 'agent/session-start', pkg: 'invariants' },
 ]
 
 function generatedHeader(title: string): string[] {
@@ -505,81 +469,256 @@ function renderAppComposition(example: AppExample): string {
   return lines.join('\n')
 }
 
-function collectEventRelations(): Map<string, EventRelation> {
-  const out = new Map<string, EventRelation>()
-  const ensure = (event: string): EventRelation => {
-    const existing = out.get(event)
-    if (existing) return existing
-    const next = { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
-    out.set(event, next)
-    return next
+/** Collect event dispatch/listener relations from real cross-file receiver types. */
+class EventRelationCollector {
+  private readonly relations = new Map<string, EventRelation>()
+  private readonly callSites = new Map<ts.SignatureDeclaration | ts.JSDocSignature, ts.CallExpression[]>()
+  private readonly contextType: ts.Type
+  private readonly agentDispatchType: ts.Type
+  private readonly eventsServiceType: ts.Type
+
+  constructor(
+    private readonly project: TypeScriptProject,
+    private readonly sources: readonly PackageSource[],
+  ) {
+    this.contextType = this.declaredType('vendor/cordis/src/context.ts', 'Context')
+    this.agentDispatchType = this.declaredType('packages/core/agent/src/dispatch.ts', 'AgentEventDispatch')
+    this.eventsServiceType = this.declaredType('vendor/cordis/src/events.ts', 'EventsService')
+    this.indexCallSites()
   }
-  for (const rel of globSync('packages/*/*/src/**/*.ts', { cwd: root }).sort()) {
-    const [, , leaf] = rel.split('/')
-    if (leaf === undefined) continue
-    const text = readFileSync(resolve(root, rel), 'utf8')
-    const sf = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true)
+
+  /** Return all event relations discovered from the Program. */
+  collect(): Map<string, EventRelation> {
+    for (const source of this.sources) this.visitSource(source)
+    return this.relations
+  }
+
+  /** Resolve one named class/interface declaration to its merged instance type. */
+  private declaredType(relativePath: string, name: string): ts.Type {
+    const sourceFile = this.project.sourceFile(relativePath)
+    const declaration = sourceFile.statements.find((statement): statement is ts.ClassDeclaration | ts.InterfaceDeclaration => {
+      return (ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement)) && statement.name?.text === name
+    })
+    const symbol = declaration?.name && this.project.checker.getSymbolAtLocation(declaration.name)
+    if (!symbol) throw new Error(`cannot resolve TypeScript type ${name} from ${relativePath}`)
+    return this.project.checker.getDeclaredTypeOfSymbol(symbol)
+  }
+
+  /** Index resolved local function calls for narrow argument-flow recovery. */
+  private indexCallSites(): void {
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        const declaration = this.project.checker.getResolvedSignature(node)?.declaration
+        if (declaration) {
+          const calls = this.callSites.get(declaration) ?? []
+          calls.push(node)
+          this.callSites.set(declaration, calls)
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    for (const source of this.sources) visit(source.sourceFile)
+  }
+
+  /** Walk one package source file and classify event API calls by receiver type. */
+  private visitSource(source: PackageSource): void {
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+        const receiverKind = this.receiverKind(node.expression.expression)
         const method = node.expression.name.text
-        if (!isCordisContextReceiver(node.expression, sf)) {
-          ts.forEachChild(node, visit)
-          return
-        }
-        if (method === 'on') {
-          const event = eventArg(node.arguments, method)
-          if (event) ensure(event).listeners.add(leaf)
-        } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
-          const event = eventArg(node.arguments, method)
-          if (event) {
-            const relation = ensure(event)
-            const methods = relation.dispatchers.get(leaf) ?? new Set<string>()
-            methods.add(method)
-            relation.dispatchers.set(leaf, methods)
+        if (receiverKind === 'events-service' && method === 'dispatch') {
+          const argumentList = node.arguments[1]
+          if (argumentList) {
+            for (const event of this.eventNamesFromArgumentList(argumentList, new Set())) {
+              this.addDispatcher(event, source.pkg, 'events.dispatch')
+            }
+          }
+        } else if (receiverKind === 'context' || receiverKind === 'agent-dispatch') {
+          const eventNames = this.eventNamesFromCall(node, receiverKind)
+          if (method === 'on' || method === 'once') {
+            for (const event of eventNames) this.ensure(event).listeners.add(source.pkg)
+          } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
+            for (const event of eventNames) this.addDispatcher(event, source.pkg, method)
           }
         }
       }
       ts.forEachChild(node, visit)
     }
-    visit(sf)
+    visit(source.sourceFile)
   }
-  for (const entry of DYNAMIC_EVENT_DISPATCHERS) {
-    const relation = ensure(entry.event)
-    const methods = relation.dispatchers.get(entry.pkg) ?? new Set<string>()
-    methods.add(entry.method)
-    relation.dispatchers.set(entry.pkg, methods)
+
+  /** Classify a receiver using assignability to the repository's actual event API types. */
+  private receiverKind(receiver: ts.Expression): EventReceiverKind | undefined {
+    const type = this.project.checker.getTypeAtLocation(receiver)
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never)) return undefined
+    if (this.project.checker.isTypeAssignableTo(type, this.eventsServiceType)) return 'events-service'
+    if (this.project.checker.isTypeAssignableTo(type, this.contextType)) return 'context'
+    if (this.project.checker.isTypeAssignableTo(type, this.agentDispatchType)) return 'agent-dispatch'
+    return undefined
   }
-  for (const entry of DYNAMIC_EVENT_LISTENERS) {
-    ensure(entry.event).listeners.add(entry.pkg)
+
+  /** Resolve the event-name argument for Context and fused agent dispatch calls. */
+  private eventNamesFromCall(call: ts.CallExpression, receiverKind: Exclude<EventReceiverKind, 'events-service'>): Set<string> {
+    const candidates = receiverKind === 'context' ? call.arguments.slice(0, 2) : call.arguments.slice(0, 1)
+    for (const candidate of candidates) {
+      const values = this.finiteStringValues(candidate)
+      if (values) return values
+    }
+    return new Set()
   }
+
+  /** Recover the event slot from the argument array handed to EventsService.dispatch(). */
+  private eventNamesFromArgumentList(expression: ts.Expression, seen: Set<ts.Node>): Set<string> {
+    const current = unwrapExpression(expression)
+    if (seen.has(current)) return new Set()
+    seen.add(current)
+
+    if (ts.isArrayLiteralExpression(current)) {
+      for (const element of current.elements.slice(0, 2)) {
+        if (ts.isOmittedExpression(element) || ts.isSpreadElement(element)) continue
+        const values = this.finiteStringValues(element)
+        if (values) return values
+      }
+      return new Set()
+    }
+    if (ts.isConditionalExpression(current)) {
+      return unionSets(
+        this.eventNamesFromArgumentList(current.whenTrue, new Set(seen)),
+        this.eventNamesFromArgumentList(current.whenFalse, new Set(seen)),
+      )
+    }
+    if (!ts.isIdentifier(current)) return new Set()
+
+    const symbol = this.project.checker.getSymbolAtLocation(current)
+    if (!symbol) return new Set()
+    const events = new Set<string>()
+    for (const declaration of symbol.declarations ?? []) {
+      if (ts.isVariableDeclaration(declaration) && declaration.initializer && isConstDeclaration(declaration)) {
+        addAll(events, this.eventNamesFromArgumentList(declaration.initializer, new Set(seen)))
+      } else if (ts.isParameter(declaration)) {
+        addAll(events, this.eventNamesFromParameter(declaration, seen))
+      }
+    }
+    return events
+  }
+
+  /** Follow a non-exported local helper parameter back to every resolved call site. */
+  private eventNamesFromParameter(parameter: ts.ParameterDeclaration, seen: Set<ts.Node>): Set<string> {
+    const owner = parameter.parent
+    if (!ts.isFunctionDeclaration(owner) || hasExportModifier(owner)) return new Set()
+    const index = owner.parameters.indexOf(parameter)
+    if (index < 0) return new Set()
+    const events = new Set<string>()
+    for (const call of this.callSites.get(owner) ?? []) {
+      const argument = call.arguments[index]
+      if (argument) addAll(events, this.eventNamesFromArgumentList(argument, new Set(seen)))
+    }
+    return events
+  }
+
+  /** Return a finite string-literal value set, rejecting widened and generic strings. */
+  private finiteStringValues(expression: ts.Expression): Set<string> | undefined {
+    const current = unwrapExpression(expression)
+    if (ts.isStringLiteralLike(current)) return new Set([current.text])
+    if (this.isForwardedAgentEventParameter(current)) return undefined
+    return finiteStringTypeValues(this.project.checker.getTypeAtLocation(current))
+  }
+
+  /** Reject the contextual parameter inside the AgentEventDispatch forwarding object. */
+  private isForwardedAgentEventParameter(expression: ts.Expression): boolean {
+    if (!ts.isIdentifier(expression)) return false
+    const declarations = this.project.checker.getSymbolAtLocation(expression)?.declarations ?? []
+    return declarations.some((declaration) => {
+      if (!ts.isParameter(declaration)) return false
+      const method = declaration.parent
+      if (!ts.isMethodDeclaration(method) || !ts.isObjectLiteralExpression(method.parent)) return false
+      const contextualType = this.project.checker.getContextualType(method.parent)
+      return contextualType !== undefined
+        && this.project.checker.isTypeAssignableTo(contextualType, this.agentDispatchType)
+    })
+  }
+
+  /** Get or create one relation row. */
+  private ensure(event: string): EventRelation {
+    const existing = this.relations.get(event)
+    if (existing) return existing
+    const relation = { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
+    this.relations.set(event, relation)
+    return relation
+  }
+
+  /** Add one dispatcher method without duplicating package/method labels. */
+  private addDispatcher(event: string, pkg: string, method: string): void {
+    const relation = this.ensure(event)
+    const methods = relation.dispatchers.get(pkg) ?? new Set<string>()
+    methods.add(method)
+    relation.dispatchers.set(pkg, methods)
+  }
+}
+
+/** Peel syntax-only wrappers that do not change an expression's runtime value. */
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current = expression
+  while (
+    ts.isParenthesizedExpression(current)
+    || ts.isAsExpression(current)
+    || ts.isTypeAssertionExpression(current)
+    || ts.isNonNullExpression(current)
+    || ts.isSatisfiesExpression(current)
+  ) {
+    current = current.expression
+  }
+  return current
+}
+
+/** Return every value only when a type is a closed string-literal union. */
+function finiteStringTypeValues(type: ts.Type): Set<string> | undefined {
+  if (type.flags & ts.TypeFlags.StringLiteral) {
+    return new Set([(type as ts.StringLiteralType).value])
+  }
+  if (type.flags & ts.TypeFlags.Never) return new Set()
+  if (!type.isUnion()) return undefined
+  const values = new Set<string>()
+  for (const member of type.types) {
+    const memberValues = finiteStringTypeValues(member)
+    if (!memberValues) return undefined
+    addAll(values, memberValues)
+  }
+  return values
+}
+
+/** Return whether a variable declaration belongs to a const declaration list. */
+function isConstDeclaration(declaration: ts.VariableDeclaration): boolean {
+  return (declaration.parent.flags & ts.NodeFlags.Const) !== 0
+}
+
+/** Return whether a declaration is visible to callers outside its source module. */
+function hasExportModifier(node: ts.Node): boolean {
+  return ts.canHaveModifiers(node) && (ts.getModifiers(node)?.some((modifier) => {
+    return modifier.kind === ts.SyntaxKind.ExportKeyword || modifier.kind === ts.SyntaxKind.DefaultKeyword
+  }) ?? false)
+}
+
+/** Add every member of source to target. */
+function addAll<T>(target: Set<T>, source: ReadonlySet<T>): void {
+  for (const value of source) target.add(value)
+}
+
+/** Return the union of two sets without mutating either input. */
+function unionSets<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): Set<T> {
+  const out = new Set(left)
+  addAll(out, right)
   return out
 }
 
-function isCordisContextReceiver(expr: ts.PropertyAccessExpression, sf: ts.SourceFile): boolean {
-  // The chained fused-dispatch spelling: `agentEvents(ctx, agent).emit(…)` —
-  // the receiver is a call expression, not an identifier.
-  if (ts.isCallExpression(expr.expression) && expr.expression.expression.getText(sf) === 'agentEvents') {
-    return true
-  }
-  const target = expr.expression.getText(sf)
-  if (target === 'ctx' || target === 'this.ctx') return true
-  // Scoped-dispatch spellings are conventional names. Keep this list in sync
-  // with renames or the relationship matrix can silently lose an edge.
-  return target === 'events' || target === 'childCtx' || target === 'this.loopCtx' || target === 'emitCtx'
-}
-
-function eventArg(args: ts.NodeArray<ts.Expression>, method: string): string | undefined {
-  if (method === 'waterfall') {
-    const arg = args.find(ts.isStringLiteralLike)
-    return arg?.text
-  }
-  const first = args[0]
-  if (first && ts.isStringLiteralLike(first)) return first.text
-  // Scope-carrier dispatch: `emit(carrier, 'event/name', …)` puts the event
-  // name second. Accept a string literal in position 1 when position 0 is a
-  // non-literal expression (the carrier).
-  const second = args[1]
-  return second && ts.isStringLiteralLike(second) ? second.text : undefined
+function collectEventRelations(): Map<string, EventRelation> {
+  const project = new TypeScriptProject(root)
+  const sources = project.sourceFiles().flatMap((sourceFile): PackageSource[] => {
+    const rel = project.relativePath(sourceFile)
+    const match = /^packages\/[^/]+\/([^/]+)\/src\/.+\.ts$/.exec(rel)
+    return match?.[1] ? [{ rel, pkg: match[1], sourceFile }] : []
+  }).sort((left, right) => left.rel.localeCompare(right.rel))
+  return new EventRelationCollector(project, sources).collect()
 }
 
 function relationPackages(map: Map<string, Set<string>>, pkgsByShort: Map<string, Pkg>): string {
@@ -599,10 +738,10 @@ function renderEventRelations(pkgs: Pkg[]): string {
   const events = collectEvents()
   const relations = collectEventRelations()
   const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
-  const maintenance = 'hybrid generated: Cordis event declarations and most producer/listener edges are AST-scanned; dynamic dispatch sites are classified in `scripts/gen-doc-graphs.ts`'
+  const maintenance = 'generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program'
   const lines = generatedHeader('Event Producer And Consumer Matrix')
   lines.push(
-    'This matrix shows which packages dispatch each harness-owned event and which packages listen to it. It is intentionally a table rather than one large graph: events are many-to-many, and dense relation data is easier to review in rows. Dynamic dispatch overrides cover sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment.',
+    'This matrix shows which packages dispatch each harness-owned event and which packages listen to it. It is intentionally a table rather than one large graph: events are many-to-many, and dense relation data is easier to review in rows. Receiver and event-name types also cover contained dispatch sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment.',
     '',
     '| Event | Mode | Declared in | Dispatchers | Listeners |',
     '| --- | --- | --- | --- | --- |',
@@ -612,7 +751,7 @@ function renderEventRelations(pkgs: Pkg[]): string {
     lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
   }
   // Every declared event needs a dispatcher: zero means dead vocabulary or an
-  // unrecognized dispatch spelling. Listener-free extension points remain valid.
+  // unrecognized semantic dispatch shape. Listener-free extension points remain valid.
   const undispatched = [...events]
     .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
     .map(event => event.name)
@@ -620,8 +759,8 @@ function renderEventRelations(pkgs: Pkg[]): string {
   if (undispatched.length > 0) {
     throw new Error(
       `event-producer-consumer matrix: no dispatcher found for declared event${undispatched.length > 1 ? 's' : ''} `
-      + `${undispatched.map(name => `"${name}"`).join(', ')} — dead vocabulary, or a dispatch spelling the scan misses `
-      + '(teach scripts/gen-doc-graphs.ts the spelling or add a DYNAMIC_EVENT_DISPATCHERS override)',
+      + `${undispatched.map(name => `"${name}"`).join(', ')} — dead vocabulary, or a dispatch shape the semantic scan misses `
+      + '(teach scripts/gen-doc-graphs.ts the shape)',
     )
   }
   const declared = new Set(events.map(event => event.name))

@@ -328,7 +328,7 @@ The plugin does not police trusted setup by scanning registries or reject prompt
 
 ### Generated artifacts keep public contracts aligned
 
-The event catalog, service catalog, producer/consumer matrix, configuration catalog, module graph, tool catalog, and type-equivalence blocks are generated or freshness-gated from source. `verify-scoped-dispatch` keeps the declared scoped-event set aligned with runtime invariant coverage.
+The event catalog, service catalog, producer/consumer matrix, configuration catalog, module graph, tool catalog, type-equivalence blocks, and scoped-event resolver map are generated or freshness-gated from source. The [TypeScript semantic-gates RFC](../process/2026-07-14-typescript-program-backed-semantic-gates.md) owns Program construction, semantic event discovery, and resolver-generation rules.
 
 Behavioral tests pin scoped routing and disposal, final-entry collision cleanup, publication rollback, ordered quiescence, durable pre/post-commit behavior, live tool filtering across presentation and execution, cooperative prompt assembly, structured-output commit in native and Code Mode, async subagent startup and signal cancellation, worker terminal arbitration, ACP settlement, and process teardown.
 
