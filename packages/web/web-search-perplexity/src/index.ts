@@ -18,8 +18,6 @@ export {
   PERPLEXITY_DEFAULT_MODEL,
   PERPLEXITY_PROVIDER_ID,
   PerplexitySearchProvider,
-  mapPerplexityResponse,
-  mapPerplexityResult,
 } from './provider.ts'
 export type { PerplexityRecency, PerplexitySearchProviderOptions } from './provider.ts'
 

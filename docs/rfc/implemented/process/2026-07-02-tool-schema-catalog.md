@@ -31,7 +31,7 @@ The filesystem discovers the tool-package inventory and the completeness guard r
 
 ### Scope
 
-Shipped product tool PACKAGES under `packages/*/tool-*`, each booted with its default config: `dsh-tool-bash` (`bash`, `bash_output`, `bash_kill`), `dsh-tool-todo` (`todo_write`), `dsh-tool-subagent` (`subagent`). The `examples/` demo tools (`echo`) are excluded, matching the cordis catalog's packages-only scope — a demo tool is not part of the product surface a reader is cataloguing.
+Shipped product tool packages under `packages/*/tool-*`, each booted with its default config, including `dsh-tool-bash` (`bash`), `dsh-tool-tasks` (`task_output`, `task_list`, `task_kill`), and `dsh-tool-subagent` (`subagent`). Example-only tools are excluded.
 
 The catalog unit is a package, not every configured tool instance. Each package boots once with default config; load-time aliases such as `subagent_fork` are noted without enumerating every deployment permutation. A deployment inventory is a separate, unbounded surface.
 
