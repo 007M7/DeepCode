@@ -42,7 +42,7 @@ The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the
 - honors `DSH_SNAPSHOT=replay` by booting the sibling `cordis.snapshot.yml` (the keyless replay tree, `llm-replay` in place of `llm-deepseek`);
 - in a snapshot run, disposes the context on stdin EOF so the session log is fully flushed before exit.
 
-Run it under `node --expose-internals`: the cordis Loader resolves the config's bare plugin specifiers through its internal module loader, active only under that flag. (`demo:acp` runs under tsx, whose tsconfig `paths` map resolves them instead.)
+Run it under `node --expose-internals`, or Loader's optional `node-addon-require-builtin` fallback is required, so the cordis Loader can resolve the config's bare plugin specifiers through its internal module loader. (`demo:acp` runs under tsx, whose tsconfig `paths` map resolves them instead.)
 
 All diagnostics go to **stderr** — stdout is the protocol.
 
