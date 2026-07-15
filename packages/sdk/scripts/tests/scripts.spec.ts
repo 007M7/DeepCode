@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { PassThrough, Writable } from 'node:stream'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import {
   LocalPluginBlueprint,
   NpmPackageManager,
@@ -82,6 +82,7 @@ function commandContext(cwd: string): DshSdkCommandContext & { readStdout: () =>
 function creation(
   extra: ProjectCreationRequest['features'] = [],
   localPlugins: readonly LocalPluginBlueprint[] = [],
+  app: 'acp' | 'stdio' | 'embed' = 'embed',
 ): ProjectCreationRequest {
   return {
     name: 'config-agent',
@@ -92,7 +93,7 @@ function creation(
     features: [
       { id: featureId('provider'), options: ['deepseek'], secrets: { apiKey: 'key' } },
       { id: featureId('bash'), options: ['local'] },
-      { id: featureId('app'), options: ['embed'] },
+      { id: featureId('app'), options: [app] },
       { id: featureId('persistence'), options: ['jsonl'] },
       ...extra,
     ],
@@ -103,10 +104,11 @@ function creation(
 async function committedProject(
   extra: ProjectCreationRequest['features'] = [],
   localPlugins: readonly LocalPluginBlueprint[] = [],
+  app: 'acp' | 'stdio' | 'embed' = 'embed',
 ): Promise<SdkProject> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-config-workflow-'))
   temporary.push(root)
-  const request = creation(extra, localPlugins)
+  const request = creation(extra, localPlugins, app)
   const project = SdkProject.create(root, request)
   const registry = createBuiltinRegistry(project.profile)
   const edit = project.edit(registry)
@@ -219,6 +221,33 @@ describe('build profiles and invocation', () => {
     await expect(runProjectBuild([], root, killed)).rejects.toThrow('killed by SIGTERM')
   })
 
+  it('recognizes every tsdown config source', async () => {
+    const manifest = fileURLToPath(import.meta.resolve('tsdown/package.json'))
+    for (const extension of ['cts', 'cjs', 'json']) {
+      const root = await mkdtemp(join(tmpdir(), `dsh-build-${extension}-`))
+      temporary.push(root)
+      await writeFile(join(root, 'package.json'), '{"type":"module"}\n')
+      await writeFile(join(root, `tsdown.config.${extension}`), '{}\n')
+      await mkdir(join(root, 'node_modules'), { recursive: true })
+      await symlink(dirname(manifest), join(root, 'node_modules', 'tsdown'))
+      let called = false
+      await runProjectBuild([], root, {
+        run: async () => { called = true; return { exitCode: 0, signal: null } },
+      })
+      expect(called).toBe(true)
+    }
+    const root = await mkdtemp(join(tmpdir(), 'dsh-build-package-json-'))
+    temporary.push(root)
+    await writeFile(join(root, 'package.json'), '{"type":"module","tsdown":{}}\n')
+    await mkdir(join(root, 'node_modules'), { recursive: true })
+    await symlink(dirname(manifest), join(root, 'node_modules', 'tsdown'))
+    let called = false
+    await runProjectBuild([], root, {
+      run: async () => { called = true; return { exitCode: 0, signal: null } },
+    })
+    expect(called).toBe(true)
+  })
+
   it('reports missing and malformed project tsdown executables', async () => {
     const missing = await mkdtemp(join(tmpdir(), 'dsh-build-missing-'))
     temporary.push(missing)
@@ -279,6 +308,7 @@ describe('build profiles and invocation', () => {
   })
 
   it('boots empty Cordis configs and delegates targetless runs', async () => {
+    expectTypeOf(runSDK).toBeCallableWith()
     const root = await mkdtemp(join(tmpdir(), 'dsh-start-sdk-'))
     temporary.push(root)
     await writeFile(join(root, 'cordis.yml'), '[]\n')
@@ -479,5 +509,26 @@ describe('ConfigWorkflow', () => {
     expect(result.commit?.project.cordis.entry('stdio')).toBeDefined()
     expect(result.commit?.project.cordis.entry('agent-loop')).toBeDefined()
     expect(result.commit?.project.cordis.entry('agent-core')).toBeUndefined()
+  })
+
+  it('disables ask-user when switching its app interface to embed', async () => {
+    const project = await committedProject([
+      { id: featureId('ask-user'), options: ['default'] },
+    ], [], 'acp')
+    const registry = createBuiltinRegistry(project.profile)
+    const output = outputBuffer()
+    const workflow = new ConfigWorkflow(new QueuePort([
+      [
+        { value: 'feature:provider', choices: ['deepseek'] },
+        { value: 'feature:app', choices: ['embed'] },
+        { value: 'feature:persistence', choices: ['jsonl'] },
+        { value: 'feature:ask-user', choices: ['default'] },
+      ],
+      true,
+    ]), output.stream, async () => {})
+    const result = await workflow.run(project, registry)
+    expect(result.commit?.project.profile.runInterface).toBe('embed')
+    expect(result.commit?.project.cordis.entry('tool-ask-user')?.disabled).toBe(true)
+    expect(output.read()).toContain('Disable feature: ask-user')
   })
 })

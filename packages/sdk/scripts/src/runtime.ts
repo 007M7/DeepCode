@@ -109,7 +109,7 @@ export async function startSDK(
  * @returns target main result or live Cordis context.
  */
 export async function runSDK(
-  target: string | undefined,
+  target?: string,
   options: BootProjectOptions = {},
 ): Promise<unknown> {
   /* v8 ignore next -- the bin always supplies cwd; direct consumers normally accept process.cwd() */

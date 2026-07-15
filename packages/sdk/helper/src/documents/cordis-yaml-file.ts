@@ -135,9 +135,11 @@ export class CordisYamlFile extends ProjectFile {
   }
 
   /** Add one new top-level entry, rejecting duplicate ids. */
-  addEntry(entry: CordisConfigEntry): void {
+  addEntry(entry: CordisConfigEntry, commentedExample?: string): void {
     if (this.entryNode(entry.id)) throw new Error(`Cordis config entry already exists: ${entry.id}`)
-    this.sequence().items.push(this.document.createNode(entry))
+    const node = this.document.createNode(entry)
+    if (commentedExample) node.comment = commentedExample.split('\n').map(line => ` ${line}`).join('\n')
+    this.sequence().items.push(node)
   }
 
   /** Remove an entry by id and report whether it existed. */

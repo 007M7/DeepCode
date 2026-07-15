@@ -19,7 +19,7 @@ import { EnvFile } from '../documents/env-file.ts'
 import { PackageJsonFile, type PackageManifest } from '../documents/package-json-file.ts'
 import { ProjectFile } from '../documents/project-file.ts'
 import { TsConfigFile } from '../documents/tsconfig-file.ts'
-import type { FeatureId, ResourceKey } from '../ids.ts'
+import { featureId, type FeatureId, type ResourceKey } from '../ids.ts'
 import { LinkWorkspace } from '../package-managers/link-workspace.ts'
 import type { LocalPluginBlueprint } from '../plugins/local-plugin-blueprint.ts'
 import type { FeatureSelection, ProjectProfile } from './types.ts'
@@ -390,7 +390,7 @@ export class ProjectEditSession implements FeatureProjectView {
       }
       case 'cordis-config-entry': {
         const current = this.cordis().entry(resource.entry.id)
-        if (!current) this.cordis().addEntry(resource.entry)
+        if (!current) this.cordis().addEntry(resource.entry, resource.commentedExample)
         else {
           if (current.name !== resource.entry.name) {
             throw new Error(`Cordis config entry ${resource.entry.id} is owned by ${current.name}, not ${resource.entry.name}`)
@@ -486,9 +486,17 @@ export class ProjectEditSession implements FeatureProjectView {
 
   private validateFinalState(): void {
     for (const document of this.documents.values()) document.validate()
+    const profile = this.finalProfile()
+    const view = this.projectView(profile)
     for (const feature of this.registry.all()) {
-      if (!feature.isApplicable(this.profile)) continue
-      const installation = feature.inspect(this)
+      const state = this.states.get(feature.id)
+      if (!feature.isApplicable(profile)) {
+        if (state?.state === 'enabled') {
+          throw new Error(`feature ${feature.id} is not available for ${profile.runInterface}`)
+        }
+        continue
+      }
+      const installation = feature.inspect(view)
       /* v8 ignore next 3 -- public domain commands assert feature consistency before final validation */
       if (installation.state === 'inconsistent') {
         throw new Error(`feature ${feature.id} is inconsistent: ${installation.diagnostics.join('; ')}`)
@@ -499,7 +507,7 @@ export class ProjectEditSession implements FeatureProjectView {
       }
       if (installation.state !== 'enabled' || !installation.selection) continue
       for (const requirement of feature.requirements(installation.selection)) {
-        const required = this.registry.get(requirement.id).inspect(this)
+        const required = this.registry.get(requirement.id).inspect(view)
         /* v8 ignore next 3 -- ensureRequirements establishes enabled requirements before contributions change */
         if (required.state !== 'enabled') {
           throw new Error(`feature ${feature.id} requires enabled ${requirement.id}`)
@@ -519,6 +527,22 @@ export class ProjectEditSession implements FeatureProjectView {
     /* v8 ignore next 3 -- resource application either succeeds completely or throws at the owning operation */
     if (installation.state === 'inconsistent') {
       throw new Error(`feature ${feature.id} is inconsistent: ${installation.diagnostics.join('; ')}`)
+    }
+  }
+
+  private finalProfile(): ProjectProfile {
+    const runInterface = this.states.get(featureId('app'))?.selection?.options[0]
+    if (runInterface !== 'acp' && runInterface !== 'stdio' && runInterface !== 'embed') return this.profile
+    return { ...this.profile, runInterface }
+  }
+
+  private projectView(profile: ProjectProfile): FeatureProjectView {
+    return {
+      profile,
+      cordisConfigEntries: () => this.cordisConfigEntries(),
+      packageManifest: () => this.packageManifest(),
+      hasDocument: path => this.hasDocument(path),
+      readEnvironment: (path, name) => this.readEnvironment(path, name),
     }
   }
 

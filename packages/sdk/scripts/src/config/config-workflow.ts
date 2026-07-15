@@ -17,6 +17,7 @@ import {
   type NestedMultiSelectValue,
   type ProjectCommitResult,
   type PromptPort,
+  type RunInterface,
   type SdkProject,
 } from '@deepseek-ai/dsh-helper'
 import { DSH_SDK_TEMPLATES } from '../templates/dsh-sdk-templates.ts'
@@ -37,6 +38,14 @@ function pluginTarget(id: string): string {
 
 function sameOptions(left: readonly string[], right: readonly string[]): boolean {
   return [...left].sort().join('\0') === [...right].sort().join('\0')
+}
+
+function targetRunInterface(
+  current: RunInterface,
+  desired: ReadonlyMap<string, NestedMultiSelectValue<string, string>>,
+): RunInterface {
+  const selected = desired.get('feature:app')?.choices[0]
+  return selected === 'acp' || selected === 'stdio' || selected === 'embed' ? selected : current
 }
 
 /** Reconcile one tree selection into domain commands, then review and commit once. */
@@ -100,6 +109,13 @@ export class ConfigWorkflow {
       ],
     }))
     const desiredByTarget = new Map(desired.map(item => [item.value, item]))
+    const targetProfile = {
+      ...project.profile,
+      runInterface: targetRunInterface(project.profile.runInterface, desiredByTarget),
+    }
+    for (const feature of features) {
+      if (!feature.isApplicable(targetProfile)) desiredByTarget.delete(featureTarget(feature))
+    }
 
     for (const feature of features) {
       const installation = inspections.get(feature.id)

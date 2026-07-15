@@ -18,8 +18,23 @@ function hasLocalPluginPackages(root: string): boolean {
 }
 
 function hasTsdownConfig(root: string): boolean {
-  return ['tsdown.config.ts', 'tsdown.config.js', 'tsdown.config.mjs', 'tsdown.config.mts']
+  const hasConfigFile = [
+    'tsdown.config.ts', 'tsdown.config.mts', 'tsdown.config.cts',
+    'tsdown.config.js', 'tsdown.config.mjs', 'tsdown.config.cjs',
+    'tsdown.config.json',
+  ]
     .some(name => existsSync(resolve(root, name)))
+  if (hasConfigFile) return true
+  let manifestText: string
+  try {
+    manifestText = readFileSync(resolve(root, 'package.json'), 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
+  const manifest: unknown = JSON.parse(manifestText)
+  return manifest !== null && !Array.isArray(manifest) && typeof manifest === 'object'
+    && Object.hasOwn(manifest, 'tsdown')
 }
 
 /**

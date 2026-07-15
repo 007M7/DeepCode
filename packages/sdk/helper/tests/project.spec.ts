@@ -52,6 +52,7 @@ function request(
   extra: readonly FeatureSelection[] = [],
   plugins: readonly LocalPluginBlueprint[] = [],
   app: 'acp' | 'stdio' | 'embed' = 'stdio',
+  bash: 'local' | 'sandbox' = 'local',
 ): ProjectCreationRequest {
   return {
     name: 'test-agent',
@@ -61,7 +62,7 @@ function request(
     releaseVersion: '0.0.1',
     features: [
       selection('provider', ['deepseek'], { apiKey: 'test-key' }),
-      selection('bash', ['local']),
+      selection('bash', [bash]),
       selection('app', [app]),
       selection('persistence', ['jsonl']),
       ...extra,
@@ -203,6 +204,24 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(committed.cordis.entry('stdio')).toBeUndefined()
   })
 
+  it('emits the sandbox workspace-write example as inactive Cordis config', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-sandbox-bash-'))
+    temporary.push(root)
+    const creation = request([], [], 'stdio', 'sandbox')
+    const project = SdkProject.create(root, creation)
+    const registry = createBuiltinRegistry(project.profile)
+    const edit = project.edit(registry)
+    for (const item of creation.features) edit.installFeature(registry.get(item.id), item)
+    await edit.commit()
+    const cordis = await readFile(join(root, 'cordis.yml'), 'utf8')
+    expect(cordis).toContain(`- id: bash
+  name: "@deepseek-ai/dsh-bash-sandbox"
+  # Uncomment to allow writes under the project workspace.
+  # config:
+  #   mode: workspace-write
+  #   workspaceRoot: !!js process.cwd()`)
+  })
+
   it('round-trips the custom pi-ai provider with explicit endpoint and default model', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-custom-provider-'))
     temporary.push(root)
@@ -283,6 +302,14 @@ describe('SdkProject and ProjectEditSession', () => {
     const incomplete = await SdkProject.open(embed.root)
     expect(createBuiltinRegistry(incomplete.profile).get(featureId('app')).inspect(incomplete).diagnostics)
       .toContain('missing package.json script dev')
+  })
+
+  it('rejects enabled features that do not apply to the target app interface', async () => {
+    const project = await createCommitted([selection('ask-user', ['default'])])
+    const registry = createBuiltinRegistry(project.profile)
+    const edit = project.edit(registry)
+    edit.configureFeature(registry.get(featureId('app')), selection('app', ['embed']))
+    await expect(edit.commit()).rejects.toThrow('feature ask-user is not available for embed')
   })
 
   it('supports disabled feature reconfiguration and rejects invalid state operations', async () => {

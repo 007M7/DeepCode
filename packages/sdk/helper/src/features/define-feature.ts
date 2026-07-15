@@ -31,6 +31,7 @@ interface NpmCordisConfigEntrySpec {
   package: string
   config?: Readonly<Record<string, unknown>>
   ownedConfigKeys?: readonly string[]
+  commentedExample?: string
 }
 
 /** Relative or absolute file Cordis config entry with no NPM dependency. */
@@ -40,6 +41,7 @@ interface FileCordisConfigEntrySpec {
   path: string
   config?: Readonly<Record<string, unknown>>
   ownedConfigKeys?: readonly string[]
+  commentedExample?: string
 }
 
 /** Static complete file owned by one feature option. */
@@ -147,6 +149,7 @@ function resourcesFromSpec(spec: FeatureResourceSpec): ProjectResource[] {
             ...config ? { config } : {},
           },
           ownedConfigKeys: spec.ownedConfigKeys ?? Object.keys(config ?? {}),
+          ...spec.commentedExample ? { commentedExample: spec.commentedExample } : {},
           ...validateConfig ? { validateConfig } : {},
         },
       ]

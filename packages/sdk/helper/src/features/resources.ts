@@ -31,6 +31,7 @@ export interface CordisConfigEntryResource {
   key: ResourceKey
   entry: CordisConfigEntry
   ownedConfigKeys: readonly string[]
+  commentedExample?: string
   validateConfig?: (config: Readonly<Record<string, unknown>>) => readonly string[]
 }
 

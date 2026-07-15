@@ -55,7 +55,15 @@ export function createBuiltinRegistry(profile: ProjectProfile): FeatureRegistry 
           label: 'Sandboxed executor',
           resources: [
             { kind: 'npm-cordis-config-entry', id: 'sandbox', package: '@deepseek-ai/dsh-sandbox-local' },
-            { kind: 'npm-cordis-config-entry', id: 'bash', package: '@deepseek-ai/dsh-bash-sandbox' },
+            {
+              kind: 'npm-cordis-config-entry',
+              id: 'bash',
+              package: '@deepseek-ai/dsh-bash-sandbox',
+              commentedExample: `Uncomment to allow writes under the project workspace.
+config:
+  mode: workspace-write
+  workspaceRoot: !!js process.cwd()`,
+            },
           ],
         },
       ],

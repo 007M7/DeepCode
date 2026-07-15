@@ -74,8 +74,11 @@ describe('structured project documents', () => {
 
   it('round-trips Cordis comments and !!js while editing owned fields', () => {
     const created = CordisYamlFile.create().clone()
-    created.addEntry({ id: 'created', name: 'created-package' })
+    created.addEntry({ id: 'created', name: 'created-package' }, `Uncomment this example.
+config:
+  value: true`)
     expect(created.serialize()).toMatch(/^- id: created/m)
+    expect(created.serialize()).toContain('  # Uncomment this example.\n  # config:\n  #   value: true')
     expect(created.serialize()).not.toMatch(/^\[/)
     const flow = CordisYamlFile.parse('[{ id: flow, name: flow-package, config: { root: ./flow } }]\n')
     expect(flow.serialize()).toContain('- id: flow\n  name: flow-package\n  config:\n    root: ./flow')
@@ -205,6 +208,20 @@ describe('structured project documents', () => {
     invalid.addPackage(' ')
     expect(() => { invalid.validate() }).toThrow('must not be empty')
     expect(PnpmWorkspaceFile.parse('packages: []\n').serialize()).not.toContain('autoInstallPeers')
+    const preserved = PnpmWorkspaceFile.parse(`# keep workspace settings
+packages:
+  - apps/*
+catalog:
+  react: ^19.0.0
+overrides:
+  legacy: modern
+`)
+    preserved.disableAutoInstallPeers()
+    const preservedText = preserved.clone().serialize()
+    expect(preservedText).toContain('# keep workspace settings')
+    expect(preservedText).toContain('catalog:\n  react: ^19.0.0')
+    expect(preservedText).toContain('overrides:\n  legacy: modern')
+    expect(preservedText).toContain('autoInstallPeers: false')
   })
 
   it('renders strict complete-file templates without escaping code text', () => {
