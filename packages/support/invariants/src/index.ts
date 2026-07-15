@@ -2,7 +2,7 @@
  * Runtime listeners that fail loudly when cross-event contracts are broken:
  * turn and step nesting, scoped dispatch, status transitions, and request
  * reconstruction. The plugin has no environment guard and is active wherever
- * mounted, including the default `dsh-agent-core` bundle; custom compositions
+ * mounted, including the default `dsh-agent-spine-demo` bundle; custom compositions
  * may omit it. Sessions still own event snapshots and freezing.
  * @module @deepseek-ai/dsh-invariants
  */

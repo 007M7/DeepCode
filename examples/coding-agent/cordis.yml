@@ -1,4 +1,4 @@
-# REPL agent with swappable DeepSeek and local-bash backends. `dsh-stdio-agent`
+# REPL agent with swappable DeepSeek and local-bash backends. `dsh-stdio-demo`
 # supplies the agent-core spine, logging, JSONL persistence, readline UI, and `main` agent.
 # HMR remains a leaf because it requires Loader internals; `demo:repl` passes
 # `--expose-internals`. The app bin loads the gitignored root `.env`; this file
@@ -29,7 +29,7 @@
 
 # The app bundle pre-creates the REPL's `main` agent.
 - id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-agent'
+  name: '@deepseek-ai/dsh-stdio-demo'
   config:
     model: deepseek-v4-flash
     # Set RESUME_SESSION_ID to continue a prior persisted session (the ids live

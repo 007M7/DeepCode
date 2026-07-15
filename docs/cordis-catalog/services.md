@@ -82,7 +82,7 @@ abstract run(request: CodeRunRequest): Promise<CodeRunResult>
 
 Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResult](../core-data-structures/code-runtime.md)
 
-Source: [`packages/code-runtime/code-runtime/src/index.ts:31`](../../packages/code-runtime/code-runtime/src/index.ts)
+Source: [`packages/code-runtime/code-runtime/src/index.ts:30`](../../packages/code-runtime/code-runtime/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -239,7 +239,7 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:213`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:209`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tokenMeter` — `TokenMeterService`
 
