@@ -8,7 +8,7 @@ import AgentRegistry, { AgentId, type ContinuationDecision } from '@deepseek-ai/
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { prepareReactLoopAgent } from '../src/agent.ts'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
-import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+import { maxTokensResponse, MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 /** Regression tests for agent-loop boundary, identity, and lifecycle contracts. */
 
@@ -86,6 +86,72 @@ describe('session log records what agent/step-result actually produced', () => {
     const derived = agent.session.deriveMessages()
     expect(JSON.stringify(derived)).toContain('rewritten')
     expect(JSON.stringify(derived)).not.toContain('original')
+  })
+})
+
+describe('successful provider completion survives agent/step-result failure', () => {
+  async function expectContentlessCompletionAnchor(
+    response: StreamChunk[],
+    id: string,
+    providerText: string,
+  ): Promise<void> {
+    const adapter = new MockAdapter([response])
+    const ctx = await harness(adapter)
+    await ctx.plugin(Invariants)
+    const agent = ctx.agentLoop.create(AgentId(id), { model: 'mock' })
+    const failure = new Error(`${id} result processing failed`)
+    const reported: Error[] = []
+
+    ctx.on('agent/step-result', async () => {
+      throw failure
+    })
+    ctx.on('agent/error', (subject, _turn, _step, error) => {
+      if (subject === agent) reported.push(error)
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const events = [...agent.session.events]
+    const chunks = events.filter(event => event.type === 'assistant/chunk')
+    const completions = events.filter(event => event.type === 'assistant/message')
+    expect(completions).toHaveLength(1)
+    expect(completions[0]?.type === 'assistant/message' && completions[0].data).toEqual({
+      turn: 1,
+      step: 1,
+      content: [],
+      usage: { inputTokens: 10, outputTokens: providerText.length },
+    })
+    expect(completions[0]?.sourceEventSeqs).toEqual(chunks.map(event => event.seq))
+    expect(agent.session.deriveMessages()).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'go' }] },
+    ])
+    expect(reported).toHaveLength(1)
+    expect(reported[0]).toBe(failure)
+    const turnEnd = events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({
+      kind: 'error',
+      step: 1,
+      message: failure.message,
+    })
+  }
+
+  it('records one content-less anchor when ordinary stop result processing rejects', async () => {
+    const providerText = 'ordinary provider output'
+    await expectContentlessCompletionAnchor(
+      textResponse(providerText),
+      'a-step-result-stop-failure',
+      providerText,
+    )
+  })
+
+  it('records one content-less anchor when max-token result processing rejects', async () => {
+    const providerText = 'truncated provider output'
+    await expectContentlessCompletionAnchor(
+      maxTokensResponse(providerText),
+      'a-step-result-max-token-failure',
+      providerText,
+    )
   })
 })
 

@@ -6,7 +6,7 @@
  */
 
 import type { Context } from 'cordis'
-import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
+import type { FinishReason, GenerateOptions, LlmCallConfig, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
@@ -527,29 +527,26 @@ async function runStep(
 
   if (assembler.finish.kind === 'max-tokens') {
     let message: Message = withoutToolCalls(assembler.message())
-    message = withoutToolCalls(await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message)))
-    // Every successful call records its completion anchor. Empty content is
-    // skipped by deriveMessages(), while exact chunk provenance lets replay
-    // distinguish a known empty provider stream from unrecorded provenance.
-    session.append(
-      'assistant/message',
-      { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
-      { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
+    message = withoutToolCalls(await processStepResult(
+      events, session, turn, step, message, assembler.usage, chunkSeqs,
+    ))
+    appendAssistantCompletion(
+      session, turn, step, message.content, assembler.usage, chunkSeqs,
     )
     return { hadToolCalls: false, finish: assembler.finish }
   }
 
   // Record the post-waterfall message that tool dispatch uses.
   let message: Message = assembler.message()
-  message = await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message))
+  message = await processStepResult(
+    events, session, turn, step, message, assembler.usage, chunkSeqs,
+  )
 
   // Every successful call records its completion anchor. A present empty
   // source set means the provider stream was known to contain no chunks;
   // omission remains the conservative legacy/unrecorded representation.
-  session.append(
-    'assistant/message',
-    { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
-    { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
+  appendAssistantCompletion(
+    session, turn, step, message.content, assembler.usage, chunkSeqs,
   )
 
   // Tool execution stays sequential; recheck abort around each normalized result.
@@ -599,6 +596,42 @@ async function runStep(
   }
 
   return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
+}
+
+/** Append the single durable completion anchor for one successful provider call. */
+function appendAssistantCompletion(
+  session: Session,
+  turn: number,
+  step: number,
+  content: Message['content'],
+  usage: TokenUsage | undefined,
+  sourceEventSeqs: number[],
+): void {
+  session.append(
+    'assistant/message',
+    { turn, step, content, ...(usage ? { usage } : {}) },
+    { surfaceOp: 'append', sourceEventSeqs },
+  )
+}
+
+/** Preserve successful-call accounting without retaining output that result processing rejected. */
+async function processStepResult(
+  events: AgentEventDispatch,
+  session: Session,
+  turn: number,
+  step: number,
+  message: Message,
+  usage: TokenUsage | undefined,
+  sourceEventSeqs: number[],
+): Promise<Message> {
+  try {
+    return await events.waterfall(
+      'agent/step-result', turn, step, message, () => Promise.resolve(message),
+    )
+  } catch (error: unknown) {
+    appendAssistantCompletion(session, turn, step, [], usage, sourceEventSeqs)
+    throw error
+  }
 }
 
 function withoutToolCalls(message: Message): Message {

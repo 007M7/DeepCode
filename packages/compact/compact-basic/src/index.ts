@@ -159,11 +159,12 @@ export class BasicCompactService extends CompactService {
 
   /**
    * Compact one inclusive positional surface range using the effective
-   * conversation model for all retention and shrink pricing.
-   * @param session - session whose surface is mutated.
+   * conversation model for all retention and shrink pricing. Reject an agent
+   * that does not own the exact target before any resolution or mutation.
+   * @param session - session whose surface is mutated; must equal `agent.session`.
    * @param start - inclusive first surface-node seq.
    * @param end - inclusive last surface-node seq.
-   * @param agent - agent used by the summarizer and model resolver.
+   * @param agent - owner of the target session, used by the summarizer and model resolver.
    * @param signal - optional summarization cancellation signal.
    * @returns the successful durable compaction result.
    */
@@ -174,6 +175,9 @@ export class BasicCompactService extends CompactService {
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
+    if (session !== agent.session) {
+      throw new Error('compactRegion: agent.session must be the exact target session')
+    }
     const model = effectiveModel(agent)
     if (model === undefined || model.length === 0) {
       throw new Error('compactRegion: no routed or configured conversation model is available for token pricing')

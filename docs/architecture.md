@@ -81,7 +81,7 @@ forever:
       agent/request (config only) -> log request/header -> llm/stream (frozen)
         'assistant/chunk'
       agent/step-result
-      'assistant/message'
+      'assistant/message' (transformed content, or an empty successful-call anchor if step-result rejects)
       each tool call:
         'tool/call'
         tools/pre-execute -> monotonic guards -> tools/execute -> tools/post-execute -> tools/result

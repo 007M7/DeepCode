@@ -50,7 +50,7 @@ Configured agents start automatically. `cwd` applies only to fresh sessions; `re
 
 The driver owns one agent for its lifetime. It records turn, step, request, stream, and tool boundaries in the session log; live extension events coordinate policy around those durable facts. The [architecture turn flow](../../../docs/architecture.md#turn-flow) and generated [event catalog](../../../docs/cordis-catalog/events.md) are the authoritative sequence and signatures.
 
-Every provider call that reaches a successful finish appends one `assistant/message` completion anchor after `agent/step-result`, including content-less calls and `max-tokens` finishes. The anchor records exact chunk provenance (`[]` for a stream with no chunks) and usage when available; empty content stays out of derived message history while those replay facts remain durable.
+Every provider call that reaches a successful finish appends exactly one `assistant/message` completion anchor, including content-less calls and `max-tokens` finishes. A successful `agent/step-result` stores its transformed content; a rejected result records empty content before the original failure continues. The anchor retains exact chunk provenance (`[]` for a stream with no chunks) and usage when available, while empty content stays out of derived message history.
 
 Plugin failure ends the current turn, not the loop. Cancellation clears pending work and aborts the current step without leaking to the next prompt. Terminal continuation stops remain authoritative through turn close and durability flush.
 

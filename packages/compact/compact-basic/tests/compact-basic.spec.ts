@@ -361,6 +361,26 @@ describe('pressure measurement and retention', () => {
 })
 
 describe('compaction region transaction', () => {
+  it('rejects an agent that does not own the exact target session before mutation', async () => {
+    const compact = service()
+    const target = conversation(2)
+    const owner = conversation(1)
+    const targetEvents = [...target.events]
+    const ownerEvents = [...owner.events]
+    const nodes = target.surface.nodes
+
+    await expect(compact.compactRegion(
+      target,
+      nodes[0]!.seq,
+      nodes[1]!.seq,
+      agent(owner),
+    )).rejects.toThrow('compactRegion: agent.session must be the exact target session')
+
+    expect(target.events).toEqual(targetEvents)
+    expect(owner.events).toEqual(ownerEvents)
+    expect(compact.calls).toEqual([])
+  })
+
   it('lands a framed, replayable checkpoint with exact pricing provenance', async () => {
     const compact = service()
     const session = conversation(3)
