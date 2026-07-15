@@ -1049,7 +1049,7 @@ function validateMcpServers(params: { mcpServers?: unknown[] }): void {
  * zero or more times per event (best-effort UI feed, never load-bearing).
  * @param presenter - resolves tool-owned render intent for tool events;
  * defaults to the generic-fallback {@link nullToolPresenter}.
- * @param terminal - the connection's terminal-rendering context; defaults to
+ * @param terminal - the session's terminal-rendering context; defaults to
  * disabled (the plain-text console-block fallback).
  * @param options - `includeUserMessages` (default `true`): live streaming
  * passes `false` so a prompt the client just sent is not echoed back.
@@ -1122,7 +1122,7 @@ export function todosToPlan(todos: TodoItem[]): Plan {
 }
 
 /**
- * Per-connection terminal-rendering context threaded into
+ * Per-session terminal-rendering context threaded into
  * {@link streamSessionEventUpdate}: whether the client advertised the
  * `_meta.terminal_output` capability, and the session's workspace cwd (the
  * default terminal-card header when a tool doesn't supply its own). Kept out of

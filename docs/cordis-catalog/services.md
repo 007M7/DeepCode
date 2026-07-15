@@ -19,9 +19,7 @@ async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<Agent
 async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Types: [Agent](../core-data-structures/core.md)
-
-Source: [`packages/core/agent-loop/src/index.ts:372`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:391`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
