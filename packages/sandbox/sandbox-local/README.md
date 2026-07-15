@@ -2,6 +2,8 @@
 
 Local implementation of the [`dsh-sandbox`](../sandbox/) seam. It selects and caches one platform runner: Linux prefers a working `bwrap` then Landlock; macOS uses Seatbelt. Multiple candidates are probed in order, while a sole candidate is selected directly.
 
+The package root exports the default and named `LocalSandboxProvider` plugin, `Config`, and its public test-injection seam; platform profile builders stay internal.
+
 Unsupported platforms and unusable runners fail closed with `SANDBOX_UNAVAILABLE`; execution never silently falls through unconfined. Each wrap carries runner-failure signatures so consumers can distinguish a broken sandbox from a command failure. The [sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md) owns selection rationale and profile differences.
 
 Policy is per call; the provider stores only the mechanism and cached runner verdict. Each wrap reports enforcement completeness plus backend-specific denial and runner-failure signatures. `runnerCommand` is an operator assertion of a bwrap-shaped runner and skips probes, but missing or unexecutable commands still fail closed at execution. Because its mechanism is unknown, it carries both Linux denial dialects. `probeTimeoutMs` bounds functional probes. The [sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md) owns selection and failure semantics.
