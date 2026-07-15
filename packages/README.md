@@ -28,6 +28,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
 | [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, surface records, and bounded exact reads | Product — stable surface |
+| [`sdk/`](sdk/README.md) | Project SDK tooling | Product — stable surface |
 | [`ui/`](ui/README.md) | Editor/client integration surfaces: ACP bridge, JSON-RPC SDK server, user-approval/user-interaction seams, ask-user tool | Product — stable surface |
 | [`examples/`](examples/README.md) | Demo bundles (agent-spine + stdio/ACP/JSON-RPC bins) the leaves load | Support — example infra |
 | [`support/`](support/README.md) | Support infrastructure (invariants, replay, Loader smokes) | Support — lower compatibility expectations |

@@ -7,8 +7,8 @@
  * re-exports keep their docs at the declaring contract. Unknown forms fail closed.
  */
 
-import { existsSync, globSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, globSync, readFileSync } from 'node:fs'
+import { relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { checkParams, checkReturns, parseJsDoc, parseTags, pointer, rawJsDoc } from './jsdoc.ts'
 
@@ -389,7 +389,13 @@ function checkDecl(
  * @param w - the walk state violations append to.
  * @param ambient - whether this scope is ambient (`declare` namespace or a declaration file), where members export implicitly.
  */
-function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk, ambient: boolean): void {
+function checkScope(
+  statements: readonly ts.Statement[],
+  prefix: string,
+  w: Walk,
+  ambient: boolean,
+  allowedNames?: ReadonlySet<string>,
+): void {
   const byName = new Map<string, ts.Statement[]>()
   const overloadSigs = new Set<string>()
   const add = (name: string, stmt: ts.Statement): void => {
@@ -455,12 +461,86 @@ function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk
       }
       continue
     }
-    if (isExported(stmt) || (ambient && !ts.isImportDeclaration(stmt))) request(stmt, null)
+    if (isExported(stmt) || (ambient && !ts.isImportDeclaration(stmt))) {
+      if (allowedNames === undefined) {
+        request(stmt, null)
+      } else if (ts.isVariableStatement(stmt)) {
+        for (const declaration of stmt.declarationList.declarations) {
+          if (ts.isIdentifier(declaration.name) && allowedNames.has(declaration.name.text)) {
+            request(stmt, declaration.name.text)
+          }
+        }
+      } else {
+        const name = declarationName(stmt) ?? 'default'
+        if (allowedNames.has(name)) request(stmt, null)
+      }
+    }
   }
   for (const stmt of statements) {
     const only = requested.get(stmt)
     if (only !== undefined) checkDecl(stmt, prefix, overloadSigs, byName, ambient, w, only)
   }
+}
+
+function exportedTargets(value: unknown): string[] {
+  if (typeof value === 'string') return [value]
+  if (!value || typeof value !== 'object') return []
+  return Object.values(value).flatMap(exportedTargets)
+}
+
+function sourceEntry(target: string): string | undefined {
+  if (target.startsWith('./lib/types/') && target.endsWith('.d.ts')) {
+    return `src/${target.slice('./lib/types/'.length, -'.d.ts'.length)}.ts`
+  }
+  if (target.startsWith('./lib/') && target.endsWith('.js')) {
+    return `src/${target.slice('./lib/'.length, -'.js'.length)}.ts`
+  }
+  return undefined
+}
+
+function declarationName(declaration: ts.Node): string | undefined {
+  const name = (declaration as ts.NamedDeclaration).name
+  if (name && ts.isIdentifier(name)) return name.text
+  return undefined
+}
+
+/** Resolve the declarations reachable through packages that do not export src/*. */
+function restrictedPublicNames(
+  scanRoot: string,
+  rels: readonly string[],
+  program: ts.Program,
+  checker: ts.TypeChecker,
+): { restrictedPackages: Set<string>; namesByFile: Map<string, Set<string>> } {
+  const restrictedPackages = new Set<string>()
+  const namesByFile = new Map<string, Set<string>>()
+  const packages = new Set(rels.map(rel => rel.split('/').slice(0, 3).join('/')))
+  for (const packageDir of packages) {
+    const manifestPath = resolve(scanRoot, packageDir, 'package.json')
+    if (!existsSync(manifestPath)) continue
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { exports?: Record<string, unknown> }
+    if (!manifest.exports || manifest.exports['./src/*'] !== undefined) continue
+    restrictedPackages.add(packageDir)
+    const entries = new Set(Object.values(manifest.exports).flatMap(exportedTargets).flatMap((target) => {
+      const entry = sourceEntry(target)
+      return entry ? [`${packageDir}/${entry}`] : []
+    }))
+    for (const entry of entries) {
+      const source = program.getSourceFile(resolve(scanRoot, entry))
+      const moduleSymbol = source && checker.getSymbolAtLocation(source)
+      if (!source || !moduleSymbol) continue
+      for (const exported of checker.getExportsOfModule(moduleSymbol)) {
+        const target = (exported.flags & ts.SymbolFlags.Alias) !== 0 ? checker.getAliasedSymbol(exported) : exported
+        for (const declaration of target.declarations ?? []) {
+          const name = declarationName(declaration)
+          const file = declaration.getSourceFile().fileName
+          const rel = relative(scanRoot, file).split(sep).join('/')
+          if (!name || !rel.startsWith(`${packageDir}/src/`)) continue
+          namesByFile.set(rel, new Set([...(namesByFile.get(rel) ?? []), name]))
+        }
+      }
+    }
+  }
+  return { restrictedPackages, namesByFile }
 }
 
 /**
@@ -495,15 +575,26 @@ function loadCompilerOptions(scanRoot: string): ts.CompilerOptions {
  */
 export function collectExportJsdocViolations(scanRoot: string = root): string[] {
   const violations: string[] = []
-  const rels = globSync('packages/*/*/src/**/*.ts', { cwd: scanRoot }).sort()
+  const rels = globSync('packages/*/*/src/**/*.ts', { cwd: scanRoot })
+    .map(path => path.split(sep).join('/'))
+    .sort()
   const program = ts.createProgram(rels.map(rel => resolve(scanRoot, rel)), loadCompilerOptions(scanRoot))
   const checker = program.getTypeChecker()
+  const { restrictedPackages, namesByFile } = restrictedPublicNames(scanRoot, rels, program, checker)
   for (const rel of rels) {
     const sf = program.getSourceFile(resolve(scanRoot, rel))
     if (!sf) continue // program root files always resolve; guard for narrowing
     // A script-style declaration file (no imports/exports) is one big ambient
     // scope; a module-style .d.ts still honors explicit export modifiers.
-    checkScope(sf.statements, '', { rel, sf, text: sf.text, checker, violations }, sf.isDeclarationFile && !ts.isExternalModule(sf))
+    const packageDir = rel.split('/').slice(0, 3).join('/')
+    const allowedNames = restrictedPackages.has(packageDir) ? namesByFile.get(rel) ?? new Set<string>() : undefined
+    checkScope(
+      sf.statements,
+      '',
+      { rel, sf, text: sf.text, checker, violations },
+      sf.isDeclarationFile && !ts.isExternalModule(sf),
+      allowedNames,
+    )
   }
   return violations
 }
