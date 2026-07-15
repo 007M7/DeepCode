@@ -6,7 +6,7 @@
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { checkParams, checkReturns, parseJsDoc, parseTags, pointer, rawJsDoc, reportViolations, type Mode } from './jsdoc.ts'
 
@@ -129,7 +129,7 @@ function memberSignature(member: ts.TypeElement | ts.ClassElement, sf: ts.Source
 export function collectEvents(scanRoot: string = root): EventEntry[] {
   const entries: EventEntry[] = []
   const violations: string[] = []
-  for (const rel of globSync('packages/*/*/src/*.ts', { cwd: scanRoot }).sort()) {
+  for (const rel of globSync('packages/*/*/src/*.ts', { cwd: scanRoot }).map(s => s.split(sep).join('/')).sort()) {
     const abs = resolve(scanRoot, rel)
     const text = readFileSync(abs, 'utf8')
     if (!text.includes('interface Events')) continue
@@ -183,7 +183,7 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
 export function collectServices(scanRoot: string = root): ServiceEntry[] {
   const entries: ServiceEntry[] = []
   const violations: string[] = []
-  for (const rel of globSync('packages/*/*/src/index.ts', { cwd: scanRoot }).sort()) {
+  for (const rel of globSync('packages/*/*/src/index.ts', { cwd: scanRoot }).map(s => s.split(sep).join('/')).sort()) {
     const abs = resolve(scanRoot, rel)
     const text = readFileSync(abs, 'utf8')
     if (!text.includes('interface Context')) continue

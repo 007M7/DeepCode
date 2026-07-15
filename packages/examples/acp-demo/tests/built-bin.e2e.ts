@@ -95,8 +95,19 @@ let consumer: string | undefined
 let child: ReturnType<typeof spawn> | undefined
 
 afterEach(async () => {
-  if (child !== undefined) { child.kill('SIGKILL'); child = undefined }
-  if (consumer !== undefined) await rm(consumer, { recursive: true, force: true })
+  if (child !== undefined) {
+    const proc = child
+    child = undefined
+    // Windows retains the child's cwd and session-log handles until process
+    // teardown completes, so await exit before removing the temp directory.
+    if (proc.exitCode === null && proc.signalCode === null) {
+      const exited = new Promise<void>((resolve) => { proc.once('exit', () => { resolve() }) })
+      proc.kill('SIGKILL')
+      await exited
+    }
+  }
+  // Windows can briefly retain released handles after exit; retry removal.
+  if (consumer !== undefined) await rm(consumer, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   consumer = undefined
 })
 
