@@ -183,7 +183,7 @@ describe('dsh-agent-spine-demo bundle', () => {
 
   it('re-exports the loop config schema as its own', () => {
     expect(agentCore.Config).toBeDefined()
-    expect(agentCore.name).toBe('agent-core')
+    expect(agentCore.name).toBe('agent-spine-demo')
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/Config/apply', () => {
@@ -195,7 +195,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(agentCore) as Record<string, unknown>
     expect(unwrapped).toBe(agentCore)
-    expect(unwrapped.name).toBe('agent-core')
+    expect(unwrapped.name).toBe('agent-spine-demo')
     expect(unwrapped.Config).toBeDefined()
     expect(typeof unwrapped.apply).toBe('function')
   })

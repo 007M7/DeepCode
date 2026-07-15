@@ -113,7 +113,7 @@ describe('dsh-acp-demo composition', () => {
   })
 
   it('exposes its plugin shape', () => {
-    expect(acpAgent.name).toBe('acp-agent')
+    expect(acpAgent.name).toBe('acp-demo')
     expect(acpAgent.Config).toBeDefined()
   })
 
@@ -147,7 +147,7 @@ describe('dsh-acp-demo composition', () => {
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(acpAgent) as Record<string, unknown>
     expect(unwrapped).toBe(acpAgent)
-    expect(unwrapped.name).toBe('acp-agent')
+    expect(unwrapped.name).toBe('acp-demo')
     expect(unwrapped.Config).toBeDefined()
     expect(typeof unwrapped.apply).toBe('function')
   })

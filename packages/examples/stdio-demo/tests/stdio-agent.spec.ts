@@ -127,7 +127,7 @@ describe('dsh-stdio-demo app', () => {
   })
 
   it('exposes its name and Config schema', () => {
-    expect(stdioAgent.name).toBe('stdio-agent')
+    expect(stdioAgent.name).toBe('stdio-demo')
     expect(stdioAgent.Config).toBeDefined()
   })
 
@@ -161,7 +161,7 @@ describe('dsh-stdio-demo app', () => {
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(stdioAgent) as Record<string, unknown>
     expect(unwrapped).toBe(stdioAgent)
-    expect(unwrapped.name).toBe('stdio-agent')
+    expect(unwrapped.name).toBe('stdio-demo')
     expect(unwrapped.Config).toBeDefined()
     expect(typeof unwrapped.apply).toBe('function')
   })
