@@ -1,9 +1,4 @@
-"""Keyless tests for the deepseek_harness_runtime resolution API.
-
-These never launch a runtime, so they run everywhere regardless of which
-bundled artifacts are present; the launch-and-boot coverage lives in
-``test_bundled_runtime.py``.
-"""
+"""Keyless runtime-resolution tests; launch coverage lives in test_bundled_runtime.py."""
 
 from __future__ import annotations
 
@@ -20,7 +15,7 @@ from deepseek_harness_runtime import (
 def test_default_config_is_shipped_with_the_package() -> None:
     path = bundled_default_config_path()
     assert path == bundled_package_dir() / "runtime" / "cordis.yml"
-    assert "@deepseek-ai/dsh-agent-core" in path.read_text()
+    assert "@deepseek-ai/dsh-agent-spine-demo" in path.read_text()
 
 
 def test_unknown_explicit_mode_fails_loud() -> None:

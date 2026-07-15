@@ -8,7 +8,7 @@ import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
 import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import { BashExecutor, setSandboxMode } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead, OwnerToken } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import ModesService, { DEFAULT_MODE, EXIT_PLAN_MODE, PLAN_MODE, foldMode, resolveConfig } from '../src/index.ts'
 import type { ModeConfig } from '../src/index.ts'
 
@@ -710,7 +710,7 @@ describe('exit_plan_mode', () => {
 /**
  * A minimal confining executor for the access-cap tests: only `sandboxMode`
  * (the capability fact both policy layers and `resolveMode` read) matters;
- * the task API is never exercised here.
+ * the process API is never exercised here.
  */
 class FakeSandboxExecutor extends BashExecutor {
   constructor(ctx: Context, private readonly config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access' } = {}) {
@@ -722,7 +722,7 @@ class FakeSandboxExecutor extends BashExecutor {
   }
 
   resolve(request: BashExecRequest): BashExecSpec {
-    return { command: request.command, workdir: '/w', timeoutMs: 1000, owner: request.owner, sandboxMode: request.sandboxMode }
+    return { command: request.command, workdir: '/w', timeoutMs: 1000, sandboxMode: request.sandboxMode }
   }
 
   run(_spec: BashExecSpec): Promise<BashRunResult> {
@@ -737,12 +737,7 @@ class FakeSandboxExecutor extends BashExecutor {
     })
   }
 
-  start(_spec: BashExecSpec): BashTask { throw new Error('unused in access-cap tests') }
-  get(): BashTask | undefined { return undefined }
-  ownerOf(): OwnerToken | undefined { return undefined }
-  list(): BashTask[] { return [] }
-  readOutput(): BashTaskRead { throw new Error('unused in access-cap tests') }
-  kill(): boolean { return false }
+  start(_spec: BashExecSpec): BashProcess { throw new Error('unused in access-cap tests') }
 }
 
 describe('the access cap (bash/resolve-mode clamp)', () => {
@@ -804,26 +799,42 @@ describe('the access cap (bash/resolve-mode clamp)', () => {
   })
 })
 
-describe('the bash trio under an access cap', () => {
-  const TRIO = ['bash', 'bash_output', 'bash_kill']
-
-  it('exposes and admits the trio in plan mode under a confining executor', async () => {
+describe('the bash tool under an access cap', () => {
+  it('exposes and admits bash — and leaves the generic task controls alone — under a confining executor', async () => {
     const ctx = await setup()
     await ctx.plugin(FakeSandboxExecutor, { mode: 'workspace-write' })
-    registerNamedTools(ctx, ['read', 'write', ...TRIO])
+    registerNamedTools(ctx, ['read', 'write', 'bash', 'task_output', 'task_kill'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
     const assembly = await ctx.systemPrompt.assemble({ agent })
-    expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['bash', 'bash_kill', 'bash_output', EXIT_PLAN_MODE, 'read', 'write'])
-    for (const name of TRIO) {
+    expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['bash', EXIT_PLAN_MODE, 'read', 'task_kill', 'task_output', 'write'])
+    for (const name of ['bash', 'task_output', 'task_kill']) {
       const result = await execute(ctx, name, agent)
       expect(result.isError).toBe(false)
     }
   })
 
-  it('hides and denies the trio in plan mode without any executor', async () => {
+  it('hides and denies bash in plan mode without any executor; the kind-generic task controls stay', async () => {
     const ctx = await setup()
-    registerNamedTools(ctx, ['read', ...TRIO])
+    registerNamedTools(ctx, ['read', 'bash', 'task_output', 'task_kill'])
+    const agent = agentWithSession()
+    agent.session.append('mode/set', { mode: PLAN_MODE })
+    const assembly = await ctx.systemPrompt.assemble({ agent })
+    // task_output/task_kill span every task kind (subagents included), so the
+    // cap withholds only the starter it can reason about.
+    expect(assembly.tools.map(tool => tool.name).sort()).toEqual([EXIT_PLAN_MODE, 'read', 'task_kill', 'task_output'])
+    const denied = await execute(ctx, 'bash', agent)
+    expect(denied.isError).toBe(true)
+    expect(denied.content).toEqual([{
+      type: 'text',
+      text: 'Error: tool "bash" is not available in plan mode: its read-only sandbox cap needs a sandboxing bash executor, and none is mounted',
+    }])
+  })
+
+  it('hides and denies bash in plan mode under a never-confining executor', async () => {
+    const ctx = await setup()
+    await ctx.plugin(FakeSandboxExecutor, {})
+    registerNamedTools(ctx, ['read', 'bash'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
     const assembly = await ctx.systemPrompt.assemble({ agent })
@@ -836,26 +847,10 @@ describe('the bash trio under an access cap', () => {
     }])
   })
 
-  it('hides and denies the trio in plan mode under a never-confining executor', async () => {
-    const ctx = await setup()
-    await ctx.plugin(FakeSandboxExecutor, {})
-    registerNamedTools(ctx, ['read', ...TRIO])
-    const agent = agentWithSession()
-    agent.session.append('mode/set', { mode: PLAN_MODE })
-    const assembly = await ctx.systemPrompt.assemble({ agent })
-    expect(assembly.tools.map(tool => tool.name).sort()).toEqual([EXIT_PLAN_MODE, 'read'])
-    const denied = await execute(ctx, 'bash_output', agent)
-    expect(denied.isError).toBe(true)
-    expect(denied.content).toEqual([{
-      type: 'text',
-      text: 'Error: tool "bash_output" is not available in plan mode: its read-only sandbox cap needs a sandboxing bash executor, and none is mounted',
-    }])
-  })
-
   it('denies a bash call carrying sandbox_permissions under the cap (no widening mid-mode)', async () => {
     const ctx = await setup()
     await ctx.plugin(FakeSandboxExecutor, { mode: 'workspace-write' })
-    registerNamedTools(ctx, TRIO)
+    registerNamedTools(ctx, ['bash'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
     const denied = await ctx.tools.execute({

@@ -41,4 +41,31 @@ The model-facing exit tool. Its single required argument is the plan text — a 
 
 Definitions are validated at load (`resolveConfig`): the built-in `plan` (the shipped guidance section plus `access: read-only`) merges unless overridden, `default` is rejected as a key, an `access` outside the `SANDBOX_MODES` ladder throws, and any other key — a `tools` list included — fails loud. An unknown mode name fails loudly at `set()` time.
 
+## Model Experience
+
+### System prompt
+
+**What the model sees**: In the default mode, nothing — assemblies are byte-identical to a deployment without this plugin (the always-registered `exit_plan_mode` tool is filtered from the wire and the Code Mode SDK). In a non-default mode, the mode's `section` renders as the `mode:policy` section (order 50) and, in plan mode, the `exit_plan_mode` tool joins the toolset; under an unhonorable `access` cap the `bash` tool disappears. A mode flip mid-session appends one coalesced `context/message` notice when the last header disagrees.
+
+**Token effect**: Zero in the default mode. In plan mode, the section text plus one tool schema per request; every mode transition changes the logged header and therefore resets the provider prefix cache.
+
+#### Plan-mode policy section
+
+```markdown
+You are in plan mode: a read-only planning state. Explore, analyze, and design; do not modify anything yet — edits and other side effects belong in the plan and run after its approval, not in this mode. Where a bash tool is present it runs under a read-only sandbox: commands that only read work normally, while a command that writes is denied by the sandbox — that denial marks the edge of plan mode rather than a bug, and sandbox escalation is not offered here; put the step in the plan for after approval instead. When a decision or a missing detail blocks the plan, ask the user through the ask_user_question tool where it is available. A finished plan is delivered by calling exit_plan_mode — that call is what puts it in front of the user for review, so prefer it over pasting the plan as a plain reply or asking the user to switch modes themselves. If exit_plan_mode is unavailable or its review fails, ask the user to switch the session out of plan mode instead of pressing on.
+```
+
+### Exit review
+
+**What the model sees**: The `exit_plan_mode` call carries the full plan markdown as its argument (retained in context as ordinary tool args); its result is one short confirmation or the reviewer's feedback verbatim.
+
+**Token effect**: The plan text is paid once as tool args and stays in the conversation; a keep-planning round adds one feedback-sized result per revision.
+
+## Known Limitations and Deferred Work
+
+- **Non-shell restraint is guidance-only** — until effects self-declaration lands on tool definitions, a non-default mode restrains tools other than `bash` by its section text alone; the [plan-mode RFC](../../../docs/rfc/implemented/feature/2026-07-07-plan-mode.md) archives the removed interim allowlist and its restart trigger.
+- **The cap guard names `bash` rather than deriving it** — the same effects item generalizes it.
+- **A pending flip set while idle dies with the process** — the UI re-applies; the idle-record primitive is the escape hatch if this bites.
+- **Subagent mode inheritance is deferred** — a fork child inherits via the seeded prefix; a spawn child starts default unless its creator seeds `AgentOptions.mode`.
+
 RFC: [plan mode](../../../docs/rfc/implemented/feature/2026-07-07-plan-mode.md).

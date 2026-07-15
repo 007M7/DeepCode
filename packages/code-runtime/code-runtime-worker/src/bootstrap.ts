@@ -1,18 +1,12 @@
 /**
- * Worker-side execution logic, written as plain functions over an injected
- * port so the unit suite can run every line IN-PROCESS against a fake port
- * (a real worker thread is a separate V8 isolate the coverage provider
- * cannot observe). The real worker entry (`worker.ts`) is a thin
- * self-executing glue file over {@link runWorkerMain}, excluded from
- * coverage the same way `bin.ts` entrypoints are, and exercised end-to-end
- * by the integration tests that spawn real workers.
- *
+ * Worker-side execution logic, written as plain functions over an injected port so the unit
+ * suite can run every line IN-PROCESS against a fake port (a real worker thread is a separate
+ * V8 isolate the coverage provider cannot observe).
  * @module @deepseek-ai/dsh-code-runtime-worker/src/bootstrap
  */
 
 import { inspect } from 'node:util'
 import { serialize } from 'node:v8'
-import type { CodeLogEntry } from '@deepseek-ai/dsh-code-runtime'
 import { logTruncationMarker } from './protocol.ts'
 import type { DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 
@@ -33,12 +27,12 @@ export interface PatchableStream {
 }
 
 /**
- * Ordered log capture under one shared byte budget, delivered to a sink as
- * each entry lands (the real sink streams entries over the port eagerly, so
+ * Ordered text capture under one shared byte budget, delivered to a sink as
+ * each item lands (the real sink streams text over the port eagerly, so
  * captured output survives a mid-run termination). Once the budget is
- * exhausted it emits exactly one in-band marker entry (on the `stderr`
- * diagnostics channel) and silently drops everything after — the cap is a
- * blast-radius bound, so "how much was lost" intentionally stays unmeasured.
+ * exhausted it emits exactly one in-band marker and silently drops everything
+ * after. The cap is a blast-radius bound, so "how much was lost" intentionally
+ * stays unmeasured.
  */
 export class LogBuffer {
   private remaining: number
@@ -47,28 +41,28 @@ export class LogBuffer {
   // under Node's native strip-only mode, which rejects non-erasable syntax —
   // and parameter properties are non-erasable.
   private readonly maxBytes: number
-  private readonly sink: (entry: CodeLogEntry) => void
+  private readonly sink: (text: string) => void
 
-  constructor(maxBytes: number, sink: (entry: CodeLogEntry) => void) {
+  constructor(maxBytes: number, sink: (text: string) => void) {
     this.maxBytes = maxBytes
     this.sink = sink
     this.remaining = maxBytes
   }
 
   /**
-   * Emit one entry to the sink, charging its text against the budget (drops + marks once exhausted).
-   * @param entry - the log entry to deliver.
+   * Emit text to the sink, charging it against the budget (drops + marks once exhausted).
+   * @param text - the captured text to deliver.
    */
-  push(entry: CodeLogEntry): void {
+  push(text: string): void {
     if (this.truncated) return
-    const cost = Buffer.byteLength(entry.text, 'utf8')
+    const cost = Buffer.byteLength(text, 'utf8')
     if (cost > this.remaining) {
       this.truncated = true
-      this.sink({ source: 'stderr', text: logTruncationMarker(this.maxBytes) })
+      this.sink(logTruncationMarker(this.maxBytes))
       return
     }
     this.remaining -= cost
-    this.sink(entry)
+    this.sink(text)
   }
 }
 
@@ -89,32 +83,30 @@ export function makeConsoleShim(logs: LogBuffer): Record<(typeof CONSOLE_LEVELS)
     args.map(arg => typeof arg === 'string' ? arg : inspect(arg, INSPECT_OPTIONS)).join(' ')
   const shim = Object.create(null) as Record<(typeof CONSOLE_LEVELS)[number], (...args: unknown[]) => void>
   for (const level of CONSOLE_LEVELS) {
-    shim[level] = (...args: unknown[]) => { logs.push({ source: 'console', level, text: render(args) }) }
+    shim[level] = (...args: unknown[]) => { logs.push(render(args)) }
   }
   return shim
 }
 
 /**
  * Redirect a stream's `write` into the log buffer (the program-visible
- * `process.stdout`/`process.stderr` in the real worker), so raw writes land
- * in emission order alongside console output instead of racing down a pipe.
- * The shim keeps Node's `write(chunk[, encoding][, callback])` contract: the
- * callback fires asynchronously once the chunk is admitted (a program
- * awaiting flush completion must complete, not sit until the wall timeout),
- * even for writes the exhausted budget drops.
+ * `process.stdout`/`process.stderr` in the real worker), so raw writes land in emission order
+ * alongside console output instead of racing down a pipe. It preserves Node's optional callback
+ * contract: the callback runs asynchronously after admission, even when the log budget drops
+ * the write.
+ *
  * @param logs - the buffer captured writes are pushed into.
  * @param stream - the stream whose `write` slot is patched.
- * @param source - the log source the captured writes are attributed to.
  * @returns the restore function (the in-process tests un-patch; the real
  *   worker never needs to).
  */
-export function captureStreamWrites(logs: LogBuffer, stream: PatchableStream, source: 'stdout' | 'stderr'): () => void {
+export function captureStreamWrites(logs: LogBuffer, stream: PatchableStream): () => void {
   // The slot's VALUE is stored for restore and reassigned — never invoked
   // detached, so the unbound-method concern does not apply.
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const original = stream.write
   stream.write = (chunk: unknown, ...rest: unknown[]): boolean => {
-    logs.push({ source, text: typeof chunk === 'string' ? chunk : String(chunk) })
+    logs.push(typeof chunk === 'string' ? chunk : String(chunk))
     // Node's optional-encoding shape: the callback is whichever of the next
     // two positions holds a function (a non-function there is the encoding).
     const callback = [rest[0], rest[1]].find(
@@ -152,16 +144,12 @@ export function truncateUtf8Bytes(text: string, maxBytes: number): string {
 }
 
 /**
- * Prepare the program's completion value for the done message: a value whose
- * MEASURED cross-boundary size fits `maxValueBytes` crosses raw — exact
- * bytes for a string, the structured-clone wire size (`v8.serialize`) for
- * everything else, so a huge container whose BOUNDED inspect rendering
- * happens to be small cannot smuggle itself past the cap. Anything else
- * (non-cloneable, or oversized) is REPLACED by its bounded `util.inspect`
- * rendering, byte-truncated ({@link truncateUtf8Bytes}) with an in-band
- * marker — the seam contract's "a non-transferable value is replaced by a
- * string rendering", extended to oversized ones so a huge return cannot
- * flood the host.
+ * Prepare the program's completion value for the done message: a value whose MEASURED
+ * cross-boundary size fits `maxValueBytes` crosses raw — exact bytes for a string, the
+ * structured-clone wire size (`v8.serialize`) for everything else, so a huge container whose
+ * bounded inspect rendering happens to be small cannot smuggle itself past the cap. Oversized
+ * or non-cloneable values are replaced by a bounded string rendering with an in-band marker.
+ *
  * @param value - the program's completion value.
  * @param maxValueBytes - the byte cap for the value.
  * @returns the done-message fragment: `{}` for `undefined`, else `{ value }`.
@@ -215,13 +203,11 @@ export function wireReplies(port: BootstrapPort, pending: Map<number, PendingCal
 }
 
 /**
- * Build the binding namespace objects the program sees: one null-prototype
- * global per namespace, each declared name an own enumerable async function
- * that bridges over the port (`__proto__`/`constructor`/`toString` are
- * ordinary keys, never prototype collisions). A non-cloneable argument
- * rejects that one call with a descriptive error; the host's reply (`ok`
- * false) rejects it likewise, so a failed tool call surfaces in the program
- * as an ordinary promise rejection.
+ * Build the binding namespace objects the program sees: one null-prototype global per
+ * namespace, each declared name an own enumerable async function that bridges over the port
+ * (`__proto__`/`constructor`/`toString` are ordinary keys, never prototype collisions).
+ * Non-cloneable arguments and host failure replies reject only the corresponding call.
+ *
  * @param data - the boot payload's namespace declarations (globals + names).
  * @param port - the port binding calls are posted to.
  * @param pending - the id-keyed map each posted call parks its handles in.
@@ -256,26 +242,21 @@ export function makeNamespaces(
 }
 
 /**
- * Run one program to settlement and post the {@link DoneMessage}: wires the
- * reply handler, materializes the namespaces and console shim, compiles the
- * type-stripped body as an async function (top-level `await`/`return`
- * work), and reports a thrown program error as the done message's `error`
- * field. Exactly one done message is ever posted.
- * @param port - the message port to the host (the real `parentPort`, or the tests' fake).
+ * Run one strict async-function body, allowing top-level `await` and `return`, and post exactly
+ * one terminal {@link DoneMessage}; a thrown program error becomes its `error` field.
+ * @param port - host message port or test double.
  * @param data - the boot payload the host sent.
- * @param streams - the stream objects whose `write` is captured (the real
- *   `process.stdout`/`process.stderr` in the worker; fakes in tests).
- * @returns resolves after the done message is posted (the tests await it;
- *   the real entry lets the worker exit naturally).
+ * @param streams - stdout/stderr objects captured as program logs.
+ * @returns after posting the done message.
  */
 export async function runWorkerMain(
   port: BootstrapPort,
   data: WorkerBootData,
   streams: { stdout: PatchableStream; stderr: PatchableStream },
 ): Promise<void> {
-  const logs = new LogBuffer(data.maxLogBytes, (entry) => { port.postMessage({ type: 'log', entry }) })
-  captureStreamWrites(logs, streams.stdout, 'stdout')
-  captureStreamWrites(logs, streams.stderr, 'stderr')
+  const logs = new LogBuffer(data.maxLogBytes, (text) => { port.postMessage({ type: 'log', text }) })
+  captureStreamWrites(logs, streams.stdout)
+  captureStreamWrites(logs, streams.stderr)
 
   const pending = new Map<number, PendingCall>()
   wireReplies(port, pending)

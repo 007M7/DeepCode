@@ -41,8 +41,10 @@ const SCENARIOS: Scenario[] = [
   // composition adds — availableModes/currentModeId advertised on
   // session/new, the optimistic current_mode_update a session/set_mode
   // answers with, and the loud rejection of an unknown mode id — as committed
-  // wire bytes. No model turn, so it replays keyless and needs no header pin.
-  { name: 'modes-advertise', hasModelTurn: false, recorded: false },
+  // wire bytes. No model turn → no headers, so its class membership is
+  // vacuous; it joins 'plan' because the factory requires every scenario's
+  // class to carry a pin.
+  { name: 'modes-advertise', hasModelTurn: false, recorded: false, headerClass: 'plan' },
   // The full plan-mode arc, and NECESSARILY the pinned-header scenario for
   // the 'plan' class: the first request ships the plan-shaped header (reason
   // initial) — the full toolset plus exit_plan_mode and the mode section —
@@ -63,7 +65,7 @@ const SCENARIOS: Scenario[] = [
 
 defineAcpSnapshotSuite({
   agent: {
-    binScript: fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url)),
+    binScript: fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url)),
     configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
     tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
   },

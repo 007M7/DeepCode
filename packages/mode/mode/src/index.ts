@@ -146,12 +146,12 @@ const PLAN_SECTION
   + 'of pressing on.'
 
 /**
- * The three bash tools an `access` cap conditions on a confining executor:
- * `bash` runs commands under the capped sandbox; `bash_output`/`bash_kill`
- * only observe and stop tasks that ran under it. Both policy layers withhold
- * the trio when no mounted executor can honor the cap.
+ * The bash tools an `access` cap conditions on a confining executor: today
+ * exactly the starter, `bash` — the generic task controls (`task_output`/
+ * `task_kill`, from dsh-tool-tasks) span every task kind and only observe or
+ * stop work, so they stay visible regardless of the cap.
  */
-const BASH_FAMILY = ['bash', 'bash_output', 'bash_kill']
+const BASH_FAMILY = ['bash']
 
 /** The review question's approve option label — the answer item is matched by it. */
 const APPROVE_LABEL = 'Approve'
@@ -357,7 +357,7 @@ export class ModesService extends Service {
      * `run_code` itself, mirroring the registry's own exclusion. A no-op when
      * the section is absent (native mode).
      */
-    function rerenderSdk(result: { sections: { name: string; order: number; text: string }[] }, include: (name: string) => boolean): void {
+    function rerenderSdk(result: { sections: { name: string; text: string }[] }, include: (name: string) => boolean): void {
       const sdkIndex = result.sections.findIndex(section => section.name === 'tools:sdk')
       if (sdkIndex < 0) return
       const sdkText = renderToolsSdk(ctx.tools.schemas().filter(schema =>

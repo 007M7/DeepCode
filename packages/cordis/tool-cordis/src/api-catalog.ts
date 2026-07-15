@@ -77,7 +77,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'approval',
-    summary: 'The `ctx.approval` service: dispatches ApprovalRequests to the `approval/request` waterfall and audits every ask/outcome pair to the requesting agent\'s session log.',
+    summary: 'Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session.',
     methods: [
       'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
     ],
@@ -89,18 +89,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'async resolveMode(session: Session | undefined): Promise<SandboxMode | undefined>',
       'abstract resolve(request: BashExecRequest): BashExecSpec',
       'abstract run(spec: BashExecSpec): Promise<BashRunResult>',
-      'abstract start(spec: BashExecSpec): BashTask',
-      'abstract get(id: BashTaskId): BashTask | undefined',
-      'abstract ownerOf(id: BashTaskId): OwnerToken | undefined',
-      'abstract list(): BashTask[]',
-      'abstract readOutput(id: BashTaskId): BashTaskRead',
-      'abstract kill(id: BashTaskId): boolean',
-      'onTaskDone(listener: BashTaskListener): () => void',
+      'abstract start(spec: BashExecSpec): BashProcess',
     ],
   },
   {
     key: 'codeRuntime',
-    summary: 'Abstract code-execution service.',
+    summary: 'Registers one `ctx.codeRuntime` implementation.',
     methods: [
       'abstract run(request: CodeRunRequest): Promise<CodeRunResult>',
     ],
@@ -115,7 +109,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'fs',
-    summary: 'Abstract filesystem provider service.',
+    summary: 'Abstract filesystem provider.',
     methods: [
       'abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>',
       'abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>',
@@ -145,6 +139,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'permission',
+    summary: 'Owns the deployment\'s permission presets and their write path.',
+    methods: [
+      'current(events: readonly SessionEvent[]): string',
+      'resolve(name: string): PresetSpec',
+      'optionOf(name: string): PresetOption',
+      'set(session: Session, name: string): void',
+    ],
+  },
+  {
     key: 'sandbox',
     summary: 'Abstract process-sandbox service.',
     methods: [
@@ -153,12 +157,21 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'sessionPersistence',
-    summary: 'Abstract durable session-persistence service.',
+    summary: 'Durable append-only session storage.',
     methods: [
       'abstract create(meta: SessionHeader): Promise<void>',
       'abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>',
       'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
       'abstract list(): Promise<SessionHeader[]>',
+    ],
+  },
+  {
+    key: 'sessionQuery',
+    summary: 'Live-preferred logical-corpus and exact-event read service.',
+    methods: [
+      'listSessions(): Promise<SessionRecord[]>',
+      'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
+      'async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>',
     ],
   },
   {
@@ -197,7 +210,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'systemPrompt',
-    summary: 'Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step.',
+    summary: 'Registry service for the prompt inputs assembled before each model step.',
     methods: [
       'section(section: PromptSection): () => void',
       'tools(provider: (context: AssembleContext) => ToolProviderResult): () => void',
@@ -206,8 +219,22 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'tasks',
+    summary: 'The `tasks` service: the runtime-global background task registry.',
+    methods: [
+      'start(spec: TaskStart): TaskId',
+      'list(caller?: Agent): TaskSnapshot[]',
+      'get(id: TaskId, caller?: Agent): TaskSnapshot',
+      'read(id: TaskId, caller?: Agent): TaskRead',
+      'kill(id: TaskId, caller?: Agent, reason?: string): \'requested\' | \'already-finished\'',
+      'async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>',
+      'onTaskDone(listener: TaskDoneListener): () => void',
+      'attachSurface(name: string): () => void',
+    ],
+  },
+  {
     key: 'tools',
-    summary: 'Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → guards → `tools/execute` → `tools/post-execute` → `tools/result` pipeline.',
+    summary: 'Tool registry and execution pipeline.',
     methods: [
       'register(definition: ToolDefinition): () => void',
       'restrict(filter: ToolRestriction): () => void',
@@ -231,13 +258,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       'registerSearchProvider(provider: WebSearchProvider): () => void',
       'registerFetchProvider(provider: WebFetchProvider): () => void',
-      'async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>',
-      'async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>',
+      'async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>',
+      'async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>',
     ],
   },
   {
     key: 'workflows',
-    summary: 'Abstract workflow execution service.',
+    summary: 'Workflow execution seam.',
     methods: [
       'abstract start(request: WorkflowStartRequest): WorkflowRun',
     ],
@@ -250,13 +277,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, agent: Agent): void',
-    summary: 'An agent\'s fully composed scoped world was published in the AgentRegistry.',
+    summary: 'A fully configured agent and live session were published.',
   },
   {
     name: 'agent/disposed',
     mode: 'emit',
     signature: '\'agent/disposed\'(this: Scoped<Agent>, agent: Agent): void',
-    summary: 'An agent was removed from the registry.',
+    summary: 'An agent left the registry; AgentLoop emits this after driver quiescence but before session detachment and scoped-registration unwind.',
   },
   {
     name: 'agent/error',
@@ -268,37 +295,37 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/pre-step',
     mode: 'serial',
     signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void',
-    summary: 'Awaited pre-step surface-mutation checkpoint, fired once per step AFTER `turn/start` (and after the prior step closed) but BEFORE this step\'s `step/start` — so anything a listener appends lands OUTSIDE the step, between `turn/start`/`step/end` and the upcoming `step/start`.',
+    summary: 'Awaited serial checkpoint for session-surface mutation after prompt assembly and before `step/start`; appends land outside the pending step.',
   },
   {
     name: 'agent/prompt-submit',
     mode: 'waterfall',
     signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
-    summary: 'Waterfall: decide what happens to ONE drained queued message before it becomes a `user/message` — allow (optionally rewriting the prompt bytes or attaching `additionalContext`) or block it.',
+    summary: 'Allow, rewrite, or block one drained prompt before it becomes a user message.',
   },
   {
     name: 'agent/queued',
     mode: 'emit',
     signature: '\'agent/queued\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void',
-    summary: 'A message entered the agent\'s inbox (queued or steering).',
+    summary: 'Detached, frozen content entered the agent\'s inbox.',
   },
   {
     name: 'agent/request',
     mode: 'waterfall',
     signature: '\'agent/request\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>',
-    summary: 'Waterfall: shape the step\'s call configuration — model switching, sampling overrides — by returning a replacement LlmCallConfig (the frozen seed is the config the loop would otherwise use).',
+    summary: 'Replace the frozen call configuration.',
   },
   {
     name: 'agent/session-prefix',
     mode: 'waterfall',
     signature: '\'agent/session-prefix\'(this: Scoped<Agent>, agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>',
-    summary: 'Waterfall: compose the SESSION PREFIX — request-only messages placed in front of the ENTIRE derived history (directly after the provider\'s system slot) on every request this loop instance sends.',
+    summary: 'Compose request-only messages placed before derived history.',
   },
   {
     name: 'agent/session-start',
     mode: 'emit',
     signature: '\'agent/session-start\'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void',
-    summary: 'The agent\'s session lifecycle began, fired once before its first turn.',
+    summary: 'The session lifecycle began, once before the first turn.',
   },
   {
     name: 'agent/status',
@@ -316,19 +343,19 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/turn-continuation',
     mode: 'waterfall',
     signature: '\'agent/turn-continuation\'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>',
-    summary: 'Waterfall: override the turn-continuation decision via a typed ContinuationDecision.',
+    summary: 'Override whether the turn continues.',
   },
   {
     name: 'agent/turn-stop',
     mode: 'serial',
     signature: '\'agent/turn-stop\'(this: Scoped<Agent>, agent: Agent, turn: number): ContinuationStop | undefined',
-    summary: 'Serial terminal-stop checkpoint after the ordinary `agent/turn-continuation` waterfall, any `continue.reason`, and the pending-steering continuation override have been folded.',
+    summary: 'Monotonic terminal-stop checkpoint after continuation and steering are folded; a stop remains authoritative through turn close and flush: steering queued in that window is discarded, while ordinary sends survive.',
   },
   {
     name: 'approval/request',
     mode: 'waterfall',
     signature: '\'approval/request\'(this: Scoped<ApprovalService>, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>',
-    summary: 'Waterfall asking the composed answerers to decide one approval request.',
+    summary: 'Ask composed answerers for one decision.',
   },
   {
     name: 'bash/resolve-mode',
@@ -340,19 +367,19 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'fs/edit-intent',
     mode: 'waterfall',
     signature: '\'fs/edit-intent\'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>',
-    summary: 'Single-slot decision: produce the optional version guard for the next FileSystem.editText.',
+    summary: 'Single-slot decision for the next FileSystem.editText.',
   },
   {
     name: 'fs/observed',
     mode: 'emit',
     signature: '\'fs/observed\'(target: FsTarget, version: FsVersion, actor: object | undefined): void',
-    summary: 'Record that an actor observed a target at a version, after a successful read/write/edit.',
+    summary: 'Record a successful observation.',
   },
   {
     name: 'fs/write-intent',
     mode: 'waterfall',
     signature: '\'fs/write-intent\'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>',
-    summary: 'Single-slot decision: produce the write intent for the next FileSystem.writeText.',
+    summary: 'Single-slot decision for the next FileSystem.writeText.',
   },
   {
     name: 'llm/stream',
@@ -364,37 +391,25 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'session/created',
     mode: 'emit',
     signature: '\'session/created\'(this: Scoped<Session>, session: Session): void',
-    summary: 'A session was created in the store.',
+    summary: 'Creation announcement during session publication.',
   },
   {
     name: 'session/disposed',
     mode: 'emit',
     signature: '\'session/disposed\'(this: Scoped<Session>, session: Session): void',
-    summary: 'A previously announced session left the store.',
+    summary: 'Emitted once when an announced session leaves the store, including publication rollback, but never for an entry whose creation announcement did not begin.',
   },
   {
     name: 'session/event',
     mode: 'emit',
     signature: '\'session/event\'(this: Scoped<Session>, session: Session, event: SessionEvent): void',
-    summary: 'An event was appended to a session log (sync, fire-and-forget).',
+    summary: 'Post-commit, fire-and-forget append feed.',
   },
   {
     name: 'session/flush',
     mode: 'parallel',
     signature: '\'session/flush\'(this: Scoped<Session>, session: Session): Promise<void> | void',
-    summary: 'Awaited durability checkpoint.',
-  },
-  {
-    name: 'skill/provider-added',
-    mode: 'emit',
-    signature: '\'skill/provider-added\'(provider: SkillProvider): void',
-    summary: 'A skill provider became resolvable in the `ctx.skills` registry.',
-  },
-  {
-    name: 'skill/provider-removed',
-    mode: 'emit',
-    signature: '\'skill/provider-removed\'(name: string): void',
-    summary: 'A skill provider left the registry because its plugin fiber was disposed.',
+    summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
   },
   {
     name: 'subagent/end',
@@ -424,13 +439,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'system-prompt/assemble',
     mode: 'waterfall',
     signature: '\'system-prompt/assemble\'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>',
-    summary: 'Waterfall around prompt assembly — mutate or extend the PromptAssembly (sections + tools + variables) before it is rendered.',
+    summary: 'Expert waterfall over the assembled sections, tools, and variables.',
   },
   {
     name: 'system-prompt/change',
     mode: 'emit',
     signature: '\'system-prompt/change\'(): void',
-    summary: 'A section, tool provider, or variable provider was registered or unregistered (the assembly inputs changed — possibly for one scope only).',
+    summary: 'Emitted when any prompt provider changes.',
   },
   {
     name: 'tools/change',
@@ -442,25 +457,25 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'tools/execute',
     mode: 'waterfall',
     signature: '\'tools/execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>',
-    summary: 'Around-dispatch waterfall wrapping the registry\'s core tool dispatch, between the `tools/pre-execute` gate and the `tools/post-execute` seam.',
+    summary: 'Around-dispatch waterfall for timeout, retry, or metrics.',
   },
   {
     name: 'tools/post-execute',
     mode: 'waterfall',
     signature: '\'tools/post-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>',
-    summary: 'Waterfall AFTER a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContext` for the next request) or block it with corrective `feedback` (Claude Code\'s `PostToolUse`).',
+    summary: 'Accept, replace, enrich, or block a normalized dispatch result.',
   },
   {
     name: 'tools/pre-execute',
     mode: 'waterfall',
     signature: '\'tools/pre-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>',
-    summary: 'Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code\'s `PreToolUse`).',
+    summary: 'Allow, deny, or ask before dispatch.',
   },
   {
     name: 'tools/result',
     mode: 'emit',
     signature: '\'tools/result\'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined',
-    summary: 'Synchronous notification of the authoritative FINAL tool outcome, after the complete pre/execute/post pipeline, final lossless-JSON validation, and outer error normalization.',
+    summary: 'Observe the frozen, lossless-JSON final outcome.',
   },
   {
     name: 'workflow/agent-end',
@@ -531,6 +546,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ApprovalOutcome = \'allowed-once\' | \'rejected\' | \'cancelled\' | \'unavailable\';',
   },
   {
+    name: 'ApprovalPolicy',
+    declaration: 'export type ApprovalPolicy = \'ask\' | \'never\';',
+  },
+  {
     name: 'ApprovalRequest',
     declaration: 'export interface ApprovalRequest {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: CallId;\n    readonly reason?: string;\n    readonly signal?: AbortSignal;\n}',
   },
@@ -560,15 +579,27 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AssembledSection',
-    declaration: 'export interface AssembledSection {\n    name: string;\n    order: number;\n    text: string;\n}',
+    declaration: 'export interface AssembledSection {\n    name: string;\n    text: string;\n}',
   },
   {
     name: 'BashExecRequest',
-    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner?: OwnerToken | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
   },
   {
     name: 'BashExecSpec',
-    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner: OwnerToken | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
+  },
+  {
+    name: 'BashProcess',
+    declaration: 'export interface BashProcess {\n    status: BashProcessStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n    sandbox?: BashSandboxInfo;\n    readOutput(): BashProcessRead;\n    kill(): boolean;\n}',
+  },
+  {
+    name: 'BashProcessRead',
+    declaration: 'export interface BashProcessRead {\n    delta: string;\n    lossy: boolean;\n    stdoutSpillPath?: string;\n    stderrSpillPath?: string;\n}',
+  },
+  {
+    name: 'BashProcessStatus',
+    declaration: 'export type BashProcessStatus = \'running\' | \'completed\' | \'killed\';',
   },
   {
     name: 'BashRunResult',
@@ -577,26 +608,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'BashSandboxInfo',
     declaration: 'export interface BashSandboxInfo {\n    mode: SandboxMode;\n    denied: boolean;\n    enforcement?: SandboxEnforcement;\n    runnerFailed?: boolean;\n}',
-  },
-  {
-    name: 'BashTask',
-    declaration: 'export interface BashTask {\n    readonly id: BashTaskId;\n    readonly command: string;\n    status: BashTaskStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n    sandbox?: BashSandboxInfo;\n}',
-  },
-  {
-    name: 'BashTaskId',
-    declaration: 'export type BashTaskId = Branded<\'BashTaskId\'>;',
-  },
-  {
-    name: 'BashTaskListener',
-    declaration: 'export type BashTaskListener = (task: BashTask) => void;',
-  },
-  {
-    name: 'BashTaskRead',
-    declaration: 'export interface BashTaskRead {\n    task: BashTask;\n    delta: string;\n    lossy: boolean;\n    stdoutSpillPath?: string;\n    stderrSpillPath?: string;\n}',
-  },
-  {
-    name: 'BashTaskStatus',
-    declaration: 'export type BashTaskStatus = \'running\' | \'completed\' | \'killed\';',
   },
   {
     name: 'Branded',
@@ -615,10 +626,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CodeBindingNamespace {\n    global: string;\n    functions: Record<string, CodeBindingFunction>;\n}',
   },
   {
-    name: 'CodeLogEntry',
-    declaration: 'export interface CodeLogEntry {\n    source: \'console\' | \'stdout\' | \'stderr\';\n    level?: \'log\' | \'info\' | \'warn\' | \'error\' | \'debug\';\n    text: string;\n}',
-  },
-  {
     name: 'CodeRunFailure',
     declaration: 'export interface CodeRunFailure {\n    kind: \'exception\' | \'timeout\' | \'abort\' | \'worker-exit\';\n    message: string;\n}',
   },
@@ -628,7 +635,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CodeRunResult',
-    declaration: 'export interface CodeRunResult {\n    value?: unknown;\n    logs: CodeLogEntry[];\n    error?: CodeRunFailure;\n}',
+    declaration: 'export interface CodeRunResult {\n    value?: unknown;\n    logs: string[];\n    error?: CodeRunFailure;\n}',
   },
   {
     name: 'CollectedOutput',
@@ -755,8 +762,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    };\n}',
   },
   {
-    name: 'OwnerToken',
-    declaration: 'export type OwnerToken = Branded<\'OwnerToken\'>;',
+    name: 'PresetOption',
+    declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n}',
+  },
+  {
+    name: 'PresetSpec',
+    declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    name?: string;\n    description?: string;\n}',
   },
   {
     name: 'PromptAssembly',
@@ -803,8 +814,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': {\n        turn: number;\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: E /* …truncated — full shape in source */',
   },
   {
+    name: 'SessionEventReadRequest',
+    declaration: 'export interface SessionEventReadRequest {\n    sessionId: SessionId;\n    seq: number;\n    before?: number;\n    after?: number;\n}',
+  },
+  {
+    name: 'SessionEventRecord',
+    declaration: 'export interface SessionEventRecord {\n    sessionId: SessionId;\n    seq: number;\n    type: SessionEventType;\n    time: number;\n    surface: SessionEventSurface;\n}',
+  },
+  {
+    name: 'SessionEventSurface',
+    declaration: 'export type SessionEventSurface = \'current\' | \'shadowed\' | \'log-only\';',
+  },
+  {
     name: 'SessionEventType',
     declaration: 'export type SessionEventType = keyof SessionEventMap;',
+  },
+  {
+    name: 'SessionEventWindow',
+    declaration: 'export interface SessionEventWindow {\n    session: SessionHeader;\n    target: SessionEvent;\n    events: SessionEvent[];\n    startSeq: number;\n    endSeq: number;\n}',
   },
   {
     name: 'SessionForkSource',
@@ -817,6 +844,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionId',
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
+  },
+  {
+    name: 'SessionRecord',
+    declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n}',
   },
   {
     name: 'SkillCandidate',
@@ -907,6 +938,46 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SurfaceOp = \'append\' | {\n    op: \'replace\';\n    start: number;\n    end: number;\n};',
   },
   {
+    name: 'TaskDoneListener',
+    declaration: 'export type TaskDoneListener = (snapshot: TaskSnapshot, owner: Agent | undefined) => void | PromiseLike<void>;',
+  },
+  {
+    name: 'TaskHooks',
+    declaration: 'export interface TaskHooks {\n    cancel(reason?: string): void;\n    done: Promise<TaskOutcome>;\n    readOutput?(): string;\n}',
+  },
+  {
+    name: 'TaskId',
+    declaration: 'export type TaskId = Branded<\'TaskId\'>;',
+  },
+  {
+    name: 'TaskKind',
+    declaration: 'export type TaskKind = TaskKindMap[keyof TaskKindMap];',
+  },
+  {
+    name: 'TaskKindMap',
+    declaration: 'export interface TaskKindMap {\n    bash: \'bash\';\n    subagent: \'subagent\';\n}',
+  },
+  {
+    name: 'TaskOutcome',
+    declaration: 'export interface TaskOutcome {\n    status: \'completed\' | \'killed\' | \'failed\';\n    detail?: string;\n    output?: string;\n}',
+  },
+  {
+    name: 'TaskRead',
+    declaration: 'export interface TaskRead {\n    text: string;\n    snapshot: TaskSnapshot;\n}',
+  },
+  {
+    name: 'TaskSnapshot',
+    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: TaskKind;\n    label: string;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
+  },
+  {
+    name: 'TaskStart',
+    declaration: 'export interface TaskStart {\n    kind: TaskKind;\n    label: string;\n    owner?: Agent;\n    run(): TaskHooks;\n}',
+  },
+  {
+    name: 'TaskStatus',
+    declaration: 'export type TaskStatus = \'running\' | \'stopping\' | \'completed\' | \'killed\' | \'failed\';',
+  },
+  {
     name: 'TerminalCallView',
     declaration: 'export interface TerminalCallView {\n    card: \'terminal\';\n    title: string;\n    description?: string;\n    cwd?: string;\n}',
   },
@@ -956,7 +1027,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionResult',
-    declaration: 'export interface ToolExecutionResult {\n    callId: CallId;\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContext?: HookContext;\n    meta?: unknown;\n}',
+    declaration: 'export interface ToolExecutionResult {\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContext?: HookContext;\n    meta?: unknown;\n}',
   },
   {
     name: 'ToolExecutionToken',
@@ -1011,32 +1082,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface UserInteractionProvider {\n    ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>;\n}',
   },
   {
-    name: 'WebExecContext',
-    declaration: 'export interface WebExecContext {\n    readonly signal?: AbortSignal;\n}',
-  },
-  {
     name: 'WebFetchBody',
     declaration: 'export type WebFetchBody = {\n    readonly kind: \'html\';\n    readonly content: string;\n} | {\n    readonly kind: \'text\';\n    readonly content: string;\n};',
   },
   {
     name: 'WebFetchProvider',
-    declaration: 'export interface WebFetchProvider {\n    readonly id: string;\n    status(): WebProviderStatus;\n    fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>;\n}',
+    declaration: 'export interface WebFetchProvider {\n    readonly id: string;\n    available(): boolean;\n    fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>;\n}',
   },
   {
     name: 'WebFetchRequest',
-    declaration: 'export interface WebFetchRequest {\n    readonly url: string;\n    readonly timeoutMs?: number;\n}',
+    declaration: 'export interface WebFetchRequest {\n    readonly url: string;\n}',
   },
   {
     name: 'WebFetchResult',
-    declaration: 'export interface WebFetchResult {\n    readonly providerId: string;\n    readonly url: string;\n    readonly statusCode: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
-  },
-  {
-    name: 'WebProviderStatus',
-    declaration: 'export type WebProviderStatus = {\n    readonly available: true;\n} | {\n    readonly available: false;\n    readonly reason: \'missing-credential\' | \'misconfigured\';\n};',
+    declaration: 'export interface WebFetchResult {\n    readonly url: string;\n    readonly statusCode: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
   },
   {
     name: 'WebSearchProvider',
-    declaration: 'export interface WebSearchProvider {\n    readonly id: string;\n    status(): WebProviderStatus;\n    search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>;\n}',
+    declaration: 'export interface WebSearchProvider {\n    readonly id: string;\n    available(): boolean;\n    search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>;\n}',
   },
   {
     name: 'WebSearchRequest',
@@ -1044,7 +1107,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebSearchResult',
-    declaration: 'export interface WebSearchResult {\n    readonly providerId: string;\n    readonly query: string;\n    readonly content?: string;\n    readonly sources: readonly WebSearchSource[];\n    readonly truncated: boolean;\n}',
+    declaration: 'export interface WebSearchResult {\n    readonly content?: string;\n    readonly sources: readonly WebSearchSource[];\n    readonly truncated: boolean;\n}',
   },
   {
     name: 'WebSearchSource',

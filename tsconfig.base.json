@@ -47,9 +47,11 @@
         "./packages/fs/*/src",
         "./packages/skill/*/src",
         "./packages/compact/*/src",
+        "./packages/context/*/src",
         "./packages/guard/*/src",
         "./packages/mode/*/src",
         "./packages/subagent/*/src",
+        "./packages/tasks/*/src",
         "./packages/workflow/*/src",
         "./packages/web/*/src",
         "./packages/timeout/*/src",
@@ -58,8 +60,11 @@
         "./packages/sandbox/*/src",
         "./packages/hooks/*/src",
         "./packages/session-persistence/*/src",
+        "./packages/session-query/*/src",
         "./packages/ui/*/src",
+        "./packages/examples/*/src",
         "./packages/util/*/src",
+        "./packages/mcp/*/src",
         "./packages/support/*/src"
       ]
     }

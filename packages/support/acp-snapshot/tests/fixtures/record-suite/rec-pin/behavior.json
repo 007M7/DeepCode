@@ -1,74 +1,10 @@
 {
   "prompt": "respond",
-  "logs": [
-    {
-      "file": "b/main.jsonl",
-      "lines": [
-        {
-          "type": "session",
-          "id": "{{SID}}",
-          "createdAt": 600,
-          "cwd": "{{CWD}}"
-        },
-        {
-          "type": "request/header",
-          "seq": 0,
-          "time": 4,
-          "data": {
-            "header": {
-              "config": {
-                "model": "fake"
-              },
-              "system": "SYS PROMPT",
-              "tools": [
-                {
-                  "name": "t1",
-                  "description": "D1",
-                  "parameters": {
-                    "type": "object"
-                  }
-                }
-              ]
-            },
-            "reason": "initial"
-          }
-        }
-      ]
-    },
-    {
-      "file": "b/pin-child.jsonl",
-      "lines": [
-        {
-          "type": "session",
-          "id": "cdcdcdcd-abab-4efe-8ada-badabadabada",
-          "createdAt": 650,
-          "cwd": "{{CWD}}",
-          "parentSession": "{{SID}}"
-        },
-        {
-          "type": "request/header",
-          "seq": 0,
-          "time": 2,
-          "data": {
-            "header": {
-              "config": {
-                "model": "fake"
-              },
-              "system": "SYS PROMPT",
-              "tools": [
-                {
-                  "name": "t1",
-                  "description": "D1",
-                  "parameters": {
-                    "type": "object"
-                  }
-                }
-              ]
-            },
-            "reason": "initial"
-          }
-        }
-      ]
-    }
-  ]
+  "logs": [{
+    "file": "b/main.jsonl",
+    "lines": [
+      { "type": "session", "id": "{{SID}}", "createdAt": 600, "cwd": "{{CWD}}" },
+      { "type": "request/header", "seq": 0, "time": 4, "data": { "header": { "config": { "model": "fake" }, "system": "SYS PROMPT", "tools": [{ "name": "t1", "description": "D1", "parameters": { "type": "object" } }] }, "reason": "initial" } }
+    ]
+  }]
 }

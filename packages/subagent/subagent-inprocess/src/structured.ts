@@ -1,42 +1,12 @@
 /**
- * Structured-output support for the in-process subagent backends: the
- * mechanism behind `SubagentStartRequest.outputSchema` for children that run
- * as agents on the same context.
+ * Child-scoped structured-output tool, prompt instruction, terminal guard, and authoritative
+ * result capture for in-process subagents. Each child registers its real schema on its own
+ * scope, so concurrent runs do not interact and disposal leaves no global residue. The prompt
+ * contribution is ordinary reconstructed request state.
  *
- * Everything is a SCOPED registration on the child agent's context
- * (`child.ctx`, the dsh-scope seam): the `structured_output` capture tool
- * carries the run's REAL schema as its registered parameters (each child sees
- * exactly its own schema — two concurrent structured runs never interact), the
- * demand instruction is an ordinary order-190 scoped section, and the
- * enforcement listeners fire only for this child (scope-filtered dispatch).
- * Registration lifetime rides the child's fiber, so a backend hot-reload
- * mid-run cannot unregister the capture tool out from under a live child, and
- * a disposed child leaves no residue — no placeholder schema,
- * strip-for-everyone-else pass, or refcounted global runtime.
- *
- * The child scope's registrations enforce the contract:
- *
- * - The scoped capture tool and instruction are ordinary assembly inputs. The
- *   loop logs the assembled request header, so the demand is reconstructable
- *   log state rather than a wire-only mutation. As with every other assembly
- *   contribution, an expert `system-prompt/assemble` listener that deliberately
- *   removes or replaces either input owns the resulting composition.
- * - `agent/turn-stop` (serial, scoped): stop the child's turn once its output
- *   is captured. This terminal checkpoint runs after the ordinary continuation
- *   waterfall and steering folding, so listener order cannot resurrect a
- *   completed structured run or carry terminal steering into another turn.
- * - `tools.guard()` is the monotonic terminal gate after the extensible
- *   pre-execute waterfall: once capture commits, no later listener can turn
- *   the denial back into a dispatched side effect.
- * - `tools/result` is the capture COMMIT point. The tool body only STAGES the
- *   validated value in a WeakMap keyed by the execution object; the awaited,
- *   non-transforming notification promotes it only when the authoritative
- *   result after the whole pre/execute/post pipeline succeeds. For a Code Mode
- *   sub-dispatch, promotion waits again for the enclosing `run_code` result, so
- *   a runtime failure or outer post-policy block cannot report structured
- *   success. Execution identity makes call-id reuse and orphaned stages
- *   irrelevant.
- *
+ * Capture commits only after the authoritative `tools/result` succeeds; Code Mode capture also
+ * waits for the enclosing `run_code` result. The terminal turn-stop and monotonic tool guard
+ * then prevent later listeners or calls from reopening a completed structured run.
  * @module @deepseek-ai/dsh-subagent-inprocess/structured
  */
 
@@ -70,11 +40,8 @@ export interface StructuredAttachment {
 }
 
 /**
- * Attach the structured-output runtime to a child for `schema`: register the
- * scoped capture tool (real schema), the scoped instruction section, and the
- * scoped enforcement registrations (see the module doc). Call from the
- * agent-creation `setup` window with the child's scope context — every
- * registration rides the child's fiber and unwinds with the child.
+ * Attach the scoped capture tool, instruction, and enforcement to a child during
+ * its creation window. Child disposal removes every registration.
  * @param childCtx - the child agent's scope context (`setup`'s argument).
  * @param schema - the trusted, already-asserted schema subset to enforce (see
  *   `assertSupportedOutputSchema` in dsh-tools).

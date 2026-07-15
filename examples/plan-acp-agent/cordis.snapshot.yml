@@ -7,7 +7,7 @@
 # API key, no network) is inserted. Every other entry — the mode plugin, the
 # filesystem stack, the app — IS the live tree.
 #
-# The dsh-acp-agent bin selects this file for DSH_SNAPSHOT=replay (the
+# The dsh-acp-demo bin selects this file for DSH_SNAPSHOT=replay (the
 # sibling-swap of whatever config path it was handed). The replay fixture
 # path comes from $DSH_SNAPSHOT_FILE, set by the snapshot harness. stdout
 # stays reserved for the ACP JSON-RPC protocol.
@@ -22,6 +22,19 @@
       - id: llm-deepseek
         name: '@deepseek-ai/dsh-llm-deepseek'
         disabled: true
+      # Replay swaps the sandbox runner for the pure-config passthrough (same
+      # knob as examples/acp-agent): deterministic on hosts without bwrap; the
+      # read-only clamp still stamps every call and is pinned at the unit tier.
+      - id: sandbox
+        name: '@deepseek-ai/dsh-sandbox-local'
+        config:
+          runnerCommand:
+            - bash
+            - -c
+            - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+            - passthrough-runner
+          runnerFailureSignatures:
+            - 'passthrough-runner: profile rejected'
       - insert:
           - id: llm-replay
             name: '@deepseek-ai/dsh-llm-replay'

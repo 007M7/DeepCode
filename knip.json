@@ -23,6 +23,10 @@
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
+    "packages/context/time-context": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
     "packages/sandbox/sandbox-local": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
@@ -38,6 +42,11 @@
     },
     "packages/support/acp-snapshot": {
       "entry": ["tests/**/*.spec.ts", "tests/fixtures/fake-acp-agent.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"],
+      "ignoreDependencies": ["cordis"]
+    },
+    "packages/support/loader-smoke": {
+      "entry": ["tests/**/*.spec.ts", "tests/fixtures/*.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"],
       "ignoreDependencies": ["cordis"]
     },
@@ -73,15 +82,19 @@
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
-    "packages/ui/acp-agent": {
+    "packages/examples/acp-demo": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
-    "packages/ui/stdio-agent": {
+    "packages/examples/stdio-demo": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
-    "packages/ui/jsonrpc-agent": {
+    "packages/ui/stdio": {
+      "entry": ["tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/examples/jsonrpc-demo": {
       "project": ["src/**/*.ts"]
     },
     "packages/subagent/subagent-spawn": {
@@ -100,6 +113,11 @@
     "packages/fs/tool-fs": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/mcp/mcp-client": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts", "tests/fixture-server.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"],
+      "ignoreDependencies": ["@modelcontextprotocol/server-everything", "@modelcontextprotocol/server-filesystem"]
     }
   }
 }

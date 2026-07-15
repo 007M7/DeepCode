@@ -10,9 +10,9 @@ flowchart LR
   cfg["examples/plan-acp-agent<br/>cordis.yml"]
   plugin_plan-acp_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_plan-acp_llm_deepseek
-  plugin_plan-acp_acp_agent["acp-agent<br/>@deepseek-ai/dsh-acp-agent"]
+  plugin_plan-acp_acp_agent["acp-agent<br/>@deepseek-ai/dsh-acp-demo"]
   cfg --> plugin_plan-acp_acp_agent
-  plugin_plan-acp_acp_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-core"]
+  plugin_plan-acp_acp_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
   plugin_plan-acp_acp_agent --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
   plugin_plan-acp_acp_agent --> frontdoor_acp["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]
   bundle_agent_core --> spine_llm["ctx.llm"]
@@ -25,8 +25,6 @@ flowchart LR
   cfg --> plugin_plan-acp_sandbox
   plugin_plan-acp_bash["bash<br/>@deepseek-ai/dsh-bash-sandbox"]
   cfg --> plugin_plan-acp_bash
-  plugin_plan-acp_tool_bash["tool-bash<br/>@deepseek-ai/dsh-tool-bash"]
-  cfg --> plugin_plan-acp_tool_bash
   plugin_plan-acp_approval["approval<br/>@deepseek-ai/dsh-user-approval"]
   cfg --> plugin_plan-acp_approval
   plugin_plan-acp_tool_ask_user["tool-ask-user<br/>@deepseek-ai/dsh-tool-ask-user"]
@@ -44,11 +42,10 @@ flowchart LR
 | Plugin id | Package / module |
 | --- | --- |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
-| `acp-agent` | `@deepseek-ai/dsh-acp-agent` |
+| `acp-agent` | `@deepseek-ai/dsh-acp-demo` |
 | `mode` | `@deepseek-ai/dsh-mode` |
 | `sandbox` | `@deepseek-ai/dsh-sandbox-local` |
 | `bash` | `@deepseek-ai/dsh-bash-sandbox` |
-| `tool-bash` | `@deepseek-ai/dsh-tool-bash` |
 | `approval` | `@deepseek-ai/dsh-user-approval` |
 | `tool-ask-user` | `@deepseek-ai/dsh-tool-ask-user` |
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |

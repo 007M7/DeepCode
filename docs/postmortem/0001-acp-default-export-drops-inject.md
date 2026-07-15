@@ -4,7 +4,7 @@ Status: resolved (fix in PR #41 `feat/acp-2-bridge`)
 
 ## Executive summary
 
-One stray line — `export default apply` at the bottom of the ACP plugin — made the ACP server crash the moment any editor connected, because the cordis Loader unwraps a default export and threw away the plugin's `inject` declaration along with it. A second, independent bug (an optional service read that fails through Cordis's traceable-shadow proxy) crashed `session/load` for a different reason. Both shipped green: 178 unit tests at 100% line coverage never caught either, because every test mounted the plugin by hand instead of through the real loader, and the only test that drove the failing requests was skipped in CI. The fixes are one-line each; the durable lesson is that **line coverage proved the code ran, not that the feature worked the way it ships** — so we added a no-key end-to-end test that boots the real example through the real loader, plus packages/AGENTS.md rules on plugin export shape and optional-service access.
+Two integration mistakes broke ACP despite full unit coverage: a default export caused the Loader to discard `inject`, and a traced optional-service lookup failed across a shadow boundary. Hand-mounted tests bypassed both paths. The fixes added keyless real-Loader coverage and package rules for plugin exports and optional-service access.
 
 ## Summary
 
@@ -82,7 +82,7 @@ if (!ctx.fiber.runtime) return ctx.reflect.get(prop, false)   // ← direct glob
 
 `ctx.reflect.get(name, false)` is a direct lookup in the global service store keyed by the isolate symbol — it ignores fiber topology entirely and finds the service. So from a top-level test the read works; from inside a real plugin fiber, reached via a shadow, it throws. The bridge is exactly the latter.
 
-**Fix:** read the optional service through the same global store the bypass uses, but via the public `ctx.get(name)` — `this.ctx.get('sessionPersistence')` instead of `this.ctx.sessionPersistence`. `ctx.get(name)` is a direct lookup in the global service store keyed by the isolate symbol; it ignores fiber topology, so it resolves the backend regardless of which fiber or shadow the call arrives through. It is strict by default (an inactive/absent backend reads as `undefined`, which the existing guard rejects) — preferable to the `, false` overload, which would additionally skip the active-state check and could hand back a backend mid-teardown. The other reads in the resume path (`this.ctx.sessions`, `this.ctx.agents`) are fine — those *are* in `AgentLoop`'s `static inject`, so they sit in its fiber store and the ancestor walk finds them immediately.
+**Fix:** read the optional service with `ctx.get('sessionPersistence')`, which uses the global isolate-keyed store while preserving active-state checks. Direct property reads remain appropriate for services in the plugin's declared injection set.
 
 ## Why every test missed it (the real failure)
 
