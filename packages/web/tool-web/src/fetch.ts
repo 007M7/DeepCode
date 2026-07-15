@@ -96,7 +96,7 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number): void {
       const input = parseFetchArgs(args)
       const result = await ctx.web.fetch(
         { url: input.url },
-        exec.signal ? { signal: exec.signal } : undefined,
+        exec.signal,
       )
       return [{ type: 'text', text: formatFetchOutput(result) }]
     },

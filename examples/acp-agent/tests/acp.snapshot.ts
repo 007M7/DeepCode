@@ -13,11 +13,11 @@ import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from
  * docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
-// The dsh-acp-agent bin (the demo:acp entry), this example's cordis.yml, and
+// The dsh-acp-demo bin (the demo:acp entry), this example's cordis.yml, and
 // the repo-root tsconfig (four levels up from examples/acp-agent/tests) — all
 // ABSOLUTE: the subprocess cwd is a temp dir outside the repo.
 const AGENT = {
-  binScript: fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url)),
+  binScript: fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url)),
   configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
   tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
@@ -47,7 +47,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
   // text-turn is the pinned-header scenario: the minimal single text turn.
-  // Its system-prompt.golden.md and JSONL tool list pin the composed header.
+  // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },

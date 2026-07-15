@@ -1,8 +1,8 @@
 /**
  * Pure ACP transcript and session-log normalizers. They scrub session ids, temp cwd, RPC ids,
  * timestamps, and hook duration while preserving deterministic event sequence numbers.
- * Request-header scrubbers stay separate so one scenario per header class can pin tools and a
- * readable prompt while other fixtures omit duplicated header bulk.
+ * Request-header scrubbers stay composable so one scenario per header class can pin prompt and
+ * tool-schema sidecars while retaining any model-visible prefix in the session log.
  * @module @deepseek-ai/dsh-acp-snapshot/normalize
  */
 
@@ -123,7 +123,21 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
  * @returns The JSONL with system-prompt content tokenized.
  */
 export function scrubSystemPrompts(rawLog: string): string {
-  return scrubHeaderContent(rawLog, false)
+  return scrubHeaderContent(rawLog, { system: true })
+}
+
+/**
+ * Replace tool schemas in request headers and header deltas with `{{tools}}`
+ * tokens while retaining field presence, tool names, and delta structure.
+ * System prompts and session-prefix messages stay verbatim so pinning fixtures
+ * can move only schema bulk into their dedicated JSON sidecar. Lines without a
+ * tool payload pass through byte-for-byte; the transform is idempotent.
+ *
+ * @param rawLog The raw session `.jsonl` content.
+ * @returns The JSONL with tool-schema content tokenized.
+ */
+export function scrubToolSchemas(rawLog: string): string {
+  return scrubHeaderContent(rawLog, { tools: true })
 }
 
 /**
@@ -138,11 +152,18 @@ export function scrubSystemPrompts(rawLog: string): string {
  * @returns The JSONL with all header bulk tokenized, other lines byte-identical.
  */
 export function scrubRequestHeaders(rawLog: string): string {
-  return scrubHeaderContent(rawLog, true)
+  return scrubHeaderContent(rawLog, { system: true, tools: true, prefix: true })
 }
 
-/** Transform header content, optionally including tool schemas and the session prefix. */
-function scrubHeaderContent(rawLog: string, scrubToolsAndPrefix: boolean): string {
+/** Which independent request-header payloads a scrubber replaces. */
+interface HeaderScrubOptions {
+  system?: boolean
+  tools?: boolean
+  prefix?: boolean
+}
+
+/** Transform the selected request-header payloads. */
+function scrubHeaderContent(rawLog: string, options: HeaderScrubOptions): string {
   const lines = rawLog.split('\n')
   const out = lines.map((line) => {
     if (line.trim().length === 0) return line
@@ -153,9 +174,9 @@ function scrubHeaderContent(rawLog: string, scrubToolsAndPrefix: boolean): strin
       const header = data.header as Record<string, unknown> | null | undefined
       if (header === null || typeof header !== 'object') return line
       let touched = false
-      if ('system' in header) { header.system = SYSTEM; touched = true }
-      if (scrubToolsAndPrefix && 'tools' in header) { header.tools = TOOLS; touched = true }
-      if (scrubToolsAndPrefix && Array.isArray(header.messagePrefix)) {
+      if (options.system === true && 'system' in header) { header.system = SYSTEM; touched = true }
+      if (options.tools === true && 'tools' in header) { header.tools = TOOLS; touched = true }
+      if (options.prefix === true && Array.isArray(header.messagePrefix)) {
         header.messagePrefix = header.messagePrefix.map(() => MESSAGE_PREFIX)
         touched = true
       }
@@ -164,16 +185,16 @@ function scrubHeaderContent(rawLog: string, scrubToolsAndPrefix: boolean): strin
     if (record.type === 'request/header-delta') {
       let touched = false
       const system = data.system as Record<string, unknown> | null | undefined
-      if (system !== null && typeof system === 'object' && Array.isArray(system.insert)) {
+      if (options.system === true && system !== null && typeof system === 'object' && Array.isArray(system.insert)) {
         system.insert = system.insert.map(() => SYSTEM)
         touched = true
       }
       const tools = data.tools as Record<string, unknown> | null | undefined
-      if (scrubToolsAndPrefix && tools !== null && typeof tools === 'object') {
+      if (options.tools === true && tools !== null && typeof tools === 'object') {
         if (Array.isArray(tools.added)) { tools.added = tools.added.map(scrubToolSchema); touched = true }
         if (Array.isArray(tools.changed)) { tools.changed = tools.changed.map(scrubToolSchema); touched = true }
       }
-      if (scrubToolsAndPrefix && Array.isArray(data.messagePrefix)) {
+      if (options.prefix === true && Array.isArray(data.messagePrefix)) {
         data.messagePrefix = data.messagePrefix.map(() => MESSAGE_PREFIX)
         touched = true
       }

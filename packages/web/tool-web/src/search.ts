@@ -113,7 +113,7 @@ export function applyWebSearchTool(ctx: Context, maxResults: number, timeoutMs: 
       const input = parseSearchArgs(args)
       const result = await ctx.web.search(
         { query: input.query, maxResults },
-        exec.signal ? { signal: exec.signal } : undefined,
+        exec.signal,
       )
       return [{ type: 'text', text: formatSearchOutput(result) }]
     },

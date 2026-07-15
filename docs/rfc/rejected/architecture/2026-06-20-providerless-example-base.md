@@ -1,6 +1,6 @@
 # RFC: Make the shared example base providerless
 
-Status: rejected — superseded by [Extract example apps into packages](../../implemented/architecture/2026-06-20-extract-example-app-packages.md), which moves the spine into a `dsh-agent-core` bundle and deletes the `base*.yml` files, so there is no shared base YAML left to rename.
+Status: rejected — superseded by [Extract example apps into packages](../../implemented/architecture/2026-06-20-extract-example-app-packages.md), which moves the spine into a `dsh-agent-spine-demo` bundle and deletes the `base*.yml` files, so there is no shared base YAML left to rename.
 
 ## Problem
 

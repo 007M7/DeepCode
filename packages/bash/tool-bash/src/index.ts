@@ -75,7 +75,8 @@ import {
 } from '@deepseek-ai/dsh-sandbox'
 import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import { BashTaskId, OwnerToken } from '@deepseek-ai/dsh-bash'
-import type { BashRunResult, BashTask, CollectedOutput } from '@deepseek-ai/dsh-bash'
+import type { BashTask } from '@deepseek-ai/dsh-bash'
+import { parseExitStatus, renderResult } from './render.ts'
 
 export const name = 'tool-bash'
 export const inject = ['tools', 'bash', 'systemPrompt']
@@ -165,73 +166,7 @@ function bashDescription(escalationModes: readonly SandboxMode[]): string {
     + 'it — but it does not forbid attempting or escalating other commands later.'
 }
 
-/** Append the truncation notice (with the full-output spill path) to a stream's text. */
-function streamText(output: CollectedOutput): string {
-  if (!output.truncated) return output.text
-  return `${output.text}\n[output truncated; full output: ${output.spillPath ?? '(unavailable)'}]`
-}
-
-/**
- * Shape one finished run into the text the model sees: stdout, then a marked
- * stderr section, then exit-status markers. Non-zero exits are REPORTED, not
- * errored — the model decides how to react; only infrastructure failures
- * (spawn errors, aborts) surface as isError results.
- * @param result - the completed foreground run from the executor.
- * @param escalationModes - the escalation targets this composition advertises;
- *   non-empty adds the same-turn escalation hint after a denial marker
- *   (default `[]`: no hint).
- * @returns the model-facing text: output body (or `(no output)`), then any timeout/signal/exit markers, each on its own line.
- */
-export function renderResult(
-  result: BashRunResult,
-  escalationModes: readonly SandboxMode[] = [],
-): string {
-  const out = streamText(result.stdout)
-  const err = streamText(result.stderr)
-
-  let body = out
-  if (err.length > 0) {
-    // Single newline between sections (stdout usually ends with one already).
-    if (body.length > 0 && !body.endsWith('\n')) body += '\n'
-    body += `[stderr]\n${err}`
-  }
-  if (body.length === 0) body = '(no output)'
-
-  const markers: string[] = []
-  // The sandbox marker precedes the exit-status markers so `[exit code: N]`
-  // stays the LAST line (exitStatus() anchors its parse there). Denial is a
-  // reported fact like timeout: the model decides how to react.
-  if (result.sandbox?.denied) {
-    markers.push(sandboxDenialMarker(result.sandbox.mode))
-    // The same-turn nudge lives at the decision point: only when this
-    // composition advertises the fields (a lever is never hinted that the
-    // schema does not offer), and inside the sandbox marker family so the
-    // exit-code marker stays the last line.
-    if (escalationModes.length > 0) {
-      markers.push(escalationHintMarker('command'))
-    }
-  }
-  // Timeout is reported independently of how the process actually ended: a
-  // command can trap SIGTERM and exit 0 after our timer fired (e.g.
-  // `trap "exit 0" TERM; sleep 60`), giving timedOut:true / exitCode:0 /
-  // signal:null — the model must still see that the command was cut short.
-  if (result.timedOut) markers.push(`[timed out after ${result.timeoutMs}ms]`)
-  if (result.signal !== null) {
-    markers.push(`[killed by signal: ${result.signal}]`)
-  } else if (result.exitCode !== 0) {
-    markers.push(`[exit code: ${result.exitCode}]`)
-  }
-  if (markers.length === 0) return body
-
-  if (!body.endsWith('\n')) body += '\n'
-  return body + markers.join('\n')
-}
-
-// ---------------------------------------------------------------------------
-// UI presentation (tool-owned). These shape how a UI (e.g. the ACP bridge)
-// renders a bash call's pending and completed states. They are display-only and
-// pure — a UI may call them during live streaming AND a session-log replay.
-// ---------------------------------------------------------------------------
+// Pure tool-owned presentation used for both live events and replay.
 
 /**
  * Pending-state presentation for a `bash` call. The TITLE is the exact `command`
@@ -314,39 +249,6 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
   // A finished foreground run: RAW output + parsed exit for the terminal card.
   // The bridge derives the no-capability fenced fallback from `output`.
   return { card: 'terminal', output: raw, ...parseExitStatus(raw) }
-}
-
-/**
- * Recover the structured exit status from a rendered `renderResult` string — the
- * inverse of the status markers it appends. A `[killed by signal: SIG]` marker
- * yields `{signal}`; otherwise an `[exit code: N]` marker yields `{exitCode:N}`;
- * absent both we report `{exitCode:0}` (a clean run appends no marker — and a
- * trapped-timeout run that exits 0 also has none and is accurately exit 0).
- *
- * Why parse rendered text at all: `presentResult` is replay-safe and on a
- * `session/load` the ONLY thing persisted is this content text — the structured
- * `BashRunResult` is long gone — so unless the exit were added to the persisted
- * event schema (deliberately NOT done; see the terminal-rendering RFC), parsing
- * is the only channel. The match is anchored to a LEADING newline + end-of-string
- * because `renderResult` always inserts a `\n` before the marker (line ~124) onto
- * a non-empty body: a real marker is therefore always its own final line. That
- * defeats the common spoof (program output that simply ENDS in `[exit code: 5]`
- * with no trailing newline — a clean exit 0 — no longer reads as a failure).
- *
- * KNOWN RESIDUAL (inherent to the replay-only-sees-text design): a clean exit 0
- * whose body's FINAL line is itself exactly the marker text — `[exit code: N]`
- * or `[killed by signal: SIG]`, printed by the program with nothing after — is
- * still indistinguishable from a real marker and would show a wrong pill. This is
- * display-only (execution and the model-facing text are unaffected) and narrow;
- * the complete fix is to persist a structured exit on the result event, which the
- * RFC names as the escape hatch.
- */
-function parseExitStatus(text: string): { exitCode: number } | { signal: string } {
-  const signal = /\n\[killed by signal: ([^\]\n]+)\]$/.exec(text)
-  if (signal?.[1] !== undefined) return { signal: signal[1] }
-  const exit = /\n\[exit code: (\d+)\]$/.exec(text)
-  if (exit?.[1] !== undefined) return { exitCode: Number(exit[1]) }
-  return { exitCode: 0 }
 }
 
 /** Pending-state presentation for `bash_output`/`bash_kill` (background-task tools). */

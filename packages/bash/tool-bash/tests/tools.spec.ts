@@ -20,7 +20,7 @@ import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
-import { renderResult } from '@deepseek-ai/dsh-tool-bash'
+import { renderResult } from '../src/render.ts'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-tool-bash-spec-'))
 
@@ -115,7 +115,6 @@ abstract class TestBashExecutor extends BashExecutor {
 class LossyReadBashExecutor extends TestBashExecutor {
   private readonly task: BashTask = {
     id: BashTaskId('bash-lossy'),
-    command: 'fake',
     status: 'running',
     exitCode: null,
     signal: null,
@@ -290,9 +289,17 @@ describe('bash tool', () => {
 
   it('contributes the exit-code habit as its prompt section (guidance the descriptions cannot carry)', async () => {
     const ctx = await setup()
+    ctx.systemPrompt.section({ name: 'test:before-bash', order: 104, text: 'before' })
+    ctx.systemPrompt.section({ name: 'test:after-bash', order: 106, text: 'after' })
     const assembly = await ctx.systemPrompt.assemble()
     const section = assembly.sections.find(s => s.name === 'tool:bash')
-    expect(section?.order).toBe(105)
+    expect(assembly.sections.map(s => s.name)).toEqual([
+      'harness:identity',
+      'deployment:persona',
+      'test:before-bash',
+      'tool:bash',
+      'test:after-bash',
+    ])
     expect(section?.text).toContain('[exit code: N]')
   })
 
@@ -1036,7 +1043,6 @@ describe('sandbox rendering', () => {
     class FactsOnlyExecutor extends TestBashExecutor {
       private readonly task: BashTask = {
         id: BashTaskId('bash-facts'),
-        command: 'fake',
         status: 'completed',
         exitCode: 1,
         signal: null,

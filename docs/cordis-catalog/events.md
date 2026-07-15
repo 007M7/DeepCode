@@ -245,7 +245,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 'session/created'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:46`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:47`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
@@ -255,7 +255,7 @@ Emitted once when an announced session leaves the store, including publication r
 'session/disposed'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:55`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:57`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -267,7 +267,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:66`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:69`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -277,29 +277,7 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:75`](../../packages/core/session/src/index.ts)
-
-## `skill/*`
-
-### `skill/provider-added` — emit
-
-A skill provider became resolvable in the `ctx.skills` registry. Consumers can observe this instead of depending on Cordis plugin load order, which is concurrent for sibling plugins.
-
-```ts cordis-catalog
-'skill/provider-added'(provider: SkillProvider): void
-```
-
-Source: [`packages/skill/skill/src/index.ts:131`](../../packages/skill/skill/src/index.ts)
-
-### `skill/provider-removed` — emit
-
-A skill provider left the registry because its plugin fiber was disposed.
-
-```ts cordis-catalog
-'skill/provider-removed'(name: string): void
-```
-
-Source: [`packages/skill/skill/src/index.ts:137`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/core/session/src/index.ts:79`](../../packages/core/session/src/index.ts)
 
 ## `subagent/*`
 
@@ -311,7 +289,7 @@ A ready child settled. Scope-filtered dispatch uses the same delegating parent c
 'subagent/end'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:90`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:92`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -341,7 +319,7 @@ A provider established a ready child. For in-process providers, `ctx.agents.get(
 'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:82`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:83`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 

@@ -1043,8 +1043,7 @@ describe('tool result call identity', () => {
 
     // A post-execute listener transforms the result (accept-with-replacement).
     // The loop must still record the tool/result under the model's authoritative
-    // call.id (the loop ignores result.callId — which the registry always sets to
-    // exec.callId anyway — and uses call.id, the model-transcript id).
+    // call.id, which is the immutable identity carried by the execution input.
     ctx.on('tools/post-execute', (exec, _result) => {
       expect(exec.callId).toBe(CallId('c1')) // the loop passed the real id in
       return Promise.resolve({ kind: 'accept', content: [{ type: 'text', text: 'ok' }] })
@@ -1054,8 +1053,7 @@ describe('tool result call identity', () => {
     send(agent, 'use tool')
     await waitForIdle(ctx, agent)
 
-    // The logged tool/result.callId is the originating call.id, NOT the
-    // listener's wrong id.
+    // The logged tool/result.callId is the originating call.id.
     const resultEvent = [...agent.session.events].find(e => e.type === 'tool/result')
     expect(resultEvent?.type).toBe('tool/result')
     if (resultEvent?.type === 'tool/result') {
