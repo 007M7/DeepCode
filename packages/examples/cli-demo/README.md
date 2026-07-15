@@ -28,7 +28,7 @@ dsh-cli-demo [--config path] [--output-format text|json|stream-json] <task>
 The root coding demo supplies its overlay:
 
 ```sh
-pnpm run demo:cli -- "inspect the failing test and fix it"
+pnpm run demo:headless -- "inspect the failing test and fix it"
 ```
 
 Loader configs with bare package specifiers require `node --expose-internals` or the Loader's optional native fallback. The root command supplies the Node flag.

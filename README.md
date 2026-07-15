@@ -12,6 +12,7 @@ This monorepo is built on the [Cordis](https://github.com/cordiverse/cordis) fra
 pnpm install
 pnpm run test          # vitest
 pnpm run demo:repl     # REPL agent demo (needs DEEPSEEK_API_KEY)
+pnpm run demo:headless -- "task" # one-shot agent demo (needs DEEPSEEK_API_KEY)
 pnpm run demo:acp      # ACP server agent demo (needs DEEPSEEK_API_KEY)
 ```
 

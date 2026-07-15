@@ -17,7 +17,7 @@ Run with: `pnpm run demo:echo`. When prompted, type "echo <something>" to trigge
 
 A REPL agent demo: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the same `@deepseek-ai/dsh-stdio-demo` app. The UI is a terminal readline REPL.
 
-Run interactively with `pnpm run demo:repl`, or run one headless task with `pnpm run demo:cli -- "task"` (both need `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
+Run interactively with `pnpm run demo:repl`, or run one headless task with `pnpm run demo:headless -- "task"` (both need `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
 
 Run the Code Mode overlay with `pnpm run demo:code-mode`, or pass `acp` for the ACP example. See the [Code Mode example](coding-agent/README.md#code-mode) for its composition and a sample task.
 

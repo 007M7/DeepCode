@@ -45,7 +45,7 @@ pnpm install            # pnpm workspaces, node ^22.19 || >=24
 pnpm run test           # vitest unit tests
 pnpm run test:coverage  # gate: per-file 100% on packages/*/*/src
 pnpm run test:e2e       # real API; skips without key
-pnpm run test:snapshot  # keyless ACP replay vs goldens; filter: -t <name>
+pnpm run test:snapshot  # keyless ACP/headless replay vs goldens; filter: -t <name>
 pnpm run test:snapshot:record  # re-record goldens (needs key)
 pnpm run typecheck
 pnpm run lint
@@ -55,7 +55,7 @@ pnpm run hygiene        # knip + publint + workspace constraints + NodeNext cons
 pnpm run doc-sync       # all documentation gates; see the doc-sync script in package.json
 pnpm run demo:echo      # mock-model REPL, no key needed
 pnpm run demo:repl      # real coding REPL (needs key)
-pnpm run demo:cli -- "task" # one-shot agent (needs key)
+pnpm run demo:headless -- "task" # one-shot agent (needs key)
 pnpm run demo:cordis    # self-modifying runtime demo (needs key)
 pnpm run demo:acp       # ACP server (needs key)
 ```

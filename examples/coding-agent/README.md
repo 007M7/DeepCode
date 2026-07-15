@@ -26,9 +26,9 @@ Type a coding task. The agent works through the `read`/`write`/`edit` filesystem
 Run one task through all model and tool steps, flush its fresh session, print the final result, and exit:
 
 ```sh
-pnpm run demo:cli -- "fix the failing test in this workspace"
-pnpm run demo:cli --output-format json -- "summarize the current implementation"
-pnpm run demo:cli --output-format stream-json -- "run the focused tests"
+pnpm run demo:headless -- "fix the failing test in this workspace"
+pnpm run demo:headless --output-format json -- "summarize the current implementation"
+pnpm run demo:headless --output-format stream-json -- "run the focused tests"
 ```
 
 The root command supplies `cli.cordis.yml`, which disables HMR and the REPL app and inserts [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo). Exactly one quoted positional task is required; there is no `-p` flag. `text` prints the last text-bearing assistant message, `json` prints one DSH-native result record, and `stream-json` emits the parent `main` session's canonical task-turn events before that record. Non-completed turns retain partial output but exit nonzero; argument and boot failures leave stdout empty.
