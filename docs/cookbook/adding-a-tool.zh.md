@@ -45,7 +45,7 @@ export function apply(ctx: Context) {
 
 ## 长时间运行的工作
 
-把长时间运行的工作交给共享任务运行时，不要自行设计任务协议：通过插件自身带默认值的 `enableRunInBackground` 一类配置控制是否暴露 `run_in_background` 参数，然后调用 `ctx.tasks.start({ kind, label, owner: exec.agent, run: () => ({ cancel, done, readOutput? }) })`（`@deepseek-ai/dsh-tasks`）。运行时会在调用你的 `run()` 启动器**之前**预检所有可能失败的事项（控制接口隔离、校验、挂接所属方的清理逻辑），从结构上杜绝工作已经启动却拿不到可收集 task id 的情况（工具无需用 try/catch 回滚）。运行时分配 `<kind>-N` id，将访问限制在所属会话，并在所属方 dispose 时取消任务并等待其结束；通用的 `task_output`、`task_list`、`task_kill` 工具和完成通知来自 `@deepseek-ai/dsh-tool-tasks`，你的工具返回 `started background task <id>` 即告完成。生产方仍负责执行方面的事项：`done` 必须在达到静止状态（资源已释放）后才结算；流式类型的 `readOutput` 自行负责截断和溢写格式（限制缓冲区大小，并将完整输出溢写到磁盘，避免静默丢失；参见 tool-bash 的 `renderProcessRead`）。返回 id 后，**不要**再把 `exec.signal` 连接到后台工作；调用 `start` 前只检查一次 `exec.signal?.aborted`，之后由 `task_kill` 和所属方清理负责取消。
+不要为长时间运行的工作另造任务协议，而应将其交给共享 task 运行时：通过插件自身带默认值的 `enableRunInBackground` 类配置控制是否暴露 `run_in_background` 参数，然后调用 `ctx.tasks.start({ kind, label, owner: exec.agent, run: () => ({ cancel, done, readOutput? }) })`（`@deepseek-ai/dsh-tasks`）。运行时会在调用你的 `run()` 启动器之前，预检所有可能失败的条件（控制面围栏、校验和 owner cleanup 挂接），从结构上杜绝工作已经启动却没有可收集 id 的情况（你的工具无需通过 try/catch 回滚）。运行时签发 `<kind>-N` id，将访问限制在 owner 会话，并在 owner dispose 时取消并等待任务；通用的 `task_output`、`task_list`、`task_kill` 工具和完成通知由 `@deepseek-ai/dsh-tool-tasks` 提供，你的工具返回 `started background task <id>` 后即完成。producer 保留自身的执行职责：`done` 必须在达到静止状态（资源已释放）后 settle；流类型的 `readOutput` 自行负责截断和溢写格式（限定缓冲区大小，将完整输出溢写到磁盘，避免静默丢失——参见 tool-bash 的 `renderProcessRead`）。返回 id 后，不要再把 `exec.signal` 连接到后台工作；调用 `start` 前只检查一次 `exec.signal?.aborted`，此后由 `task_kill` 和 owner cleanup 负责取消。
 
 ## 执行策略与观测
 
