@@ -55,7 +55,7 @@ CUSTOM_CORDIS = """\
 - id: jsonrpc
   name: '@deepseek-ai/dsh-jsonrpc'
 - id: agent-core
-  name: '@deepseek-ai/dsh-agent-core'
+  name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
     tools:
       mode: both

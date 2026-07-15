@@ -49,7 +49,7 @@
 
 # The app bundle pre-creates the self-referential demo's `main` agent.
 - id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-agent'
+  name: '@deepseek-ai/dsh-stdio-demo'
   config:
     model: deepseek-v4-flash
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
