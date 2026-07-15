@@ -346,6 +346,7 @@ describe('BasicCompactService.compactRegion', () => {
     expect(result.shadowedSeqs).toEqual([firstSeq, secondSeq])
     expect(result.shadowedRange.start).toBe(firstSeq)
     expect(result.shadowedRange.end).toBe(secondSeq)
+    expect(result.summary).toEqual(svc.mockSummary)
     expect(result.shadowedTokenCount).toBe(20)
 
     const events = session.events
@@ -1057,7 +1058,8 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     const session = multiTurnSession(2, 1)
     const nodes = session.surface.nodes
 
-    await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'test-model')
+    const result = await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'test-model')
+    expect(result.summary).toEqual([{ type: 'text', text: 'CONDENSED' }])
     const summaryEvent = session.events.findLast(e => e.type === 'compact/summary')!
     expect(summaryEvent.data.summary).toEqual([{ type: 'text', text: 'CONDENSED' }])
     // The raw summary is wrapped in the checkpoint framing on the surface.
