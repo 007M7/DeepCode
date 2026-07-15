@@ -226,7 +226,7 @@ export class SystemPrompt extends Service {
   private scopedVariableProviders = new Map<ScopeKey, Map<string, (context: AssembleContext) => string | undefined>>()
   private readonly toolOrder: string[] | undefined
 
-  constructor(ctx: Context, public config: Config) {
+  constructor(ctx: Context, config: Config) {
     super(ctx, 'systemPrompt')
     this.toolOrder = validateToolOrder(config.toolOrder)
     // Keep harness-owned openers independent of the selected loop plugin.
