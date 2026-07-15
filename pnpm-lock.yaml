@@ -68,6 +68,9 @@ importers:
       publint:
         specifier: ^0.3.21
         version: 0.3.21
+      saxes:
+        specifier: ^6.0.0
+        version: 6.0.0
       tsdown:
         specifier: ^0.22.2
         version: 0.22.2(oxc-resolver@11.20.0)(publint@0.3.21)(tsx@4.22.4)(typescript@6.0.3)
