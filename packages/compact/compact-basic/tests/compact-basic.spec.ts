@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import BasicCompactService, {
-  resolveConfig,
-  resolveModelConfig,
-} from '@deepseek-ai/dsh-compact-basic'
+import BasicCompactService, { resolveConfig } from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compact-basic/src/region.ts'
 import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
@@ -11,22 +8,15 @@ import type { CompactionResult } from '@deepseek-ai/dsh-compact'
 import LlmService, { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import TokenMeterService, {
-  TOKEN_METER_MODEL_UNCONFIGURED,
-  TokenMeterError,
-} from '@deepseek-ai/dsh-token-meter'
+import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 const SIGNAL = new AbortController().signal
 const MODEL = 'test-model'
 
-function createContext(
-  models: Record<string, { contextWindow?: number; charsPerToken?: number }> = {
-    [MODEL]: { contextWindow: 100, charsPerToken: 1_000 },
-  },
-): Context {
+function createContext(contextWindow = 1_000): Context {
   const ctx = new Context()
-  void new TokenMeterService(ctx, { models })
+  void new TokenMeterService(ctx, { contextWindow })
   return ctx
 }
 
@@ -35,7 +25,7 @@ function agent(session: Session, model?: string): Agent {
 }
 
 /** Closed two-message turns followed by one open turn for durable compaction events. */
-function conversation(turns = 4, text = 'fixture'): Session {
+function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
   const session = new Session(SessionId(`conversation-${turns}`))
   for (let turn = 1; turn <= turns; turn += 1) {
     session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -140,51 +130,42 @@ async function compactIfNeeded(
 }
 
 describe('compact configuration and defaults', () => {
-  it('uses low-friction common and per-profile defaults', () => {
-    const ctx = createContext({
-      [MODEL]: { contextWindow: 100, charsPerToken: 1_000 },
-      large: { contextWindow: 1_000, charsPerToken: 4 },
-    })
+  it('uses low-friction service-wide defaults', () => {
+    const ctx = createContext()
     const resolved = resolveConfig({}, ctx.tokenMeter)
 
     expect(resolved).toEqual({
-      models: {},
+      thresholdRatio: 0.8,
+      retainTokens: 160,
       summarizationModel: '',
       maxTokens: 8192,
       compactionRetries: 1,
       maxOverflowRetries: 1,
       auto: true,
     })
-    expect(resolveModelConfig(resolved, ctx.tokenMeter.resolve(MODEL))).toEqual({
-      model: MODEL,
-      contextWindow: 100,
-      thresholdRatio: 0.8,
-      retainTokens: 16,
-    })
-    expect(resolveModelConfig(resolved, ctx.tokenMeter.resolve('large')).retainTokens).toBe(160)
     expect(Object.isFrozen(resolved)).toBe(true)
   })
 
-  it('merges threshold and retention overrides field-wise', () => {
+  it('resolves threshold and retention overrides independently', () => {
     const ctx = createContext()
     const thresholdOnly = resolveConfig({
-      models: { [MODEL]: { thresholdRatio: 0.5 } },
-    }, ctx.tokenMeter)
-    expect(resolveModelConfig(thresholdOnly, ctx.tokenMeter.resolve(MODEL))).toMatchObject({
       thresholdRatio: 0.5,
-      retainTokens: 16,
+    }, ctx.tokenMeter)
+    expect(thresholdOnly).toMatchObject({
+      thresholdRatio: 0.5,
+      retainTokens: 160,
     })
 
     const retentionOnly = resolveConfig({
-      models: { [MODEL]: { retainTokens: 7 } },
+      retainTokens: 70,
     }, ctx.tokenMeter)
-    expect(resolveModelConfig(retentionOnly, ctx.tokenMeter.resolve(MODEL))).toMatchObject({
+    expect(retentionOnly).toMatchObject({
       thresholdRatio: 0.8,
-      retainTokens: 7,
+      retainTokens: 70,
     })
   })
 
-  it('validates common values and model policy invariants', () => {
+  it('validates common values and pressure-policy invariants', () => {
     const ctx = createContext()
     const bad = [
       [{ maxTokens: 0 }, /maxTokens/],
@@ -192,33 +173,25 @@ describe('compact configuration and defaults', () => {
       [{ maxOverflowRetries: -1 }, /maxOverflowRetries/],
       [{ auto: 'yes' }, /auto must be a boolean/],
       [{ summarizationModel: 1 }, /summarizationModel must be a string/],
-      [{ models: null }, /models must be an object/],
-      [{ models: { [MODEL]: null } }, /must be an object/],
-      [{ models: { [MODEL]: { thresholdRatio: 0 } } }, /number in \(0, 1\]/],
-      [{ models: { [MODEL]: { thresholdRatio: 1.1 } } }, /number in \(0, 1\]/],
-      [{ models: { [MODEL]: { retainTokens: -1 } } }, /non-negative integer/],
-      [{ models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 50 } } }, /less than threshold/],
+      [{ thresholdRatio: 0 }, /number in \(0, 1\]/],
+      [{ thresholdRatio: 1.1 }, /number in \(0, 1\]/],
+      [{ retainTokens: -1 }, /non-negative integer/],
+      [{ thresholdRatio: 0.5, retainTokens: 500 }, /less than threshold/],
+      [{ models: { [MODEL]: { retainTokens: 10 } } }, /BasicCompactConfig: unknown key "models"/],
+      [{ thresholdRato: 0.5 }, /BasicCompactConfig: unknown key "thresholdRato"/],
     ] as Array<[unknown, RegExp]>
 
     for (const [config, pattern] of bad) {
       expect(() => resolveConfig(config as BasicCompactConfig, ctx.tokenMeter)).toThrow(pattern)
     }
   })
-
-  it('rejects an override for an unknown meter profile with the exact typed error', () => {
-    const ctx = createContext()
-    expect(() => resolveConfig({ models: { missing: { retainTokens: 1 } } }, ctx.tokenMeter))
-      .toThrow(expect.objectContaining({
-        code: TOKEN_METER_MODEL_UNCONFIGURED,
-        model: 'missing',
-      }))
-  })
 })
 
 describe('pressure measurement and retention', () => {
   const compactConfig: BasicCompactConfig = {
     auto: false,
-    models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+    thresholdRatio: 0.5,
+    retainTokens: 180,
   }
 
   it('skips when no durable routed model exists instead of using AgentOptions fallback', async () => {
@@ -230,15 +203,15 @@ describe('pressure measurement and retention', () => {
     expect(compact.calls).toHaveLength(0)
   })
 
-  it('throws for a named unconfigured model instead of swallowing it', async () => {
+  it('meters any routed model without profile resolution', async () => {
     const compact = service(compactConfig)
     const session = conversation()
     session.append('request/header', {
-      header: { config: { model: 'missing' } },
+      header: { config: { model: 'unlisted-model' } },
       reason: 'resume',
     })
     await expect(compactIfNeeded(compact, session))
-      .rejects.toMatchObject({ code: TOKEN_METER_MODEL_UNCONFIGURED, model: 'missing' })
+      .resolves.not.toBeNull()
   })
 
   it('declines forced overflow when the whole surface is one indivisible tool pair', async () => {
@@ -286,16 +259,17 @@ describe('pressure measurement and retention', () => {
   it('counts the durable routed request envelope without putting its prefix on the surface', async () => {
     const compact = service({
       auto: false,
-      models: { [MODEL]: { thresholdRatio: 0.7, retainTokens: 9 } },
+      thresholdRatio: 0.9,
+      retainTokens: 50,
     })
-    const session = conversation(2, 'x'.repeat(2_000))
+    const session = conversation(2, 'x'.repeat(600))
     expect(await compactIfNeeded(compact, session)).toBeNull()
 
-    const prefix = [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'p'.repeat(10_000) }] }]
+    const prefix = [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'p'.repeat(600) }] }]
     session.append('request/header', {
       header: {
         config: { model: MODEL },
-        system: 's'.repeat(5_000),
+        system: 's'.repeat(600),
         messagePrefix: prefix,
       },
       reason: 'resume',
@@ -306,23 +280,24 @@ describe('pressure measurement and retention', () => {
     expect(session.events.some(event => event.type === 'context/message')).toBe(false)
   })
 
-  it('uses the latest logged routed model instead of AgentOptions.model', async () => {
-    const ctx = createContext({
-      actual: { contextWindow: 100, charsPerToken: 1_000 },
-      fallback: { contextWindow: 10_000, charsPerToken: 1_000 },
-    })
+  it('uses the latest logged request envelope without an AgentOptions override', async () => {
+    const ctx = createContext()
     const compact = service({
       auto: false,
-      models: { actual: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.5,
+      retainTokens: 180,
     }, ctx)
     const session = conversation(4)
     session.append('request/header', {
       header: { config: { model: 'actual' } },
       reason: 'initial',
     })
+    const measure = vi.spyOn(ctx.tokenMeter, 'measure')
 
     const result = await compactIfNeeded(compact, session, 'pressure', 'fallback')
     expect(result).not.toBeNull()
+    expect(session.requestHeader()?.config.model).toBe('actual')
+    expect(measure.mock.calls[0]).toEqual([session])
   })
 
   it('declines when envelope pressure is high but the surface has no compactable range', async () => {
@@ -343,24 +318,23 @@ describe('pressure measurement and retention', () => {
     expect(await compactIfNeeded(compact, retained)).toBeNull()
   })
 
-  it('detects scalar/surface revision disagreement', async () => {
+  it('uses one unified measurement for each pressure-and-retention decision', async () => {
     const ctx = createContext()
-    const meter = ctx.tokenMeter.resolve(MODEL)
-    const original = meter.measureSurface.bind(meter)
-    vi.spyOn(meter, 'measureSurface').mockImplementation((session) => {
-      const measurement = original(session)
-      return { ...measurement, logRevision: measurement.logRevision - 1 }
-    })
     const compact = service(compactConfig, ctx)
+    const measure = vi.spyOn(ctx.tokenMeter, 'measure')
+    const stop = new Error('stop after first decision')
+    vi.spyOn(compact, 'compactRegion').mockRejectedValueOnce(stop)
 
-    await expect(compactIfNeeded(compact, conversation(4))).rejects.toThrow(/revision/)
+    await expect(compactIfNeeded(compact, conversation(4))).rejects.toBe(stop)
+    expect(measure).toHaveBeenCalledTimes(1)
   })
 
   it('bounds retries when a shrinking checkpoint remains above threshold', async () => {
     const compact = service({
       auto: false,
       compactionRetries: 0,
-      models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.3,
+      retainTokens: 180,
     })
     compact.summary = Array.from({ length: 7 }, (_, index) => ({
       type: 'text',
@@ -374,8 +348,9 @@ describe('pressure measurement and retention', () => {
   it('rounds a retention cut head-ward to preserve tool-call/result pairing', async () => {
     const compact = service({
       auto: false,
-      models: { [MODEL]: { thresholdRatio: 0.8, retainTokens: 8 } },
-    })
+      thresholdRatio: 0.8,
+      retainTokens: 80,
+    }, createContext(4_000))
     const session = toolConversation()
     const result = await compactIfNeeded(compact, session)
     expect(result).not.toBeNull()
@@ -393,7 +368,7 @@ describe('pressure measurement and retention', () => {
   it('rejects a priced surface that is not the current positional surface', () => {
     const ctx = createContext()
     const session = conversation(2)
-    const priced = ctx.tokenMeter.resolve(MODEL).measureSurface(session)
+    const priced = ctx.tokenMeter.measure(session)
     expect(() => selectCompactableRange(session, {
       ...priced,
       nodes: priced.nodes.slice(1),
@@ -421,7 +396,7 @@ describe('pressure measurement and retention', () => {
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn: 1, step: 1 })
 
-    const priced = ctx.tokenMeter.resolve(MODEL).measureSurface(session)
+    const priced = ctx.tokenMeter.measure(session)
     expect(selectCompactableRange(session, priced, 1)).toBeNull()
   })
 })
@@ -563,9 +538,9 @@ describe('compaction region transaction', () => {
 
   it('rejects a meter snapshot that changed before summarization began', async () => {
     const ctx = createContext()
-    const meter = ctx.tokenMeter.resolve(MODEL)
-    const original = meter.measureSurface.bind(meter)
-    vi.spyOn(meter, 'measureSurface').mockImplementationOnce((session) => {
+    const meter = ctx.tokenMeter
+    const original = meter.measure.bind(meter)
+    vi.spyOn(meter, 'measure').mockImplementationOnce((session) => {
       const measurement = original(session)
       return { ...measurement, nodes: measurement.nodes.slice(1) }
     })
@@ -635,7 +610,7 @@ describe('compaction region transaction', () => {
 
   it('rejects a non-shrinking framed summary under the conversation meter', async () => {
     const compact = service()
-    compact.summary = Array.from({ length: 20 }, (_, index) => ({
+    compact.summary = Array.from({ length: 100 }, (_, index) => ({
       type: 'text',
       text: `verbose ${index}`,
     }))
@@ -651,19 +626,19 @@ describe('compaction region transaction', () => {
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(false)
   })
 
-  it('requires a conversation model for pricing', async () => {
+  it('lets a model-independent custom summarizer compact without a conversation model', async () => {
     const compact = service()
     const session = new Session(SessionId('model-less-region'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', {
-      content: [{ type: 'text', text: 'history' }],
+      content: [{ type: 'text', text: 'history '.repeat(100) }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('assistant/message', {
       turn: 1,
       step: 1,
-      content: [{ type: 'text', text: 'answer' }],
+      content: [{ type: 'text', text: 'answer '.repeat(100) }],
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn: 1, step: 1 })
     const nodes = session.surface.nodes
@@ -672,7 +647,7 @@ describe('compaction region transaction', () => {
       nodes[0]!.seq,
       nodes[1]!.seq,
       agent(session),
-    )).rejects.toThrow(/no routed or configured conversation model/)
+    )).resolves.toMatchObject({ shadowedSeqs: [nodes[0]!.seq, nodes[1]!.seq] })
   })
 })
 
@@ -710,7 +685,7 @@ async function summarizerHarness(
 ): Promise<{ ctx: Context; adapter: ScriptedAdapter; compact: BasicCompactService }> {
   const ctx = new Context()
   await ctx.plugin(LlmService)
-  void new TokenMeterService(ctx, { models: { [model]: { contextWindow: 100 } } })
+  void new TokenMeterService(ctx, { contextWindow: 1_000 })
   const adapter = new ScriptedAdapter(blocks, finish)
   ctx.llm.registerAdapter([model], adapter)
   const compact = new BasicCompactService(ctx, config)
@@ -836,7 +811,8 @@ describe('automatic listener and loader composition', () => {
   it('compacts post-step above threshold using the durable routed model and remains idle below it', async () => {
     const ctx = createContext()
     const compact = new TestCompactService(ctx, {
-      models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.5,
+      retainTokens: 180,
     })
     const pressured = conversation(4)
     await postStep(ctx, agent(pressured, 'unconfigured-agent-fallback'))
@@ -851,7 +827,8 @@ describe('automatic listener and loader composition', () => {
   it('skips post-step pressure when the step signal is already aborted', async () => {
     const ctx = createContext()
     const compact = new TestCompactService(ctx, {
-      models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.5,
+      retainTokens: 180,
     })
     const pressured = conversation(4)
     const compactIfNeeded = vi.spyOn(compact, 'compactIfNeeded')
@@ -868,7 +845,8 @@ describe('automatic listener and loader composition', () => {
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
     const compact = new TestCompactService(ctx, {
-      models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.5,
+      retainTokens: 180,
     })
     compact.error = 'temporary failure'
     const session = conversation(4)
@@ -878,30 +856,17 @@ describe('automatic listener and loader composition', () => {
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(false)
   })
 
-  it('propagates a named unknown-model configuration failure', async () => {
-    const ctx = createContext()
-    void new TestCompactService(ctx)
-    const session = conversation(4)
-    session.append('request/header', {
-      header: { config: { model: 'missing' } },
-      reason: 'resume',
-    })
-    await expect(postStep(ctx, agent(session, MODEL))).rejects.toMatchObject({
-      code: TOKEN_METER_MODEL_UNCONFIGURED,
-      model: 'missing',
-    })
-  })
-
   it('force-compacts below normal pressure for canonical overflow and retries only after replacement', async () => {
-    const ctx = createContext()
+    const ctx = createContext(10_000)
     void new TestCompactService(ctx, {
-      models: { [MODEL]: { thresholdRatio: 1, retainTokens: 90 } },
+      thresholdRatio: 1,
+      retainTokens: 900,
     })
     const session = conversation(3)
     const beforeGeneration = session.surface.replaceGeneration
     const retainedSeq = session.surface.nodes.at(-1)!.seq
-    const threshold = 100
-    expect(ctx.tokenMeter.resolve(MODEL).measure(session).totalTokens).toBeLessThan(threshold)
+    const threshold = 10_000
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(threshold)
     const decision = await recover(ctx, agent(session, 'unconfigured-agent-fallback'), overflow())
 
     expect(decision).toEqual({ action: 'retry' })
@@ -913,7 +878,8 @@ describe('automatic listener and loader composition', () => {
   it('preserves the newest whole tool-call/result pair during forced overflow compaction', async () => {
     const ctx = createContext()
     void new TestCompactService(ctx, {
-      models: { [MODEL]: { thresholdRatio: 1, retainTokens: 90 } },
+      thresholdRatio: 1,
+      retainTokens: 90,
     })
     const session = toolConversation()
     const newestAssistant = session.surface.nodes.at(-2)!
@@ -1010,7 +976,7 @@ describe('automatic listener and loader composition', () => {
     expect(warnings).toContainEqual(expect.stringContaining('non-error recovery failure'))
   })
 
-  it('delegates once and preserves the original overflow for an unknown routed meter model', async () => {
+  it('recovers an overflow for an unlisted routed model', async () => {
     const ctx = createContext()
     void new TestCompactService(ctx)
     const session = conversation(2)
@@ -1018,19 +984,8 @@ describe('automatic listener and loader composition', () => {
       header: { config: { model: 'unknown-routed-model' } },
       reason: 'resume',
     })
-    const original = overflow('original unknown-model overflow')
-    let delegations = 0
-
-    const decision = await recover(ctx, agent(session, MODEL), original, 0, SIGNAL, () => {
-      delegations += 1
-      return Promise.resolve({ action: 'fail' })
-    })
-    expect(decision).toEqual({ action: 'fail' })
-    expect(delegations).toBe(1)
-    expect(original).toMatchObject({
-      message: 'original unknown-model overflow',
-      code: CONTEXT_WINDOW_EXCEEDED_CODE,
-    })
+    expect(await recover(ctx, agent(session, MODEL), overflow('unlisted-model overflow')))
+      .toEqual({ action: 'retry' })
   })
 
   it('honors retry caps, non-context failures, and cancellation', async () => {
@@ -1065,7 +1020,8 @@ describe('automatic listener and loader composition', () => {
     const ctx = createContext()
     void new TestCompactService(ctx, {
       maxOverflowRetries: 0,
-      models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.5,
+      retainTokens: 180,
     })
     const session = conversation(4)
     await postStep(ctx, agent(session, MODEL))
@@ -1079,7 +1035,8 @@ describe('automatic listener and loader composition', () => {
     const ctx = createContext()
     void new TestCompactService(ctx, {
       auto: false,
-      models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.5,
+      retainTokens: 180,
     })
     const session = conversation(4)
     await postStep(ctx, agent(session, MODEL))
@@ -1093,7 +1050,7 @@ describe('automatic listener and loader composition', () => {
     const meterFiber = await ctx.plugin(TokenMeterService)
     const compactFiber = await ctx.plugin(BasicCompactService, { auto: false })
 
-    expect(ctx.tokenMeter.resolve('deepseek-v4-flash').contextWindow).toBe(128_000)
+    expect(ctx.tokenMeter.contextWindow).toBe(128_000)
     expect(ctx.get('compact')).toBeInstanceOf(BasicCompactService)
     await compactFiber.dispose()
     expect(ctx.get('compact')).toBeUndefined()
@@ -1104,11 +1061,10 @@ describe('automatic listener and loader composition', () => {
   it('removes its automatic listener with the plugin fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    await ctx.plugin(TokenMeterService, {
-      models: { [MODEL]: { contextWindow: 100, charsPerToken: 1_000 } },
-    })
+    await ctx.plugin(TokenMeterService, { contextWindow: 1_000 })
     const fiber = await ctx.plugin(TestCompactService, {
-      models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.5,
+      retainTokens: 180,
     })
     await fiber.dispose()
 
@@ -1116,19 +1072,5 @@ describe('automatic listener and loader composition', () => {
     await postStep(ctx, agent(session, MODEL))
     expect(session.events.some(event => event.type === 'compact/start')).toBe(false)
     expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'fail' })
-  })
-})
-
-describe('typed unknown-model boundary', () => {
-  it('uses TokenMeterError identity rather than message matching', () => {
-    const ctx = createContext()
-    let thrown: unknown
-    try {
-      ctx.tokenMeter.resolve('missing')
-    } catch (error: unknown) {
-      thrown = error
-    }
-    expect(thrown).toBeInstanceOf(TokenMeterError)
-    expect(thrown).toMatchObject({ code: TOKEN_METER_MODEL_UNCONFIGURED })
   })
 })

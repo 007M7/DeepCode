@@ -8,25 +8,25 @@ This is the implementation tier of the compaction capability — see the [interf
 
 This backend owns the compaction policy:
 
-- **Measurement** — the latest durable routed request model's `ModelTokenMeter` prices the canonical logged envelope and current surface at one consumed-log revision. Post-step pressure therefore includes the actual system prompt, tools, prefix, routing, assistant completion, tool results, buffered context, and steering.
+- **Measurement** — the singleton `ctx.tokenMeter` prices the latest canonical logged envelope and current surface at one consumed-log revision. Post-step pressure therefore includes the actual system prompt, tools, prefix, routing, assistant completion, tool results, buffered context, and steering.
 - **Retention** — compact the oldest whole surface units while preserving a recent tail and balanced tool-call/result cuts through the [`dsh-compact` boundary helpers](../compact/README.md#tool-pairing-boundaries). Turn boundaries do not protect old steps inside a runaway turn. An open indivisible tail declines until it closes; a single unit larger than the budget remains out of scope.
 - **Convergence** — retry head-checkpoint compaction up to `compactionRetries`; reject a summary that does not shrink its source, and throw if retries cannot return below threshold.
 - **Summarization** — a direct `llm/stream` call uses the configured model and cap without running the loop-only `agent/request` seam. The input transcript preserves non-text blocks as tagged placeholders; only returned text enters the checkpoint, excluding reasoning and tool calls that would leak private reasoning or create an orphaned call.
 - **Framing** — the replacement user message marks established checkpoint context with `<compacted-summary>` tags. The raw summary remains on the provenance event, and later automatic cycles merge the prior checkpoint.
 - **Lifecycle** — `compactRegion()` requires its agent to own the exact target session and rejects mismatch before resolution or mutation; a valid call records its start, summary, replacement, and end. The serial `agent/post-step` listener checks pressure after successful output and tool work are durable but before `step/end`. Canonical provider overflow is handled through `agent/request-error` after the failed step closes.
 - **Overflow recovery** — below-threshold overflow bypasses normal retention and attempts one maximal balanced head reduction while leaving the newest indivisible unit. Retry is authorized only when `surface.replaceGeneration` advances; no range, no replacement, recovery failure, an exhausted cap, cancellation, or an unknown/noncanonical error preserves the original provider failure.
-- **Failure handling** — an unmatched `compact/start` is an inert crash marker because no replacement landed. Operational post-step failures warn and continue, while an actually routed model without a meter profile fails the otherwise-successful turn with the typed meter error.
+- **Failure handling** — an unmatched `compact/start` is an inert crash marker because no replacement landed. Operational post-step failures warn and continue; overflow-recovery failure preserves the original provider error.
 
-`summarize()` is the sole subclass hook. A template- or remote-summarizer subclass can override it while pressure, retention, provenance, shrink validation, and shadowed-token accounting stay on the conversation model's meter. The hook returns the summary blocks together with the call envelope it used (`{ summary, model, maxTokens? }`), which is logged on `compact/summary`.
+`summarize()` is the sole subclass hook. A template- or remote-summarizer subclass can override it while pressure, retention, provenance, shrink validation, and shadowed-token accounting stay on `ctx.tokenMeter`. The hook returns the summary blocks together with the call envelope it used (`{ summary, model, maxTokens? }`), which is logged on `compact/summary`.
 
 ## Config (`BasicCompactConfig`)
 
-Every common setting is optional. Every model known to `ctx.tokenMeter` receives the default compact policy lazily; named overrides merge only the fields supplied and must name a configured meter profile.
+Every setting is optional. The pressure and retention policy applies to the token meter's single context window. Unrecognized top-level keys are rejected.
 
 | Key | Required | Meaning |
 |---|---|---|
-| `models.<model>.thresholdRatio` | no (default `0.8`) | Compact at `floor(contextWindow × ratio)`. |
-| `models.<model>.retainTokens` | no (default `floor(contextWindow × 0.16)`) | Recent surface budget kept verbatim; must be below the threshold. |
+| `thresholdRatio` | no (default `0.8`) | Compact at `floor(contextWindow × ratio)`. |
+| `retainTokens` | no (default `floor(contextWindow × 0.16)`) | Recent surface budget kept verbatim; must be below the threshold. |
 | `summarizationModel` | no (default `''`) | Empty resolves the latest logged routed model, then `AgentOptions.model`. |
 | `maxTokens` | no (default `8192`) | Provider generation cap for the summarization call; may include reasoning tokens. |
 | `compactionRetries` | no (default `1`) | Extra attempts after the first when pressure remains above threshold. |
@@ -117,7 +117,7 @@ Rules:
 
 ## Known Limitations and Deferred Work
 
-- **Meter accuracy follows the selected profile** — missing provider usage falls back to the token meter's configured character density and structural overhead.
+- **Meter accuracy follows the fixed heuristic** — missing reusable provider usage falls back to character count plus structural overhead rather than exact tokenization.
 - **Overflow classification is adapter-maintained** — provider wording can change; both DeepSeek adapters normalize currently recognized context-limit failures to `CONTEXT_WINDOW_EXCEEDED`.
 - **Single-unit and envelope-only overflow remain outside surface compaction** — recovery cannot split one indivisible message/tool unit or shrink system/tools/prefix.
 - **`compactRegion` requires an open turn** — a manual call on a fully-closed session throws ("no open turn") rather than compacting.

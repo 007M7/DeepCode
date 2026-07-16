@@ -92,7 +92,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Replay token measurement',
     mode: 'core',
     consumers: ['compact-basic'],
-    note: 'Owns isolated per-model/session replay folds; pressure consumers share immutable revisioned measurements.',
+    note: 'Owns isolated per-session replay folds; pressure consumers share immutable revisioned measurements.',
   },
   {
     key: 'sessions',

@@ -46,12 +46,12 @@
       Verify your work by running the code or tests. Keep answers brief and
       factual.
 
-# Replay-aware request pressure for the bundled DeepSeek model profiles.
+# Replay-aware request pressure with one service-wide context window.
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'
 
 # Summarize an older range after measured pressure or a canonical provider overflow.
-# Built-in policies provide pressure, retention, and one overflow-retry default.
+# Service-wide policy provides pressure, retention, and one overflow-retry default.
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
 

@@ -34,14 +34,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     ctx = await codingHarness(workdir, {
       persona: SYSTEM_PROMPT,
       tokenMeter: {
-        models: {
-          'deepseek-v4-flash': { contextWindow: 2000 },
-        },
+        contextWindow: 2000,
       },
       compact: {
-        models: {
-          'deepseek-v4-flash': { thresholdRatio: 0.5, retainTokens: 400 },
-        },
+        thresholdRatio: 0.5,
+        retainTokens: 400,
         summarizationModel: '',
         maxTokens: 1024,
         compactionRetries: 1,

@@ -1,6 +1,6 @@
 # Token Meter
 
-`@deepseek-ai/dsh-token-meter` exposes detached replay measurements for request pressure and positional surface pricing. Scalar and surface snapshots carry the number of durable events consumed as `logRevision`; consumers compare revisions before making a joint decision.
+`@deepseek-ai/dsh-token-meter` exposes one detached replay snapshot for request pressure and positional surface pricing. `logRevision` is the number of durable events consumed for every field in the measurement.
 
 Source: [`packages/llm/token-meter/src/types.ts`](../../packages/llm/token-meter/src/types.ts)
 
@@ -8,8 +8,6 @@ Source: [`packages/llm/token-meter/src/types.ts`](../../packages/llm/token-meter
 
 ```ts type-equiv
 interface TokenMeasurement {
-  /** Model profile used for every heuristic component. */
-  readonly model: string
   /** Number of durable events consumed; equal to the next unread event seq. */
   readonly logRevision: number
   /** Provider or heuristic anchor used for this measurement. */
@@ -18,10 +16,14 @@ interface TokenMeasurement {
   readonly surfaceDeltaTokens: number
   /** Non-negative current request-and-response pressure. */
   readonly totalTokens: number
+  /** Total heuristic tokens across the current surface. */
+  readonly surfaceTokens: number
+  /** Current surface nodes in positional head-to-tail order. */
+  readonly nodes: readonly TokenSurfaceNode[]
 }
 ```
 
-`baseline.kind === 'usage'` means a successful provider call has the same model and canonical envelope. `estimated` means the meter repriced the complete envelope and surface. Signed `surfaceDeltaTokens` preserves growth and shrinkage relative to a matching provider or estimated anchor.
+`baseline.kind === 'usage'` means the latest successful provider call has the same canonical request envelope and its total is no lower than that call's full heuristic anchor. `estimated` means no reusable conservative usage anchor exists, so the service priced the complete envelope and surface with its fixed heuristic. A later successful request replaces the earlier anchor; signed `surfaceDeltaTokens` preserves growth and shrinkage relative to a matching anchor. `totalTokens` remains request-and-response pressure, while `surfaceTokens` is the surface-only heuristic total and equals the sum of the node prices.
 
 ## `TokenSurfaceNode`
 
@@ -31,21 +33,6 @@ interface TokenSurfaceNode {
   readonly seq: number
   /** Heuristic tokens for the exact message projected by this node. */
   readonly tokens: number
-}
-```
-
-## `TokenSurfaceMeasurement`
-
-```ts type-equiv
-interface TokenSurfaceMeasurement {
-  /** Model profile used to price every node. */
-  readonly model: string
-  /** Number of durable events consumed; equal to the next unread event seq. */
-  readonly logRevision: number
-  /** Total heuristic tokens across the current surface. */
-  readonly totalTokens: number
-  /** Current surface nodes in positional head-to-tail order. */
-  readonly nodes: readonly TokenSurfaceNode[]
 }
 ```
 

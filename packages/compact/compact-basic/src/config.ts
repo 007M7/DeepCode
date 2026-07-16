@@ -1,64 +1,74 @@
 /**
- * Runtime defaulting and per-model policy validation for compact-basic.
+ * Runtime defaulting and policy validation for compact-basic.
  *
  * @module @deepseek-ai/dsh-compact-basic/config
  */
 
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
-import type { ModelTokenMeter, TokenMeterService } from '@deepseek-ai/dsh-token-meter'
-import type {
-  BasicCompactConfig,
-  ModelCompactConfig,
-  ResolvedConfig,
-  ResolvedModelCompactConfig,
-} from './types.ts'
+import type { TokenMeterService } from '@deepseek-ai/dsh-token-meter'
+import type { BasicCompactConfig, ResolvedConfig } from './types.ts'
 
-/** Default request-pressure fraction for every metered model. */
+/** Default request-pressure fraction of the token meter's context window. */
 const DEFAULT_THRESHOLD_RATIO = 0.8
 
-/** Default verbatim-tail fraction of a model's context window. */
+/** Default verbatim-tail fraction of the token meter's context window. */
 const DEFAULT_RETAIN_RATIO = 0.16
 
+/** Complete public configuration key set. */
+const BASIC_COMPACT_CONFIG_KEYS: ReadonlySet<string> = new Set([
+  'thresholdRatio',
+  'retainTokens',
+  'summarizationModel',
+  'maxTokens',
+  'compactionRetries',
+  'maxOverflowRetries',
+  'auto',
+])
+
+/** Reject stale or misspelled keys before defaults can hide them. */
+function validateConfigKeys(config: BasicCompactConfig): void {
+  for (const key of Object.keys(config)) {
+    if (!BASIC_COMPACT_CONFIG_KEYS.has(key)) {
+      throw new Error(
+        `BasicCompactConfig: unknown key "${key}" `
+        + '(allowed: thresholdRatio, retainTokens, summarizationModel, maxTokens, '
+        + 'compactionRetries, maxOverflowRetries, auto)',
+      )
+    }
+  }
+}
+
 /**
- * Resolve common defaults and validate every named model override.
+ * Resolve defaults and validate the service-wide compaction policy.
  * @param config - raw compact-basic configuration.
- * @param tokenMeter - owning meter service used to reject unknown override names.
- * @returns a detached deeply immutable top-level configuration.
+ * @param tokenMeter - token meter supplying the context capacity.
+ * @returns a detached deeply immutable configuration.
  */
 export function resolveConfig(
   config: BasicCompactConfig = {},
   tokenMeter: TokenMeterService,
 ): ResolvedConfig {
-  const configuredModels: unknown = config.models
-  const models = configuredModels === undefined ? {} : configuredModels
-  if (typeof models !== 'object' || models === null || Array.isArray(models)) {
-    throw new Error('BasicCompactConfig: models must be an object')
-  }
-
-  const detachedModels: Record<string, ModelCompactConfig> = {}
-  for (const [model, override] of Object.entries(models as Record<string, unknown>)) {
-    if (typeof override !== 'object' || override === null || Array.isArray(override)) {
-      throw new Error(`BasicCompactConfig: models.${model} must be an object`)
-    }
-    const meter = tokenMeter.resolve(model)
-    detachedModels[model] = { ...override as ModelCompactConfig }
-    resolveModelConfig({
-      models: detachedModels,
-      summarizationModel: '',
-      maxTokens: 8192,
-      compactionRetries: 1,
-      maxOverflowRetries: 1,
-      auto: true,
-    }, meter)
-  }
-
+  validateConfigKeys(config)
+  const thresholdRatio = config.thresholdRatio ?? DEFAULT_THRESHOLD_RATIO
+  const retainTokens = config.retainTokens
+    ?? Math.floor(tokenMeter.contextWindow * DEFAULT_RETAIN_RATIO)
   const resolved: ResolvedConfig = {
-    models: detachedModels,
+    thresholdRatio,
+    retainTokens,
     summarizationModel: config.summarizationModel ?? '',
     maxTokens: config.maxTokens ?? 8192,
     compactionRetries: config.compactionRetries ?? 1,
     maxOverflowRetries: config.maxOverflowRetries ?? 1,
     auto: config.auto ?? true,
+  }
+
+  assertRatio('thresholdRatio', resolved.thresholdRatio)
+  assertNonNegativeInteger('retainTokens', resolved.retainTokens)
+  const thresholdTokens = Math.floor(tokenMeter.contextWindow * resolved.thresholdRatio)
+  if (resolved.retainTokens >= thresholdTokens) {
+    throw new Error(
+      `BasicCompactConfig: retainTokens (${resolved.retainTokens}) must be less than threshold tokens ${thresholdTokens}`,
+    )
   }
   assertPositiveInteger('maxTokens', resolved.maxTokens)
   assertNonNegativeInteger('compactionRetries', resolved.compactionRetries)
@@ -69,36 +79,7 @@ export function resolveConfig(
   if (typeof resolved.auto !== 'boolean') {
     throw new Error('BasicCompactConfig: auto must be a boolean')
   }
-  return deepFreeze(structuredClone(resolved))
-}
-
-/**
- * Resolve one effective model's default policy plus optional field overrides.
- * @param config - validated compact-basic configuration.
- * @param meter - effective model's token-meter handle and context capacity.
- * @returns a detached immutable model policy.
- */
-export function resolveModelConfig(
-  config: ResolvedConfig,
-  meter: ModelTokenMeter,
-): ResolvedModelCompactConfig {
-  const override = config.models[meter.model]
-  const thresholdRatio = override?.thresholdRatio ?? DEFAULT_THRESHOLD_RATIO
-  const retainTokens = override?.retainTokens ?? Math.floor(meter.contextWindow * DEFAULT_RETAIN_RATIO)
-  assertRatio(`models.${meter.model}.thresholdRatio`, thresholdRatio)
-  assertNonNegativeInteger(`models.${meter.model}.retainTokens`, retainTokens)
-  const thresholdTokens = Math.floor(meter.contextWindow * thresholdRatio)
-  if (retainTokens >= thresholdTokens) {
-    throw new Error(
-      `BasicCompactConfig: models.${meter.model}.retainTokens (${retainTokens}) must be less than threshold tokens ${thresholdTokens}`,
-    )
-  }
-  return deepFreeze({
-    model: meter.model,
-    contextWindow: meter.contextWindow,
-    thresholdRatio,
-    retainTokens,
-  })
+  return deepFreeze(resolved)
 }
 
 function assertPositiveInteger(name: string, value: number): void {

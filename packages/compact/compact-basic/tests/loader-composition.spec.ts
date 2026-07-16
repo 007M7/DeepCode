@@ -20,47 +20,75 @@ afterEach(async () => {
   root = undefined
 })
 
+async function loadYaml(lines: readonly string[]): Promise<Context> {
+  root = await mkdtemp(join(tmpdir(), 'dsh-token-meter-loader-'))
+  const configPath = join(root, 'cordis.yml')
+  await writeFile(configPath, [...lines, ''].join('\n'))
+
+  context = new Context()
+  context.baseUrl = pathToFileURL(root).href + '/'
+  await context.plugin(Loader)
+  context.loader.builtins.include = Include
+  const modules = new Map<string, unknown>([
+    ['@deepseek-ai/dsh-llm', LlmService],
+    ['@deepseek-ai/dsh-token-meter', TokenMeterService],
+    ['@deepseek-ai/dsh-compact-basic', BasicCompactService],
+  ])
+  context.loader.internal = {
+    version: 'v2',
+    async import(specifier: string) {
+      if (!modules.has(specifier)) throw new Error(`unexpected Loader import: ${specifier}`)
+      return modules.get(specifier)
+    },
+  } as unknown as NonNullable<typeof context.loader.internal>
+  await context.loader.create({
+    name: 'cordis:include',
+    config: { path: pathToFileURL(configPath).href },
+  })
+  await context.loader.await()
+  return context
+}
+
 describe('real Loader composition', () => {
-  it('loads the zero-config token-meter then compact-basic YAML pair', async () => {
-    root = await mkdtemp(join(tmpdir(), 'dsh-token-meter-loader-'))
-    const configPath = join(root, 'cordis.yml')
-    await writeFile(configPath, [
+  it('loads the flat token-meter and compact-basic YAML shape', async () => {
+    const loaded = await loadYaml([
       "- name: '@deepseek-ai/dsh-llm'",
       "- name: '@deepseek-ai/dsh-token-meter'",
+      '  config:',
+      '    contextWindow: 4096',
       "- name: '@deepseek-ai/dsh-compact-basic'",
-      '',
-    ].join('\n'))
-
-    context = new Context()
-    context.baseUrl = pathToFileURL(root).href + '/'
-    await context.plugin(Loader)
-    context.loader.builtins.include = Include
-    const modules = new Map<string, unknown>([
-      ['@deepseek-ai/dsh-llm', LlmService],
-      ['@deepseek-ai/dsh-token-meter', TokenMeterService],
-      ['@deepseek-ai/dsh-compact-basic', BasicCompactService],
+      '  config:',
+      '    thresholdRatio: 0.5',
+      '    retainTokens: 512',
+      '    auto: false',
     ])
-    context.loader.internal = {
-      version: 'v2',
-      async import(specifier: string) {
-        if (!modules.has(specifier)) throw new Error(`unexpected Loader import: ${specifier}`)
-        return modules.get(specifier)
-      },
-    } as unknown as NonNullable<typeof context.loader.internal>
-    await context.loader.create({
-      name: 'cordis:include',
-      config: { path: pathToFileURL(configPath).href },
-    })
-    await context.loader.await()
 
-    const unloaded = [...context.loader.entries()]
+    const unloaded = [...loaded.loader.entries()]
       .filter(entry => entry.fiber === undefined && !entry.disabled)
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
-    expect(context.tokenMeter.resolve('deepseek-v4-flash')).toMatchObject({
-      contextWindow: 128_000,
-      charsPerToken: 4,
+    expect(loaded.tokenMeter.contextWindow).toBe(4096)
+    expect(loaded.get('compact')).toBeInstanceOf(BasicCompactService)
+    expect((loaded.compact as BasicCompactService).config).toMatchObject({
+      thresholdRatio: 0.5,
+      retainTokens: 512,
+      auto: false,
     })
-    expect(context.get('compact')).toBeInstanceOf(BasicCompactService)
+  })
+
+  it('rejects stale token-meter config after Schemastery normalization', async () => {
+    context = new Context()
+    await expect(context.plugin(TokenMeterService, {
+      models: { legacy: { contextWindow: 4096 } },
+    } as never)).rejects.toThrow(/TokenMeterConfig: unknown key "models"/)
+  })
+
+  it('rejects stale compact-basic config after Schemastery normalization', async () => {
+    context = new Context()
+    await context.plugin(LlmService)
+    await context.plugin(TokenMeterService)
+    await expect(context.plugin(BasicCompactService, {
+      models: { legacy: { thresholdRatio: 0.5 } },
+    } as never)).rejects.toThrow(/BasicCompactConfig: unknown key "models"/)
   })
 })

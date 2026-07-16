@@ -131,7 +131,7 @@ describe('tool-pairing surface identity', () => {
     expect(() => toolPairingBalancedAfter(session, staleTail)).toThrow(/surface seq .* not found/)
   })
 
-  it('uses the cached positional successor instead of a caller node next field', () => {
+  it('ignores a caller-held node next field and answers from cached balances', () => {
     const session = closedToolStep()
     const assistant = nodeAt(session, seqOf(session, 'assistant/message'))
     expect(toolPairingBalancedAfter(session, { ...assistant, next: null })).toBe(false)

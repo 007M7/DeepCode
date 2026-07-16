@@ -48,7 +48,7 @@ export interface CodingHarnessOptions {
    * compaction plugin (the default suites run without it).
    */
   compact?: BasicCompactConfig
-  /** Optional meter profiles loaded before compact-basic. */
+  /** Optional token-meter capacity loaded before compact-basic. */
   tokenMeter?: TokenMeterConfig
 }
 
@@ -65,7 +65,7 @@ export async function codingHarness(workdir: string, options: CodingHarnessOptio
   await ctx.plugin(ToolBash)
   await ctx.plugin(ToolTodo)
   // Compaction is opt-in: only the compaction e2e loads the reusable meter and
-  // backend, with a lowered profile window so a short real session crosses the threshold.
+  // backend, with a lower context window so a short real session crosses the threshold.
   if (options.compact !== undefined) {
     await ctx.plugin(TokenMeterService, options.tokenMeter)
     await ctx.plugin(BasicCompactService, options.compact)

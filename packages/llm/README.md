@@ -5,7 +5,7 @@ The LLM seam and its provider adapters. The interface package (`llm`) owns the a
 | Package | Role | ctx key |
 |---|---|---|
 | `llm/` | Abstract LLM service + content-block vocabulary + chunk assembler | `ctx.llm` |
-| `token-meter/` | Replay-aware, per-model request and surface token measurement | `ctx.tokenMeter` |
+| `token-meter/` | Replay-aware request and surface token measurement | `ctx.tokenMeter` |
 | `llm-deepseek/` | DeepSeek API adapter (hand-rolled fetch/SSE) | (registers on `ctx.llm`) |
 | `llm-pi-ai/` | DeepSeek adapter via `@earendil-works/pi-ai` (design twin) | (registers on `ctx.llm`) |
 

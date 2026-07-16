@@ -101,9 +101,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(TokenMeterService, {
-    models: { mock: { contextWindow: 64, charsPerToken: 1_000 } },
-  })
+  await ctx.plugin(TokenMeterService, { contextWindow: 400 })
   ctx.llm.registerAdapter(['mock'], new StepwiseToolAdapter(toolSteps))
   ctx.tools.register(defineTool({
     name: 'work',
@@ -113,11 +111,12 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
       return [{ type: 'text', text: 'work result' }]
     },
   }))
-  // Tiny window so a couple of tool steps cross the threshold and compaction
-  // fires within the runaway turn.
+  // Small window so several tool steps cross the threshold and compaction
+  // fires within the runaway turn after enough history can shrink.
   const compact = new ReproCompactService(ctx, {
     auto: true,
-    models: { mock: { thresholdRatio: 0.5, retainTokens: 20 } },
+    thresholdRatio: 0.5,
+    retainTokens: 50,
     summarizationModel: '',
     maxTokens: 8192,
     compactionRetries: 1,
@@ -159,7 +158,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
   })
 
   it('runs automatic pressure after the current tool result and before step/end', async () => {
-    const { ctx } = await harness(4)
+    const { ctx } = await harness(8)
     try {
       const agent = ctx.agentLoop.create(AgentId('post-step-order'), { model: 'mock' })
       agent.send([{ type: 'text', text: 'do tool work' }])
@@ -230,13 +229,12 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
       await ctx.plugin(ToolRegistry)
       await ctx.plugin(AgentRegistry)
       await ctx.plugin(AgentLoop, { agents: [] })
-      await ctx.plugin(TokenMeterService, {
-        models: { mock: { contextWindow: 128, charsPerToken: 4 } },
-      })
+      await ctx.plugin(TokenMeterService, { contextWindow: 128 })
       ctx.llm.registerAdapter(['mock'], adapter)
       ctx.on('agent/request', async (_agent, _turn, _step, config) => ({ ...config, model: 'mock' }))
       await ctx.plugin(BasicCompactService, {
-        models: { mock: { thresholdRatio: 1, retainTokens: 100 } },
+        thresholdRatio: 1,
+        retainTokens: 100,
         maxTokens: 64,
         compactionRetries: 0,
         maxOverflowRetries: 1,
