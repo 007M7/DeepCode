@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import LlmService, { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -14,6 +14,7 @@ import type { Config } from '@deepseek-ai/dsh-time-context'
 
 const BASE = Date.parse('2026-07-14T00:00:00.000Z')
 const ORIGINAL_TIME_ZONE = process.env['TZ']
+const SIGNAL = new AbortController().signal
 
 beforeEach(() => {
   process.env['TZ'] = 'UTC'
@@ -30,18 +31,29 @@ afterEach(() => {
 
 async function mount(config: Config = {}) {
   const ctx = new Context()
-  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(AgentRegistry)
   const fiber = await ctx.plugin(timeContext, config)
   return { ctx, fiber }
 }
 
 function sessionAgent(session: Session, id = 'agent'): Agent {
-  return { id: AgentId(id), session } as unknown as Agent
-}
-
-async function sectionText(ctx: Context, agent?: Agent): Promise<string | undefined> {
-  const assembly = await ctx.systemPrompt.assemble(agent === undefined ? {} : { agent })
-  return assembly.sections.find(section => section.name === 'context:time')?.text
+  return {
+    id: AgentId(id),
+    options: {},
+    session,
+    status: 'running',
+    ctx: new Context(),
+    send() {},
+    steer() {},
+    inject(content, options) {
+      session.append('context/message', {
+        content,
+        source: options?.source ?? { kind: 'user' },
+      }, { surfaceOp: 'append' })
+    },
+    cancel() {},
+    whenIdle: () => Promise.resolve(),
+  }
 }
 
 function openMessageTurn(session: Session, turn: number): void {
@@ -50,6 +62,22 @@ function openMessageTurn(session: Session, turn: number): void {
     content: [{ type: 'text', text: `turn ${turn}` }],
     source: { kind: 'user' },
   }, { surfaceOp: 'append' })
+}
+
+function contextTexts(session: Session): string[] {
+  return session.events
+    .filter(event => event.type === 'context/message')
+    .map(event => event.data.content.find(block => block.type === 'text')?.text ?? '')
+}
+
+async function fire(
+  ctx: Context,
+  agent: Agent,
+  turn: number,
+  step: number,
+  signal: AbortSignal = SIGNAL,
+): Promise<void> {
+  await ctx.serial('agent/pre-step', agent, turn, step, '', [], signal)
 }
 
 function textResponse(text: string): StreamChunk[] {
@@ -100,173 +128,92 @@ async function loopHarness(adapter: ScriptedAdapter, config: Config = {}): Promi
   return ctx
 }
 
-describe('temporal section rendering', () => {
-  it('renders the first turn in UTC with the explicit no-previous-message fallback', async () => {
-    const { ctx } = await mount()
+function requestText(request: GenerateOptions): string {
+  return request.messages
+    .flatMap(message => message.content)
+    .filter(block => block.type === 'text')
+    .map(block => block.text)
+    .join('\n')
+}
+
+describe('durable step context', () => {
+  it('records turn, step, zoned time, and the preceding model-visible message baseline', async () => {
+    const { ctx } = await mount({ timeZone: 'Asia/Shanghai' })
     const session = new Session(SessionId('first'))
     openMessageTurn(session, 1)
-
-    expect(await sectionText(ctx, sessionAgent(session))).toBe(
-      'Current time: 2026-07-14T00:00:00+00:00[UTC]\n'
-      + 'Time since previous message: unavailable (no earlier message in this session).',
-    )
-  })
-
-  it('renders a non-UTC numeric offset and all compact duration units', async () => {
-    const { ctx } = await mount({ timeZone: 'Asia/Shanghai' })
-    const session = new Session(SessionId('offset'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('assistant/message', {
-      turn: 1,
-      step: 1,
-      content: [{ type: 'text', text: 'previous' }],
-    }, { surfaceOp: 'append' })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     vi.setSystemTime(BASE + 90_061_000)
-    openMessageTurn(session, 2)
 
-    expect(await sectionText(ctx, sessionAgent(session))).toBe(
-      'Current time: 2026-07-15T09:01:01+08:00[Asia/Shanghai]\n'
-      + 'Time since previous message: 1d 1h 1m 1s.',
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(contextTexts(session)).toEqual([
+      'Time recorded before turn 1, step 1: 2026-07-15T09:01:01+08:00[Asia/Shanghai]\n'
+      + 'Elapsed since the preceding model-visible message: 1d 1h 1m 1s.',
+    ])
+    const event = session.events.at(-1)
+    expect(event?.type).toBe('context/message')
+    if (event?.type !== 'context/message') throw new Error('missing time context')
+    expect(event.data.source).toEqual({ kind: 'plugin', plugin: 'time-context' })
+    expect(event.surfaceOp).toBe('append')
+  })
+
+  it('reports an unavailable first-step baseline when no model-visible message precedes it', async () => {
+    const { ctx } = await mount()
+    const session = new Session(SessionId('unavailable'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(contextTexts(session)[0]).toContain(
+      'Elapsed since the preceding model-visible message: unavailable.',
     )
   })
 
-  it('clamps a backward wall-clock adjustment to a zero duration', async () => {
+  it('uses the preceding durable step-context timestamp after step one', async () => {
     const { ctx } = await mount()
-    const session = new Session(SessionId('backward-duration'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('assistant/message', {
-      turn: 1,
-      step: 1,
-      content: [{ type: 'text', text: 'future by adjusted clock' }],
-    }, { surfaceOp: 'append' })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const session = new Session(SessionId('later-step'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session, 3)
+    await fire(ctx, agent, 3, 1)
+    vi.setSystemTime(BASE + 61_000)
+
+    await fire(ctx, agent, 3, 2)
+
+    expect(contextTexts(session)[1]).toBe(
+      'Time recorded before turn 3, step 2: 2026-07-14T00:01:01+00:00[UTC]\n'
+      + 'Elapsed since the preceding step context: 1m 1s.',
+    )
+  })
+
+  it('clamps backward wall-clock movement against the preceding context to zero', async () => {
+    const { ctx } = await mount()
+    const session = new Session(SessionId('backward'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session, 1)
+    await fire(ctx, agent, 1, 1)
     vi.setSystemTime(BASE - 5_000)
-    openMessageTurn(session, 2)
 
-    expect(await sectionText(ctx, sessionAgent(session))).toContain('Time since previous message: 0s.')
+    await fire(ctx, agent, 1, 2)
+
+    expect(contextTexts(session)[1]).toContain('Elapsed since the preceding step context: 0s.')
   })
 
-  const previousMessageCases = [
-    ['user/message', (session: Session): void => {
-      session.append('user/message', { content: [{ type: 'text', text: 'u' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    }],
-    ['assistant/message', (session: Session): void => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] }, { surfaceOp: 'append' })
-    }],
-    ['tool/result', (session: Session): void => {
-      session.append('tool/result', {
-        turn: 1,
-        step: 1,
-        callId: CallId('previous'),
-        content: [{ type: 'text', text: 'r' }],
-        isError: false,
-      }, { surfaceOp: 'append' })
-    }],
-    ['context/message', (session: Session): void => {
-      session.append('context/message', {
-        content: [{ type: 'text', text: 'c' }],
-        source: { kind: 'plugin', plugin: 'test' },
-      }, { surfaceOp: 'append' })
-    }],
-    ['steering/message', (session: Session): void => {
-      session.append('steering/message', {
-        turn: 1,
-        content: [{ type: 'text', text: 's' }],
-        source: { kind: 'user' },
-      }, { surfaceOp: 'append' })
-    }],
-  ] as const
-
-  it.each(previousMessageCases)('uses a prior %s as the duration baseline', async (_name, appendPrevious) => {
+  it('runs before ordinary pre-step listeners and skips an already-aborted step', async () => {
     const { ctx } = await mount()
-    const session = new Session(SessionId(`previous-${_name}`))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    appendPrevious(session)
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    vi.setSystemTime(BASE + 5_000)
-    openMessageTurn(session, 2)
-
-    expect(await sectionText(ctx, sessionAgent(session))).toContain('Time since previous message: 5s.')
-  })
-
-  it('contributes empty text without an active agent turn', async () => {
-    const { ctx } = await mount()
-    expect(await sectionText(ctx)).toBe('')
-
-    const empty = sessionAgent(new Session(SessionId('empty')))
-    expect(await sectionText(ctx, empty)).toBe('')
-
-    const closedSession = new Session(SessionId('closed'))
-    openMessageTurn(closedSession, 1)
-    closedSession.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    expect(await sectionText(ctx, sessionAgent(closedSession))).toBe('')
-  })
-})
-
-describe('refresh policy', () => {
-  it('reuses within the interval, refreshes at expiry, and refreshes after a backward clock jump', async () => {
-    const { ctx } = await mount({ refreshIntervalMs: 60_000 })
-    const session = new Session(SessionId('interval'))
+    const session = new Session(SessionId('ordering'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
+    let ordinarySawContext = false
+    ctx.on('agent/pre-step', (subject) => {
+      ordinarySawContext = subject.session.events.some(event => event.type === 'context/message')
+    })
 
-    const first = await sectionText(ctx, agent)
-    vi.setSystemTime(BASE + 30_000)
-    expect(await sectionText(ctx, agent)).toBe(first)
-    vi.setSystemTime(BASE + 60_000)
-    const expired = await sectionText(ctx, agent)
-    expect(expired).toContain('2026-07-14T00:01:00+00:00[UTC]')
-    vi.setSystemTime(BASE + 59_000)
-    expect(await sectionText(ctx, agent)).toContain('2026-07-14T00:00:59+00:00[UTC]')
-  })
+    await fire(ctx, agent, 1, 1)
+    const abort = new AbortController()
+    abort.abort()
+    await fire(ctx, agent, 1, 2, abort.signal)
 
-  it('refreshes every assembly when refreshIntervalMs is zero', async () => {
-    const { ctx } = await mount({ refreshIntervalMs: 0 })
-    const session = new Session(SessionId('every-step'))
-    const agent = sessionAgent(session)
-    openMessageTurn(session, 1)
-    const first = await sectionText(ctx, agent)
-    vi.setSystemTime(BASE + 1_000)
-    expect(await sectionText(ctx, agent)).not.toBe(first)
-  })
-
-  it('always refreshes for a new turn and keeps the preceding message baseline', async () => {
-    const { ctx } = await mount({ refreshIntervalMs: 60_000 })
-    const session = new Session(SessionId('turn-refresh'))
-    const agent = sessionAgent(session)
-    openMessageTurn(session, 1)
-    const first = await sectionText(ctx, agent)
-    vi.setSystemTime(BASE + 1_000)
-    session.append('assistant/message', {
-      turn: 1,
-      step: 1,
-      content: [{ type: 'text', text: 'done' }],
-    }, { surfaceOp: 'append' })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    vi.setSystemTime(BASE + 2_000)
-    openMessageTurn(session, 2)
-
-    const second = await sectionText(ctx, agent)
-    expect(second).not.toBe(first)
-    expect(second).toContain('Time since previous message: 1s.')
-  })
-
-  it('keeps refresh caches independent per agent', async () => {
-    const { ctx } = await mount({ refreshIntervalMs: 60_000 })
-    const sessionA = new Session(SessionId('agent-a'))
-    const sessionB = new Session(SessionId('agent-b'))
-    const agentA = sessionAgent(sessionA, 'a')
-    const agentB = sessionAgent(sessionB, 'b')
-    openMessageTurn(sessionA, 1)
-    openMessageTurn(sessionB, 1)
-    const aFirst = await sectionText(ctx, agentA)
-    vi.setSystemTime(BASE + 30_000)
-    const bFirst = await sectionText(ctx, agentB)
-    vi.setSystemTime(BASE + 40_000)
-
-    expect(await sectionText(ctx, agentA)).toBe(aFirst)
-    expect(bFirst).toContain('2026-07-14T00:00:30+00:00[UTC]')
+    expect(ordinarySawContext).toBe(true)
+    expect(contextTexts(session)).toHaveLength(1)
   })
 })
 
@@ -278,49 +225,44 @@ describe('configuration and lifecycle', () => {
     const session = new Session(SessionId('system-zone'))
     openMessageTurn(session, 1)
 
-    expect(await sectionText(ctx, sessionAgent(session))).toContain(
-      'Current time: 2026-07-14T08:00:00+08:00[Asia/Shanghai]',
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(contextTexts(session)[0]).toContain('2026-07-14T08:00:00+08:00[Asia/Shanghai]')
+  })
+
+  it('fails loud for an invalid explicit zone or an unavailable process zone', async () => {
+    const invalid = new Context()
+    await invalid.plugin(AgentRegistry)
+    await expect(invalid.plugin(timeContext, { timeZone: 'Not/A_Real_Zone' })).rejects.toThrow(
+      /invalid IANA timeZone/,
     )
-  })
 
-  it('fails loud for negative, fractional, unsafe, and invalid-zone config', async () => {
-    for (const refreshIntervalMs of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
-      const ctx = new Context()
-      await ctx.plugin(SystemPrompt)
-      await expect(ctx.plugin(timeContext, { refreshIntervalMs })).rejects.toThrow(/non-negative safe integer/)
-    }
-
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await expect(ctx.plugin(timeContext, { timeZone: 'Not/A_Real_Zone' })).rejects.toThrow(/invalid IANA timeZone/)
-  })
-
-  it('fails loud when the process system zone cannot be resolved', async () => {
     vi.spyOn(Intl, 'DateTimeFormat').mockImplementationOnce(() => {
       throw new RangeError('system zone unavailable')
     })
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-
-    await expect(ctx.plugin(timeContext, {})).rejects.toThrow(/failed to resolve the system time zone/)
+    const unresolved = new Context()
+    await unresolved.plugin(AgentRegistry)
+    await expect(unresolved.plugin(timeContext, {})).rejects.toThrow(/failed to resolve the system time zone/)
   })
 
-  it('removes its section when the plugin fiber disposes', async () => {
+  it('removes its listener when the plugin fiber disposes', async () => {
     const { ctx, fiber } = await mount()
     const session = new Session(SessionId('dispose'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
-    expect(await sectionText(ctx, agent)).toContain('Current time:')
+    await fire(ctx, agent, 1, 1)
 
     await fiber.dispose()
-    expect(await sectionText(ctx, agent)).toBeUndefined()
+    await fire(ctx, agent, 1, 2)
+
+    expect(contextTexts(session)).toHaveLength(1)
   })
 })
 
-describe('real agent-loop request logging', () => {
-  it('refreshes a long turn in the system prompt and records the header delta without context history', async () => {
-    const adapter = new ScriptedAdapter([toolCallResponse(), textResponse('done'), textResponse('next turn')])
-    const ctx = await loopHarness(adapter, { refreshIntervalMs: 60_000 })
+describe('real agent-loop request history', () => {
+  it('persists one ordered context per request, accumulates readings, and leaves system headers unchanged', async () => {
+    const adapter = new ScriptedAdapter([toolCallResponse(), textResponse('done')])
+    const ctx = await loopHarness(adapter)
     ctx.tools.register(defineTool({
       name: 'tick',
       description: 'advance fake time',
@@ -334,38 +276,55 @@ describe('real agent-loop request logging', () => {
 
     agent.send([{ type: 'text', text: 'start' }])
     await agent.whenIdle()
-    expect(adapter.requests).toHaveLength(2)
-    expect(adapter.requests[0]!.system).toContain('2026-07-14T00:00:00+00:00[UTC]')
-    expect(adapter.requests[1]!.system).toContain('2026-07-14T00:01:01+00:00[UTC]')
-    expect(agent.session.events.some(event => event.type === 'context/message')).toBe(false)
-    expect(agent.session.events.filter(event => event.type === 'request/header-delta')).toHaveLength(1)
-    expect(foldRequestHeader(agent.session.events)?.system).toBe(adapter.requests[1]!.system)
 
-    vi.setSystemTime(BASE + 361_000)
-    agent.send([{ type: 'text', text: 'again' }])
-    await agent.whenIdle()
-    expect(adapter.requests[2]!.system).toContain('Time since previous message: 5m 0s.')
+    expect(adapter.requests).toHaveLength(2)
+    const contexts = agent.session.events.filter(event => event.type === 'context/message')
+    const starts = agent.session.events.filter(event => event.type === 'step/start')
+    expect(contexts).toHaveLength(adapter.requests.length)
+    expect(starts).toHaveLength(adapter.requests.length)
+    for (let index = 0; index < contexts.length; index += 1) {
+      expect(contexts[index]!.seq).toBeLessThan(starts[index]!.seq)
+    }
+    expect(contexts.every(event => event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'time-context'
+      && event.surfaceOp === 'append')).toBe(true)
+
+    const firstRequestText = requestText(adapter.requests[0]!)
+    const secondRequestText = requestText(adapter.requests[1]!)
+    expect(firstRequestText).toContain('Time recorded before turn 1, step 1:')
+    expect(firstRequestText).toContain('Elapsed since the preceding model-visible message: 0s.')
+    expect(firstRequestText).not.toContain('Time recorded before turn 1, step 2:')
+    expect(secondRequestText).toContain('Time recorded before turn 1, step 1:')
+    expect(secondRequestText).toContain('Time recorded before turn 1, step 2:')
+    expect(secondRequestText).toContain('Elapsed since the preceding step context: 1m 1s.')
+
+    for (const request of adapter.requests) expect(request.system).not.toContain('Time recorded before')
+    const headers = agent.session.events.filter(event => event.type === 'request/header'
+      || event.type === 'request/header-delta')
+    expect(JSON.stringify(headers)).not.toContain('Time recorded before')
+    expect(agent.session.events.filter(event => event.type === 'request/header-delta')).toHaveLength(0)
     await ctx.fiber.dispose()
   })
 })
 
 describe('real Loader export path', () => {
-  it('keeps the namespace metadata and boots through unwrapExports', async () => {
+  it('keeps namespace metadata and boots the agent listener through unwrapExports', async () => {
     expect('default' in timeContext).toBe(false)
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(timeContext) as Record<string, unknown>
     expect(unwrapped).toBe(timeContext)
     expect(unwrapped.name).toBe('time-context')
-    expect(unwrapped.inject).toEqual(['systemPrompt'])
+    expect(unwrapped.inject).toEqual(['agents'])
     expect(unwrapped.Config).toBeDefined()
     expect(typeof unwrapped.apply).toBe('function')
 
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(AgentRegistry)
     const plugin = loader.unwrapExports(timeContext) as Parameters<Context['plugin']>[0]
     await ctx.plugin(plugin)
     const session = new Session(SessionId('loader'))
     openMessageTurn(session, 1)
-    expect(await sectionText(ctx, sessionAgent(session))).toContain('Current time:')
+    await fire(ctx, sessionAgent(session), 1, 1)
+    expect(contextTexts(session)[0]).toContain('Time recorded before turn 1, step 1:')
   })
 })

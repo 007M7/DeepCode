@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-time-context
 
-Opt-in dynamic system-prompt context with the current zoned time and elapsed time since the latest model-visible message before the turn. `dsh-agent-spine-demo` and shipped examples do not mount it. Decision record: [the time-context RFC](../../../docs/rfc/implemented/feature/2026-07-14-time-context-plugin.md).
+Opt-in durable context with the current zoned time and elapsed time at every model step. `dsh-agent-spine-demo` and shipped examples do not mount it. Decision record: [the durable time-context RFC](../../../docs/rfc/implemented/feature/2026-07-16-durable-per-step-time-context.md).
 
 ## Config
 
@@ -8,36 +8,44 @@ Opt-in dynamic system-prompt context with the current zoned time and elapsed tim
 - id: time-context
   name: '@deepseek-ai/dsh-time-context'
   config:
-    timeZone: Asia/Shanghai   # optional IANA override; omit for the process zone
-    refreshIntervalMs: 60000  # default; 0 refreshes on every step
+    timeZone: Asia/Shanghai  # optional IANA override; omit for the process zone
 ```
 
-When `timeZone` is omitted, the plugin resolves the Node process's system zone once at plugin load. Node honors `TZ`; without that override, the host or container supplies the zone. An explicit `timeZone` must be an IANA identifier and is validated at plugin load. `refreshIntervalMs` must be a non-negative safe integer. Every turn's first request refreshes; later steps reuse the reading until its age reaches the interval. `0` refreshes every step. Refresh occurs only during request assembly and creates no timer work.
+When `timeZone` is omitted, the plugin resolves the Node process's system zone once at plugin load. Node honors `TZ`; without that override, the host or container supplies the zone. An explicit `timeZone` must be an IANA identifier and is validated at plugin load.
 
-## Message baseline
+## Timing semantics
 
-The duration starts at the latest user, assistant, tool-result, context, or steering message before the current `turn/start`. Every refresh in the turn retains that baseline, so the current prompt does not collapse the interval to approximately zero. The first turn reports that no earlier message exists. The durable clock source is session-event append time, not client send time.
+The plugin prepends an `agent/pre-step` listener. Every non-aborted step appends one `context/message` through `agent.inject()` before `step/start` and ordinary automatic compaction, with source `{ kind: 'plugin', plugin: 'time-context' }`.
 
-The loop records the dynamic section in `request/header` / `request/header-delta`. Requests therefore remain reconstructable, carry one timing block, and retain no earlier readings in conversation history.
+Step 1 measures from the latest preceding model-visible message, including the prompt that opened the turn. Later steps measure from the preceding time-context event. Both baselines use durable session-event timestamps; backward wall-clock movement clamps elapsed time to zero. A missing first-step baseline reports `unavailable`.
+
+The time reading stays in derived conversation history until a later compaction shadows it. Request headers and header deltas contain no time-context state, so the durable message plus the matching `step/start` reconstruct each request's reading.
 
 ## Model Experience
 
-### Temporal system prompt
+### Per-step temporal context
 
-**What the model sees**: Every request in an active turn includes the two lines below. `<timestamp>` is an ISO-shaped local timestamp with numeric offset and IANA zone; `<duration-or-unavailable>` is compact whole-second units or the first-turn fallback.
+**What the model sees**: Before each step, one source-tagged context message containing the two lines below. `<timestamp>` is an ISO-shaped local timestamp with numeric offset and IANA zone; durations use compact whole-second units.
 
-**Token effect**: Fixed two-line cost per request. A refresh replaces the request-header section; prior readings do not accumulate.
+**Token effect**: One two-line message accumulates per step until compaction shadows older history.
 
-#### Temporal context section
+#### First step
 
 ```markdown
-Current time: <timestamp>
-Time since previous message: <duration-or-unavailable>.
+Time recorded before turn <turn>, step 1: <timestamp>
+Elapsed since the preceding model-visible message: <duration-or-unavailable>.
+```
+
+#### Later steps
+
+```markdown
+Time recorded before turn <turn>, step <step>: <timestamp>
+Elapsed since the preceding step context: <duration>.
 ```
 
 ## Known Limitations and Deferred Work
 
-- **Request-bound refresh only** — no clock update is emitted while the agent is waiting inside a model call or tool; the next assembled step refreshes once the configured interval has elapsed.
-- **Whole-second display** — timestamps and durations omit sub-second precision even when `refreshIntervalMs` is below 1,000.
-- **Session-event baseline** — elapsed time starts from the durable append timestamp, not a client transport's original send timestamp.
+- **Whole-second display** — timestamps and durations omit sub-second precision even though durable event times retain milliseconds.
+- **Session-event baseline** — elapsed time starts from durable append timestamps, not a client transport's original send timestamp.
 - **Process-local default zone** — omission uses the Node process's `TZ`, host, or container zone captured at plugin load, not a remote user's zone; configure an explicit IANA zone when those differ.
+- **History cost between compactions** — one reading remains model-visible for every unshadowed step so prior timing claims stay historically truthful.

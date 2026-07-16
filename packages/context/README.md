@@ -4,4 +4,4 @@ Opt-in plugins that add bounded model-visible request context without defining a
 
 | Package | Role | ctx key |
 |---|---|---|
-| `time-context/` | Current time and elapsed-time system-prompt context | (none) |
+| `time-context/` | Durable per-step current time and elapsed-time context | (none) |
