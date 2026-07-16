@@ -35,6 +35,7 @@ import { globSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import ts from 'typescript'
 import { checkParams, checkReturns, parseJsDoc, parseTags, pointer, rawJsDoc, reportViolations, type Mode } from './jsdoc.ts'
+import { cordisModuleBody, eventMembers, serviceClasses } from './cordis-walk.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -157,17 +158,8 @@ function load(rel: string): { sf: ts.SourceFile; text: string } {
   sfCache.set(rel, entry)
   return entry
 }
-
-/** The body of a `declare module './context.ts'` / `declare module 'cordis'`
- * block, or null. */
-function moduleBody(sf: ts.SourceFile): ts.ModuleBlock | null {
-  for (const stmt of sf.statements) {
-    if (!ts.isModuleDeclaration(stmt) || !ts.isStringLiteral(stmt.name)) continue
-    if (stmt.name.text !== './context.ts' && stmt.name.text !== 'cordis') continue
-    if (stmt.body && ts.isModuleBlock(stmt.body)) return stmt.body
-  }
-  return null
-}
+// The module-merge walk (cordisModuleBody / eventMembers / serviceClasses) is
+// shared with gen-cordis-catalog.ts via cordis-walk.ts.
 
 /** Signature text of a member: full text minus body/initializer, whitespace
  * collapsed, trailing semicolon stripped. */
@@ -306,7 +298,7 @@ function heritageMembers(
  * `Pick<…>` heritage resolved to the picked class members. */
 function contextMergeMembers(rel: string, violations: string[]): MemberDoc[] {
   const { sf } = load(rel)
-  const body = moduleBody(sf)
+  const body = cordisModuleBody(sf)
   if (!body) throw new Error(`gen-website-api: ${rel} has no context module merge`)
   const groups = new Map<string, (ts.MethodSignature | ts.PropertySignature | ts.MethodDeclaration)[]>()
   for (const stmt of body.statements) {
@@ -450,26 +442,13 @@ function collectHarnessServices(violations: string[]): HarnessService[] {
   for (const rel of globSync('packages/*/*/src/index.ts', { cwd: root }).sort()) {
     const { sf, text } = load(rel)
     if (!text.includes('interface Context')) continue
-    const body = moduleBody(sf)
+    const body = cordisModuleBody(sf)
     if (!body) continue
-    const keyToType = new Map<string, string>()
-    for (const stmt of body.statements) {
-      if (!ts.isInterfaceDeclaration(stmt) || stmt.name.text !== 'Context') continue
-      for (const member of stmt.members) {
-        if (!ts.isPropertySignature(member) || !member.type) continue
-        keyToType.set(member.name.getText(sf), member.type.getText(sf))
-      }
-    }
     const pkgJson = rel.replace(/src\/index\.ts$/, 'package.json')
-    const pkg = (JSON.parse(readFileSync(resolve(root, pkgJson), 'utf8')) as { name: string }).name
-    for (const [key, type] of keyToType) {
-      const cls = sf.statements.find(
-        (s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === type,
-      )
-      if (!cls) continue // a Pick-mixin member, not a class here
-      const abstract = cls.modifiers?.some(m => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false
-      const clsDoc = parseJsDoc(rawJsDoc(text, cls)).doc
-      if (!clsDoc) violations.push(`service ctx.${key} (${pointer(rel, sf, cls)}): class ${type} has no JSDoc.`)
+    // Manifest shape is repo-owned; `name` is the one field read here.
+    const manifest = JSON.parse(readFileSync(resolve(root, pkgJson), 'utf8')) as { name: string }
+    const pkg = manifest.name
+    for (const { key, type, cls, abstract, doc: clsDoc } of serviceClasses(body, sf, rel, violations)) {
       const groups = new Map<string, (ts.MethodDeclaration | ts.PropertyDeclaration | ts.GetAccessorDeclaration)[]>()
       for (const member of cls.members) {
         // Public properties are API too: ctx.codeRuntime.language/isolation
@@ -507,30 +486,25 @@ function collectHarnessEvents(violations: string[]): HarnessEvent[] {
   for (const rel of globSync('packages/*/*/src/*.ts', { cwd: root }).sort()) {
     const { sf, text } = load(rel)
     if (!text.includes('interface Events')) continue
-    const body = moduleBody(sf)
+    const body = cordisModuleBody(sf)
     if (!body) continue
-    for (const stmt of body.statements) {
-      if (!ts.isInterfaceDeclaration(stmt) || stmt.name.text !== 'Events') continue
-      for (const member of stmt.members) {
-        if (!ts.isMethodSignature(member)) continue
-        const name = ts.isStringLiteral(member.name) ? member.name.text : member.name.getText(sf)
-        const raw = rawJsDoc(text, member)
-        const { doc, mode } = parseJsDoc(raw)
-        if (!mode) violations.push(`event '${name}' (${pointer(rel, sf, member)}) is missing @mode.`)
-        if (!doc) violations.push(`event '${name}' (${pointer(rel, sf, member)}) has no JSDoc prose.`)
-        const { params: tags } = parseTags(raw)
-        const last = member.parameters.at(-1)
-        const hasNext = !!last && last.name.getText(sf) === 'next'
-        checkParams(`event '${name}' (${pointer(rel, sf, member)})`, 'website-api', member.parameters, tags, sf,
-          p => (ts.isIdentifier(p.name) && p.name.text === 'this') || (hasNext && p === last), violations)
-        const params: { name: string; text: string }[] = []
-        for (const p of member.parameters) {
-          const pname = p.name.getText(sf)
-          const tag = tags.get(pname)
-          if (tag) params.push({ name: pname, text: tag })
-        }
-        events.push({ name, scope: name.split('/')[0] ?? name, mode, signature: signatureOf(member, sf), doc, params, source: pointer(rel, sf, member) })
+    for (const { name, member } of eventMembers(body, sf)) {
+      const raw = rawJsDoc(text, member)
+      const { doc, mode } = parseJsDoc(raw)
+      if (!mode) violations.push(`event '${name}' (${pointer(rel, sf, member)}) is missing @mode.`)
+      if (!doc) violations.push(`event '${name}' (${pointer(rel, sf, member)}) has no JSDoc prose.`)
+      const { params: tags } = parseTags(raw)
+      const last = member.parameters.at(-1)
+      const hasNext = !!last && last.name.getText(sf) === 'next'
+      checkParams(`event '${name}' (${pointer(rel, sf, member)})`, 'website-api', member.parameters, tags, sf,
+        p => (ts.isIdentifier(p.name) && p.name.text === 'this') || (hasNext && p === last), violations)
+      const params: { name: string; text: string }[] = []
+      for (const p of member.parameters) {
+        const pname = p.name.getText(sf)
+        const tag = tags.get(pname)
+        if (tag) params.push({ name: pname, text: tag })
       }
+      events.push({ name, scope: name.split('/')[0] ?? name, mode, signature: signatureOf(member, sf), doc, params, source: pointer(rel, sf, member) })
     }
   }
   return events.sort((a, b) => a.name.localeCompare(b.name))

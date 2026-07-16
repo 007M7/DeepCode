@@ -9,6 +9,7 @@ import { globSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { checkParams, checkReturns, parseJsDoc, parseTags, pointer, rawJsDoc, reportViolations, type Mode } from './jsdoc.ts'
+import { cordisModuleBody, eventMembers, serviceClasses } from './cordis-walk.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT_EVENTS = 'docs/cordis-catalog/events.md'
@@ -102,15 +103,8 @@ interface InheritedEntry {
   source: string
 }
 
-/** Find the `declare module 'cordis'` body in a source file, or null. */
-function cordisModuleBody(sf: ts.SourceFile): ts.ModuleBlock | null {
-  for (const stmt of sf.statements) {
-    if (ts.isModuleDeclaration(stmt) && ts.isStringLiteral(stmt.name) && stmt.name.text === 'cordis') {
-      if (stmt.body && ts.isModuleBlock(stmt.body)) return stmt.body
-    }
-  }
-  return null
-}
+// cordisModuleBody / eventMembers / serviceClasses live in cordis-walk.ts,
+// shared with gen-website-api.ts — one walk, two renderers.
 
 /** The signature text of a method-signature member (everything but a body). */
 function memberSignature(member: ts.TypeElement | ts.ClassElement, sf: ts.SourceFile): string {
@@ -134,38 +128,33 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
     const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true)
     const body = cordisModuleBody(sf)
     if (!body) continue
-    for (const stmt of body.statements) {
-      if (!ts.isInterfaceDeclaration(stmt) || stmt.name.text !== 'Events') continue
-      for (const member of stmt.members) {
-        if (!ts.isMethodSignature(member)) continue
-        const name = ts.isStringLiteral(member.name) ? member.name.text : member.name.getText(sf)
-        const signature = memberSignature(member, sf)
-        const raw = rawJsDoc(text, member)
-        const { doc, mode } = parseJsDoc(raw)
-        const src = pointer(rel, sf, member)
-        const where = `event '${name}' (${src})`
-        if (!mode) {
-          violations.push(`${where} is missing an @mode tag. Add '@mode emit|waterfall|parallel|serial' to its JSDoc (see AGENTS.md).`)
-        }
-        // Conclusive structural check: a trailing `next: () => …` parameter is a
-        // waterfall. (emit vs parallel vs serial is not structurally
-        // distinguishable, so it is trusted from the tag.)
-        const last = member.parameters.at(-1)
-        const hasNext = !!last && last.name.getText(sf) === 'next'
-        if (mode && hasNext && mode !== 'waterfall') {
-          violations.push(`${where} has a trailing 'next' parameter (structurally a waterfall) but is tagged '@mode ${mode}'. Fix the tag or the signature.`)
-        }
-        if (mode && !hasNext && mode === 'waterfall') {
-          violations.push(`${where} is tagged '@mode waterfall' but has no trailing 'next' parameter. A waterfall delegates via next().`)
-        }
-        if (!doc) violations.push(`${where} has no description prose. Say what happened / what a listener may do, above the block tags.`)
-        // Payload parameters need a non-empty @param. The `this` receiver is not
-        // payload, and a waterfall's trailing `next` is covered by its mode.
-        const { params } = parseTags(raw)
-        checkParams(where, 'event', member.parameters, params, sf,
-          p => (ts.isIdentifier(p.name) && p.name.text === 'this') || (hasNext && p === last), violations)
-        if (mode) entries.push({ name, scope: name.split('/')[0] ?? name, signature, mode, doc, source: src })
+    for (const { name, member } of eventMembers(body, sf)) {
+      const signature = memberSignature(member, sf)
+      const raw = rawJsDoc(text, member)
+      const { doc, mode } = parseJsDoc(raw)
+      const src = pointer(rel, sf, member)
+      const where = `event '${name}' (${src})`
+      if (!mode) {
+        violations.push(`${where} is missing an @mode tag. Add '@mode emit|waterfall|parallel|serial' to its JSDoc (see AGENTS.md).`)
       }
+      // Conclusive structural check: a trailing `next: () => …` parameter is a
+      // waterfall. (emit vs parallel vs serial is not structurally
+      // distinguishable, so it is trusted from the tag.)
+      const last = member.parameters.at(-1)
+      const hasNext = !!last && last.name.getText(sf) === 'next'
+      if (mode && hasNext && mode !== 'waterfall') {
+        violations.push(`${where} has a trailing 'next' parameter (structurally a waterfall) but is tagged '@mode ${mode}'. Fix the tag or the signature.`)
+      }
+      if (mode && !hasNext && mode === 'waterfall') {
+        violations.push(`${where} is tagged '@mode waterfall' but has no trailing 'next' parameter. A waterfall delegates via next().`)
+      }
+      if (!doc) violations.push(`${where} has no description prose. Say what happened / what a listener may do, above the block tags.`)
+      // Payload parameters need a non-empty @param. The `this` receiver is not
+      // payload, and a waterfall's trailing `next` is covered by its mode.
+      const { params } = parseTags(raw)
+      checkParams(where, 'event', member.parameters, params, sf,
+        p => (ts.isIdentifier(p.name) && p.name.text === 'this') || (hasNext && p === last), violations)
+      if (mode) entries.push({ name, scope: name.split('/')[0] ?? name, signature, mode, doc, source: src })
     }
   }
   reportViolations('gen-cordis-catalog', violations)
@@ -188,26 +177,8 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
     const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true)
     const body = cordisModuleBody(sf)
     if (!body) continue
-    // The ctx key → type mapping(s) declared in this file's interface Context.
-    const keyToType = new Map<string, string>()
-    for (const stmt of body.statements) {
-      if (!ts.isInterfaceDeclaration(stmt) || stmt.name.text !== 'Context') continue
-      for (const member of stmt.members) {
-        if (!ts.isPropertySignature(member) || !member.type) continue
-        const key = member.name.getText(sf)
-        keyToType.set(key, member.type.getText(sf))
-      }
-    }
-    if (keyToType.size === 0) continue
-    // Find each service class declared in the same file and emit an entry.
-    for (const [key, type] of keyToType) {
-      const cls = sf.statements.find(
-        (s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === type,
-      )
-      if (!cls) continue // a Pick-mixin member (e.g. timer helpers), not a class here
-      const abstract = cls.modifiers?.some(m => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false
-      const clsDoc = parseJsDoc(rawJsDoc(text, cls)).doc
-      if (!clsDoc) violations.push(`service ctx.${key} (${pointer(rel, sf, cls)}): class ${type} has no JSDoc.`)
+    // Resolve each ctx key to its service class (shared walk) and emit an entry.
+    for (const { key, type, cls, abstract, doc: clsDoc } of serviceClasses(body, sf, rel, violations)) {
       const methods: string[] = []
       for (const member of cls.members) {
         if (!ts.isMethodDeclaration(member)) continue

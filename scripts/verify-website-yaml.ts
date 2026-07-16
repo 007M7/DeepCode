@@ -45,6 +45,7 @@ import { resolve } from 'node:path'
 import * as yaml from 'js-yaml'
 import ts from 'typescript'
 import { collectConfigCatalog, type CatalogEntry } from './gen-config-catalog.ts'
+import { extractFences } from './md-fences.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -80,32 +81,9 @@ interface Block {
 
 /** Extract every ```yaml / ```yaml ignore-check block from one Markdown file. */
 function extractBlocks(file: string): Block[] {
-  const text = readFileSync(resolve(root, file), 'utf8')
-  const lines = text.split('\n')
-  const blocks: Block[] = []
-  let open: { line: number; kind: Block['kind']; body: string[] } | null = null
-
-  lines.forEach((raw, i) => {
-    const fence = /^```(\s*)(\S.*)?$/.exec(raw)
-    if (!fence) {
-      if (open) open.body.push(raw)
-      return
-    }
-    if (open) {
-      // closing fence
-      blocks.push({ file, line: open.line, kind: open.kind, code: open.body.join('\n') })
-      open = null
-      return
-    }
-    // opening fence — only yaml blocks participate
-    const info = (fence[2] ?? '').trim()
-    const kind: Block['kind'] | null =
-      info === 'yaml' ? 'check'
-        : info === 'yaml ignore-check' ? 'ignore'
-          : null
-    if (kind) open = { line: i + 1, kind, body: [] }
-  })
-  return blocks
+  return extractFences(resolve(root, file), info =>
+    info === 'yaml' ? 'check' : info === 'yaml ignore-check' ? 'ignore' : null)
+    .map(f => ({ file, line: f.line, kind: f.kind, code: f.code }))
 }
 
 /** Every workspace package name: `packages/<group>/<pkg>` and `vendor/<pkg>`. */
