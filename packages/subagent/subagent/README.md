@@ -58,13 +58,13 @@ Provider additions and removals also emit `subagent/provider-added` and `subagen
 
 ## Collection model
 
-The current model-facing tool collects synchronously: it awaits the child result and disposes the run before returning. Background collection and polling remain outside this seam. See the [capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md) and `src/types.ts` for the complete contracts.
+The model-facing tool collects synchronously by default: it awaits the child result and disposes the run before returning. Background delegation does not change this seam; the consumer registers startup and the eventual run with the generic `ctx.tasks` runtime, then collection and cancellation use the shared task tools. See the [background subagent tasks RFC](../../../docs/rfc/implemented/feature/2026-07-08-background-subagent-tasks.md), the [capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md), and `src/types.ts` for the complete contracts.
 
 ## Model Experience
 
-Indirectly, through `dsh-tool-subagent`, which retains only a provider's data-dependent final output or exact `Error: no subagent provider registered for "<name>"`, `Error: subagent provider "<name>" does not support the "<capability>" capability`, and `Error: <message>` start failures in the parent while child working tokens remain child-only.
+Indirectly, through `dsh-tool-subagent`, which renders provider-specific schemas and foreground or generic-background results while child working context remains child-only.
 
 ## Known Limitations and Deferred Work
 
-- **The current consumer collects synchronously** — the model-facing tool starts a run and awaits `result`; steering (`sendMessage`) is part of the seam but intentionally unused, and background/poll/spill semantics are deferred to a future long-running-runtime design.
-- **The lifecycle events are observe-only** — a run-affecting `subagent/end` continuation or decision surface is deferred until a consumer needs one.
+- **Runtime steering and continuation are seam-only capabilities** — `sendMessage` and `resume` have no model-facing consumer in the current tool.
+- **Lifecycle events are observe-only** — a run-affecting `subagent/end` continuation or decision surface waits for a concrete consumer.
