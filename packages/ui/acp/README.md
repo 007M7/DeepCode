@@ -42,7 +42,7 @@ Forward and reverse indexes route every event, prompt, cancel, and approval to o
 
 When `ctx.permission` is composed, the bridge advertises one `permission` select in `session/new` and `session/load`. Options come from the deployment's preset table; the current value comes from the session fold, with switch-away-only `custom` for unmatched knobs. `session/set_config_option` accepts advertised presets and writes both sandbox-mode and approval-policy events through `PermissionService.set()`. Open-turn switches append immediately; idle switches overlay responses and anchor at the next `agent/prompt-submit`, before request assembly. A crash before anchoring restores the durable fold. See the [sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md), [`dsh-permission`](../permission/README.md), and [protocol matrix](acp-feature-support.md#6-session-config-options).
 
-Background bash tasks use the session id as an opaque owner token, so one session cannot inspect or stop another's task. That contract belongs to [`dsh-tool-bash`](../../bash/tool-bash/).
+The shared [`ctx.tasks` runtime](../../tasks/tasks/) fences access to predictable task ids by the owning session; ACP sessions therefore cannot read or stop one another's background work.
 
 ## Per-session cwd
 

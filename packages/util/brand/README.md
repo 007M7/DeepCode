@@ -17,10 +17,10 @@ export function SessionId(id: string): SessionId {
 }
 ```
 
-Construction goes through the per-id factory in the OWNING package (a plain cast inside — zero runtime cost). Comparison, logging, JSON serialization, and the wire format all behave exactly as for an ordinary string; the brand is erased at compile time.
+Construction goes through the per-id factory in the owning package. Comparison, logging, JSON serialization, and the wire format behave as for an ordinary string; the brand is erased at compile time.
 
 ## Policy: brand ids that cross package boundaries
 
-A package brands the ids it OWNS — `CallId` in `dsh-llm` (tool-call correlation), `SessionId` in `dsh-session`, `AgentId` in `dsh-agent`, `BashTaskId`/`OwnerToken` in `dsh-bash`. Branding is for ids that cross package boundaries and could plausibly be confused; **not every string needs a brand.**
+A package brands the ids it owns — `CallId` in `dsh-llm`, `SessionId` in `dsh-session`, `AgentId` in `dsh-agent`, and `TaskId` in `dsh-tasks`. Brand cross-package ids that could plausibly be confused; not every string needs one.
 
-This package owns ONLY the primitive — no concrete id, no runtime code beyond the (erased) type. Keeping the primitive dependency-free is the point: a capability package can brand its ids without depending on an unrelated package. `dsh-bash`, for example, brands `BashTaskId`/`OwnerToken` by depending on `dsh-brand` alone — it never pulls in `dsh-llm` (or `dsh-session`) just to reach `Branded`.
+This package owns only the primitive. Keeping it dependency-free lets `dsh-tasks`, for example, brand `TaskId` without importing an unrelated capability package merely to reach `Branded`.
