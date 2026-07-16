@@ -24,7 +24,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages contribute service
 | ctx key | Package family | Role |
 |---|---|---|
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry and streaming model calls |
-| `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | replay-aware per-model request and surface pressure |
+| `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | replay-aware request/surface pressure per model |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
@@ -82,7 +82,7 @@ forever:
       agent/request (config only) -> log request/header -> llm/stream (frozen)
         'assistant/chunk'
       agent/step-result
-      'assistant/message' (transformed content, or an empty successful-call anchor if step-result rejects)
+      'assistant/message' (transformed content or empty success anchor after step-result rejection)
       each tool call:
         'tool/call'
         tools/pre-execute -> monotonic guards -> tools/execute -> tools/post-execute -> tools/result
@@ -126,7 +126,7 @@ Durability is a plugin concern. Persistence backends buffer synchronous `session
 
 ### Model Content
 
-Messages are arrays of typed content blocks (`text`, `reasoning`, `tool-call`, `tool-result`). The union derives from the merge-extensible `ContentBlockMap`; the same pattern types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New block types are coordinated across adapters, UI bridges, token metering, and persistence, so block types remain a repo-wide contract. Replay measurement types are cataloged in [token-meter.md](core-data-structures/token-meter.md).
+Messages are arrays of typed content blocks (`text`, `reasoning`, `tool-call`, `tool-result`). The union derives from the merge-extensible `ContentBlockMap`; the same pattern types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New block types require coordinated adapter, UI, token-meter, and persistence changes; replay measurement types live in [token-meter.md](core-data-structures/token-meter.md).
 
 Streaming is a raw chunk protocol (`block-start` through `finish`) with `BlockAssembler` as the shared chunk-to-block assembler. The loop logs raw chunks while assembling them for dispatch. `LlmAdapter` is the provider seam: subclass, implement `stream()`, and register with `ctx.llm.registerAdapter(models, adapter)`. StreamChunk conventions live in [llm-streaming.md](core-data-structures/llm-streaming.md).
 
