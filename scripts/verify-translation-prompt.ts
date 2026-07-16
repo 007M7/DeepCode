@@ -18,37 +18,27 @@ function read(path: string): string {
 
 try {
   const document = read('docs/i18n/translation-prompt.md')
-  const translationRules = read('docs/i18n/translation-rules.md')
   const terminology = read('docs/i18n/terminology.md')
   const documented = documentedTranslationPromptPlaceholders(document)
   if (documented.join('\n') !== TRANSLATION_PROMPT_PLACEHOLDERS.join('\n')) {
     throw new Error(`placeholder table must list exactly: ${TRANSLATION_PROMPT_PLACEHOLDERS.join(', ')}`)
   }
 
-  const englishSource = renderTranslationPrompt(document, {
-    sourceLanguage: 'English',
-    sourceFilename: 'example.md',
-    translationRules,
-    terminology,
-  })
-  const chineseSource = renderTranslationPrompt(document, {
-    sourceLanguage: 'Chinese',
-    sourceFilename: 'example.zh.md',
-    translationRules,
-    terminology,
-  })
-  if (!englishSource.includes('[English](example.md) | 中文')) throw new Error('English-source render does not carry the Chinese switcher instruction')
-  if (!chineseSource.includes('English | [中文](example.zh.md)')) throw new Error('Chinese-source render does not carry the English switcher instruction')
+  const englishSource = renderTranslationPrompt(document, { sourceLanguage: 'English', terminology })
+  const chineseSource = renderTranslationPrompt(document, { sourceLanguage: 'Chinese', terminology })
+  if (englishSource.includes('{{') || chineseSource.includes('{{')) throw new Error('rendered prompt contains an unresolved placeholder')
+  if (!englishSource.includes('from English to Chinese')) throw new Error('English-source render does not translate into Chinese')
+  if (!chineseSource.includes('from Chinese to English')) throw new Error('Chinese-source render does not translate into English')
 
   const example = /```xml\n([\s\S]*?)\n```/.exec(englishSource)?.[1]
-  if (example === undefined) throw new Error('rendered prompt has no XML response example')
+  if (example === undefined) throw new Error('rendered prompt has no three-section response example')
   parseTranslationResponse(example)
 
-  const roundTrip = { translation: 'first ]]> pass', review: '- [None] No corrections.', final: 'final ]]> text' }
+  const roundTrip = { translation: 'first pass\n\nwith **markdown**', review: '- 无修正', final: 'final text' }
   const parsed = parseTranslationResponse(renderTranslationResponse(roundTrip))
-  if (JSON.stringify(parsed) !== JSON.stringify(roundTrip)) throw new Error('CDATA split rule does not round-trip response content')
+  if (JSON.stringify(parsed) !== JSON.stringify(roundTrip)) throw new Error('three-section response does not round-trip')
 
-  console.log('verify-translation-prompt: both directions render and the XML response contract parses.')
+  console.log('verify-translation-prompt: both directions render and the three-section response contract parses.')
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error)
   console.error(`verify-translation-prompt: ${message}`)

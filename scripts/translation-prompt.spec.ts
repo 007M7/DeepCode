@@ -1,5 +1,7 @@
-/** Regression tests for the executable translation prompt contract. */
+/** Unit tests for the prompt-v4 renderer and three-section response parser. */
 
+import { readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   parseTranslationResponse,
@@ -7,70 +9,43 @@ import {
   renderTranslationResponse,
 } from './translation-prompt.ts'
 
-const document = `# Wrapper
-
-## 模板正文
-
-\`\`\`\`text
-{{source_lang}} to {{target_lang}}
-{{translation_rules}}
-{{terminology}}
-[English]({{source_filename}}) | [中文]({{source_filename_zh}})
-\`\`\`\`
-`
+const root = resolve(import.meta.dirname, '..')
+const document = readFileSync(join(root, 'docs/i18n/translation-prompt.md'), 'utf8')
+const terminology = '| English | 中文 |\n|---|---|\n| agent | agent |'
 
 describe('translation prompt rendering', () => {
-  it('renders every supported placeholder without recursively rewriting injected rules', () => {
-    const rendered = renderTranslationPrompt(document, {
-      sourceLanguage: 'English',
-      sourceFilename: 'guide.md',
-      translationRules: 'A literal {{source_lang}} in injected rules.',
-      terminology: '| English | 中文 |',
-    })
-    expect(rendered).toContain('English to Chinese')
-    expect(rendered).toContain('A literal {{source_lang}} in injected rules.')
-    expect(rendered).toContain('[English](guide.md) | [中文](guide.zh.md)')
+  it('renders both directions with every placeholder resolved', () => {
+    const en = renderTranslationPrompt(document, { sourceLanguage: 'English', terminology })
+    expect(en).toContain('from English to Chinese')
+    expect(en).toContain(terminology)
+    expect(en).not.toContain('{{')
+    const zh = renderTranslationPrompt(document, { sourceLanguage: 'Chinese', terminology })
+    expect(zh).toContain('from Chinese to English')
   })
 
-  it('rejects a filename whose suffix contradicts the source language', () => {
-    expect(() => renderTranslationPrompt(document, {
-      sourceLanguage: 'Chinese',
-      sourceFilename: 'guide.md',
-      translationRules: 'rules',
-      terminology: 'terms',
-    })).toThrow('does not match source language Chinese')
-  })
-
-  it('rejects malformed template placeholders before injecting rule contents', () => {
-    expect(() => renderTranslationPrompt(document.replace('{{source_lang}}', '{{source-lang}}'), {
-      sourceLanguage: 'English',
-      sourceFilename: 'guide.md',
-      translationRules: 'A literal {{source_lang}} in injected rules.',
-      terminology: '| English | 中文 |',
-    })).toThrow('template contains malformed placeholder syntax')
+  it('rejects a template with unknown or missing placeholders', () => {
+    const alien = document.replaceAll('{{terminology}}', '{{terms_prompt}}')
+    expect(() => renderTranslationPrompt(alien, { sourceLanguage: 'English', terminology })).toThrow(/unsupported placeholder/)
+    const missing = document.replaceAll('{{terminology}}', '')
+    expect(() => renderTranslationPrompt(missing, { sourceLanguage: 'English', terminology })).toThrow(/required placeholder/)
   })
 })
 
-describe('translation response XML', () => {
-  it('round-trips Markdown and the CDATA terminator', () => {
-    const response = {
-      translation: '# Draft\n\nA ]]> marker.',
-      review: '- [Tone] Fixed.',
-      final: '# Final\n\nA ]]> marker.',
-    }
+describe('translation response sections', () => {
+  it('round-trips Markdown bodies', () => {
+    const response = { translation: '# 标题\n\n正文 **加粗**。', review: '- [Tone] 修正一处。\n- 无修正', final: '# 标题\n\n定稿。' }
     expect(parseTranslationResponse(renderTranslationResponse(response))).toEqual(response)
   })
 
-  it('rejects missing, reordered, nested, attributed, or non-CDATA children', () => {
-    expect(() => parseTranslationResponse('<dsh-translation-response version="1"/>')).toThrow('translation, review, and final')
-    expect(() => parseTranslationResponse('<dsh-translation-response version="1"><review><![CDATA[x]]></review></dsh-translation-response>'))
-      .toThrow('expected translation, got review')
-    expect(() => parseTranslationResponse(renderTranslationResponse({ translation: 'x', review: 'y', final: 'z' })
-      .replace('<translation><![CDATA[x]]></translation>', '<translation><b><![CDATA[x]]></b></translation>')))
-      .toThrow('nested element b is not allowed')
-    expect(() => parseTranslationResponse(renderTranslationResponse({ translation: 'x', review: 'y', final: 'z' }).replace('<review>', '<review lang="en">')))
-      .toThrow('review must not have attributes')
-    expect(() => parseTranslationResponse(renderTranslationResponse({ translation: 'x', review: 'y', final: 'z' }).replace('<![CDATA[x]]>', 'x')))
-      .toThrow('all response field content must be inside CDATA')
+  it('tolerates a fenced xml wrapper around the whole response', () => {
+    const fenced = '```xml\n<translation>\nA\n</translation>\n\n<review>\n- 无修正\n</review>\n\n<final>\nA\n</final>\n```'
+    expect(parseTranslationResponse(fenced).final).toBe('A')
+  })
+
+  it('rejects missing, unterminated, or duplicated sections', () => {
+    expect(() => parseTranslationResponse('<translation>\nA\n</translation>')).toThrow(/missing <review>/)
+    expect(() => parseTranslationResponse('<translation>\nA')).toThrow(/unterminated <translation>/)
+    const dup = '<translation>\nA\n</translation>\n<review>\nR\n</review>\n<final>\nF\n</final>\n<final>\nG\n</final>'
+    expect(() => parseTranslationResponse(dup)).toThrow(/duplicate <final>/)
   })
 })
