@@ -132,28 +132,16 @@ export interface ToolDefinition extends ToolSchema {
    */
   timeoutMs?: number
   /**
-   * Optional synchronous, pure classification: may this call run concurrently
-   * with other tool calls in the same assistant step? The agent-loop scheduler
-   * calls it (via {@link ToolRegistry.executionMode}) to decide whether the call
-   * joins a parallel group or forms an exclusive barrier; a missing declaration,
-   * a thrown check, or any non-`true` return is treated as exclusive. Like
-   * `timeoutMs` it is host-only scheduler metadata — NEVER sent to the model,
-   * since `schemas()` whitelists only name/description/parameters.
+   * Pure, synchronous host-only classifier for overlap with sibling tool calls.
+   * Only `true` opts in; omission, exceptions, and invalid `defineTool`
+   * arguments are treated as exclusive.
    *
-   * It may inspect the parsed `args` (`unknown` — a hand-rolled definition
-   * receives the raw parsed value; `defineTool` schema-validates first and
-   * returns `false` on invalid args). The check performs no I/O and receives no
-   * live `Agent` or mutable `ToolExecution`.
-   *
-   * Declaring `true` is a contract: during `execute` the tool body must NOT
-   * mutate the parent agent's session or other parent-owned async state (no
-   * `exec.agent.session.append(...)`, no `agent.inject(...)`); its only parent-
-   * step outputs are the returned content, `meta`, structured error, and
-   * `additionalContext` on the loop's ordered post-execute path. A synchronous,
-   * side-effect-only recorder whose updates are commutative or fail closed for
-   * concurrent same-session calls is the one exception (`fs/observed` is the
-   * worked example). Full contract and rationale: the parallel-tool-call RFC
-   * (docs/rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
+   * Opted-in executions must not mutate parent-owned state, and shared state
+   * they touch must be concurrency-safe. See the
+   * [parallel-tool-call RFC](../../../../docs/rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md)
+   * for the full safety contract and recorder exception.
+   * @param args - Parsed tool arguments.
+   * @returns Whether this call may join a parallel group.
    */
   isConcurrencySafe?(args: unknown): boolean
   /**
