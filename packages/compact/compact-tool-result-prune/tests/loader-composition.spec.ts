@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
-import ToolResultPruneService from '@deepseek-ai/dsh-tool-result-prune'
+import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
 
 let root: string | undefined
 let context: Context | undefined
@@ -18,12 +18,12 @@ afterEach(async () => {
   root = undefined
 })
 
-describe('tool-result-prune real Loader composition', () => {
+describe('compact-tool-result-prune real Loader composition', () => {
   it('loads and resolves the flat YAML plugin shape', async () => {
-    root = await mkdtemp(join(tmpdir(), 'dsh-tool-result-prune-loader-'))
+    root = await mkdtemp(join(tmpdir(), 'dsh-compact-tool-result-prune-loader-'))
     const configPath = join(root, 'cordis.yml')
     await writeFile(configPath, [
-      "- name: '@deepseek-ai/dsh-tool-result-prune'",
+      "- name: '@deepseek-ai/dsh-compact-tool-result-prune'",
       '  config:',
       '    thresholdChars: 100',
       '    headChars: 20',
@@ -38,7 +38,7 @@ describe('tool-result-prune real Loader composition', () => {
     context.loader.internal = {
       version: 'v2',
       async import(specifier: string) {
-        if (specifier !== '@deepseek-ai/dsh-tool-result-prune') {
+        if (specifier !== '@deepseek-ai/dsh-compact-tool-result-prune') {
           throw new Error(`unexpected Loader import: ${specifier}`)
         }
         return ToolResultPruneService

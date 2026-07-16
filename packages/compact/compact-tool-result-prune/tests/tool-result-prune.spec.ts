@@ -10,8 +10,8 @@ import ToolResultPruneService, {
   DEFAULTS,
   PRUNE_MARKER,
   resolveConfig,
-} from '@deepseek-ai/dsh-tool-result-prune'
-import type { ToolResultPruneConfig } from '@deepseek-ai/dsh-tool-result-prune'
+} from '@deepseek-ai/dsh-compact-tool-result-prune'
+import type { ToolResultPruneConfig } from '@deepseek-ai/dsh-compact-tool-result-prune'
 
 const SMALL: ToolResultPruneConfig = {
   thresholdChars: 50,

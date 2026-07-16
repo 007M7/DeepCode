@@ -32,7 +32,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx
 | `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry and progressive disclosure |
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
 | `ctx.compact` | [`compact/`](../packages/compact/README.md) | session-log compaction |
-| `ctx.toolResultPrune` | [`compact/tool-result-prune`](../packages/compact/tool-result-prune/README.md) | optional model-free tool-result pruning |
+| `ctx.toolResultPrune` | [`compact/compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | optional model-free tool-result pruning |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry + generic `task_*` control tools |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |

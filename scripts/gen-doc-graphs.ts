@@ -96,7 +96,7 @@ const SERVICE_ROLES: ServiceRole[] = [
   },
   {
     key: 'toolResultPrune',
-    pkg: 'tool-result-prune',
+    pkg: 'compact-tool-result-prune',
     title: 'Model-free tool-result pruning',
     mode: 'core',
     consumers: ['compact-basic'],

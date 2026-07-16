@@ -9,7 +9,7 @@ import LlmService, { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, LlmAdapter } from '@d
 import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
-import ToolResultPruneService from '@deepseek-ai/dsh-tool-result-prune'
+import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 const SIGNAL = new AbortController().signal

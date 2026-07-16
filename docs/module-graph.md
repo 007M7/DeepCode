@@ -45,7 +45,7 @@ flowchart TD
   subgraph group_compact["packages/compact"]
     pkg_compact["compact"]
     pkg_compact_basic["compact-basic"]
-    pkg_tool_result_prune["tool-result-prune"]
+    pkg_compact_tool_result_prune["compact-tool-result-prune"]
   end
   subgraph group_subagent["packages/subagent"]
     pkg_subagent["subagent"]
@@ -169,8 +169,8 @@ flowchart TD
   pkg_skill_local --> pkg_skill
   pkg_compact --> pkg_llm
   pkg_compact --> pkg_session
-  pkg_tool_result_prune --> pkg_llm
-  pkg_tool_result_prune --> pkg_session
+  pkg_compact_tool_result_prune --> pkg_llm
+  pkg_compact_tool_result_prune --> pkg_session
   pkg_web_fetch_local --> pkg_timeout
   pkg_web_fetch_local --> pkg_web
   pkg_web_search_deepseek --> pkg_web
@@ -185,10 +185,10 @@ flowchart TD
   pkg_bash_local --> pkg_timeout
   pkg_compact_basic --> pkg_agent
   pkg_compact_basic --> pkg_compact
+  pkg_compact_basic --> pkg_compact_tool_result_prune
   pkg_compact_basic --> pkg_llm
   pkg_compact_basic --> pkg_session
   pkg_compact_basic --> pkg_token_meter
-  pkg_compact_basic --> pkg_tool_result_prune
   pkg_hook_protocol --> pkg_bash
   pkg_hook_protocol --> pkg_session
   pkg_session_persistence_jsonl --> pkg_session
@@ -411,7 +411,7 @@ flowchart TD
 | [`fs-policy`](../packages/fs/fs-policy) | `fs` | [`fs`](../packages/fs/fs) |
 | [`skill-local`](../packages/skill/skill-local) | `skill` | [`fs`](../packages/fs/fs), [`skill`](../packages/skill/skill) |
 | [`compact`](../packages/compact/compact) | `compact` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
-| [`tool-result-prune`](../packages/compact/tool-result-prune) | `compact` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune) | `compact` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`web-fetch-local`](../packages/web/web-fetch-local) | `web` | [`timeout`](../packages/util/timeout), [`web`](../packages/web/web) |
 | [`web-search-deepseek`](../packages/web/web-search-deepseek) | `web` | [`web`](../packages/web/web) |
 | [`web-search-exa`](../packages/web/web-search-exa) | `web` | [`web`](../packages/web/web) |
@@ -420,7 +420,7 @@ flowchart TD
 | [`llm-replay`](../packages/support/llm-replay) | `support` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`sandbox-local`](../packages/sandbox/sandbox-local) | `sandbox` | [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
 | [`bash-local`](../packages/bash/bash-local) | `bash` | [`bash`](../packages/bash/bash), [`timeout`](../packages/util/timeout) |
-| [`compact-basic`](../packages/compact/compact-basic) | `compact` | [`agent`](../packages/core/agent), [`compact`](../packages/compact/compact), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter), [`tool-result-prune`](../packages/compact/tool-result-prune) |
+| [`compact-basic`](../packages/compact/compact-basic) | `compact` | [`agent`](../packages/core/agent), [`compact`](../packages/compact/compact), [`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
 | [`hook-protocol`](../packages/hooks/hook-protocol) | `hooks` | [`bash`](../packages/bash/bash), [`session`](../packages/core/session) |
 | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
 | [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |

@@ -18,7 +18,7 @@ Per the [capability-seams RFC](../../implemented/architecture/2026-06-13-capabil
 
 1. **Interface** — `@deepseek-ai/dsh-compact`: an abstract `CompactService` owning the `ctx.compact` key, the `CompactionResult` vocabulary, and the `compact/*` session events. It declares `compactIfNeeded()` and `compactRegion()` as **abstract** — the contract states *what* compaction does, not *how*.
 2. **Implementation** — `@deepseek-ai/dsh-compact-basic`: a concrete `BasicCompactService` that consumes `ctx.tokenMeter` and owns the tail→head retention walk, summarization via `ctx.llm.stream()`, the surface replacement, the lock, post-step pressure, and canonical context-overflow recovery. `summarize()` is its sole subclass hook; pricing and replay stay with the meter.
-3. **Model-free companion** — `@deepseek-ai/dsh-tool-result-prune`: a concrete optional service that rewrites oversized current `tool/result` nodes before the backend selects a summary range. It is not a second compaction implementation and does not implement `CompactService`.
+3. **Model-free companion** — `@deepseek-ai/dsh-compact-tool-result-prune`: a concrete optional service that rewrites oversized current `tool/result` nodes before the backend selects a summary range. It is not a second compaction implementation and does not implement `CompactService`.
 4. **Consumer** — deferred. A `/compact` tool and slash command will `inject: ['compact']` and call the contract; they are intentionally out of scope here so the seam settles first.
 
 ### The contract depends on `dsh-session` and `dsh-llm` — a deliberate deviation
@@ -37,7 +37,7 @@ An earlier draft put the full algorithm (the retention walk, token-summing, text
 
 The original pre-step placement used a provisional envelope and could not see final `agent/request` routing, tools, provider output, tool results, buffered context, or steering. The corrected lifecycle fires serial `agent/post-step(agent, turn, step, signal)` after those successful facts are durable and before `step/end`. `dsh-compact-basic` measures the canonical logged request through `ctx.tokenMeter`, so the next request sees any replacement without a speculative envelope override. Once pressure qualifies, it invokes optional `ctx.toolResultPrune`, remeasures the durable surface, and summarizes only if pruning did not restore safe pressure.
 
-Canonical provider context overflow takes a separate path. The failed step closes, `agent/request-error` receives the original request error and consecutive retry count, and compact-basic prunes before forcing one useful balanced reduction. It returns retry only if `session.surface.replaceGeneration` increases, including pruning-only progress when no summary range exists; the loop then opens a new numbered step and reconstructs its request from the durable log. No replacement, recovery failure, cancellation, an exhausted cap, or an unrelated error preserves the original provider failure. The complete lifecycle decision is in the [after-call recovery RFC](../../implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md).
+Canonical provider context overflow takes a separate path. The failed step closes, `agent/request-error` receives the original request error and consecutive retry count, and compact-basic prunes before forcing one useful balanced reduction. It returns retry only if `session.surface.replaceGeneration` increases, including pruning-only progress when no summary range exists; the loop then opens a new numbered step and reconstructs its request from the durable log. No replacement, a recovery failure before any replacement, cancellation, an exhausted cap, or an unrelated error preserves the original provider failure. If pruning already advanced the generation before later summary work fails, recovery retries from that durable pruned surface unless cancellation or disposal wins. The complete lifecycle decision is in the [after-call recovery RFC](../../implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md).
 
 ```
 assistant/message → tool/result/context/steering
@@ -57,7 +57,7 @@ Auto-compaction checks after **every successful** step, not once per turn. This 
 
 A runaway turn thus compacts exactly like any other history: its early *closed* steps get summarized while its recent steps stay verbatim. When the only compactable content left is an un-splittable open tail step (its tool-calls have no results yet), compaction declines (`null`) and retries once that step closes.
 
-**Single-unit overflow is out of scope, by design.** If a single retained unit — one closed step, or a large free node such as a pasted `user/message` — *alone* exceeds the budget, compaction cannot help and the next model call may go out over-budget. Bounding an individual unit's size is a separate concern (output truncation), handled elsewhere; compaction makes no promise about it, and the harness without such a mechanism can still break on a single oversized unit. This is named honestly rather than papered over.
+**Some single-unit overflow remains out of scope, by design.** Summary range selection cannot split an indivisible unit. The optional pruning companion can nevertheless repair a closed tool pair when text-bearing tool-result content is the removable bulk and the pruned remainder fits. Envelope-only pressure, an oversized indivisible non-tool node such as a pasted `user/message`, and a tool unit whose non-prunable remainder is still oversized remain outside compaction. Bounding those individual units is a separate concern; the harness can still break on them. This is named honestly rather than papered over.
 
 ### Head-anchoring: one auto checkpoint, always at the head
 
@@ -95,8 +95,8 @@ The `compact/start … compact/end` bracket is justified, in order of what now d
 
 Two failure paths, both documented:
 
-- **Crash** (the loop dies mid-summarization): a dangling `compact/start`, no closer. Because `compact/*` are **log-only**, the orphan is **inert** — the surface replacement never landed, so the full, uncompacted history derives correctly. Generic turn-repair (`interruptedTurnClosers`) closes the turn with a synthetic `turn/end`; the orphan sits *before* that `turn/end`, so the turn-scoped in-progress check never sees it and a crash cannot wedge future compaction.
-- **Recoverable** (summarization throws but the loop survives): the backend appends `compact/end` with its **`error`** field set and leaves the surface untouched. Post-step pressure warns and continues; overflow recovery delegates so the original provider error remains authoritative.
+- **Crash** (the loop dies mid-summarization): a dangling `compact/start`, no closer. Because `compact/*` are **log-only**, the orphan is **inert** — no summary replacement lands. The derived surface remains the durable surface present at `compact/start`: full history when pruning made no replacement, or the already-pruned history when it did. Generic turn-repair (`interruptedTurnClosers`) closes the turn with a synthetic `turn/end`; the orphan sits *before* that `turn/end`, so the turn-scoped in-progress check never sees it and a crash cannot wedge future compaction.
+- **Recoverable** (summarization throws but the loop survives): the backend appends `compact/end` with its **`error`** field set and lands no summary replacement. Post-step pressure warns and continues from the latest durable surface — full history if no replacement preceded the attempt, or the pruned surface if pruning already landed. Overflow recovery delegates only before any replacement; generation progress from earlier pruning authorizes a retry from that durable surface unless cancellation or disposal wins.
 
 `compact/end` keeps its `error?` field (mirroring `tool/result`'s self-contained error — one event tells success from failure without correlating a sibling). There is no separate `compact/error` event.
 
@@ -111,12 +111,12 @@ Two failure paths, both documented:
 
 ## Consequences
 
-- **Packages**: `packages/compact/compact` supplies the interface, `compact-basic` supplies the backend, and `tool-result-prune` supplies optional deterministic rewriting. `packages/llm/token-meter` owns replay-aware measurement independently. The consumer tier is deferred.
+- **Packages**: `packages/compact/compact` supplies the interface, `compact-basic` supplies the backend, and `compact-tool-result-prune` supplies optional deterministic rewriting. `packages/llm/token-meter` owns replay-aware measurement independently. The consumer tier is deferred.
 - **Automatic seams**: `agent/post-step` (`@mode serial`) handles successful-call pressure and `agent/request-error` (`@mode waterfall`) handles final request failures after the failed step closes. Generic `agent/pre-step` remains a four-argument checkpoint with no compaction-only prompt/prefix payload.
 - **`SessionEventMap`** gains `compact/start` / `compact/summary` / `compact/end` by declaration merging (merge-extensible); `SurfaceEventType` is **not** touched. These are session events, not cordis `Events`, so the event-taxonomy gate needs no entry.
 - **`dsh-compact`** owns `toolPairingBalancedBefore(session, node)` and `toolPairingBalancedAfter(session, node)`, the cached surface-edge checks that `compactRegion` and `compactIfNeeded` use to avoid splitting a tool-call/result pair. The cache validates current membership by seq and answers both edges from one per-cut balance sequence instead of trusting a caller-retained `node.next`; stale or missing seqs and orphan results reject. `dsh-session` continues to own the surface `replace` operation, positional nodes, and rewrite generation.
 - **`dsh-invariants`** treats fresh appended tool results as executions that require an open step and pending call, while provenance-backed replacements are turn-enclosed surface rewrites. Positional replacement and complete-source checks validate the rewritten node.
-- **Wiring**: `examples/coding-agent/cordis.yml` loads zero-config `dsh-token-meter`, `dsh-tool-result-prune`, then `dsh-compact-basic`; service-wide defaults make the composition usable without repeated numeric policy.
+- **Wiring**: `examples/coding-agent/cordis.yml` loads zero-config `dsh-token-meter`, `dsh-compact-tool-result-prune`, then `dsh-compact-basic`; service-wide defaults make the composition usable without repeated numeric policy.
 
 ## Testing
 

@@ -1,4 +1,4 @@
-# @deepseek-ai/dsh-tool-result-prune
+# @deepseek-ai/dsh-compact-tool-result-prune
 
 The replay-safe model-free pruning service (`ctx.toolResultPrune`). It rewrites over-budget `tool/result` surface nodes to a bounded head, a fixed omission marker, and a bounded tail while retaining the full original event in the append-only session log.
 
@@ -28,7 +28,7 @@ All values are integers; the threshold is positive and head/tail are non-negativ
 
 ```ts
 import type { Context } from 'cordis'
-import ToolResultPruneService from '@deepseek-ai/dsh-tool-result-prune'
+import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
 
 export function apply(ctx: Context): void {
   ctx.plugin(ToolResultPruneService)

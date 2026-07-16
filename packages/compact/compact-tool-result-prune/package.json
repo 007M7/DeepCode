@@ -1,5 +1,5 @@
 {
-  "name": "@deepseek-ai/dsh-tool-result-prune",
+  "name": "@deepseek-ai/dsh-compact-tool-result-prune",
   "description": "Replay-safe model-free head/middle/tail pruning for tool-result surface nodes",
   "version": "0.0.1",
   "private": true,

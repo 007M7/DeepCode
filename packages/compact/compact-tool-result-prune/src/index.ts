@@ -1,7 +1,7 @@
 /**
  * Replay-safe, model-free tool-result pruning service.
  *
- * @module @deepseek-ai/dsh-tool-result-prune
+ * @module @deepseek-ai/dsh-compact-tool-result-prune
  */
 
 import { Context, Service } from 'cordis'

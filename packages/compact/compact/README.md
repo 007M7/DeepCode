@@ -72,5 +72,5 @@ Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and 
 ## Known Limitations and Deferred Work
 
 - **No model-facing consumer tier yet** — `@deepseek-ai/dsh-tool-compact` (the `/compact` tool) is deferred; compaction is reachable only via direct `ctx.compact` calls or a backend's auto listener.
-- **Single-unit overflow is out of contract** — one indivisible unit (a closed tool pair or a large pasted `user/message`) alone exceeding the budget cannot be compacted.
+- **Some single-unit overflow is out of contract** — balanced summary compaction cannot split one indivisible unit. The optional pruning companion can still repair a closed tool pair when text-bearing tool-result bulk is removable; a large non-tool node or a tool unit whose non-prunable remainder is oversized cannot be compacted.
 - **An envelope that alone approaches the window is not surface-compaction work** — compaction shrinks derived history, never the system prompt, tools, or session prefix.

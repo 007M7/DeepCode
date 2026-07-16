@@ -14,6 +14,6 @@
     { "path": "../../core/session" },
     { "path": "../../core/agent" },
     { "path": "../compact" },
-    { "path": "../tool-result-prune" }
+    { "path": "../compact-tool-result-prune" }
   ]
 }

@@ -9,7 +9,7 @@ import Include from '@cordisjs/plugin-include'
 import LlmService from '@deepseek-ai/dsh-llm'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import BasicCompactService from '@deepseek-ai/dsh-compact-basic'
-import ToolResultPruneService from '@deepseek-ai/dsh-tool-result-prune'
+import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
 
 let root: string | undefined
 let context: Context | undefined
@@ -33,7 +33,7 @@ async function loadYaml(lines: readonly string[]): Promise<Context> {
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-llm', LlmService],
     ['@deepseek-ai/dsh-token-meter', TokenMeterService],
-    ['@deepseek-ai/dsh-tool-result-prune', ToolResultPruneService],
+    ['@deepseek-ai/dsh-compact-tool-result-prune', ToolResultPruneService],
     ['@deepseek-ai/dsh-compact-basic', BasicCompactService],
   ])
   context.loader.internal = {
@@ -58,7 +58,7 @@ describe('real Loader composition', () => {
       "- name: '@deepseek-ai/dsh-token-meter'",
       '  config:',
       '    contextWindow: 4096',
-      "- name: '@deepseek-ai/dsh-tool-result-prune'",
+      "- name: '@deepseek-ai/dsh-compact-tool-result-prune'",
       '  config:',
       '    thresholdChars: 100',
       '    headChars: 20',
