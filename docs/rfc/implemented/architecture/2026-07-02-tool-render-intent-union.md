@@ -43,7 +43,7 @@ interface TerminalResultView { card: 'terminal'; title?: string; output?: string
 ### Producer mapping
 
 - `dsh-tool-fs` read → `generic` (`kind:'read'`, a follow-along `location`); write → `diff` (`oldText:null`); edit → `diff` (`oldText:old_string || null`, `newText:new_string ?? ''`). This mirrors `claude-agent-acp`'s `toolInfoFromToolUse` Read/Write/Edit arms field-for-field.
-- `dsh-tool-bash` foreground → `terminal` call + `terminal` result; `run_in_background` and `bash_output`/`bash_kill` → `generic`.
+- `dsh-tool-bash` foreground → `terminal` call + `terminal` result; `run_in_background` → `generic`. The generic `task_*` controls own their own generic cards.
 - `dsh-tool-todo` → `generic`.
 
 ### Terminal fallback ownership

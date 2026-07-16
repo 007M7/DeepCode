@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { foldRequestHeader, type SessionEvent } from '@deepseek-ai/dsh-session'
 
-const binScript = fileURLToPath(new URL('../../../ui/stdio-agent/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('../../../examples/stdio-demo/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('./fixtures/cordis.yml', import.meta.url))
 const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))

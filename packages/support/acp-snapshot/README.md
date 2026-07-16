@@ -21,7 +21,7 @@ const SCENARIOS: Scenario[] = [
 
 defineAcpSnapshotSuite({
   agent: { // absolute paths, resolved from the suite's own location
-    binScript: fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url)),
+    binScript: fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url)),
     configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
     tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
   },

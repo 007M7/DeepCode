@@ -28,6 +28,9 @@
     },
     {
       "path": "../subagent"
+    },
+    {
+      "path": "../../tasks/tasks"
     }
   ]
 }

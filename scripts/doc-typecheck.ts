@@ -125,7 +125,12 @@ try {
   })
 
   try {
-    execFileSync('node_modules/.bin/tsc', ['-b', join(tmp, 'tsconfig.json')], { cwd: root, stdio: 'pipe' })
+    // tsc's JS entry via the current node, not the .bin shim: the extensionless
+    // shim is not spawnable on Windows (the CVE-2024-27980 class the sibling
+    // scripts hit), and the .cmd variant would need shell:true, which
+    // concatenates args UNESCAPED — a hazard for the temp project path. The JS
+    // entry behaves identically on every platform.
+    execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-b', join(tmp, 'tsconfig.json')], { cwd: root, stdio: 'pipe' })
   } catch (error: unknown) {
     const failed = error as { stdout?: Buffer; stderr?: Buffer }
     const out = `${failed.stdout?.toString() ?? ''}${failed.stderr?.toString() ?? ''}`

@@ -8,7 +8,7 @@
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { dirname, resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { LINK_MAP } from './gen-cordis-catalog.ts'
 import { parseJsDoc, pointer, rawJsDoc } from './jsdoc.ts'
@@ -478,6 +478,15 @@ function walkSchemaExpr(
       }
       return
     }
+    // A union of objects (discriminated union config): collect keys from all
+    // variants. Each variant is visited the same way as an intersect element.
+    if (method === 'union' && call.arguments[0] && ts.isArrayLiteralExpression(call.arguments[0])) {
+      for (const el of call.arguments[0].elements) {
+        const part = unwrapExpr(el)
+        if (ts.isCallExpression(part)) { visit(part); continue }
+      }
+      return
+    }
     // A chained refinement (`z.object({…}).default(…)` etc.): the keys live on
     // the call the chain hangs off — keep unwrapping toward it.
     const base = unwrapExpr(call.expression.expression)
@@ -572,7 +581,7 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
   // workspace-package imports while individual packages are still being walked.
   const pkgDirByName = new Map<string, string>()
   const manifests: { dir: string; pkg: string }[] = []
-  for (const manifestRel of globSync('packages/*/*/package.json', { cwd: scanRoot }).sort()) {
+  for (const manifestRel of globSync('packages/*/*/package.json', { cwd: scanRoot }).map(path => path.split(sep).join('/')).sort()) {
     const dir = manifestRel.slice(0, -'/package.json'.length)
     const manifest = JSON.parse(readFileSync(resolve(scanRoot, manifestRel), 'utf8')) as { name?: string; os?: string[]; cpu?: string[] }
     const pkg = manifest.name
