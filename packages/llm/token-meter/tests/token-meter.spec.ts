@@ -5,7 +5,7 @@ import type { ContentBlock, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { EpochHeader } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
-import type { TokenMeterConfig } from '@deepseek-ai/dsh-token-meter'
+import type { TokenMeasurement, TokenMeterConfig } from '@deepseek-ai/dsh-token-meter'
 
 function header(model: string, extras: Omit<EpochHeader, 'config'> = {}): EpochHeader {
   return canonicalHeader({ config: { model }, ...extras })
@@ -69,6 +69,11 @@ function appendSuccessfulCall(
 
 function meter(config: TokenMeterConfig = {}): TokenMeterService {
   return new TokenMeterService(new Context(), config)
+}
+
+function expectSurfaceTotal(measurement: TokenMeasurement): void {
+  expect(measurement.nodes.reduce((total, node) => total + node.tokens, 0))
+    .toBe(measurement.surfaceTokens)
 }
 
 describe('TokenMeterService configuration and registration', () => {
@@ -135,36 +140,48 @@ describe('TokenMeterService pricing', () => {
       baseline: { kind: 'none', tokens: 0 },
       surfaceDeltaTokens: 0,
       totalTokens: 0,
+      surfaceTokens: 0,
+      nodes: [],
     })
     expect(Object.isFrozen(result)).toBe(true)
     expect(Object.isFrozen(result.baseline)).toBe(true)
+    expect(Object.isFrozen(result.nodes)).toBe(true)
+    expectSurfaceTotal(result)
     expect(() => {
       ;(result as { totalTokens: number }).totalTokens = 1
     }).toThrow(TypeError)
   })
 
-  it('keeps earlier scalar and surface snapshots detached from later replay', () => {
+  it('keeps an earlier unified snapshot detached from later replay', () => {
     const service = meter()
     const session = new Session(SessionId('detached'))
     session.append('user/message', {
       content: [{ type: 'text', text: 'first' }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
-    const scalar = service.measure(session)
-    const surface = service.measureSurface(session)
-    const scalarCopy = structuredClone(scalar)
-    const surfaceCopy = structuredClone(surface)
+    const snapshot = service.measure(session)
+    const snapshotCopy = structuredClone(snapshot)
+    expect(Object.isFrozen(snapshot.nodes)).toBe(true)
+    expect(Object.isFrozen(snapshot.nodes[0])).toBe(true)
+    expectSurfaceTotal(snapshot)
+    expect(() => {
+      ;(snapshot.nodes as Array<{ seq: number; tokens: number }>).push({ seq: 99, tokens: 1 })
+    }).toThrow(TypeError)
+    expect(() => {
+      ;(snapshot.nodes[0] as { seq: number; tokens: number }).tokens = 1
+    }).toThrow(TypeError)
 
     session.append('user/message', {
       content: [{ type: 'text', text: 'second' }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
-    expect(service.measure(session).logRevision).toBe(2)
-    expect(service.measureSurface(session).nodes).toHaveLength(2)
-    expect(scalar).toEqual(scalarCopy)
-    expect(surface).toEqual(surfaceCopy)
-    expect(scalar.logRevision).toBe(1)
-    expect(surface.nodes).toHaveLength(1)
+    const advanced = service.measure(session)
+    expect(advanced.logRevision).toBe(2)
+    expect(advanced.nodes).toHaveLength(2)
+    expectSurfaceTotal(advanced)
+    expect(snapshot).toEqual(snapshotCopy)
+    expect(snapshot.logRevision).toBe(1)
+    expect(snapshot.nodes).toHaveLength(1)
   })
 
   it('prices header, prefix, tools, and surface when no reusable usage exists', () => {
@@ -181,8 +198,27 @@ describe('TokenMeterService pricing', () => {
     }))
     const result = service.measure(session)
     expect(result.baseline.kind).toBe('estimated')
-    expect(result.totalTokens).toBeGreaterThan(service.measureSurface(session).totalTokens)
+    expect(result.totalTokens).toBeGreaterThan(result.surfaceTokens)
     expect(result.logRevision).toBe(session.events.length)
+    expectSurfaceTotal(result)
+  })
+
+  it('keeps request-header overrides out of the returned surface', () => {
+    const service = meter()
+    const session = new Session(SessionId('override-surface'))
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'question' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+
+    const logged = service.measure(session)
+    const overridden = service.measure(session, header('another-model', {
+      system: 'large override '.repeat(100),
+    }))
+    expect(overridden.totalTokens).toBeGreaterThan(logged.totalTokens)
+    expect(overridden.surfaceTokens).toBe(logged.surfaceTokens)
+    expect(overridden.nodes).toEqual(logged.nodes)
+    expectSurfaceTotal(overridden)
   })
 })
 
@@ -320,27 +356,27 @@ describe('replay anchors and surface folds', () => {
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
     const seeded = new Session(SessionId('surface-seeded'), original.events)
-    const before = service.measureSurface(seeded)
-    const beforeScalar = service.measure(seeded)
+    const before = service.measure(seeded)
     expect(before.nodes).toHaveLength(2)
-    expect(beforeScalar.surfaceDeltaTokens).toBeGreaterThan(0)
+    expect(before.surfaceDeltaTokens).toBeGreaterThan(0)
+    expectSurfaceTotal(before)
 
     const first = seeded.surface.nodes[0]!.seq
     seeded.append('user/message', {
       content: [{ type: 'text', text: 'replacement' }],
       source: { kind: 'plugin', plugin: 'test' },
     }, { surfaceOp: { op: 'replace', start: first, end: first }, sourceEventSeqs: [first] })
-    const after = service.measureSurface(seeded)
-    const afterScalar = service.measure(seeded)
+    const after = service.measure(seeded)
     expect(after.nodes).toHaveLength(2)
     expect(after.nodes[0]!.seq).toBe(seeded.events.length - 1)
     expect(after.logRevision).toBe(seeded.events.length)
     expect(Object.isFrozen(after.nodes)).toBe(true)
     expect(Object.isFrozen(after.nodes[0])).toBe(true)
-    expect(afterScalar.surfaceDeltaTokens).toBeLessThan(0)
+    expect(after.surfaceDeltaTokens).toBeLessThan(0)
+    expectSurfaceTotal(after)
     expect(before.nodes).toHaveLength(2)
     expect(before.logRevision).toBe(original.events.length)
-    expect(beforeScalar.surfaceDeltaTokens).toBeGreaterThan(0)
+    expect(before.surfaceDeltaTokens).toBeGreaterThan(0)
   })
 
   it('prices an empty assistant surface anchor as zero', () => {
@@ -350,10 +386,11 @@ describe('replay anchors and surface folds', () => {
       durableText: '',
       provenance: 'empty',
     })
-    const surface = meter().measureSurface(session)
+    const measurement = meter().measure(session)
     const assistant = session.events.find(event => event.type === 'assistant/message')!
-    expect(surface.nodes).toEqual([{ seq: assistant.seq, tokens: 0 }])
-    expect(surface.totalTokens).toBe(0)
+    expect(measurement.nodes).toEqual([{ seq: assistant.seq, tokens: 0 }])
+    expect(measurement.surfaceTokens).toBe(0)
+    expectSurfaceTotal(measurement)
   })
 })
 

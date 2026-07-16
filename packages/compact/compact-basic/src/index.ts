@@ -123,13 +123,7 @@ export class BasicCompactService extends CompactService {
 
     let result: CompactionResult | null = null
     for (let attempt = 0; attempt <= this.config.compactionRetries; attempt += 1) {
-      const surface = meter.measureSurface(agent.session)
-      if (surface.logRevision !== measurement.logRevision) {
-        throw new Error(
-          `compaction: pressure revision ${measurement.logRevision} does not match surface revision ${surface.logRevision}`,
-        )
-      }
-      const range = selectCompactableRange(agent.session, surface, this.config.retainTokens)
+      const range = selectCompactableRange(agent.session, measurement, this.config.retainTokens)
       if (range === null) {
         /* v8 ignore else -- concrete replacement preserves a compactable checkpoint; subclass hooks cannot mutate it. */
         if (result === null) return null

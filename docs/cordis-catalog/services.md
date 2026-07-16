@@ -267,13 +267,12 @@ Replay owner for one service-wide estimator and isolated per-session folds.
 
 ```ts cordis-catalog
 measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
-measureSurface(session: Session): TokenSurfaceMeasurement
 estimateMessage(message: Message): number
 ```
 
 Types: [Message](../core-data-structures/core.md)
 
-Source: [`packages/llm/token-meter/src/index.ts:107`](../../packages/llm/token-meter/src/index.ts)
+Source: [`packages/llm/token-meter/src/index.ts:106`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

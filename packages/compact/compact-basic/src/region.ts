@@ -10,7 +10,7 @@ import {
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
-import type { TokenMeterService, TokenSurfaceMeasurement } from '@deepseek-ai/dsh-token-meter'
+import type { TokenMeasurement, TokenMeterService } from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { frameSummary } from './summarizer.ts'
@@ -25,16 +25,16 @@ interface RegionDependencies {
  * Resolve the next head-anchored range while retaining a priced recent tail
  * and never splitting an assistant tool-call/result pair.
  * @param session - session supplying authoritative current surface positions.
- * @param pricedSurface - same-revision surface measurement from the conversation meter.
+ * @param measurement - unified pressure and surface measurement from the conversation meter.
  * @param retainTokens - minimum recent tail budget retained verbatim.
  * @returns the inclusive positional seq range to compact, or `null`.
  */
 export function selectCompactableRange(
   session: Session,
-  pricedSurface: TokenSurfaceMeasurement,
+  measurement: TokenMeasurement,
   retainTokens: number,
 ): { start: number; end: number } | null {
-  const pricedNodes = pricedSurface.nodes
+  const pricedNodes = measurement.nodes
   if (pricedNodes.length === 0) return null
 
   const surfaceNodes = session.surface.nodes
@@ -115,8 +115,8 @@ export async function compactSurfaceRegion(
   try {
     // Capture after the lock event so any later durable append, including a
     // log-only one, invalidates the async selection before replacement.
-    const lockedSurface = dependencies.meter.measureSurface(session)
-    const selected = lockedSurface.nodes.slice(startIdx, endIdx + 1)
+    const lockedMeasurement = dependencies.meter.measure(session)
+    const selected = lockedMeasurement.nodes.slice(startIdx, endIdx + 1)
     if (selected.length !== shadowedSeqs.length
       || selected.some((node, index) => node.seq !== shadowedSeqs[index])) {
       throw new Error('compaction: selected surface changed before summarization began')
@@ -125,8 +125,8 @@ export async function compactSurfaceRegion(
     const text = renderTranscript(session.events, shadowedSeqs)
     const { summary, model, maxTokens } = await dependencies.summarize(text, agent, signal)
 
-    const currentSurface = dependencies.meter.measureSurface(session)
-    if (currentSurface.logRevision !== lockedSurface.logRevision) {
+    const currentMeasurement = dependencies.meter.measure(session)
+    if (currentMeasurement.logRevision !== lockedMeasurement.logRevision) {
       throw new Error('compaction: session log changed during summarization')
     }
     const framedSummary = frameSummary(summary)

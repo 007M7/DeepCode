@@ -251,17 +251,15 @@ describe('pressure measurement and retention', () => {
     expect(await compactIfNeeded(compact, retained, MODEL, 'x'.repeat(100_000))).toBeNull()
   })
 
-  it('detects scalar/surface revision disagreement', async () => {
+  it('uses one unified measurement for each pressure-and-retention decision', async () => {
     const ctx = createContext()
-    const meter = ctx.tokenMeter
-    const original = meter.measureSurface.bind(meter)
-    vi.spyOn(meter, 'measureSurface').mockImplementation((session) => {
-      const measurement = original(session)
-      return { ...measurement, logRevision: measurement.logRevision - 1 }
-    })
     const compact = service(compactConfig, ctx)
+    const measure = vi.spyOn(ctx.tokenMeter, 'measure')
+    const stop = new Error('stop after first decision')
+    vi.spyOn(compact, 'compactRegion').mockRejectedValueOnce(stop)
 
-    await expect(compactIfNeeded(compact, conversation(4))).rejects.toThrow(/revision/)
+    await expect(compactIfNeeded(compact, conversation(4))).rejects.toBe(stop)
+    expect(measure).toHaveBeenCalledTimes(1)
   })
 
   it('bounds retries when a shrinking checkpoint remains above threshold', async () => {
@@ -303,7 +301,7 @@ describe('pressure measurement and retention', () => {
   it('rejects a priced surface that is not the current positional surface', () => {
     const ctx = createContext()
     const session = conversation(2)
-    const priced = ctx.tokenMeter.measureSurface(session)
+    const priced = ctx.tokenMeter.measure(session)
     expect(() => selectCompactableRange(session, {
       ...priced,
       nodes: priced.nodes.slice(1),
@@ -331,7 +329,7 @@ describe('pressure measurement and retention', () => {
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn: 1, step: 1 })
 
-    const priced = ctx.tokenMeter.measureSurface(session)
+    const priced = ctx.tokenMeter.measure(session)
     expect(selectCompactableRange(session, priced, 1)).toBeNull()
   })
 })
@@ -474,8 +472,8 @@ describe('compaction region transaction', () => {
   it('rejects a meter snapshot that changed before summarization began', async () => {
     const ctx = createContext()
     const meter = ctx.tokenMeter
-    const original = meter.measureSurface.bind(meter)
-    vi.spyOn(meter, 'measureSurface').mockImplementationOnce((session) => {
+    const original = meter.measure.bind(meter)
+    vi.spyOn(meter, 'measure').mockImplementationOnce((session) => {
       const measurement = original(session)
       return { ...measurement, nodes: measurement.nodes.slice(1) }
     })

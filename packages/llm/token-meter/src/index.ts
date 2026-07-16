@@ -14,7 +14,6 @@ import type {
   TokenMeasurement,
   TokenMeasurementBaseline,
   TokenMeterConfig,
-  TokenSurfaceMeasurement,
   TokenSurfaceNode,
 } from './types.ts'
 
@@ -126,15 +125,19 @@ export class TokenMeterService extends Service {
   }
 
   /**
-   * Measure current request pressure through the session's durable tail.
+   * Measure current request pressure and surface through the durable tail.
    *
    * Provider usage is reused only when the latest successful call's canonical
    * request envelope matches `requestHeader`; otherwise the complete envelope
    * and surface are heuristically repriced.
    *
+   * `requestHeader` affects request pressure only; surface fields always
+   * describe the current session surface. Every call clones those positional
+   * nodes, so measurement is O(surface).
+   *
    * @param session - session to replay through its current durable tail.
    * @param requestHeader - optional effective request envelope replacing the latest logged header.
-   * @returns a detached deeply immutable pressure measurement.
+   * @returns a detached deeply immutable pressure and surface measurement.
    */
   measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement {
     const state = this._sync(session)
@@ -164,19 +167,7 @@ export class TokenMeterService extends Service {
       baseline,
       surfaceDeltaTokens,
       totalTokens: Math.max(0, baseline.tokens + surfaceDeltaTokens),
-    }))
-  }
-
-  /**
-   * Price the current surface for retention and replacement decisions.
-   * @param session - session to replay through its current durable tail.
-   * @returns a detached deeply immutable positional surface measurement.
-   */
-  measureSurface(session: Session): TokenSurfaceMeasurement {
-    const state = this._sync(session)
-    return deepFreeze(structuredClone({
-      logRevision: state.consumedEvents,
-      totalTokens: state.surfaceTokens,
+      surfaceTokens: state.surfaceTokens,
       nodes: state.surface,
     }))
   }
