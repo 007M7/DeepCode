@@ -4,109 +4,100 @@ Status: implemented
 
 ## Problem
 
-The loop accepts an assistant message containing multiple `tool-call` blocks. Serial execution makes independent reads, web requests, and subagent delegations pay the sum of their wall-clock latency even though the model and adapters already represent sibling tool calls in one response.
+An assistant message may contain several sibling `tool-call` blocks. Running them serially adds the latency of independent reads, web requests, and subagent runs even though the model has already requested them together.
 
-Concurrency cannot live in the model-facing JSON schema. `ctx.tools.schemas()` exposes only `name`, `description`, and `parameters`; scheduling is a host contract. The loop needs an internal per-call safety decision and must use it without hardcoding tool names.
+Concurrency is a host scheduling concern, not model-facing tool metadata. The loop needs to decide which calls may overlap without hardcoding tool names or exposing scheduler policy in the JSON schema.
 
-The hard constraint is replay. The session log remains the source of truth: the assistant message contains the model's calls in order, each started call has a `tool/call` audit event before its body runs, each model-facing result is a `tool/result`, and derived history sees results in the original call order. Live ACP and stdio surfaces may show several pending calls before the first result; that progress interleaving is not part of the model-history guarantee.
+The session log remains authoritative: every started call has an audit event, every started call receives a result, and model history observes results in the original call order regardless of completion order.
 
 ## Decision
 
-`ToolDefinition` carries an optional host-only classifier:
+Each tool may provide an optional `isConcurrencySafe(args)` classifier. It is synchronous and pure: it examines only the current call's parsed arguments and performs no I/O or mutation. Only an explicit `true` opts in; a missing classifier, invalid arguments, a thrown classifier, or any other return value makes the call exclusive. The canonical type contract lives in the [tool data structures](../../../core-data-structures/tools.md).
+
+The classifier is deliberately unary. Returning `true` is the tool's promise that this call may overlap with any sibling call that also returns `true`; the scheduler does not compare calls or prove that their resource accesses are compatible.
+
+Arguments still support input-sensitive classification. A tool may classify a read-only operation as parallel and a mutating operation as exclusive. The interface cannot express relational rules such as "these writes are safe only when their paths differ," so a call whose safety depends on a sibling remains exclusive.
+
+`defineTool()` validates arguments before invoking a typed classifier. Invalid arguments classify as exclusive and produce the ordinary argument error only if the call executes. `ctx.tools.executionMode(exec)` resolves the live tool definition and returns the tagged `parallel` or `exclusive` mode; unknown tools fail closed to exclusive.
+
+A tagged mode, rather than a public boolean scheduler API, leaves room for a future resource-aware mode without changing the classifier contract.
+
+## Scheduling and ordering
+
+The loop waits for the complete assistant message, parses every call once, creates a distinct `ToolExecution` for each call, and scans them in model order. Consecutive parallel calls form one group; every exclusive call forms a singleton group and an ordering barrier. Groups execute sequentially.
+
+For example:
 
 ```text
-export interface ToolDefinition extends ToolSchema {
-  execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
-  isConcurrencySafe?(args: unknown): boolean
-}
+[parallel read(A), parallel read(B), exclusive write(A), parallel read(C)]
+
+→ [read(A), read(B)]
+→ [write(A)]
+→ [read(C)]
 ```
 
-`isConcurrencySafe` is synchronous, pure classification metadata. It may inspect parsed call arguments; `defineTool()` schema-validates those arguments before the typed callback runs, while hand-rolled definitions receive the raw parsed value. The callback performs no I/O and receives no live `Agent` or mutable `ToolExecution`. `defineTool()` validates arguments softly for `isConcurrencySafe`, matching the display-only `presentCall`/`presentResult` pattern: invalid args return `false`, and the ordinary `ToolArgsError` is produced only if the tool executes.
+`read(A)` and `read(B)` may overlap. `write(A)` starts after both finish, and `read(C)` starts after the write finishes.
 
-The registry exposes the scheduling decision as a plain method:
+Every group uses a rolling pool bounded by `maxParallelToolCalls`: the loop starts calls in model order up to the cap and starts another whenever one settles. An exclusive group is a pool of one. A cap of `1` preserves serial execution.
 
-```text
-export type ToolExecutionMode =
-  | { kind: 'parallel' }
-  | { kind: 'exclusive' }
-```
+Only dispatch and the tool body overlap. `tools/pre-execute` and `tools/post-execute` run in model order because middleware may maintain ordering-sensitive state. `tools/execute` wrappers run around concurrent dispatches and therefore must be reentrant across distinct executions.
 
-```text
-class ToolRegistry {
-  executionMode(exec: ToolExecutionInput): ToolExecutionMode
-}
-```
+Each started call appends `tool/call` immediately before its pre-execute gate. Completed dispatches occupy model-order slots, and a commit cursor appends `tool/result` and collects `additionalContext` only when the next slot is ready. Live surfaces may show several pending calls, but results and post-tool context remain model-ordered.
 
-`ctx.tools.executionMode(exec)` looks up the registered tool and calls `tool.isConcurrencySafe?.(exec.arguments)`. Unknown tools, missing declarations, malformed typed args, and thrown safety checks all resolve to `{ kind: 'exclusive' }`. The method is not a Cordis waterfall; it is the future insertion point if hook, MCP, or provider policy needs to downgrade a tool's baseline decision. The object-tagged union leaves room for future resource grouping, for example `{ kind: 'exclusive', group: 'session:...' }`.
+An abort before a group starts records no calls from that group. An abort during a group stops replenishment, waits for already-started calls, commits their results in order, drops their buffered additional context, and then ends the step through the existing abort path. Calls that never start have no audit event.
 
-A parallel-safe declaration is a contract. The tool body must not mutate the parent agent's session or other parent-owned async state during `execute`; parent-session writes such as `exec.agent.session.append(...)`, `agent.inject(...)`, or other tool-owned parent events belong to exclusive tools unless the mutation moves behind the loop's ordered result path. The only parent-step outputs a parallel-safe call may produce are its returned content, `meta`, structured error, and `additionalContext` carried through the ordered post-execute path. The narrow exception is a synchronous, side-effect-only recorder whose updates are commutative or fail closed for concurrent calls by the same session. `fs/observed` is the worked example: `read` emits it synchronously after a successful read, `dsh-fs-policy` records `WeakMap<session, target, version>` state synchronously, and write/edit remain exclusive barriers that re-check versions before mutating; a stale observation can only make the provider CAS reject with `FS_STALE_VERSION`.
+Code Mode remains outside this scheduler because the model emits one native `run_code` call. `run_code` and its internal dispatch queue remain serial; native sibling calls in `mode: 'both'` use the normal scheduler.
 
-## Scheduling
+## Safety contract
 
-The loop waits for the model stream to finish and logs one authoritative `assistant/message` before scheduling tools. Streaming tool execution is out of scope.
+A tool that returns `true` promises that its body is safe to run at the same time as other parallel calls. It must not directly mutate the parent session or other parent-owned state; it returns its outputs to the loop, which commits them in model order.
 
-For each assistant step, `packages/core/agent-loop/src/tool-calls.ts` parses each call's raw JSON arguments exactly once, creates one distinct `ToolExecution` object per call, asks `ctx.tools.executionMode(exec)`, and partitions calls into ordered groups. A group is either one exclusive call or a run of consecutive parallel calls; grouping classifies each call exactly once. `loop.ts` calls the helper so the turn/step lifecycle remains readable.
+Any shared state touched during execution must be concurrency-safe. This includes tool wrappers and providers: they may serialize internally or enforce their own capacity, but they must support concurrent dispatch without corrupting state.
 
-Parallelism is per agent. `AgentOptions.maxParallelToolCalls` is a positive integer, defaults to `DEFAULT_MAX_PARALLEL_TOOL_CALLS` (`10`), and reaches an agent three ways in precedence order: the per-agent option, the factory-wide `AgentLoop.Config.maxParallelToolCalls` applied to every agent the loop creates (declarative startup agents and factory callers such as the ACP, stdio, and SDK front doors), then the built-in default. The factory default is the single `cordis.yml` knob for agents whose front door exposes no cap field of its own. Setting the value to `1` preserves serial execution for that agent. The TypeScript `AgentOptions` vocabulary and both `AgentLoop.Config` fields validate the cap, so invalid `cordis.yml` values fail during config validation.
+## Configuration and declarations
 
-Every group runs through the same rolling pool: start calls in model order up to `maxParallelToolCalls`, and whenever one call settles, start the next unstarted call until the group is exhausted. An exclusive group is a pool of one — a barrier — so the loop needs no separate serial path. A group larger than the cap is not truncated; the cap limits simultaneous in-flight calls only.
+`maxParallelToolCalls` is a positive AgentLoop deployment cap shared by every agent the factory creates. It defaults to `10`; `1` preserves serial execution. Exact fields and defaults live in the generated [configuration catalog](../../../config-catalog.md).
 
-Only the dispatch/body stage runs concurrently. Generic middleware that can shape ordering-sensitive state remains ordered: `tools/pre-execute` and `tools/post-execute` run in model call order. `@deepseek-ai/dsh-tools` exposes the symbol-keyed internal `TOOL_REGISTRY_SCHEDULER` view so `dsh-agent-loop` can split prepare, dispatch, and finalize without adding named staged service methods to `ctx.tools`; ordinary callers still use the one-call `execute(exec)` API. `tools/execute` around-dispatch listeners run with the dispatch they wrap, so wrappers must be reentrant across distinct `ToolExecution` objects. The shipped timeout policy is per-call: every call owns its mutable `exec` and deadline.
+The shipped declarations are conservative. Web search, web fetch, filesystem read, and subagent calls opt in. Filesystem writes and edits, bash tools, workflow, user interaction, todo mutation, Code Mode, and Cordis mutation tools remain exclusive. Bash stays exclusive until its owning package supplies a proven input-sensitive classifier.
 
-Each started call appends its own `tool/call` immediately before its pre-execute gate and body can run. `tool/call` events remain in model order relative to started calls, but their log positions may interleave with sibling results: a later call's `tool/call` can appear before or after an earlier call's `tool/result` as the rolling pool replenishes. That is safe because `tool/call` is log-only; derived model history reads the assistant's `tool-call` blocks and the ordered `tool/result` events, pairing by `callId`. Settled dispatches are stored in model-order slots, and a commit cursor appends `tool/result` only while the next slot is ready. `additionalContext` is collected from those same slots and injected in model call order after normal completion of every started tool result in the step.
+Filesystem read relies on a narrow recorder exception: its synchronous observation updates may settle out of order, but write and edit re-check the observed version before mutation, so stale state only produces `FS_STALE_VERSION`.
 
-If the parent signal is already aborted before a group starts, the group is not started and no `tool/call` audit records are appended for it. If the signal aborts while a parallel group is running, the pool stops replenishing, waits for only the already-started calls to settle, records their results in order, drops buffered `additionalContext`, and then raises the abort error so the existing `runTurn` catch path owns `turn/end` reason selection. This keeps every started call paired while avoiding audit records for calls that never began.
+The subagent declaration requires providers to accept concurrent `start()` calls for independent runs. A provider may queue, enforce its own capacity, or return a typed failure instead of requiring the parent loop to serialize every subagent call.
 
-Code Mode remains outside native scheduling. In `mode: 'code'`, the wire exposes only `run_code`, so the model emits one native tool call and the loop-level scheduler has nothing to parallelize. `run_code` stays exclusive, and its in-program dispatch queue remains serialized. In `mode: 'both'`, native sibling tool calls can form parallel groups normally, while calls made inside one `run_code` execution still follow Code Mode's own queue.
+## Verification
 
-## Tool declarations
+Unit coverage pins fail-closed classification, typed argument validation, grouping, barriers, the rolling cap, distinct execution objects, middleware order, ordered results and context, and abort draining. First-party tests pin each parallel declaration.
 
-The shipped declarations are conservative:
-
-- `web_search`, `web_fetch`, filesystem `read`, and `subagent` return `true`.
-- Filesystem `write`, filesystem `edit`, `todo_write`, `bash`, `bash_output`, `bash_kill`, `workflow`, `ask_user_question`, and Cordis mutation tools stay exclusive by omitting `isConcurrencySafe`.
-- Bash stays exclusive until a bash-owned read-only classifier exists; the loop never infers shell safety.
-
-Subagent providers do not get an extra opt-in field. `SubagentProvider.start()` is part of the provider contract and must be safe to call concurrently for independent runs. A provider backed by a limited resource may queue internally, apply its own capacity limit, or return a typed failure for the affected run, but it must not require the parent agent loop to serialize every `subagent` tool call. Built-in spawn, fork, and ACP runs own a child session or process; fork seeds only the parent's completed-turn prefix, so concurrent forks inside the parent's open step all see the same stable prefix.
-
-Exclusive tools naturally form ordering barriers. A step such as `[read A, write A, read A]` becomes three ordered groups because `write` is exclusive, so the scheduler does not introduce a read/write race inside one assistant step.
-
-The subagent tool remains synchronous. Multiple subagent tool calls in one assistant message can run concurrently, but each tool result is still the child final answer. Background spawning plus later collection would be a separate tool vocabulary.
-
-## Testing
-
-Unit tests cover the classifier (`ToolDefinition.isConcurrencySafe`, `defineTool()` soft validation, `ToolRegistry.executionMode`, and schema projection), the loop scheduler (grouping, exclusive barriers, rolling-pool replenishment, `maxParallelToolCalls: 1`, distinct `ToolExecution` objects, ordered pre/post middleware, ordered `tool/result`, concrete `tool/call`/`tool/result` interleaving, ordered `additionalContext`, and abort/drop-context cases), and first-party safe declarations for filesystem read, web tools, and subagent.
-
-Snapshot coverage pins the transcript-facing ACP behavior for a multi-call step: several pending tool-call updates may precede model-ordered result updates. Code Mode tests and docs pin that `run_code` remains exclusive and that in-program dispatch stays serialized. No real-API e2e is required for this decision because scheduling is deterministic loop behavior with mocked tools and replayable snapshots, not provider-specific behavior.
+Snapshot coverage pins the visible multi-call transcript: pending calls may overlap while completed results remain model-ordered. Code Mode coverage pins its serial boundary. No provider-backed e2e is required because scheduling is deterministic loop behavior.
 
 ## Alternatives considered
 
-**Keep serial execution.** This keeps the loop simple and avoids new abort ordering cases, but it leaves obvious latency on the table for independent reads, web calls, and subagent delegations. The model and adapters already represent multiple tool calls in one assistant message, so serial execution is a host limitation rather than a protocol limitation.
+**Keep serial execution.** This avoids new ordering and abort cases but retains unnecessary latency for independent sibling calls.
 
-**Codex-style tool-level `supportsParallelToolCalls`.** A tool-level boolean is smaller, but it cannot express that the same tool is safe for some inputs and unsafe for others. Bash is the key example: a read-only command classifier can make `pwd` or `ls` parallel-safe without making `rm` or a long-lived background-task operation parallel-safe.
+**Use one tool-level boolean.** A fixed `supportsParallelToolCalls` flag is smaller but cannot distinguish a tool's read-only and mutating operations. The argument-sensitive classifier preserves that distinction.
 
-**Parallelize the complete `ctx.tools.execute()` pipeline.** This preserves the existing one-call API in the loop, but it also runs `tools/pre-execute` and `tools/post-execute` concurrently. The shipped repeat-tool guard and hook bridges can carry ordering-sensitive state, so the shipped design keeps pre/post ordered and overlaps only dispatch/body work.
+**Use stateful classification.** Giving the classifier a live agent, registry, or I/O access makes the decision depend on when it runs and creates a gap between classification and dispatch. Mutable authorization and stale-state checks remain execution-time responsibilities.
 
-**Expose a public staged API such as `prepare` / `dispatch` / `finalize`.** That names too much implementation surface before another consumer exists. The loop needs staged behavior, but `ToolRegistry` factors it through a symbol-keyed internal view while keeping `execute(exec)` as the public one-call API for ordinary callers.
+**Use sibling-aware or resource-aware classification.** The scheduler could compare calls pairwise or let each call declare resource read/write claims. This can parallelize non-conflicting writes, but it requires shared resource identity and conflict semantics across unrelated tools. The unary contract instead gives up that concurrency and fails closed when safety is relational.
 
-**Add a `tools/execution-mode` waterfall.** A Cordis seam would let hook bridges, provider policies, or MCP server metadata downgrade a tool's declaration. It is not needed for the conservative declaration set: raw and undeclared tools default exclusive, pre/post middleware stays ordered, and a non-reentrant around-dispatch wrapper can serialize internally. The `executionMode(exec)` method remains the insertion point if a real deployment needs policy-driven downgrades.
+**Parallelize the complete tool pipeline.** This keeps the loop on the public one-call API but runs pre- and post-execute middleware concurrently. Existing guards and hook bridges may carry ordered state, so only dispatch overlaps.
 
-**Start tools while the model is still streaming.** Claude Code has a streaming executor path, but this repo's log reconstruction and surface-pairing contracts make that a larger design. This decision waits for the assistant message to be assembled, so the log records one authoritative assistant message before scheduling tools.
+**Expose staged methods or a scheduling waterfall.** Public `prepare` / `dispatch` / `finalize` methods or a `tools/execution-mode` event add extension surface before another consumer needs it. The loop uses an internal scheduler view, while `executionMode(exec)` remains the insertion point for a future policy seam.
 
-**Use fixed windows inside one parallel group.** Fixed windows would start `maxParallelToolCalls` calls, wait for all of them to settle, then start the next window. The rolling pool wins because slot-based result storage and a model-order commit cursor preserve the transcript contract without sacrificing avoidable latency.
+**Start calls while the model streams.** This may reduce latency further but changes assistant-message authority, replay, and call/result pairing. The scheduler starts only after the assistant message is complete.
 
-**Expose concurrency in the model-facing schema.** The model does not need a scheduler flag to request multiple calls; it already can emit multiple `tool-call` blocks. Sending host-only concurrency metadata would bloat requests and mix execution policy into the schema whose job is only argument shape and tool-choice guidance.
+**Use fixed-size windows.** Waiting for every call in one window before starting the next leaves capacity idle behind a slow call. The rolling pool preserves the cap without that delay.
+
+**Expose concurrency metadata to the model.** The model can already emit sibling calls. Host scheduling metadata would enlarge requests without improving tool choice.
 
 ## Consequences
 
-Parallel execution can expose latent shared-state bugs in tools that declare themselves safe too broadly. The default is exclusive, the shipped declarations are conservative, and input-sensitive tools such as bash stay exclusive until their owning package proves a narrower classifier.
+The design is fail-closed and simple for tool authors, but it cannot exploit concurrency whose safety depends on comparing siblings. A tool that opts in too broadly can expose latent shared-state races.
 
-Tool registration changes are a scheduling boundary. A call classified against one tool definition can become unsafe if an earlier exclusive tool replaces that definition before dispatch, so registry-mutating tools stay exclusive and scheduler changes that cross such barriers must either reclassify against the live registry view or bind dispatch to the classified definition.
+Parallel calls may begin in cases where serial execution would have aborted before reaching them. The scheduler therefore records only started calls, drains them on abort, and never starts replacements after cancellation.
 
-An around-dispatch plugin can also violate the contract even when the tool itself is safe. The scheduler limits that risk to `tools/execute`; shipped wrappers are per-call, and third-party wrappers with shared mutable state must serialize internally.
+Ordered commits may hold a fast result behind a slow earlier sibling. This preserves replay and model-history order while live surfaces still show pending progress.
 
-Parallel groups change abort timing: a sibling call may have started in a case where the serial loop would not have reached it yet. The pool makes this explicit by logging only started calls, stopping replenishment on abort, draining those calls to results, and preventing later calls from starting.
+Concurrent subagents and external calls can compete for quota or process capacity. Providers own their capacity controls; the loop cap only limits calls from one agent step.
 
-Concurrent subagents can compete for model quota, filesystem state, or external process resources. The provider contract requires concurrent `start()` safety, not unlimited capacity, and tool guidance still tells the model to parallelize only independent tasks with non-overlapping write scopes.
-
-The result-order rule can delay a fast result behind a slow sibling in the same group. That preserves the model transcript and replay contract. ACP and stdio still expose immediate pending-call progress, but completion updates stay model-ordered.
+Tool registration is a scheduling boundary. The scheduler currently plans all groups before dispatch, so an earlier registry mutation can make a later classification stale. Binding dispatch to the classified definition or reclassifying after exclusive barriers remains a named correctness gap.

@@ -47,8 +47,8 @@ export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
   agents?: AgentLoopConfig['agents']
   /**
-   * The factory-wide default concurrent tool-call cap applied to every agent
-   * this bundle creates (see dsh-agent-loop's `Config.maxParallelToolCalls`).
+   * Concurrent tool-call cap shared by every agent this bundle's loop creates
+   * (see dsh-agent-loop's `Config.maxParallelToolCalls`).
    */
   maxParallelToolCalls?: AgentLoopConfig['maxParallelToolCalls']
   /** The deployment persona (see dsh-system-prompt's `Config`). */

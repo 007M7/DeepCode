@@ -17,7 +17,7 @@ import type { TransmissionLog } from './request-log.ts'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
-import { executeToolCalls, resolveMaxParallelToolCalls } from './tool-calls.ts'
+import { executeToolCalls } from './tool-calls.ts'
 import type { ReactLoopAgent } from './agent.ts'
 import type { Inbox } from './inbox.ts'
 
@@ -73,6 +73,8 @@ function stepFinishReason(finish: FinishReason): TurnEndReason | undefined {
 export interface LoopHandle {
   /** Native-private agent inbox handed to the driver only at internal startup. */
   readonly inbox: Inbox
+  /** Immutable concurrent tool-call cap resolved by the owning factory. */
+  readonly maxParallelToolCalls: number
   setStatus(status: 'idle' | 'running'): void
   setAbort(controller: AbortController | undefined): void
   /** Resolves when the agent is disposed — unblocks the idle wait. */
@@ -326,7 +328,8 @@ async function runTurn(
       let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
         stepOutcome = await runStep(
-          ctx, events, agent, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
+          ctx, events, agent, turn, step, assembly, fullSystemPrompt, boundaryMessages,
+          transmission, abort.signal, handle.maxParallelToolCalls)
       } catch (error: unknown) {
         stepOutcome = { error: toError(error) }
       } finally {
@@ -470,6 +473,7 @@ async function runStep(
   boundaryMessages: Message[],
   transmission: TransmissionLog,
   signal: AbortSignal,
+  maxParallelToolCalls: number,
 ): Promise<{ hadToolCalls: boolean; finish: FinishReason }> {
   const { session, options } = agent
 
@@ -545,12 +549,7 @@ async function runStep(
   let message: Message = assembler.message()
   message = await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message))
 
-  // Validate the live cap before logging model-visible tool calls so bad mutable
-  // options cannot leave unanswered calls in the transcript.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
-  const maxParallel = toolCalls.length > 0
-    ? resolveMaxParallelToolCalls(agent.options.maxParallelToolCalls)
-    : undefined
 
   // Empty messages exist only to carry usage; omit empty provenance.
   if (message.content.length > 0 || assembler.usage) {
@@ -563,8 +562,8 @@ async function runStep(
 
   // The scheduler overlaps only dispatch/body for parallel-safe calls; policy,
   // results, and additional context remain in model order.
-  const pendingContext = maxParallel !== undefined
-    ? await executeToolCalls(ctx, agent, turn, step, toolCalls, signal, maxParallel)
+  const pendingContext = toolCalls.length > 0
+    ? await executeToolCalls(ctx, agent, turn, step, toolCalls, signal, maxParallelToolCalls)
     : []
 
   // Append context after the complete result batch to preserve call/result adjacency.

@@ -15,7 +15,6 @@ The plugin injects `agents`, `sessions`, `sessionPersistence`, `tools`, and `use
 | Key | Default | Meaning |
 |---|---|---|
 | `model` | — | Model name for created agents (must have a registered adapter). |
-| `maxParallelToolCalls` | (agent-loop default) | Positive integer cap on tool calls each created agent runs concurrently within one assistant step; `1` is fully serial. |
 
 (No persona key: `dsh-system-prompt`'s own `persona` config supplies the global default section, so ACP-created agents render it without the bridge carrying prompt text. An agent-scoped same-name section may still shadow that default.)
 

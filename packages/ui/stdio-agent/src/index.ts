@@ -37,9 +37,8 @@ export interface Config {
   /** Model name for the `main` agent (must have a registered adapter). */
   model: string
   /**
-   * Maximum tool calls the `main` agent runs concurrently within one assistant
-   * step (a positive integer; the agent loop defaults it when omitted). `1`
-   * preserves fully serial execution.
+   * Concurrent parallel-safe tool-call cap for the bundled agent loop. A
+   * positive integer; the loop defaults it when omitted and `1` is serial.
    */
   maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
@@ -94,11 +93,11 @@ export function apply(ctx: Context, config: Config): void {
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
     ...config.tools !== undefined ? { tools: config.tools } : {},
+    ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},
     agents: [{
       id: AgentId('main'),
       model: config.model,
       cwd: process.cwd(),
-      ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
     }],
     ...config.skills !== undefined ? { skills: config.skills } : {},

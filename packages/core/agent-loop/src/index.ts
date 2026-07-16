@@ -32,6 +32,7 @@ import {
   ReactLoopAgent,
 } from './agent.ts'
 import type { PreparedReactLoopAgent } from './agent.ts'
+import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 
 export { ReactLoopAgent } from './agent.ts'
 
@@ -73,12 +74,13 @@ function signalAbortError(id: AgentId, signal: AbortSignal): Error {
   return new Error(`agent "${id}" creation aborted`, { cause: signal.reason })
 }
 
-/** Validate merge-extended options the loop owns before a session is published. */
-function validateAgentOptions(options: AgentOptions): void {
-  const { maxParallelToolCalls } = options
-  if (maxParallelToolCalls !== undefined && (!Number.isInteger(maxParallelToolCalls) || maxParallelToolCalls < 1)) {
+/** Resolve the deployment-wide scheduler cap at the owning config boundary. */
+function resolveMaxParallelToolCalls(value: number | undefined): number {
+  const maxParallelToolCalls = value ?? DEFAULT_MAX_PARALLEL_TOOL_CALLS
+  if (!Number.isInteger(maxParallelToolCalls) || maxParallelToolCalls < 1) {
     throw new Error('maxParallelToolCalls must be a positive integer')
   }
+  return maxParallelToolCalls
 }
 
 /**
@@ -171,13 +173,13 @@ class AgentCreationTransaction {
   }
 
   /** Construct the driver and scope, then install their complete ordered lifecycle. */
-  prepare(options: AgentOptions, session: Session): ReactLoopAgent {
+  prepare(options: AgentOptions, session: Session, maxParallelToolCalls: number): ReactLoopAgent {
     this.assertActive()
     const gate = Promise.withResolvers<void>()
     this.preparing = gate.promise
     try {
       this.session = session
-      const driver = prepareReactLoopAgent(this.loopCtx, this.id, options, session)
+      const driver = prepareReactLoopAgent(this.loopCtx, this.id, options, session, maxParallelToolCalls)
       this.driver = driver
       const agent = driver.agent
       const scope = createScope(this.loopCtx, agent)
@@ -326,32 +328,14 @@ declare module 'cordis' {
   }
 }
 
-declare module '@deepseek-ai/dsh-agent' {
-  interface AgentOptions {
-    /**
-     * Maximum tool calls this agent runs concurrently within one assistant step
-     * (a positive integer; defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}).
-     * The loop's rolling pool starts up to this many parallel-safe calls at once
-     * and replenishes as each settles; `1` preserves the fully serial path.
-     * A merge-extensible field — the loop owns it (it neither the agent nor the
-     * subagent seam sets it), read in `runStep` when scheduling a parallel group.
-     */
-    maxParallelToolCalls?: number
-  }
-}
+export { DEFAULT_MAX_PARALLEL_TOOL_CALLS }
 
-export { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
-
-/** Plugin configuration for declarative startup agents. */
+/** Agent-loop plugin configuration. */
 export interface Config {
   /**
-   * Default concurrent tool-call cap applied to every agent this factory
-   * creates (declarative startup agents and factory callers such as the ACP,
-   * stdio, and SDK front doors that go through `create`/`createAgent`/`resume`).
-   * A positive integer; a per-agent `maxParallelToolCalls` overrides it, and an
-   * agent with neither falls back to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
-   * This is the single `cordis.yml` knob that reaches agents whose front door
-   * does not expose its own cap field.
+   * Concurrent parallel-safe tool-call cap shared by every agent this factory
+   * creates. A positive integer; `1` preserves fully serial execution and an
+   * omitted value defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
    */
   maxParallelToolCalls?: number
   /** Agents created or resumed at plugin startup. */
@@ -360,11 +344,6 @@ export interface Config {
     id: AgentId
     /** Optional workspace for a fresh session. */
     cwd?: string
-    /**
-     * Maximum parallel-safe tool calls to run concurrently within one assistant
-     * step. Must be a positive integer; `1` preserves serial execution.
-     */
-    maxParallelToolCalls?: number
     /** Persisted session to resume instead of creating a fresh session. */
     resumeSessionId?: SessionId
   })[]
@@ -376,26 +355,25 @@ export class AgentLoop extends Service implements AgentFactory {
 
   /** Runtime schema for declarative agents. */
   static Config = z.object({
-    // The factory-wide default cap; a per-agent value overrides it. A positive
-    // integer, validated here so a bad cordis.yml value fails at load.
-    maxParallelToolCalls: z.number().step(1).min(1),
+    // The deployment-wide cap is defaulted and validated at plugin load.
+    maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS),
     agents: z.array(z.object({
       id: z.string().required(),
       model: z.string(),
       cwd: z.string(),
       resumeSessionId: z.string(),
-      // A positive integer; a bad value (0, negative, fractional) fails config
-      // validation here rather than being silently dropped from cordis.yml.
-      maxParallelToolCalls: z.number().step(1).min(1),
     })).default([]),
   }) as unknown as z<Config>
 
   private readonly ownership: FactoryOwnership
+  /** Resolved immutable scheduler cap shared by every driver from this factory. */
+  private readonly maxParallelToolCalls: number
   /** Plain holder prevents Cordis from re-tracing the factory's dependency context through a caller shadow. */
   private readonly runtime: { ctx: Context }
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentLoop')
+    this.maxParallelToolCalls = resolveMaxParallelToolCalls(config.maxParallelToolCalls)
     this.ownership = new FactoryOwnership(ctx.fiber)
     this.runtime = { ctx }
     ctx.effect(() => () => this.ownership.dispose(), 'agentLoop.transactions()')
@@ -424,22 +402,6 @@ export class AgentLoop extends Service implements AgentFactory {
   }
 
   /**
-   * Merge the factory-wide default cap into one agent's options. A per-agent
-   * `maxParallelToolCalls` wins; otherwise the `Config.maxParallelToolCalls`
-   * default applies, reaching factory callers (ACP/stdio/SDK front doors) whose
-   * own config does not set a cap. Absent both, the loop falls back to
-   * {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS} at schedule time.
-   * @param options - the caller-supplied agent options.
-   * @returns options with the default cap applied when the caller omitted one.
-   */
-  private withFactoryDefaults(options: AgentOptions): AgentOptions {
-    if (options.maxParallelToolCalls !== undefined || this.config.maxParallelToolCalls === undefined) {
-      return options
-    }
-    return { ...options, maxParallelToolCalls: this.config.maxParallelToolCalls }
-  }
-
-  /**
    * Create an agent on a fresh per-run session, owned by the accessing fiber.
    * Constructor-driven config calls use the loop fiber itself.
    * @param id - agent registry id.
@@ -448,14 +410,12 @@ export class AgentLoop extends Service implements AgentFactory {
    * @returns the published running agent.
    */
   create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent {
-    const resolved = this.withFactoryDefaults(options)
-    validateAgentOptions(resolved)
     const loopCtx = this.runtime.ctx
     const transaction = new AgentCreationTransaction(loopCtx, this.ctx, this.ownership, id)
     try {
       const sessionId = SessionId(`${id}-session-${randomUUID()}`)
       const session = loopCtx.sessions.prepare(sessionId, { meta })
-      const agent = transaction.prepare(resolved, session)
+      const agent = transaction.prepare(options, session, this.maxParallelToolCalls)
       transaction.publish('startup')
       return agent
     } catch (error: unknown) {
@@ -473,8 +433,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * @returns the published handle.
    */
   async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle> {
-    const agentOptions = this.withFactoryDefaults(options.agentOptions ?? {})
-    validateAgentOptions(agentOptions)
+    const agentOptions = options.agentOptions ?? {}
     const transaction = new AgentCreationTransaction(
       this.runtime.ctx,
       ownerCtx,
@@ -487,7 +446,7 @@ export class AgentLoop extends Service implements AgentFactory {
         ...options.seed === undefined ? {} : { seed: options.seed },
         ...options.meta === undefined ? {} : { meta: options.meta },
       })
-      const agent = transaction.prepare(agentOptions, session)
+      const agent = transaction.prepare(agentOptions, session, this.maxParallelToolCalls)
       await transaction.waitFor(options.setup?.(agent.ctx))
       transaction.assertActive()
       return transaction.publish('startup')
@@ -519,8 +478,7 @@ export class AgentLoop extends Service implements AgentFactory {
     persistence: SessionPersistence,
     options: ResumeAgentOptions,
   ): Promise<AgentHandle> {
-    const agentOptions = this.withFactoryDefaults(options.agentOptions ?? {})
-    validateAgentOptions(agentOptions)
+    const agentOptions = options.agentOptions ?? {}
     const transaction = new AgentCreationTransaction(
       this.runtime.ctx,
       ownerCtx,
@@ -540,7 +498,7 @@ export class AgentLoop extends Service implements AgentFactory {
           ...loaded.meta.seedLength === undefined ? {} : { seedLength: loaded.meta.seedLength },
         },
       })
-      const agent = transaction.prepare(agentOptions, session)
+      const agent = transaction.prepare(agentOptions, session, this.maxParallelToolCalls)
       await transaction.waitFor(options.setup?.(agent.ctx))
       transaction.assertActive()
       return transaction.publish('resume')

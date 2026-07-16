@@ -54,15 +54,16 @@ export interface PreparedReactLoopAgent {
  * @param id - the concrete agent identity.
  * @param options - loop options for the agent.
  * @param session - the prepared session the agent will own.
+ * @param maxParallelToolCalls - resolved scheduler cap shared by this factory's agents.
  * @returns the agent and closures bound only to that exact instance.
  */
 export function prepareReactLoopAgent(
-  ctx: Context, id: AgentId, options: AgentOptions, session: Session,
+  ctx: Context, id: AgentId, options: AgentOptions, session: Session, maxParallelToolCalls: number,
 ): PreparedReactLoopAgent {
   if (claimedDriverSessions.has(session)) {
     throw new Error(`session "${session.id}" already has a concrete agent driver`)
   }
-  const agent = new ReactLoopAgent(ctx, id, options, session)
+  const agent = new ReactLoopAgent(ctx, id, options, session, maxParallelToolCalls)
   claimedDriverSessions.add(session)
   const dispose = () => agent[stopDriver]()
   return {
@@ -143,6 +144,8 @@ export class ReactLoopAgent implements Agent {
    * the `disposed` transition fires and leave the promise hanging.
    */
   private idleWaiters: (() => void)[] = []
+  /** Immutable scheduler cap resolved by the owning AgentLoop factory. */
+  private readonly maxParallelToolCalls: number
   /**
    * Durability checkpoints started by idle {@link inject} calls. `inject()` is
    * synchronous, so it cannot await them itself; the driver disposer drains
@@ -155,7 +158,9 @@ export class ReactLoopAgent implements Agent {
     public readonly id: AgentId,
     public readonly options: AgentOptions,
     public readonly session: Session,
+    maxParallelToolCalls: number,
   ) {
+    this.maxParallelToolCalls = maxParallelToolCalls
     const { promise, resolve } = Promise.withResolvers<void>()
     this.disposed = promise
     this.resolveDisposed = resolve
@@ -329,6 +334,7 @@ export class ReactLoopAgent implements Agent {
     this.driverStarted = true
     this.done = runLoop(this.loopCtx, this, {
       inbox: this.#inbox,
+      maxParallelToolCalls: this.maxParallelToolCalls,
       setStatus: (status) => { this.setStatus(status) },
       setAbort: controller => void (this.currentAbort = controller),
       disposed: this.disposed,

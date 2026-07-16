@@ -794,7 +794,5 @@ describe('agentOptions', () => {
   it('includes only the fields present in config', () => {
     expect(agentOptions({})).toEqual({})
     expect(agentOptions({ model: 'm' })).toEqual({ model: 'm' })
-    expect(agentOptions({ maxParallelToolCalls: 3 })).toEqual({ maxParallelToolCalls: 3 })
-    expect(agentOptions({ model: 'm', maxParallelToolCalls: 1 })).toEqual({ model: 'm', maxParallelToolCalls: 1 })
   })
 })

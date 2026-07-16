@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmService from '@deepseek-ai/dsh-llm'
 import ToolRegistry, { defineTool, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
@@ -20,14 +20,17 @@ import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
-async function harness(adapter: MockAdapter) {
+async function harness(adapter: MockAdapter, maxParallelToolCalls?: number) {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(AgentLoop, {
+    agents: [],
+    ...maxParallelToolCalls === undefined ? {} : { maxParallelToolCalls },
+  })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
@@ -190,38 +193,28 @@ describe('tool-call scheduler: model-order results despite out-of-order settleme
 })
 
 describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => {
-  it('rejects invalid programmatic maxParallelToolCalls values before creating agents', async () => {
-    const ctx = await harness(new MockAdapter([]))
-
-    expect(() => ctx.agentLoop.create(AgentId('bad-zero'), { model: 'mock', maxParallelToolCalls: 0 }))
-      .toThrow('maxParallelToolCalls must be a positive integer')
-    await expect(ctx.agents.create({
-      agentId: AgentId('bad-fractional'),
-      sessionId: SessionId('bad-fractional-session'),
-      agentOptions: { model: 'mock', maxParallelToolCalls: 1.5 },
-    })).rejects.toThrow('maxParallelToolCalls must be a positive integer')
+  it('rejects invalid global maxParallelToolCalls config at plugin load', async () => {
+    await expect(harness(new MockAdapter([]), 0)).rejects.toThrow()
+    await expect(harness(new MockAdapter([]), 1.5)).rejects.toThrow()
   })
 
-  it('fails loud if maxParallelToolCalls is mutated invalid after agent creation', async () => {
-    const adapter = new MockAdapter([
-      multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }, { id: 'c2', name: 'p', args: { id: '2' } }]),
-      textResponse('must not run after unanswered tool calls'),
-    ])
-    const ctx = await harness(adapter)
-    const gated = gatedParallelTool('p')
-    ctx.tools.register(gated.tool)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', maxParallelToolCalls: 2 })
-    ;(agent.options as { maxParallelToolCalls: number }).maxParallelToolCalls = 0
+  it('defensively rejects invalid caps when direct construction bypasses the config schema', () => {
+    expect(() => new AgentLoop(new Context(), { agents: [], maxParallelToolCalls: 0 }))
+      .toThrow('maxParallelToolCalls must be a positive integer')
+    expect(() => new AgentLoop(new Context(), { agents: [], maxParallelToolCalls: 1.5 }))
+      .toThrow('maxParallelToolCalls must be a positive integer')
+  })
 
-    agent.send([{ type: 'text', text: 'go' }])
-    await waitForIdle(ctx, agent)
+  it('defaults the cap when direct construction bypasses the config schema', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
 
-    expect(gated.started).toEqual([])
-    expect(adapter.requests).toHaveLength(1)
-    expect(events(agent).some(e => e.type === 'assistant/message')).toBe(false)
-    expect(events(agent).filter(e => e.type === 'tool/call' || e.type === 'tool/result')).toEqual([])
-    const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')
+    expect(() => new AgentLoop(ctx, { agents: [] })).not.toThrow()
+    await ctx.fiber.dispose()
   })
 
   it('starts at most the cap, replenishing as calls settle', async () => {
@@ -229,10 +222,10 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
       multiCall([1, 2, 3, 4].map(n => ({ id: `c${n}`, name: 'p', args: { id: String(n) } }))),
       textResponse('done'),
     ])
-    const ctx = await harness(adapter)
+    const ctx = await harness(adapter, 2)
     const gated = gatedParallelTool('p')
     ctx.tools.register(gated.tool)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', maxParallelToolCalls: 2 })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     agent.send([{ type: 'text', text: 'go' }])
     // Only 2 start initially (the cap).
@@ -261,10 +254,10 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
       multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }, { id: 'c2', name: 'p', args: { id: '2' } }]),
       textResponse('done'),
     ])
-    const ctx = await harness(adapter)
+    const ctx = await harness(adapter, 1)
     const gated = gatedParallelTool('p')
     ctx.tools.register(gated.tool)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', maxParallelToolCalls: 1 })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 1)
     await new Promise(r => setTimeout(r, 5))
@@ -275,7 +268,7 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     await waitForIdle(ctx, agent)
   })
 
-  it('applies the factory-wide Config default to agents that set no per-agent cap', async () => {
+  it('applies the global Config cap to every agent created by the factory', async () => {
     const adapter = new MockAdapter([
       multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }, { id: 'c2', name: 'p', args: { id: '2' } }]),
       textResponse('done'),
@@ -286,14 +279,12 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     await ctx.plugin(SystemPrompt, { persona: '' })
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
-    // Factory default of 1 (no per-agent cap set below) must serialize.
+    // The global cap of 1 must serialize every agent from this factory.
     await ctx.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
     ctx.llm.registerAdapter(['mock'], adapter)
     const gated = gatedParallelTool('p')
     ctx.tools.register(gated.tool)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
-    expect(agent.options.maxParallelToolCalls).toBe(1)
-
     agent.send([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 1)
     await new Promise(r => setTimeout(r, 5))
@@ -304,18 +295,6 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     await waitForIdle(ctx, agent)
   })
 
-  it('lets a per-agent cap override the factory-wide Config default', async () => {
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt, { persona: '' })
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
-    ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', maxParallelToolCalls: 4 })
-    expect(agent.options.maxParallelToolCalls).toBe(4)
-  })
 })
 
 describe('tool-call scheduler: ordered middleware and additionalContext', () => {
@@ -349,7 +328,7 @@ describe('tool-call scheduler: ordered middleware and additionalContext', () => 
       multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }, { id: 'c2', name: 'p', args: { id: '2' } }]),
       textResponse('done'),
     ])
-    const ctx = await harness(adapter)
+    const ctx = await harness(adapter, 2)
     const gated = gatedParallelTool('p')
     ctx.tools.register(gated.tool)
     ctx.on('tools/post-execute', async (exec, _result): Promise<PostToolDecision> =>
@@ -467,14 +446,14 @@ describe('tool-call scheduler: abort handling', () => {
       multiCall([1, 2, 3, 4].map(n => ({ id: `c${n}`, name: 'p', args: { id: String(n) } }))),
       textResponse('should never be requested'),
     ])
-    const ctx = await harness(adapter)
+    const ctx = await harness(adapter, 2)
     const gated = gatedParallelTool('p')
     ctx.tools.register(gated.tool)
     ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => ({
       ...await next(),
       additionalContext: { content: [{ type: 'text', text: `ctx-${exec.callId}` }], source: { kind: 'plugin', plugin: 'p' } },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', maxParallelToolCalls: 2 })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     agent.send([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 2)
@@ -500,7 +479,7 @@ describe('tool-call scheduler: abort handling', () => {
       ]),
       textResponse('should never be requested'),
     ])
-    const ctx = await harness(adapter)
+    const ctx = await harness(adapter, 2)
     const gated = gatedParallelTool('p')
     const exclusive: string[] = []
     ctx.tools.register(gated.tool)
@@ -510,7 +489,7 @@ describe('tool-call scheduler: abort handling', () => {
       parameters: { id: { type: 'string', required: true } },
       async execute(args) { exclusive.push(args.id); return [{ type: 'text', text: 'x' }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', maxParallelToolCalls: 2 })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     agent.send([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 2)

@@ -29,17 +29,17 @@ The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loo
 
 ```ts
 interface Config {
+  maxParallelToolCalls?: number // shared by every agent; default 10; 1 is serial
   agents: Array<{
     id: string                 // required
     model?: string
-    maxParallelToolCalls?: number // positive integer; default 10; 1 is serial
     resumeSessionId?: string   // load this persisted session instead of creating one
     cwd?: string               // optional workspace cwd for the fresh session
   }>
 }
 ```
 
-Configured agents start automatically. `cwd` applies only to fresh sessions; `resumeSessionId` retains persisted metadata. `maxParallelToolCalls` bounds the rolling pool for parallel-safe calls and defaults to `10`. They use the deployment persona. Programmatic setup can shadow it per agent. This plugin supplies the per-agent `model` and `cwd` prompt variables; harness identity and deployment persona belong to `dsh-system-prompt`.
+Configured agents start automatically. `cwd` applies only to fresh sessions; `resumeSessionId` retains persisted metadata. `maxParallelToolCalls` bounds every agent's rolling pool for parallel-safe calls and defaults to `10`. They use the deployment persona, which programmatic setup can shadow per agent. This plugin supplies the per-agent `model` and `cwd` prompt variables; harness identity and deployment persona belong to `dsh-system-prompt`.
 
 ### Exported concrete class
 

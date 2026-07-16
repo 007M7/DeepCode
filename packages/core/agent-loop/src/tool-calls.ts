@@ -4,8 +4,8 @@
  * arguments once, classifies it via `ctx.tools.executionMode`, partitions the
  * calls into ordered groups (one exclusive call, or a run of consecutive
  * parallel-safe calls), and runs every group through the same rolling pool
- * bounded by the agent's `maxParallelToolCalls` — an exclusive group is a pool
- * of one.
+ * bounded by the agent-loop's `maxParallelToolCalls` config — an exclusive
+ * group is a pool of one.
  *
  * The session log stays the source of truth and is reconstructable regardless
  * of dispatch timing: each STARTED call appends its own `tool/call` before its
@@ -25,7 +25,6 @@ import type { HookContext } from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { TOOL_REGISTRY_SCHEDULER, type ToolExecution, type ToolExecutionInput, type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ReactLoopAgent } from './agent.ts'
-import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 
 /** One tool call after argument parsing, ready to schedule. */
 interface PlannedCall {
@@ -107,20 +106,6 @@ export async function executeToolCalls(
   return pendingContext
 }
 
-/**
- * Resolve and validate the per-step parallel dispatch cap before the assistant
- * tool-call message is logged, so invalid mutable options fail without leaving
- * dangling model-visible tool calls in the session transcript.
- *
- * @param maxParallelToolCalls - the live agent option value.
- * @returns the positive integer cap to use for this step.
- */
-export function resolveMaxParallelToolCalls(maxParallelToolCalls: number | undefined): number {
-  const maxParallel = maxParallelToolCalls ?? DEFAULT_MAX_PARALLEL_TOOL_CALLS
-  assertMaxParallelToolCalls(maxParallel)
-  return maxParallel
-}
-
 /** Parse a model-produced raw arguments string, falling back to the raw string on invalid JSON (empty ⇒ `{}`). */
 function parseArguments(raw: string): unknown {
   try {
@@ -157,13 +142,6 @@ function groupByMode(ctx: Context, planned: PlannedCall[]): PlannedCall[][] {
   return groups
 }
 
-/** Validate the live per-agent cap at the point it controls dispatch. */
-function assertMaxParallelToolCalls(maxParallel: number): void {
-  if (!Number.isInteger(maxParallel) || maxParallel < 1) {
-    throw new Error('maxParallelToolCalls must be a positive integer')
-  }
-}
-
 /**
  * The rolling-pool path for one ordered group. A singleton exclusive group runs
  * as a pool of one (a barrier); a parallel-safe run starts calls in model order
@@ -189,8 +167,6 @@ async function runGroup(
 ): Promise<void> {
   /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
   if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-  assertMaxParallelToolCalls(maxParallel)
-
   const slots: (Slot | undefined)[] = group.map(() => undefined)
   // callSeqs[i] is the `tool/call` event seq for started slot i (its provenance
   // for the matching tool/result). A slot is only committed after it is started,

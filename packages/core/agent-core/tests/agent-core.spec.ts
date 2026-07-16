@@ -117,13 +117,12 @@ describe('dsh-agent-core bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('forwards the factory-wide maxParallelToolCalls default to agents without a per-agent cap', async () => {
+  it('forwards the global maxParallelToolCalls config to agent-loop', async () => {
     const ctx = await mount({
       agents: [{ id: AgentId('main'), model: 'mock' }],
       maxParallelToolCalls: 3,
     })
-    const main = ctx.get('agents')?.get(AgentId('main'))
-    expect(main?.options.maxParallelToolCalls).toBe(3)
+    expect(ctx.get('agentLoop')?.config.maxParallelToolCalls).toBe(3)
     await ctx.fiber.dispose()
   })
 

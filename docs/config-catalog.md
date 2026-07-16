@@ -18,8 +18,6 @@ Requires: `agents` · `sessions` · `sessionPersistence` · `tools` · `userInte
 export interface AcpConfig {
   /** Model name for created agents (must have a registered adapter). */
   model?: string
-  /** Positive-integer concurrent tool-call cap for each created agent; `1` is serial. */
-  maxParallelToolCalls?: number
   /** Runtime-only transport override for tests; production uses stdio. */
   stream?: Stream
 }
@@ -77,8 +75,8 @@ export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
   agents?: AgentLoopConfig['agents']
   /**
-   * The factory-wide default concurrent tool-call cap applied to every agent
-   * this bundle creates (see dsh-agent-loop's `Config.maxParallelToolCalls`).
+   * Concurrent tool-call cap shared by every agent this bundle's loop creates
+   * (see dsh-agent-loop's `Config.maxParallelToolCalls`).
    */
   maxParallelToolCalls?: AgentLoopConfig['maxParallelToolCalls']
   /** The deployment persona (see dsh-system-prompt's `Config`). */
@@ -111,16 +109,12 @@ Source: [`packages/core/agent-core/src/index.ts:46`](../packages/core/agent-core
 Requires: `agents` · `sessions` · `llm` · `tools` · `systemPrompt`
 
 ```ts config-catalog
-/** Plugin configuration for declarative startup agents. */
+/** Agent-loop plugin configuration. */
 export interface Config {
   /**
-   * Default concurrent tool-call cap applied to every agent this factory
-   * creates (declarative startup agents and factory callers such as the ACP,
-   * stdio, and SDK front doors that go through `create`/`createAgent`/`resume`).
-   * A positive integer; a per-agent `maxParallelToolCalls` overrides it, and an
-   * agent with neither falls back to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
-   * This is the single `cordis.yml` knob that reaches agents whose front door
-   * does not expose its own cap field.
+   * Concurrent parallel-safe tool-call cap shared by every agent this factory
+   * creates. A positive integer; `1` preserves fully serial execution and an
+   * omitted value defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
    */
   maxParallelToolCalls?: number
   /** Agents created or resumed at plugin startup. */
@@ -129,11 +123,6 @@ export interface Config {
     id: AgentId
     /** Optional workspace for a fresh session. */
     cwd?: string
-    /**
-     * Maximum parallel-safe tool calls to run concurrently within one assistant
-     * step. Must be a positive integer; `1` preserves serial execution.
-     */
-    maxParallelToolCalls?: number
     /** Persisted session to resume instead of creating a fresh session. */
     resumeSessionId?: SessionId
   })[]
@@ -142,7 +131,7 @@ export interface Config {
 
 Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
-Source: [`packages/core/agent-loop/src/index.ts:346`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:334`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -647,9 +636,8 @@ export interface Config {
   /** Model name for the `main` agent (must have a registered adapter). */
   model: string
   /**
-   * Maximum tool calls the `main` agent runs concurrently within one assistant
-   * step (a positive integer; the agent loop defaults it when omitted). `1`
-   * preserves fully serial execution.
+   * Concurrent parallel-safe tool-call cap for the bundled agent loop. A
+   * positive integer; the loop defaults it when omitted and `1` is serial.
    */
   maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */

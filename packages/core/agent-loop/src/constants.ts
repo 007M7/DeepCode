@@ -7,9 +7,9 @@
  */
 
 /**
- * Default cap on simultaneously in-flight tool calls within one assistant step,
- * when {@link AgentOptions.maxParallelToolCalls} is unset. Matches the
- * rolling-pool size Claude Code uses; a group larger than the cap is not
- * truncated — the cap limits concurrency, not the group.
+ * Default cap on simultaneously in-flight tool calls within one assistant step
+ * when the agent-loop config omits one. Matches the rolling-pool size Claude
+ * Code uses; a larger group is not truncated — the cap limits concurrency, not
+ * the group.
  */
 export const DEFAULT_MAX_PARALLEL_TOOL_CALLS = 10
