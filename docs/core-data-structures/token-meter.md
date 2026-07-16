@@ -23,7 +23,7 @@ interface TokenMeasurement {
 }
 ```
 
-`baseline.kind === 'usage'` means the latest successful provider call has the same canonical request envelope. `estimated` means the service priced the complete envelope and surface with its fixed heuristic. A later successful request replaces the earlier anchor; signed `surfaceDeltaTokens` preserves growth and shrinkage relative to a matching anchor. `totalTokens` remains request-and-response pressure, while `surfaceTokens` is the surface-only heuristic total and equals the sum of the node prices.
+`baseline.kind === 'usage'` means the latest successful provider call has the same canonical request envelope and its total is no lower than that call's full heuristic anchor. `estimated` means no reusable conservative usage anchor exists, so the service priced the complete envelope and surface with its fixed heuristic. A later successful request replaces the earlier anchor; signed `surfaceDeltaTokens` preserves growth and shrinkage relative to a matching anchor. `totalTokens` remains request-and-response pressure, while `surfaceTokens` is the surface-only heuristic total and equals the sum of the node prices.
 
 ## `TokenSurfaceNode`
 

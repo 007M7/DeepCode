@@ -252,6 +252,36 @@ describe('replay anchors and surface folds', () => {
     }).toThrow(TypeError)
   })
 
+  it('selects a heuristic anchor when provider usage would undercut its scale', () => {
+    const service = meter()
+    const session = new Session(SessionId('low-usage-anchor'))
+    const system = 'system context'
+    const requestHeader = header('deepseek-v4-flash', { system })
+    appendSuccessfulCall(session, requestHeader, {
+      providerText: 'abcd'.repeat(512),
+      usage: { inputTokens: 20, outputTokens: 7 },
+    })
+
+    const anchored = service.measure(session)
+    expect(anchored.baseline.kind).toBe('estimated')
+    const assistant = anchored.nodes[0]!.seq
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'short' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }, {
+      surfaceOp: { op: 'replace', start: assistant, end: assistant },
+      sourceEventSeqs: [assistant],
+    })
+
+    const shrunken = service.measure(session)
+    expect(27 + shrunken.surfaceDeltaTokens).toBeLessThan(0)
+    expect(shrunken.totalTokens).toBeGreaterThan(0)
+    expect(shrunken.totalTokens).toBe(service.measure(
+      session,
+      header('different-model', { system }),
+    ).totalTokens)
+  })
+
   it('uses an estimated anchor when provider usage is absent', () => {
     const service = meter()
     const session = new Session(SessionId('missing-usage'))

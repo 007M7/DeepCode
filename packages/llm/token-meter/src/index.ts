@@ -128,8 +128,9 @@ export class TokenMeterService extends Service {
    * Measure current request pressure and surface through the durable tail.
    *
    * Provider usage is reused only when the latest successful call's canonical
-   * request envelope matches `requestHeader`; otherwise the complete envelope
-   * and surface are heuristically repriced.
+   * request envelope matches `requestHeader` and its total is no lower than
+   * that call's full heuristic anchor; otherwise the complete envelope and
+   * surface are heuristically repriced.
    *
    * `requestHeader` affects request pressure only; surface fields always
    * describe the current session surface. Every call clones those positional
@@ -266,14 +267,17 @@ export class TokenMeterService extends Service {
           event,
           eventTokens,
         )
+        const anchorSurfaceTokens = stepStart.surfaceTokens + providerAssistantTokens
+        const providerTokens = usageTokens(event.data.usage)
+        const estimatedAnchorTokens = this._estimateHeader(nextHeader) + anchorSurfaceTokens
         nextAnchor = {
           header: nextHeader,
-          surfaceTokens: stepStart.surfaceTokens + providerAssistantTokens,
-          baseline: {
-            kind: 'usage',
-            tokens: usageTokens(event.data.usage),
-            usage: event.data.usage,
-          },
+          surfaceTokens: anchorSurfaceTokens,
+          // Signed heuristic deltas remain conservative only from an anchor
+          // that is at least as large as the matching full heuristic price.
+          baseline: providerTokens >= estimatedAnchorTokens
+            ? { kind: 'usage', tokens: providerTokens, usage: event.data.usage }
+            : { kind: 'estimated', tokens: estimatedAnchorTokens },
         }
       } else {
         const anchorSurfaceTokens = stepStart.surfaceTokens + eventTokens
