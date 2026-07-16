@@ -326,6 +326,24 @@ describe('SQLite session search', () => {
     })).rejects.toThrow(expectCode('SESSION_QUERY_STALE_CURSOR'))
   })
 
+  it('invalidates session cursors after transient persistence topology changes', async () => {
+    TestPersistence.reset()
+    const ctx = await liveContext({ path: ':memory:', defaultLimit: 1, maxLimit: 5 })
+    ctx.sessions.create(SessionId('first'), { seed: messageEvents('needle first') })
+    ctx.sessions.create(SessionId('second'), { seed: messageEvents('needle second') })
+    const page = await ctx.sessionSearch.searchSessions({ query: 'needle', limit: 1 })
+    if (page.nextCursor === undefined) throw new Error('expected cursor')
+
+    const persistence = await ctx.plugin(TestPersistence)
+    await persistence.dispose()
+
+    await expect(ctx.sessionSearch.searchSessions({
+      query: 'needle',
+      limit: 1,
+      cursor: page.nextCursor,
+    })).rejects.toThrow(expectCode('SESSION_QUERY_STALE_CURSOR'))
+  })
+
   it('rejects invalid requests, filters, cursors, and direct config', async () => {
     const ctx = await liveContext({ path: ':memory:', defaultLimit: 2, maxLimit: 3 })
     const session = ctx.sessions.create(SessionId('valid'), { seed: messageEvents('needle') })
@@ -503,11 +521,6 @@ describe('SQLite reconciliation and source lifecycle', () => {
     TestPersistence.set({ meta: durable, events: messageEvents('new needle') })
     TestPersistence.revisions.set(durable.id, revision)
     const replacement = await ctx.plugin(TestPersistence)
-    const internals = ctx.sessionSearch as unknown as {
-      _lastPersistenceRevision: number
-      _persistenceRevision: number
-    }
-    expect(internals._persistenceRevision).not.toBe(internals._lastPersistenceRevision)
     const page = await ctx.sessionSearch.searchSessions({ query: 'new needle' })
     expect(TestPersistence.loads.get(durable.id)).toBe(2)
     expect(page).toMatchObject({ items: [{ header: durable }] })
@@ -553,13 +566,15 @@ describe('SQLite reconciliation and source lifecycle', () => {
     TestPersistence.reset([{ meta: durable, events: messageEvents('durable needle') }])
     const ctx = await liveContext()
     await ctx.plugin(TestPersistence)
-    const internals = ctx.sessionSearch as unknown as { _persistenceRevision: number }
+    const internals = ctx.sessionSearch as unknown as {
+      _persistenceBinding: { service?: SessionPersistence }
+    }
     const originalList = ctx.sessions.list.bind(ctx.sessions)
     let bumped = false
     const list = vi.spyOn(ctx.sessions, 'list').mockImplementation(() => {
       if (!bumped) {
         bumped = true
-        internals._persistenceRevision += 1
+        internals._persistenceBinding = { ...internals._persistenceBinding }
       }
       return originalList()
     })

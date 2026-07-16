@@ -97,9 +97,12 @@ interface ObservedPersistedSession {
   loaded?: ObservedSession
 }
 
+interface PersistenceBinding {
+  readonly service?: SessionPersistence
+}
+
 interface Observation {
-  persistence: SessionPersistence | undefined
-  persistenceRevision: number
+  persistenceBinding: PersistenceBinding
   persisted: Map<SessionId, ObservedPersistedSession>
   live: Map<SessionId, ObservedSession>
 }
@@ -161,10 +164,8 @@ export class SessionSearchSqlite extends SessionSearchService {
   private readonly _instance = randomUUID()
   private readonly _ready: Promise<void>
   private _db: DatabaseSync | undefined
-  private _persistence: SessionPersistence | undefined
-  private _persistenceBinding: object | undefined
-  private _persistenceRevision = 0
-  private _lastPersistenceRevision: number | undefined
+  private _persistenceBinding: PersistenceBinding = {}
+  private _lastPersistenceBinding: PersistenceBinding | undefined
   private _persistenceEpoch = 0
   private _globalGeneration = 0
   private _localGeneration = 0
@@ -182,16 +183,12 @@ export class SessionSearchSqlite extends SessionSearchService {
     void this._ready.catch(() => undefined)
     this._optionalPersistenceFiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
       const service = childCtx.sessionPersistence
-      const binding = {}
+      const binding = { service }
       this._persistenceBinding = binding
-      this._persistence = service
-      this._persistenceRevision += 1
       childCtx.effect(() => () => {
         /* v8 ignore next -- a stale optional-service disposer cannot clear a replacement */
         if (this._persistenceBinding !== binding) return
-        this._persistenceBinding = undefined
-        this._persistence = undefined
-        this._persistenceRevision += 1
+        this._persistenceBinding = {}
       }, 'sessionSearchSqlite.persistenceBinding')
     })
     ctx.effect(() => {
@@ -330,16 +327,16 @@ export class SessionSearchSqlite extends SessionSearchService {
     const liveById = new Map(liveRows.map(row => [row.id as SessionId, row]))
     const observation = await this._observeStable(persistedById, signal)
     assertNotAborted(signal)
-    const persistentChanges = observation.persistence === undefined
+    const persistentChanges = observation.persistenceBinding.service === undefined
       ? []
       : [...observation.persisted.values()].filter(entry => entry.loaded !== undefined)
-    const persistentDeletes = observation.persistence === undefined
+    const persistentDeletes = observation.persistenceBinding.service === undefined
       ? []
       : persistedRows.filter(row => !observation.persisted.has(row.id as SessionId))
     const liveChanges = [...observation.live.values()].filter(entry => liveById.get(entry.header.id)?.fingerprint !== entry.fingerprint)
     const liveDeletes = liveRows.filter(row => !observation.live.has(row.id as SessionId))
-    const pointerChanged = this._lastPersistenceRevision !== undefined
-      && this._lastPersistenceRevision !== observation.persistenceRevision
+    const pointerChanged = this._lastPersistenceBinding !== undefined
+      && this._lastPersistenceBinding !== observation.persistenceBinding
     const hasWrites = persistentChanges.length > 0
       || persistentDeletes.length > 0
       || liveChanges.length > 0
@@ -393,7 +390,7 @@ export class SessionSearchSqlite extends SessionSearchService {
     if (hasWrites || pointerChanged) this._globalGeneration += 1
     if (pointerChanged) this._persistenceEpoch += 1
     this._localGeneration = nextLocalGeneration
-    this._lastPersistenceRevision = observation.persistenceRevision
+    this._lastPersistenceBinding = observation.persistenceBinding
   }
 
   private async _observeStable(
@@ -402,13 +399,13 @@ export class SessionSearchSqlite extends SessionSearchService {
   ): Promise<Observation> {
     for (;;) {
       assertNotAborted(signal)
-      const persistence = this._persistence
-      const persistenceRevision = this._persistenceRevision
+      const persistenceBinding = this._persistenceBinding
+      const persistence = persistenceBinding.service
       let persisted = new Map<SessionId, ObservedPersistedSession>()
       if (persistence !== undefined) {
         try {
-          const canReuseIndexed = this._lastPersistenceRevision === undefined
-            || this._lastPersistenceRevision === persistenceRevision
+          const canReuseIndexed = this._lastPersistenceBinding === undefined
+            || this._lastPersistenceBinding === persistenceBinding
           const before = await waitWithAbort(persistence.listSnapshots(), signal)
           persisted = materializePersistenceSnapshots(before)
           for (const entry of persisted.values()) {
@@ -421,14 +418,14 @@ export class SessionSearchSqlite extends SessionSearchService {
             await waitWithAbort(persistence.listSnapshots(), signal),
           )
           if (!samePersistenceSnapshots(persisted, after)) continue
-          if (this._persistenceRevision !== persistenceRevision) continue
+          if (this._persistenceBinding !== persistenceBinding) continue
         } catch (error: unknown) {
           if (isAbort(error) || signal?.aborted) {
             throw new SessionQueryError('session-search aborted', 'SESSION_QUERY_ABORTED', {
               cause: error,
             })
           }
-          if (this._persistenceRevision !== persistenceRevision) continue
+          if (this._persistenceBinding !== persistenceBinding) continue
           if (error instanceof SessionQueryError) throw error
           throw new SessionQueryError(
             `session-search persistence observation failed: ${errorMessage(error)}`,
@@ -444,8 +441,8 @@ export class SessionSearchSqlite extends SessionSearchService {
         if (durable !== undefined) assertSessionHeadersCompatible(observed.header, durable.header)
         live.set(session.id, observed)
       }
-      if (this._persistenceRevision === persistenceRevision) {
-        return { persistence, persistenceRevision, persisted, live }
+      if (this._persistenceBinding === persistenceBinding) {
+        return { persistenceBinding, persisted, live }
       }
     }
   }
@@ -564,7 +561,7 @@ export class SessionSearchSqlite extends SessionSearchService {
       ORDER BY match_count DESC, document_length ASC, time DESC, session_id ASC, seq DESC
       LIMIT ? OFFSET ?
     `).all(
-      ...selectedDocumentsParams(request.query, this._persistence !== undefined),
+      ...selectedDocumentsParams(request.query, this._persistenceBinding.service !== undefined),
       ...sessionWhere.params,
       ...eventWhere.params,
       request.limit + 1,
@@ -583,7 +580,7 @@ export class SessionSearchSqlite extends SessionSearchService {
       ORDER BY match_count DESC, document_length ASC, time DESC, seq DESC
       LIMIT ? OFFSET ?
     `).all(
-      ...selectedDocumentsParams(request.query, this._persistence !== undefined),
+      ...selectedDocumentsParams(request.query, this._persistenceBinding.service !== undefined),
       request.sessionId,
       ...eventWhere.params,
       request.limit + 1,
@@ -597,7 +594,7 @@ export class SessionSearchSqlite extends SessionSearchService {
       'SELECT generation FROM temp.live_sessions WHERE id = ?',
     ).get(sessionId) as { generation: number } | undefined
     if (live !== undefined) return `live:${live.generation}`
-    if (this._persistence !== undefined) {
+    if (this._persistenceBinding.service !== undefined) {
       const persisted = db.prepare(
         'SELECT generation FROM persisted_sessions WHERE id = ?',
       ).get(sessionId) as { generation: number } | undefined
@@ -713,10 +710,7 @@ function selectedDocumentsParams(query: string, persistenceVisible: boolean): Ar
 }
 
 function observeLive(session: Session): ObservedSession {
-  return observeSession(
-    structuredClone(session.header),
-    session.events.map(event => structuredClone(event)),
-  )
+  return observeSession(session.header, session.events)
 }
 
 function observeSession(header: SessionHeader, events: readonly SessionEvent[]): ObservedSession {
