@@ -69,6 +69,12 @@ describe('MessageDecoder', () => {
     expect(() => decoder.push(huge)).toThrow(/exceeded .* bytes without a terminator/)
   })
 
+  it('rejects an oversized header block that includes its terminator', () => {
+    const decoder = new MessageDecoder(1_000)
+    const huge = Buffer.from(`Content-Length: 2\r\nX-Fill: ${'a'.repeat(70_000)}\r\n\r\n{}`, 'ascii')
+    expect(() => decoder.push(huge)).toThrow(/header exceeded .* bytes/)
+  })
+
   it('rejects a non-JSON body', () => {
     const decoder = new MessageDecoder(1_000)
     expect(() => decoder.push(frame('not json'))).toThrow(/not valid JSON/)

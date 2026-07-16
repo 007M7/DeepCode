@@ -55,7 +55,6 @@ describe.skipIf(!built)('built lib real load path (plain node)', () => {
       const result = await ctx.lsp.query({ operation: 'definition', filePath: 'a.ts', position: { line: 0, character: 6 }, workspaceRoot: ${JSON.stringify(ws)} })
       console.log(JSON.stringify(result))
       await ctx.fiber.dispose()
-      process.exit(0)
     `
     const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: pkgDir, stdio: ['ignore', 'pipe', 'pipe'] })
     let stdout = ''

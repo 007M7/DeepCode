@@ -190,6 +190,13 @@ describe('LspConnection edge behavior', () => {
     expect(conn.stderrTail.length).toBe(100)
   })
 
+  it('caps the retained stderr tail by bytes for multibyte UTF-8', async () => {
+    const conn = connectScript('process.stderr.write("😀😀")', 4)
+    await conn.closed
+    expect(conn.stderrTail).toBe('😀')
+    expect(Buffer.byteLength(conn.stderrTail)).toBe(4)
+  })
+
   it('rejects with a fallback message when the error response has no message string', async () => {
     const script = 'let b=Buffer.alloc(0);'
       + 'const fr=(s)=>{const x=Buffer.from(s);return Buffer.concat([Buffer.from(`Content-Length: ${x.length}\\r\\n\\r\\n`),x]);};'

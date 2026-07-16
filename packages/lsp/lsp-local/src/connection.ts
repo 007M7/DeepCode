@@ -41,7 +41,7 @@ export class LspConnection {
   private readonly decoder: MessageDecoder
   private readonly pending = new Map<number, Pending>()
   private nextId = 1
-  private stderr = ''
+  private stderr = Buffer.alloc(0)
   private closeReason: Error | undefined
   /** Set once the process has fully exited; the instance awaits it during teardown. */
   readonly closed: Promise<void>
@@ -90,7 +90,7 @@ export class LspConnection {
 
   /** The retained stderr tail, for diagnostics on a failed server. */
   get stderrTail(): string {
-    return this.stderr
+    return this.stderr.toString('utf8')
   }
 
   /**
@@ -199,7 +199,17 @@ export class LspConnection {
   private onStderr(chunk: Buffer): void {
     // Retain the TAIL, not the prefix: a language server's fatal diagnostic usually appears just
     // before it exits, so the final bounded segment is the useful one.
-    this.stderr = (this.stderr + chunk.toString('utf8')).slice(-this.spec.maxStderrBytes)
+    const cap = this.spec.maxStderrBytes
+    if (chunk.length >= cap) {
+      // Copy the bounded suffix so retaining it does not pin an arbitrarily large incoming buffer.
+      this.stderr = Buffer.from(chunk.subarray(chunk.length - cap))
+      return
+    }
+    const retainedBytes = Math.min(this.stderr.length, cap - chunk.length)
+    this.stderr = Buffer.concat([
+      this.stderr.subarray(this.stderr.length - retainedBytes),
+      chunk,
+    ], retainedBytes + chunk.length)
   }
 
   private dispatch(message: unknown): void {
@@ -246,7 +256,7 @@ export class LspConnection {
 
   /** The exit-close error message, appending the retained stderr tail when the server wrote any. */
   private exitMessage(): string {
-    const tail = this.stderr.trim()
+    const tail = this.stderrTail.trim()
     return tail === '' ? 'language server exited' : `language server exited; stderr: ${tail}`
   }
 

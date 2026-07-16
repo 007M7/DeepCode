@@ -59,6 +59,7 @@ describe('lsp-local end to end over a fake server', () => {
     expect(result).toEqual<LspQueryResult>({
       kind: 'locations',
       locations: [{ uri: pathToFileURL(join(ws, 'a.ts')).href, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } } }],
+      resolvedWorkspaceRoot: ws,
     })
     await ctx.fiber.dispose()
   })
@@ -89,7 +90,7 @@ describe('lsp-local end to end over a fake server', () => {
 
   it('returns an empty locations result for a null definition', async () => {
     const ctx = await mount({ LSP_FAKE_DEF: 'null' })
-    expect(await ctx.lsp.query(query('definition'))).toEqual({ kind: 'locations', locations: [] })
+    expect(await ctx.lsp.query(query('definition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
     await ctx.fiber.dispose()
   })
 
@@ -123,7 +124,7 @@ describe('lsp-local end to end over a fake server', () => {
 
   it('accepts openClose options sync', async () => {
     const ctx = await mount({ LSP_FAKE_SYNC: JSON.stringify({ openClose: true, change: 2 }), LSP_FAKE_DEF: 'null' })
-    expect(await ctx.lsp.query(query('definition'))).toEqual({ kind: 'locations', locations: [] })
+    expect(await ctx.lsp.query(query('definition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
     await ctx.fiber.dispose()
   })
 
@@ -192,6 +193,31 @@ describe('lsp-local end to end over a fake server', () => {
     await expect(ctx.lsp.query(query('definition'))).rejects.toThrow()
     // A later query starts a fresh process; still crashes, but proves the slot was replaced (no hang).
     await expect(ctx.lsp.query(query('definition'))).rejects.toThrow()
+    await ctx.fiber.dispose()
+  })
+
+  it('evicts a pooled server that died while idle and serves the next query from a fresh one', async () => {
+    // The first query succeeds, then the server exits before the second arrives, leaving a dead
+    // instance in the pool. The next query must evict-and-replace it and still succeed, rather than
+    // failing once on the closed connection first.
+    const ctx = await mount({ LSP_FAKE_EXIT_AFTER_REPLY: '1', LSP_FAKE_DEF: JSON.stringify(locationJson(0)) })
+    expect(await ctx.lsp.query(query('definition'))).toMatchObject({ kind: 'locations' })
+    // Wait past the fixture's post-reply exit so the pooled instance is observably dead.
+    await new Promise(resolve => setTimeout(resolve, 60))
+    expect(await ctx.lsp.query(query('definition'))).toMatchObject({ kind: 'locations' })
+    await ctx.fiber.dispose()
+  })
+
+  it('does not spawn a server when the signal aborts during source read', async () => {
+    // Abort right after issuing the query: the abort lands while canonicalizeWorkspace/readHostSource
+    // are awaited, so the pre-spawn recheck must reject without ever creating a pooled instance.
+    const ctx = await mount({ LSP_FAKE_DEF: 'null' })
+    const controller = new AbortController()
+    const pending = ctx.lsp.query(query('definition'), controller.signal)
+    controller.abort(new Error('mid-read cancel'))
+    await expect(pending).rejects.toThrow(/mid-read cancel/)
+    // A subsequent live query still works, proving no half-created instance poisoned the pool.
+    expect(await ctx.lsp.query(query('definition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
     await ctx.fiber.dispose()
   })
 

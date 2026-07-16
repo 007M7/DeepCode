@@ -51,6 +51,7 @@ function call(ctx: Context, args: unknown, cwd: string | null = '/ws') {
 const okLocations: LspQueryResult = {
   kind: 'locations',
   locations: [{ uri: 'file:///ws/a.ts', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
+  resolvedWorkspaceRoot: '/ws',
 }
 
 describe('tool-lsp registration', () => {
@@ -104,6 +105,21 @@ describe('tool-lsp execution', () => {
   it('renders locations relative to the workspace', async () => {
     const { ctx } = await mount(stubProvider(() => okLocations))
     const result = await call(ctx, { operation: 'references', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
+    expect(result.content[0]).toEqual({ type: 'text', text: 'a.ts:1:1' })
+  })
+
+  it('relativizes against the provider resolvedWorkspaceRoot, not the session cwd', async () => {
+    // A symlinked session cwd (`/alias`) resolves to a real path (`/real/ws`) that the provider's
+    // location URIs are under. Relativizing against the alias would misclassify the location as
+    // external and print an absolute path; the tool must use resolvedWorkspaceRoot.
+    const provider = stubProvider(() => ({
+      kind: 'locations',
+      locations: [{ uri: 'file:///real/ws/a.ts', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
+      resolvedWorkspaceRoot: '/real/ws',
+    }))
+    const { ctx } = await mount(provider)
+    const result = await call(ctx, { operation: 'definition', file_path: 'a.ts', line: 1, character: 1 }, '/alias')
+    expect(provider.seen[0]).toMatchObject({ workspaceRoot: '/alias' })
     expect(result.content[0]).toEqual({ type: 'text', text: 'a.ts:1:1' })
   })
 

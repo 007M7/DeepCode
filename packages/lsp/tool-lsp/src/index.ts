@@ -113,7 +113,10 @@ export function apply(ctx: Context, config: Config): void {
       }, exec.signal)
       switch (result.kind) {
         case 'locations':
-          return [{ type: 'text', text: formatLocations(result.locations, workspaceRoot, resolved.maxLocations) }]
+          // Relativize against the provider's canonical workspace root (which its file: URIs are
+          // relative to), not the session cwd: a symlinked cwd would otherwise misclassify every
+          // in-workspace location as external and render it as an absolute path.
+          return [{ type: 'text', text: formatLocations(result.locations, result.resolvedWorkspaceRoot, resolved.maxLocations) }]
         case 'hover':
           return [{ type: 'text', text: formatHover(result.hover, resolved.maxHoverChars) }]
       }

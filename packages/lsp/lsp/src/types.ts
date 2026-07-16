@@ -76,9 +76,14 @@ export interface LspHover {
  * The closed result union. Navigation operations (`definition`, `references`, `implementation`)
  * normalize to `locations`; `hover` normalizes to content or `null`. Consumers `switch` on `kind`
  * to exhaustiveness so a new arm breaks compilation until handled.
+ *
+ * The `locations` variant carries `resolvedWorkspaceRoot`: the provider's canonical form of the
+ * request's `workspaceRoot`, and the root its `file:` location URIs are relative to. A caller that
+ * relativizes display paths MUST use this, not the request's (possibly symlinked) `workspaceRoot`;
+ * otherwise a symlinked workspace misclassifies in-workspace results as external.
  */
 export type LspQueryResult =
-  | { readonly kind: 'locations'; readonly locations: readonly LspLocation[] }
+  | { readonly kind: 'locations'; readonly locations: readonly LspLocation[]; readonly resolvedWorkspaceRoot: string }
   | { readonly kind: 'hover'; readonly hover: LspHover | null }
 
 /**

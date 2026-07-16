@@ -8,7 +8,7 @@ Namespace plugin (`name` / `inject` / `Config` / `apply`, no default export). In
 
 `lsp` accepts `operation` (`definition` | `references` | `implementation` | `hover`), `file_path`, `line`, and `character`. `line` and `character` are positive, one-based UTF-16 cursor coordinates; the tool converts them to the seam's zero-based positions and converts rendered locations back. `references` includes declarations so impact analysis does not omit the defining site. Provider, language id, workspace root, limits, timeout, initialization, and executable stay outside model input.
 
-The tool requires the workspace root from the session `header.cwd`, with no fallback: absence fails as `LSP_WORKSPACE_REQUIRED` before querying. Locations render as stable, file-grouped `path:line:character` entries; a `file:` URI becomes a workspace-relative path (inside) or absolute path (outside), and any other URI stays verbatim. Empty locations and `null` hover are successful no-result responses; malformed provider payloads remain structured errors.
+The tool requires the workspace root from the session `header.cwd`, with no fallback: absence fails as `LSP_WORKSPACE_REQUIRED` before querying. Locations render as stable, file-grouped `path:line:character` entries relativized against the result's `resolvedWorkspaceRoot` (the provider's canonical root), not the session cwd — so a symlinked cwd still renders in-workspace results as workspace-relative paths; a `file:` URI becomes a workspace-relative path (inside) or absolute path (outside), and any other URI stays verbatim. Empty locations and `null` hover are successful no-result responses; malformed provider payloads remain structured errors.
 
 ## Configuration
 

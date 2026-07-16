@@ -10,6 +10,9 @@
  * - LSP_FAKE_DEF / LSP_FAKE_REFS / LSP_FAKE_IMPL / LSP_FAKE_HOVER: JSON result per request.
  * - LSP_FAKE_HANG: "1" makes textDocument/* requests never respond (for abort/timeout tests).
  * - LSP_FAKE_CRASH_ON_OPEN: "1" exits the process when a didOpen arrives (crash test).
+ * - LSP_FAKE_EXIT_AFTER_REPLY: "1" exits the process right after answering a textDocument/* request,
+ *   simulating a server that dies while idle so the pool holds a dead instance (eviction test).
+ * - LSP_FAKE_EXIT_DELAY_MS / LSP_FAKE_EXIT_MARKER: delay protocol exit and record exit/termination.
  * - LSP_FAKE_NO_SHUTDOWN: "1" ignores the shutdown request (forces kill escalation).
  * - LSP_FAKE_ON_OPEN: server→client request to emit when a didOpen arrives, one of
  *   "configuration" | "applyEdit" | "notification" | "unknown"; the reply is logged to stderr.
@@ -19,11 +22,16 @@
  * Run: node --import tsx fixture-server.ts
  */
 
+import { appendFileSync } from 'node:fs'
+
 const enc = process.env.LSP_FAKE_ENCODING ?? 'utf-16'
 const sync: unknown = process.env.LSP_FAKE_SYNC !== undefined ? JSON.parse(process.env.LSP_FAKE_SYNC) : 1
 const extraCaps: unknown = process.env.LSP_FAKE_CAPS !== undefined ? JSON.parse(process.env.LSP_FAKE_CAPS) : {}
 const hang = process.env.LSP_FAKE_HANG === '1'
 const crashOnOpen = process.env.LSP_FAKE_CRASH_ON_OPEN === '1'
+const exitAfterReply = process.env.LSP_FAKE_EXIT_AFTER_REPLY === '1'
+const exitDelayMs = Number(process.env.LSP_FAKE_EXIT_DELAY_MS ?? 0)
+const exitMarker = process.env.LSP_FAKE_EXIT_MARKER
 const noShutdown = process.env.LSP_FAKE_NO_SHUTDOWN === '1'
 const onOpen = process.env.LSP_FAKE_ON_OPEN
 const errorReply = process.env.LSP_FAKE_ERROR === '1'
@@ -31,6 +39,11 @@ const garbage = process.env.LSP_FAKE_GARBAGE === '1'
 
 let serverRequestId = 10_000
 const pendingServerRequests = new Map<number, string>()
+
+process.on('SIGTERM', () => {
+  markExit('TERM')
+  process.exit(0)
+})
 
 function resultFor(method: string): unknown {
   switch (method) {
@@ -98,6 +111,15 @@ function handle(message: { id?: number; method?: string; params?: unknown; resul
     return
   }
   if (method === 'exit') {
+    markExit('EXIT')
+    if (exitDelayMs > 0) {
+      setTimeout(() => {
+        markExit('CLEAN')
+        process.exit(0)
+      }, exitDelayMs)
+      return
+    }
+    markExit('CLEAN')
     process.exit(0)
   }
   if (method === 'textDocument/didOpen') {
@@ -110,10 +132,18 @@ function handle(message: { id?: number; method?: string; params?: unknown; resul
     if (hang) return
     if (errorReply) { send({ id, error: { code: -32000, message: 'server refused the request' } }); return }
     send({ id, result: resultFor(method) })
+    // Simulate an idle death: answer this request, then exit before the next one arrives so the pool
+    // is left holding a dead instance.
+    if (exitAfterReply) setTimeout(() => process.exit(0), 20)
     return
   }
   // Unknown request with an id: answer null so the client never stalls.
   if (id !== undefined) send({ id, result: null })
+}
+
+/** Append one teardown event when the fixture is configured to expose process ordering. */
+function markExit(event: string): void {
+  if (exitMarker !== undefined) appendFileSync(exitMarker, `${event}\n`)
 }
 
 /** Emit a server→client request and log the client's reply to stderr for the test to assert. */

@@ -62,7 +62,7 @@ interface LspProviderQuery extends LspQueryRequest {
 }
 
 type LspQueryResult =
-  | { readonly kind: 'locations'; readonly locations: readonly { readonly uri: string; readonly range: LspRange }[] }
+  | { readonly kind: 'locations'; readonly locations: readonly { readonly uri: string; readonly range: LspRange }[]; readonly resolvedWorkspaceRoot: string }
   | { readonly kind: 'hover'; readonly hover: { readonly contents: string; readonly range?: LspRange } | null }
 
 interface LspProvider {
@@ -77,7 +77,7 @@ interface LspService {
 }
 ```
 
-Mapping keys normalize to lowercase, leading-dot extensions selected from `filePath`'s final extension; language ids only synchronize documents. Seam positions and ranges are zero-based UTF-16. `references` always includes declarations: providers enforce this internally, the local mapping sets `context.includeDeclaration: true`, and callers get no flag. Closed result unions normalize navigation to locations and hover to content or `null`. The seam exposes no protocol types, process or document controls, or generic request escape hatch.
+Mapping keys normalize to lowercase, leading-dot extensions selected from `filePath`'s final extension; language ids only synchronize documents. Seam positions and ranges are zero-based UTF-16. `references` always includes declarations: providers enforce this internally, the local mapping sets `context.includeDeclaration: true`, and callers get no flag. Closed result unions normalize navigation to locations and hover to content or `null`; navigation results carry the provider's resolved workspace root so consumers relativize file URIs in the same canonical namespace. The seam exposes no protocol types, process or document controls, or generic request escape hatch.
 
 `dsh-lsp-local` owns host files, server configuration, JSON-RPC, process and transient-document state, and protocol translation; it depends on `dsh-lsp` and Node APIs, not `dsh-fs`. `dsh-tool-lsp` runtime-injects only `tools`, `lsp`, and `systemPrompt`, obtains the workspace from `exec.agent?.session.header.cwd` through a package-local `sessionCwd(exec)` helper matching the filesystem tools' lookup, and imports no provider.
 

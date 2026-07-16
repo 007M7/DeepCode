@@ -169,7 +169,7 @@ export class LspInstance {
    */
   private abortable<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
     if (signal === undefined) return work
-    /* v8 ignore next -- runQuery checks signal.aborted before each abortable() call, so it is not already aborted here; defensive. */
+    /* v8 ignore next -- callers either pre-check the signal or pass a freshly armed teardown deadline. */
     if (signal.aborted) return Promise.reject(abortError(signal))
     return new Promise<T>((resolve, reject) => {
       const onAbort = (): void => { reject(abortError(signal)) }
@@ -232,7 +232,10 @@ export class LspInstance {
     if (operation === 'hover') {
       return { kind: 'hover', hover: normalizeHover(payload) }
     }
-    return { kind: 'locations', locations: normalizeLocations(payload) }
+    // `spec.cwd` is the canonical workspace realpath (the provider canonicalizes before spawning),
+    // and every `file:` location URI is relative to it — so it is the root a caller must relativize
+    // display paths against, not the request's possibly-symlinked workspaceRoot.
+    return { kind: 'locations', locations: normalizeLocations(payload), resolvedWorkspaceRoot: this.spec.cwd }
   }
 
   private answerServerRequest(method: string, params: unknown): Promise<unknown> {
@@ -271,24 +274,18 @@ export class LspInstance {
     try {
       using shutdownDeadline = deadline(undefined, this.spec.shutdownTimeoutMs, 'LSP_SHUTDOWN')
       await this.gracefulShutdown(shutdownDeadline.signal)
+      return
     } catch {
       // Graceful shutdown failed or timed out: fall through to signal escalation.
     }
     await this.forceTerminate()
   }
 
-  /** Best-effort LSP `shutdown` request then `exit` notification, bounded by `signal`. */
+  /** Best-effort LSP `shutdown`/`exit`, including process close, bounded by `signal`. */
   private async gracefulShutdown(signal: AbortSignal): Promise<void> {
-    const shutdown = this.connection.request('shutdown', null)
-    await Promise.race([
-      shutdown,
-      new Promise<never>((_, reject) => {
-        /* v8 ignore next -- the shutdown deadline signal is freshly armed and not yet aborted here; defensive. */
-        if (signal.aborted) { reject(abortError(signal)); return }
-        signal.addEventListener('abort', () => { reject(abortError(signal)) }, { once: true })
-      }),
-    ])
+    await this.abortable(this.connection.request('shutdown', null), signal)
     this.connection.notify('exit', null)
+    await this.abortable(this.connection.closed, signal)
   }
 
   /** SIGTERM, wait `killGraceMs` for close, then SIGKILL; await full process close either way. */

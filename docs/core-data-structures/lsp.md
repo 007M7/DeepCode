@@ -54,7 +54,7 @@ interface LspProviderQuery extends LspQueryRequest {
 
 ## Result
 
-A CLOSED discriminated union: navigation operations normalize to `locations`, `hover` to content or `null`. Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled. `references` always includes declarations — the provider enforces this internally, so callers get no flag.
+A CLOSED discriminated union: navigation operations normalize to `locations`, `hover` to content or `null`. Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled. `references` always includes declarations — the provider enforces this internally, so callers get no flag. The `locations` variant carries `resolvedWorkspaceRoot`: the provider's canonical form of the request's `workspaceRoot` and the root its `file:` URIs are relative to, so a caller relativizing display paths uses it rather than the possibly-symlinked request root.
 
 ```ts type-equiv
 interface LspLocation {
@@ -76,7 +76,7 @@ interface LspHover {
 
 ```ts type-equiv
 type LspQueryResult =
-  | { readonly kind: 'locations'; readonly locations: readonly LspLocation[] }
+  | { readonly kind: 'locations'; readonly locations: readonly LspLocation[]; readonly resolvedWorkspaceRoot: string }
   | { readonly kind: 'hover'; readonly hover: LspHover | null }
 ```
 

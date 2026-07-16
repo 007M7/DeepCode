@@ -102,4 +102,16 @@ describe('lsp-local provider resolution', () => {
     })).rejects.toThrow(/is not an executable file/)
     await ctx.fiber.dispose()
   })
+
+  it('rejects an executable directory as a command at load', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await expect(ctx.plugin(LspLocal, {
+      providerId: 'abs-directory',
+      command: ws,
+      args: [],
+      extensionToLanguage: { '.ts': 'typescript' },
+    })).rejects.toThrow(/is not an executable file/)
+    await ctx.fiber.dispose()
+  })
 })

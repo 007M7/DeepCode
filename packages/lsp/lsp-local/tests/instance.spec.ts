@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtemp, mkdir, rm, writeFile, realpath } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
@@ -96,17 +96,17 @@ describe('LspInstance server-request handling', () => {
 
   it('accepts a lifecycle client/registerCapability request', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'lifecycle', LSP_FAKE_DEF: 'null' })
-    await expect(run(instance, 'definition')).resolves.toEqual({ kind: 'locations', locations: [] })
+    await expect(run(instance, 'definition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
   })
 
   it('rejects a workspace/applyEdit request but keeps serving', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'applyEdit', LSP_FAKE_DEF: 'null' })
-    await expect(run(instance, 'definition')).resolves.toEqual({ kind: 'locations', locations: [] })
+    await expect(run(instance, 'definition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
   })
 
   it('rejects an unknown server request but keeps serving', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'unknown', LSP_FAKE_DEF: 'null' })
-    await expect(run(instance, 'definition')).resolves.toEqual({ kind: 'locations', locations: [] })
+    await expect(run(instance, 'definition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
   })
 })
 
@@ -195,6 +195,18 @@ describe('LspInstance query and abort', () => {
 })
 
 describe('LspInstance disposal', () => {
+  it('lets a server finish protocol exit before signal escalation', async () => {
+    const marker = join(root, 'graceful-exit.log')
+    const instance = makeInstance({
+      LSP_FAKE_DEF: 'null',
+      LSP_FAKE_EXIT_DELAY_MS: '75',
+      LSP_FAKE_EXIT_MARKER: marker,
+    }, { shutdownTimeoutMs: 500 })
+    await run(instance, 'definition')
+    await instance.dispose()
+    expect(await readFile(marker, 'utf8')).toBe('EXIT\nCLEAN\n')
+  })
+
   it('is idempotent — a second dispose awaits close without error', async () => {
     const instance = makeInstance({ LSP_FAKE_DEF: 'null' })
     await run(instance, 'definition')

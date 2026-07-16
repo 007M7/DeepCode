@@ -64,6 +64,9 @@ export class MessageDecoder {
       }
       return { ready: false }
     }
+    if (separator > MAX_HEADER_BYTES) {
+      throw new Error(`LSP header exceeded ${MAX_HEADER_BYTES} bytes`)
+    }
     const headerText = this.buffer.toString('ascii', 0, separator)
     const contentLength = parseContentLength(headerText)
     if (contentLength > this.maxMessageBytes) {

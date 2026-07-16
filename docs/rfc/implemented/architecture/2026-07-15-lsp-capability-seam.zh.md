@@ -62,7 +62,7 @@ interface LspProviderQuery extends LspQueryRequest {
 }
 
 type LspQueryResult =
-  | { readonly kind: 'locations'; readonly locations: readonly { readonly uri: string; readonly range: LspRange }[] }
+  | { readonly kind: 'locations'; readonly locations: readonly { readonly uri: string; readonly range: LspRange }[]; readonly resolvedWorkspaceRoot: string }
   | { readonly kind: 'hover'; readonly hover: { readonly contents: string; readonly range?: LspRange } | null }
 
 interface LspProvider {
@@ -77,7 +77,7 @@ interface LspService {
 }
 ```
 
-映射键规范化为带前导点的小写扩展名，并按 `filePath` 的最后一个扩展名选择；语言 id 仅用于文档同步。服务边界中的位置和范围从零开始按 UTF-16 计数。`references` 始终包含声明：提供方在内部执行该约束，本地映射设置 `context.includeDeclaration: true`，调用方不能配置。封闭结果联合将导航统一为位置，将 `hover` 统一为内容或 `null`。服务边界不公开协议类型、进程或文档控制，也不提供通用请求逃生口。
+映射键规范化为带前导点的小写扩展名，并按 `filePath` 的最后一个扩展名选择；语言 id 仅用于文档同步。服务边界中的位置和范围从零开始按 UTF-16 计数。`references` 始终包含声明：提供方在内部执行该约束，本地映射设置 `context.includeDeclaration: true`，调用方不能配置。封闭结果联合将导航统一为位置，将 `hover` 统一为内容或 `null`；导航结果携带提供方解析后的工作区根目录，使消费方依据同一规范化根目录相对化文件 URI。服务边界不公开协议类型、进程或文档控制，也不提供通用请求逃生口。
 
 `dsh-lsp-local` 负责主机文件、服务器配置、JSON-RPC、进程与临时文档状态和协议转换；它依赖 `dsh-lsp` 与 Node API，不依赖 `dsh-fs`。`dsh-tool-lsp` 在运行时只注入 `tools`、`lsp` 和 `systemPrompt`，通过包内的 `sessionCwd(exec)` 辅助函数从 `exec.agent?.session.header.cwd` 取得工作区，其取值方式与文件系统工具一致，也不导入提供方。
 

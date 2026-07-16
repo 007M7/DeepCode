@@ -11,7 +11,7 @@
  * @module @deepseek-ai/dsh-lsp-local
  */
 
-import { accessSync, constants } from 'node:fs'
+import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, isAbsolute, join } from 'node:path'
 import type { Context } from 'cordis'
 import z from 'schemastery'
@@ -178,19 +178,23 @@ class LocalLspProvider implements LspProvider {
     // were canonicalizing/reading, so creating a server now would leave it unowned by teardown.
     /* v8 ignore next -- guards a dispose landing during the canonicalize/read await; not a reproducible unit race. */
     if (this.isDisposed()) throw new Error('lsp-local provider is disposed')
-    const instance = await this.instanceFor(workspace)
+    // Re-check cancellation too: an abort during the canonicalize/read awaits must not go on to spawn
+    // (or pool) a server solely for an operation the caller already gave up on.
+    if (signal?.aborted) throw abortError(signal)
+    let instance = await this.instanceFor(workspace)
+    // A pooled server that exited while idle resolves to a dead instance: evict it and create a fresh
+    // one before dispatch, so this query does not have to fail on a closed connection first. One retry
+    // suffices — the replacement was just constructed and has not been used.
+    if (instance.dead) {
+      await this.evictIfCurrent(workspace, instance)
+      instance = await this.instanceFor(workspace)
+    }
     try {
       return await instance.query(request, source, signal)
     } finally {
       // A crashed/closed process must not be reused: drop its slot so the next query starts fresh,
       // but only if the slot still holds THIS instance (a concurrent replacement must survive).
-      if (instance.dead) {
-        const slot = this.instances.get(workspace)
-        /* v8 ignore next -- the slot-undefined arm needs a concurrent eviction of the same slot; defensive. */
-        if (slot !== undefined && (await settledInstance(slot)) === instance) {
-          this.instances.delete(workspace)
-        }
-      }
+      if (instance.dead) await this.evictIfCurrent(workspace, instance)
     }
   }
 
@@ -206,6 +210,15 @@ class LocalLspProvider implements LspProvider {
       if (this.instances.get(workspace) === created) this.instances.delete(workspace)
     })
     return created
+  }
+
+  /** Drop the slot for `workspace` iff it still resolves to `instance` (a concurrent replacement survives). */
+  private async evictIfCurrent(workspace: string, instance: LspInstance): Promise<void> {
+    const slot = this.instances.get(workspace)
+    /* v8 ignore next -- the slot-undefined/mismatch arm needs a concurrent eviction of the same slot; defensive. */
+    if (slot !== undefined && (await settledInstance(slot)) === instance) {
+      this.instances.delete(workspace)
+    }
   }
 
   private createInstance(workspace: string): LspInstance {
@@ -265,7 +278,7 @@ function buildChildEnv(extra: Record<string, string>): Record<string, string> {
 function resolveExecutable(command: string, childEnv: Record<string, string>): string {
   if (isAbsolute(command)) {
     // Verify an absolute command too, so an unavailable one fails at load, not on the first query.
-    if (!isExecutableSync(command)) {
+    if (!isExecutableFileSync(command)) {
       throw new Error(`lsp-local: command "${command}" is not an executable file`)
     }
     return command
@@ -275,14 +288,15 @@ function resolveExecutable(command: string, childEnv: Record<string, string>): s
   for (const dir of pathValue.split(delimiter)) {
     if (dir === '') continue
     const candidate = join(dir, command)
-    if (isExecutableSync(candidate)) return candidate
+    if (isExecutableFileSync(candidate)) return candidate
   }
   throw new Error(`lsp-local: command "${command}" was not found on PATH`)
 }
 
-/** Synchronous executable check used only at load-time resolution. */
-function isExecutableSync(path: string): boolean {
+/** Synchronous regular-file and executable check used only at load-time resolution. */
+function isExecutableFileSync(path: string): boolean {
   try {
+    if (!statSync(path).isFile()) return false
     accessSync(path, constants.X_OK)
     return true
   } catch {
