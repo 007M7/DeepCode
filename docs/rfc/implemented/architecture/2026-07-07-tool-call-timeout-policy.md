@@ -78,7 +78,7 @@ No new session event is needed for reconstructability: `TOOL_TIMEOUT` is the fin
 
 `bash` stays on the current backend timeout path. `dsh-tool-bash` continues to expose `timeoutMs` and `run_in_background`; `dsh-bash-local` continues to use `@deepseek-ai/dsh-timeout` for `BASH_TIMEOUT`; hook bridges continue to call `runHook()` and pass `timeoutMs` through `ctx.bash`. This keeps foreground/background/hook behavior stable.
 
-`read`, `write`, `edit`, `todo_write`, `bash_output`, and `bash_kill` do not opt into tool-call timeout: they are local filesystem or short registry/session operations where a deadline would be best-effort only or unnecessary.
+`read`, `write`, `edit`, `todo_write`, `task_list`, and `task_kill` do not opt into tool-call timeout. `task_output` owns its bounded wait because a wait timeout is a successful live-status result, not a tool failure.
 
 A future model-facing grep/glob tool can be implemented on top of `ctx.bash` without importing `@deepseek-ai/dsh-timeout`: it forwards `exec.signal` to `ctx.bash`, and declares its own `timeoutMs` (from its plugin's config) for the enforcer to apply. If bash-local's backend timeout becomes a problem for such a tool, the bash seam can later add a caller-owned-deadline mode; that is outside this cut.
 

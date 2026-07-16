@@ -33,7 +33,7 @@ ACP advertises no start-time capabilities because this process cannot enforce th
   config:
     providerName: acp
     command: node
-    args: ['--import', 'tsx', './packages/ui/acp-agent/src/bin.ts', '--config', './examples/acp-agent/cordis.yml']
+    args: ['--import', 'tsx', './packages/examples/acp-demo/src/bin.ts', '--config', './examples/acp-agent/cordis.yml']
     permission: reject
     env:
       DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY

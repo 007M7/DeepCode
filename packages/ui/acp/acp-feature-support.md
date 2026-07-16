@@ -133,7 +133,7 @@ The bridge rejects unsupported prompt blocks rather than silently dropping them 
 | Multi-session (N per connection) | S | ✅ | Strict per-session demux; concurrent streams never interleave. See the [multi-session RFC](../../../docs/rfc/implemented/feature/2026-06-14-acp-multi-session.md). |
 | Disconnect / disposal teardown | S | ✅ | Quiesces every live session on client disconnect or Cordis disposal. |
 | `_meta` extensibility | S | ⚠️ | Consumed (Zed terminal cap) and emitted (terminal `_meta`); no other custom extensions. |
-| Background-task ownership isolation | — | ✅ | `bash_output`/`bash_kill` reject another session's task via an opaque owner token. |
+| Background-task ownership isolation | — | ✅ | Generic `task_output`/`task_kill` reject tasks whose branded owner `SessionId` belongs to another session. |
 | stdout-is-the-protocol guarantee | S | ✅ | The bridge runs in an example with no stdout logger. |
 
 ## Gap summary
