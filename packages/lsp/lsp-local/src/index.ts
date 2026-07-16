@@ -114,8 +114,12 @@ export function apply(ctx: Context, config: Config): void {
   // nonpositive value would let a server that ignores shutdown hang disposal forever. Fail at load.
   assertPositiveInteger('shutdownTimeoutMs', resolved.shutdownTimeoutMs)
   assertPositiveInteger('killGraceMs', resolved.killGraceMs)
-  // A nonpositive stderr cap defeats the retained-tail bound (`slice(-0)` keeps everything).
+  // Byte caps must be positive: a nonpositive stderr cap defeats the retained-tail bound
+  // (`slice(-0)` keeps everything), `maxMessageBytes: 0` makes every response fatal, and a bad
+  // document cap fails later in the read path instead of at load.
   assertPositiveInteger('maxStderrBytes', resolved.maxStderrBytes)
+  assertPositiveInteger('maxMessageBytes', resolved.maxMessageBytes)
+  assertPositiveInteger('maxDocumentBytes', resolved.maxDocumentBytes)
   const childEnv = buildChildEnv(resolved.env)
   // Resolve the executable eagerly so a misconfigured command fails at load, not on first query.
   const executable = resolveExecutable(resolved.command, childEnv)

@@ -105,6 +105,16 @@ describe('lsp-local end to end over a fake server', () => {
     await ctx.fiber.dispose()
   })
 
+  it('does not pool a poisoned instance when initialize rejects', async () => {
+    // A utf-8 server makes `initialize` reject; the instance must be torn down (not left with a
+    // permanently-rejecting `ready`) so a later query starts a fresh process rather than reusing it.
+    const ctx = await mount({ LSP_FAKE_ENCODING: 'utf-8', LSP_FAKE_DEF: 'null' })
+    await expect(ctx.lsp.query(query('definition'))).rejects.toThrow(/unsupported position encoding/)
+    // A second query must also fail the same way (fresh instance), and must NOT hang on a poisoned one.
+    await expect(ctx.lsp.query(query('definition'))).rejects.toThrow(/unsupported position encoding/)
+    await ctx.fiber.dispose()
+  })
+
   it('rejects a server without transient-open sync (None)', async () => {
     const ctx = await mount({ LSP_FAKE_SYNC: '0', LSP_FAKE_DEF: 'null' })
     await expect(ctx.lsp.query(query('definition'))).rejects.toThrow(/transient textDocument\/didOpen/)

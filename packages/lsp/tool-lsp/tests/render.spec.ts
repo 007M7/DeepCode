@@ -60,6 +60,12 @@ describe('renderUri', () => {
     expect(renderUri(pathToFileURL(WS).href, WS)).toBe('.')
   })
 
+  it('keeps an in-workspace path whose first segment starts with dots relative', () => {
+    // `..generated` is a real in-workspace dir, not a parent escape; only a `..` segment is external.
+    const uri = pathToFileURL(join(WS, '..generated', 'a.ts')).href
+    expect(renderUri(uri, WS)).toBe('..generated/a.ts')
+  })
+
   it('keeps a non-file URI verbatim', () => {
     expect(renderUri('untitled:Untitled-1', WS)).toBe('untitled:Untitled-1')
     expect(renderUri('jdt://contents/Foo.class', WS)).toBe('jdt://contents/Foo.class')

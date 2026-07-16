@@ -137,7 +137,9 @@ export function renderUri(uri: string, workspaceRoot: string): string {
   }
   const rel = relative(workspaceRoot, absolute)
   if (rel === '') return '.'
-  const outside = rel.startsWith('..') || isAbsolute(rel)
+  // A leading `..` SEGMENT (or an absolute rel) means outside the workspace; guard against a false
+  // positive on an in-workspace path whose first component merely starts with dots (e.g. `..gen/x`).
+  const outside = rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)
   return outside ? absolute : rel.split(sep).join('/')
 }
 

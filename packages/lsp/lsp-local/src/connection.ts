@@ -187,9 +187,10 @@ export class LspConnection {
     try {
       messages = this.decoder.push(chunk)
     } catch (error) {
-      // A framing/JSON failure corrupts the stream position irrecoverably: fail the instance.
+      // A framing/JSON failure corrupts the stream position irrecoverably: fail the instance and
+      // SIGKILL the whole group so helper processes don't outlive the leader.
       this.fail(asError(error))
-      this.child.kill('SIGKILL')
+      this.signalGroup('SIGKILL')
       return
     }
     for (const message of messages) this.dispatch(message)

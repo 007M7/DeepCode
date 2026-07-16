@@ -108,16 +108,17 @@ export class LspInstance {
     if (this.disposed) throw new Error('LSP instance was disposed')
     /* v8 ignore next -- the abortable queue wait rejects a pre-aborted signal before runQuery; this is a belt-and-suspenders guard. */
     if (signal?.aborted) throw abortError(signal)
-    // Observe abort during the handshake wait: a server that never answers `initialize` must not
-    // block the tool-timeout signal here (the timeout policy awaits our quiescence, not the promise).
-    // If abort wins, the handshake is still pending on a live process, so tear the instance down —
-    // otherwise its poisoned `ready` would make every later query for this workspace re-wait.
+    // Observe abort during the handshake wait, and never pool a poisoned instance: if the wait ends
+    // in failure — an abort on a still-pending handshake, OR `initialize` rejecting (utf-8
+    // negotiation, malformed result) without the process exiting — tear the instance down so a
+    // permanently-rejecting/pending `ready` can't make every later query for this workspace fail.
     try {
       await this.abortable(this.ready, signal)
     } catch (error) {
-      if (signal?.aborted && !this.dead) {
+      if (!this.dead) {
         this.disposed = true
-        await this.tearDown(abortError(signal))
+        /* v8 ignore next -- ready rejects with an Error (abort reason or initialize failure); the String() fallback is defensive. */
+        await this.tearDown(error instanceof Error ? error : new Error(String(error)))
       }
       throw error
     }
