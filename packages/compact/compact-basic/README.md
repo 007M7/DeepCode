@@ -9,12 +9,13 @@ This is the implementation tier of the compaction capability — see the [interf
 This backend owns the compaction policy:
 
 - **Measurement** — the singleton `ctx.tokenMeter` prices the latest canonical logged envelope and current surface at one consumed-log revision. Post-step pressure therefore includes the actual system prompt, tools, prefix, routing, assistant completion, tool results, buffered context, and steering.
+- **Model-free pruning** — after pressure or canonical overflow qualifies, the optional [`ctx.toolResultPrune`](../tool-result-prune/README.md) service rewrites oversized tool results before range selection. Compact-basic remeasures through `ctx.tokenMeter`, skips summarization when pressure becomes safe, and otherwise summarizes the pruned surface. Below-pressure post-step checks never prune.
 - **Retention** — compact the oldest whole surface units while preserving a recent tail and balanced tool-call/result cuts through the [`dsh-compact` boundary helpers](../compact/README.md#tool-pairing-boundaries). Turn boundaries do not protect old steps inside a runaway turn. An open indivisible tail declines until it closes; a single unit larger than the budget remains out of scope.
 - **Convergence** — retry head-checkpoint compaction up to `compactionRetries`; reject a summary that does not shrink its source, and throw if retries cannot return below threshold.
 - **Summarization** — a direct `llm/stream` call uses the configured model and cap without running the loop-only `agent/request` seam. The input transcript preserves non-text blocks as tagged placeholders; only returned text enters the checkpoint, excluding reasoning and tool calls that would leak private reasoning or create an orphaned call.
 - **Framing** — the replacement user message marks established checkpoint context with `<compacted-summary>` tags. The raw summary remains on the provenance event, and later automatic cycles merge the prior checkpoint.
 - **Lifecycle** — `compactRegion()` requires its agent to own the exact target session and rejects mismatch before resolution or mutation; a valid call records its start, summary, replacement, and end. The serial `agent/post-step` listener checks pressure after successful output and tool work are durable but before `step/end`. Canonical provider overflow is handled through `agent/request-error` after the failed step closes.
-- **Overflow recovery** — below-threshold overflow bypasses normal retention and attempts one maximal balanced head reduction while leaving the newest indivisible unit. Retry is authorized only when `surface.replaceGeneration` advances; no range, no replacement, recovery failure, an exhausted cap, cancellation, or an unknown/noncanonical error preserves the original provider failure.
+- **Overflow recovery** — below-threshold overflow bypasses normal retention and first prunes, then attempts one maximal balanced head reduction while leaving the newest indivisible unit. Retry is authorized whenever `surface.replaceGeneration` advances, including pruning-only progress on an otherwise indivisible surface; no replacement, recovery failure, an exhausted cap, cancellation, or an unknown/noncanonical error preserves the original provider failure.
 - **Failure handling** — an unmatched `compact/start` is an inert crash marker because no replacement landed. Operational post-step failures warn and continue; overflow-recovery failure preserves the original provider error.
 
 `summarize()` is the sole subclass hook. A template- or remote-summarizer subclass can override it while pressure, retention, provenance, shrink validation, and shadowed-token accounting stay on `ctx.tokenMeter`. The hook returns the summary blocks together with the call envelope it used (`{ summary, model, maxTokens? }`), which is logged on `compact/summary`.
@@ -49,15 +50,15 @@ export function apply(ctx: Context): void {
 }
 ```
 
-Loading the plugin registers `ctx.compact`. With `auto: true` (the default) it compacts automatically under token pressure; a consumer (a future `/compact` tool) can also call `ctx.compact.compactIfNeeded(...)` or `ctx.compact.compactRegion(...)` directly.
+Loading the plugin registers `ctx.compact`. Add [`dsh-tool-result-prune`](../tool-result-prune/README.md) as a sibling before this plugin to enable the optional model-free pass. With `auto: true` (the default) it compacts automatically under token pressure; a consumer (a future `/compact` tool) can also call `ctx.compact.compactIfNeeded(...)` or `ctx.compact.compactRegion(...)` directly.
 
 ## Model Experience
 
 ### Conversation history
 
-**What the model sees**: After a successful step crosses the threshold, the next request receives the checkpoint preamble below, a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. Overflow recovery rebuilds the immediate retry from that replacement. This one checkpoint replaces the selected older range and is followed by the retained recent units.
+**What the model sees**: After a successful step crosses the threshold, oversized tool results are first rewritten when the optional pruner is loaded. If summarization remains necessary, the next request receives the checkpoint preamble below, a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. Overflow recovery rebuilds the immediate retry from whatever replacement advanced the surface.
 
-**Token effect**: The replacement reduces future input history rather than appending a second copy. The summary remains until a later compaction replaces it; one oversized indivisible unit can still exceed the budget.
+**Token effect**: Model-free pruning can avoid the auxiliary call entirely; otherwise it reduces that call's transcript before the summary replaces an older range. A summary remains until a later compaction replaces it, while an indivisible non-tool unit can still exceed the budget.
 
 #### Conversation checkpoint preamble
 

@@ -69,6 +69,11 @@ describe('gen-tool-catalog assertManifestComplete', () => {
     // is unlisted, so the guard must fire and name them.
     expect(() => { assertManifestComplete([]) }).toThrow(/not in the boot manifest/)
     expect(() => { assertManifestComplete([]) }).toThrow(/tool-bash/)
+    try {
+      assertManifestComplete([])
+    } catch (error) {
+      expect(String(error)).not.toContain('tool-result-prune')
+    }
   })
 })
 

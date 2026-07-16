@@ -16,6 +16,8 @@ flowchart LR
   pkg_compact_basic["compact-basic"]
   pkg_token_meter["token-meter"]
   svc_tokenMeter["ctx.tokenMeter<br/>Replay token measurement"]
+  pkg_tool_result_prune["tool-result-prune"]
+  svc_toolResultPrune["ctx.toolResultPrune<br/>Model-free tool-result pruning"]
   pkg_session["session"]
   svc_sessions["ctx.sessions<br/>In-memory session store"]
   pkg_agent["agent"]
@@ -127,6 +129,7 @@ flowchart LR
   pkg_system_prompt --> svc_systemPrompt
   pkg_tasks --> svc_tasks
   pkg_token_meter --> svc_tokenMeter
+  pkg_tool_result_prune --> svc_toolResultPrune
   pkg_tools --> svc_tools
   pkg_user_interaction --> svc_userInteraction
   pkg_web --> svc_web
@@ -173,6 +176,7 @@ flowchart LR
   svc_tasks --> pkg_tool_subagent
   svc_tasks --> pkg_tool_tasks
   svc_tokenMeter --> pkg_compact_basic
+  svc_toolResultPrune --> pkg_compact_basic
   svc_tools --> pkg_acp
   svc_tools --> pkg_agent_loop
   svc_tools --> pkg_tool_ask_user
@@ -195,6 +199,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | `ctx.llm` | `seam` | [`llm`](../packages/llm/llm) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-replay`](../packages/support/llm-replay) | [`agent-loop`](../packages/core/agent-loop), [`compact-basic`](../packages/compact/compact-basic) | - | Adapters register provider implementations; the loop and compaction call the provider-neutral stream service. |
 | `ctx.tokenMeter` | `core` | [`token-meter`](../packages/llm/token-meter) | - | [`compact-basic`](../packages/compact/compact-basic) | - | Owns isolated per-session replay folds; pressure consumers share immutable revisioned measurements. |
+| `ctx.toolResultPrune` | `core` | [`tool-result-prune`](../packages/compact/tool-result-prune) | - | [`compact-basic`](../packages/compact/compact-basic) | - | Rewrites oversized current tool results through replayable single-node surface replacements before summary compaction. |
 | `ctx.sessions` | `core` | [`session`](../packages/core/session) | - | [`agent-loop`](../packages/core/agent-loop), [`agent`](../packages/core/agent), [`session-persistence`](../packages/session-persistence/session-persistence), [`session-query`](../packages/session-query/session-query), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`invariants`](../packages/support/invariants) | - | Owns append-only Session instances and emits the durable session event feed. |
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session-persistence/session-persistence) | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/ui/acp), [`session-query`](../packages/session-query/session-query) | - | Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time. |
 | `ctx.sessionQuery` | `seam` | [`session-query`](../packages/session-query/session-query) | - | - | - | Resolves live and optional persisted logs into one logical corpus for exact reads. |

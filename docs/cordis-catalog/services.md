@@ -272,6 +272,20 @@ Types: [Message](../core-data-structures/core.md)
 
 Source: [`packages/llm/token-meter/src/index.ts:106`](../../packages/llm/token-meter/src/index.ts)
 
+## `ctx.toolResultPrune` — `ToolResultPruneService`
+
+Deterministic head/middle/tail pruning for current tool-result surface nodes.
+
+```ts cordis-catalog
+measureContent(blocks: readonly ContentBlock[]): number
+pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
+pruneSession(session: Session): PruneResult
+```
+
+Types: [ContentBlock](../core-data-structures/core.md)
+
+Source: [`packages/compact/tool-result-prune/src/index.ts:39`](../../packages/compact/tool-result-prune/src/index.ts)
+
 ## `ctx.tools` — `ToolRegistry`
 
 Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.

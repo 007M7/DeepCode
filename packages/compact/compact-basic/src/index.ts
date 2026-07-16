@@ -12,6 +12,8 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import { CONTEXT_WINDOW_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+// Type-only: makes the optional sibling service available to `ctx.get()`.
+import type {} from '@deepseek-ai/dsh-tool-result-prune'
 import { resolveConfig } from './config.ts'
 import { compactSurfaceRegion, selectCompactableRange } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
@@ -111,9 +113,9 @@ export class BasicCompactService extends CompactService {
         return next()
       }
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while compaction is awaited.
-      if (signal.aborted || result === null
+      if (signal.aborted
         || agent.session.surface.replaceGeneration <= generation) return next()
-      logResult(result, 'context overflow recovery')
+      if (result !== null) logResult(result, 'context overflow recovery')
       return { action: 'retry' }
     })
   }
@@ -142,7 +144,7 @@ export class BasicCompactService extends CompactService {
    * @param agent - agent whose latest durable routed request is measured.
    * @param trigger - normal post-step pressure or context-overflow recovery.
    * @param signal - live turn cancellation signal forwarded to summarization.
-   * @returns the latest compaction result, or `null` when no check/work applies.
+   * @returns the latest summary compaction result, or `null` when no summary ran.
    */
   override async compactIfNeeded(
     agent: Agent,
@@ -152,15 +154,25 @@ export class BasicCompactService extends CompactService {
     const model = routedModel(agent.session)
     if (model === undefined) return null
     const meter = this.ctx.tokenMeter
+    const threshold = Math.floor(meter.contextWindow * this.config.thresholdRatio)
+    let measurement = meter.measure(agent.session)
+    if (trigger === 'pressure' && measurement.totalTokens < threshold) return null
+
+    // Pruning is optional so compact-basic remains independently composable.
+    // Once either trigger qualifies, land the model-free pass before choosing
+    // a summary range, then remeasure through the singleton replay fold.
+    const prune = this.ctx.get('toolResultPrune')
+    if (prune !== undefined) {
+      prune.pruneSession(agent.session)
+      measurement = meter.measure(agent.session)
+    }
+
     if (trigger === 'context-overflow') {
-      const measurement = meter.measure(agent.session)
       const range = selectCompactableRange(agent.session, measurement, 0)
       if (range === null) return null
       return this.compactRegion(agent.session, range.start, range.end, agent, signal)
     }
 
-    const threshold = Math.floor(meter.contextWindow * this.config.thresholdRatio)
-    let measurement = meter.measure(agent.session)
     if (measurement.totalTokens < threshold) return null
 
     let result: CompactionResult | null = null

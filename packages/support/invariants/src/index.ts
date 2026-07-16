@@ -232,6 +232,17 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
       break
     }
     case 'tool/result': {
+      // A replacement rewrites an already-executed result whose recorded
+      // turn/step can be closed. Surface provenance above validates the rewrite;
+      // only fresh appends consume an open step's pending call.
+      if (se.surfaceOp !== undefined && se.surfaceOp !== 'append') {
+        if (trace.openTurn === null) {
+          throw new InvariantError(
+            'tool/result surface replacement appended outside any open turn',
+          )
+        }
+        break
+      }
       requireOpenStep(trace, 'tool/result', event.data.turn, event.data.step)
       // A result needs a prior matching call in the same step. (The converse
       // does NOT hold: a call may have no result — a throwing tool-execution

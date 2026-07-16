@@ -1,8 +1,9 @@
 /**
  * Generate `docs/tool-catalog.md` from schemas collected by booting each tool
  * plugin. Runtime registration is the source of truth for computed schemas;
- * the manifest is checked against every on-disk `tool-*` package. `--check`
- * verifies the committed artifact. Rationale and ownership live in
+ * the manifest is checked against every on-disk model-facing `tool-*` package;
+ * non-model service packages with that prefix are explicitly excluded.
+ * `--check` verifies the committed artifact. Rationale and ownership live in
  * `docs/rfc/implemented/process/2026-07-02-tool-schema-catalog.md`.
  */
 
@@ -37,6 +38,9 @@ import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog.md'
+
+/** `tool-*` leaves that are runtime services, not contributors to `ctx.tools`. */
+const NON_MODEL_TOOL_PACKAGES = new Set(['tool-result-prune'])
 
 /**
  * Tool package plus its hand-maintained boot recipe. The caller mounts the
@@ -77,9 +81,10 @@ interface ToolPackage {
 }
 
 /**
- * The boot manifest: every shipped tool package (a `tool-*` leaf under
- * `packages/`). Ordered by package name (the render order); the completeness
- * guard proves it is exhaustive against the on-disk glob.
+ * The boot manifest: every shipped model-facing tool package (a `tool-*` leaf
+ * under `packages/`, excluding {@link NON_MODEL_TOOL_PACKAGES}). Ordered by
+ * package name (the render order); the completeness guard proves it is
+ * exhaustive against the filtered on-disk glob.
  */
 const TOOL_PACKAGES: ToolPackage[] = [
   {
@@ -256,8 +261,9 @@ interface CatalogPackage {
 export type ToolCatalog = CatalogPackage[]
 
 /**
- * Assert the boot manifest covers every shipped tool package on disk (a
- * `tool-*` leaf under `packages/`).
+ * Assert the boot manifest covers every shipped model-facing tool package on
+ * disk (a `tool-*` leaf under `packages/`, excluding explicit service-only
+ * entries in {@link NON_MODEL_TOOL_PACKAGES}).
  * Booting has no source declaration to enumerate, so this glob restores the
  * "a new tool cannot be silently undocumented" guarantee: an unlisted package
  * fails the generator (and the freshness gate) until it is added to
@@ -266,7 +272,10 @@ export type ToolCatalog = CatalogPackage[]
  * `scanRoot` defaults to the repo root; a test may point it at a fixture tree.
  */
 export function assertManifestComplete(packages: ToolPackage[] = TOOL_PACKAGES, scanRoot: string = root): void {
-  const onDisk = globSync('packages/*/tool-*', { cwd: scanRoot }).map(p => basename(p)).sort()
+  const onDisk = globSync('packages/*/tool-*', { cwd: scanRoot })
+    .map(p => basename(p))
+    .filter(dir => !NON_MODEL_TOOL_PACKAGES.has(dir))
+    .sort()
   const listed = new Set(packages.map(p => p.dir))
   const missing = onDisk.filter(dir => !listed.has(dir))
   if (missing.length > 0) {
@@ -339,9 +348,9 @@ export function render(catalog: ToolCatalog): string {
     '',
     'Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the cordis [events](cordis-catalog/events.md) & [services](cordis-catalog/services.md) catalogs (the wiring a plugin listens to and calls) and [core-data-structures/](core-data-structures/core.md) (the types those signatures move) — this page is the *tools* the agent is offered.',
     '',
-    'This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator\'s boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog RFC](rfc/implemented/process/2026-07-02-tool-schema-catalog.md).',
+    'This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any model-facing package is missing from the generator\'s boot manifest; service-only packages that share the prefix are explicitly excluded. See [the tool-schema-catalog RFC](rfc/implemented/process/2026-07-02-tool-schema-catalog.md).',
     '',
-    'Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config. The registered tool NAME can be a load-time config (e.g. `tool-subagent`\'s `toolName`), so a deployment may surface a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog\'s packages-only scope.',
+    'Scope: shipped model-facing product tools under `packages/*/tool-*`, each booted with its DEFAULT config. Runtime service packages such as `tool-result-prune` do not register `ctx.tools` schemas and are explicitly excluded. The registered tool NAME can be a load-time config (e.g. `tool-subagent`\'s `toolName`), so a deployment may surface a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog\'s packages-only scope.',
     '',
     '## Tool Package Map',
     '',

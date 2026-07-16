@@ -3,7 +3,7 @@
 
 # Coding Agent App Composition
 
-The coding REPL demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.
+The coding REPL demo adds the real DeepSeek adapter, filesystem tools, todo_write, tool-result pruning, compaction, and both subagent transports on top of the stdio app package.
 
 ```mermaid
 flowchart LR
@@ -25,6 +25,8 @@ flowchart LR
   bundle_agent_core --> spine_loop["ctx.agents + ctx.agentLoop"]
   plugin_coding_token_meter["token-meter<br/>@deepseek-ai/dsh-token-meter"]
   cfg --> plugin_coding_token_meter
+  plugin_coding_tool_result_prune["tool-result-prune<br/>@deepseek-ai/dsh-tool-result-prune"]
+  cfg --> plugin_coding_tool_result_prune
   plugin_coding_compact_basic["compact-basic<br/>@deepseek-ai/dsh-compact-basic"]
   cfg --> plugin_coding_compact_basic
   plugin_coding_subagent["subagent<br/>@deepseek-ai/dsh-subagent"]
@@ -58,6 +60,7 @@ flowchart LR
 | `bash` | `@deepseek-ai/dsh-bash-local` |
 | `stdio-agent` | `@deepseek-ai/dsh-stdio-demo` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
+| `tool-result-prune` | `@deepseek-ai/dsh-tool-result-prune` |
 | `compact-basic` | `@deepseek-ai/dsh-compact-basic` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |

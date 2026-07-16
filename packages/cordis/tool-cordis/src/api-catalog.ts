@@ -231,6 +231,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'toolResultPrune',
+    summary: 'Deterministic head/middle/tail pruning for current tool-result surface nodes.',
+    methods: [
+      'measureContent(blocks: readonly ContentBlock[]): number',
+      'pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null',
+      'pruneSession(session: Session): PruneResult',
+    ],
+  },
+  {
     key: 'tools',
     summary: 'Tool registry and execution pipeline.',
     methods: [
@@ -792,6 +801,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PromptSection',
     declaration: 'export interface PromptSection {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n}',
+  },
+  {
+    name: 'PrunedEntry',
+    declaration: 'export interface PrunedEntry {\n    readonly originalSeq: number;\n    readonly replacementSeq: number;\n    readonly callId: CallId;\n    readonly charsBefore: number;\n    readonly charsAfter: number;\n}',
+  },
+  {
+    name: 'PruneResult',
+    declaration: 'export interface PruneResult {\n    readonly pruned: readonly PrunedEntry[];\n    readonly charsRemoved: number;\n}',
   },
   {
     name: 'ReasoningBlock',

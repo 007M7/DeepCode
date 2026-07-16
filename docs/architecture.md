@@ -32,6 +32,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx
 | `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry and progressive disclosure |
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
 | `ctx.compact` | [`compact/`](../packages/compact/README.md) | session-log compaction |
+| `ctx.toolResultPrune` | [`compact/tool-result-prune`](../packages/compact/tool-result-prune/README.md) | optional model-free tool-result pruning |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry + generic `task_*` control tools |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
@@ -106,7 +107,7 @@ Each step renders one prompt assembly. Plugins contribute ordered sections, tool
 
 Post-tool context follows all results, preserving call/result adjacency. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering while the step signal remains open. Leftover steering becomes next-turn input. `agent/turn-stop` is terminal through close and flush: later steering is discarded, while ordinary queued prompts survive.
 
-When loaded, `dsh-compact-basic` consumes that post-step checkpoint for `ctx.tokenMeter` pressure under the actual routed header. It also consumes canonical context overflow at `agent/request-error`, but authorizes retry only after a tool-balanced compaction advances `surface.replaceGeneration`. The same turn signal owns both summarization paths.
+When loaded, `dsh-compact-basic` consumes that post-step checkpoint for `ctx.tokenMeter` pressure under the actual routed header. Once pressure or canonical context overflow qualifies, it runs optional `ctx.toolResultPrune` rewriting before summary selection and remeasures the replayed surface. Overflow recovery authorizes retry after either pruning or tool-balanced summary compaction advances `surface.replaceGeneration`. The same turn signal owns both paths.
 
 ### Failure Boundaries
 

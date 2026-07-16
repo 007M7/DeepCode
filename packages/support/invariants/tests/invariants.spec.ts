@@ -189,6 +189,19 @@ describe('session-log invariants', () => {
       .toThrow(/no prior tool\/call/)
   })
 
+  it('keeps fresh tool-result appends open-step and pending-call checked', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    expect(() => session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      callId: CallId('closed'),
+      content: [],
+      isError: false,
+    }, { surfaceOp: 'append' })).toThrow(/open is turn 1\/step null/)
+  })
+
   it('allows a synthetic interrupted tool/result from crash repair without a prior tool/call event', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
@@ -485,6 +498,38 @@ describe('surface invariants', () => {
     session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] })
     // no throw — well-formed replace op
+  })
+
+  it('treats a provenance-backed tool-result replacement as a turn-enclosed rewrite', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('tool/call', {
+      turn: 1,
+      step: 1,
+      callId: CallId('rewrite'),
+      name: 'echo',
+      arguments: '{}',
+    })
+    const original = session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      callId: CallId('rewrite'),
+      content: [{ type: 'text', text: 'original' }],
+      isError: false,
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+
+    expect(() => session.append('tool/result', {
+      ...original.data,
+      content: [{ type: 'text', text: 'pruned' }],
+    }, {
+      surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
+      sourceEventSeqs: [original.seq],
+    })).not.toThrow()
   })
 
   it('accepts known-empty assistant provenance and rejects empty provenance elsewhere', async () => {
