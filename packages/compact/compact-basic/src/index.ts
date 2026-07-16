@@ -9,10 +9,14 @@ import z from 'schemastery'
 import { CompactService } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compact'
 import type { Session } from '@deepseek-ai/dsh-session'
+import { CONTEXT_WINDOW_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import {
+  TOKEN_METER_MODEL_UNCONFIGURED,
+  TokenMeterError,
+} from '@deepseek-ai/dsh-token-meter'
 import type { ModelTokenMeter } from '@deepseek-ai/dsh-token-meter'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { registerAutomaticCompaction } from './automatic.ts'
 import { resolveConfig, resolveModelConfig } from './config.ts'
 import { compactSurfaceRegion, selectCompactableRange } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
@@ -72,7 +76,67 @@ export class BasicCompactService extends CompactService {
   constructor(ctx: Context, config: BasicCompactConfig = {}) {
     super(ctx)
     this.config = resolveConfig(config, ctx.tokenMeter)
-    if (this.config.auto) registerAutomaticCompaction(ctx, this)
+    if (this.config.auto) this._registerAutomaticCompaction()
+  }
+
+  /**
+   * Register the automatic post-step pressure and context-overflow recovery
+   * listeners. `compactIfNeeded` stays dynamically dispatched so subclass
+   * overrides are honored at event time.
+   */
+  private _registerAutomaticCompaction(): void {
+    const { ctx } = this
+    const logResult = (result: CompactionResult, trigger: string): void => {
+      ctx.logger.info(
+        `compaction (${trigger}): shadowed ${result.shadowedSeqs.length} surface nodes `
+        + `(seqs ${result.shadowedRange.start}-${result.shadowedRange.end}, `
+        + `~${result.shadowedTokenCount} tokens)`,
+      )
+    }
+
+    ctx.on('agent/post-step', async (
+      agent: Agent,
+      _turn: number,
+      _step: number,
+      signal: AbortSignal,
+    ) => {
+      if (signal.aborted) return
+      try {
+        const result = await this.compactIfNeeded(agent, 'pressure', signal)
+        if (result !== null) logResult(result, 'post-step pressure')
+      } catch (error: unknown) {
+        // A named routed model without a meter profile is configuration failure,
+        // not an optional operational compaction miss.
+        if (error instanceof TokenMeterError
+          && error.code === TOKEN_METER_MODEL_UNCONFIGURED) throw error
+        const message = error instanceof Error ? error.message : String(error)
+        ctx.logger.warn(`post-step compaction failed: ${message}; continuing the turn`)
+      }
+    })
+
+    ctx.on('agent/request-error', async (agent, _turn, _step, error, retryAttempt, signal, next) => {
+      if (error.code !== CONTEXT_WINDOW_EXCEEDED_CODE
+        || retryAttempt >= this.config.maxOverflowRetries
+        || signal.aborted) return next()
+
+      let generation: number
+      let result: CompactionResult | null
+      try {
+        generation = agent.session.surface.replaceGeneration
+        result = await this.compactIfNeeded(agent, 'context-overflow', signal)
+      } catch (recoveryError: unknown) {
+        const message = recoveryError instanceof Error ? recoveryError.message : String(recoveryError)
+        ctx.logger.warn(
+          `context-overflow compaction failed: ${message}; preserving the original request error`,
+        )
+        return next()
+      }
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while compaction is awaited.
+      if (signal.aborted || result === null
+        || agent.session.surface.replaceGeneration <= generation) return next()
+      logResult(result, 'context overflow recovery')
+      return { action: 'retry' }
+    })
   }
 
   /**
