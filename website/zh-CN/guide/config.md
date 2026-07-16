@@ -87,6 +87,7 @@ Harness 使用 `cordis.yml` 描述一个 Agent 加载哪些插件、以什么参
 # 自动压缩：对话太长时自动总结旧内容，腾出上下文空间
 # contextWindow 是模型能看到的 token 上限
 # thresholdRatio 超过这个比例就触发压缩
+# compactionRetries 是压缩后仍超标时的额外重试次数
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
   config:
@@ -94,6 +95,7 @@ Harness 使用 `cordis.yml` 描述一个 Agent 加载哪些插件、以什么参
     thresholdRatio: 0.8
     retainTokens: 20480
     maxTokens: 8192
+    compactionRetries: 1
 
 # 子代理：把子任务分配给独立的 Agent 去做
 # subagent 是服务注册，spawn/fork 是两种委派方式：
@@ -124,6 +126,16 @@ Harness 使用 `cordis.yml` 描述一个 Agent 加载哪些插件、以什么参
   config:
     provider: fork
     toolName: subagent_fork
+
+# 动态工作流：模型编写一段编排脚本，引擎在独立 worker 线程里运行它，
+# 并通过上面的 spawn 后端把 agent() 调用分发为子代理
+- id: workflow-workerthread
+  name: '@deepseek-ai/dsh-workflow-workerthread'
+  config:
+    provider: spawn
+
+- id: tool-workflow
+  name: '@deepseek-ai/dsh-tool-workflow'
 
 # 任务追踪：模型可以用 todo_write 记录和更新任务清单
 - id: tool-todo
@@ -156,9 +168,13 @@ Harness 使用 `cordis.yml` 描述一个 Agent 加载哪些插件、以什么参
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `name` | string | 是 | 插件来源（npm 包名或相对路径） |
-| `id` | string | 否 | 实例标识符，用于日志和调试 |
+| `id` | string | 否 | 实例标识符，用于日志和调试。省略时由 loader 生成并写回 |
 | `config` | object | 否 | 传递给插件的配置 |
 | `disabled` | boolean | 否 | 设为 `true` 临时禁用该插件 |
+| `group` | boolean | 否 | 标记该条目为嵌套分组（`config` 为子条目列表） |
+| `inject` | array \| object | 否 | 声明该插件依赖的服务 |
+| `intercept` | object | 否 | 按服务名拦截并覆盖下游配置 |
+| `isolate` | object | 否 | 服务隔离：服务名 → `true` 或隔离标签 |
 
 ### 插件来源 (`name`)
 

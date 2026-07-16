@@ -8,7 +8,7 @@ LLM 适配器是一个继承 `LlmAdapter` 的类，实现 `stream()` 方法，�
 
 ## 最小实现
 
-```typescript
+```ts
 import type { Context } from 'cordis'
 import { LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 
@@ -45,47 +45,51 @@ export function apply(ctx: Context, config: Config) {
 
 `stream()` 必须按以下协议 yield chunk：
 
-```typescript
-// 1. 每个内容块以 block-start 开始
-yield { type: 'block-start', index: 0, blockType: 'text' }
+```ts
+import { CallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
 
-// 2. 文本块使用 text-delta
-yield { type: 'text-delta', index: 0, text: 'Hello' }
-yield { type: 'text-delta', index: 0, text: ' world' }
+async function* demo(): AsyncIterable<StreamChunk> {
+  // 1. 每个内容块以 block-start 开始
+  yield { type: 'block-start', index: 0, blockType: 'text' }
 
-// 3. 每个内容块以 block-end 结束（携带完整 block）
-yield {
-  type: 'block-end',
-  index: 0,
-  block: { type: 'text', text: 'Hello world' },
-}
+  // 2. 文本块使用 text-delta
+  yield { type: 'text-delta', index: 0, text: 'Hello' }
+  yield { type: 'text-delta', index: 0, text: ' world' }
 
-// 4. Tool call 块
-yield { type: 'block-start', index: 1, blockType: 'tool-call' }
-yield {
-  type: 'tool-call-delta',
-  index: 1,
-  id: CallId('call-123'),
-  name: 'bash',
-  argumentsDelta: '{"command":"ls"}',
-}
-yield {
-  type: 'block-end',
-  index: 1,
-  block: {
-    type: 'tool-call',
+  // 3. 每个内容块以 block-end 结束（携带完整 block）
+  yield {
+    type: 'block-end',
+    index: 0,
+    block: { type: 'text', text: 'Hello world' },
+  }
+
+  // 4. Tool call 块
+  yield { type: 'block-start', index: 1, blockType: 'tool-call' }
+  yield {
+    type: 'tool-call-delta',
+    index: 1,
     id: CallId('call-123'),
     name: 'bash',
-    arguments: '{"command":"ls"}',
-  },
+    argumentsDelta: '{"command":"ls"}',
+  }
+  yield {
+    type: 'block-end',
+    index: 1,
+    block: {
+      type: 'tool-call',
+      id: CallId('call-123'),
+      name: 'bash',
+      arguments: '{"command":"ls"}',
+    },
+  }
+
+  // 5. Token 用量
+  yield { type: 'usage', usage: { inputTokens: 100, outputTokens: 50 } }
+
+  // 6. 结束原因
+  yield { type: 'finish', reason: { kind: 'stop' } }
+  // 或: { kind: 'tool-calls' } 表示模型想调用 tool
 }
-
-// 5. Token 用量
-yield { type: 'usage', usage: { inputTokens: 100, outputTokens: 50 } }
-
-// 6. 结束原因
-yield { type: 'finish', reason: { kind: 'stop' } }
-// 或: { kind: 'tool-calls' } 表示模型想调用 tool
 ```
 
 ### 关键规则
@@ -100,28 +104,31 @@ yield { type: 'finish', reason: { kind: 'stop' } }
 
 `stream()` 接收的请求包含：
 
-```typescript
-interface GenerateOptions {
-  /** 模型名 */
-  model: string
-  /** 对话历史 */
-  messages: Message[]
-  /** 可用的 tool 列表 */
-  tools?: ToolSpec[]
-  /** 系统提示词 */
-  system?: string
-  /** 最大输出 token */
-  maxTokens?: number
-  /** 温度 */
-  temperature?: number
-}
+```ts
+import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+
+declare const options: GenerateOptions
+
+options.model        // 模型名
+options.messages     // 对话历史 (Message[])
+options.tools        // 可用的 tool schema 列表 (ToolSchema[])
+options.system       // 系统提示词
+options.maxTokens    // 最大输出 token
+options.temperature  // 温度
+options.signal       // 取消信号（必须响应）
 ```
 
 你的适配器需要将这些映射到具体 API 的参数。
 
 ## 注册适配器
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+import type { LlmAdapter } from '@deepseek-ai/dsh-llm'
+
+declare const ctx: Context
+declare const adapter: LlmAdapter
+
 ctx.llm.registerAdapter(['model-name-1', 'model-name-2'], adapter)
 ```
 
@@ -158,12 +165,18 @@ mock 适配器是学习 StreamChunk 协议的最佳起点——它用纯本地�
 
 适配器中的异常会被 agent-loop 捕获并转化为 `LlmError`，告知上层。不需要在 `stream()` 内部做错误恢复——让异常冒泡即可。
 
-```typescript
-async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-  const response = await fetch(this.endpoint, { /* ... */ })
-  if (!response.ok) {
-    throw new Error(`API error: ${response.status}`)
+```ts
+import { LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+
+class HttpAdapter extends LlmAdapter {
+  private endpoint = 'https://api.example.com/v1/chat'
+
+  async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    const response = await fetch(this.endpoint, { method: 'POST' })
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`)
+    }
+    // ... 正常流式处理
   }
-  // ... 正常流式处理
 }
 ```

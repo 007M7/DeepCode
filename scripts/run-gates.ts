@@ -167,6 +167,7 @@ function ciPrimaryGates(): Gate[] {
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
+    pnpmScript('website-build', 'website:build', { label: 'website build' }),
     pnpmScript('build', 'build', { needs: ['typecheck'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
@@ -184,6 +185,7 @@ function ciStaticGates(): Gate[] {
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
+    pnpmScript('website-build', 'website:build', { label: 'website build' }),
   ]
 }
 

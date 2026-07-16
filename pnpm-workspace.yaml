@@ -1,6 +1,7 @@
 packages:
   - vendor/*
   - packages/*/*
+  - website
 
 peerDependencyRules:
   allowedVersions:

@@ -103,7 +103,20 @@ $$
 | $\text{restore}$ | `fiber.dispose()` | 执行 Fiber 的整个回收链 |
 | $f^{-1}$ | dispose 返回值 / cleanup 函数 | 逆操作 |
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+
+declare module 'cordis' {
+  interface Events {
+    'my-plugin/event'(): void
+  }
+}
+
+declare function startServer(port: number): { close(): void }
+declare function handler(): void
+declare const myTool: ToolDefinition
+
 export function apply(ctx: Context) {
   // effect: 创建资源，返回其逆操作
   ctx.effect(() => {
@@ -112,7 +125,7 @@ export function apply(ctx: Context) {
   })
 
   // 框架 API 内部已封装 effect
-  ctx.on('event', handler)               // 内部: effect(addListener, removeListener)
+  ctx.on('my-plugin/event', handler)     // 内部: effect(addListener, removeListener)
   ctx.tools.register(myTool)             // 内部: effect(addTool, removeTool)
 }
 // 当此插件被卸载时，restore 自动按逆序执行所有 f⁻¹

@@ -25,7 +25,11 @@ ACTIVE → UNLOADING → DISPOSED
 
 声明了 `inject` 的插件不会立即加载，而是等待依赖的服务就绪：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-llm'
+
 export const inject = ['tools', 'llm']
 
 export function apply(ctx: Context) {
@@ -39,10 +43,21 @@ export function apply(ctx: Context) {
 
 通过 `ctx` 做的任何注册，在插件卸载时都会自动撤销：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+
+declare module 'cordis' {
+  interface Events {
+    'my-plugin/some-event'(): void
+  }
+}
+
+declare function handler(): void
+declare function createConnection(): { close(): void }
+
 export function apply(ctx: Context) {
   // 事件监听——卸载时自动移除
-  ctx.on('some-event', handler)
+  ctx.on('my-plugin/some-event', handler)
 
   // 自定义资源——卸载时调用返回的函数
   ctx.effect(() => {
@@ -64,7 +79,11 @@ export function apply(ctx: Context) {
 
 `ctx.plugin()` 创建子 Fiber，它继承父上下文但有独立的生命周期：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+
+declare function childPlugin(ctx: Context): void
+
 export function apply(ctx: Context) {
   // 注册一个子插件
   ctx.plugin(childPlugin)
@@ -77,11 +96,16 @@ export function apply(ctx: Context) {
 
 当你需要提前终止一个插件实例：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+
+declare const ctx: Context
+declare function myPlugin(ctx: Context): void
+
 const fiber = ctx.plugin(myPlugin)
 
 // 之后可以手动 dispose
-fiber.dispose()
+await fiber.dispose()
 ```
 
 `dispose` 保证：
@@ -101,17 +125,13 @@ fiber.dispose()
 
 ## 实战：理解生命周期
 
-```typescript
+`apply` 函数体就是加载钩子；卸载没有专门的事件——把清理逻辑放进 `ctx.effect()` 的返回函数即可：
+
+```ts
+import type { Context } from 'cordis'
+
 export function apply(ctx: Context) {
   console.log('plugin loading')
-
-  ctx.on('ready', () => {
-    console.log('context ready')
-  })
-
-  ctx.on('dispose', () => {
-    console.log('plugin disposing')
-  })
 
   ctx.effect(() => {
     console.log('effect registered')
@@ -124,12 +144,10 @@ export function apply(ctx: Context) {
 ```
 plugin loading
 effect registered
-context ready
 ```
 
-卸载时输出（逆序）：
+卸载时输出：
 ```
-plugin disposing
 effect cleaned up
 ```
 

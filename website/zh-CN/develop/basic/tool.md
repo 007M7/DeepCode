@@ -4,7 +4,7 @@ Tool 是模型可以调用的能力。本文介绍如何用 `defineTool` 编写�
 
 ## 最小示例
 
-```typescript
+```ts
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
@@ -32,28 +32,34 @@ export function apply(ctx: Context) {
 
 ### 基本类型
 
-```typescript
-parameters: {
+```ts
+import type { SchemaSpec } from '@deepseek-ai/dsh-tools'
+
+const parameters = {
   path: { type: 'string', required: true },
   limit: { type: 'number' },
   recursive: { type: 'boolean' },
-}
+} satisfies SchemaSpec
 // 推导类型: { path: string; limit?: number; recursive?: boolean }
 ```
 
 ### 枚举
 
-```typescript
-parameters: {
+```ts
+import type { SchemaSpec } from '@deepseek-ai/dsh-tools'
+
+const parameters = {
   mode: { type: 'string', required: true, enum: ['read', 'write', 'append'] },
-}
+} satisfies SchemaSpec
 // 推导类型: { mode: string }  (运行时校验 enum 值)
 ```
 
 ### 嵌套对象
 
-```typescript
-parameters: {
+```ts
+import type { SchemaSpec } from '@deepseek-ai/dsh-tools'
+
+const parameters = {
   options: {
     type: 'object',
     properties: {
@@ -61,19 +67,21 @@ parameters: {
       retries: { type: 'number' },
     },
   },
-}
+} satisfies SchemaSpec
 // 推导类型: { options?: { timeout?: number; retries?: number } }
 ```
 
 ### 数组
 
-```typescript
-parameters: {
+```ts
+import type { SchemaSpec } from '@deepseek-ai/dsh-tools'
+
+const parameters = {
   tags: {
     type: 'array',
     items: { type: 'string' },
   },
-}
+} satisfies SchemaSpec
 // 推导类型: { tags?: string[] }
 ```
 
@@ -92,29 +100,44 @@ parameters: {
 
 `execute` 接收经过校验的 `args`（类型自动推导）和一个 `exec` 上下文对象：
 
-```typescript
-async execute(args, exec) {
-  // args: 根据 parameters 自动推导的类型
-  // exec: ToolExecution 对象，提供执行上下文
+```ts
+import { defineTool } from '@deepseek-ai/dsh-tools'
 
-  // 返回 ContentBlock 数组
-  return [{ type: 'text', text: 'result here' }]
-}
+defineTool({
+  name: 'demo',
+  description: 'Demo tool.',
+  parameters: {},
+  async execute(args, exec) {
+    // args: 根据 parameters 自动推导的类型
+    // exec: ToolExecution 对象，提供执行上下文
+
+    // 返回 ContentBlock 数组
+    return [{ type: 'text', text: 'result here' }]
+  },
+})
 ```
 
 ### 返回值
 
 `execute` 必须返回一个 `ContentBlock[]`，告诉模型 tool 的执行结果：
 
-```typescript
+```ts
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+
+declare const matchResults: string[]
+
 // 文本结果
-return [{ type: 'text', text: 'file content here...' }]
+function textResult(): ContentBlock[] {
+  return [{ type: 'text', text: 'file content here...' }]
+}
 
 // 多个 block
-return [
-  { type: 'text', text: 'Found 3 matches:' },
-  { type: 'text', text: matchResults.join('\n') },
-]
+function multiBlockResult(): ContentBlock[] {
+  return [
+    { type: 'text', text: 'Found 3 matches:' },
+    { type: 'text', text: matchResults.join('\n') },
+  ]
+}
 ```
 
 ### 参数校验
@@ -127,20 +150,28 @@ return [
 
 Tool 可以定义 UI 渲染方法，用于在终端或 ACP 客户端中展示 tool call 和 result：
 
-```typescript
+```ts
+import { defineTool } from '@deepseek-ai/dsh-tools'
+
 defineTool({
   name: 'bash',
-  // ...
+  description: 'Run a shell command.',
+  parameters: {
+    command: { type: 'string', required: true },
+  },
+  async execute(args) {
+    return [{ type: 'text', text: `ran: ${args.command}` }]
+  },
   presentCall(args) {
     return {
-      intent: 'terminal',
-      title: `bash(${JSON.stringify(args.command).slice(0, 60)})`,
+      card: 'terminal',
+      title: args.command.slice(0, 60),
     }
   },
   presentResult(args, result) {
     return {
-      intent: 'terminal',
-      body: result.content.map(b => b.type === 'text' ? b.text : '').join(''),
+      card: 'terminal',
+      output: result.content.map(b => b.type === 'text' ? b.text : '').join(''),
     }
   },
 })
@@ -152,20 +183,32 @@ defineTool({
 
 `ctx.tools.register()` 返回值就是 disposer。但由于你在 `ctx` 上调用，框架已经自动追踪了这个注册——插件卸载时会自动移除 tool。你不需要手动调用 disposer。
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+
+declare const ctx: Context
+
 // 这样就够了:
-ctx.tools.register(defineTool({ /* ... */ }))
+ctx.tools.register(defineTool({
+  name: 'noop',
+  description: 'Do nothing.',
+  parameters: {},
+  async execute() {
+    return []
+  },
+}))
 
 // 不需要:
 // const dispose = ctx.tools.register(...)
-// ctx.on('dispose', dispose)
+// ctx.effect(() => dispose)
 ```
 
 ## 完整实战示例
 
 一个文件计数 tool：
 
-```typescript
+```ts
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readdir } from 'node:fs/promises'

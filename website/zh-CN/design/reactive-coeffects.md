@@ -24,13 +24,19 @@ Cordis 将程序中的资源依赖抽象为**服务** (service)：
 - 运行时对依赖不满足的插件**等待**，而非拒绝
 - 服务生命周期结束前，依赖该服务的插件**先一步被回收**
 
-```typescript
+```ts
+import { Service, type Context } from 'cordis'
+
 // LLM 适配器插件：提供 llm 服务
 export class LlmService extends Service {
   static inject = ['http']  // 自身依赖 http
   // 当 http 不可用时，LlmService 自动挂起
   // 挂起导致 ctx.llm 不可用
   // 所有 inject: ['llm'] 的插件级联挂起
+
+  constructor(ctx: Context) {
+    super(ctx, 'llm')
+  }
 }
 ```
 
@@ -57,7 +63,11 @@ export class LlmService extends Service {
 
 ## 在 Cordis 中的实现
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-llm'
+
 // 声明依赖
 export const inject = ['tools', 'llm']
 
@@ -85,6 +95,6 @@ llm service 恢复 → 依赖 llm 的插件重新 PENDING → ACTIVE
 | LLM adapter 热替换 | 依赖 `llm` 的插件自动挂起/恢复，中间不丢状态 |
 | 按需加载 bash 执行器 | bash tool 只在 `bash` 服务就绪后注册 |
 | 子 Agent 独立服务空间 | 通过 `ctx.isolate()` 隔离服务实例，互不干扰 |
-| 可选能力降级 | `inject: { web: { required: false } }` 允许 web 不可用时继续运行 |
+| 可选能力降级 | 不声明 `inject`，用 `ctx.get('web')` 读取——服务不可用时返回 `undefined`，插件照常运行 |
 
 这意味着 Harness 插件开发者无需编写防御性的 "if service exists" 检查——框架保证：当你的 `apply` 被调用时，声明的依赖一定已就绪。

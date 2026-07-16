@@ -55,16 +55,21 @@ Cordis 同时解决了上述两个问题：
 
 DeepSeek Harness 将 Cordis 的可组合性应用到 Agent 开发领域：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-llm'
+
 // 一个 Harness 插件天然是可逆的
 export const inject = ['tools', 'llm'] // 空间可组合：声明依赖
 
 export function apply(ctx: Context) {
   // 时间可组合：注册会被自动追踪和回收
-  ctx.tools.register(defineTool('my-tool', {
+  ctx.tools.register(defineTool({
+    name: 'my-tool',
     description: '...',
     parameters: { /* ... */ },
-    async execute(args) { /* ... */ },
+    async execute(args) { return [] },
   }))
 }
 ```

@@ -64,7 +64,7 @@
 
 ### 第一步：定义接口
 
-```typescript
+```ts
 // packages/my-cap/my-cap/src/index.ts
 import { Service, type Context } from 'cordis'
 
@@ -94,7 +94,7 @@ export interface MyCapResult {
 
 ### 第二步：编写实现
 
-```typescript
+```ts ignore-check
 // packages/my-cap/my-cap-local/src/index.ts
 import type { Context } from 'cordis'
 import { MyCapService, type MyCapRequest, type MyCapResult } from '@deepseek-ai/dsh-my-cap'
@@ -115,7 +115,7 @@ export function apply(ctx: Context) {
 
 ### 第三步：编写消费者 (tool)
 
-```typescript
+```ts
 // packages/my-cap/tool-my-cap/src/index.ts
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'

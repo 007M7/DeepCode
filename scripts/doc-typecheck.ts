@@ -2,7 +2,8 @@
  * Doc-sync gate (doc-sync-enforcement RFC, part 1): typecheck the fenced `ts` code blocks in our
  * Markdown so documentation can't drift from the API it documents.
  *
- * Every ```ts block in README.md, docs/** and packages/* /README.md is
+ * Every ```ts block in README.md, docs/**, packages/* /README.md and the
+ * website tutorial pages (website/zh-CN/**) is
  * extracted to a temp typecheck project and compiled against the workspace
  * sources through the same project-reference boundaries used by repo
  * typecheck. A block that is a deliberate sketch rather than compilable code
@@ -134,7 +135,7 @@ function tempTsconfig(): string {
   })
 }
 
-const markdownGlobs = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md']
+const markdownGlobs = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md', 'website/zh-CN/**/*.md']
 
 const files: string[] = []
 for (const pattern of markdownGlobs) {

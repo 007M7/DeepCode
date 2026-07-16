@@ -50,9 +50,14 @@ Root Context
 - 因此服务的提供被记录在作用上下文中
 - 上下文将作用与余作用关联起来，提供了统一的时间、空间可组合性
 
-```typescript
+```ts
+import { Service, type Context } from 'cordis'
+
 // 提供服务 = 一个 effect（占用 ctx.llm 这个 "资源"）
 class LlmService extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'llm')
+  }
   // 当此插件卸载时，ctx.llm 被回收（effect 的逆操作）
   // 所有依赖 llm 的插件因 coeffect 不满足而挂起
 }
@@ -66,7 +71,16 @@ class LlmService extends Service {
 
 框架将领域中的所有方法都封装为 effect 版本。开发者只需调用 `ctx` 上的方法，就能自动获得时间/空间可组合性：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { LlmAdapter, Message } from '@deepseek-ai/dsh-llm'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+
+declare function validateResult(agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>
+declare const myTool: ToolDefinition
+declare const adapter: LlmAdapter
+
 export function apply(ctx: Context) {
   // 以下每一行都是 effect——卸载时自动逆序回收
   ctx.on('agent/step-result', validateResult)
@@ -82,7 +96,16 @@ export function apply(ctx: Context) {
 
 可以逐步将现有框架中的 API 替换为可组合版本，无需一次性重写：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+
+declare const ctx: Context
+declare function handler(): void
+declare const legacySystem: {
+  register(handler: () => void): object
+  unregister(token: object): void
+}
+
 // 第一步：用 ctx.effect 包装遗留 API
 ctx.effect(() => {
   const legacy = legacySystem.register(handler)

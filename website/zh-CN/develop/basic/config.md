@@ -4,27 +4,21 @@
 
 ## 定义 Config 类型
 
-在插件中导出一个 `Config` 类型和可选的默认值：
+在插件中导出一个 `Config` 类型，`apply` 的第二个参数就是用户配置：
 
-```typescript
+```ts
 import type { Context } from 'cordis'
 
 export const name = 'my-plugin'
 
 export interface Config {
-  greeting: string
-  maxRetries: number
+  greeting?: string
+  maxRetries?: number
   verbose?: boolean
 }
 
-export const Config = {
-  greeting: 'Hello',
-  maxRetries: 3,
-  verbose: false,
-}
-
 export function apply(ctx: Context, config: Config) {
-  console.log(config.greeting)  // 用户配置或默认值
+  console.log(config.greeting ?? 'Hello')  // 用户配置或默认值
 }
 ```
 
@@ -37,32 +31,32 @@ export function apply(ctx: Context, config: Config) {
     maxRetries: 5
 ```
 
-未提供的字段使用导出的 `Config` 对象中的默认值。
+只导出类型时，配置原样传入，默认值由代码自己兜底（如上面的 `??`）。想让框架代管默认值和校验，导出一个 schema（见下节）。
 
 ## Schema 校验
 
-对于需要严格校验的场景，使用 Schemastery 定义 schema：
+对于需要默认值和严格校验的场景，额外导出一个 Schemastery schema（仓库约定以 `z` 引入）。加载时框架先用它校验并填充默认值，再把结果传给 `apply`：
 
-```typescript
+```ts
 import type { Context } from 'cordis'
-import Schema from 'schemastery'
+import z from 'schemastery'
 
 export const name = 'validated-plugin'
 
 export interface Config {
   apiKey: string
-  timeout: number
-  mode: 'fast' | 'accurate'
+  timeout?: number
+  mode?: 'fast' | 'accurate'
 }
 
-export const Config = Schema.object({
-  apiKey: Schema.string().required(),
-  timeout: Schema.number().default(30000),
-  mode: Schema.union(['fast', 'accurate']).default('fast'),
+export const Config: z<Config> = z.object({
+  apiKey: z.string().required(),
+  timeout: z.number().default(30000),
+  mode: z.union(['fast', 'accurate'] as const).default('fast'),
 })
 
 export function apply(ctx: Context, config: Config) {
-  // config 已经过校验，类型安全
+  // config 已经过校验，类型安全，默认值已填充
 }
 ```
 
@@ -74,13 +68,14 @@ Schema 在插件加载时执行校验。如果配置不合法，插件会加载�
 
 Harness 的约定：**任何两个部署可能想要不同值的东西，都应该是配置字段**。
 
-```typescript
+```ts
 // 错误 — 硬编码超时时间
 const TIMEOUT = 30000
 
 // 正确 — 可配置
 export interface Config {
-  timeoutMs: number  // 默认 30000
+  /** 默认 30000 */
+  timeoutMs?: number
 }
 ```
 
@@ -90,9 +85,16 @@ export interface Config {
 
 如果配置引用了不存在的东西（比如一个不存在的模型名），应该尽早报错，而不是静默跳过：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+import type {} from '@deepseek-ai/dsh-llm'
+
+export interface Config {
+  model: string
+}
+
 export function apply(ctx: Context, config: Config) {
-  if (!ctx.llm.hasAdapter(config.model)) {
+  if (!ctx.llm.models().includes(config.model)) {
     throw new Error(`Model "${config.model}" is not registered by any LLM adapter`)
   }
 }

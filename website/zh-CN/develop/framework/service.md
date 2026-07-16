@@ -6,10 +6,17 @@
 
 在 Harness 中，`tools`、`llm`、`agents` 都是服务。服务是挂载在 `ctx` 上的命名能力：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-agent'
+
+declare const ctx: Context
+
 ctx.tools    // ToolRegistry 服务
 ctx.llm      // LLM 服务
-ctx.agents   // Agent 服务
+ctx.agents   // Agent 注册表服务
 ```
 
 任何插件都可以提供一个新服务，供其他插件使用。
@@ -18,12 +25,22 @@ ctx.agents   // Agent 服务
 
 声明 `inject` 来使用已有服务：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+
 export const inject = ['tools']
 
 export function apply(ctx: Context) {
   // ctx.tools 在这里一定存在且就绪
-  ctx.tools.register(/* ... */)
+  ctx.tools.register(defineTool({
+    name: 'demo',
+    description: 'Demo tool.',
+    parameters: {},
+    async execute() {
+      return []
+    },
+  }))
 }
 ```
 
@@ -33,8 +50,9 @@ export function apply(ctx: Context) {
 
 ### 使用 Service 基类
 
-```typescript
+```ts
 import { Service, type Context } from 'cordis'
+import type {} from '@deepseek-ai/dsh-llm'
 
 export default class MetricsService extends Service {
   static inject = ['llm']  // 本服务也可以依赖其他服务
@@ -52,7 +70,9 @@ export default class MetricsService extends Service {
 
 加载这个插件后，其他插件就可以通过 `ctx.metrics` 访问它：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+
 export const inject = ['metrics']
 
 export function apply(ctx: Context) {
@@ -64,7 +84,7 @@ export function apply(ctx: Context) {
 
 使用 TypeScript 声明合并让 `ctx.metrics` 有正确类型：
 
-```typescript
+```ts
 import { Service, type Context } from 'cordis'
 
 declare module 'cordis' {
@@ -84,14 +104,21 @@ export default class MetricsService extends Service {
 
 ## 依赖的行为
 
-### 必选依赖 vs 可选依赖
+### 必选依赖 vs 可选读取
 
-```typescript
+`inject` 声明的依赖都是必选的：服务不存在时，插件不会加载。如果只想"有则用之"，用 `ctx.get()` 读取——服务不存在时返回 `undefined`，插件照常加载：
+
+```ts
+import type { Context } from 'cordis'
+
 // 必选：服务不存在时，插件不会加载
 export const inject = ['tools']
 
-// 可选：服务不存在时，插件仍然加载，但 ctx.xxx 可能是 undefined
-export const inject = { optional: ['metrics'] }
+export function apply(ctx: Context) {
+  // 可选读取：不声明 inject，服务不存在时返回 undefined
+  const metrics = ctx.get('metrics')
+  metrics?.record('plugin_loaded', 1)
+}
 ```
 
 ### 服务消失时的行为
@@ -133,13 +160,14 @@ export const inject = { optional: ['metrics'] }
 |--------|--------|------|
 | `tools` | dsh-tools | Tool 注册表 |
 | `llm` | dsh-llm | LLM 调用 + 适配器注册 |
-| `agents` | dsh-agent | Agent 实例管理 |
-| `session` | dsh-session | 会话事件流 |
+| `agents` | dsh-agent | Agent 注册表 |
+| `agentLoop` | dsh-agent-loop | Agent 创建与循环执行 |
+| `sessions` | dsh-session | 会话存储与事件流 |
 | `systemPrompt` | dsh-system-prompt | 系统提示词组装 |
-| `bash` | dsh-bash-local | Bash 命令执行 |
-| `fs` | dsh-fs-local | 文件系统操作 |
-| `subagent` | dsh-subagent | 子代理委派 |
-| `persistence` | dsh-session-persistence | 会话持久化 |
+| `bash` | dsh-bash（实现：dsh-bash-local） | Bash 命令执行 |
+| `fs` | dsh-fs（实现：dsh-fs-local） | 文件系统操作 |
+| `subagents` | dsh-subagent | 子代理委派 |
+| `sessionPersistence` | dsh-session-persistence（实现：-jsonl / -sqlite） | 会话持久化 |
 
 ## 下一步
 

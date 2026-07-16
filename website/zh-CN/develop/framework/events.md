@@ -6,7 +6,17 @@
 
 ### 监听事件
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+
+declare module 'cordis' {
+  interface Events {
+    'event-name'(payload: string): void
+  }
+}
+
+declare const ctx: Context
+
 ctx.on('event-name', (payload) => {
   // 处理事件
 })
@@ -14,7 +24,18 @@ ctx.on('event-name', (payload) => {
 
 ### 触发事件
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+
+declare module 'cordis' {
+  interface Events {
+    'event-name'(payload: string): void
+  }
+}
+
+declare const ctx: Context
+declare const payload: string
+
 ctx.emit('event-name', payload)
 ```
 
@@ -26,12 +47,24 @@ Cordis 提供多种事件触发模式，适用于不同场景：
 
 所有监听器并行执行，不关心返回值：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+
+declare module 'cordis' {
+  interface Events {
+    'my-plugin/turn-end'(agentId: string, turnIndex: number): void
+  }
+}
+
+declare const ctx: Context
+declare const agentId: string
+declare const turnIndex: number
+
 // 触发
-ctx.emit('agent/turn-end', { agentId, turnIndex })
+ctx.emit('my-plugin/turn-end', agentId, turnIndex)
 
 // 监听
-ctx.on('agent/turn-end', ({ agentId, turnIndex }) => {
+ctx.on('my-plugin/turn-end', (agentId, turnIndex) => {
   console.log(`Turn ${turnIndex} ended`)
 })
 ```
@@ -40,7 +73,19 @@ ctx.on('agent/turn-end', ({ agentId, turnIndex }) => {
 
 依次调用监听器，第一个返回非 `undefined` 值的结果作为最终值：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+
+declare module 'cordis' {
+  interface Events {
+    'some-check'(input: string): string | undefined
+  }
+}
+
+declare const ctx: Context
+declare const input: string
+declare function shouldBlock(input: string): boolean
+
 // 触发
 const result = ctx.bail('some-check', input)
 
@@ -48,6 +93,7 @@ const result = ctx.bail('some-check', input)
 ctx.on('some-check', (input) => {
   if (shouldBlock(input)) return 'blocked'
   // 返回 undefined 继续传递给下一个监听器
+  return undefined
 })
 ```
 
@@ -55,24 +101,47 @@ ctx.on('some-check', (input) => {
 
 所有监听器按注册顺序依次执行（异步安全）：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+
+declare module 'cordis' {
+  interface Events {
+    'setup-phase'(context: object): Promise<void> | void
+  }
+}
+
+declare const ctx: Context
+declare const context: object
+
 await ctx.serial('setup-phase', context)
 ```
 
 ### waterfall — 管道
 
-每个监听器接收前一个的输出，形成数据管道。**必须调用 `next()` 传递给下游**，不调用即为否决：
+监听器围绕默认实现层层包裹，形成数据管道。**必须调用 `next()` 委托给下游**，不调用即为否决：
 
-```typescript
-// 触发
-const finalMessages = await ctx.waterfall('llm/pre-request', messages)
+```ts
+import type { Context } from 'cordis'
+import type { Message } from '@deepseek-ai/dsh-llm'
+
+declare module 'cordis' {
+  interface Events {
+    'my-plugin/messages'(messages: Message[], next: () => Promise<Message[]>): Promise<Message[]>
+  }
+}
+
+declare const ctx: Context
+declare const messages: Message[]
+declare const extraMessage: Message
+
+// 触发：最后一个参数是默认实现（所有监听器都调用 next 时的最终值）
+const finalMessages = await ctx.waterfall('my-plugin/messages', messages, async () => messages)
 
 // 监听（必须调用 next）
-ctx.on('llm/pre-request', async (messages, next) => {
-  // 可以修改 messages
-  messages.push(extraMessage)
-  // 必须调用 next() 传递给下一个监听器
-  return next(messages)
+ctx.on('my-plugin/messages', async (messages, next) => {
+  // next() 委托给下游监听器（最终到达默认实现），返回值可以被加工
+  const result = await next()
+  return [...result, extraMessage]
 })
 ```
 
@@ -84,11 +153,13 @@ Waterfall 监听器**必须调用 `next()`**。不调用 `next` 等于否决整�
 
 Harness 使用 TypeScript 声明合并来为事件提供类型安全：
 
-```typescript
+```ts
+import type {} from 'cordis'
+
 declare module 'cordis' {
   interface Events {
-    'my-plugin/ready': (payload: { id: string }) => void
-    'my-plugin/check': (input: string) => boolean | undefined
+    'my-plugin/ready'(payload: { id: string }): void
+    'my-plugin/check'(input: string): boolean | undefined
   }
 }
 
@@ -101,24 +172,30 @@ declare module 'cordis' {
 Harness 事件遵循 `namespace/action` 命名：
 
 ```
-agent/pre-step      — agent 执行一步之前
-agent/post-step     — agent 执行一步之后
-tool/call           — tool 被调用
-tool/result         — tool 返回结果
-llm/pre-request     — LLM 请求发送前
-session/event       — 会话事件被记录
-compact/start       — 压缩开始
-compact/end         — 压缩结束
+agent/pre-step       — 每个 step 开始前的检查点（serial）
+agent/step-result    — step 的 assistant 消息组装完成（waterfall）
+tools/pre-execute    — tool 执行前的允许/拒绝门（waterfall）
+tools/post-execute   — tool 执行后的检查/改写缝（waterfall）
+llm/stream           — 每次流式模型调用的环绕点（waterfall）
+session/event        — 会话事件被记录（emit）
+session/flush        — 会话持久化检查点（parallel）
 ```
+
+完整的事件列表（含每个事件的签名与派发模式）见仓库中的 `docs/cordis-catalog/events.md`。
 
 ## 事件也是效果
 
 通过 `ctx.on()` 注册的监听器会在插件卸载时自动移除：
 
-```typescript
+```ts
+import type { Context } from 'cordis'
+import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+
+declare function handler(agent: Agent, status: AgentStatus): void
+
 export function apply(ctx: Context) {
   // 这个监听器在插件 dispose 时自动清理
-  ctx.on('agent/turn-end', handler)
+  ctx.on('agent/status', handler)
 }
 ```
 
@@ -126,22 +203,21 @@ export function apply(ctx: Context) {
 
 一个记录所有 tool 调用的简单插件：
 
-```typescript
+```ts
 import type { Context } from 'cordis'
+import type {} from '@deepseek-ai/dsh-tools'
 
 export const name = 'tool-logger'
 
 export function apply(ctx: Context) {
-  ctx.on('tool/call', ({ name, args }) => {
-    console.log(`[tool] ${name}(${JSON.stringify(args)})`)
-  })
-
-  ctx.on('tool/result', ({ name, result }) => {
+  ctx.on('tools/execute', async (exec, next) => {
+    console.log(`[tool] ${exec.name}(${JSON.stringify(exec.arguments)})`)
+    const result = await next()
     const text = result.content
-      .filter(b => b.type === 'text')
-      .map(b => b.text)
+      .map(b => b.type === 'text' ? b.text : '')
       .join('')
     console.log(`[tool result] ${text.slice(0, 100)}`)
+    return result
   })
 }
 ```
