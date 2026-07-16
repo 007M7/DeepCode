@@ -3,17 +3,18 @@
  * `ctx.sandbox`, inherits local process mechanics, and reports the selected
  * mode, enforcement, and denial facts. Runner failure means the command never
  * ran: foreground calls throw `SANDBOX_UNAVAILABLE`, while settled background
- * tasks carry `runnerFailed`. The tool owns approval and passes per-call modes.
+ * processes carry `runnerFailed`. The tool owns approval and passes per-call modes.
  * @module @deepseek-ai/dsh-bash-sandbox
  */
 
 import { Context } from 'cordis'
-import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskId } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedSandboxMode, SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-bash-local'
+import { classifyDenial, classifyRunnerFailure, matchesSignature, shellQuote } from './helpers.ts'
 
 /**
  * Plugin config: the local executor's knobs, verbatim. The sandbox policy —
@@ -26,61 +27,12 @@ import type { Config as LocalConfig } from '@deepseek-ai/dsh-bash-local'
 export type Config = LocalConfig
 
 /**
- * Quote one string as a single-quoted POSIX shell word (embedded single
- * quotes become `'\''`), so a wrapped argv element survives the outer
- * `bash -c` re-parse byte-for-byte.
- * @param text - the raw argv element to quote.
- * @returns the single-quoted shell word.
- */
-export function shellQuote(text: string): string {
-  return `'${text.replaceAll("'", String.raw`'\''`)}'`
-}
-
-/**
- * Conservatively classify a nonzero, non-signal run using only the selected
- * backend's denial signatures. Text inference may miss a denial or match
- * unrelated stderr in that dialect; it never uses another backend's terms.
- * @param result - the settled foreground run to classify.
- * @param signatures - the active wrap's denial dialect, case-insensitive stderr substrings.
- * @returns whether the run's failure reads as a sandbox denial.
- */
-export function classifyDenial(result: BashRunResult, signatures: readonly string[]): boolean {
-  return matchesSignature(result.exitCode, result.stderr.text, signatures)
-}
-
-/**
- * Classify a nonzero run using the selected backend's runner-failure
- * signatures. Callers check this before denial because runner diagnostics may
- * contain denial words; the command did not run.
- * @param result - the settled foreground run to classify.
- * @param signatures - the active wrap's runner-failure signatures,
- *   case-insensitive stderr substrings.
- * @returns whether the run's failure reads as the runner itself failing.
- */
-export function classifyRunnerFailure(result: BashRunResult, signatures: readonly string[]): boolean {
-  return matchesSignature(result.exitCode, result.stderr.text, signatures)
-}
-
-/**
- * The classifier core shared by foreground results and settled background
- * tasks: failed AND signature present. Lowercases BOTH sides — the seam
- * declares its signatures case-insensitive, and producers compose them from
- * runtime data of any case (an `argv0` path, `No such file or directory`).
- */
-function matchesSignature(exitCode: number | null, stderr: string, signatures: readonly string[]): boolean {
-  if (exitCode === null || exitCode === 0) return false
-  const lowered = stderr.toLowerCase()
-  return signatures.some(signature => lowered.includes(signature.toLowerCase()))
-}
-
-/**
  * Registers as `ctx.bash` in place of the local executor and requires a
  * `ctx.sandbox` provider plus `ctx.sandboxPolicy`; the tool layer is
- * unchanged. The policy default (mode + workspace root, from
- * `ctx.sandboxPolicy`) is the fallback, while a session override or approved
- * one-shot escalation may select each call's mode. The prompt does not state
- * the standing mode; `result.sandbox` reports the mode and enforcement
- * actually used.
+ * unchanged. The policy default (mode + workspace root) is the fallback,
+ * while a session override or approved one-shot escalation may select each
+ * call's mode. The prompt does not state the standing mode; `result.sandbox`
+ * reports the mode and enforcement actually used.
  */
 export class SandboxBashExecutor extends LocalBashExecutor {
   static inject = ['sandbox', 'sandboxPolicy']
@@ -92,11 +44,12 @@ export class SandboxBashExecutor extends LocalBashExecutor {
   private readonly mode: SandboxMode
   private readonly workspaceRoot: string
   /**
-   * Per-task mode and wrap facts retained until settlement. Overlapping tasks
-   * may use different modes or provider facts, so one latest-wrap field would
-   * misclassify earlier completions.
+   * Per-process confinement facts retained until settlement. Providers may
+   * vary enforcement and diagnostic dialect between overlapping calls, so a
+   * shared latest-wrap value would classify a process against the wrong facts.
+   * Unconfined processes have no entry.
    */
-  private readonly taskFacts = new Map<BashTaskId, {
+  private readonly processFacts = new Map<BashProcess, {
     mode: ConfinedSandboxMode
     enforcement: SandboxEnforcement
     denialSignatures: readonly string[]
@@ -145,39 +98,36 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     return { ...result, sandbox: { mode, denied: classifyDenial(result, confined.denialSignatures), enforcement: confined.enforcement } }
   }
 
-  override start(spec: BashExecSpec): BashTask {
+  override start(spec: BashExecSpec): BashProcess {
     // Same stamped-by-resolve invariant as run().
     const mode = spec.sandboxMode as SandboxMode
     if (mode === 'danger-full-access') return super.start(spec)
-    // Classification needs settled stderr. Store facts synchronously after
-    // spawn, before the earliest process completion can be observed.
+    // Install facts synchronously; promise settlement cannot run before start() returns.
     const confined = this.confine(spec.command, mode)
-    const task = super.start({ ...spec, command: confined.command })
+    const proc = super.start({ ...spec, command: confined.command })
     const { enforcement, denialSignatures, runnerFailureSignatures } = confined
-    this.taskFacts.set(task.id, { mode, enforcement, denialSignatures, runnerFailureSignatures })
-    return task
+    this.processFacts.set(proc, { mode, enforcement, denialSignatures, runnerFailureSignatures })
+    return proc
   }
 
   /**
-   * Stamp per-task sandbox facts before completion listeners and `done` settle.
-   * Full-access tasks have no facts; signal deaths are not denials.
+   * Stamp per-process sandbox facts before `done` settles. Full-access processes
+   * have no facts; signal deaths are not denials.
    */
-  protected override notifyTaskDone(task: BashTask): void {
-    const facts = this.taskFacts.get(task.id)
+  protected override onProcessDone(proc: BashProcess, stderr: string): void {
+    const facts = this.processFacts.get(proc)
     if (facts !== undefined) {
-      this.taskFacts.delete(task.id)
-      const stderr = this.collectedStderr(task.id)
-      // Runner failure outranks denial. Background settlement has no throw
-      // channel, so this fact is its counterpart to the foreground exception.
-      const runnerFailed = matchesSignature(task.exitCode, stderr, facts.runnerFailureSignatures)
-      task.sandbox = {
+      this.processFacts.delete(proc)
+      // Runner failure outranks denial because its diagnostics may contain denial terms.
+      const runnerFailed = matchesSignature(proc.exitCode, stderr, facts.runnerFailureSignatures)
+      proc.sandbox = {
         mode: facts.mode,
-        denied: !runnerFailed && matchesSignature(task.exitCode, stderr, facts.denialSignatures),
+        denied: !runnerFailed && matchesSignature(proc.exitCode, stderr, facts.denialSignatures),
         enforcement: facts.enforcement,
         ...(runnerFailed ? { runnerFailed } : {}),
       }
     }
-    super.notifyTaskDone(task)
+    super.onProcessDone(proc, stderr)
   }
 
   /**

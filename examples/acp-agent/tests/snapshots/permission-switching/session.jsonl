@@ -1,7 +1,7 @@
 {"type":"session","version":0,"id":"df041acb-2f14-4d5f-b6e2-2fb6b9eb6427","createdAt":1783860666204,"cwd":"/var/folders/2g/b32ct0qn1d728l_v6tdkjytr0000gn/T/acp-snap-cwd-4oJKT4"}
 {"type":"turn/start","seq":0,"time":1783860666206,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"permission/preset","seq":1,"time":1783962244578,"data":{"preset":"workspace-write"}}
-{"type":"sandbox/mode","seq":2,"time":1784122483357,"data":{"mode":"workspace-write"}}
+{"type":"sandbox/mode","seq":2,"time":1784215683734,"data":{"mode":"workspace-write"}}
 {"type":"approval/policy","seq":3,"time":1783962244578,"data":{"policy":"ask"}}
 {"type":"user/message","seq":4,"time":1783962244578,"data":{"content":[{"type":"text","text":"Use the bash tool to run exactly this one command in a single call: printf 'before\\n' > out.txt && cat out.txt. Then reply with the single word DONE and stop."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":5,"time":1783962244579,"data":{"turn":1,"step":1}}
@@ -102,12 +102,12 @@
 {"type":"turn/end","seq":100,"time":1783962244601,"data":{"turn":1,"reason":{"kind":"completed"}}}
 {"type":"turn/start","seq":101,"time":1783962244623,"data":{"turn":2,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"permission/preset","seq":102,"time":1783962244624,"data":{"preset":"danger-full-access"}}
-{"type":"sandbox/mode","seq":103,"time":1784122483470,"data":{"mode":"danger-full-access"}}
+{"type":"sandbox/mode","seq":103,"time":1784215683846,"data":{"mode":"danger-full-access"}}
 {"type":"approval/policy","seq":104,"time":1783962244624,"data":{"policy":"never"}}
 {"type":"user/message","seq":105,"time":1783962244624,"data":{"content":[{"type":"text","text":"Use the bash tool to run exactly: cat out.txt. Then reply with the single word DONE and stop."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"context/message","seq":106,"time":1783962244624,"data":{"content":[{"type":"text","text":"The approval policy changed from \"ask\" to \"never\" (changed by the user)."}],"source":{"kind":"plugin","plugin":"user-approval"}},"surfaceOp":"append"}
 {"type":"step/start","seq":107,"time":1783962244624,"data":{"turn":2,"step":1}}
-{"type":"request/header-delta","seq":108,"time":1783962244624,"data":{"system":{"keepStart":15,"keepEnd":2,"insert":["{{system}}","{{system}}"]}}}
+{"type":"request/header-delta","seq":108,"time":1783962244624,"data":{"system":{"keepStart":17,"keepEnd":2,"insert":["{{system}}","{{system}}"]}}}
 {"type":"assistant/chunk","seq":109,"time":1783860671025,"data":{"turn":2,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
 {"type":"assistant/chunk","seq":110,"time":1783860671026,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
 {"type":"assistant/chunk","seq":111,"time":1783860671026,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" user"}}}

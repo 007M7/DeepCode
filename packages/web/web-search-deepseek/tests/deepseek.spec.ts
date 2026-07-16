@@ -4,11 +4,10 @@ import Loader from '@cordisjs/plugin-loader'
 import WebService from '@deepseek-ai/dsh-web'
 import {
   DeepSeekSearchProvider,
-  citationSnippets,
-  mapAnthropicResponse,
   DEEPSEEK_PROVIDER_ID,
 } from '@deepseek-ai/dsh-web-search-deepseek'
 import * as deepseekPlugin from '@deepseek-ai/dsh-web-search-deepseek'
+import { citationSnippets, mapAnthropicResponse } from '../src/provider.ts'
 import type { AnthropicResponse } from '@deepseek-ai/dsh-web-search-deepseek/src/types.ts'
 
 const options = {
