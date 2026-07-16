@@ -24,7 +24,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx
 | ctx key | Package family | Role |
 |---|---|---|
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry and streaming model calls |
-| `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | replay-aware per-model request and surface pressure |
+| `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | replay-aware request/surface pressure per model |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
@@ -33,6 +33,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
 | `ctx.compact` | [`compact/`](../packages/compact/README.md) | session-log compaction |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
+| `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry + generic `task_*` control tools |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred logical-corpus and exact-event reads |
@@ -86,7 +87,7 @@ forever:
       otherwise:
         'assistant/chunk'
         agent/step-result
-        'assistant/message' (transformed content, or an empty successful-call anchor if step-result rejects)
+        'assistant/message' (transformed content or empty success anchor after step-result rejection)
         each tool call:
           'tool/call'
           tools/pre-execute -> monotonic guards -> tools/execute -> tools/post-execute -> tools/result
@@ -117,11 +118,11 @@ Every session event is turn-enclosed. Reload preserves a crashed tail and closes
 
 ### Agent Handles
 
-`ctx.agents` owns live agents and returns `AgentHandle { agent, dispose() }`. Plugins use `send()`, `steer()`, `inject()`, `cancel()`, and `whenIdle()`. The caller fiber and factory provider structurally co-own programmatic lifecycles; the consumer handle is the sole non-structural teardown capability, and all owners share one awaited disposer.
+`ctx.agents` owns live agents and returns `AgentHandle { agent, dispose() }`. Plugins drive `Agent` through `send()`, `steer()`, `inject()`, `cancel()`, and `whenIdle()`. The caller fiber and factory provider structurally co-own programmatic lifecycles; the consumer handle is the sole non-structural teardown capability, and all owners share one awaited disposer.
 
 ### Agent Scope
 
-Each agent owns `agent.ctx`; its registrations shadow globals, receive only that agent's dispatches, and unwind on disposal. `CreateAgentOptions.setup(agentCtx)` composes it before publication. Typed resolvers derive carrier checks from merged events and `scopeTarget` ([semantic gates](rfc/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md), [agent scope](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md), [subagent controls](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)).
+Each agent owns `agent.ctx`; its registrations shadow globals, receive only that agent's dispatches, and unwind on disposal, including awaited background-task cleanup. `CreateAgentOptions.setup(agentCtx)` composes it before publication. Typed resolvers derive carrier checks from merged events and `scopeTarget` ([semantic gates](rfc/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md), [agent scope](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md), [subagent controls](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)).
 
 ## State
 
@@ -135,7 +136,7 @@ Durability is a plugin concern. Persistence backends buffer synchronous `session
 
 ### Model Content
 
-Messages are arrays of typed content blocks (`text`, `reasoning`, `tool-call`, `tool-result`). The union derives from the merge-extensible `ContentBlockMap`; the same pattern types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New block types are coordinated across adapters, UI bridges, token metering, and persistence, so block types remain a repo-wide contract. Replay measurement types are cataloged in [token-meter.md](core-data-structures/token-meter.md).
+Messages are arrays of typed content blocks (`text`, `reasoning`, `tool-call`, `tool-result`). The union derives from the merge-extensible `ContentBlockMap`; the same pattern types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New block types require coordinated adapter, UI, token-meter, and persistence changes; replay measurement types live in [token-meter.md](core-data-structures/token-meter.md).
 
 Streaming is a raw chunk protocol (`block-start` through `finish`) with `BlockAssembler` as the shared chunk-to-block assembler. The loop logs raw chunks while assembling them for dispatch. `LlmAdapter` is the provider seam: subclass, implement `stream()`, and register with `ctx.llm.registerAdapter(models, adapter)`. StreamChunk conventions live in [llm-streaming.md](core-data-structures/llm-streaming.md).
 
@@ -160,6 +161,7 @@ New behavior should attach to a documented extension point; changing the shipped
 | Add a model provider | register an adapter on `ctx.llm` |
 | Add a model-facing capability | register a tool on `ctx.tools`; schemas flow into prompt assembly |
 | Add command execution | implement and register a `ctx.bash` backend |
+| Add a long-running/background capability | register the work on `ctx.tasks`; the generic `task_*` tools collect/stop it |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
 | Confine spawned processes | a `ctx.sandbox` backend; consumers wrap their argv before spawning |
 | Intercept prompts, requests, model completion/failure, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` event; use serial `agent/turn-stop` for a monotonic terminal stop |
