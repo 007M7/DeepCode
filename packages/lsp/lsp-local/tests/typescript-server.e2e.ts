@@ -53,10 +53,13 @@ beforeAll(async () => {
   ctx = new Context()
   await ctx.plugin(Lsp)
   await ctx.plugin(LspLocal, {
-    providerId: 'typescript',
-    command: serverBin,
-    args: ['--stdio'],
-    extensionToLanguage: { '.ts': 'typescript', '.tsx': 'typescriptreact' },
+    servers: {
+      typescript: {
+        command: serverBin,
+        args: ['--stdio'],
+        extensionToLanguage: { '.ts': 'typescript', '.tsx': 'typescriptreact' },
+      },
+    },
   })
 }, 60_000)
 

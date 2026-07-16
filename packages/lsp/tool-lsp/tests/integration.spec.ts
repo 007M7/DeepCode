@@ -52,12 +52,15 @@ async function mount(hang: boolean, timeoutMs?: number): Promise<Context> {
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(Lsp)
   await ctx.plugin(LspLocal, {
-    providerId: 'inline',
-    command: process.execPath,
-    args: ['-e', serverScript(hang)],
-    extensionToLanguage: { '.ts': 'typescript' },
-    shutdownTimeoutMs: 200,
-    killGraceMs: 200,
+    servers: {
+      inline: {
+        command: process.execPath,
+        args: ['-e', serverScript(hang)],
+        extensionToLanguage: { '.ts': 'typescript' },
+        shutdownTimeoutMs: 200,
+        killGraceMs: 200,
+      },
+    },
   })
   await ctx.plugin(TimeoutPolicy)
   await ctx.plugin(ToolLsp, timeoutMs !== undefined ? { timeoutMs } : {})

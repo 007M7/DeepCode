@@ -424,10 +424,14 @@ Source: [`packages/support/llm-replay/src/index.ts:306`](../packages/support/llm
 Requires: `lsp`
 
 ```ts config-catalog
-/** Plugin configuration: one server command plus its extension mapping and host bounds. */
+/** Plugin configuration: provider id → local language-server configuration. */
 export interface Config {
-  /** Stable provider id, reserved on `ctx.lsp` with the extensions. */
-  providerId: string
+  /** Non-empty table of stable provider ids to independent local server configurations. */
+  servers: Record<string, LspLocalServerConfig>
+}
+
+/** One configured local language server and its host bounds. */
+export interface LspLocalServerConfig {
   /** Executable to spawn (absolute, or resolved on PATH at load). */
   command: string
   /** Lowercase leading-dot extension → LSP language id (e.g. `{ '.ts': 'typescript' }`). */
@@ -453,7 +457,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/lsp/lsp-local/src/index.ts:59`](../packages/lsp/lsp-local/src/index.ts)
+Source: [`packages/lsp/lsp-local/src/index.ts:85`](../packages/lsp/lsp-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-mcp-client`
 

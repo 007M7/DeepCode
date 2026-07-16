@@ -8,7 +8,7 @@ import { Context } from 'cordis'
 import Lsp, { type LspQueryRequest, type LspQueryResult } from '@deepseek-ai/dsh-lsp'
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-local'
-import type { Config } from '@deepseek-ai/dsh-lsp-local'
+import type { LspLocalServerConfig } from '@deepseek-ai/dsh-lsp-local'
 
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
@@ -28,17 +28,23 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-/** Mount the real seam + lsp-local plugin driving the fake server with the given env. */
-async function mount(fakeEnv: Record<string, string> = {}, overrides: Partial<Config> = {}): Promise<Context> {
-  const ctx = new Context()
-  await ctx.plugin(Lsp)
-  await ctx.plugin(LspLocal, {
-    providerId: 'fake',
+/** One fake stdio server entry with optional behavior and host-bound overrides. */
+function fakeServer(fakeEnv: Record<string, string> = {}, overrides: Partial<LspLocalServerConfig> = {}): LspLocalServerConfig {
+  return {
     command: process.execPath,
     args: ['--import', tsxLoader, fixtureServer],
     env: { TSX_TSCONFIG_PATH: repoTsconfig, ...fakeEnv },
     extensionToLanguage: { '.ts': 'typescript' },
     ...overrides,
+  }
+}
+
+/** Mount the real seam + lsp-local plugin driving one fake server. */
+async function mount(fakeEnv: Record<string, string> = {}, overrides: Partial<LspLocalServerConfig> = {}): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(Lsp)
+  await ctx.plugin(LspLocal, {
+    servers: { fake: fakeServer(fakeEnv, overrides) },
   })
   return ctx
 }
@@ -53,6 +59,24 @@ function locationJson(line: number): unknown {
 }
 
 describe('lsp-local end to end over a fake server', () => {
+  it('routes different extensions to independent configured servers', async () => {
+    await writeFile(join(ws, 'a.py'), 'x = 1\n')
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await ctx.plugin(LspLocal, {
+      servers: {
+        typescript: fakeServer({ LSP_FAKE_HOVER: JSON.stringify({ contents: 'ts' }) }),
+        python: fakeServer(
+          { LSP_FAKE_HOVER: JSON.stringify({ contents: 'py' }) },
+          { extensionToLanguage: { '.py': 'python' } },
+        ),
+      },
+    })
+    expect(await ctx.lsp.query(query('hover', 'a.ts'))).toEqual({ kind: 'hover', hover: { contents: 'ts' } })
+    expect(await ctx.lsp.query(query('hover', 'a.py'))).toEqual({ kind: 'hover', hover: { contents: 'py' } })
+    await ctx.fiber.dispose()
+  })
+
   it('resolves definition to normalized locations', async () => {
     const ctx = await mount({ LSP_FAKE_DEF: JSON.stringify(locationJson(0)) })
     const result = await ctx.lsp.query(query('definition'))
@@ -245,10 +269,13 @@ describe('lsp-local end to end over a fake server', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await expect(ctx.plugin(LspLocal, {
-      providerId: 'missing',
-      command: 'definitely-not-a-real-lsp-binary-xyz',
-      args: [],
-      extensionToLanguage: { '.ts': 'typescript' },
+      servers: {
+        missing: {
+          command: 'definitely-not-a-real-lsp-binary-xyz',
+          args: [],
+          extensionToLanguage: { '.ts': 'typescript' },
+        },
+      },
     })).rejects.toThrow(/was not found on PATH/)
     await ctx.fiber.dispose()
   })

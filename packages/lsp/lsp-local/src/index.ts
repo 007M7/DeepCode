@@ -1,10 +1,10 @@
 /**
- * Generic stdio language-server provider for `ctx.lsp`. One plugin instance configures one server
- * command and its extension→language-id map; load multiple instances for multiple servers. The
- * provider lazily single-flights one server process per `(provider id, canonical workspace
- * realpath)`, serves transient-open queries through it, and evicts a crashed process so a later
- * query can replace it. It reads sources through Node APIs in the host namespace (not `ctx.fs`) and
- * trusts its configured server — no sandbox confinement.
+ * Generic stdio language-server backend for `ctx.lsp`. One plugin instance configures a named table
+ * of server commands and registers one isolated provider for each entry. Every provider lazily
+ * single-flights one server process per canonical workspace realpath, serves transient-open queries
+ * through it, and evicts a crashed process so a later query can replace it. Providers read sources
+ * through Node APIs in the host namespace (not `ctx.fs`) and trust their configured servers — no
+ * sandbox confinement.
  *
  * Namespace plugin (named exports, no default export). Lifecycle is effect-scoped: disposal
  * unregisters from `ctx.lsp` and tears down every live server.
@@ -55,10 +55,8 @@ const DEFAULT_MAX_DOCUMENT_BYTES = 4_000_000
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000
 const DEFAULT_KILL_GRACE_MS = 2_000
 
-/** Plugin configuration: one server command plus its extension mapping and host bounds. */
-export interface Config {
-  /** Stable provider id, reserved on `ctx.lsp` with the extensions. */
-  providerId: string
+/** One configured local language server and its host bounds. */
+export interface LspLocalServerConfig {
   /** Executable to spawn (absolute, or resolved on PATH at load). */
   command: string
   /** Lowercase leading-dot extension → LSP language id (e.g. `{ '.ts': 'typescript' }`). */
@@ -83,11 +81,16 @@ export interface Config {
   killGraceMs?: number
 }
 
-/** The resolved config after schemastery fills every default; the provider reads this shape. */
-type ResolvedConfig = Required<Config>
+/** Plugin configuration: provider id → local language-server configuration. */
+export interface Config {
+  /** Non-empty table of stable provider ids to independent local server configurations. */
+  servers: Record<string, LspLocalServerConfig>
+}
 
-export const Config: z<Config> = z.object({
-  providerId: z.string().required(),
+/** One server config after schemastery fills every default. */
+type ResolvedServerConfig = Required<LspLocalServerConfig>
+
+const LspLocalServerConfig: z<LspLocalServerConfig> = z.object({
   command: z.string().required(),
   args: z.array(String).default([]),
   env: z.dict(String).default({}),
@@ -101,43 +104,66 @@ export const Config: z<Config> = z.object({
   killGraceMs: z.number().default(DEFAULT_KILL_GRACE_MS),
 })
 
+export const Config: z<Config> = z.object({
+  servers: z.dict(LspLocalServerConfig).required(),
+})
+
 /**
- * Register a generic stdio LSP provider. Resolves the executable at load (after credential
- * scrubbing) and fails before registration when it is unavailable; the process itself launches
- * lazily on the first matching query.
+ * Register the configured stdio LSP providers. Resolves every executable at load (after credential
+ * scrubbing) before publishing any provider; each process launches lazily on its first matching
+ * query.
  * @param ctx - the plugin context (must inject `lsp`).
  * @param config - the resolved plugin configuration (schemastery has filled every default).
  */
 export function apply(ctx: Context, config: Config): void {
-  const resolved = config as ResolvedConfig
+  const entries = Object.entries(config.servers)
+  if (entries.length === 0) throw new Error('lsp-local: servers must contain at least one server')
+
+  // Resolve every server-local setting before registration so a bad later command or bound cannot
+  // publish an earlier provider. Registry-level mapping conflicts are rolled back below.
+  const providers = entries.map(([providerId, rawConfig]) => {
+    if (providerId.trim() === '') throw new Error('lsp-local: server ids must be non-empty strings')
+    const resolved = rawConfig as ResolvedServerConfig
+    validateServerConfig(providerId, resolved)
+    const childEnv = buildChildEnv(resolved.env)
+    const executable = resolveExecutable(resolved.command, childEnv)
+    return new LocalLspProvider(providerId, resolved, childEnv, executable)
+  })
+
+  ctx.effect(() => {
+    const disposers: Array<() => void> = []
+    try {
+      for (const provider of providers) disposers.push(ctx.lsp.registerProvider(provider))
+    } catch (error) {
+      for (const dispose of disposers.reverse()) dispose()
+      throw error
+    }
+    return async () => {
+      // Remove every route before process teardown so no new query can enter a draining provider.
+      for (const dispose of disposers.reverse()) dispose()
+      await Promise.all(providers.map(provider => provider.disposeAll()))
+    }
+  }, 'lsp-local.registerProviders')
+}
+
+/** Validate one resolved server entry before any provider in the table is registered. */
+function validateServerConfig(providerId: string, resolved: ResolvedServerConfig): void {
   // Teardown budgets feed `deadline()`, whose `<= 0` is the internal no-timeout sentinel; a
   // nonpositive value would let a server that ignores shutdown hang disposal forever. Fail at load.
-  assertPositiveInteger('shutdownTimeoutMs', resolved.shutdownTimeoutMs)
-  assertPositiveInteger('killGraceMs', resolved.killGraceMs)
+  assertPositiveInteger(providerId, 'shutdownTimeoutMs', resolved.shutdownTimeoutMs)
+  assertPositiveInteger(providerId, 'killGraceMs', resolved.killGraceMs)
   // Byte caps must be positive: a nonpositive stderr cap defeats the retained-tail bound
   // (`slice(-0)` keeps everything), `maxMessageBytes: 0` makes every response fatal, and a bad
   // document cap fails later in the read path instead of at load.
-  assertPositiveInteger('maxStderrBytes', resolved.maxStderrBytes)
-  assertPositiveInteger('maxMessageBytes', resolved.maxMessageBytes)
-  assertPositiveInteger('maxDocumentBytes', resolved.maxDocumentBytes)
-  const childEnv = buildChildEnv(resolved.env)
-  // Resolve the executable eagerly so a misconfigured command fails at load, not on first query.
-  const executable = resolveExecutable(resolved.command, childEnv)
-
-  const provider = new LocalLspProvider(resolved, childEnv, executable)
-  ctx.effect(() => {
-    const dispose = ctx.lsp.registerProvider(provider)
-    return async () => {
-      dispose()
-      await provider.disposeAll()
-    }
-  }, 'lsp-local.registerProvider')
+  assertPositiveInteger(providerId, 'maxStderrBytes', resolved.maxStderrBytes)
+  assertPositiveInteger(providerId, 'maxMessageBytes', resolved.maxMessageBytes)
+  assertPositiveInteger(providerId, 'maxDocumentBytes', resolved.maxDocumentBytes)
 }
 
 /** Reject a nonpositive or non-integer config value at load, so misconfiguration fails loud. */
-function assertPositiveInteger(name: string, value: number): void {
+function assertPositiveInteger(providerId: string, name: string, value: number): void {
   if (!Number.isInteger(value) || value < 1) {
-    throw new Error(`lsp-local: ${name} must be a positive integer`)
+    throw new Error(`lsp-local: servers.${providerId}.${name} must be a positive integer`)
   }
 }
 
@@ -150,11 +176,12 @@ class LocalLspProvider implements LspProvider {
   private disposed = false
 
   constructor(
-    private readonly config: ResolvedConfig,
+    providerId: string,
+    private readonly config: ResolvedServerConfig,
     private readonly childEnv: Record<string, string>,
     private readonly executable: string,
   ) {
-    this.id = LspProviderId(config.providerId)
+    this.id = LspProviderId(providerId)
     this.extensionToLanguage = config.extensionToLanguage
   }
 

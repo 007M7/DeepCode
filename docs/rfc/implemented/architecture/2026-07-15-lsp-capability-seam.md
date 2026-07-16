@@ -17,7 +17,7 @@ Many language servers behave best when the queried document is opened with curre
 Add LSP as a three-package capability seam with one read-only model tool and one generic local provider implementation:
 
 1. `@deepseek-ai/dsh-lsp` at `packages/lsp/lsp` owns `ctx.lsp`, provider registration and selection, normalized requests/results, execution control, and structured LSP errors.
-2. `@deepseek-ai/dsh-lsp-local` at `packages/lsp/lsp-local` adapts configured stdio language servers to the seam. Multiple plugin instances may register different server commands and extension-to-language-id mappings.
+2. `@deepseek-ai/dsh-lsp-local` at `packages/lsp/lsp-local` adapts configured stdio language servers to the seam. One plugin instance accepts a named server table and registers one isolated provider for each command and extension-to-language-id mapping.
 3. `@deepseek-ai/dsh-tool-lsp` at `packages/lsp/tool-lsp` owns the model-facing `lsp` schema, prompt guidance, argument validation, result limits and formatting, and ACP presentation.
 
 `dsh-lsp-local` is a generic host, not a language-server catalog or installer. Deployments explicitly configure commands and mappings; future presets belong in composition plugins or `cordis.yml` overlays.
@@ -79,7 +79,7 @@ interface LspService {
 
 Mapping keys normalize to lowercase, leading-dot extensions selected from `filePath`'s final extension; language ids only synchronize documents. Seam positions and ranges are zero-based UTF-16. `references` always includes declarations: providers enforce this internally, the local mapping sets `context.includeDeclaration: true`, and callers get no flag. Closed result unions normalize navigation to locations and hover to content or `null`; navigation results carry the provider's resolved workspace root so consumers relativize file URIs in the same canonical namespace. The seam exposes no protocol types, process or document controls, or generic request escape hatch.
 
-`dsh-lsp-local` owns host files, server configuration, JSON-RPC, process and transient-document state, and protocol translation; it depends on `dsh-lsp` and Node APIs, not `dsh-fs`. `dsh-tool-lsp` runtime-injects only `tools`, `lsp`, and `systemPrompt`, obtains the workspace from `exec.agent?.session.header.cwd` through a package-local `sessionCwd(exec)` helper matching the filesystem tools' lookup, and imports no provider.
+`dsh-lsp-local` owns host files, server configuration, JSON-RPC, process and transient-document state, and protocol translation; it depends on `dsh-lsp` and Node APIs, not `dsh-fs`. The server-table key is its provider id. The plugin resolves every server-local setting before registration, rolls back earlier registrations if a later mapping is invalid or conflicts, and retains an independent process pool per provider. `dsh-tool-lsp` runtime-injects only `tools`, `lsp`, and `systemPrompt`, obtains the workspace from `exec.agent?.session.header.cwd` through a package-local `sessionCwd(exec)` helper matching the filesystem tools' lookup, and imports no provider.
 
 ## Model-facing contract
 

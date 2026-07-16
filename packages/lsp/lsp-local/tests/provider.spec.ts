@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { Context } from 'cordis'
 import Lsp, { type LspQueryRequest } from '@deepseek-ai/dsh-lsp'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-local'
+import type { Config, LspLocalServerConfig } from '@deepseek-ai/dsh-lsp-local'
 
 let root: string
 let ws: string
@@ -24,6 +25,11 @@ function query(): LspQueryRequest {
   return { operation: 'definition', filePath: 'a.ts', position: { line: 0, character: 0 }, workspaceRoot: ws }
 }
 
+/** Wrap one server entry in the plugin's named server table. */
+function config(providerId: string, server: LspLocalServerConfig): Config {
+  return { servers: { [providerId]: server } }
+}
+
 describe('lsp-local provider resolution', () => {
   it('resolves a bare command on the child PATH and registers the provider', async () => {
     // A tiny executable script placed on a custom PATH dir: the load-time resolver must find it.
@@ -35,26 +41,24 @@ describe('lsp-local provider resolution', () => {
 
     const ctx = new Context()
     await ctx.plugin(Lsp)
-    await expect(ctx.plugin(LspLocal, {
-      providerId: 'onpath',
+    await expect(ctx.plugin(LspLocal, config('onpath', {
       command: 'fake-lsp',
       args: [],
       env: { PATH: bin },
       extensionToLanguage: { '.ts': 'typescript' },
-    })).resolves.toBeDefined()
+    }))).resolves.toBeDefined()
     await ctx.fiber.dispose()
   })
 
   it('skips empty PATH segments and fails when the command is absent', async () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
-    await expect(ctx.plugin(LspLocal, {
-      providerId: 'nope',
+    await expect(ctx.plugin(LspLocal, config('nope', {
       command: 'fake-lsp',
       args: [],
       env: { PATH: `::${join(root, 'empty')}` },
       extensionToLanguage: { '.ts': 'typescript' },
-    })).rejects.toThrow(/was not found on PATH/)
+    }))).rejects.toThrow(/was not found on PATH/)
     await ctx.fiber.dispose()
   })
 
@@ -64,12 +68,11 @@ describe('lsp-local provider resolution', () => {
     await ctx.plugin(Lsp)
     // Grab the provider instance by registering, then dispose the whole plugin fiber.
     const lsp = ctx.lsp
-    const fiber = await ctx.plugin(LspLocal, {
-      providerId: 'disp',
+    const fiber = await ctx.plugin(LspLocal, config('disp', {
       command: process.execPath,
       args: ['-e', 'setInterval(()=>{},1000)'],
       extensionToLanguage: { '.ts': 'typescript' },
-    })
+    }))
     await fiber.dispose()
     // After disposal the provider unregistered from the seam, so selection fails as unavailable.
     await expect(lsp.query(query())).rejects.toThrow(expect.objectContaining({ code: 'LSP_UNAVAILABLE' }))
@@ -79,13 +82,12 @@ describe('lsp-local provider resolution', () => {
   it('rejects a nonpositive teardown budget at load', async () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
-    await expect(ctx.plugin(LspLocal, {
-      providerId: 'bad-budget',
+    await expect(ctx.plugin(LspLocal, config('bad-budget', {
       command: process.execPath,
       args: ['-e', ''],
       extensionToLanguage: { '.ts': 'typescript' },
       killGraceMs: 0,
-    })).rejects.toThrow(/killGraceMs must be a positive integer/)
+    }))).rejects.toThrow(/servers\.bad-budget\.killGraceMs must be a positive integer/)
     await ctx.fiber.dispose()
   })
 
@@ -94,24 +96,65 @@ describe('lsp-local provider resolution', () => {
     await writeFile(notExe, 'plain text, not executable')
     const ctx = new Context()
     await ctx.plugin(Lsp)
-    await expect(ctx.plugin(LspLocal, {
-      providerId: 'abs-bad',
+    await expect(ctx.plugin(LspLocal, config('abs-bad', {
       command: notExe,
       args: [],
       extensionToLanguage: { '.ts': 'typescript' },
-    })).rejects.toThrow(/is not an executable file/)
+    }))).rejects.toThrow(/is not an executable file/)
     await ctx.fiber.dispose()
   })
 
   it('rejects an executable directory as a command at load', async () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
-    await expect(ctx.plugin(LspLocal, {
-      providerId: 'abs-directory',
+    await expect(ctx.plugin(LspLocal, config('abs-directory', {
       command: ws,
       args: [],
       extensionToLanguage: { '.ts': 'typescript' },
-    })).rejects.toThrow(/is not an executable file/)
+    }))).rejects.toThrow(/is not an executable file/)
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects an empty server table at load', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await expect(ctx.plugin(LspLocal, { servers: {} })).rejects.toThrow(/servers must contain at least one server/)
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects an empty server id at load', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await expect(ctx.plugin(LspLocal, config('', {
+      command: process.execPath,
+      extensionToLanguage: { '.ts': 'typescript' },
+    }))).rejects.toThrow(/server ids must be non-empty strings/)
+    await ctx.fiber.dispose()
+  })
+
+  it('resolves every executable before publishing any provider', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await expect(ctx.plugin(LspLocal, {
+      servers: {
+        valid: { command: process.execPath, extensionToLanguage: { '.ts': 'typescript' } },
+        missing: { command: 'definitely-not-a-real-lsp-binary-xyz', extensionToLanguage: { '.py': 'python' } },
+      },
+    })).rejects.toThrow(/was not found on PATH/)
+    await expect(ctx.lsp.query(query())).rejects.toThrow(expect.objectContaining({ code: 'LSP_UNAVAILABLE' }))
+    await ctx.fiber.dispose()
+  })
+
+  it('rolls back earlier registrations when a later server conflicts', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await expect(ctx.plugin(LspLocal, {
+      servers: {
+        first: { command: process.execPath, extensionToLanguage: { '.ts': 'typescript' } },
+        second: { command: process.execPath, extensionToLanguage: { '.ts': 'typescript' } },
+      },
+    })).rejects.toThrow(expect.objectContaining({ code: 'LSP_CONFLICT' }))
+    await expect(ctx.lsp.query(query())).rejects.toThrow(expect.objectContaining({ code: 'LSP_UNAVAILABLE' }))
     await ctx.fiber.dispose()
   })
 })

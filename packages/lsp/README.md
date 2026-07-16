@@ -5,7 +5,7 @@ The language-server capability seam: an abstract LSP interface, a generic stdio 
 | Package | Role | ctx key |
 |---|---|---|
 | `lsp/` | Abstract LSP seam (provider registry by branded id + extension mapping, per-query selection, vocabulary, `LspError`) | `ctx.lsp` |
-| `lsp-local/` | Generic stdio language-server provider (spawn, JSON-RPC, transient-open queries) | (registers on `ctx.lsp`) |
+| `lsp-local/` | Generic multi-server local backend (spawn, JSON-RPC, transient-open queries) | (registers providers on `ctx.lsp`) |
 | `tool-lsp/` | Model-facing `lsp` tool (four operations, one-based UTF-16 cursor coordinates) | (registers on `ctx.tools`) |
 
 The interface lives at `lsp/lsp/`. The seam exposes exactly four semantic operations — `definition`, `references`, `implementation`, `hover` — and no generic JSON-RPC escape hatch, so a provider swap does not change how the model asks for navigation and no protocol payload or unreviewed mutation reaches the model contract. Providers register **capabilities**, not tools; `tool-lsp` is the only owner of the model-facing name, schema, prompt guidance, and presentation.

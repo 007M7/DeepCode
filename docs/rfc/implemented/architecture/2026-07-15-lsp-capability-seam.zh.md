@@ -17,7 +17,7 @@ harness 已具备文本搜索与文件读取能力，但二者都无法识别程
 将 LSP 建成由三个包（package）组成的能力服务边界，其中包含一个只读模型工具和一个通用本地提供方实现：
 
 1. `packages/lsp/lsp` 下的 `@deepseek-ai/dsh-lsp` 负责 `ctx.lsp`、提供方注册与选择、标准化请求与结果、执行控制，以及结构化 LSP 错误。
-2. `packages/lsp/lsp-local` 下的 `@deepseek-ai/dsh-lsp-local` 将配置的 stdio 语言服务器适配到该服务边界。多个插件实例可注册不同的服务器命令和扩展名到语言 id 的映射。
+2. `packages/lsp/lsp-local` 下的 `@deepseek-ai/dsh-lsp-local` 将配置的 stdio 语言服务器适配到该服务边界。一个插件实例接收具名服务器表，并为每组命令及扩展名到语言 id 的映射注册一个隔离的提供方。
 3. `packages/lsp/tool-lsp` 下的 `@deepseek-ai/dsh-tool-lsp` 负责面向模型的 `lsp` schema、提示词指导、参数校验、结果限制与格式化，以及 ACP（Agent Client Protocol）展示。
 
 `dsh-lsp-local` 是通用 host，不是语言服务器目录或安装器。部署显式配置命令与映射；未来 preset 属于组合插件或 `cordis.yml` overlay。
@@ -79,7 +79,7 @@ interface LspService {
 
 映射键规范化为带前导点的小写扩展名，并按 `filePath` 的最后一个扩展名选择；语言 id 仅用于文档同步。服务边界中的位置和范围从零开始按 UTF-16 计数。`references` 始终包含声明：提供方在内部执行该约束，本地映射设置 `context.includeDeclaration: true`，调用方不能配置。封闭结果联合将导航统一为位置，将 `hover` 统一为内容或 `null`；导航结果携带提供方解析后的工作区根目录，使消费方依据同一规范化根目录相对化文件 URI。服务边界不公开协议类型、进程或文档控制，也不提供通用请求逃生口。
 
-`dsh-lsp-local` 负责主机文件、服务器配置、JSON-RPC、进程与临时文档状态和协议转换；它依赖 `dsh-lsp` 与 Node API，不依赖 `dsh-fs`。`dsh-tool-lsp` 在运行时只注入 `tools`、`lsp` 和 `systemPrompt`，通过包内的 `sessionCwd(exec)` 辅助函数从 `exec.agent?.session.header.cwd` 取得工作区，其取值方式与文件系统工具一致，也不导入提供方。
+`dsh-lsp-local` 负责主机文件、服务器配置、JSON-RPC、进程与临时文档状态和协议转换；它依赖 `dsh-lsp` 与 Node API，不依赖 `dsh-fs`。服务器表的键是提供方 id。插件在注册前解析每个服务器的本地设置；如果后续映射无效或发生冲突，插件会撤销此前的注册，并为每个提供方保留独立进程池。`dsh-tool-lsp` 在运行时只注入 `tools`、`lsp` 和 `systemPrompt`，通过包内的 `sessionCwd(exec)` 辅助函数从 `exec.agent?.session.header.cwd` 取得工作区，其取值方式与文件系统工具一致，也不导入提供方。
 
 ## 面向模型的契约
 

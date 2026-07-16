@@ -46,11 +46,14 @@ describe.skipIf(!built)('built lib real load path (plain node)', () => {
       const ctx = new Context()
       await ctx.plugin(Lsp)
       await ctx.plugin(LspLocal, {
-        providerId: 'fake',
-        command: ${JSON.stringify(process.execPath)},
-        args: ['--import', ${JSON.stringify(tsxLoader)}, ${JSON.stringify(fixtureServer)}],
-        env: { TSX_TSCONFIG_PATH: ${JSON.stringify(repoTsconfig)}, LSP_FAKE_DEF: ${JSON.stringify(location)} },
-        extensionToLanguage: { '.ts': 'typescript' },
+        servers: {
+          fake: {
+            command: ${JSON.stringify(process.execPath)},
+            args: ['--import', ${JSON.stringify(tsxLoader)}, ${JSON.stringify(fixtureServer)}],
+            env: { TSX_TSCONFIG_PATH: ${JSON.stringify(repoTsconfig)}, LSP_FAKE_DEF: ${JSON.stringify(location)} },
+            extensionToLanguage: { '.ts': 'typescript' },
+          },
+        },
       })
       const result = await ctx.lsp.query({ operation: 'definition', filePath: 'a.ts', position: { line: 0, character: 6 }, workspaceRoot: ${JSON.stringify(ws)} })
       console.log(JSON.stringify(result))
