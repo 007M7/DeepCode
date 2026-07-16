@@ -140,7 +140,7 @@ export function apply(ctx: Context) {
 
 ### 在 cordis.yml 中组合
 
-```yaml
+```yaml ignore-check
 - name: '@deepseek-ai/dsh-my-cap-local'
 - name: '@deepseek-ai/dsh-tool-my-cap'
 ```
