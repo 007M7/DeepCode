@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-cli-demo",
-  "description": "Headless one-shot coding-agent app with text and DSH-native JSON output",
+  "description": "Headless one-shot agent app with text and DSH-native JSON output",
   "version": "0.0.1",
   "private": true,
   "type": "module",

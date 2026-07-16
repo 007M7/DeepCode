@@ -4,7 +4,7 @@ Shared subprocess harness for keyless example smokes that boot a real app bin an
 
 Successful runs return stdout and stderr only after a zero exit. Non-zero exits and deadlines reject with both captured streams. `LOADER_SMOKE_TEST_TIMEOUT_MS` leaves Vitest enough room for the process-owned diagnostic timeout to fire first.
 
-This is support-tier test infrastructure, not product API. The consumers are the Loader-path smokes under `examples/{echo-agent,coding-agent,cordis-agent}`.
+This is support-tier test infrastructure, not product API. The consumers are the Loader-path smokes under `examples/{echo-agent,coding-agent,headless-agent,cordis-agent}`.
 
 ## Model Experience
 

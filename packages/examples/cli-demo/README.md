@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-cli-demo
 
-Headless one-shot app and bin for running one coding-agent task without a readline or editor client. The app composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), JSONL persistence, and one fresh `main` agent; the bin submits one task, waits through all model and tool steps, emits the selected result, disposes to quiescence, and exits.
+Headless one-shot app and bin for running one agent task without a readline or editor client. The app composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), JSONL persistence, and one fresh `main` agent; the bin submits one task, waits through all model and tool steps, emits the selected result, disposes to quiescence, and exits.
 
 The package mounts no console logger, readline UI, user-interaction service, or `ask_user_question` tool. Stdout is reserved for the selected output format; diagnostics use stderr.
 
@@ -25,7 +25,7 @@ dsh-cli-demo [--config path] [--output-format text|json|stream-json] <task>
 
 `--config` defaults to `./cordis.yml`; `--output-format` defaults to `text`. Exactly one nonblank positional task is required, so quote tasks containing spaces. `--help` prints usage without booting. There is no `-p` or `--print` flag.
 
-The root coding demo supplies its overlay:
+The root headless-agent example supplies its leaf:
 
 ```sh
 pnpm run demo:headless -- "inspect the failing test and fix it"
@@ -45,7 +45,7 @@ The task turn is explicitly flushed before final output. Session logs remain und
 
 ## Operational safety
 
-The coding overlay retains local bash, filesystem, skill, subagent, workflow, and todo capabilities. A task can therefore mutate the launch workspace, run commands, spawn child agents, and consume provider tokens. Run the CLI from the intended project directory, review the leaf's capability and sandbox configuration, and do not treat non-interactive execution as an approval boundary.
+The headless-agent leaf supplies local bash, filesystem, skill, subagent, workflow, and todo capabilities. A task can therefore mutate the launch workspace, run commands, spawn child agents, and consume provider tokens. Run the CLI from the intended project directory, review the leaf's capability and sandbox configuration, and do not treat non-interactive execution as an approval boundary.
 
 ## Model Experience
 

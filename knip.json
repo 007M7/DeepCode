@@ -9,7 +9,8 @@
         "examples/echo-agent/src/*.ts",
         "examples/echo-agent/tests/**/*.e2e.ts",
         "examples/coding-agent/tests/**/*.e2e.ts",
-        "examples/coding-agent/tests/fixtures/*.ts",
+        "examples/headless-agent/tests/**/*.e2e.ts",
+        "examples/headless-agent/tests/fixtures/*.ts",
         "examples/cordis-agent/tests/**/*.e2e.ts",
         "examples/acp-agent/tests/**/*.e2e.ts",
         "examples/*/tests/**/*.snapshot.ts"

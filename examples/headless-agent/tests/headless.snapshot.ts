@@ -14,7 +14,7 @@ const snapshotsDir = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const scenarioDir = join(snapshotsDir, 'advanced-toolchain')
 const sessionFixture = join(scenarioDir, 'session.jsonl')
 const streamGolden = join(scenarioDir, 'stream-json.golden.jsonl')
-const configPath = fileURLToPath(new URL('../advanced-headless.cordis.snapshot.yml', import.meta.url))
+const configPath = fileURLToPath(new URL('../advanced.cordis.snapshot.yml', import.meta.url))
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'

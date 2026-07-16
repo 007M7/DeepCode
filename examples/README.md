@@ -17,9 +17,15 @@ Run with: `pnpm run demo:echo`. When prompted, type "echo <something>" to trigge
 
 A REPL agent demo: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the same `@deepseek-ai/dsh-stdio-demo` app. The UI is a terminal readline REPL.
 
-Run interactively with `pnpm run demo:repl`, or run one headless task with `pnpm run demo:headless -- "task"` (both need `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
+Run with `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
 
 Run the Code Mode overlay with `pnpm run demo:code-mode`, or pass `acp` for the ACP example. See the [Code Mode example](coding-agent/README.md#code-mode) for its composition and a sample task.
+
+## headless-agent
+
+A non-interactive agent demo that accepts one positional task, runs one complete model/tool turn on the `@deepseek-ai/dsh-cli-demo` app, persists a fresh session, prints `text`, `json`, or `stream-json`, and exits.
+
+Run with: `pnpm run demo:headless -- "task"` (needs `DEEPSEEK_API_KEY`). See [headless-agent/README.md](headless-agent/README.md) for the wire contract, mutation and token risks, and the headless-owned snapshot suite.
 
 ## cordis-agent
 
@@ -29,7 +35,7 @@ Run with: `pnpm run demo:cordis` (needs `DEEPSEEK_API_KEY`). See [cordis-agent/R
 
 ## acp-agent
 
-An agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio, via the [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo) app — drive it from Zed or any other ACP client. Also the home of the keyless snapshot tests.
+An agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio, via the [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo) app — drive it from Zed or any other ACP client. It owns the ACP keyless snapshot suite.
 
 Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mode acp` boots the same server in Code Mode via the `code-mode.cordis.yml` overlay. See [acp-agent/README.md](acp-agent/README.md) for the Zed setup and the snapshot-test design.
 

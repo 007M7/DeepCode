@@ -1,7 +1,7 @@
 import type { Context } from 'cordis'
 import { CallId, LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 
-/** Keyless coding smoke adapter: one real bash call followed by a final answer. */
+/** Keyless headless-agent adapter: one real bash call followed by a final answer. */
 class CliMockAdapter extends LlmAdapter {
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     const toolResult = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')

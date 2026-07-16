@@ -5,16 +5,16 @@ import { describe, expect, it } from 'vitest'
 import { runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
-const configPath = fileURLToPath(new URL('../cli.cordis.yml', import.meta.url))
+const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const hasKey = Boolean(process.env.DEEPSEEK_API_KEY)
 
-describe.skipIf(!hasKey)('coding-agent one-shot CLI with real model', () => {
+describe.skipIf(!hasKey)('headless-agent with real model', () => {
   it('modifies a temporary workspace and verifies the file outside the agent', async () => {
     let verified = ''
     const { stdout } = await runLoaderSmoke({
-      label: 'coding-agent CLI real model',
-      tempDirPrefix: 'coding-cli-real-',
+      label: 'headless-agent real model',
+      tempDirPrefix: 'headless-agent-real-',
       binScript,
       configPath,
       binArgs: [

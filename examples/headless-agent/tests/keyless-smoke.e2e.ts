@@ -8,12 +8,12 @@ const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src
 const configPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
-describe('coding-agent one-shot CLI keyless smoke', () => {
+describe('headless-agent keyless smoke', () => {
   it('boots the real Loader tree, runs a real bash tool round trip, and persists the turn', async () => {
     let persisted = false
     const { stdout, stderr } = await runLoaderSmoke({
-      label: 'coding-agent CLI',
-      tempDirPrefix: 'coding-cli-smoke-',
+      label: 'headless-agent',
+      tempDirPrefix: 'headless-agent-smoke-',
       binScript,
       configPath,
       binArgs: ['--config', configPath, '--output-format', 'stream-json', 'prove the tool path'],

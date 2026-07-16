@@ -87,7 +87,7 @@ export function apply(ctx: Context) {
 
 ## 可运行的组装示例
 
-三个完整示例从 `cordis.yml` 加载各自的插件树：[`examples/echo-agent`](../../examples/echo-agent)（mock 模型 + echo 工具——全 mock 骨架检查，`pnpm run demo:echo`）、[`examples/coding-agent`](../../examples/coding-agent)（DeepSeek V4 + bash 工具套件，配合终端 REPL UI，`pnpm run demo:repl`）、[`examples/acp-agent`](../../examples/acp-agent)（通过 JSON-RPC stdio 暴露为 ACP 服务器的 agent——客户端驱动形态，`pnpm run demo:acp`）。每个叶子只是其可替换后端加一个 app 包入口：stdio 演示加载 [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo)，ACP 演示加载 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，两个 app 包通过 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) bundle 共享主干。
+五个完整示例从 `cordis.yml` 加载各自的插件树：[`examples/echo-agent`](../../examples/echo-agent)（mock 模型 + echo 工具——全 mock 骨架检查，`pnpm run demo:echo`）、[`examples/coding-agent`](../../examples/coding-agent)（DeepSeek V4 + coding 工具，配合终端 REPL，`pnpm run demo:repl`）、[`examples/headless-agent`](../../examples/headless-agent)（同类能力通过单次位置任务和 DSH 原生输出运行，`pnpm run demo:headless -- "task"`）、[`examples/cordis-agent`](../../examples/cordis-agent)（自引用的运行时检查演示，`pnpm run demo:cordis`）、[`examples/acp-agent`](../../examples/acp-agent)（通过 JSON-RPC stdio 暴露为 ACP 服务器的 agent——客户端驱动形态，`pnpm run demo:acp`）。每个叶子由其可替换后端加一个 app 包入口组成：stdio 演示加载 [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo)，headless 演示加载 [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo)，ACP 演示加载 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，三个 app 包都通过 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) 共享主干。
 
 ## 功能→机制映射
 
