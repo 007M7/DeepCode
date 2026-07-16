@@ -15,6 +15,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/schemastery"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
@@ -31,6 +34,9 @@
     },
     {
       "path": "../../util/home"
+    },
+    {
+      "path": "../../tasks/tasks"
     },
     {
       "path": "../../core/system-prompt"

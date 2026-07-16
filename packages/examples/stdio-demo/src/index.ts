@@ -50,6 +50,10 @@ export interface Config {
   welcome?: string
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
+  /** Model-facing bash tool config forwarded through agent-core. */
+  toolBash?: NonNullable<agentCore.Config['toolBash']>
+  /** Generic background-task control-tool config forwarded through agent-core. */
+  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /**
    * If set, the `main` agent RESUMES this persisted session id instead of
    * starting fresh. Sourced from an env var in the leaf `cordis.yml`
@@ -72,6 +76,8 @@ export const Config: z<Config> = z.object({
   persistenceRoot: z.string().default('./.sessions'),
   welcome: z.string().default('ready.'),
   skills: agentCore.SkillConfigSchema,
+  toolBash: agentCore.ToolBashConfigSchema,
+  toolTasks: agentCore.ToolTasksConfigSchema,
   resumeSessionId: z.string(),
 })
 
@@ -96,6 +102,8 @@ export function apply(ctx: Context, config: Config): void {
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
     }],
     ...config.skills !== undefined ? { skills: config.skills } : {},
+    ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
+    ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
   })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(UserInteractionService)

@@ -43,6 +43,10 @@ export interface Config {
   persistenceRoot?: string
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
+  /** Model-facing bash tool config forwarded through agent-core. */
+  toolBash?: NonNullable<agentCore.Config['toolBash']>
+  /** Generic background-task control-tool config forwarded through agent-core. */
+  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
 }
 
 // Each front door owns a complete, directly readable config schema; extracting
@@ -61,6 +65,8 @@ export const Config: z<Config> = z.object({
   // apply() fallback through one named constant while retaining both boundaries.
   persistenceRoot: z.string().default('./.sessions'),
   skills: agentCore.SkillConfigSchema,
+  toolBash: agentCore.ToolBashConfigSchema,
+  toolTasks: agentCore.ToolTasksConfigSchema,
 })
 /* jscpd:ignore-end */
 
@@ -78,6 +84,8 @@ export function apply(ctx: Context, config: Config): void {
     ...config.tools !== undefined ? { tools: config.tools } : {},
     ...config.dshHome !== undefined ? { dshHome: config.dshHome } : {},
     ...config.skills !== undefined ? { skills: config.skills } : {},
+    ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
+    ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
   })
   ctx.plugin(UserInteractionService)
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })

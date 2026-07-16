@@ -8,7 +8,7 @@ Zero-dependency primitives shared across the other groups. A package lands here 
 | `home/` | Canonical `DSH_HOME` resolution from explicit config, environment, or `~/.dsh` (no harness deps) |
 | `timeout/` | The timing/classification half of a timeout — `clampTimeout`/`deadline`/`timeoutOf`/`TimeoutReason` (pure functions, no harness deps); termination stays in each capability |
 
-`dsh-brand` is the canonical case: it owns ONLY the `Branded<B>` helper, so a capability package can brand the ids it owns (`dsh-bash`'s `BashTaskId`/`OwnerToken`, `dsh-session`'s `SessionId`, …) by depending on `dsh-brand` alone, without pulling in an unrelated package just to reach `Branded`.
+`dsh-brand` is the canonical case: it owns ONLY the `Branded<B>` helper, so a capability package can brand the ids it owns (`dsh-tasks`'s `TaskId`, `dsh-session`'s `SessionId`, …) by depending on `dsh-brand` alone, without pulling in an unrelated package just to reach `Branded`.
 
 `dsh-home` gives every package the same configurable Harness home without assigning that cross-cutting fact to bash, skills, or a composition bundle. It resolves an explicit value before `$DSH_HOME`, falls back to `~/.dsh`, and returns an absolute path without caching, creating, or mutating anything.
 

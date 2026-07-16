@@ -17,9 +17,11 @@ Read this package for the whole plugin tree and its composition order.
 @deepseek-ai/dsh-skill            skill provider registry
 @deepseek-ai/dsh-skill-local      local filesystem skill provider
 @deepseek-ai/dsh-agent            agent registry + agent/* event vocabulary
-@deepseek-ai/dsh-invariants       runtime event-contract assertions
-@deepseek-ai/dsh-tool-bash        the model-facing bash/bash_output/bash_kill schemas
+@deepseek-ai/dsh-tasks            generic background-task registry
+@deepseek-ai/dsh-invariants       dev-mode event-contract assertions
+@deepseek-ai/dsh-tool-bash        the model-facing bash schema
 @deepseek-ai/dsh-tool-skill       session-prefix skill catalog + model-facing loader schema
+@deepseek-ai/dsh-tool-tasks       task_output/task_list/task_kill schemas + completion notices
 @deepseek-ai/dsh-agent-loop       THE concrete loop (gets the forwarded `agents`)
                                   (dsh-system-prompt gets the forwarded `persona`)
 ```
@@ -39,11 +41,11 @@ This is the [interface/implementation/consumer seam](../../../docs/rfc/implement
 
 ```ts
 import type { Config } from '@deepseek-ai/dsh-agent-spine-demo'
-// { agents?, persona?, toolOrder?, tools?, dshHome?, skills? } — the schema intersects the owner schemas,
-// so validation and defaulting can never drift from the owners.
+// { agents?, persona?, toolOrder?, tools?, dshHome?, skills?, toolBash?, toolTasks? }
+// The schema intersects the owner schemas, so validation and defaulting can never drift from the owners.
 ```
 
-The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loop` (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`) — `persona` and `toolOrder` to `dsh-system-prompt`; `tools` to the tool registry; and `skills.registry`, `skills.local`, and `skills.tool` to the skill registry, local provider, and model-facing consumer. It resolves `dshHome` once through [`@deepseek-ai/dsh-home`](../../util/home/README.md) and forwards that absolute value to tool-bash's managed environment and local skill discovery. An absent top-level `dshHome` adopts `skills.local.dshHome`; supplying both with different resolved paths fails loudly.
+The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loop` (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`) — `persona` and `toolOrder` to `dsh-system-prompt`; `tools` to the tool registry for its presentation mode; `skills.registry`, `skills.local`, and `skills.tool` to the skill registry, local provider, and model-facing consumer; and `toolBash`/`toolTasks` to the two model-facing tool plugins the bundle owns. It resolves `dshHome` once through [`@deepseek-ai/dsh-home`](../../util/home/README.md) and forwards that absolute value to tool-bash's managed environment and local skill discovery. An absent top-level `dshHome` adopts `skills.local.dshHome`; supplying both with different resolved paths fails loudly. `toolBash.enableRunInBackground` controls only the bash producer, while `toolTasks` controls generic `task_output` wait bounds; independently loaded producers keep their own config.
 
 ## Why a code bundle, not a shared YAML include
 

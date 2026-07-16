@@ -12,9 +12,6 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../../vendor/schemastery"
-    },
-    {
       "path": "../../../vendor/timer"
     },
     {
@@ -55,6 +52,12 @@
     },
     {
       "path": "../../bash/tool-bash"
+    },
+    {
+      "path": "../../tasks/tasks"
+    },
+    {
+      "path": "../../tasks/tool-tasks"
     }
   ]
 }
