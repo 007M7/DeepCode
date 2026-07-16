@@ -184,6 +184,29 @@ describe('durable step context', () => {
     )
   })
 
+  it('reports an unavailable later-step baseline at the matching turn boundary', async () => {
+    const { ctx } = await mount()
+    const session = new Session(SessionId('later-step-boundary'))
+    openMessageTurn(session, 4)
+
+    await fire(ctx, sessionAgent(session), 4, 2)
+
+    expect(contextTexts(session)[0]).toContain(
+      'Elapsed since the preceding step context: unavailable.',
+    )
+  })
+
+  it('reports an unavailable later-step baseline when event lookup is exhausted', async () => {
+    const { ctx } = await mount()
+    const session = new Session(SessionId('later-step-exhausted'))
+
+    await fire(ctx, sessionAgent(session), 1, 2)
+
+    expect(contextTexts(session)[0]).toContain(
+      'Elapsed since the preceding step context: unavailable.',
+    )
+  })
+
   it('clamps backward wall-clock movement against the preceding context to zero', async () => {
     const { ctx } = await mount()
     const session = new Session(SessionId('backward'))
