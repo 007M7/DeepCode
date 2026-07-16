@@ -30,7 +30,7 @@ tools(provider: () => ToolSchema[]): () => void
 
 Contribute a tool-schema provider that is evaluated at each assembly call (so it can reflect the live registry state). The provider is removed when the calling fiber is disposed. A provider must not return a schema named TOOL_ORDER_REST; that name is reserved for Config.toolOrder's rest entry and rejects the assembly. Emits `system-prompt/change`.
 
-- `provider` — evaluated at every {@link assemble} for fresh schemas.
+- `provider` — evaluated at every `assemble` for fresh schemas.
 
 **Returns** the disposer that removes the provider.
 
@@ -45,7 +45,7 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 Contribute a named prompt variable, referenced from section text as `{{name}}`. The provider is evaluated at each assembly with that assembly's AssembleContext; returning `undefined` means "no value for this assembly" (a section referencing it then fails to render — a deployment must not claim facts it does not have). Throws on a name that does not match `[a-z][a-z0-9_]*` (it could never be referenced) or is already registered. Removed when the calling fiber is disposed; emits `system-prompt/change` on register/unregister.
 
 - `name` — the reference name (matches `[a-z][a-z0-9_]*`).
-- `provider` — evaluated at every {@link assemble} for the value.
+- `provider` — evaluated at every `assemble` for the value.
 
 **Returns** the disposer that removes the variable.
 
@@ -59,7 +59,7 @@ async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 
 Assemble the current prompt for one caller: section texts are resolved against `context` and sorted by order, tools collected from all providers and put in the canonical model-facing order (Config.toolOrder, or lexicographic name order when unconfigured — provider registration order is a plugin-load artifact and never reaches the assembly; a configured order naming a tool no provider contributed rejects the assembly), and every registered variable resolved against `context` into `assembly.variables`. Tool schemas are deep-cloned because adapters and request waterfalls may mutate schema objects. Runs through the `system-prompt/assemble` waterfall, giving listeners the opportunity to mutate or replace the assembly before it reaches the model — like the sections' `order` sort, tool canonicalization happens on the initial assembly, and a listener owns the determinism of whatever it emits. Await the result before reading the assembly values — waterfall listeners may be async. Interpolation happens later, in renderPrompt.
 
-- `context` — what this assembly is for (defaults to an empty context; see {@link AssembleContext}).
+- `context` — what this assembly is for (defaults to an empty context; see `AssembleContext`).
 
 **Returns** the assembly after the waterfall has run.
 

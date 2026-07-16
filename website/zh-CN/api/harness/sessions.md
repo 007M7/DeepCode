@@ -49,7 +49,7 @@ enter(session: Session): () => void
 Enter a prepared session into the store: wire `onAppend` → `session/event` and add it to the store. Returns the DETACH disposer (`onAppend = undefined` + store removal). Does NOT emit `session/created` — the caller yields this disposer inside its effect and THEN calls announce, so a throwing `session/created` listener rolls the attach back instead of leaking it.
 Re-checks the id for a duplicate: `prepare` and `enter` are public cross-package primitives and a caller may interleave arbitrary work (or another create) between them, so a stale prepared session must NOT overwrite a live store entry of the same id — its detach disposer would later delete the REAL session. The create convenience and the agent factory call the two back-to-back so they never trip this, but the public seam cannot assume that.
 
-- `session` — a {@link prepare}d session not yet in the store.
+- `session` — a `prepare`d session not yet in the store.
 
 **Returns** the detach disposer (`onAppend = undefined` + store removal).
 

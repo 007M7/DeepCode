@@ -201,8 +201,15 @@ function checkEntryList(
     }
     // Illustrative local plugin — nothing on disk to check against.
     if (name.startsWith('./') || name.startsWith('../')) return
-    // Loader built-in group: its config is a nested entry list.
+    // A `group:`-style pseudo-name is NOT loadable: tree.import() only
+    // special-cases the `cordis:` prefix, and nothing in this repo registers
+    // loader builtins — reject it and point at the real group plugin.
     if (name.startsWith('group:')) {
+      flag(`${at}: \`${name}\` is not loadable (no loader builtin is registered); use \`@cordisjs/plugin-group\` with \`group: true\``)
+      return
+    }
+    // The vendored group plugin: its config is a nested entry list.
+    if (name === '@cordisjs/plugin-group') {
       if (Array.isArray(entry['config'])) checkEntryList(entry['config'], known, block, violations)
       return
     }

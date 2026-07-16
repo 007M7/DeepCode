@@ -132,11 +132,14 @@ export function apply(ctx: Context) {
 
 ## 服务隔离
 
-`cordis.yml` 支持服务隔离——同一个服务可以有多个实例，不同插件组看到不同实例：
+`cordis.yml` 支持服务隔离——同一个服务可以有多个实例，不同插件组看到不同实例。用 `@cordisjs/plugin-group` 建组（`group: true` 标记组条目），并在组上声明 `isolate`，把该服务隔离进组内作用域：
 
 ```yaml
 - id: group-a
-  name: 'group:'
+  name: '@cordisjs/plugin-group'
+  group: true
+  isolate:
+    bash: true
   config:
     - name: '@deepseek-ai/dsh-bash-local'
       config:
@@ -144,7 +147,10 @@ export function apply(ctx: Context) {
     - name: './src/plugin-a.ts'
 
 - id: group-b
-  name: 'group:'
+  name: '@cordisjs/plugin-group'
+  group: true
+  isolate:
+    bash: true
   config:
     - name: '@deepseek-ai/dsh-bash-local'
       config:
@@ -152,7 +158,7 @@ export function apply(ctx: Context) {
     - name: './src/plugin-b.ts'
 ```
 
-`plugin-a` 和 `plugin-b` 各自看到自己组内的 bash 实例，互不影响。
+`plugin-a` 和 `plugin-b` 各自看到自己组内的 bash 实例，互不影响。`isolate: { bash: true }` 是必需的：不隔离的话，两个组在同一作用域注册同名服务，第二个会直接报重复注册错误。
 
 ## Harness 内置服务一览
 

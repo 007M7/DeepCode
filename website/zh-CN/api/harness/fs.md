@@ -72,7 +72,7 @@ Stream the whole regular text file as decoded text chunks (same text semantics a
 - `target` — the resolved target to read.
 - `signal` — aborts the stream, including between chunks.
 
-**Returns** the chunk iterable, decoded and validated like {@link readText}.
+**Returns** the chunk iterable, decoded and validated like `readText`.
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L221)
 

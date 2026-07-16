@@ -70,8 +70,8 @@ interface MemberDoc {
 
 /** A cordis-page section: which declarations it renders. */
 type Section =
-  | { kind: 'class'; file: string; symbol: string; prefix?: string }
-  | { kind: 'context-merge'; file: string }
+  | { kind: 'class'; file: string; symbol: string; prefix?: string; heading?: string }
+  | { kind: 'context-merge'; file: string; heading?: string }
   | { kind: 'decl'; file: string; symbol: string }
 
 /** One generated cordis page. */
@@ -95,7 +95,7 @@ const CORDIS_PAGES: CordisPage[] = [
     intro: 'The context is the core cordis object: every service, event, and lifecycle API is reached through `ctx`. Event methods (`ctx.on`, `ctx.emit`, …) are documented on [Events](./events.md); `ctx.effect` and `ctx.fiber` on [Fiber](./fiber.md); `ctx.plugin` and `ctx.inject` on [Registry](./registry.md).',
     sections: [
       { kind: 'class', file: 'vendor/cordis/src/context.ts', symbol: 'Context', prefix: 'ctx.' },
-      { kind: 'context-merge', file: 'vendor/cordis/src/reflect.ts' },
+      { kind: 'context-merge', file: 'vendor/cordis/src/reflect.ts', heading: 'Service store and mixins' },
     ],
   },
   {
@@ -114,7 +114,7 @@ const CORDIS_PAGES: CordisPage[] = [
     intro: 'A fiber is one loaded plugin instance: its lifecycle state, validated config, and registered effects. `ctx.fiber` is the current fiber; `ctx.effect()` delegates to it.',
     sections: [
       { kind: 'context-merge', file: 'vendor/cordis/src/fiber.ts' },
-      { kind: 'class', file: 'vendor/cordis/src/fiber.ts', symbol: 'Fiber' },
+      { kind: 'class', file: 'vendor/cordis/src/fiber.ts', symbol: 'Fiber', heading: 'The Fiber class' },
       { kind: 'decl', file: 'vendor/cordis/src/fiber.ts', symbol: 'Effect' },
       { kind: 'decl', file: 'vendor/cordis/src/fiber.ts', symbol: 'Disposable' },
       { kind: 'decl', file: 'vendor/cordis/src/fiber.ts', symbol: 'EffectMeta' },
@@ -265,14 +265,53 @@ function memberDoc(
   }
 }
 
-/** Members of the `interface Context` merge in `rel`, overloads grouped. */
+/** Resolve an `extends Pick<Class, 'a' | 'b'>` heritage clause on the Context
+ * merge to the named members of `Class` declared in the same file — the fiber
+ * merge (`interface Context extends Pick<Fiber, 'effect'>`) is the motivating
+ * case: without this, `ctx.effect` had no documented signature anywhere. */
+function heritageMembers(
+  stmt: ts.InterfaceDeclaration,
+  sf: ts.SourceFile,
+  groups: Map<string, (ts.MethodSignature | ts.PropertySignature | ts.MethodDeclaration)[]>,
+): void {
+  for (const clause of stmt.heritageClauses ?? []) {
+    for (const type of clause.types) {
+      if (!ts.isIdentifier(type.expression) || type.expression.text !== 'Pick') continue
+      const [target, keys] = type.typeArguments ?? []
+      if (!target || !keys || !ts.isTypeReferenceNode(target)) continue
+      const targetName = target.typeName.getText(sf)
+      const cls = sf.statements.find(
+        (s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === targetName,
+      )
+      if (!cls) continue
+      const picked = new Set<string>()
+      const collect = (node: ts.TypeNode): void => {
+        if (ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal)) picked.add(node.literal.text)
+        if (ts.isUnionTypeNode(node)) node.types.forEach(collect)
+      }
+      collect(keys)
+      for (const member of cls.members) {
+        if (!ts.isMethodDeclaration(member)) continue
+        const name = member.name.getText(sf)
+        if (!picked.has(name)) continue
+        const group = groups.get(name) ?? []
+        group.push(member)
+        groups.set(name, group)
+      }
+    }
+  }
+}
+
+/** Members of the `interface Context` merge in `rel`, overloads grouped;
+ * `Pick<…>` heritage resolved to the picked class members. */
 function contextMergeMembers(rel: string, violations: string[]): MemberDoc[] {
   const { sf } = load(rel)
   const body = moduleBody(sf)
   if (!body) throw new Error(`gen-website-api: ${rel} has no context module merge`)
-  const groups = new Map<string, (ts.MethodSignature | ts.PropertySignature)[]>()
+  const groups = new Map<string, (ts.MethodSignature | ts.PropertySignature | ts.MethodDeclaration)[]>()
   for (const stmt of body.statements) {
     if (!ts.isInterfaceDeclaration(stmt) || stmt.name.text !== 'Context') continue
+    heritageMembers(stmt, sf, groups)
     for (const member of stmt.members) {
       if (!ts.isMethodSignature(member) && !ts.isPropertySignature(member)) continue
       if (ts.isComputedPropertyName(member.name)) continue
@@ -286,7 +325,10 @@ function contextMergeMembers(rel: string, violations: string[]): MemberDoc[] {
     memberDoc(`ctx.${name} (${rel})`, name, group, rel, violations))
 }
 
-/** Instance + static members of one class, as two rendered lists. */
+/** Instance + static members of one class, as two rendered lists. The class's
+ * same-named top-level interface half (declaration merging — vendor Context
+ * declares `root`/`events`/`logger`/… on the interface) is folded into the
+ * instance list, so neither half of a merged symbol goes undocumented. */
 function classMembers(rel: string, className: string, violations: string[]): {
   doc: string
   instance: MemberDoc[]
@@ -300,7 +342,8 @@ function classMembers(rel: string, className: string, violations: string[]): {
   if (!cls) throw new Error(`gen-website-api: class ${className} not found in ${rel}`)
   const clsDoc = parseJsDoc(rawJsDoc(text, cls)).doc
   if (!clsDoc) violations.push(`class ${className} (${pointer(rel, sf, cls)}) has no JSDoc.`)
-  const instance = new Map<string, (ts.MethodDeclaration | ts.PropertyDeclaration | ts.GetAccessorDeclaration)[]>()
+  type Renderable = ts.MethodDeclaration | ts.PropertyDeclaration | ts.GetAccessorDeclaration | ts.PropertySignature
+  const instance = new Map<string, Renderable[]>()
   const statics = new Map<string, (ts.MethodDeclaration | ts.PropertyDeclaration)[]>()
   for (const member of cls.members) {
     const renderable = ts.isMethodDeclaration(member) || ts.isPropertyDeclaration(member) || ts.isGetAccessorDeclaration(member)
@@ -316,7 +359,17 @@ function classMembers(rel: string, className: string, violations: string[]): {
       statics.set(name, group)
     }
   }
-  type Renderable = ts.MethodDeclaration | ts.PropertyDeclaration | ts.GetAccessorDeclaration
+  const iface = sf.statements.find(
+    (s): s is ts.InterfaceDeclaration => ts.isInterfaceDeclaration(s) && s.name.text === className,
+  )
+  for (const member of iface?.members ?? []) {
+    if (!ts.isPropertySignature(member)) continue
+    if (ts.isComputedPropertyName(member.name)) continue
+    const name = member.name.getText(sf)
+    const group = instance.get(name) ?? []
+    group.push(member)
+    instance.set(name, group)
+  }
   const toDocs = (groups: Map<string, Renderable[]>, prefix: string): MemberDoc[] =>
     [...groups.entries()].map(([name, group]) =>
       memberDoc(`${prefix}${name} (${rel})`, name, group, rel, violations))
@@ -417,9 +470,12 @@ function collectHarnessServices(violations: string[]): HarnessService[] {
       const abstract = cls.modifiers?.some(m => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false
       const clsDoc = parseJsDoc(rawJsDoc(text, cls)).doc
       if (!clsDoc) violations.push(`service ctx.${key} (${pointer(rel, sf, cls)}): class ${type} has no JSDoc.`)
-      const groups = new Map<string, ts.MethodDeclaration[]>()
+      const groups = new Map<string, (ts.MethodDeclaration | ts.PropertyDeclaration | ts.GetAccessorDeclaration)[]>()
       for (const member of cls.members) {
-        if (!ts.isMethodDeclaration(member)) continue
+        // Public properties are API too: ctx.codeRuntime.language/isolation
+        // are readonly descriptors consumers key presentation off.
+        const renderable = ts.isMethodDeclaration(member) || ts.isPropertyDeclaration(member) || ts.isGetAccessorDeclaration(member)
+        if (!renderable) continue
         if (!isPublicInstance(member)) continue
         const name = member.name.getText(sf)
         const group = groups.get(name) ?? []
@@ -492,9 +548,19 @@ function sourceLink(source: string): string {
   return `[Source](${GITHUB}/${file}#L${line})`
 }
 
-/** Render prose paragraphs (one per line of `doc`). */
+/** Normalize JSDoc inline `{@link X}` / `{@link X|label}` / `{@link X label}`
+ * tags to plain Markdown code spans — left verbatim they leak into the built
+ * page as literal `{@link …}` text. */
+function unlink(text: string): string {
+  return text.replace(/\{@link\s+([^}|\s]+)\s*(?:[|\s]\s*([^}]*))?\}/g, (_m, target: string, label?: string) => {
+    const name = label?.trim()
+    return name && name !== '' ? name : `\`${target}\``
+  })
+}
+
+/** Render prose paragraphs (one per line of `doc`), JSDoc links normalized. */
 function prose(doc: string): string[] {
-  return doc.split('\n').filter(l => l.trim() !== '')
+  return unlink(doc).split('\n').filter(l => l.trim() !== '')
 }
 
 /** Render one member section at heading depth 3. */
@@ -507,10 +573,10 @@ function renderMember(prefix: string, m: MemberDoc): string[] {
   lines.push('```', '')
   lines.push(...prose(m.doc), '')
   if (m.params.length > 0) {
-    for (const p of m.params) lines.push(`- \`${p.name}\` — ${p.text}`)
+    for (const p of m.params) lines.push(`- \`${p.name}\` — ${unlink(p.text)}`)
     lines.push('')
   }
-  if (m.returns) lines.push(`**Returns** ${m.returns}`, '')
+  if (m.returns) lines.push(`**Returns** ${unlink(m.returns)}`, '')
   lines.push(sourceLink(m.source), '')
   return lines
 }
@@ -519,6 +585,7 @@ function renderMember(prefix: string, m: MemberDoc): string[] {
 function renderCordisPage(page: CordisPage, violations: string[]): string {
   const lines: string[] = [BANNER, '', `# ${page.title}`, '', page.intro, '']
   for (const section of page.sections) {
+    if (section.kind !== 'decl' && section.heading) lines.push(`## ${section.heading}`, '')
     if (section.kind === 'context-merge') {
       for (const m of contextMergeMembers(section.file, violations)) {
         lines.push(...renderMember('ctx.', m))
@@ -577,7 +644,7 @@ function renderEventsPage(events: HarnessEvent[]): string {
       lines.push('```' + FENCE, e.signature, '```', '')
       lines.push(...prose(e.doc), '')
       if (e.params.length > 0) {
-        for (const p of e.params) lines.push(`- \`${p.name}\` — ${p.text}`)
+        for (const p of e.params) lines.push(`- \`${p.name}\` — ${unlink(p.text)}`)
         lines.push('')
       }
       lines.push(sourceLink(e.source), '')

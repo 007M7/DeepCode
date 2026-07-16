@@ -13,6 +13,26 @@ Semantics every implementation must honor:
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/code-runtime/code-runtime/src/index.ts#L59)
 
+### ctx.codeRuntime.language
+
+```ts website-api
+abstract readonly language: string
+```
+
+The source language run expects `program` to be written in, as a lowercase identifier. Informational, not gating — a consumer that generates language-specific presentation (typed SDK stubs, usage instructions) switches on it and fails loud on a language it cannot present. Well-known value: `'typescript'`.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/code-runtime/code-runtime/src/index.ts#L67)
+
+### ctx.codeRuntime.isolation
+
+```ts website-api
+abstract readonly isolation: string
+```
+
+The execution substrate, as a lowercase identifier. Informational, not gating — a descriptor so deployments and diagnostics can tell backends apart, not a security claim. Well-known values: `'worker-thread'`, `'process'`, `'container'`.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/code-runtime/code-runtime/src/index.ts#L75)
+
 ### ctx.codeRuntime.run(request)
 
 ```ts website-api

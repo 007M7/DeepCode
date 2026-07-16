@@ -18,7 +18,7 @@ export interface Context {
   [symbols.isolate]: Dict<symbol>
   /** Intercept map: service name → config merged into that service's per-plugin config. */
   [symbols.intercept]: Dict
-  /** @experimental */
+  /** The root context of the application (every child context shares it). @experimental */
   root: this
   /** Base URL used to resolve relative plugin/module specifiers, if the runtime sets one. */
   baseUrl?: string

@@ -4,6 +4,23 @@
 
 A fiber is one loaded plugin instance: its lifecycle state, validated config, and registered effects. `ctx.fiber` is the current fiber; `ctx.effect()` delegates to it.
 
+### ctx.effect(execute, label?)
+
+```ts website-api
+effect(execute: () => SyncEffect, label?: string): Disposable<Promise<void>>
+effect(execute: () => Effect, label?: string): AsyncDisposable<Promise<void>>
+```
+
+Register a cleanup-aware effect on this fiber.
+`execute` runs immediately; the disposers it produces are collected and run (in reverse order) either when the returned disposer is called or when the fiber unloads, whichever comes first. Calling the disposer twice is a no-op. Throws `CordisError('INACTIVE_EFFECT')` if the fiber is already disposed, and `TypeError` if `execute` returns an invalid shape.
+
+- `execute` — the effect body; see `Effect` for accepted shapes.
+- `label` — effect label shown in `getEffects()` diagnostics.
+
+**Returns** a disposer that tears the effect down and settles once done.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/vendor/cordis/src/fiber.ts#L363)
+
 ### ctx.fiber
 
 ```ts website-api
@@ -13,6 +30,8 @@ fiber: Fiber
 The fiber (plugin runtime instance) that owns this context.
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/vendor/cordis/src/fiber.ts#L11)
+
+## The Fiber class
 
 Runtime instance of one plugin application.
 A fiber tracks dependency state, validated config, lifecycle effects, and cleanup for the plugin context returned by `ctx.plugin()`.
@@ -121,7 +140,7 @@ effect(execute: () => Effect, label?: string): AsyncDisposable<Promise<void>>
 Register a cleanup-aware effect on this fiber.
 `execute` runs immediately; the disposers it produces are collected and run (in reverse order) either when the returned disposer is called or when the fiber unloads, whichever comes first. Calling the disposer twice is a no-op. Throws `CordisError('INACTIVE_EFFECT')` if the fiber is already disposed, and `TypeError` if `execute` returns an invalid shape.
 
-- `execute` — the effect body; see {@link Effect} for accepted shapes.
+- `execute` — the effect body; see `Effect` for accepted shapes.
 - `label` — effect label shown in `getEffects()` diagnostics.
 
 **Returns** a disposer that tears the effect down and settles once done.
@@ -136,7 +155,7 @@ getEffects()
 
 Return metadata for currently registered effects.
 
-**Returns** one {@link EffectMeta} tree per labeled live effect.
+**Returns** one `EffectMeta` tree per labeled live effect.
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/vendor/cordis/src/fiber.ts#L436)
 

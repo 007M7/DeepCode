@@ -23,7 +23,7 @@ Resolve a caller's BashExecRequest into a fully-specified BashExecSpec, applying
 
 - `request` — the caller's request; omitted fields get this implementation's defaults, capped fields are clamped.
 
-**Returns** the fully-specified spec to hand to {@link run}/{@link start}.
+**Returns** the fully-specified spec to hand to `run`/`start`.
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L84)
 
@@ -35,7 +35,7 @@ abstract run(spec: BashExecSpec): Promise<BashRunResult>
 
 Run a command in the foreground; resolves when it finishes.
 
-- `spec` — a resolved spec from {@link resolve}, never a raw request.
+- `spec` — a resolved spec from `resolve`, never a raw request.
 
 **Returns** the outcome; nonzero exits, timeout kills, and abort kills resolve with a descriptive result rather than reject.
 
@@ -49,9 +49,9 @@ abstract start(spec: BashExecSpec): BashTask
 
 Start a background task and return its handle immediately.
 
-- `spec` — a resolved spec from {@link resolve}, never a raw request.
+- `spec` — a resolved spec from `resolve`, never a raw request.
 
-**Returns** the live task handle; completion fires {@link onTaskDone}.
+**Returns** the live task handle; completion fires `onTaskDone`.
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L99)
 

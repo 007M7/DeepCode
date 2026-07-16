@@ -381,7 +381,7 @@ A subagent run started — emitted after the provider is resolved and its capabi
 Waterfall around prompt assembly — mutate or extend the PromptAssembly (sections + tools + variables) before it is rendered. Bound to the SystemPrompt service; call `next()` to delegate.
 
 - `assembly` — the assembly built from the registered sections, tool providers, and variable providers; listeners may mutate it or return a replacement.
-- `context` — the per-assembly {@link AssembleContext} the caller passed to {@link SystemPrompt.assemble} (e.g. which agent the prompt is for), so a listener can filter or extend per agent.
+- `context` — the per-assembly `AssembleContext` the caller passed to `SystemPrompt.assemble` (e.g. which agent the prompt is for), so a listener can filter or extend per agent.
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/system-prompt/src/index.ts#L38)
 
@@ -497,7 +497,7 @@ One `agent()` call started a child run. Paired with Events['workflow/agent-end']
 A workflow run settled (any stop reason). Fired when WorkflowRun.result resolves. Paired with Events['workflow/start'].
 
 - `info` — the run's identity snapshot.
-- `result` — the outcome data (stop reason, error, agent count) — deliberately WITHOUT the result value (see {@link WorkflowResultInfo}).
+- `result` — the outcome data (stop reason, error, agent count) — deliberately WITHOUT the result value (see `WorkflowResultInfo`).
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/workflow/workflow/src/index.ts#L106)
 

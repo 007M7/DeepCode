@@ -57,6 +57,66 @@ Plugins loaded under the returned context see `config` merged into the service's
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/vendor/cordis/src/context.ts#L139)
 
+### ctx.root
+
+```ts website-api
+root: this
+```
+
+The root context of the application (every child context shares it). @experimental
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/vendor/cordis/src/context.ts#L22)
+
+### ctx.baseUrl
+
+```ts website-api
+baseUrl?: string
+```
+
+Base URL used to resolve relative plugin/module specifiers, if the runtime sets one.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/vendor/cordis/src/context.ts#L24)
+
+### ctx.events
+
+```ts website-api
+events: EventsService
+```
+
+The event bus. Its methods are also mixed onto `ctx` (`ctx.on`, `ctx.emit`, ...).
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/vendor/cordis/src/context.ts#L26)
+
+### ctx.logger
+
+```ts website-api
+logger: LoggerService
+```
+
+The logging service. Call `ctx.logger(name)` for a named logger.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/vendor/cordis/src/context.ts#L28)
+
+### ctx.reflect
+
+```ts website-api
+reflect: ReflectService
+```
+
+The reflection layer backing the context proxy (`ctx.get`, `ctx.provide`, ...).
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/vendor/cordis/src/context.ts#L30)
+
+### ctx.registry
+
+```ts website-api
+registry: RegistryService
+```
+
+The plugin registry. Its methods are mixed onto `ctx` (`ctx.plugin`, `ctx.inject`).
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/vendor/cordis/src/context.ts#L32)
+
 ## Static members
 
 ### Context.effect
@@ -113,6 +173,8 @@ Works across realms and across multiple copies of cordis, because the brand is k
 **Returns** `true` if `value` is a Cordis context, narrowing its type.
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/vendor/cordis/src/context.ts#L61)
+
+## Service store and mixins
 
 ### ctx.get(name, strict?)
 

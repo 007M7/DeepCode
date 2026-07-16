@@ -332,7 +332,12 @@ config:
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `root` | string[] | **必填** | 监听文件变更的目录列表 |
+| `root` | string[] | `['.']` | 监听文件变更的目录列表 |
+| `base` | string | — | 解析 `root` 的基准目录（默认取配置文件所在目录） |
+| `ignored` | string[] | `['**/node_modules', '**/.*', 'cache', 'data']` | 忽略的 glob 列表 |
+| `debounce` | number | `100` | 变更合并窗口（毫秒） |
+
+其余字段透传给 chokidar（`Config` 继承 `ChokidarOptions`）。
 
 ::: tip
 hmr 仅用于开发环境。它需要 `node --expose-internals` 启动参数，`demo:*` 脚本已自动添加。
@@ -342,7 +347,9 @@ hmr 仅用于开发环境。它需要 `node --expose-internals` 启动参数，`
 
 ## 加载顺序
 
-`cordis.yml` 的顺序就是加载顺序。推荐：
+`cordis.yml` 的条目是**并发启动**的（loader 对全部条目 `Promise.all`），文件顺序不决定加载顺序。真正的先后关系由依赖协调：插件声明的 `inject` 服务就绪之前，插件不会启动；服务出现后自动继续。所以**不要依赖书写顺序传递时序**——需要"先有 A 再有 B"就让 B `inject` A 提供的服务。
+
+文件顺序只是给人读的。推荐按角色分组书写：
 
 1. **hmr** — 热替换（仅开发时需要）
 2. **LLM 适配器** — 模型后端

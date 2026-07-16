@@ -16,7 +16,7 @@ setFactory(factory: AgentFactory): () => void
 
 Register the agent-creation factory (the loop calls this on construction, effect-scoped). Throws if a factory is already registered. Returns the disposer; on dispose the factory slot is cleared.
 
-- `factory` — the loop-owned factory {@link create}/{@link resume} delegate to.
+- `factory` — the loop-owned factory `create`/`resume` delegate to.
 
 **Returns** the disposer that clears the factory slot.
 

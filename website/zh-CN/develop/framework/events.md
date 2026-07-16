@@ -45,7 +45,7 @@ Cordis 提供多种事件触发模式，适用于不同场景：
 
 ### emit — 广播
 
-所有监听器并行执行，不关心返回值：
+同步依次调用所有监听器，不等待、不关心返回值（监听器如果是 async，其 Promise 被忽略）：
 
 ```ts
 import type { Context } from 'cordis'
@@ -71,7 +71,7 @@ ctx.on('my-plugin/turn-end', (agentId, turnIndex) => {
 
 ### bail — 短路
 
-依次调用监听器，第一个返回非 `undefined` 值的结果作为最终值：
+同步依次调用监听器，第一个返回**非 `undefined`/`null`/`false`** 值的监听器终止链并作为最终值（返回 `undefined`/`null`/`false` 则继续下一个）：
 
 ```ts
 import type { Context } from 'cordis'
@@ -99,7 +99,7 @@ ctx.on('some-check', (input) => {
 
 ### serial — 顺序执行
 
-所有监听器按注册顺序依次执行（异步安全）：
+按注册顺序逐个 `await` 监听器，遇到第一个 bail 值（非 `undefined`/`null`/`false`）即停止并返回它；全部返回空值则执行到底。相当于 `bail` 的异步版：
 
 ```ts
 import type { Context } from 'cordis'
