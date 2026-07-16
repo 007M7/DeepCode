@@ -18,7 +18,7 @@ Status: implemented
 
 循环在 assistant 输出、所有已分发或合成的工具结果、工具后上下文与 steering 都持久化之后、`step/end` 之前，触发等待式串行 `agent/post-step(agent, turn, step, signal)`。该位置让压力策略看到完整的成功调用状态，同时不会拆开 assistant 工具调用与其结果。监听器失败属于普通 turn 失败，绝不会进入模型请求恢复。
 
-`dsh-compact-basic` 从持久请求头解析精确的最新实际路由模型，并让该模型的 `ctx.tokenMeter` handle 计量规范日志信封与当前表层。自动压力不会回退到 `AgentOptions.model`。没有请求头的会话尚无已完成路由请求可供判断，因此不执行工作。持久记录的未知模型会携带精确名称抛出 `TOKEN_METER_MODEL_UNCONFIGURED`，使原本成功的 turn 失败；操作性的选择或摘要失败则警告并继续使用完整历史。
+`dsh-compact-basic` 从持久请求头读取精确的最新实际路由模型，只用它确认已经存在完整路由，随后让单例 `ctx.tokenMeter` 计量规范日志信封与当前表层。自动压力不会回退到 `AgentOptions.model`。没有请求头的会话尚无已完成路由请求可供判断，因此不执行工作；任意持久记录的非空模型名都使用同一个估算器。操作性的计量或摘要失败会发出警告，并继续使用完整历史。
 
 ### 请求恢复只覆盖最终模型边界
 
@@ -32,11 +32,11 @@ Status: implemented
 
 `CompactService.compactIfNeeded(agent, trigger, signal)` 接收 `trigger: 'pressure' | 'context-overflow'`。接口不增加估算方法或 token 类型；`ctx.tokenMeter` 继续作为可复用的核算所有者。
 
-对于 `pressure`，compact-basic 应用所选 meter profile 的阈值与保留尾部策略，比较标量和表层的 `logRevision`，并用同一个 meter 完成范围定价、来源、被遮蔽 token 数与非缩小摘要拒绝。通用默认值保持为阈值比例 `0.8`、保留历史 `floor(contextWindow × 0.16)`、摘要模型 `''`、`maxTokens: 8192`、`compactionRetries: 1` 与 `auto: true`。
+对于 `pressure`，compact-basic 把服务级阈值与保留尾部策略应用到一次统一的 `ctx.tokenMeter.measure()` 结果。范围定价、来源、被遮蔽 token 数与非缩小摘要拒绝也由同一个单例 meter 完成。通用默认值保持为阈值比例 `0.8`、保留历史 `floor(contextWindow × 0.16)`、摘要模型 `''`、`maxTokens: 8192`、`compactionRetries: 1` 与 `auto: true`。
 
 对于规范化溢出，compact-basic 绕过标量压力与普通保留 token 预算。它在保留最新不可分割单元的同时，选择最大的工具配对平衡头部范围，并在同一 signal 下只尝试一次缩小压缩。自动监听器先记录 `session.surface.replaceGeneration`，只有压缩成功且 generation 增加时才返回 `{ action: 'retry' }`。后端若只返回结果但没有替换表层，不能授权重试。
 
-`maxOverflowRetries` 可选且默认为 `1`；`0` 只禁用溢出恢复，不会禁用压力检查。`auto: false` 不注册任何自动监听器。非规范化错误、尝试耗尽、已经中止的 signal、缺失或未知路由模型、没有安全范围、generation 未变化，以及恢复抛错都会委托给下一个监听器。若没有后续恢复，循环报告原始提供方错误对象与代码。即使恢复工作并发完成，取消或销毁仍具有最终优先级。
+`maxOverflowRetries` 可选且默认为 `1`；`0` 只禁用溢出恢复，不会禁用压力检查。`auto: false` 不注册任何自动监听器。非规范化错误、尝试耗尽、已经中止的 signal、缺失路由模型、没有安全范围、generation 未变化，以及恢复抛错都会委托给下一个监听器。若没有后续恢复，循环报告原始提供方错误对象与代码。即使恢复工作并发完成，取消或销毁仍具有最终优先级。
 
 默认摘要器仍依次解析显式配置、最近记录的路由与 agent options。因为直接 `llm/stream` 中间件可以重新路由该辅助调用，`compact/summary.model` 记录分发后最终可变的 `GenerateOptions.model`，而不是 waterfall 之前的候选值。
 
@@ -44,7 +44,7 @@ Status: implemented
 
 生命周期测试固定 post-step 位于持久工具、上下文与 steering 工作之后，覆盖无内容与达到 token 上限的成功、最终适配器分发/迭代器/带内边界、重试编号、尝试重置、取消、销毁、合成工具结果与原始错误身份。
 
-压缩测试固定低摩擦默认值、实际路由模型选择、精确未知模型行为、低于阈值的强制溢出、最新工具配对保留、非缩小拒绝、generation 证明、上限、禁用监听器、单次下游委托与辅助摘要路由来源。真实循环组合同时覆盖抛出式和带内溢出：失败 step 关闭，压缩落在两次尝试之间，下一个编号请求从替换表层重建。
+压缩测试固定低摩擦服务级默认值、实际路由模型选择、未列出模型计量、统一压力与保留决策、低于阈值的强制溢出、最新工具配对保留、非缩小拒绝、generation 证明、上限、禁用监听器、单次下游委托与辅助摘要路由来源。真实循环组合同时覆盖抛出式和带内溢出：失败 step 关闭，压缩落在两次尝试之间，下一个编号请求从替换表层重建。
 
 ## 考虑过的替代方案
 
@@ -52,7 +52,7 @@ Status: implemented
 - **重试相同编号的 step**——不予采纳，因为恢复会在失败边界之后追加持久事件。新 step 保持边界配对与可重建性。
 - **只要 `compactIfNeeded` 返回结果就重试**——不予采纳，因为自定义后端可能报告成功却没有改变模型可见状态。`replaceGeneration` 才是权威证明。
 - **让 compact-basic 解析提供方措辞**——不予采纳，因为分类属于适配器，而且必须同时覆盖抛出式与带内交付。
-- **恢复时使用通用模型/窗口回退**——不予采纳，因为基于错误上下文容量执行破坏性策略可能掩盖原始提供方失败。未知持久路由会原样委托。
+- **没有持久路由时回退到 `AgentOptions.model`**——不予采纳，因为自动策略必须描述已完成且已记录的请求。没有请求头的压力检查与恢复会原样委托。
 
 ## 后果
 

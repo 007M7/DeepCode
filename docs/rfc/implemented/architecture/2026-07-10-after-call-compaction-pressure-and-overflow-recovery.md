@@ -18,7 +18,7 @@ Successful calls are not the only pressure signal. A provider can reject a reque
 
 The loop fires awaited serial `agent/post-step(agent, turn, step, signal)` after assistant output, every dispatched or synthetic tool result, post-tool context, and steering are durable, but before `step/end`. This placement gives pressure policy the complete successful-call state without splitting an assistant tool call from its result. A listener failure is an ordinary turn failure; it never enters model-request recovery.
 
-`dsh-compact-basic` resolves the exact latest routed model from the durable request header and asks that model's `ctx.tokenMeter` handle to measure the canonical logged envelope and current surface. It does not fall back to `AgentOptions.model` for automatic pressure. A headerless session has no completed routed request to assess and produces no work. A durable unknown model throws `TOKEN_METER_MODEL_UNCONFIGURED` with its exact name and fails the otherwise-successful turn; operational selection or summarization failures warn and continue with full history.
+`dsh-compact-basic` reads the exact latest routed model from the durable request header only to establish that a completed route exists, then asks the singleton `ctx.tokenMeter` to measure the canonical logged envelope and current surface. It does not fall back to `AgentOptions.model` for automatic pressure. A headerless session has no completed routed request to assess and produces no work; any durable non-empty model name uses the same estimator. Operational measurement or summarization failures warn and continue with full history.
 
 ### Request recovery is limited to the final model boundary
 
@@ -32,11 +32,11 @@ If cancellation lands after assistant tool calls are durable but before all call
 
 `CompactService.compactIfNeeded(agent, trigger, signal)` accepts `trigger: 'pressure' | 'context-overflow'`. The interface gains no estimation methods or token types; `ctx.tokenMeter` remains the reusable accounting owner.
 
-For `pressure`, compact-basic applies the selected meter profile's threshold and retained-tail policy, compares scalar and surface `logRevision`, and uses the same meter for range pricing, provenance, shadowed token counts, and non-shrinking-summary rejection. The common defaults remain threshold ratio `0.8`, retained history `floor(contextWindow × 0.16)`, summarization model `''`, `maxTokens: 8192`, `compactionRetries: 1`, and `auto: true`.
+For `pressure`, compact-basic applies the service-wide threshold and retained-tail policy to one unified `ctx.tokenMeter.measure()` result. The same singleton meter owns range pricing, provenance, shadowed token counts, and non-shrinking-summary rejection. The common defaults remain threshold ratio `0.8`, retained history `floor(contextWindow × 0.16)`, summarization model `''`, `maxTokens: 8192`, `compactionRetries: 1`, and `auto: true`.
 
 For canonical overflow, compact-basic bypasses scalar pressure and the normal retained-token budget. It chooses the maximal tool-balanced head range while leaving the newest indivisible unit, then attempts exactly one shrinking compaction under the same signal. The automatic listener snapshots `session.surface.replaceGeneration` and returns `{ action: 'retry' }` only when compaction succeeds and the generation increases. A backend returning a result without replacement cannot authorize retry.
 
-`maxOverflowRetries` is optional and defaults to `1`; `0` disables overflow recovery without disabling pressure. `auto: false` registers neither automatic listener. Noncanonical errors, exhausted attempts, an already-aborted signal, missing or unknown routed models, no safe range, no generation change, and recovery throws all delegate to the next listener. With no later recovery, the loop reports the original provider error object and code. Cancellation or disposal remains authoritative even if recovery work completes concurrently.
+`maxOverflowRetries` is optional and defaults to `1`; `0` disables overflow recovery without disabling pressure. `auto: false` registers neither automatic listener. Noncanonical errors, exhausted attempts, an already-aborted signal, a missing routed model, no safe range, no generation change, and recovery throws all delegate to the next listener. With no later recovery, the loop reports the original provider error object and code. Cancellation or disposal remains authoritative even if recovery work completes concurrently.
 
 The default summarizer still resolves explicit configuration, then the latest logged route, then agent options. Because direct `llm/stream` middleware may reroute that auxiliary call, `compact/summary.model` records the final mutable `GenerateOptions.model` observed after dispatch rather than the pre-waterfall candidate.
 
@@ -44,7 +44,7 @@ The default summarizer still resolves explicit configuration, then the latest lo
 
 Lifecycle tests pin post-step ordering after durable tool/context/steering work, content-less and max-token successes, final-adapter dispatch/iterator/in-band boundaries, retry numbering, attempt reset, cancellation, disposal, synthetic tool results, and original error identity.
 
-Compact tests pin low-friction defaults, actual routed-model selection, exact unknown-model behavior, below-threshold forced overflow, newest tool-pair retention, non-shrinking rejection, generation proof, caps, disabled listeners, single downstream delegation, and auxiliary summary routing provenance. Real-loop composition covers both thrown and in-band overflow: the failed step closes, compaction lands between attempts, and the next numbered request is reconstructed from the replacement surface.
+Compact tests pin low-friction service-wide defaults, actual routed-model selection, unlisted-model measurement, unified pressure-and-retention decisions, below-threshold forced overflow, newest tool-pair retention, non-shrinking rejection, generation proof, caps, disabled listeners, single downstream delegation, and auxiliary summary routing provenance. Real-loop composition covers both thrown and in-band overflow: the failed step closes, compaction lands between attempts, and the next numbered request is reconstructed from the replacement surface.
 
 ## Alternatives considered
 
@@ -52,7 +52,7 @@ Compact tests pin low-friction defaults, actual routed-model selection, exact un
 - **Retry the same numbered step** — rejected because recovery appends durable events after the failed boundary. A new step preserves balanced nesting and reconstructability.
 - **Retry whenever `compactIfNeeded` returns a result** — rejected because a custom backend can report success without changing model-visible state. `replaceGeneration` is the authoritative proof.
 - **Let compact-basic parse provider wording** — rejected because classification belongs at adapters and must cover both thrown and in-band delivery.
-- **Use a universal model/window fallback during recovery** — rejected because destructive policy under the wrong context capacity can hide the original provider failure. Unknown durable routes delegate unchanged.
+- **Fall back to `AgentOptions.model` when no durable route exists** — rejected because automatic policy must describe a completed logged request. Headerless pressure and recovery delegate unchanged.
 
 ## Consequences
 
