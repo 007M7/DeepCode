@@ -1,6 +1,6 @@
 # dsh-session
 
-Event-sourced session log and in-memory store. A `Session` is the append-only source of truth for an agent's whole interaction history — the LLM message history is *derived* from it. A **surface** layer (an ordered sequence of message-producing event seqs) is maintained on top of the raw log for efficient derivation and compaction.
+Event-sourced session log and in-memory store. A `Session` is the append-only source of truth for an agent's whole interaction history — the LLM message history is *derived* from it. A **surface** layer (an ordered projection of message-producing events) is maintained on top of the raw log for efficient derivation and compaction.
 
 ## Service: `SessionStore` (ctx key: `sessions`)
 
@@ -8,35 +8,35 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 
 ### Public API
 
-- `ctx.sessions.create(id?: SessionId, options?: { seed?: readonly SessionEvent[]; meta?: { cwd?: string; parentSession?: SessionId; createdAt?: number; seedLength?: number } }): Session` — Create a session. The persistence/replay seed and resulting header are validated, detached, and deep-frozen at this durable boundary. The store fills `version`/`id` and defaults `createdAt` to now; a persisted reconstruction supplies the original `createdAt` and `seedLength`. Disposed with the calling fiber.
-- `ctx.sessions.flush(session: Session): Promise<void>` Dispatch the awaited `session/flush` durability checkpoint with the carrier captured at enter — THE flush entry point (the loop's turn-end checkpoint and idle injection call it; never dispatch a raw `ctx.parallel`). Every captured listener starts, the call waits for all of them to settle, and a failure rejects only after the other listeners finish. Rejects a prepared, detached, or stale same-id object instead of inventing a subject-less carrier.
+- `ctx.sessions.create(id?, { seed?, meta? }?)` validates and detaches durable seed/header data, fills the version and id, defaults `createdAt` to now, publishes the session, and binds it to the calling fiber. Persisted reconstruction supplies its original `createdAt` and `seedLength`.
+- `ctx.sessions.flush(session)` dispatches the awaited parallel durability checkpoint through the session's captured scope. Every listener starts and the call waits for all to settle before reporting failure; unpublished, detached, and stale objects reject.
 - `ctx.sessions.fork(source, boundary?, childSessionId?): Session` — Resolve a live session object or id, select a seed through the inclusive `boundary` event seq (default: current last event), require that boundary to be `turn/end`, and create a live child session with lineage metadata.
 - `ctx.sessions.get(id: SessionId): Session | undefined`
 - `ctx.sessions.list(): Session[]`
 
 #### Advanced: ordered-teardown lifecycle primitives
 
-`create()` covers the common case (the session is owned by the calling fiber). When a session must be torn down **in order with another resource** — so a final flush is captured before the store attachment and publication hooks are removed — `create()`'s self-contained effect is wrong, because a fiber unload disposes sibling effects *concurrently*. For that, split the lifecycle and fold it into the owner's single effect:
+Use the split lifecycle only when teardown must be ordered with another resource:
 
-- `ctx.sessions.prepare(id?, options?): Session` — validate durable seed/header data and construct the `Session` WITHOUT entering it into the store. Same options as `create`.
-- `ctx.sessions.enter(session): () => void` — perform the authoritative ID collision check, install append publication state, and insert the exact session without announcing it. Returns an idempotent detach bound to the captured entry object, so a stale disposer cannot remove a later same-ID replacement. Concurrent same-ID preparation is allowed; only one final entry succeeds.
-- `ctx.sessions.announce(session): void` — begin the one allowed `session/created` announcement for an entered session; repeat and reentrant calls reject before dispatch. A detach requested synchronously by a creation listener is deferred until that dispatch unwinds, so another creation listener cannot observe `session/disposed` before its own `session/created` callback. Detach emits `session/disposed` exactly once, including rollback after a partially delivered creation notification; a never-announced entry emits neither edge.
+- `prepare(id?, options?)` validates and constructs without publication.
+- `enter(session)` performs the collision check, publishes without announcing, and returns an entry-bound idempotent detach. Concurrent same-id preparations are allowed, but only one entry succeeds; a stale detach cannot remove its replacement.
+- `announce(session)` emits the single creation edge and rejects repeat or reentrant announcements. Detach during that dispatch is deferred and later emits the paired disposal edge; an unannounced entry emits neither lifecycle edge.
 
-`dsh-agent-loop` is the canonical consumer: after unpublished agent setup it enters both session and agent before announcing either, then nests loop stop, agent removal, session detach, and scope unwind in one ordered lifecycle. The final flush therefore settles before this package detaches the session, whether teardown starts from an `AgentHandle` or owner-fiber unload.
+`dsh-agent-loop` uses this split so final loop flush precedes session detach; see the [ownership RFC](../../../docs/rfc/implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md).
 
 ### Live service events
 
-The store pairs announced creation with disposal, publishes each append, and provides an awaited durability checkpoint. Before the log push it resolves the scoped `session/event` callback list. The push is the commit point; callback throws or returned-promise rejections are logged and contained per observer. A committed append therefore returns normally, later observers still run, and detach waits until publication unwinds. Exact `session/*` signatures, modes, and scope-carrier behavior live in the generated [Cordis event catalog](../../../docs/cordis-catalog/events.md); the append-only payload vocabulary is separately generated into the [persistence catalog](../../../docs/persistence-catalog.md).
+The store pairs announced creation with disposal, publishes post-commit append notifications with per-listener containment, and provides an awaited durability checkpoint. Exact signatures and scope behavior live in the generated [event catalog](../../../docs/cordis-catalog/events.md); payloads live in the [persistence catalog](../../../docs/persistence-catalog.md).
 
 ### Class: `Session`
 
 Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
-- `session.append(type, data, opts?): SessionEvent` — synchronous, never blocks on I/O. At this durable boundary, data and surface metadata are lossless-JSON snapshotted and deep-frozen. For an attached session, a reentrant append during dispatch/observer publication rejects, and detach waits for that publication to unwind. Callbacks resolve before the log push; the push is the commit point, after which each observer failure is contained independently. Runtime surface validation covers widened unions and raw seed/load logs.
-- `session.deriveMessages(): Message[]` — the LLM message history, CACHED: each surface entry is projected exactly once, when first seen (O(new entries) per call; a surface rewrite rebuilds via `surface.replaceGeneration`). Returns a fresh array per call over shared, deep-frozen `Message` objects. Each projection reuses the already deep-frozen content in its durable log event, so no second deep clone is needed and a consumer still cannot mutate logged data. The surface is the single source of derived history — there is no raw-log fallback.
-- `session.deriveEventMessage(event): Message | null` — the per-event projection `deriveMessages()` folds: a fresh message wrapper that reuses the event's already frozen content, or `null` when the event produces none (a non-surface event, or an empty-content `assistant/message` hosting only usage). External reconstructors and the dev invariant fold the same function over a log prefix's surface, so no two paths can disagree about what a request's messages were (the reconstructability RFC).
-- `session.surface: SurfaceManager` — the derived surface, lazily folded from `surfaceOp` markers in the log. Processes only new events (delta) on each access — the log is append-only, so prior events never change. `surface.replaceGeneration` is the rewrite signal: bumped by every folded `replace` and never reset, so an incremental consumer comparing generations cannot be fooled.
-- `session.events` — a cached, frozen array snapshot over deep-frozen events. Repeated reads without an append return the same array; an append invalidates the cache and the next read returns a new snapshot, while earlier snapshots stay unchanged. Neither a cast nor a retained reference can push into the live log or rewrite an accepted event.
+- `session.append(type, data, opts?)` snapshots and freezes durable data and surface metadata, commits synchronously, then notifies observers with independent failure containment. Reentrant attached-session appends reject, and runtime checks cover widened unions and loaded logs.
+- `session.deriveMessages()` incrementally projects each new surface entry once and returns a fresh array over shared frozen messages. A surface rewrite rebuilds the projection; there is no raw-log fallback.
+- `session.deriveEventMessage(event)` is the canonical per-event projection used by reconstruction and invariants.
+- `session.surface` lazily folds only new `surfaceOp` markers; `replaceGeneration` changes on every rewrite.
+- `session.events` is a cached frozen snapshot invalidated by append; accepted events remain deeply frozen.
 - `session.seq`, `session.id` — current sequence and readonly typed identity.
 - `session.header: SessionHeader` — detached, deep-frozen creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`/`seedLength`). Construction validates the durable record and requires its id to match `session.id`.
 
@@ -49,11 +49,11 @@ Durable values need one accepted representation, not a check followed by a secon
 - `SurfaceOp` — how an event entered the ordered surface: `'append'` (normal tail append) or `{ op: 'replace', start, end }` (replace entries from `start` through `end` inclusive — both must be valid surface seqs; `start === end` replaces one entry). Used by compaction to shadow old events without deleting them.
 - `SurfaceIntent` — `{ surfaceOp: SurfaceOp; sourceEventSeqs?: number[] }`, the required third parameter to `session.append()` for surface-eligible types.
 - `foldSurface(events)` — replay the canonical surface transitions into detached current event sequences and actual replacement ranges, rejecting surface-eligible events that lack their mandatory marker. `SurfaceManager` shares the same transitions while retaining only its incremental sequence cache.
-- `isSurfaceEvent(event)` / `isSurfaceEligibleType(type)` — the first narrows a `SessionEvent` to a fully formed surface event (type is surface-eligible AND `surfaceOp` present); the second is the type-only check, used to detect a surface-eligible event MISSING its marker when validating a seed or loaded log.
+- `isSurfaceEvent(event)` / `isSurfaceEligibleType(type)` — the first narrows a `SessionEvent` to a fully formed surface event; the second is the type-only check used to detect a surface-eligible event missing its marker when validating a seed or loaded log.
 
 ### Request-header reconstruction (`request-header.ts`)
 
-The `request/header` event records a full canonical `EpochHeader` snapshot with reason `initial`, `resume`, or `change`, making the request envelope logged session state and every conversation request a pure function of the log. `foldRequestHeader(events)` selects the latest snapshot from a log or prefix; `canonicalHeader` pins the one representation of absence (empty system/tools/messagePrefix ≡ absent fields), and `headerEquals` compares canonical headers. `EpochHeader.messagePrefix` is the durable record of the `agent/session-prefix` waterfall's product — composed once per loop instance, the request is `messagePrefix + derived history`, and `deriveMessages()` never returns it. Legacy v0 seeds containing the removed `request/header-delta` event or its full-snapshot `fallback` reason are rejected rather than partially replayed.
+`request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. `messagePrefix` remains separate from derived history. See the [reconstructable-requests RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
 ### Session event vocabulary (`types.ts`)
 
@@ -65,7 +65,7 @@ Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types
 
 Every `SessionEvent` carries two optional top-level fields (structural metadata):
 
-- `sourceEventSeqs?: number[]` — seq numbers of provenance sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed nodes behind a compaction replace node).
+- `sourceEventSeqs?: number[]` — seq numbers of provenance sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed entries behind a compaction replacement entry).
 - `surfaceOp?: SurfaceOp` — how this event entered the surface. Absent for non-surface events (boundaries, chunks, usage, errors).
 
 ### Metadata types (`types.ts`)
@@ -76,15 +76,15 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 
 - Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`, `session.header`) is what such a backend stores beside the log.
 - Replay/fork: `create(id, { seed })` validates and freezes a contiguous log and rebuilds its surface. `fork(source, boundary?, childSessionId?)` selects a completed-turn prefix and records lineage.
-- Compaction: the `dsh-compact-basic` plugin appends a `user/message` with `surfaceOp: { op: 'replace', start, end }` to shadow old surface nodes behind a summary checkpoint.
+- Compaction: the `dsh-compact-basic` plugin appends a `user/message` with `surfaceOp: { op: 'replace', start, end }` to shadow old surface entries behind a summary checkpoint.
 
 ## Model Experience
 
 ### Derived message history
 
-**What the model sees**: The model receives projections of `user/message`, `assistant/message`, and `tool/result` surface nodes verbatim. A `context/message` is a user-role message containing exactly `<context source="<source-kind>">`, its content blocks, and `</context>`; `steering/message` uses the identical `<steering source="<source-kind>">` / `</steering>` wrapper. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
+**What the model sees**: The model receives projections of `user/message`, `assistant/message`, and `tool/result` surface entries verbatim. A `context/message` is a user-role message containing exactly `<context source="<source-kind>">`, its content blocks, and `</context>`; `steering/message` uses the identical `<steering source="<source-kind>">` / `</steering>` wrapper. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
 
-**Token effect**: Appended surface nodes are resent on later steps. A `replace` surface operation removes the shadowed nodes from future inputs without deleting their raw log records.
+**Token effect**: Appended surface entries are resent on later steps. A `replace` surface operation removes the shadowed entries from future inputs without deleting their raw log records.
 
 ### Crash-repair result
 
