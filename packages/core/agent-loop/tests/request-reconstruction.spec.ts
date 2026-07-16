@@ -1,11 +1,8 @@
 /**
- * Loop-level reconstructability: every request the loop sends is a pure
- * function of the session log — messages are the derivation at the step/start
- * boundary, the header is the latest request/header snapshot — and every
- * request is an append-extension of its predecessor unless a logged event
- * (compaction replace, header change) explains the difference. The requests
- * recorded by the mock adapter are the observable; the offline-rebuild test
- * at the bottom is the theorem stated end-to-end.
+ * Loop-level reconstructability: every request the loop sends is a pure function of the
+ * session log — messages derive at the step/start boundary and the header is the latest
+ * request/header snapshot. Each request extends its predecessor unless a logged compaction
+ * replacement or header change explains the difference.
  */
 
 import { describe, expect, it } from 'vitest'
