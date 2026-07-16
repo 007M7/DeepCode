@@ -83,6 +83,9 @@
     { "path": "./packages/hooks/hook-protocol" },
     { "path": "./packages/hooks/hooks-claude" },
     { "path": "./packages/hooks/hooks-codex" },
-    { "path": "./packages/mcp/mcp-client" }
+    { "path": "./packages/mcp/mcp-client" },
+    { "path": "./packages/lsp/lsp" },
+    { "path": "./packages/lsp/lsp-local" },
+    { "path": "./packages/lsp/tool-lsp" }
   ]
 }

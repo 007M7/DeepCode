@@ -115,6 +115,11 @@ flowchart TD
   subgraph group_guard["packages/guard"]
     pkg_repeat_tool_guard["repeat-tool-guard"]
   end
+  subgraph group_lsp["packages/lsp"]
+    pkg_lsp["lsp"]
+    pkg_lsp_local["lsp-local"]
+    pkg_tool_lsp["tool-lsp"]
+  end
   subgraph group_mcp["packages/mcp"]
     pkg_mcp_client["mcp-client"]
   end
@@ -139,6 +144,8 @@ flowchart TD
   pkg_fs --> pkg_brand
   pkg_fs --> pkg_llm
   pkg_web --> pkg_llm
+  pkg_lsp --> pkg_brand
+  pkg_lsp --> pkg_llm
   pkg_sandbox --> pkg_llm
   pkg_agent --> pkg_brand
   pkg_agent --> pkg_llm
@@ -162,6 +169,10 @@ flowchart TD
   pkg_session_persistence --> pkg_session
   pkg_llm_replay --> pkg_llm
   pkg_llm_replay --> pkg_session
+  pkg_lsp_local --> pkg_brand
+  pkg_lsp_local --> pkg_llm
+  pkg_lsp_local --> pkg_lsp
+  pkg_lsp_local --> pkg_timeout
   pkg_sandbox_local --> pkg_llm
   pkg_sandbox_local --> pkg_sandbox
   pkg_bash_local --> pkg_bash
@@ -273,6 +284,10 @@ flowchart TD
   pkg_tool_ask_user --> pkg_user_interaction
   pkg_repeat_tool_guard --> pkg_agent
   pkg_repeat_tool_guard --> pkg_tools
+  pkg_tool_lsp --> pkg_llm
+  pkg_tool_lsp --> pkg_lsp
+  pkg_tool_lsp --> pkg_system_prompt
+  pkg_tool_lsp --> pkg_tools
   pkg_mcp_client --> pkg_llm
   pkg_mcp_client --> pkg_tools
   pkg_tool_workflow --> pkg_agent
@@ -370,6 +385,7 @@ flowchart TD
 | [`system-prompt`](../packages/core/system-prompt) | `core` | [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
 | [`fs`](../packages/fs/fs) | `fs` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm) |
 | [`web`](../packages/web/web) | `web` | [`llm`](../packages/llm/llm) |
+| [`lsp`](../packages/lsp/lsp) | `lsp` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm) |
 | [`sandbox`](../packages/sandbox/sandbox) | `sandbox` | [`llm`](../packages/llm/llm) |
 | [`agent`](../packages/core/agent) | `core` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`bash`](../packages/bash/bash) | `bash` | [`brand`](../packages/util/brand), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session) |
@@ -383,6 +399,7 @@ flowchart TD
 | [`web-search-perplexity`](../packages/web/web-search-perplexity) | `web` | [`web`](../packages/web/web) |
 | [`session-persistence`](../packages/session-persistence/session-persistence) | `session-persistence` | [`session`](../packages/core/session) |
 | [`llm-replay`](../packages/support/llm-replay) | `support` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`lsp-local`](../packages/lsp/lsp-local) | `lsp` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`timeout`](../packages/util/timeout) |
 | [`sandbox-local`](../packages/sandbox/sandbox-local) | `sandbox` | [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
 | [`bash-local`](../packages/bash/bash-local) | `bash` | [`bash`](../packages/bash/bash), [`timeout`](../packages/util/timeout) |
 | [`compact-basic`](../packages/compact/compact-basic) | `compact` | [`agent`](../packages/core/agent), [`compact`](../packages/compact/compact), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
@@ -412,6 +429,7 @@ flowchart TD
 | [`acp`](../packages/ui/acp) | `ui` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`llm`](../packages/llm/llm), [`permission`](../packages/ui/permission), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval), [`user-interaction`](../packages/ui/user-interaction) |
 | [`tool-ask-user`](../packages/ui/tool-ask-user) | `ui` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
 | [`repeat-tool-guard`](../packages/guard/repeat-tool-guard) | `guard` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools) |
+| [`tool-lsp`](../packages/lsp/tool-lsp) | `lsp` | [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`mcp-client`](../packages/mcp/mcp-client) | `mcp` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-workflow`](../packages/workflow/tool-workflow) | `workflow` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
 | [`agent-core`](../packages/core/agent-core) | `core` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`skill`](../packages/skill/skill), [`skill-local`](../packages/skill/skill-local), [`system-prompt`](../packages/core/system-prompt), [`tool-bash`](../packages/bash/tool-bash), [`tool-skill`](../packages/skill/tool-skill), [`tools`](../packages/core/tools) |

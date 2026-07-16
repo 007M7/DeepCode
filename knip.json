@@ -118,6 +118,11 @@
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts", "tests/fixture-server.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"],
       "ignoreDependencies": ["@modelcontextprotocol/server-everything", "@modelcontextprotocol/server-filesystem"]
+    },
+    "packages/lsp/lsp-local": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts", "tests/fixture-server.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"],
+      "ignoreDependencies": ["typescript-language-server"]
     }
   }
 }

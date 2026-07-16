@@ -1,6 +1,6 @@
 # RFC: LSP capability seam and model-facing query tool
 
-Status: proposed
+Status: implemented
 
 English | [中文](2026-07-15-lsp-capability-seam.zh.md)
 
@@ -12,7 +12,7 @@ LSP support has three owners: the model needs a stable query schema, the harness
 
 Many language servers behave best when the queried document is opened with current text. A compatible agent client must bound that state, define whether its source read is a model observation, and keep the document snapshot in the same filesystem namespace as the server's workspace index.
 
-## Proposal
+## Decision
 
 Add LSP as a three-package capability seam with one read-only model tool and one generic local provider implementation:
 
@@ -171,7 +171,7 @@ The local provider trusts its configured server and claims no sandbox confinemen
 
 **Ship presets or PATH discovery.** A catalog would make the generic host own language policy, while discovery cannot infer arguments, language ids, or initialization. Deployments configure providers explicitly; composition plugins may package presets.
 
-## Acceptance criteria
+## Testing
 
 - Package tests pin the three-package dependency direction, runtime injections, and `ctx.lsp`-only communication.
 - Tool tests pin the four operations, coordinate validation, configured bounds and omission markers, prompt, and ACP presentation.
@@ -185,7 +185,7 @@ The local provider trusts its configured server and claims no sandbox confinemen
 - Snapshots cover model-visible schema, prompt, results, omissions, and ACP rendering; a built-artifact smoke test covers framing and cleanup.
 - Package and architecture docs cover configuration, security boundaries, and search/read guidance; the new `packages/lsp/` group is added to the AGENTS.md repository-layout block, the packages/README.md group table, and architecture.md in the same change.
 
-## Risks
+## Consequences
 
 Language servers vary in method support, capability interpretation, and indexing readiness; LSP has no universal “index complete” signal. Servers without compatible transient-open synchronization are unsupported even if closed-document queries work. Supported servers may still return empty or partial results, so the tool promises no cross-server completeness. The pinned TypeScript e2e establishes one compatibility floor, not a cross-language claim.
 

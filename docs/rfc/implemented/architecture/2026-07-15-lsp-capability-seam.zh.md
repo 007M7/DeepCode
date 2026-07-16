@@ -1,6 +1,6 @@
 # RFC: LSP 能力服务边界与面向模型的查询工具
 
-Status: proposed
+Status: implemented
 
 [English](2026-07-15-lsp-capability-seam.md) | 中文
 
@@ -12,7 +12,7 @@ harness 已具备文本搜索与文件读取能力，但二者都无法识别程
 
 许多语言服务器只有在查询文档已按当前文本打开时才能稳定工作。兼容的 agent 客户端必须限制这项状态、定义内部读取是否算作模型观察，并确保文档快照与服务器工作区索引位于同一文件系统命名空间。
 
-## 提案
+## 决策
 
 将 LSP 建成由三个 package 组成的能力服务边界，其中包含一个只读模型工具和一个通用本地提供方实现：
 
@@ -171,7 +171,7 @@ ACP 使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_p
 
 **内置 preset 或 PATH 发现。** 目录会让通用 host 承担语言策略，而发现机制无法推断参数、语言 id 或初始化配置。部署显式配置提供方，组合插件可以封装 preset。
 
-## 验收标准
+## 测试
 
 - Package 测试固定三个 package 的依赖方向、运行时注入和仅通过 `ctx.lsp` 通信的边界。
 - 工具测试固定四种操作、坐标校验、配置限制与省略标记、提示词和 ACP 展示。
@@ -185,7 +185,7 @@ ACP 使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_p
 - 快照覆盖模型可见 schema、提示词、结果、省略提示和 ACP 渲染；构建产物冒烟测试覆盖分帧与清理。
 - Package 与架构文档覆盖配置、安全边界和搜索/读取指导；同一改动中，新的 `packages/lsp/` package 组要加入 AGENTS.md 的仓库布局块、packages/README.md 的分组表和 architecture.md。
 
-## 风险
+## 影响
 
 各语言服务器对方法支持、能力解释和索引就绪时机的处理不同；LSP 没有统一的“索引完成”信号。无法声明兼容临时打开同步能力的服务器不受支持，即使它能查询已关闭文档。受支持的服务器仍可能返回空结果或不完整结果，因此工具不承诺跨服务器完整性。固定的 TypeScript e2e 只建立一条兼容性基线，不代表跨语言承诺。
 

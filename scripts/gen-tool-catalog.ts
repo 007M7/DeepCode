@@ -26,6 +26,8 @@ import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import Lsp from '@deepseek-ai/dsh-lsp'
+import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
@@ -146,6 +148,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-lsp',
+    dir: 'tool-lsp',
+    source: 'packages/lsp/tool-lsp/src/index.ts',
+    requires: ['ctx.tools', 'ctx.lsp', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The tool registers from the seam alone; the schema does not depend on any provider.
+      await ctx.plugin(Lsp)
+      await ctx.plugin(ToolLsp)
+    },
+    note:
+      'The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-local`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-skill',
