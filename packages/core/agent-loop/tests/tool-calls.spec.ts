@@ -274,6 +274,48 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     gated.release('2')
     await waitForIdle(ctx, agent)
   })
+
+  it('applies the factory-wide Config default to agents that set no per-agent cap', async () => {
+    const adapter = new MockAdapter([
+      multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }, { id: 'c2', name: 'p', args: { id: '2' } }]),
+      textResponse('done'),
+    ])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    // Factory default of 1 (no per-agent cap set below) must serialize.
+    await ctx.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const gated = gatedParallelTool('p')
+    ctx.tools.register(gated.tool)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    expect(agent.options.maxParallelToolCalls).toBe(1)
+
+    agent.send([{ type: 'text', text: 'go' }])
+    await until(() => gated.started.length === 1)
+    await new Promise(r => setTimeout(r, 5))
+    expect(gated.started).toEqual(['1'])
+    gated.release('1')
+    await until(() => gated.started.length === 2)
+    gated.release('2')
+    await waitForIdle(ctx, agent)
+  })
+
+  it('lets a per-agent cap override the factory-wide Config default', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', maxParallelToolCalls: 4 })
+    expect(agent.options.maxParallelToolCalls).toBe(4)
+  })
 })
 
 describe('tool-call scheduler: ordered middleware and additionalContext', () => {

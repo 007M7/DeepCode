@@ -30,20 +30,18 @@ interface ToolDefinition extends ToolSchema {
    *
    * It may inspect the parsed `args` (`unknown` — a hand-rolled definition
    * receives the raw parsed value; `defineTool` schema-validates first and
-   * returns `false` on invalid args, so an eventual `ToolArgsError` is produced
-   * only if the tool actually executes). The check performs no I/O and receives
-   * no live `Agent` or mutable `ToolExecution`.
+   * returns `false` on invalid args). The check performs no I/O and receives no
+   * live `Agent` or mutable `ToolExecution`.
    *
-   * Declaring `true` is a contract: the tool body must NOT mutate the parent
-   * agent's session or other parent-owned async state during `execute` (no
-   * `exec.agent.session.append(...)`, no `agent.inject(...)`). Its only parent-
+   * Declaring `true` is a contract: during `execute` the tool body must NOT
+   * mutate the parent agent's session or other parent-owned async state (no
+   * `exec.agent.session.append(...)`, no `agent.inject(...)`); its only parent-
    * step outputs are the returned content, `meta`, structured error, and
-   * `additionalContext` carried through the loop's ordered post-execute path.
-   * The narrow exception is a synchronous, side-effect-only recorder whose
-   * updates are commutative OR fail closed for concurrent calls by the same
-   * session (the `fs/observed` version recorder is the worked example: its
-   * WeakMap record is last-writer-wins, and a stale observation only makes a
-   * later write/edit fail closed at its in-lock version CAS).
+   * `additionalContext` on the loop's ordered post-execute path. A synchronous,
+   * side-effect-only recorder whose updates are commutative or fail closed for
+   * concurrent same-session calls is the one exception (`fs/observed` is the
+   * worked example). Full contract and rationale: the parallel-tool-call RFC
+   * (docs/rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
    */
   isConcurrencySafe?(args: unknown): boolean
   /**

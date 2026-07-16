@@ -3,8 +3,9 @@
  * the assistant message's `tool-call` blocks; this module parses each call's
  * arguments once, classifies it via `ctx.tools.executionMode`, partitions the
  * calls into ordered groups (one exclusive call, or a run of consecutive
- * parallel-safe calls), and executes each group — a parallel group through a
- * rolling pool bounded by the agent's `maxParallelToolCalls`.
+ * parallel-safe calls), and runs every group through the same rolling pool
+ * bounded by the agent's `maxParallelToolCalls` — an exclusive group is a pool
+ * of one.
  *
  * The session log stays the source of truth and is reconstructable regardless
  * of dispatch timing: each STARTED call appends its own `tool/call` before its
@@ -95,16 +96,13 @@ export async function executeToolCalls(
   // separate ordered groups (no read/write race inside one assistant step).
   const groups = groupByMode(ctx, planned)
 
+  // Every group runs through the same rolling pool: an exclusive call is a
+  // singleton group (pool of one, a barrier), a parallel-safe run is one group
+  // bounded by the cap. `groupByMode` already classified each call, so the loop
+  // does not re-query `executionMode` here.
   const pendingContext: HookContext[] = []
   for (const group of groups) {
-    // Groups are never empty (groupByMode only pushes non-empty runs/singletons).
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- non-empty group
-    const first = group[0]!
-    if (group.length === 1 && ctx.tools.executionMode(first.exec).kind === 'exclusive') {
-      await runExclusive(ctx, session, turn, step, first, signal, pendingContext)
-    } else {
-      await runParallelGroup(ctx, session, turn, step, group, signal, maxParallel, pendingContext)
-    }
+    await runGroup(ctx, session, turn, step, group, signal, maxParallel, pendingContext)
   }
   return pendingContext
 }
@@ -135,8 +133,8 @@ function parseArguments(raw: string): unknown {
 /**
  * Group planned calls into ordered runs: each exclusive call is a singleton
  * group; consecutive parallel-safe calls coalesce into one group. `executionMode`
- * is queried once per call here and again by the caller to pick the exclusive
- * fast-path — both reads are pure and cheap.
+ * is the sole classification point — the caller runs every group through the
+ * rolling pool without re-querying it. The read is pure and cheap.
  */
 function groupByMode(ctx: Context, planned: PlannedCall[]): PlannedCall[][] {
   const groups: PlannedCall[][] = []
@@ -167,46 +165,19 @@ function assertMaxParallelToolCalls(maxParallel: number): void {
 }
 
 /**
- * The exclusive single-call path keeps the public one-call pipeline sequential:
- * abort-check, `tool/call`, pre/dispatch/post via `ctx.tools.execute`,
- * `tool/result`, buffer context, post-await abort-check.
- */
-async function runExclusive(
-  ctx: Context,
-  session: Session,
-  turn: number,
-  step: number,
-  call: PlannedCall,
-  signal: AbortSignal,
-  pendingContext: HookContext[],
-): Promise<void> {
-  /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-  if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-  const callSeq = appendToolCall(session, turn, step, call.block)
-  const result = await ctx.tools.execute(call.exec)
-  appendToolResult(session, turn, step, call.block, result, callSeq)
-  if (result.additionalContext) pendingContext.push(result.additionalContext)
-  // signal CAN flip during the await above (abort() inside a tool); the analyzer
-  // can't see through the await boundary.
-  /* v8 ignore start -- signal.reason default unreachable: cancel()/disposal always set it */
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-  /* v8 ignore stop */
-}
-
-/**
- * The rolling-pool path for a group of parallel-safe calls. Starts calls in
- * model order up to `maxParallel`, and whenever one settles starts the next
- * unstarted call until the group is exhausted. Settled dispatches land in
- * model-order slots; a commit cursor appends `tool/result` (and collects
- * `additionalContext`) only while the next slot is ready, so the log stays
- * model-ordered regardless of completion order.
+ * The rolling-pool path for one ordered group. A singleton exclusive group runs
+ * as a pool of one (a barrier); a parallel-safe run starts calls in model order
+ * up to `maxParallel`, and whenever one settles starts the next unstarted call
+ * until the group is exhausted. Settled dispatches land in model-order slots; a
+ * commit cursor appends `tool/result` (and collects `additionalContext`) only
+ * while the next slot is ready, so the log stays model-ordered regardless of
+ * completion order.
  *
  * Abort: an already-aborted signal starts nothing and throws before any
  * `tool/call`. An abort mid-group stops replenishment, awaits only the started
  * calls, commits their results in order, drops buffered context, and throws.
  */
-async function runParallelGroup(
+async function runGroup(
   ctx: Context,
   session: Session,
   turn: number,

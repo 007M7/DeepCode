@@ -76,6 +76,11 @@ Source: [`packages/ui/acp-agent/src/index.ts:31`](../packages/ui/acp-agent/src/i
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
   agents?: AgentLoopConfig['agents']
+  /**
+   * The factory-wide default concurrent tool-call cap applied to every agent
+   * this bundle creates (see dsh-agent-loop's `Config.maxParallelToolCalls`).
+   */
+  maxParallelToolCalls?: AgentLoopConfig['maxParallelToolCalls']
   /** The deployment persona (see dsh-system-prompt's `Config`). */
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
@@ -108,6 +113,16 @@ Requires: `agents` · `sessions` · `llm` · `tools` · `systemPrompt`
 ```ts config-catalog
 /** Plugin configuration for declarative startup agents. */
 export interface Config {
+  /**
+   * Default concurrent tool-call cap applied to every agent this factory
+   * creates (declarative startup agents and factory callers such as the ACP,
+   * stdio, and SDK front doors that go through `create`/`createAgent`/`resume`).
+   * A positive integer; a per-agent `maxParallelToolCalls` overrides it, and an
+   * agent with neither falls back to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
+   * This is the single `cordis.yml` knob that reaches agents whose front door
+   * does not expose its own cap field.
+   */
+  maxParallelToolCalls?: number
   /** Agents created or resumed at plugin startup. */
   agents: (AgentOptions & {
     /** Registry identity for the live agent. */
@@ -964,7 +979,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:391`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:389`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 

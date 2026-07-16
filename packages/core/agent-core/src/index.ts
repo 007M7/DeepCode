@@ -46,6 +46,11 @@ export interface SkillConfig {
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
   agents?: AgentLoopConfig['agents']
+  /**
+   * The factory-wide default concurrent tool-call cap applied to every agent
+   * this bundle creates (see dsh-agent-loop's `Config.maxParallelToolCalls`).
+   */
+  maxParallelToolCalls?: AgentLoopConfig['maxParallelToolCalls']
   /** The deployment persona (see dsh-system-prompt's `Config`). */
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
@@ -95,5 +100,8 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(invariants)
   ctx.plugin(toolBash)
   ctx.plugin(toolSkill, config.skills?.tool ?? {})
-  ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
+  ctx.plugin(AgentLoop, {
+    agents: config.agents ?? [],
+    ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},
+  })
 }

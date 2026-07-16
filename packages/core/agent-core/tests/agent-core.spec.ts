@@ -117,6 +117,16 @@ describe('dsh-agent-core bundle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('forwards the factory-wide maxParallelToolCalls default to agents without a per-agent cap', async () => {
+    const ctx = await mount({
+      agents: [{ id: AgentId('main'), model: 'mock' }],
+      maxParallelToolCalls: 3,
+    })
+    const main = ctx.get('agents')?.get(AgentId('main'))
+    expect(main?.options.maxParallelToolCalls).toBe(3)
+    await ctx.fiber.dispose()
+  })
+
   it('tolerates a schema-bypassing direct apply (the ?? fallbacks fire)', async () => {
     // ctx.plugin validates + defaults the bundle config first; a direct apply
     // skips the schema, so the forwarding `?? []` / `?? ''` are what fire.
