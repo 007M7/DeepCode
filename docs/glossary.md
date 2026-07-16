@@ -1,5 +1,7 @@
 # Glossary
 
+English | [中文](glossary.zh.md)
+
 Domain vocabulary for the DeepSeek Harness SDK uses one canonical term per concept. Terms link to their entries with standard Markdown anchors; implementation detail stays in package READMEs and RFCs.
 
 FIXME(glossary-completeness): Expand this glossary before the first release so it covers the SDK's other core and capability subsystems, not only agent scope.

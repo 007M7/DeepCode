@@ -1,5 +1,7 @@
 # DeepSeek Harness Architecture
 
+English | [中文](architecture.zh.md)
+
 The **DeepSeek Harness SDK** builds agent harnesses on Cordis. The principle is simple: **everything is a plugin**. The shipped loop is one plugin, not a privileged kernel.
 
 ## Overview

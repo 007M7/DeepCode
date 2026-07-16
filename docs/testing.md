@@ -1,5 +1,7 @@
 # Testing policy
 
+English | [中文](testing.zh.md)
+
 How this repo tests, tier by tier, and the rules that keep a green suite meaningful. Commands live in root [AGENTS.md](../AGENTS.md); linked RFCs carry the rationale.
 
 ## Tiers
