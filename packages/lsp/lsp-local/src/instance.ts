@@ -78,9 +78,14 @@ export class LspInstance {
    * @returns the normalized result.
    */
   query(request: LspProviderQuery, source: HostSource, signal?: AbortSignal): Promise<LspQueryResult> {
-    const run = this.queue.then(() => this.runQuery(request, source, signal))
-    // Keep the tail alive regardless of this query's outcome so the next caller still serializes.
-    this.queue = run.then(() => undefined, () => undefined)
+    // Serialize behind prior work, but observe abort DURING the queue wait too: if an earlier query
+    // hangs (e.g. a signal-less seam caller), a later tool's timeout must still be able to give up
+    // rather than block on the shared tail forever.
+    const run = this.abortable(this.queue, signal).then(() => this.runQuery(request, source, signal))
+    // Keep the tail alive regardless of this query's outcome so the next caller still serializes. The
+    // tail follows the ACTUAL prior work (this.queue), not the abortable view, so a caller giving up
+    // on the wait does not deserialize the queue.
+    this.queue = this.queue.then(() => run).then(() => undefined, () => undefined)
     return run
   }
 
@@ -101,10 +106,21 @@ export class LspInstance {
 
   private async runQuery(request: LspProviderQuery, source: HostSource, signal?: AbortSignal): Promise<LspQueryResult> {
     if (this.disposed) throw new Error('LSP instance was disposed')
+    /* v8 ignore next -- the abortable queue wait rejects a pre-aborted signal before runQuery; this is a belt-and-suspenders guard. */
     if (signal?.aborted) throw abortError(signal)
     // Observe abort during the handshake wait: a server that never answers `initialize` must not
     // block the tool-timeout signal here (the timeout policy awaits our quiescence, not the promise).
-    await this.abortable(this.ready, signal)
+    // If abort wins, the handshake is still pending on a live process, so tear the instance down —
+    // otherwise its poisoned `ready` would make every later query for this workspace re-wait.
+    try {
+      await this.abortable(this.ready, signal)
+    } catch (error) {
+      if (signal?.aborted && !this.dead) {
+        this.disposed = true
+        await this.tearDown(abortError(signal))
+      }
+      throw error
+    }
     const capabilities = this.capabilities
     /* v8 ignore next -- `ready` resolves only after capabilities are set, else it rejects above; defensive. */
     if (capabilities === undefined) throw new Error('LSP instance is not initialized')
@@ -303,8 +319,12 @@ function markSettled(): boolean {
   return true
 }
 
-/** Build an abort Error carrying the signal's reason (preserving a timeout classification). */
-function abortError(signal: AbortSignal): Error {
+/**
+ * Build an abort Error carrying the signal's reason (preserving a timeout classification).
+ * @param signal - the aborted signal whose reason to surface.
+ * @returns the timeout reason if the signal carries one, else the signal's Error reason, else a generic aborted Error.
+ */
+export function abortError(signal: AbortSignal): Error {
   const timeout = timeoutOf(signal)
   if (timeout !== undefined) return timeout
   const reason: unknown = signal.reason

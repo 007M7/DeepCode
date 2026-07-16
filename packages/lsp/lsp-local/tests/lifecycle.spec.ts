@@ -151,6 +151,25 @@ describe('lsp-local end to end over a fake server', () => {
     await ctx.fiber.dispose()
   })
 
+  it('honors an already-aborted signal before any host I/O or startup', async () => {
+    const ctx = await mount({ LSP_FAKE_DEF: 'null' })
+    const controller = new AbortController()
+    controller.abort(new Error('pre-aborted'))
+    await expect(ctx.lsp.query(query('definition'), controller.signal)).rejects.toThrow(/pre-aborted/)
+    await ctx.fiber.dispose()
+  })
+
+  it('surfaces the server stderr tail in the exit error', async () => {
+    // A server that writes to stderr then exits without answering: the query rejection carries the
+    // retained stderr tail so the failure is diagnosable.
+    const ctx = await mount({}, {
+      command: process.execPath,
+      args: ['-e', 'process.stderr.write("FATAL: boom\\n"); setTimeout(()=>process.exit(1), 50)'],
+    })
+    await expect(ctx.lsp.query(query('definition'))).rejects.toThrow(/FATAL: boom/)
+    await ctx.fiber.dispose()
+  })
+
   it('classifies a timeout deadline as the abort reason', async () => {
     const ctx = await mount({ LSP_FAKE_HANG: '1' })
     using d = deadline(undefined, 50, 'TEST_TIMEOUT')

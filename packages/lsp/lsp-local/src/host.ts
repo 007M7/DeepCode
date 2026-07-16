@@ -9,7 +9,9 @@
  * @module @deepseek-ai/dsh-lsp-local/host
  */
 
+import { constants } from 'node:fs'
 import { open, realpath, stat } from 'node:fs/promises'
+import type { FileHandle } from 'node:fs/promises'
 import { isAbsolute, resolve as resolvePath, sep } from 'node:path'
 
 /** A validated source: its canonical absolute path and current UTF-8 text. */
@@ -70,8 +72,9 @@ export async function readHostSource(
   }
   // Open ONE handle after containment, then stat and read through it: a concurrent replace between
   // realpath and read cannot swap the target, so the regular-file and size checks bind the bytes we
-  // actually read (no path-based TOCTOU).
-  const handle = await open(canonicalPath, 'r')
+  // actually read (no path-based TOCTOU). O_NOFOLLOW rejects the final component being swapped for a
+  // symlink between realpath and open (which would otherwise escape the workspace).
+  const handle = await open(canonicalPath, constants.O_RDONLY | constants.O_NOFOLLOW)
   try {
     const info = await handle.stat()
     if (!info.isFile()) {
@@ -80,12 +83,31 @@ export async function readHostSource(
     if (info.size > maxDocumentBytes) {
       throw new Error(`source "${filePath}" is ${info.size} bytes, over the ${maxDocumentBytes}-byte limit`)
     }
-    const buffer = await handle.readFile()
+    // Bound the read to the cap even if the file grew after stat: read one extra byte and reject on
+    // overflow, so a concurrent grow cannot defeat the memory bound.
+    const buffer = await readCapped(handle, maxDocumentBytes, filePath)
     const text = decodeUtf8Strict(buffer, filePath)
     return { canonicalPath, text }
   } finally {
     await handle.close()
   }
+}
+
+/** Read at most `maxBytes` from the handle, rejecting when the source overflows the cap. */
+async function readCapped(handle: FileHandle, maxBytes: number, filePath: string): Promise<Buffer> {
+  const limit = maxBytes + 1
+  const chunk = Buffer.allocUnsafe(limit)
+  let total = 0
+  for (;;) {
+    const { bytesRead } = await handle.read(chunk, total, limit - total, total)
+    if (bytesRead === 0) break
+    total += bytesRead
+    /* v8 ignore next 3 -- overflow requires the file to grow past the cap between stat and read (a concurrent mutation); defensive. */
+    if (total > maxBytes) {
+      throw new Error(`source "${filePath}" grew past the ${maxBytes}-byte limit while reading`)
+    }
+  }
+  return chunk.subarray(0, total)
 }
 
 /** Whether `child` is the workspace itself or a descendant of it (both already canonical). */

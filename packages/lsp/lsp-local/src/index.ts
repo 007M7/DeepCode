@@ -24,7 +24,7 @@ import type {
 // Side-effect type import: declaration-merges `ctx.lsp` onto Context.
 import type {} from '@deepseek-ai/dsh-lsp'
 import { canonicalizeWorkspace, readHostSource } from './host.ts'
-import { LspInstance } from './instance.ts'
+import { abortError, LspInstance } from './instance.ts'
 import type { InstanceSpec } from './instance.ts'
 
 export { canonicalizeWorkspace, readHostSource } from './host.ts'
@@ -114,6 +114,8 @@ export function apply(ctx: Context, config: Config): void {
   // nonpositive value would let a server that ignores shutdown hang disposal forever. Fail at load.
   assertPositiveInteger('shutdownTimeoutMs', resolved.shutdownTimeoutMs)
   assertPositiveInteger('killGraceMs', resolved.killGraceMs)
+  // A nonpositive stderr cap defeats the retained-tail bound (`slice(-0)` keeps everything).
+  assertPositiveInteger('maxStderrBytes', resolved.maxStderrBytes)
   const childEnv = buildChildEnv(resolved.env)
   // Resolve the executable eagerly so a misconfigured command fails at load, not on first query.
   const executable = resolveExecutable(resolved.command, childEnv)
@@ -160,6 +162,9 @@ class LocalLspProvider implements LspProvider {
   async query(request: LspProviderQuery, signal?: AbortSignal): Promise<LspQueryResult> {
     /* v8 ignore next -- the seam unregisters this provider on dispose, so a query never reaches it disposed; defensive. */
     if (this.isDisposed()) throw new Error('lsp-local provider is disposed')
+    // Honor an already-aborted signal before any host I/O so a canceled request neither reads nor
+    // spawns a server.
+    if (signal?.aborted) throw abortError(signal)
     const workspace = await canonicalizeWorkspace(request.workspaceRoot)
     // Validate and read the source BEFORE spawning a server: a missing/external/non-regular/oversized
     // source must fail without leaving an idle process pooled (the pre-start rejection contract), and

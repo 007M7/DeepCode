@@ -55,14 +55,17 @@ export class LspConnection {
     private readonly onServerRequest: (method: string, params: unknown) => Promise<unknown>,
   ) {
     this.decoder = new MessageDecoder(spec.maxMessageBytes)
+    // `detached` puts the server in its own process group so teardown can signal the WHOLE group
+    // (via `process.kill(-pid)`), reaching helper processes a language server spawns (e.g. tsserver).
     this.child = spawn(spec.command, [...spec.args], {
       cwd: spec.cwd,
       env: spec.env,
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true,
     })
     this.closed = new Promise<void>((resolve) => {
       this.child.on('close', () => {
-        const reason = this.closeReason ?? new Error('language server exited')
+        const reason = this.closeReason ?? new Error(this.exitMessage())
         // Record the reason so any request issued AFTER close rejects immediately instead of hanging
         // (a closed process sends no further responses).
         this.closeReason = reason
@@ -150,14 +153,33 @@ export class LspConnection {
     return this.nextId
   }
 
-  /** Send SIGTERM to the child (idempotent-safe; a dead child ignores it). */
+  /** Send SIGTERM to the server's process group (idempotent-safe; a dead group ignores it). */
   terminate(): void {
-    this.child.kill('SIGTERM')
+    this.signalGroup('SIGTERM')
   }
 
-  /** Send SIGKILL to the child. */
+  /** Send SIGKILL to the server's process group. */
   kill(): void {
-    this.child.kill('SIGKILL')
+    this.signalGroup('SIGKILL')
+  }
+
+  /**
+   * Signal the whole process group (negative pid) so helper processes are reached; fall back to the
+   * direct child if the group send fails. Never throws — teardown races process exit.
+   */
+  private signalGroup(sig: NodeJS.Signals): void {
+    const pid = this.child.pid
+    if (pid === undefined) return
+    try {
+      process.kill(-pid, sig)
+    } catch {
+      // The group is gone (already exited) or could not be signalled; try the direct child.
+      try {
+        this.child.kill(sig)
+      } catch {
+        // Already dead; nothing to signal.
+      }
+    }
   }
 
   private onStdout(chunk: Buffer): void {
@@ -219,6 +241,12 @@ export class LspConnection {
 
   private write(message: unknown): void {
     this.child.stdin.write(encodeMessage(message))
+  }
+
+  /** The exit-close error message, appending the retained stderr tail when the server wrote any. */
+  private exitMessage(): string {
+    const tail = this.stderr.trim()
+    return tail === '' ? 'language server exited' : `language server exited; stderr: ${tail}`
   }
 
   private fail(error: Error): void {
