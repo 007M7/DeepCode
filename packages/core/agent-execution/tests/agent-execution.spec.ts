@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
+import { runInNewContext } from 'node:vm'
 import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import type { AgentExecution, AgentExecutionService } from '@deepseek-ai/dsh-agent-execution'
@@ -132,5 +133,30 @@ describe('AgentExecutionProvider', () => {
     await disposal
     expect(() => service.current()).toThrow('agent execution service is disposed')
     expect(() => service.require()).toThrow('agent execution service is disposed')
+  })
+
+  it('drains cross-realm Promise boundaries before disposal', async () => {
+    const { service, dispose } = await harness()
+    const active = execution('cross-realm')
+    const release = Promise.withResolvers<boolean>()
+    const operation = runInNewContext(
+      '(async () => { await release; inspect() })',
+      {
+        release: release.promise,
+        inspect: () => { expect(service.require()).toBe(active) },
+      },
+    ) as () => Promise<void>
+    const pending = service.run(active, operation)
+    expect(pending).not.toBeInstanceOf(Promise)
+
+    let disposed = false
+    const disposal = dispose().then(() => { disposed = true })
+    await Promise.resolve()
+    expect(disposed).toBe(false)
+
+    release.resolve(true)
+    await pending
+    await disposal
+    expect(disposed).toBe(true)
   })
 })

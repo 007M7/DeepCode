@@ -21,7 +21,7 @@ run<T>(execution: AgentExecution | undefined, operation: () => T): T
 
 Types: [AgentExecution](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-execution/src/index.ts:17`](../../packages/core/agent-execution/src/index.ts)
+Source: [`packages/core/agent-execution/src/index.ts:18`](../../packages/core/agent-execution/src/index.ts)
 
 ## `ctx.agentLoop` — `AgentLoop`
 

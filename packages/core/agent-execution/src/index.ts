@@ -6,6 +6,7 @@
 
 import type { Context } from 'cordis'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { isPromise } from 'node:util/types'
 import type { AgentExecution } from './types.ts'
 
 export type { AgentExecution } from './types.ts'
@@ -75,7 +76,7 @@ class DefaultAgentExecutionService implements AgentExecutionService {
       this.releaseRun()
       throw error
     }
-    if (result instanceof Promise) {
+    if (isPromise(result)) {
       void result.then(
         () => { this.releaseRun() },
         () => { this.releaseRun() },
