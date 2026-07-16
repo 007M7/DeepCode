@@ -1,5 +1,7 @@
 # Session Query
 
+English | [中文](session-query.zh.md)
+
 Exact reads over the live-preferred logical session corpus. The [package contract](../../packages/session-query/session-query) owns source precedence, dynamic optional persistence, cloning, surface classification, bounded windows, and typed failures. Full-text search is a separate proposed SQLite phase.
 
 Source: [`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)

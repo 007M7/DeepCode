@@ -1,5 +1,7 @@
 # RFCs
 
+English | [中文](README.zh.md)
+
 One kind of design doc lives here. An **RFC** records a decision or proposal that shapes this codebase — the *why* and *what we gave up*, the parts code and docs can't carry. The full list is the generated [INDEX.md](INDEX.md); this file is the contract — where RFCs live, when to write one, and [the in-file format](#the-file-format).
 
 ## Layout and naming
