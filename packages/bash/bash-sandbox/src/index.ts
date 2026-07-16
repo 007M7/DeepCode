@@ -15,6 +15,7 @@ import { SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedSandboxMode, SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-bash-local'
+import { classifyDenial, classifyRunnerFailure, matchesSignature, shellQuote } from './helpers.ts'
 
 /**
  * Plugin config: the local executor's knobs plus the sandbox policy. All
@@ -31,52 +32,6 @@ export interface Config extends LocalConfig {
    * executor's default working directory — `cwd`, else `process.cwd()`).
    */
   workspaceRoot?: string
-}
-
-/**
- * Quote one string as a single-quoted POSIX shell word (embedded single
- * quotes become `'\''`), so a wrapped argv element survives the outer
- * `bash -c` re-parse byte-for-byte.
- * @param text - the raw argv element to quote.
- * @returns the single-quoted shell word.
- */
-export function shellQuote(text: string): string {
-  return `'${text.replaceAll("'", String.raw`'\''`)}'`
-}
-
-/**
- * Conservatively classify a nonzero, non-signal run using only the selected
- * backend's denial signatures. Text inference may miss a denial or match
- * unrelated stderr in that dialect; it never uses another backend's terms.
- * @param result - the settled foreground run to classify.
- * @param signatures - the active wrap's denial dialect, case-insensitive stderr substrings.
- * @returns whether the run's failure reads as a sandbox denial.
- */
-export function classifyDenial(result: BashRunResult, signatures: readonly string[]): boolean {
-  return matchesSignature(result.exitCode, result.stderr.text, signatures)
-}
-
-/**
- * Classify a nonzero run using the selected backend's runner-failure
- * signatures. Callers check this before denial because runner diagnostics may
- * contain denial words; the command did not run.
- * @param result - the settled foreground run to classify.
- * @param signatures - the active wrap's runner-failure signatures,
- *   case-insensitive stderr substrings.
- * @returns whether the run's failure reads as the runner itself failing.
- */
-export function classifyRunnerFailure(result: BashRunResult, signatures: readonly string[]): boolean {
-  return matchesSignature(result.exitCode, result.stderr.text, signatures)
-}
-
-/**
- * Shared classifier for failed runs. Signatures are case-insensitive and may
- * include runtime values such as an executable path.
- */
-function matchesSignature(exitCode: number | null, stderr: string, signatures: readonly string[]): boolean {
-  if (exitCode === null || exitCode === 0) return false
-  const lowered = stderr.toLowerCase()
-  return signatures.some(signature => lowered.includes(signature.toLowerCase()))
 }
 
 /**
