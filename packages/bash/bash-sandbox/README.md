@@ -2,6 +2,8 @@
 
 Sandbox-consuming implementation of the [`@deepseek-ai/dsh-bash`](../bash/) executor seam. Load it **instead of** `@deepseek-ai/dsh-bash-local`, together with a [`ctx.sandbox`](../../sandbox/sandbox/) provider (e.g. [`@deepseek-ai/dsh-sandbox-local`](../../sandbox/sandbox-local/)) — no alternate tool plugin is needed; `dsh-tool-bash` detects the executor's `sandboxMode` capability and adds the escalation fields.
 
+The package root exports the default and named `SandboxBashExecutor` plugin plus its `Config`; quoting and result-classification helpers stay internal.
+
 Every command is confined by handing the provider the exact `['bash', '-c', command]` argv this executor is about to spawn and spawning the returned (wrapped) argv instead. WHICH platform runner confines it — and whether one is usable at all (fail closed with a structured `SANDBOX_UNAVAILABLE` error, never a silent unconfined run) — is the provider's concern; this package owns the bash side only.
 
 | Mode | File effects |
