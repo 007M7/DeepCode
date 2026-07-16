@@ -20,6 +20,19 @@ function mutableHeader(header: SessionHeader): MutableSessionHeader {
   return header
 }
 
+async function expectParallelFlushError(promise: Promise<unknown>, message: RegExp): Promise<void> {
+  try {
+    await promise
+  } catch (error) {
+    expect(error).toBeInstanceOf(AggregateError)
+    const [cause] = (error as AggregateError).errors as unknown[]
+    expect(cause).toBeInstanceOf(Error)
+    expect((cause as Error).message).toMatch(message)
+    return
+  }
+  throw new Error('expected parallel flush to reject')
+}
+
 async function freshRoot(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-jsonl-'))
   dirs.push(dir)
@@ -488,12 +501,11 @@ describe('SessionPersistenceJsonl: edge cases', () => {
 
     // A new Session object reuses the id. Object-keyed initialization must run independently,
     // detect the disk collision, and reject instead of appending through session A's stale cursor.
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let b!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
       b = inner.sessions.create(SessionId('reuse'), { meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(b)).rejects.toThrow(/already bound to a different live session|already has a persisted log on disk/)
+    await expect(ctx.sessions.flush(b)).rejects.toThrow(/already bound to a different live session|already has a persisted log on disk/)
   })
 
   it('a NO-CWD live session does NOT cross-cwd-adopt a same-id log from a real cwd bucket (loadLive is scope-exact)', async () => {
@@ -511,12 +523,11 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
-    const backend = ctx2.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let b!: Session
     await ctx2.plugin(Object.assign((inner: Context) => {
       b = inner.sessions.create(SessionId('x')) // no cwd
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(b)).rejects.toThrow(/already has a persisted log on disk/)
+    await expect(ctx2.sessions.flush(b)).rejects.toThrow(/already has a persisted log on disk/)
 
     // The "/w" log is untouched — no no-cwd events were grafted onto it, and no
     // `_no-cwd` log for "x" was created.
@@ -533,7 +544,6 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx.sessionPersistence.append(SessionId('divergent'), oneTurnLog())
     await ctx.sessionPersistence.load(SessionId('divergent'))
 
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     // A seed that keeps every seq/type/time but mutates a payload must NOT be
     // accepted as "the same session" — otherwise drain filters those seqs as
     // already persisted and the divergent payload is silently lost.
@@ -544,7 +554,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx.plugin(Object.assign((inner: Context) => {
       bad = inner.sessions.create(SessionId('divergent'), { seed: tampered, meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(bad)).rejects.toThrow(/do not match this live session|already has a persisted log/)
+    await expect(ctx.sessions.flush(bad)).rejects.toThrow(/do not match this live session|already has a persisted log/)
   })
 
   it('a second live session reusing a bound id is rejected', async () => {
@@ -557,12 +567,11 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     for (const s of ctx.sessions.list()) await ctx.parallel('session/flush', s)
     await firstFiber.dispose()
 
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let second!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
       second = inner.sessions.create(SessionId('bound'), { meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(second))
+    await expect(ctx.sessions.flush(second))
       .rejects.toThrow(/already bound to a different live session|already has a persisted log|do not match/)
   })
 
@@ -594,12 +603,11 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     await writeFile(sessionDir(root, cwd), 'x') // bucket path is now a FILE
-    const backend = ctx2.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let s!: Session
     await ctx2.plugin(Object.assign((inner: Context) => {
       s = inner.sessions.create(SessionId('exists-fault'), { meta: { cwd } })
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(s)).rejects.toThrow(/ENOTDIR/)
+    await expect(ctx2.sessions.flush(s)).rejects.toThrow(/ENOTDIR/)
     await ctx2.fiber.dispose()
   })
 
@@ -670,7 +678,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const backend = ctx2.sessionPersistence as unknown as { materialize: (...args: unknown[]) => Promise<void> }
     const origMat = backend.materialize.bind(backend)
     backend.materialize = () => Promise.reject(new Error('disk full'))
-    await expect(ctx2.parallel('session/flush', session)).rejects.toThrow(/disk full/)
+    await expectParallelFlushError(ctx2.parallel('session/flush', session), /disk full/)
     // The events are STILL buffered (not silently dropped): a retry persists them.
     backend.materialize = origMat
     await ctx2.parallel('session/flush', session)

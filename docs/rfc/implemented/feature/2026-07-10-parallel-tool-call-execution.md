@@ -58,7 +58,7 @@ Any shared state touched during execution must be concurrency-safe. This include
 
 `maxParallelToolCalls` is a positive AgentLoop deployment cap shared by every agent the factory creates. It defaults to `10`; `1` preserves serial execution. Exact fields and defaults live in the generated [configuration catalog](../../../config-catalog.md).
 
-The shipped declarations are conservative. Web search, web fetch, filesystem read, and subagent calls opt in. Filesystem writes and edits, bash tools, workflow, user interaction, todo mutation, Code Mode, and Cordis mutation tools remain exclusive. Bash stays exclusive until its owning package supplies a proven input-sensitive classifier.
+The shipped declarations are conservative. Web search, web fetch, filesystem read, and foreground subagent calls opt in. Background subagent starts remain exclusive because they register parent-owned task state. Filesystem writes and edits, bash tools, workflow, user interaction, todo mutation, Code Mode, and Cordis mutation tools also remain exclusive. Bash stays exclusive until its owning package supplies a proven input-sensitive classifier.
 
 Filesystem read relies on a narrow recorder exception: its synchronous observation updates may settle out of order, but write and edit re-check the observed version before mutation, so stale state only produces `FS_STALE_VERSION`.
 

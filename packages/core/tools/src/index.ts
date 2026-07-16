@@ -301,7 +301,7 @@ export interface ToolErrorInfo {
  * distinguish it from a tool body's own error.
  */
 export class ToolNotFoundError extends HarnessError {
-  constructor(public readonly toolName: string) {
+  constructor(toolName: string) {
     super(`unknown tool "${toolName}"`, 'UNKNOWN_TOOL')
     this.name = 'ToolNotFoundError'
   }
@@ -309,7 +309,6 @@ export class ToolNotFoundError extends HarnessError {
 
 /** The outcome of one tool call. */
 export interface ToolExecutionResult {
-  callId: CallId
   content: ContentBlock[]
   isError: boolean
   /**
@@ -789,7 +788,11 @@ export class ToolRegistry extends Service {
    * @returns the materialized final result.
    */
   async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult> {
-    const prepared = await this.prepareScheduledExecution(exec)
+    return this.prepareExecution(exec, prepared => this.completeScheduledExecution(prepared))
+  }
+
+  /** Complete every remaining stage for the public one-call execution path. */
+  private async completeScheduledExecution(prepared: ScheduledToolPreparation): Promise<ToolExecutionResult> {
     switch (prepared.kind) {
       case 'dispatch': {
         const dispatched = await this.dispatchScheduledExecution(prepared.exec)
@@ -831,7 +834,7 @@ export class ToolRegistry extends Service {
       return { kind: 'ready', exec: { ...base, arguments: deepFreeze(detached) } }
     } catch (error: unknown) {
       const execution: ToolExecution = { ...base, arguments: undefined }
-      return { kind: 'final-result', exec: execution, result: toolErrorResult(callId, error) }
+      return { kind: 'final-result', exec: execution, result: toolErrorResult(error) }
     }
   }
 
@@ -842,8 +845,16 @@ export class ToolRegistry extends Service {
    * @internal
    */
   private async prepareScheduledExecution(input: ToolExecutionInput): Promise<ScheduledToolPreparation> {
+    return this.prepareExecution(input, prepared => prepared)
+  }
+
+  /** Run preparation and hand its outcome directly to the selected continuation. */
+  private async prepareExecution<T>(
+    input: ToolExecutionInput,
+    next: (prepared: ScheduledToolPreparation) => T | PromiseLike<T>,
+  ): Promise<T> {
     const created = this.createExecution(input)
-    if (created.kind !== 'ready') return created
+    if (created.kind !== 'ready') return next(created)
     const exec = created.exec
     try {
       const carrier = scopeTarget(this, exec.agent)
@@ -856,19 +867,18 @@ export class ToolRegistry extends Service {
         ? this.guardReason(exec)
         : decision.reason
       if (denialReason !== undefined) {
-        return {
+        return await next({
           kind: 'post-result',
           exec,
           result: {
-            callId: exec.callId,
             content: [{ type: 'text', text: `Error: ${denialReason}` }],
             isError: true,
           },
-        }
+        })
       }
-      return { kind: 'dispatch', exec }
+      return await next({ kind: 'dispatch', exec })
     } catch (error: unknown) {
-      return { kind: 'final-result', exec, result: toolErrorResult(exec.callId, error) }
+      return next({ kind: 'final-result', exec, result: toolErrorResult(error) })
     }
   }
 
@@ -892,18 +902,15 @@ export class ToolRegistry extends Service {
             const returned = await tool.execute(exec.arguments, exec)
             const content = Array.isArray(returned) ? returned : returned.content
             const meta = Array.isArray(returned) ? undefined : returned.meta
-            return { callId: exec.callId, content, isError: false, ...meta !== undefined ? { meta } : {} }
+            return { content, isError: false, ...meta !== undefined ? { meta } : {} }
           } catch (error: unknown) {
-            return toolErrorResult(exec.callId, error)
+            return toolErrorResult(error)
           }
         },
       )
-      if (result.callId !== exec.callId) {
-        throw new TypeError(`tools/execute returned callId "${String(result.callId)}" for authoritative call "${exec.callId}"`)
-      }
       return { kind: 'post-result', result }
     } catch (error: unknown) {
-      return { kind: 'final-result', result: toolErrorResult(exec.callId, error) }
+      return { kind: 'final-result', result: toolErrorResult(error) }
     }
   }
 
@@ -918,7 +925,7 @@ export class ToolRegistry extends Service {
     try {
       return this.finishScheduledExecution(exec, await this.postExecute(exec, result))
     } catch (error: unknown) {
-      return this.finishScheduledExecution(exec, toolErrorResult(exec.callId, error))
+      return this.finishScheduledExecution(exec, toolErrorResult(error))
     }
   }
 
@@ -934,7 +941,7 @@ export class ToolRegistry extends Service {
     try {
       finalResult = this.materializeFinalResult(result)
     } catch (error: unknown) {
-      finalResult = this.materializeFinalResult(toolErrorResult(exec.callId, error))
+      finalResult = this.materializeFinalResult(toolErrorResult(error))
     }
     this.notifyResult(exec, finalResult)
     return finalResult
@@ -942,6 +949,8 @@ export class ToolRegistry extends Service {
 
   /** Notify final-result observers without giving them a mutation/error channel into the outcome. */
   private notifyResult(exec: ToolExecution, result: ToolExecutionResult): void {
+    // Freeze the remaining mutable signal slot before observers receive the
+    // shared WeakMap-keyable execution object.
     Object.freeze(exec)
     const callbacks = this.ctx.events.dispatch('emit', [
       scopeTarget(this, exec.agent), 'tools/result', exec, result,
@@ -1009,7 +1018,6 @@ export class ToolRegistry extends Service {
     const additionalContext = decision.additionalContext
     if (decision.kind === 'block') {
       return {
-        callId: result.callId,
         content: decision.feedback,
         isError: true,
         ...additionalContext ? { additionalContext } : {},
@@ -1038,10 +1046,9 @@ function createExecutionToken(): ToolExecutionToken {
   return Symbol('dsh.tool.execution') as ToolExecutionToken
 }
 
-function toolErrorResult(callId: ToolExecution['callId'], error: unknown): ToolExecutionResult {
+function toolErrorResult(error: unknown): ToolExecutionResult {
   const info = errorInfo(error)
   return {
-    callId,
     content: [{ type: 'text', text: `Error: ${errorMessage(error)}` }],
     isError: true,
     ...info ? { error: info } : {},

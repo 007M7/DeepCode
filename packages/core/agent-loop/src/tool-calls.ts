@@ -282,10 +282,8 @@ function appendToolResult(
 ): void {
   session.append('tool/result', {
     turn, step,
-    // The correlation id MUST be the loop's authoritative call.id (the
-    // model-transcript id deriveMessages turns into toolCallId), NOT
-    // result.callId — a post-execute listener returning a mismatched id would
-    // otherwise orphan the call↔result pairing in the next model request.
+    // Correlation stays with the loop's authoritative model-transcript call id;
+    // registry results deliberately do not duplicate it.
     callId: block.id,
     content: result.content,
     isError: result.isError,

@@ -5,7 +5,7 @@
  */
 
 import { globSync, readFileSync, existsSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 import ts from 'typescript'
 
 const root = resolve(import.meta.dirname, '..')
@@ -121,7 +121,7 @@ const keyOf = (x: { doc: string; symbol: string }): string => `${x.doc}::${x.sym
 // as an orphan rather than silently skipped.
 const docSet = new Set<string>()
 for (const pattern of MARKDOWN_GLOBS) {
-  for (const match of globSync(pattern, { cwd: root })) docSet.add(match)
+  for (const match of globSync(pattern, { cwd: root })) docSet.add(match.split(sep).join('/'))
 }
 const blocks: EquivBlock[] = [...docSet].sort().flatMap(extractEquivBlocks)
 

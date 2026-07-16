@@ -28,7 +28,7 @@ describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
     expect(runtime.isolation).toBe('worker-thread')
   })
 
-  it('runs TypeScript (erasable syntax), captures console/stdout in order, returns the value', async () => {
+  it('runs TypeScript (erasable syntax), captures output in order, returns the value', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({
       program: `
@@ -43,12 +43,7 @@ describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
     })
     expect(result.error).toBeUndefined()
     expect(result.value).toBe(3)
-    expect(result.logs.map(entry => [entry.source, entry.level ?? null])).toEqual([
-      ['console', 'log'],
-      ['stdout', null],
-      ['console', 'warn'],
-    ])
-    expect(result.logs[0]?.text).toBe('point { x: 1, y: 2 }')
+    expect(result.logs).toEqual(['point { x: 1, y: 2 }', 'raw-out\n', 'careful'])
   })
 
   it('bridges binding calls both ways and rejects the program-side call on a host rejection', async () => {
@@ -115,7 +110,7 @@ describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
       bindings: [],
     })
     expect(result.error?.kind).toBe('exception')
-    expect(result.logs.map(entry => entry.text)).toContain('before')
+    expect(result.logs).toContain('before')
   })
 })
 
@@ -210,8 +205,8 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
       program: 'for (let i = 0; i < 1000; i++) console.log("spam line", i); return 1',
       bindings: [],
     })
-    expect(result.logs.at(-1)?.text).toContain('truncated at 300 bytes')
-    const total = result.logs.reduce((sum, entry) => sum + Buffer.byteLength(entry.text, 'utf8'), 0)
+    expect(result.logs.at(-1)).toContain('truncated at 300 bytes')
+    const total = result.logs.reduce((sum, text) => sum + Buffer.byteLength(text, 'utf8'), 0)
     expect(total).toBeLessThan(1_000)
   })
 
@@ -241,7 +236,7 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
     })
     expect(result.error).toBeUndefined()
     expect(result.value).toBe('done')
-    expect(result.logs).toContainEqual({ source: 'stdout', text: 'flushed' })
+    expect(result.logs).toContain('flushed')
   })
 
   it('caps a huge container whose bounded rendering is small (wire size, not rendering, is what counts)', async () => {
@@ -268,8 +263,8 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
       bindings: [],
     })
     expect(result.error).toBeUndefined()
-    expect(result.logs).toContainEqual({ source: 'stdout', text: 'abcd' })
-    expect(result.logs.map(entry => entry.text)).not.toContain('ef')
+    expect(result.logs).toContain('abcd')
+    expect(result.logs).not.toContain('ef')
   }, 15_000)
 })
 
@@ -304,11 +299,9 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
           { type: 'call', id: 1e9, global: 7, name: 'real', args: {} },
           { type: 'call', id: 1e9, global: 'tools', name: 7, args: {} },
           { type: 'log' },
-          { type: 'log', entry: null },
-          { type: 'log', entry: { source: 'stdout', text: 7 } },
-          { type: 'log', entry: { source: 'nope', text: 'x' } },
-          { type: 'log', entry: { source: 'console', level: 'nope', text: 'x' } },
-          { type: 'log', entry: { source: 'console', level: 7, text: 'x' } },
+          { type: 'log', text: null },
+          { type: 'log', text: 7 },
+          { type: 'log', text: {} },
           { type: 'done', error: 5 },
           { type: 'done', error: { message: 5 } },
         ]) parentPort.postMessage(junk);
@@ -329,7 +322,7 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
       // code and an unbounded result.
       program: `
         const { parentPort } = await import('node:worker_threads');
-        for (let i = 0; i < 50; i++) parentPort.postMessage({ type: 'log', entry: { source: 'stdout', text: 'F'.repeat(100), forged: true } });
+        for (let i = 0; i < 50; i++) parentPort.postMessage({ type: 'log', text: 'F'.repeat(100), forged: true });
         parentPort.postMessage({ type: 'done', value: 'V'.repeat(100000) });
         for (;;) {}
       `,
@@ -341,10 +334,9 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
     expect(value.endsWith('… [truncated]')).toBe(true)
     expect(value.length).toBeLessThan(120)
     const marker = '[dsh-code-runtime-worker] log capture truncated at 200 bytes'
-    const total = result.logs.reduce((sum, entry) => sum + Buffer.byteLength(entry.text, 'utf8'), 0)
+    const total = result.logs.reduce((sum, text) => sum + Buffer.byteLength(text, 'utf8'), 0)
     expect(total).toBeLessThanOrEqual(200 + Buffer.byteLength(marker, 'utf8'))
-    expect(result.logs.at(-1)?.text).toBe(marker)
-    expect(result.logs.every(entry => !('forged' in entry))).toBe(true)
+    expect(result.logs.at(-1)).toBe(marker)
   })
 
   it('accepts a forged done carrying both value and error (self-sabotage, contained)', async () => {

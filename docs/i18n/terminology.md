@@ -33,14 +33,14 @@
 | English | 中文 | 首次出现 | 不要译作 | 备注 |
 |---|---|---|---|---|
 | agent | agent | agent（智能体） | | |
-| agent harness | agent harness | | | agent 组合词（agent harness/workflow/loop/skill 等）整体保留英文；未括注过 agent 时首现按 agent 行处理 |
+| agent harness | agent harness | agent harness（智能体框架） | | agent 组合词（agent harness/workflow/loop/skill 等）整体保留英文；未括注过 agent 时首现按对应组合词或 agent 行处理 |
 | agent loop | agent loop | agent loop（智能体循环） | | |
 | backlog | backlog | backlog（待翻清单） | | 仅在双语翻译语境里括注`待翻清单` |
 | blob hash | blob hash | | | `git hash-object` 的结果 |
 | Cordis | Cordis | | | |
 | dispose | dispose | dispose（资源释放） | | |
 | doc-sync | doc-sync | doc-sync（文档同步门禁） | | |
-| fiber | fiber | fiber（插件运行时） | | |
+| fiber | fiber | | | |
 | fixture | fixture | fixture（测试前置数据） | | |
 | fork | fork | | | |
 | Function Calling | Function Calling | Function Calling（函数调用） | | |
@@ -51,7 +51,6 @@
 | loader | loader | | | |
 | manifest | manifest | manifest（元数据清单） | | |
 | monorepo | monorepo | | | |
-| package | package | | | 保留英文；指 npm 包（`@deepseek-ai/dsh-*`） |
 | schema | schema | | | |
 | schema DSL | schema DSL | | | |
 | seam | seam | | | 与 `extension point` 是不同概念；根据具体语境，可译为`服务边界`或`可替换点` |
@@ -77,13 +76,16 @@
 | backend | 后端 | | | |
 | background task | 后台任务 | | | |
 | block | 块 | | | |
+| build target | 构建目标 | | | |
 | cancel | 取消 | | | |
-| capability | 能力 | | | |
+| feature | 功能 | | 能力 | SDK 产品与工程模型中的可管理产品单元 |
+| feature option | 功能选项 | | variant | 一项 SDK 功能内有限、可选择的实现或配置 |
 | checkpoint | 检查点 | | | |
 | chunk | 分片 | | | |
 | compaction | 压缩 | 压缩（compaction） | | |
 | companion tool | 配套工具 | | | |
-| config | 配置 | | | |
+| Cordis plugin config | Cordis 插件配置 | | | Cordis 插件公开的 `Config` 对象或配置结构 |
+| config key | 配置键 | | | Cordis 插件配置中的单个字段 |
 | consumer | 消费方 | | | |
 | content block | 内容块 | | | |
 | Cookbook | 实操手册 | | | 文档标题用语 |
@@ -91,10 +93,13 @@
 | counterpart | 对侧文件 | | 对应物、配对物 | 双语配对语境；泛指"另一侧"时可写「另一侧」 |
 | context compaction | 上下文压缩 | 上下文压缩（context compaction） | | |
 | contract | 契约 | | | 如：`pairing contract` →`配对契约` |
+| Cordis config entry | Cordis 配置项 | | | 指 `cordis.yml` 插件列表中的一项；插件实现本身写`Cordis 插件` |
+| Cordis plugin | Cordis 插件 | | | Cordis 加载的插件实现，不指 `cordis.yml` 中的一项配置 |
 | coverage | 覆盖率 | | | |
 | crash recovery | 崩溃恢复 | | | |
 | deploy root | 部署根目录 | | | |
 | durability | 持久性 | | | |
+| feature requirement | 功能依赖 | | | 功能或功能选项通过 `requires` 声明的关系 |
 | enforcement frontier | 执行红线 | | 强制边界 | i18n 配对机制用语：manifest `required` 清单所划的门禁生效范围；与金标样例（style-samples ⑦）一致 |
 | event | 事件 | | | |
 | event log | 事件日志 | | | |
@@ -105,7 +110,7 @@
 | extension point | 扩展点 | | | 注意与 `seam` 区分 |
 | fail-fast | 快速失败 | | | |
 | fenced code block | 围栏代码块 | | | 沿用 MDN 中文翻译 |
-| fingerprint | 指纹 | | | i18n 配对机制用语：`.zh.md` 首行记录英文源 blob hash 的注释 |
+| fingerprint | 指纹 | | | 通用内容指纹；双语配对机制使用 sidecar record 记录两侧 blob hash |
 | finish reason | 结束原因 | | | |
 | foreground run | 前台运行 | | | |
 | freshness | 新鲜度 | | | 沿用 MDN 中文翻译；在本项目中指译文相对源文的同步状态 |
@@ -123,8 +128,10 @@
 | mod | 模组 | | | |
 | model provider | 模型提供方 | | | |
 | module | 模块 | | | |
+| npm dependency | NPM 依赖 | | | `package.json` 中的包关系；`dependencies`、`devDependencies` 等字段保持原样 |
 | orphan | 遗留 | | 孤儿、孤立 | 指英文源已不存在的 `.zh.md`（如「遗留译文」）；进程语境按 OS 惯用语译「孤儿进程」 |
 | orphan branch | 孤立分支 | | 孤儿分支 | 沿用 git 官方中文翻译 |
+| package | 包 | 包（package） | | 指 npm 包（`@deepseek-ai/dsh-*`）；`package.json` 等代码标识保持原样 |
 | pairing | 配对 | | | |
 | peer dependency | 对等依赖 | 对等依赖（peer dependency） | | |
 | permission | 权限 | | | |
@@ -171,3 +178,5 @@
 | vocabulary | 词汇 | | | |
 | wire format | 协议格式 | 协议格式（wire format） | | |
 | workflow | 工作流 | | | |
+| wrapper | 包装层 | | | 软件层或 SDK 包装层 |
+| wrapper script | 包装脚本 | | | 可执行脚本包装层 |

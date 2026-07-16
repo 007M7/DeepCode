@@ -187,11 +187,11 @@ export interface SubagentProvider {
    * fulfillment, the provider owns and cleans all partial resources before this
    * promise rejects. Ownership transfers to the caller only on fulfillment.
    *
-   * MUST be safe to call concurrently for independent runs: the `subagent` tool
-   * is parallel-safe, so a parent step may issue several subagent calls at once,
+   * MUST be safe to call concurrently for independent runs: foreground
+   * `subagent` calls are parallel-safe, so a parent step may issue several at once,
    * each invoking `start()` before an earlier run settles. An implementation
    * snapshots the parent at start and must not require the parent loop to
-   * serialize every `subagent` call; a resource-limited provider queues or
+   * serialize every foreground `subagent` call; a resource-limited provider queues or
    * rejects internally.
    */
   start(request: SubagentStartRequest): Promise<SubagentRun>

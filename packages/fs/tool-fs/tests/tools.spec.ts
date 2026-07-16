@@ -20,8 +20,9 @@ import type {
 } from '@deepseek-ai/dsh-fs'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
-import { formatReadOutput, STREAM_MIN_SIZE } from '@deepseek-ai/dsh-tool-fs'
-import type { FileReadOutcome } from '@deepseek-ai/dsh-tool-fs'
+import { STREAM_MIN_SIZE } from '../src/read.ts'
+import { formatReadOutput } from '../src/read-render.ts'
+import type { FileReadOutcome } from '../src/read-render.ts'
 
 /** An in-memory fake provider; a test can arm a rejection on any primitive. */
 class FakeFs extends FileSystem {

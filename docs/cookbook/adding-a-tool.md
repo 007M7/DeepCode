@@ -1,5 +1,7 @@
 # Cookbook: adding a tool
 
+English | [中文](adding-a-tool.zh.md)
+
 How to give the model a new capability. Reference implementations: `examples/echo-agent/src/echo-tool.ts` (minimal) and `packages/bash/tool-bash` (production-grade, three-package seam).
 
 ## The minimal shape
@@ -43,13 +45,13 @@ Registration is effect-based: disposing the plugin fiber unregisters the tool (w
 
 ## Long-running work
 
-Follow tool-bash's background pattern: a `run_in_background` flag returns a task id immediately; companion tools poll incrementally and kill; completion notices arrive via `agent.inject()`. Bound buffers and spill full output to disk so nothing is silently lost.
+Gate `run_in_background` with producer config, reject a pre-aborted call, then register through `ctx.tasks.start({ kind, label, owner: exec.agent, run })`. The runtime validates ownership and control-surface availability before `run()` starts work, then supplies the id, session fence, generic control tools, notices, and owner cleanup.
 
-> TODO: each tool reimplements this background pattern by hand today. At some point we need a generic long-running-tool layer that handles task ids, incremental polling, kill, and completion notices uniformly.
+The producer supplies synchronous `cancel`, non-rejecting `done` that settles after resource cleanup, and optional consuming `readOutput` with bounded-output formatting. Once the id is returned, use a task-owned cancellation signal rather than `exec.signal`. See the [background task runtime RFC](../rfc/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) and `dsh-tool-bash` for a stream producer.
 
 ## Execution policy and observation
 
-Prefer not to build deployment policy into the tool. Use `tools/pre-execute` for extensible allow/deny/ask policy (the [permission-gate example](./extension-cookbook.md#a-hook-plugin-permission-gate)), `ctx.tools.guard()` for a final monotonic deny that later listeners cannot undo, `tools/execute` to wrap core dispatch with a deadline/retry/metrics scope, `tools/post-execute` to transform or attach model-facing context, and `tools/result` to observe the immutable normalized outcome without changing it. A sandboxing implementation can also sit behind the tool's executor capability seam; the exact contracts are in the [`dsh-tools` README](../../packages/core/tools/README.md#extension-points).
+Prefer not to build deployment policy into the tool. Use `tools/pre-execute` for extensible allow/deny/ask policy (the [permission-gate example](./extension-cookbook.md#a-hook-plugin-permission-gate-example)), `ctx.tools.guard()` for a final monotonic deny that later listeners cannot undo, `tools/execute` to wrap core dispatch with a deadline/retry/metrics scope, `tools/post-execute` to transform or attach model-facing context, and `tools/result` to observe the immutable normalized outcome without changing it. A sandboxing implementation can also sit behind the tool's executor capability seam; the exact contracts are in the [`dsh-tools` README](../../packages/core/tools/README.md#extension-points).
 
 ## Code Mode reaches your tool for free
 

@@ -38,9 +38,9 @@ describe.skipIf(!built)('built lib real load path (plain node)', () => {
 
     expect(exitCode, `stderr:\n${stderr}`).toBe(0)
     const lastLine = stdout.trim().split('\n').at(-1) ?? ''
-    const result = JSON.parse(lastLine) as { value?: unknown; logs: { source: string; level?: string; text: string }[]; error?: unknown }
+    const result = JSON.parse(lastLine) as { value?: unknown; logs: string[]; error?: unknown }
     expect(result.error).toBeUndefined()
     expect(result.value).toBe(42)
-    expect(result.logs).toContainEqual({ source: 'console', level: 'log', text: 'halfway 42' })
+    expect(result.logs).toContain('halfway 42')
   })
 })

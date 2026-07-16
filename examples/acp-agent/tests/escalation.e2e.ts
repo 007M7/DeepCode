@@ -26,7 +26,7 @@ import {
  * or runner support self-skip; real denial markers remain on sandbox e2e tiers.
  */
 
-const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // The subprocess runs from a temp cwd outside the repo; point tsx at the repo

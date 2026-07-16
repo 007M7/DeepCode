@@ -13,13 +13,13 @@ import type {} from '@deepseek-ai/dsh-web'
 import { LocalFetchProvider } from './provider.ts'
 import type { LocalFetchLimits } from './provider.ts'
 
+const MAX_NODE_TIMER_DELAY_MS = 2_147_483_647
+
 export {
   LOCAL_FETCH_PROVIDER_ID,
   LocalFetchProvider,
 } from './provider.ts'
 export type { LocalFetchLimits } from './provider.ts'
-export { classifyContentType, decoderForCharset, isSameOrigin, parseCharset, validateFetchUrl } from './policy.ts'
-export type { FetchableKind } from './policy.ts'
 
 /** Default `User-Agent`: an explicit product agent, never a browser disguise. */
 export const DEFAULT_USER_AGENT = 'deepseek-harness/0.0.1 (+https://github.com/deepseek-ai)'
@@ -38,10 +38,8 @@ export interface Config {
   maxResponseBytes?: number
   /** Maximum decoded body length in characters. */
   maxBodyChars?: number
-  /** Default fetch timeout in milliseconds. */
+  /** Default fetch timeout in milliseconds, within Node's timer range. */
   timeoutMs?: number
-  /** Upper bound for a per-request timeout override. */
-  maxTimeoutMs?: number
   /** Maximum number of same-origin redirect hops to follow. */
   maxRedirects?: number
   /** `User-Agent` header sent on every request. */
@@ -53,7 +51,6 @@ export const Config: z<Config> = z.object({
   maxResponseBytes: z.number().default(5_000_000),
   maxBodyChars: z.number().default(100_000),
   timeoutMs: z.number().default(30_000),
-  maxTimeoutMs: z.number().default(120_000),
   maxRedirects: z.number().default(5),
   userAgent: z.string().default(DEFAULT_USER_AGENT),
 })
@@ -65,6 +62,14 @@ type ResolvedConfig = Required<Config>
 function assertPositiveFinite(name: string, value: number): void {
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`web-fetch-local: ${name} must be a positive finite number`)
+  }
+}
+
+/** Node coerces larger timer delays to 1 ms, so reject them at configuration time. */
+function assertTimeoutMs(value: number): void {
+  assertPositiveFinite('timeoutMs', value)
+  if (value > MAX_NODE_TIMER_DELAY_MS) {
+    throw new Error(`web-fetch-local: timeoutMs must be no greater than ${MAX_NODE_TIMER_DELAY_MS}`)
   }
 }
 
@@ -82,15 +87,13 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveFinite('maxUrlLength', resolved.maxUrlLength)
   assertPositiveFinite('maxResponseBytes', resolved.maxResponseBytes)
   assertPositiveFinite('maxBodyChars', resolved.maxBodyChars)
-  assertPositiveFinite('timeoutMs', resolved.timeoutMs)
-  assertPositiveFinite('maxTimeoutMs', resolved.maxTimeoutMs)
+  assertTimeoutMs(resolved.timeoutMs)
   assertNonNegativeInteger('maxRedirects', resolved.maxRedirects)
   const limits: LocalFetchLimits = {
     maxUrlLength: resolved.maxUrlLength,
     maxResponseBytes: resolved.maxResponseBytes,
     maxBodyChars: resolved.maxBodyChars,
     timeoutMs: resolved.timeoutMs,
-    maxTimeoutMs: resolved.maxTimeoutMs,
     maxRedirects: resolved.maxRedirects,
     userAgent: resolved.userAgent,
   }

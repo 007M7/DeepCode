@@ -54,23 +54,24 @@ Source: [`packages/ui/user-approval/src/index.ts:229`](../../packages/ui/user-ap
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
-Registers one `ctx.bash` implementation. Runtime command failures resolve as BashRunResult; only infrastructure failures reject. Background starts return immediately without a timeout, report completion exactly once while live, and remain cancellable by signal or kill. Output reads are incremental and flag lost buffered data; disposal kills and awaits all tasks.
+Abstract bash execution service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.bash` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+
+Implementations must honor these semantics:
+
+- run rejects only for infrastructure failures. Nonzero exits, timeout kills, and abort kills resolve with a BashRunResult.
+- start returns immediately; no timeout applies to background processes. `done` settles at process close and never rejects; spawn failures settle as `killed` with the error on stderr.
+- BashProcess.readOutput is incremental: consecutive reads never repeat output. Lossy reads report truncation and available spill files.
+- Disposal kills all running background processes and awaits their exit.
 
 ```ts cordis-catalog
 abstract resolve(request: BashExecRequest): BashExecSpec
 abstract run(spec: BashExecSpec): Promise<BashRunResult>
-abstract start(spec: BashExecSpec): BashTask
-abstract get(id: BashTaskId): BashTask | undefined
-abstract ownerOf(id: BashTaskId): OwnerToken | undefined
-abstract list(): BashTask[]
-abstract readOutput(id: BashTaskId): BashTaskRead
-abstract kill(id: BashTaskId): boolean
-onTaskDone(listener: BashTaskListener): () => void
+abstract start(spec: BashExecSpec): BashProcess
 ```
 
-Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
+Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:38`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:46`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
@@ -82,7 +83,7 @@ abstract run(request: CodeRunRequest): Promise<CodeRunResult>
 
 Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResult](../core-data-structures/code-runtime.md)
 
-Source: [`packages/code-runtime/code-runtime/src/index.ts:31`](../../packages/code-runtime/code-runtime/src/index.ts)
+Source: [`packages/code-runtime/code-runtime/src/index.ts:30`](../../packages/code-runtime/code-runtime/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -169,7 +170,7 @@ abstract list(): Promise<SessionHeader[]>
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:60`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:30`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService`
 
@@ -200,7 +201,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:560`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:564`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -213,7 +214,7 @@ async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Source: [`packages/skill/skill/src/index.ts:158`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:141`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 
@@ -226,7 +227,7 @@ list(): string[]
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:123`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:141`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
@@ -239,7 +240,26 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:213`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:209`](../../packages/core/system-prompt/src/index.ts)
+
+## `ctx.tasks` — `TaskService`
+
+The `tasks` service: the runtime-global background task registry. See the module doc for the ownership, isolation, and lifecycle contracts.
+
+```ts cordis-catalog
+start(spec: TaskStart): TaskId
+list(caller?: Agent): TaskSnapshot[]
+get(id: TaskId, caller?: Agent): TaskSnapshot
+read(id: TaskId, caller?: Agent): TaskRead
+kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-finished'
+async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
+onTaskDone(listener: TaskDoneListener): () => void
+attachSurface(name: string): () => void
+```
+
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/tasks/tasks/src/index.ts:76`](../../packages/tasks/tasks/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
@@ -257,7 +277,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:445`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:444`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 
@@ -276,7 +296,7 @@ The web access service. Registered as `ctx.web` (one instance per context).
 
 Selection semantics (resolved at execution time, never order-dependent):
 
-- A configured id that is registered and `status().available` → that provider.
+- A configured id that is registered and `available()` → that provider.
 - A configured id not registered → `WEB_PROVIDER_CONFIGURED_MISSING`.
 - A configured id registered but unavailable → `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.
 - No id configured, exactly one registered usable provider → that provider.
@@ -286,11 +306,11 @@ Selection semantics (resolved at execution time, never order-dependent):
 ```ts cordis-catalog
 registerSearchProvider(provider: WebSearchProvider): () => void
 registerFetchProvider(provider: WebFetchProvider): () => void
-async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>
-async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
+async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>
+async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 ```
 
-Source: [`packages/web/web/src/index.ts:78`](../../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:74`](../../packages/web/web/src/index.ts)
 
 ## `ctx.workflows` — `WorkflowService` (abstract seam)
 

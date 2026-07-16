@@ -55,20 +55,6 @@ export interface CodeRunRequest {
 }
 
 /**
- * One captured output entry, in emission order. `source` says which channel
- * produced it: the program's `console` (shimmed by the runtime), or a stray
- * write to the underlying stdout/stderr streams.
- */
-export interface CodeLogEntry {
-  /** Which channel produced the text. */
-  source: 'console' | 'stdout' | 'stderr'
-  /** The console method used; present only when `source` is `'console'`. */
-  level?: 'log' | 'info' | 'warn' | 'error' | 'debug'
-  /** The captured text (possibly truncated by the implementation's caps, marked in-band). */
-  text: string
-}
-
-/**
  * Why a run failed. The kinds are orthogonal outcomes reported independently
  * (per docs/defensive-patterns.md): a budget expiry is not an exception, an
  * abort is not a timeout, and a substrate death is neither.
@@ -98,8 +84,8 @@ export interface CodeRunResult {
    * or value-less run leaves this absent.
    */
   value?: unknown
-  /** Everything the program emitted, in order (capped by the implementation). */
-  logs: CodeLogEntry[]
+  /** Text the program emitted, in order (capped by the implementation). */
+  logs: string[]
   /** Present iff the run failed; see {@link CodeRunFailure} for the taxonomy. */
   error?: CodeRunFailure
 }

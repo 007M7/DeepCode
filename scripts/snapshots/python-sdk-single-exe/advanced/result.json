@@ -408,8 +408,7 @@
         ],
         "isError": false,
         "meta": {
-          "logs": [],
-          "dispatches": 1
+          "logs": []
         }
       },
       "sourceEventSeqs": [
@@ -1606,8 +1605,7 @@
             ],
             "isError": false,
             "meta": {
-              "logs": [],
-              "dispatches": 1
+              "logs": []
             }
           },
           "sourceEventSeqs": [
