@@ -84,10 +84,9 @@ forever:
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode (exclusive = barrier;
         consecutive parallel-safe = one rolling-pool group, <= maxParallelToolCalls in flight):
-        each started call:
-          'tool/call'
-          tools/pre-execute -> monotonic guards -> tools/execute -> tools/post-execute -> tools/result
-        'tool/result' committed in model order (slot-buffered)
+        while the bounded pool has work:
+          capacity available -> 'tool/call' -> tools/pre-execute -> monotonic guards -> tools/execute
+          next model-order slot ready -> tools/post-execute -> 'tool/result'
       append post-tool context (model order) and steering
       'step/end'
       agent/turn-continuation

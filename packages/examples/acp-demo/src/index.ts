@@ -26,11 +26,17 @@ export const name = 'acp-demo'
  * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
  * the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * `tools` is the tool registry's config (its presentation `mode`, forwarded
- * through agent-spine-demo); `persistenceRoot` is the JSONL backend's directory.
+ * through agent-spine-demo); `maxParallelToolCalls` configures the bundled
+ * agent loop; `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
   /** Model name for ACP-created agents (must have a registered adapter). */
   model: string
+  /**
+   * Concurrent parallel-safe tool-call cap for the bundled agent loop. A
+   * positive integer; the loop defaults it when omitted and `1` is serial.
+   */
+  maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
@@ -52,6 +58,9 @@ export interface Config {
 /* jscpd:ignore-start */
 export const Config: z<Config> = z.object({
   model: z.string().required(),
+  // A positive integer; a bad value (0, negative, fractional) fails config
+  // validation here rather than being silently dropped from cordis.yml.
+  maxParallelToolCalls: z.number().step(1).min(1),
   persona: z.string(),
   // The array default is forced to undefined: ABSENT means "lexicographic
   // order" (the owning dsh-system-prompt schema does the same), while
@@ -79,6 +88,7 @@ export function apply(ctx: Context, config: Config): void {
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
     ...config.tools !== undefined ? { tools: config.tools } : {},
+    ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},
     ...config.skills !== undefined ? { skills: config.skills } : {},
     ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
     ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},

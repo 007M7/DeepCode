@@ -357,7 +357,7 @@ Source: [`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/
 
 ### `subagent`
 
-Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. You may issue several subagent calls in one message to run independent tasks concurrently when their work scopes do not overlap. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.
+Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.
 
 ```json
 {

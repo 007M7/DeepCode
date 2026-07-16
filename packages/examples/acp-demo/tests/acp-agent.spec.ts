@@ -113,6 +113,17 @@ describe('dsh-acp-demo composition', () => {
     await ctx.fiber.dispose()
   })
 
+  it('forwards maxParallelToolCalls to the bundled agent loop', async () => {
+    const ctx = await mount({
+      model: 'mock',
+      maxParallelToolCalls: 3,
+      persistenceRoot: '/tmp/dsh-acp-demo-test-parallel',
+      skills: await isolatedSkillsConfig(),
+    })
+    expect(ctx.get('agentLoop')?.config.maxParallelToolCalls).toBe(3)
+    await ctx.fiber.dispose()
+  })
+
   it('forwards bundled tool config into agent-core', async () => {
     const ctx = await mount({
       model: 'mock',

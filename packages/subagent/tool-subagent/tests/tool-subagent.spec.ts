@@ -96,13 +96,13 @@ describe('dsh-tool-subagent', () => {
     expect(foreground.isError).toBe(false)
   })
 
-  it('classifies foreground calls as parallel and background starts as exclusive', async () => {
+  it('keeps foreground and background calls exclusive', async () => {
     const ctx = await setup({ provider: 'mock' })
     expect(ctx.tools.executionMode({
-      callId: CallId('subagent-safe'),
+      callId: CallId('subagent-foreground'),
       name: 'subagent',
       arguments: { description: 'do work', prompt: 'Reply OK' },
-    })).toEqual({ kind: 'parallel' })
+    })).toEqual({ kind: 'exclusive' })
     expect(ctx.tools.executionMode({
       callId: CallId('subagent-background'),
       name: 'subagent',

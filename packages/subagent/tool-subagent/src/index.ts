@@ -174,8 +174,7 @@ export function providerWording(inheritsConversation: boolean): { description: s
         + 'completed turns so far (it does not see the current in-flight turn), returning only its final '
         + 'result. Use this when the subtask builds on this conversation\'s context — a follow-up analysis, '
         + 'a review, a continuation — without consuming this conversation\'s context for the work itself. '
-        + 'You receive only its final answer, not its intermediate steps. You may issue several subagent '
-        + 'calls in one message to run independent tasks concurrently when their work scopes do not overlap.',
+        + 'You receive only its final answer, not its intermediate steps.',
       promptDescription:
         'The task for the subagent. It already sees this conversation\'s completed turns, so build on them '
         + 'freely and state only what is new.',
@@ -187,8 +186,7 @@ export function providerWording(inheritsConversation: boolean): { description: s
       + 'and return its final result. Use this to offload focused, independent work — research, a scoped '
       + 'implementation, an analysis — so it does not consume this conversation\'s context. The subagent '
       + 'runs to completion and you receive only its final answer, not its intermediate steps. Give it a '
-      + 'complete, standalone prompt: it does not see this conversation. You may issue several subagent '
-      + 'calls in one message to run independent tasks concurrently when their work scopes do not overlap.',
+      + 'complete, standalone prompt: it does not see this conversation.',
     promptDescription:
       'The complete, self-contained task for the subagent. It does not share this '
       + 'conversation\'s context, so include everything it needs.',
@@ -254,9 +252,6 @@ export function apply(ctx: Context, config: Config): void {
           },
         } : {},
       },
-      // A foreground call owns only its child run; background mode first
-      // registers parent-owned task state and therefore remains exclusive.
-      isConcurrencySafe: args => args.run_in_background !== true,
       async execute(args, exec): Promise<ContentBlock[]> {
         const parent = exec.agent
         if (!parent) {

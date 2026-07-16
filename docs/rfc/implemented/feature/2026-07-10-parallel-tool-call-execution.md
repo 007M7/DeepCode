@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-An assistant message may contain several sibling `tool-call` blocks. Running them serially adds the latency of independent reads, web requests, and subagent runs even though the model has already requested them together.
+An assistant message may contain several sibling `tool-call` blocks. Running them serially adds the latency of independent reads and web requests even though the model has already requested them together.
 
 Concurrency is a host scheduling concern, not model-facing tool metadata. The loop needs to decide which calls may overlap without hardcoding tool names or exposing scheduler policy in the JSON schema.
 
@@ -58,11 +58,9 @@ Any shared state touched during execution must be concurrency-safe. This include
 
 `maxParallelToolCalls` is a positive AgentLoop deployment cap shared by every agent the factory creates. It defaults to `10`; `1` preserves serial execution. Exact fields and defaults live in the generated [configuration catalog](../../../config-catalog.md).
 
-The shipped declarations are conservative. Web search, web fetch, filesystem read, and foreground subagent calls opt in. Background subagent starts remain exclusive because they register parent-owned task state. Filesystem writes and edits, bash tools, workflow, user interaction, todo mutation, Code Mode, and Cordis mutation tools also remain exclusive. Bash stays exclusive until its owning package supplies a proven input-sensitive classifier.
+The shipped declarations are conservative. Web search, web fetch, and filesystem read opt in. Filesystem writes and edits, bash tools, subagent delegation, workflow, user interaction, todo mutation, Code Mode, and Cordis mutation tools remain exclusive. A subagent may share its parent's workspace or external resources, and the unary classifier cannot prove that sibling delegations have disjoint effects. Bash stays exclusive until its owning package supplies a proven input-sensitive classifier.
 
 Filesystem read relies on a narrow recorder exception: its synchronous observation updates may settle out of order, but write and edit re-check the observed version before mutation, so stale state only produces `FS_STALE_VERSION`.
-
-The subagent declaration requires providers to accept concurrent `start()` calls for independent runs. A provider may queue, enforce its own capacity, or return a typed failure instead of requiring the parent loop to serialize every subagent call.
 
 ## Verification
 
@@ -98,6 +96,6 @@ Parallel calls may begin in cases where serial execution would have aborted befo
 
 Ordered commits may hold a fast result behind a slow earlier sibling. This preserves replay and model-history order while live surfaces still show pending progress.
 
-Concurrent subagents and external calls can compete for quota or process capacity. Providers own their capacity controls; the loop cap only limits calls from one agent step.
+Concurrent external calls can compete for quota or process capacity. Providers own their capacity controls; the loop cap only limits calls from one agent step.
 
 Tool registration is a scheduling boundary. The scheduler currently plans all groups before dispatch, so an earlier registry mutation can make a later classification stale. Binding dispatch to the classified definition or reclassifying after exclusive barriers remains a named correctness gap.

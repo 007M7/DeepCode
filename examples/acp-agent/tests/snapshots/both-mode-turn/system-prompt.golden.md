@@ -49,7 +49,7 @@ declare const tools: {
     /** The exact skill name from the available skills list. */
     name: string;
   }): Promise<string>;
-  /** Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. You may issue several subagent calls in one message to run independent tasks concurrently when their work scopes do not overlap. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`. */
+  /** Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`. */
   subagent(args: {
     /** A short (3-5 word) description of the delegated task, for display. */
     description: string;
@@ -58,7 +58,7 @@ declare const tools: {
     /** Run as a background task and return its id; collect with task_output or stop with task_kill. */
     run_in_background?: boolean;
   }): Promise<string>;
-  /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. You may issue several subagent calls in one message to run independent tasks concurrently when their work scopes do not overlap. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`. */
+  /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`. */
   subagent_fork(args: {
     /** A short (3-5 word) description of the delegated task, for display. */
     description: string;

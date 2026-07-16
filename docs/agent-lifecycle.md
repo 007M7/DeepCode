@@ -35,12 +35,17 @@ sequenceDiagram
   Driver->>Hooks: <code>agent/step-result</code> waterfall
   Driver->>Session: <code>assistant/message</code>
   Driver->>Tools: group calls by executionMode
-  loop started tool calls (bounded pool)
-    Driver->>Session: <code>tool/call</code> pending audit
-    Driver->>Tools: ordered pre / pooled dispatch / ordered post
-    Tools-->>Session: tool-owned events when applicable
+  loop bounded rolling pool until group drains
+    opt capacity available for an unstarted call
+      Driver->>Session: <code>tool/call</code> pending audit
+      Driver->>Tools: ordered pre / pooled dispatch
+      Tools-->>Session: tool-owned events when applicable
+    end
+    opt next model-order result is ready
+      Driver->>Tools: ordered post
+      Driver->>Session: <code>tool/result</code>
+    end
   end
-  Driver->>Session: <code>tool/result</code> in model order
   Driver->>Session: <code>step/end</code>
   Driver->>Hooks: <code>agent/turn-continuation</code> waterfall
   Driver->>Hooks: <code>agent/turn-stop</code> serial terminal checkpoint

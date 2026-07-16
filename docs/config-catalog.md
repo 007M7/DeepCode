@@ -37,11 +37,17 @@ Source: [`packages/ui/acp/src/index.ts:203`](../packages/ui/acp/src/index.ts)
  * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
  * the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * `tools` is the tool registry's config (its presentation `mode`, forwarded
- * through agent-spine-demo); `persistenceRoot` is the JSONL backend's directory.
+ * through agent-spine-demo); `maxParallelToolCalls` configures the bundled
+ * agent loop; `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
   /** Model name for ACP-created agents (must have a registered adapter). */
   model: string
+  /**
+   * Concurrent parallel-safe tool-call cap for the bundled agent loop. A
+   * positive integer; the loop defaults it when omitted and `1` is serial.
+   */
+  maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
@@ -61,7 +67,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/acp-demo/src/index.ts:31`](../packages/examples/acp-demo/src/index.ts)
+Source: [`packages/examples/acp-demo/src/index.ts:32`](../packages/examples/acp-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 

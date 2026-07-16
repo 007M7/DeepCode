@@ -26,7 +26,7 @@ With `run_in_background: true`, the tool registers the parent-owned task before 
 
 ## Concurrency
 
-Foreground calls opt into concurrent scheduling because each owns an independent child run and returns only its final answer. Background starts remain exclusive because they register parent-owned task state. Providers must accept concurrent `start()` calls for independent runs; they may queue internally, enforce capacity, or return a typed failure. See the [parallel tool-call RFC](../../../docs/rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
+Foreground and background calls are exclusive. Children may share the parent's workspace or external resources, and the unary scheduler classifier cannot prove that sibling delegations have disjoint effects. See the [parallel tool-call RFC](../../../docs/rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
 
 ## Model Experience
 
