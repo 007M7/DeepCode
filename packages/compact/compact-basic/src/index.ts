@@ -11,24 +11,20 @@ import type { CompactionResult } from '@deepseek-ai/dsh-compact'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, Session } from '@deepseek-ai/dsh-session'
 import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
-import type { ModelTokenMeter } from '@deepseek-ai/dsh-token-meter'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { registerAutomaticCompaction } from './automatic.ts'
-import { resolveConfig, resolveModelConfig } from './config.ts'
+import { resolveConfig } from './config.ts'
 import { compactSurfaceRegion, selectCompactableRange } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
 import type {
   BasicCompactConfig,
   ResolvedConfig,
-  ResolvedModelCompactConfig,
 } from './types.ts'
 
-export { resolveConfig, resolveModelConfig } from './config.ts'
+export { resolveConfig } from './config.ts'
 export type {
   BasicCompactConfig,
-  ModelCompactConfig,
   ResolvedConfig,
-  ResolvedModelCompactConfig,
 } from './types.ts'
 
 /** Resolve the latest actual routed model, then the agent's configured fallback. */
@@ -61,27 +57,23 @@ function provisionalHeader(
  * retention, provenance, and summary-convergence pricing.
  *
  * `summarize()` is the sole subclass customization hook; the replay and durable
- * mutation strategy stays fixed so every pricing decision uses one effective
- * conversation-model meter.
+ * mutation strategy stays fixed so every pricing decision uses the singleton
+ * token meter.
  */
 export class BasicCompactService extends CompactService {
   static inject = ['llm', 'tokenMeter']
 
   static Config: z<BasicCompactConfig> = z.object({
-    models: z.dict(z.object({
-      thresholdRatio: z.number(),
-      retainTokens: z.number().step(1),
-    })),
+    thresholdRatio: z.number().default(0.8),
+    retainTokens: z.number().step(1),
     summarizationModel: z.string().default(''),
     maxTokens: z.number().step(1).min(1).default(8192),
     compactionRetries: z.number().step(1).min(0).default(1),
     auto: z.boolean().default(true),
   })
 
-  /** Resolved and validated common configuration plus named partial overrides. */
+  /** Resolved and validated compaction configuration. */
   readonly config: ResolvedConfig
-
-  private readonly modelConfigs = new Map<string, ResolvedModelCompactConfig>()
 
   constructor(ctx: Context, config: BasicCompactConfig = {}) {
     super(ctx)
@@ -107,9 +99,8 @@ export class BasicCompactService extends CompactService {
 
   /**
    * Check replayed pressure for the provisional pre-step envelope and compact
-   * a tool-balanced head until it falls below the effective model threshold.
-   * A genuinely model-less router-first step skips this provisional check;
-   * naming an unconfigured model throws the token meter's typed error.
+   * a tool-balanced head until it falls below the service-wide threshold.
+   * A genuinely model-less router-first step skips this provisional check.
    * @param agent - agent whose session and provisional model are measured.
    * @param fullSystemPrompt - current assembled system prompt override.
    * @param sessionPrefix - current request-only prefix override.
@@ -124,10 +115,9 @@ export class BasicCompactService extends CompactService {
   ): Promise<CompactionResult | null> {
     const model = effectiveModel(agent)
     if (model === undefined || model.length === 0) return null
-    const meter = this.ctx.tokenMeter.resolve(model)
-    const policy = this._modelConfig(meter)
+    const meter = this.ctx.tokenMeter
     const requestHeader = provisionalHeader(model, agent.session, fullSystemPrompt, sessionPrefix)
-    const threshold = Math.floor(policy.contextWindow * policy.thresholdRatio)
+    const threshold = Math.floor(meter.contextWindow * this.config.thresholdRatio)
     let measurement = meter.measure(agent.session, requestHeader)
     if (measurement.totalTokens < threshold) return null
 
@@ -139,7 +129,7 @@ export class BasicCompactService extends CompactService {
           `compaction: pressure revision ${measurement.logRevision} does not match surface revision ${surface.logRevision}`,
         )
       }
-      const range = selectCompactableRange(agent.session, surface, policy.retainTokens)
+      const range = selectCompactableRange(agent.session, surface, this.config.retainTokens)
       if (range === null) {
         /* v8 ignore else -- concrete replacement preserves a compactable checkpoint; subclass hooks cannot mutate it. */
         if (result === null) return null
@@ -159,12 +149,12 @@ export class BasicCompactService extends CompactService {
 
   /**
    * Compact one inclusive positional surface range using the effective
-   * conversation model for all retention and shrink pricing. Reject an agent
-   * that does not own the exact target before any resolution or mutation.
+   * token meter for all retention and shrink pricing. Reject an agent that does
+   * not own the exact target before any mutation.
    * @param session - session whose surface is mutated; must equal `agent.session`.
    * @param start - inclusive first surface-node seq.
    * @param end - inclusive last surface-node seq.
-   * @param agent - owner of the target session, used by the summarizer and model resolver.
+   * @param agent - owner of the target session, used by the summarizer.
    * @param signal - optional summarization cancellation signal.
    * @returns the successful durable compaction result.
    */
@@ -178,26 +168,10 @@ export class BasicCompactService extends CompactService {
     if (session !== agent.session) {
       throw new Error('compactRegion: agent.session must be the exact target session')
     }
-    const model = effectiveModel(agent)
-    if (model === undefined || model.length === 0) {
-      throw new Error('compactRegion: no routed or configured conversation model is available for token pricing')
-    }
-    const meter = this.ctx.tokenMeter.resolve(model)
-    this._modelConfig(meter)
     return compactSurfaceRegion({
-      meter,
+      meter: this.ctx.tokenMeter,
       summarize: (text, owner, abort) => this.summarize(text, owner, abort),
     }, session, start, end, agent, signal)
-  }
-
-  /** Resolve and memoize one lazy default/override model policy. */
-  private _modelConfig(meter: ModelTokenMeter): ResolvedModelCompactConfig {
-    let modelConfig = this.modelConfigs.get(meter.model)
-    if (modelConfig === undefined) {
-      modelConfig = resolveModelConfig(this.config, meter)
-      this.modelConfigs.set(meter.model, modelConfig)
-    }
-    return modelConfig
   }
 }
 

@@ -10,14 +10,14 @@ import {
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
-import type { ModelTokenMeter, TokenSurfaceMeasurement } from '@deepseek-ai/dsh-token-meter'
+import type { TokenMeterService, TokenSurfaceMeasurement } from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { frameSummary } from './summarizer.ts'
 import type { SummaryResult } from './summarizer.ts'
 
 interface RegionDependencies {
-  readonly meter: ModelTokenMeter
+  readonly meter: TokenMeterService
   summarize(text: string, agent: Agent, signal?: AbortSignal): Promise<SummaryResult>
 }
 

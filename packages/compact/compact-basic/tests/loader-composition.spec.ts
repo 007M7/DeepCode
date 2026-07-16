@@ -57,10 +57,7 @@ describe('real Loader composition', () => {
       .filter(entry => entry.fiber === undefined && !entry.disabled)
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
-    expect(context.tokenMeter.resolve('deepseek-v4-flash')).toMatchObject({
-      contextWindow: 128_000,
-      charsPerToken: 4,
-    })
+    expect(context.tokenMeter.contextWindow).toBe(128_000)
     expect(context.get('compact')).toBeInstanceOf(BasicCompactService)
   })
 })

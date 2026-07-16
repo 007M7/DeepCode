@@ -263,13 +263,17 @@ Source: [`packages/tasks/tasks/src/index.ts:76`](../../packages/tasks/tasks/src/
 
 ## `ctx.tokenMeter` — `TokenMeterService`
 
-Concrete registry and replay owner for all configured model meters.
+Replay owner for one service-wide estimator and isolated per-session folds.
 
 ```ts cordis-catalog
-resolve(model: string): ModelTokenMeter
+measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
+measureSurface(session: Session): TokenSurfaceMeasurement
+estimateMessage(message: Message): number
 ```
 
-Source: [`packages/llm/token-meter/src/index.ts:145`](../../packages/llm/token-meter/src/index.ts)
+Types: [Message](../core-data-structures/core.md)
+
+Source: [`packages/llm/token-meter/src/index.ts:92`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

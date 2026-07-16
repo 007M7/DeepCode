@@ -7,10 +7,6 @@
 import type { Context } from 'cordis'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
 import type { Message } from '@deepseek-ai/dsh-llm'
-import {
-  TOKEN_METER_MODEL_UNCONFIGURED,
-  TokenMeterError,
-} from '@deepseek-ai/dsh-token-meter'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 interface AutomaticCompactor {
@@ -49,10 +45,6 @@ export function registerAutomaticCompaction(
         )
       }
     } catch (error: unknown) {
-      // A named routed model without a meter profile is configuration failure,
-      // not an optional operational compaction miss.
-      if (error instanceof TokenMeterError
-        && error.code === TOKEN_METER_MODEL_UNCONFIGURED) throw error
       const message = error instanceof Error ? error.message : String(error)
       ctx.logger.warn(`compaction failed: ${message}; proceeding with full history`)
     }

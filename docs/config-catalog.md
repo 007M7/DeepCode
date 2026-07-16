@@ -226,8 +226,10 @@ Requires: `llm` · `tokenMeter`
 ```ts config-catalog
 /** Basic compaction configuration; every common field has a deployment default. */
 export interface BasicCompactConfig {
-  /** Field-wise pressure/retention overrides keyed by configured token-meter model name. */
-  models?: Record<string, ModelCompactConfig>
+  /** Compact at this fraction of the token meter's context window. Defaults to `0.8`. */
+  thresholdRatio?: number
+  /** Recent surface tokens retained verbatim. Defaults to `floor(contextWindow * 0.16)`. */
+  retainTokens?: number
   /** Summary model; `''` resolves the latest routed model, then `AgentOptions.model`. Defaults to `''`. */
   summarizationModel?: string
   /** Provider generation cap for summarization. Defaults to `8192`. */
@@ -237,17 +239,9 @@ export interface BasicCompactConfig {
   /** Enable the automatic `agent/pre-step` pressure listener. Defaults to `true`. */
   auto?: boolean
 }
-
-/** Optional pressure and retention policy for one metered model. */
-export interface ModelCompactConfig {
-  /** Compact at this fraction of the model's configured context window. Defaults to `0.8`. */
-  thresholdRatio?: number
-  /** Recent surface tokens retained verbatim. Defaults to `floor(contextWindow * 0.16)`. */
-  retainTokens?: number
-}
 ```
 
-Source: [`packages/compact/compact-basic/src/types.ts:16`](../packages/compact/compact-basic/src/types.ts)
+Source: [`packages/compact/compact-basic/src/types.ts:8`](../packages/compact/compact-basic/src/types.ts)
 
 ## `@deepseek-ai/dsh-fs-local`
 
@@ -875,20 +869,12 @@ Source: [`packages/context/time-context/src/index.ts:22`](../packages/context/ti
 ```ts config-catalog
 /** Token-meter plugin configuration. */
 export interface TokenMeterConfig {
-  /** Built-in field overrides and custom model profiles, keyed by routed model name. */
-  models?: Record<string, ModelTokenMeterConfig>
-}
-
-/** Optional pricing fields for one configured model. */
-export interface ModelTokenMeterConfig {
-  /** Provider context-window capacity in tokens. Required for a custom model. */
+  /** Service-wide context-window capacity in tokens. Defaults to `128000`. */
   contextWindow?: number
-  /** Heuristic text density in characters per token. Defaults to `4`. */
-  charsPerToken?: number
 }
 ```
 
-Source: [`packages/llm/token-meter/src/types.ts:19`](../packages/llm/token-meter/src/types.ts)
+Source: [`packages/llm/token-meter/src/types.ts:10`](../packages/llm/token-meter/src/types.ts)
 
 ## `@deepseek-ai/dsh-tool-bash`
 

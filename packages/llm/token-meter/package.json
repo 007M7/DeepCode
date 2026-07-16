@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-token-meter",
-  "description": "Replay-aware per-model token measurement service (ctx.tokenMeter) for the DeepSeek Harness",
+  "description": "Replay-aware token measurement service (ctx.tokenMeter) for the DeepSeek Harness",
   "version": "0.0.1",
   "private": true,
   "type": "module",

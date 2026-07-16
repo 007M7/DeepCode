@@ -64,7 +64,7 @@ Auto-compaction always starts at the surface head, merging the prior checkpoint 
 
 ### Approximate convergence invariant
 
-`resolveConfig` supplies usable common defaults: threshold ratio `0.8`, retained tail `floor(contextWindow × 0.16)`, empty summarization-model override, `maxTokens: 8192`, `compactionRetries: 1`, and `auto: true`. Optional per-model threshold/retention fields merge over those defaults and must name a configured meter profile; retained tokens must be below the resulting threshold. Convergence remains dynamic because provider output caps can be spent on hidden or surfaced reasoning tokens and summary size is unpredictable. If the compacted surface remains over threshold, `compactIfNeeded()` re-compacts the head checkpoint up to the configured retry count, but each committed summary must be smaller than what it shadows.
+`resolveConfig` supplies usable defaults: threshold ratio `0.8`, retained tail `floor(contextWindow × 0.16)`, empty summarization-model override, `maxTokens: 8192`, `compactionRetries: 1`, and `auto: true`. Optional top-level `thresholdRatio` and `retainTokens` override the policy for the token meter's single context window; retention must remain below the resulting threshold. Convergence remains dynamic because provider output caps can be spent on hidden or surfaced reasoning tokens and summary size is unpredictable. If the compacted surface remains over threshold, `compactIfNeeded()` re-compacts the head checkpoint up to the configured retry count, but each committed summary must be smaller than what it shadows.
 
 ### Surface replacement: `compact/*` events are log-only; one `user/message` carries the summary
 
@@ -115,7 +115,7 @@ Two failure paths, both documented:
 - **`SessionEventMap`** gains `compact/start` / `compact/summary` / `compact/end` by declaration merging (merge-extensible); `SurfaceEventType` is **not** touched. These are session events, not cordis `Events`, so the event-taxonomy gate needs no entry.
 - **`dsh-compact`** owns `toolPairingBalancedBefore(session, node)` and `toolPairingBalancedAfter(session, node)`, the cached surface-edge checks that `compactRegion` and `compactIfNeeded` use to avoid splitting a tool-call/result pair. The cache validates current membership by seq and resolves after-edges from its positional successor map instead of trusting a caller-retained `node.next`; stale or missing seqs and orphan results reject. `dsh-session` continues to own the surface `replace` operation, positional nodes, and rewrite generation.
 - **`dsh-invariants`** drops its `surface replace: start must be <= end` assertion: a head-anchored compaction lands a high-seq replacement node at an older range's *position*, so `start > end` numerically is normal and valid (the range is positional, validated by the surface's `indexOf` checks that remain). The turn-enclosure invariant is reused unchanged.
-- **Wiring**: `examples/coding-agent/cordis.yml` loads zero-config `dsh-token-meter` before `dsh-compact-basic`; bundled DeepSeek profiles and compact defaults make the pair usable without repeated numeric policy.
+- **Wiring**: `examples/coding-agent/cordis.yml` loads zero-config `dsh-token-meter` before `dsh-compact-basic`; the service-wide window and compact defaults make the pair usable without repeated numeric policy.
 
 ## Testing
 

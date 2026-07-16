@@ -8,8 +8,6 @@ Source: [`packages/llm/token-meter/src/types.ts`](../../packages/llm/token-meter
 
 ```ts type-equiv
 interface TokenMeasurement {
-  /** Model profile used for every heuristic component. */
-  readonly model: string
   /** Number of durable events consumed; equal to the next unread event seq. */
   readonly logRevision: number
   /** Provider or heuristic anchor used for this measurement. */
@@ -21,7 +19,7 @@ interface TokenMeasurement {
 }
 ```
 
-`baseline.kind === 'usage'` means a successful provider call has the same model and canonical envelope. `estimated` means the meter repriced the complete envelope and surface. Signed `surfaceDeltaTokens` preserves growth and shrinkage relative to a matching provider or estimated anchor.
+`baseline.kind === 'usage'` means the latest successful provider call has the same canonical request envelope. `estimated` means the service priced the complete envelope and surface with its fixed heuristic. A later successful request replaces the earlier anchor; signed `surfaceDeltaTokens` preserves growth and shrinkage relative to a matching anchor.
 
 ## `TokenSurfaceNode`
 
@@ -38,8 +36,6 @@ interface TokenSurfaceNode {
 
 ```ts type-equiv
 interface TokenSurfaceMeasurement {
-  /** Model profile used to price every node. */
-  readonly model: string
   /** Number of durable events consumed; equal to the next unread event seq. */
   readonly logRevision: number
   /** Total heuristic tokens across the current surface. */

@@ -224,9 +224,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'tokenMeter',
-    summary: 'Concrete registry and replay owner for all configured model meters.',
+    summary: 'Replay owner for one service-wide estimator and isolated per-session folds.',
     methods: [
-      'resolve(model: string): ModelTokenMeter',
+      'measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement',
+      'measureSurface(session: Session): TokenSurfaceMeasurement',
+      'estimateMessage(message: Message): number',
     ],
   },
   {
@@ -761,10 +763,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    };\n}',
   },
   {
-    name: 'ModelTokenMeter',
-    declaration: 'export interface ModelTokenMeter {\n    readonly model: string;\n    readonly contextWindow: number;\n    readonly charsPerToken: number;\n    measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement;\n    measureSurface(session: Session): TokenSurfaceMeasurement;\n    estimateMessage(message: Message): number;\n}',
-  },
-  {
     name: 'PresetOption',
     declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n}',
   },
@@ -994,7 +992,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TokenMeasurement',
-    declaration: 'export interface TokenMeasurement {\n    readonly model: string;\n    readonly logRevision: number;\n    readonly baseline: TokenMeasurementBaseline;\n    readonly surfaceDeltaTokens: number;\n    readonly totalTokens: number;\n}',
+    declaration: 'export interface TokenMeasurement {\n    readonly logRevision: number;\n    readonly baseline: TokenMeasurementBaseline;\n    readonly surfaceDeltaTokens: number;\n    readonly totalTokens: number;\n}',
   },
   {
     name: 'TokenMeasurementBaseline',
@@ -1002,7 +1000,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TokenSurfaceMeasurement',
-    declaration: 'export interface TokenSurfaceMeasurement {\n    readonly model: string;\n    readonly logRevision: number;\n    readonly totalTokens: number;\n    readonly nodes: readonly TokenSurfaceNode[];\n}',
+    declaration: 'export interface TokenSurfaceMeasurement {\n    readonly logRevision: number;\n    readonly totalTokens: number;\n    readonly nodes: readonly TokenSurfaceNode[];\n}',
   },
   {
     name: 'TokenSurfaceNode',

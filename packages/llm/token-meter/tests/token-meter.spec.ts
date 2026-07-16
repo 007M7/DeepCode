@@ -4,12 +4,8 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { EpochHeader } from '@deepseek-ai/dsh-session'
-import TokenMeterService, {
-  TOKEN_METER_INVALID_CONFIG,
-  TOKEN_METER_MODEL_UNCONFIGURED,
-  TokenMeterError,
-} from '@deepseek-ai/dsh-token-meter'
-import type { ModelTokenMeter, TokenMeterConfig } from '@deepseek-ai/dsh-token-meter'
+import TokenMeterService from '@deepseek-ai/dsh-token-meter'
+import type { TokenMeterConfig } from '@deepseek-ai/dsh-token-meter'
 
 function header(model: string, extras: Omit<EpochHeader, 'config'> = {}): EpochHeader {
   return canonicalHeader({ config: { model }, ...extras })
@@ -76,69 +72,23 @@ function meter(config: TokenMeterConfig = {}): TokenMeterService {
 }
 
 describe('TokenMeterService configuration and registration', () => {
-  it('provides immutable zero-config DeepSeek profiles', () => {
+  it('provides one zero-config context window', () => {
     const service = meter()
-    expect(service.resolve('deepseek-v4-flash')).toMatchObject({
-      model: 'deepseek-v4-flash',
-      contextWindow: 128_000,
-      charsPerToken: 4,
-    })
-    expect(service.resolve('deepseek-v4-pro')).toMatchObject({
-      model: 'deepseek-v4-pro',
-      contextWindow: 128_000,
-      charsPerToken: 4,
-    })
+    expect(service.contextWindow).toBe(128_000)
   })
 
-  it('merges built-in overrides field-wise and defaults custom density', () => {
-    const service = meter({
-      models: {
-        'deepseek-v4-flash': { charsPerToken: 2 },
-        custom: { contextWindow: 32_000 },
-      },
-    })
-    expect(service.resolve('deepseek-v4-flash')).toMatchObject({ contextWindow: 128_000, charsPerToken: 2 })
-    expect(service.resolve('deepseek-v4-pro')).toMatchObject({ contextWindow: 128_000, charsPerToken: 4 })
-    expect(service.resolve('custom')).toMatchObject({ contextWindow: 32_000, charsPerToken: 4 })
-  })
-
-  it('throws a typed exact-code error for unknown models', () => {
-    const service = meter()
-    let thrown: unknown
-    try {
-      service.resolve('unconfigured-model')
-    } catch (error: unknown) {
-      thrown = error
-    }
-    expect(thrown).toBeInstanceOf(TokenMeterError)
-    expect(thrown).toMatchObject({
-      code: TOKEN_METER_MODEL_UNCONFIGURED,
-      model: 'unconfigured-model',
-    })
-    expect((thrown as Error).message).toContain('unconfigured-model')
+  it('accepts one service-wide context-window override', () => {
+    expect(meter({ contextWindow: 32_000 }).contextWindow).toBe(32_000)
   })
 
   it.each([
-    [{ models: null }, /models must be an object/],
-    [{ models: [] }, /models must be an object/],
-    [{ models: { custom: {} } }, /requires contextWindow/],
-    [{ models: { '': { contextWindow: 1 } } }, /must not be empty/],
-    [{ models: { custom: { contextWindow: 0 } } }, /positive integer/],
-    [{ models: { custom: { contextWindow: 1.5 } } }, /positive integer/],
-    [{ models: { custom: { contextWindow: 1, charsPerToken: 0 } } }, /positive finite/],
-    [{ models: { custom: { contextWindow: 1, charsPerToken: Number.NaN } } }, /positive finite/],
-    [{ models: { custom: null } }, /must be an object/],
-    [{ models: { custom: [] } }, /must be an object/],
-  ] as unknown as Array<[TokenMeterConfig, RegExp]>)('rejects invalid profile config %#', (config, pattern) => {
-    let thrown: unknown
-    try {
-      meter(config)
-    } catch (error: unknown) {
-      thrown = error
-    }
-    expect(thrown).toBeInstanceOf(TokenMeterError)
-    expect(thrown).toMatchObject({ code: TOKEN_METER_INVALID_CONFIG })
-    expect((thrown as Error).message).toMatch(pattern)
+    { contextWindow: 0 },
+    { contextWindow: -1 },
+    { contextWindow: 1.5 },
+    { contextWindow: Number.NaN },
+    { contextWindow: null },
+  ] as unknown as TokenMeterConfig[])('rejects invalid context capacity %#', (config) => {
+    expect(() => meter(config)).toThrow(/contextWindow .* positive integer/)
   })
 
   it('registers and unregisters ctx.tokenMeter with its plugin fiber', async () => {
@@ -151,9 +101,9 @@ describe('TokenMeterService configuration and registration', () => {
   })
 })
 
-describe('ModelTokenMeter pricing', () => {
-  it('prices every built-in content shape and merge-extended blocks', () => {
-    const handle = meter({ models: { custom: { contextWindow: 100, charsPerToken: 2 } } }).resolve('custom')
+describe('TokenMeterService pricing', () => {
+  it('prices every built-in content shape and merge-extended blocks with one fixed heuristic', () => {
+    const service = meter({ contextWindow: 100 })
     const blocks: ContentBlock[] = [
       { type: 'text', text: 'abcd' },
       { type: 'reasoning', text: 'ab' },
@@ -166,17 +116,16 @@ describe('ModelTokenMeter pricing', () => {
       },
       { type: 'future-block', payload: 'abcd' } as unknown as ContentBlock,
     ]
-    const estimated = handle.estimateMessage({ role: 'assistant', content: blocks })
+    const estimated = service.estimateMessage({ role: 'assistant', content: blocks })
     expect(estimated).toBeGreaterThan(30)
-    expect(handle.estimateMessage(textMessage('abcd'))).toBe(10)
+    expect(service.estimateMessage(textMessage('abcd'))).toBe(9)
   })
 
   it('returns a detached deeply immutable empty measurement', () => {
-    const handle = meter().resolve('deepseek-v4-flash')
+    const service = meter()
     const session = new Session(SessionId('empty'))
-    const result = handle.measure(session)
+    const result = service.measure(session)
     expect(result).toEqual({
-      model: 'deepseek-v4-flash',
       logRevision: 0,
       baseline: { kind: 'none', tokens: 0 },
       surfaceDeltaTokens: 0,
@@ -190,14 +139,14 @@ describe('ModelTokenMeter pricing', () => {
   })
 
   it('keeps earlier scalar and surface snapshots detached from later replay', () => {
-    const handle = meter().resolve('deepseek-v4-flash')
+    const service = meter()
     const session = new Session(SessionId('detached'))
     session.append('user/message', {
       content: [{ type: 'text', text: 'first' }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
-    const scalar = handle.measure(session)
-    const surface = handle.measureSurface(session)
+    const scalar = service.measure(session)
+    const surface = service.measureSurface(session)
     const scalarCopy = structuredClone(scalar)
     const surfaceCopy = structuredClone(surface)
 
@@ -205,8 +154,8 @@ describe('ModelTokenMeter pricing', () => {
       content: [{ type: 'text', text: 'second' }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
-    expect(handle.measure(session).logRevision).toBe(2)
-    expect(handle.measureSurface(session).nodes).toHaveLength(2)
+    expect(service.measure(session).logRevision).toBe(2)
+    expect(service.measureSurface(session).nodes).toHaveLength(2)
     expect(scalar).toEqual(scalarCopy)
     expect(surface).toEqual(surfaceCopy)
     expect(scalar.logRevision).toBe(1)
@@ -214,7 +163,7 @@ describe('ModelTokenMeter pricing', () => {
   })
 
   it('prices header, prefix, tools, and surface when no reusable usage exists', () => {
-    const handle = meter().resolve('deepseek-v4-flash')
+    const service = meter()
     const session = new Session(SessionId('heuristic'))
     session.append('user/message', {
       content: [{ type: 'text', text: 'question' }],
@@ -225,9 +174,9 @@ describe('ModelTokenMeter pricing', () => {
       messagePrefix: [textMessage('prefix')],
       tools: [{ name: 'read', description: 'read', parameters: { type: 'object' } }],
     }))
-    const result = handle.measure(session)
+    const result = service.measure(session)
     expect(result.baseline.kind).toBe('estimated')
-    expect(result.totalTokens).toBeGreaterThan(handle.measureSurface(session).totalTokens)
+    expect(result.totalTokens).toBeGreaterThan(service.measureSurface(session).totalTokens)
     expect(result.logRevision).toBe(session.events.length)
   })
 })
@@ -242,7 +191,7 @@ describe('replay anchors and surface folds', () => {
   }
 
   it('uses disjoint provider usage and signed durable-output rewrites', () => {
-    const handle = meter().resolve('deepseek-v4-flash')
+    const service = meter()
     const session = new Session(SessionId('usage'))
     session.append('user/message', {
       content: [{ type: 'text', text: 'before' }],
@@ -253,7 +202,7 @@ describe('replay anchors and surface folds', () => {
       durableText: 'a much longer rewritten durable assistant answer',
       usage: USAGE,
     })
-    const result = handle.measure(session)
+    const result = service.measure(session)
     expect(result.baseline).toMatchObject({ kind: 'usage', tokens: 34, usage: USAGE })
     expect(result.surfaceDeltaTokens).toBeGreaterThan(0)
     expect(result.totalTokens).toBe(34 + result.surfaceDeltaTokens)
@@ -263,20 +212,20 @@ describe('replay anchors and surface folds', () => {
   })
 
   it('uses an estimated anchor when provider usage is absent', () => {
-    const handle = meter().resolve('deepseek-v4-flash')
+    const service = meter()
     const session = new Session(SessionId('missing-usage'))
     appendSuccessfulCall(session, header('deepseek-v4-flash', { system: 's' }), {
       providerText: 'provider',
       durableText: 'rewritten',
     })
-    const anchored = handle.measure(session)
+    const anchored = service.measure(session)
     expect(anchored.baseline.kind).toBe('estimated')
     expect(anchored.surfaceDeltaTokens).toBe(0)
     session.append('user/message', {
       content: [{ type: 'text', text: 'later' }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
-    const advanced = handle.measure(session)
+    const advanced = service.measure(session)
     expect(advanced.surfaceDeltaTokens).toBeGreaterThan(0)
   })
 
@@ -295,24 +244,17 @@ describe('replay anchors and surface folds', () => {
       usage: USAGE,
       provenance: 'absent',
     })
-    const handle = meter().resolve('deepseek-v4-flash')
-    expect(handle.measure(explicit).surfaceDeltaTokens).toBeGreaterThan(0)
-    expect(handle.measure(legacy).surfaceDeltaTokens).toBe(0)
+    const service = meter()
+    expect(service.measure(explicit).surfaceDeltaTokens).toBeGreaterThan(0)
+    expect(service.measure(legacy).surfaceDeltaTokens).toBe(0)
   })
 
-  it('preserves one model anchor across another model success and reuses it after switching back', () => {
-    const service = meter({
-      models: {
-        alpha: { contextWindow: 1000 },
-        beta: { contextWindow: 1000, charsPerToken: 2 },
-      },
-    })
-    const alpha = service.resolve('alpha')
-    const beta = service.resolve('beta')
+  it('keeps only the latest successful request anchor across model switches', () => {
+    const service = meter({ contextWindow: 1_000 })
     const session = new Session(SessionId('switch'))
     const alphaHeader = header('alpha', { system: 'same envelope' })
     appendSuccessfulCall(session, alphaHeader, { usage: USAGE, providerText: 'alpha' })
-    expect(alpha.measure(session).baseline.kind).toBe('usage')
+    expect(service.measure(session).baseline).toMatchObject({ kind: 'usage', tokens: 34 })
 
     appendSuccessfulCall(session, header('beta'), {
       turn: 1,
@@ -320,34 +262,33 @@ describe('replay anchors and surface folds', () => {
       usage: { inputTokens: 100, outputTokens: 50 },
       providerText: 'beta response',
     })
-    expect(alpha.measure(session).baseline.kind).toBe('estimated')
-    expect(beta.measure(session).baseline).toMatchObject({ kind: 'usage', tokens: 150 })
+    expect(service.measure(session).baseline).toMatchObject({ kind: 'usage', tokens: 150 })
 
     appendHeader(session, alphaHeader)
-    const switchedBack = alpha.measure(session)
-    expect(switchedBack.baseline).toMatchObject({ kind: 'usage', tokens: 34 })
-    expect(switchedBack.surfaceDeltaTokens).toBeGreaterThan(0)
+    const switchedBack = service.measure(session)
+    expect(switchedBack.baseline.kind).toBe('estimated')
+    expect(switchedBack.surfaceDeltaTokens).toBe(0)
   })
 
   it('invalidates usage for any canonical envelope change or explicit override', () => {
-    const handle = meter().resolve('deepseek-v4-flash')
+    const service = meter()
     const session = new Session(SessionId('envelope'))
     const anchoredHeader = header('deepseek-v4-flash', { system: 'one' })
     appendSuccessfulCall(session, anchoredHeader, { usage: USAGE })
-    expect(handle.measure(session, { ...anchoredHeader, tools: [] }).baseline.kind).toBe('usage')
-    expect(handle.measure(session, header('deepseek-v4-flash', { system: 'two' })).baseline.kind)
+    expect(service.measure(session, { ...anchoredHeader, tools: [] }).baseline.kind).toBe('usage')
+    expect(service.measure(session, header('deepseek-v4-flash', { system: 'two' })).baseline.kind)
       .toBe('estimated')
-    expect(handle.measure(session, header('deepseek-v4-pro', { system: 'one' })).baseline.kind)
+    expect(service.measure(session, header('deepseek-v4-pro', { system: 'one' })).baseline.kind)
       .toBe('estimated')
-    expect(handle.measure(session, {
+    expect(service.measure(session, {
       ...anchoredHeader,
       config: { ...anchoredHeader.config, temperature: 0.2 },
     }).baseline.kind).toBe('estimated')
-    expect(handle.measure(session, {
+    expect(service.measure(session, {
       ...anchoredHeader,
       messagePrefix: [textMessage('prefix')],
     }).baseline.kind).toBe('estimated')
-    expect(handle.measure(session, {
+    expect(service.measure(session, {
       ...anchoredHeader,
       tools: [{ name: 'read', description: 'read', parameters: { type: 'object' } }],
     }).baseline.kind).toBe('estimated')
@@ -357,7 +298,7 @@ describe('replay anchors and surface folds', () => {
     const session = new Session(SessionId('header-delta'))
     appendHeader(session, header('deepseek-v4-flash'))
     session.append('request/header-delta', { config: { model: 'deepseek-v4-pro' } })
-    const result = meter().resolve('deepseek-v4-flash').measure(session)
+    const result = meter().measure(session)
     expect(result.baseline.kind).toBe('estimated')
     expect(result.logRevision).toBe(2)
   })
@@ -374,9 +315,8 @@ describe('replay anchors and surface folds', () => {
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
     const seeded = new Session(SessionId('surface-seeded'), original.events)
-    const handle = service.resolve('deepseek-v4-flash')
-    const before = handle.measureSurface(seeded)
-    const beforeScalar = handle.measure(seeded)
+    const before = service.measureSurface(seeded)
+    const beforeScalar = service.measure(seeded)
     expect(before.nodes).toHaveLength(2)
     expect(beforeScalar.surfaceDeltaTokens).toBeGreaterThan(0)
 
@@ -385,8 +325,8 @@ describe('replay anchors and surface folds', () => {
       content: [{ type: 'text', text: 'replacement' }],
       source: { kind: 'plugin', plugin: 'test' },
     }, { surfaceOp: { op: 'replace', start: first, end: first }, sourceEventSeqs: [first] })
-    const after = handle.measureSurface(seeded)
-    const afterScalar = handle.measure(seeded)
+    const after = service.measureSurface(seeded)
+    const afterScalar = service.measure(seeded)
     expect(after.nodes).toHaveLength(2)
     expect(after.nodes[0]!.seq).toBe(seeded.events.length - 1)
     expect(after.logRevision).toBe(seeded.events.length)
@@ -405,7 +345,7 @@ describe('replay anchors and surface folds', () => {
       durableText: '',
       provenance: 'empty',
     })
-    const surface = meter().resolve('deepseek-v4-flash').measureSurface(session)
+    const surface = meter().measureSurface(session)
     const assistant = session.events.find(event => event.type === 'assistant/message')!
     expect(surface.nodes).toEqual([{ seq: assistant.seq, tokens: 0 }])
     expect(surface.totalTokens).toBe(0)
@@ -413,18 +353,18 @@ describe('replay anchors and surface folds', () => {
 })
 
 describe('malformed replay and listener lifecycle', () => {
-  function expectRepeatedFailure(handle: ModelTokenMeter, session: Session, pattern: RegExp): void {
-    expect(() => handle.measure(session)).toThrow(pattern)
-    expect(() => handle.measure(session)).toThrow(pattern)
+  function expectRepeatedFailure(service: TokenMeterService, session: Session, pattern: RegExp): void {
+    expect(() => service.measure(session)).toThrow(pattern)
+    expect(() => service.measure(session)).toThrow(pattern)
   }
 
   it('rejects a header delta before any snapshot transactionally', () => {
     const session = new Session(SessionId('bad-delta'))
     session.append('request/header-delta', { config: { model: 'deepseek-v4-flash' } })
-    expectRepeatedFailure(meter().resolve('deepseek-v4-flash'), session, /no preceding header/)
+    expectRepeatedFailure(meter(), session, /no preceding header/)
   })
 
-  it('rejects a matching-model assistant without its step boundary transactionally', () => {
+  it('rejects an assistant without its step boundary transactionally', () => {
     const session = new Session(SessionId('bad-step'))
     appendHeader(session, header('deepseek-v4-flash'))
     session.append('assistant/message', {
@@ -432,7 +372,7 @@ describe('malformed replay and listener lifecycle', () => {
       step: 1,
       content: [{ type: 'text', text: 'bad' }],
     }, { surfaceOp: 'append', sourceEventSeqs: [] })
-    expectRepeatedFailure(meter().resolve('deepseek-v4-flash'), session, /no matching step\/start/)
+    expectRepeatedFailure(meter(), session, /no matching step\/start/)
   })
 
   it('clears completed step boundaries and rejects overlapping or late step events', () => {
@@ -440,7 +380,7 @@ describe('malformed replay and listener lifecycle', () => {
     overlapping.append('step/start', { turn: 1, step: 1 })
     overlapping.append('step/start', { turn: 1, step: 2 })
     expectRepeatedFailure(
-      meter().resolve('deepseek-v4-flash'),
+      meter(),
       overlapping,
       /arrived before turn 1\/step 1 ended/,
     )
@@ -455,7 +395,7 @@ describe('malformed replay and listener lifecycle', () => {
       content: [],
     }, { surfaceOp: 'append', sourceEventSeqs: [] })
     expectRepeatedFailure(
-      meter().resolve('deepseek-v4-flash'),
+      meter(),
       late,
       /no matching step\/start/,
     )
@@ -464,7 +404,7 @@ describe('malformed replay and listener lifecycle', () => {
     mismatchedEnd.append('step/start', { turn: 1, step: 1 })
     mismatchedEnd.append('step/end', { turn: 1, step: 2 })
     expectRepeatedFailure(
-      meter().resolve('deepseek-v4-flash'),
+      meter(),
       mismatchedEnd,
       /step\/end .* no matching step\/start/,
     )
@@ -509,7 +449,7 @@ describe('malformed replay and listener lifecycle', () => {
         content: [{ type: 'text', text: 'bad' }],
         usage: { inputTokens: 1, outputTokens: 1 },
       }, { surfaceOp: 'append', sourceEventSeqs })
-      expect(() => meter().resolve('deepseek-v4-flash').measure(session)).toThrow(testCase.pattern)
+      expect(() => meter().measure(session)).toThrow(testCase.pattern)
     }
   })
 
@@ -528,7 +468,7 @@ describe('malformed replay and listener lifecycle', () => {
       content: [],
       usage: { inputTokens: 1, outputTokens: 0 },
     }, { surfaceOp: 'append', sourceEventSeqs: [source, source] })
-    expect(() => meter().resolve('deepseek-v4-flash').measure(duplicate)).toThrow(/repeats source seq/)
+    expect(() => meter().measure(duplicate)).toThrow(/repeats source seq/)
 
     const future = new Session(SessionId('future-source'))
     future.append('step/start', { turn: 1, step: 1 })
@@ -539,7 +479,7 @@ describe('malformed replay and listener lifecycle', () => {
       content: [],
       usage: { inputTokens: 1, outputTokens: 0 },
     }, { surfaceOp: 'append', sourceEventSeqs: [99] })
-    expect(() => meter().resolve('deepseek-v4-flash').measure(future)).toThrow(/is not earlier/)
+    expect(() => meter().measure(future)).toThrow(/is not earlier/)
   })
 
   it('does not partially apply a malformed assistant replacement', () => {
@@ -556,7 +496,7 @@ describe('malformed replay and listener lifecycle', () => {
       content: [{ type: 'text', text: 'replacement' }],
     }, { surfaceOp: { op: 'replace', start: head, end: head }, sourceEventSeqs: [head] })
     expectRepeatedFailure(
-      meter().resolve('deepseek-v4-flash'),
+      meter(),
       session,
       /no matching step\/start/,
     )
@@ -572,32 +512,32 @@ describe('malformed replay and listener lifecycle', () => {
       content: [{ type: 'text', text: 'bad' }],
       source: { kind: 'user' },
     }, { surfaceOp: { op: 'replace', start: 99, end: 99 }, sourceEventSeqs: [0] })
-    expectRepeatedFailure(meter().resolve('deepseek-v4-flash'), session, /invalid current range/)
+    expectRepeatedFailure(meter(), session, /invalid current range/)
   })
 
   it('handles earlier-reader catch-up, eager observation, and service reload', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    let handle: ModelTokenMeter | undefined
+    let activeMeter: TokenMeterService | undefined
     const revisions: number[] = []
     ctx.on('session/event', (session) => {
-      if (handle !== undefined) revisions.push(handle.measure(session).logRevision)
+      if (activeMeter !== undefined) revisions.push(activeMeter.measure(session).logRevision)
     })
     const firstFiber = await ctx.plugin(TokenMeterService)
-    handle = ctx.tokenMeter.resolve('deepseek-v4-flash')
+    activeMeter = ctx.tokenMeter
     const session = ctx.sessions.create(SessionId('listener-order'))
-    handle.measure(session)
+    activeMeter.measure(session)
     session.append('user/message', {
       content: [{ type: 'text', text: 'one' }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
     expect(revisions).toEqual([1])
-    expect(handle.measure(session).logRevision).toBe(1)
+    expect(activeMeter.measure(session).logRevision).toBe(1)
 
     await firstFiber.dispose()
     const secondFiber = await ctx.plugin(TokenMeterService)
-    handle = ctx.tokenMeter.resolve('deepseek-v4-flash')
-    expect(handle.measure(session).logRevision).toBe(1)
+    activeMeter = ctx.tokenMeter
+    expect(activeMeter.measure(session).logRevision).toBe(1)
     await secondFiber.dispose()
   })
 })

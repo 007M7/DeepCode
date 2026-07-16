@@ -1,31 +1,21 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import BasicCompactService, {
-  resolveConfig,
-  resolveModelConfig,
-} from '@deepseek-ai/dsh-compact-basic'
+import BasicCompactService, { resolveConfig } from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compact-basic/src/region.ts'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
 import LlmService, { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import TokenMeterService, {
-  TOKEN_METER_MODEL_UNCONFIGURED,
-  TokenMeterError,
-} from '@deepseek-ai/dsh-token-meter'
+import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 const SIGNAL = new AbortController().signal
 const MODEL = 'test-model'
 
-function createContext(
-  models: Record<string, { contextWindow?: number; charsPerToken?: number }> = {
-    [MODEL]: { contextWindow: 100, charsPerToken: 1_000 },
-  },
-): Context {
+function createContext(contextWindow = 1_000): Context {
   const ctx = new Context()
-  void new TokenMeterService(ctx, { models })
+  void new TokenMeterService(ctx, { contextWindow })
   return ctx
 }
 
@@ -34,7 +24,7 @@ function agent(session: Session, model?: string): Agent {
 }
 
 /** Closed two-message turns followed by one open turn for durable compaction events. */
-function conversation(turns = 4, text = 'fixture'): Session {
+function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
   const session = new Session(SessionId(`conversation-${turns}`))
   for (let turn = 1; turn <= turns; turn += 1) {
     session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -128,83 +118,64 @@ async function compactIfNeeded(
 }
 
 describe('compact configuration and defaults', () => {
-  it('uses low-friction common and per-profile defaults', () => {
-    const ctx = createContext({
-      [MODEL]: { contextWindow: 100, charsPerToken: 1_000 },
-      large: { contextWindow: 1_000, charsPerToken: 4 },
-    })
+  it('uses low-friction service-wide defaults', () => {
+    const ctx = createContext()
     const resolved = resolveConfig({}, ctx.tokenMeter)
 
     expect(resolved).toEqual({
-      models: {},
+      thresholdRatio: 0.8,
+      retainTokens: 160,
       summarizationModel: '',
       maxTokens: 8192,
       compactionRetries: 1,
       auto: true,
     })
-    expect(resolveModelConfig(resolved, ctx.tokenMeter.resolve(MODEL))).toEqual({
-      model: MODEL,
-      contextWindow: 100,
-      thresholdRatio: 0.8,
-      retainTokens: 16,
-    })
-    expect(resolveModelConfig(resolved, ctx.tokenMeter.resolve('large')).retainTokens).toBe(160)
     expect(Object.isFrozen(resolved)).toBe(true)
   })
 
-  it('merges threshold and retention overrides field-wise', () => {
+  it('resolves threshold and retention overrides independently', () => {
     const ctx = createContext()
     const thresholdOnly = resolveConfig({
-      models: { [MODEL]: { thresholdRatio: 0.5 } },
-    }, ctx.tokenMeter)
-    expect(resolveModelConfig(thresholdOnly, ctx.tokenMeter.resolve(MODEL))).toMatchObject({
       thresholdRatio: 0.5,
-      retainTokens: 16,
+    }, ctx.tokenMeter)
+    expect(thresholdOnly).toMatchObject({
+      thresholdRatio: 0.5,
+      retainTokens: 160,
     })
 
     const retentionOnly = resolveConfig({
-      models: { [MODEL]: { retainTokens: 7 } },
+      retainTokens: 70,
     }, ctx.tokenMeter)
-    expect(resolveModelConfig(retentionOnly, ctx.tokenMeter.resolve(MODEL))).toMatchObject({
+    expect(retentionOnly).toMatchObject({
       thresholdRatio: 0.8,
-      retainTokens: 7,
+      retainTokens: 70,
     })
   })
 
-  it('validates common values and model policy invariants', () => {
+  it('validates common values and pressure-policy invariants', () => {
     const ctx = createContext()
     const bad = [
       [{ maxTokens: 0 }, /maxTokens/],
       [{ compactionRetries: -1 }, /compactionRetries/],
       [{ auto: 'yes' }, /auto must be a boolean/],
       [{ summarizationModel: 1 }, /summarizationModel must be a string/],
-      [{ models: null }, /models must be an object/],
-      [{ models: { [MODEL]: null } }, /must be an object/],
-      [{ models: { [MODEL]: { thresholdRatio: 0 } } }, /number in \(0, 1\]/],
-      [{ models: { [MODEL]: { thresholdRatio: 1.1 } } }, /number in \(0, 1\]/],
-      [{ models: { [MODEL]: { retainTokens: -1 } } }, /non-negative integer/],
-      [{ models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 50 } } }, /less than threshold/],
+      [{ thresholdRatio: 0 }, /number in \(0, 1\]/],
+      [{ thresholdRatio: 1.1 }, /number in \(0, 1\]/],
+      [{ retainTokens: -1 }, /non-negative integer/],
+      [{ thresholdRatio: 0.5, retainTokens: 500 }, /less than threshold/],
     ] as Array<[unknown, RegExp]>
 
     for (const [config, pattern] of bad) {
       expect(() => resolveConfig(config as BasicCompactConfig, ctx.tokenMeter)).toThrow(pattern)
     }
   })
-
-  it('rejects an override for an unknown meter profile with the exact typed error', () => {
-    const ctx = createContext()
-    expect(() => resolveConfig({ models: { missing: { retainTokens: 1 } } }, ctx.tokenMeter))
-      .toThrow(expect.objectContaining({
-        code: TOKEN_METER_MODEL_UNCONFIGURED,
-        model: 'missing',
-      }))
-  })
 })
 
 describe('pressure measurement and retention', () => {
   const compactConfig: BasicCompactConfig = {
     auto: false,
-    models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+    thresholdRatio: 0.5,
+    retainTokens: 180,
   }
 
   it('skips the provisional check only when no routed or fallback model exists', async () => {
@@ -214,10 +185,10 @@ describe('pressure measurement and retention', () => {
     expect(compact.calls).toHaveLength(0)
   })
 
-  it('throws for a named unconfigured model instead of swallowing it', async () => {
+  it('meters any routed model without profile resolution', async () => {
     const compact = service(compactConfig)
-    await expect(compactIfNeeded(compact, conversation(), 'missing'))
-      .rejects.toMatchObject({ code: TOKEN_METER_MODEL_UNCONFIGURED, model: 'missing' })
+    await expect(compactIfNeeded(compact, conversation(), 'unlisted-model'))
+      .resolves.not.toBeNull()
   })
 
   it('does nothing below threshold and compacts a priced head above threshold', async () => {
@@ -234,38 +205,39 @@ describe('pressure measurement and retention', () => {
   it('counts the current prompt and request prefix without putting either on the surface', async () => {
     const compact = service({
       auto: false,
-      models: { [MODEL]: { thresholdRatio: 0.7, retainTokens: 9 } },
+      thresholdRatio: 0.7,
+      retainTokens: 50,
     })
-    const session = conversation(2, 'x'.repeat(2_000))
+    const session = conversation(2, 'x'.repeat(200))
     expect(await compactIfNeeded(compact, session)).toBeNull()
 
     const prefix: Message[] = [{
       role: 'user',
-      content: [{ type: 'text', text: 'p'.repeat(10_000) }],
+      content: [{ type: 'text', text: 'p'.repeat(1_000) }],
     }]
-    const result = await compactIfNeeded(compact, session, MODEL, 's'.repeat(5_000), prefix)
+    const result = await compactIfNeeded(compact, session, MODEL, 's'.repeat(1_000), prefix)
     expect(result).not.toBeNull()
     expect(prefix).toHaveLength(1)
     expect(session.events.some(event => event.type === 'context/message')).toBe(false)
   })
 
-  it('uses the latest logged routed model instead of AgentOptions.model', async () => {
-    const ctx = createContext({
-      actual: { contextWindow: 100, charsPerToken: 1_000 },
-      fallback: { contextWindow: 10_000, charsPerToken: 1_000 },
-    })
+  it('uses the latest logged routed model in the provisional request envelope', async () => {
+    const ctx = createContext()
     const compact = service({
       auto: false,
-      models: { actual: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.5,
+      retainTokens: 180,
     }, ctx)
     const session = conversation(4)
     session.append('request/header', {
       header: { config: { model: 'actual' } },
       reason: 'initial',
     })
+    const measure = vi.spyOn(ctx.tokenMeter, 'measure')
 
     const result = await compactIfNeeded(compact, session, 'fallback')
     expect(result).not.toBeNull()
+    expect(measure.mock.calls[0]?.[1]?.config.model).toBe('actual')
   })
 
   it('declines when envelope pressure is high but the surface has no compactable range', async () => {
@@ -279,7 +251,7 @@ describe('pressure measurement and retention', () => {
 
   it('detects scalar/surface revision disagreement', async () => {
     const ctx = createContext()
-    const meter = ctx.tokenMeter.resolve(MODEL)
+    const meter = ctx.tokenMeter
     const original = meter.measureSurface.bind(meter)
     vi.spyOn(meter, 'measureSurface').mockImplementation((session) => {
       const measurement = original(session)
@@ -294,7 +266,8 @@ describe('pressure measurement and retention', () => {
     const compact = service({
       auto: false,
       compactionRetries: 0,
-      models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.3,
+      retainTokens: 180,
     })
     compact.summary = Array.from({ length: 7 }, (_, index) => ({
       type: 'text',
@@ -308,8 +281,9 @@ describe('pressure measurement and retention', () => {
   it('rounds a retention cut head-ward to preserve tool-call/result pairing', async () => {
     const compact = service({
       auto: false,
-      models: { [MODEL]: { thresholdRatio: 0.8, retainTokens: 8 } },
-    })
+      thresholdRatio: 0.8,
+      retainTokens: 80,
+    }, createContext(4_000))
     const session = toolConversation()
     const result = await compactIfNeeded(compact, session)
     expect(result).not.toBeNull()
@@ -327,7 +301,7 @@ describe('pressure measurement and retention', () => {
   it('rejects a priced surface that is not the current positional surface', () => {
     const ctx = createContext()
     const session = conversation(2)
-    const priced = ctx.tokenMeter.resolve(MODEL).measureSurface(session)
+    const priced = ctx.tokenMeter.measureSurface(session)
     expect(() => selectCompactableRange(session, {
       ...priced,
       nodes: priced.nodes.slice(1),
@@ -355,7 +329,7 @@ describe('pressure measurement and retention', () => {
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn: 1, step: 1 })
 
-    const priced = ctx.tokenMeter.resolve(MODEL).measureSurface(session)
+    const priced = ctx.tokenMeter.measureSurface(session)
     expect(selectCompactableRange(session, priced, 1)).toBeNull()
   })
 })
@@ -497,7 +471,7 @@ describe('compaction region transaction', () => {
 
   it('rejects a meter snapshot that changed before summarization began', async () => {
     const ctx = createContext()
-    const meter = ctx.tokenMeter.resolve(MODEL)
+    const meter = ctx.tokenMeter
     const original = meter.measureSurface.bind(meter)
     vi.spyOn(meter, 'measureSurface').mockImplementationOnce((session) => {
       const measurement = original(session)
@@ -569,7 +543,7 @@ describe('compaction region transaction', () => {
 
   it('rejects a non-shrinking framed summary under the conversation meter', async () => {
     const compact = service()
-    compact.summary = Array.from({ length: 20 }, (_, index) => ({
+    compact.summary = Array.from({ length: 100 }, (_, index) => ({
       type: 'text',
       text: `verbose ${index}`,
     }))
@@ -585,7 +559,7 @@ describe('compaction region transaction', () => {
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(false)
   })
 
-  it('requires a conversation model for pricing', async () => {
+  it('lets a model-independent custom summarizer compact without a conversation model', async () => {
     const compact = service()
     const session = conversation(1)
     const nodes = session.surface.nodes
@@ -594,7 +568,7 @@ describe('compaction region transaction', () => {
       nodes[0]!.seq,
       nodes[1]!.seq,
       agent(session),
-    )).rejects.toThrow(/no routed or configured conversation model/)
+    )).resolves.toMatchObject({ shadowedSeqs: [nodes[0]!.seq, nodes[1]!.seq] })
   })
 })
 
@@ -632,7 +606,7 @@ async function summarizerHarness(
 ): Promise<{ ctx: Context; adapter: ScriptedAdapter; compact: BasicCompactService }> {
   const ctx = new Context()
   await ctx.plugin(LlmService)
-  void new TokenMeterService(ctx, { models: { [model]: { contextWindow: 100 } } })
+  void new TokenMeterService(ctx, { contextWindow: 1_000 })
   const adapter = new ScriptedAdapter(blocks, finish)
   ctx.llm.registerAdapter([model], adapter)
   const compact = new BasicCompactService(ctx, config)
@@ -724,7 +698,8 @@ describe('automatic listener and loader composition', () => {
   it('compacts above threshold and remains idle below it', async () => {
     const ctx = createContext()
     const compact = new TestCompactService(ctx, {
-      models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.5,
+      retainTokens: 180,
     })
     const pressured = conversation(4)
     await preStep(ctx, agent(pressured, MODEL))
@@ -741,7 +716,8 @@ describe('automatic listener and loader composition', () => {
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
     const compact = new TestCompactService(ctx, {
-      models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.5,
+      retainTokens: 180,
     })
     compact.error = 'temporary failure'
     const session = conversation(4)
@@ -751,20 +727,12 @@ describe('automatic listener and loader composition', () => {
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(false)
   })
 
-  it('propagates a named unknown-model configuration failure', async () => {
-    const ctx = createContext()
-    void new TestCompactService(ctx)
-    await expect(preStep(ctx, agent(conversation(4), 'missing'))).rejects.toMatchObject({
-      code: TOKEN_METER_MODEL_UNCONFIGURED,
-      model: 'missing',
-    })
-  })
-
   it('auto:false installs no listener', async () => {
     const ctx = createContext()
     void new TestCompactService(ctx, {
       auto: false,
-      models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.5,
+      retainTokens: 180,
     })
     const session = conversation(4)
     await preStep(ctx, agent(session, MODEL))
@@ -777,7 +745,7 @@ describe('automatic listener and loader composition', () => {
     const meterFiber = await ctx.plugin(TokenMeterService)
     const compactFiber = await ctx.plugin(BasicCompactService, { auto: false })
 
-    expect(ctx.tokenMeter.resolve('deepseek-v4-flash').contextWindow).toBe(128_000)
+    expect(ctx.tokenMeter.contextWindow).toBe(128_000)
     expect(ctx.get('compact')).toBeInstanceOf(BasicCompactService)
     await compactFiber.dispose()
     expect(ctx.get('compact')).toBeUndefined()
@@ -788,30 +756,15 @@ describe('automatic listener and loader composition', () => {
   it('removes its automatic listener with the plugin fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    await ctx.plugin(TokenMeterService, {
-      models: { [MODEL]: { contextWindow: 100, charsPerToken: 1_000 } },
-    })
+    await ctx.plugin(TokenMeterService, { contextWindow: 1_000 })
     const fiber = await ctx.plugin(TestCompactService, {
-      models: { [MODEL]: { thresholdRatio: 0.5, retainTokens: 18 } },
+      thresholdRatio: 0.5,
+      retainTokens: 180,
     })
     await fiber.dispose()
 
     const session = conversation(4)
     await preStep(ctx, agent(session, MODEL))
     expect(session.events.some(event => event.type === 'compact/start')).toBe(false)
-  })
-})
-
-describe('typed unknown-model boundary', () => {
-  it('uses TokenMeterError identity rather than message matching', () => {
-    const ctx = createContext()
-    let thrown: unknown
-    try {
-      ctx.tokenMeter.resolve('missing')
-    } catch (error: unknown) {
-      thrown = error
-    }
-    expect(thrown).toBeInstanceOf(TokenMeterError)
-    expect(thrown).toMatchObject({ code: TOKEN_METER_MODEL_UNCONFIGURED })
   })
 })
