@@ -430,26 +430,26 @@ export interface Config {
   providerId: string
   /** Executable to spawn (absolute, or resolved on PATH at load). */
   command: string
-  /** Arguments passed to the executable (no shell). */
-  args: string[]
-  /** Extra env vars merged on top of the scrubbed ambient env. */
-  env: Record<string, string>
   /** Lowercase leading-dot extension → LSP language id (e.g. `{ '.ts': 'typescript' }`). */
   extensionToLanguage: Record<string, string>
-  /** Static `initialize` options forwarded to the server. */
-  initializationOptions: unknown
-  /** Static answer to every `workspace/configuration` item. */
-  configuration: unknown
-  /** Largest single framed message accepted from the server (bytes). */
-  maxMessageBytes: number
-  /** Largest stderr tail retained for diagnostics (bytes). */
-  maxStderrBytes: number
-  /** Largest source file this host will open (bytes). */
-  maxDocumentBytes: number
-  /** Graceful `shutdown`/`exit` budget before escalation (ms). */
-  shutdownTimeoutMs: number
-  /** SIGTERM→SIGKILL grace after graceful shutdown fails (ms). */
-  killGraceMs: number
+  /** Arguments passed to the executable (no shell). Default `[]`. */
+  args?: string[]
+  /** Extra env vars merged on top of the scrubbed ambient env. Default `{}`. */
+  env?: Record<string, string>
+  /** Static `initialize` options forwarded to the server. Default `null`. */
+  initializationOptions?: unknown
+  /** Static answer to every `workspace/configuration` item. Default `null`. */
+  configuration?: unknown
+  /** Largest single framed message accepted from the server (bytes). Default 16000000. */
+  maxMessageBytes?: number
+  /** Largest stderr tail retained for diagnostics (bytes). Default 1000000. */
+  maxStderrBytes?: number
+  /** Largest source file this host will open (bytes). Default 4000000. */
+  maxDocumentBytes?: number
+  /** Graceful `shutdown`/`exit` budget before escalation (ms). Default 5000. */
+  shutdownTimeoutMs?: number
+  /** SIGTERM→SIGKILL grace after graceful shutdown fails (ms). Default 2000. */
+  killGraceMs?: number
 }
 ```
 
