@@ -85,6 +85,8 @@
     { "path": "./packages/subagent/subagent-spawn" },
     { "path": "./packages/subagent/subagent-fork" },
     { "path": "./packages/subagent/subagent-acp" },
+    { "path": "./packages/tasks/tasks" },
+    { "path": "./packages/tasks/tool-tasks" },
     { "path": "./packages/workflow/workflow" },
     { "path": "./packages/workflow/workflow-workerthread" },
     { "path": "./packages/workflow/tool-workflow" },
@@ -94,6 +96,9 @@
     { "path": "./packages/hooks/hook-protocol" },
     { "path": "./packages/hooks/hooks-claude" },
     { "path": "./packages/hooks/hooks-codex" },
-    { "path": "./packages/mcp/mcp-client" }
+    { "path": "./packages/mcp/mcp-client" },
+    { "path": "./packages/sdk/helper" },
+    { "path": "./packages/sdk/scripts" },
+    { "path": "./packages/sdk/create-sdk" }
   ]
 }

@@ -12,7 +12,7 @@ This solves a real problem, but in a narrow and leaky way. A spill path is a pro
 
 Keep tail truncation, drop full-output spill files. A bash result contains the bounded tail plus a clear truncation marker; no path is emitted. If users need full-output recovery, add a generic artifact/blob service with explicit ownership, cleanup, and UI rendering, then let bash attach large outputs to that service.
 
-This proposal can land independently of [a generic long-running tool runtime](../../proposed/architecture/2026-06-20-generic-long-running-tool-runtime.md). If background tasks stay, `bash_output` should still report that output was dropped, but without advertising a spill path.
+This proposal can land independently of [a generic long-running tool runtime](../../implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md). If background tasks stay, `bash_output` should still report that output was dropped, but without advertising a spill path.
 
 ## Acceptance criteria
 

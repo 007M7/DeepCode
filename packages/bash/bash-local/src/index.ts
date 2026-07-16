@@ -1,15 +1,14 @@
 /**
- * Local-subprocess implementation of the bash seam. Each call runs in its own
- * process group, background tasks are tracked, and disposal kills and awaits
- * them. Execution policy belongs in `tools/pre-execute` or a sandboxing
- * executor, not this local process layer.
+ * Local-subprocess implementation of the bash executor seam. Each command runs
+ * as `bash -c` in its own process group; disposal kills and joins live groups.
+ * Execution policy belongs in `tools/pre-execute` or a sandboxing executor.
  * @module @deepseek-ai/dsh-bash-local
  */
 
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { BashExecutor, BashTaskId } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead, OwnerToken } from '@deepseek-ai/dsh-bash'
+import { BashExecutor } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_GRACE_MS, runBash } from './run.ts'
 import type { RunInternals, RunningBash } from './run.ts'
@@ -37,20 +36,9 @@ function assertPositiveFinite(name: string, value: number): void {
   }
 }
 
-interface TrackedTask extends BashTask {
-  running: RunningBash
-  /** Whole-stream byte offsets already delivered via {@link LocalBashExecutor.readOutput}. */
-  stdoutOffset: number
-  stderrOffset: number
-  /** Opaque owner token from the {@link BashExecSpec} (the consumer's isolation key). */
-  owner: OwnerToken | undefined
-}
-
 /**
- * Local-subprocess bash executor. Defaults follow the agent-tool survey
- * consensus: 120s default / 600s max timeout (Claude Code, OpenCode), 64KB
- * in-memory output with full-stream spill files (pi, OpenCode),
- * process-group SIGTERM→SIGKILL kills with a 3s grace (OpenCode).
+ * Local bash executor with bounded output, spill files, and process-group
+ * `SIGTERM` to `SIGKILL` escalation.
  */
 export class LocalBashExecutor extends BashExecutor {
   static Config: z<Config> = z.object({
@@ -61,8 +49,8 @@ export class LocalBashExecutor extends BashExecutor {
     graceMs: z.number().default(DEFAULT_GRACE_MS),
   })
 
-  private tasks = new Map<BashTaskId, TrackedTask>()
-  private nextTaskId = 1
+  /** Live processes retained only so disposal can kill and join them. */
+  private live = new Map<BashProcess, RunningBash>()
   /** Test seam: spill knobs forwarded to runBash. */
   internals: RunInternals = {}
 
@@ -71,26 +59,21 @@ export class LocalBashExecutor extends BashExecutor {
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
-    // schemastery (static Config) has already filled the defaulted fields;
-    // the cast records that runtime fact for exactOptionalPropertyTypes.
+    // Schemastery fills these fields before construction; the type does not encode that step.
     this.config = config as ResolvedConfig
     assertPositiveFinite('timeoutMs', this.config.timeoutMs)
     assertPositiveFinite('maxTimeoutMs', this.config.maxTimeoutMs)
     assertPositiveFinite('maxOutputBytes', this.config.maxOutputBytes)
     assertPositiveFinite('graceMs', this.config.graceMs)
     ctx.effect(() => async () => {
-      // Kill every live process group and WAIT for the processes to close so nothing outlives
-      // the fiber (HMR safety) — a TERM-trapping child is held until the SIGKILL escalation
-      // lands.
+      // Await closure so even a TERM-trapping child cannot outlive the fiber.
       const pending: Promise<void>[] = []
-      for (const task of this.tasks.values()) {
-        if (task.status === 'running') {
-          task.status = 'killed'
-          task.running.kill()
-          pending.push(task.done)
-        }
+      for (const [proc, running] of this.live) {
+        proc.status = 'killed'
+        running.kill()
+        pending.push(proc.done)
       }
-      this.tasks.clear()
+      this.live.clear()
       await Promise.all(pending)
     }, 'local bash teardown')
   }
@@ -114,24 +97,16 @@ export class LocalBashExecutor extends BashExecutor {
       workdir: request.workdir ?? this.config.cwd ?? process.cwd(),
       timeoutMs,
       ...request.signal ? { signal: request.signal } : {},
-      // Carry stdin/env through verbatim — optional, no config default (absent
-      // means none). env merges AFTER the scrub in run.ts.
+      // Explicit environment values are merged after credential scrubbing in run.ts.
       ...request.stdin !== undefined ? { stdin: request.stdin } : {},
       ...request.env !== undefined ? { env: request.env } : {},
-      // Carry the owner through verbatim (required-but-nullable on the spec):
-      // the executor never interprets it — the consumer's access policy does.
-      owner: request.owner,
-      // Carry a sandbox-mode override through verbatim: this executor never
-      // confines, so the field is inert here (the seam contract) — a
-      // sandboxing subclass overrides resolve() to stamp its default instead.
+      // Local execution carries this override for sandboxing subclasses.
       sandboxMode: request.sandboxMode,
     }
   }
 
   async run(spec: BashExecSpec): Promise<BashRunResult> {
-    // One fused deadline drives both the timeout and upstream cancellation;
-    // runBash listens on d.signal and runs the SIGTERM→grace→SIGKILL kill.
-    // `using` clears the timer across the awaited process lifetime.
+    // One deadline combines timeout and upstream cancellation; disposal clears its timer.
     using d = deadline(spec.signal, spec.timeoutMs, 'BASH_TIMEOUT')
     const outcome = await runBash({
       command: spec.command,
@@ -142,18 +117,14 @@ export class LocalBashExecutor extends BashExecutor {
       stdin: spec.stdin,
       env: spec.env,
     }, this.internals).done
-    // Classify the FIRST abort reason: a BASH_TIMEOUT TimeoutReason means our timeout cut the
-    // command short; any other abort — an upstream cancel, or a foreign (outer) deadline's
-    // timeout under nesting — is aborted.
+    // Only this executor's timeout reason counts as timedOut; outer deadlines count as aborts.
     const timedOut = timeoutOf(d.signal, 'BASH_TIMEOUT') !== undefined
     const aborted = d.signal.aborted && !timedOut
     return { ...outcome, timedOut, aborted, timeoutMs: spec.timeoutMs }
   }
 
-  start(spec: BashExecSpec): BashTask {
-    // No timeout for background tasks (matches Claude Code, which detaches the timeout when
-    // backgrounding); callers stop tasks via kill() — or via spec.signal, which the seam
-    // contract honors for background runs too (runBash wires it to the group kill).
+  start(spec: BashExecSpec): BashProcess {
+    // Background runs ignore timeoutMs; callers stop them through kill() or spec.signal.
     const running = runBash({
       command: spec.command,
       cwd: spec.workdir,
@@ -164,93 +135,66 @@ export class LocalBashExecutor extends BashExecutor {
       env: spec.env,
     }, this.internals)
 
-    const id = BashTaskId(`bash-${this.nextTaskId++}`)
-    const task: TrackedTask = {
-      id,
+    let stdoutOffset = 0
+    let stderrOffset = 0
+    const proc: BashProcess = {
       status: 'running',
       exitCode: null,
       signal: null,
-      owner: spec.owner,
-      running,
-      stdoutOffset: 0,
-      stderrOffset: 0,
       done: running.done.then((outcome) => {
-        // Abort-killed tasks report as killed, not completed. Background runs
-        // forward only the upstream signal (no timeout), so its aborted state
-        // is the authoritative "was this cancelled" signal.
-        if (task.status === 'running') task.status = spec.signal?.aborted === true ? 'killed' : 'completed'
-        task.exitCode = outcome.exitCode
-        task.signal = outcome.signal
-        this.notifyTaskDone(task)
+        // Any signal termination is killed, including a command signaling itself.
+        if (proc.status === 'running') {
+          proc.status = spec.signal?.aborted === true || outcome.signal !== null ? 'killed' : 'completed'
+        }
+        proc.exitCode = outcome.exitCode
+        proc.signal = outcome.signal
+        this.onProcessDone(proc, running.stderr.readFrom(0).text)
+        this.live.delete(proc)
       }, (error: unknown) => {
-        // Spawn-level failure (bad workdir, …): the task never ran. String()
-        // suffices — runBash only rejects with Error instances.
-        task.status = 'killed'
-        task.running.stderr.push(Buffer.from(`spawn failed: ${String(error)}`))
-        this.notifyTaskDone(task)
+        // Background spawn failures settle as killed and surface through the read path.
+        proc.status = 'killed'
+        running.stderr.push(Buffer.from(`spawn failed: ${String(error)}`))
+        this.onProcessDone(proc, running.stderr.readFrom(0).text)
+        this.live.delete(proc)
       }),
-    }
-    this.tasks.set(id, task)
-    return task
-  }
+      readOutput: (): BashProcessRead => {
+        const out = running.stdout.readFrom(stdoutOffset)
+        const err = running.stderr.readFrom(stderrOffset)
+        stdoutOffset = out.nextOffset
+        stderrOffset = err.nextOffset
 
-  get(id: BashTaskId): BashTask | undefined {
-    return this.tasks.get(id)
+        // Single newline between sections: stdout chunks usually end with one
+        // already; add it only when missing.
+        const separator = out.text.length > 0 && !out.text.endsWith('\n') ? '\n' : ''
+        const delta = out.text
+          + (err.text.length > 0 ? `${separator}[stderr]\n${err.text}` : '')
+        return {
+          delta,
+          lossy: out.lossy || err.lossy,
+          ...out.spillPath !== undefined ? { stdoutSpillPath: out.spillPath } : {},
+          ...err.spillPath !== undefined ? { stderrSpillPath: err.spillPath } : {},
+        }
+      },
+      kill: (): boolean => {
+        if (proc.status !== 'running') return false
+        proc.status = 'killed'
+        running.kill()
+        return true
+      },
+    }
+    this.live.set(proc, running)
+    return proc
   }
 
   /**
-   * Full collected stderr of a tracked task from stream start (bounded by the
-   * in-memory cap; bytes only in the spill file are not re-read). A protected
-   * seam for subclasses that classify a settled task's outcome — reading here
-   * does NOT advance the consumer's {@link readOutput} cursor. An unknown id
-   * (a task already dropped by disposal) reads as empty.
+   * Settlement hook for subclasses that attach execution facts to a process.
+   * Called after exit facts or spawn-failure output are stamped and before
+   * {@link BashProcess.done} resolves. The base implementation is intentionally
+   * empty.
+   * @param _proc - the settled process handle.
+   * @param _stderr - the process's retained stderr tail used by subclasses for settlement classification.
    */
-  protected collectedStderr(id: BashTaskId): string {
-    const task = this.tasks.get(id)
-    return task === undefined ? '' : task.running.stderr.readFrom(0).text
-  }
-
-  ownerOf(id: BashTaskId): OwnerToken | undefined {
-    // Unknown id and known-but-ownerless both read as undefined — the consumer
-    // treats undefined as "open" and a truly unknown id fails at readOutput/kill.
-    return this.tasks.get(id)?.owner
-  }
-
-  list(): BashTask[] {
-    return [...this.tasks.values()]
-  }
-
-  readOutput(id: BashTaskId): BashTaskRead {
-    const task = this.tasks.get(id)
-    if (!task) throw new Error(`unknown bash task "${id}"`)
-
-    const out = task.running.stdout.readFrom(task.stdoutOffset)
-    const err = task.running.stderr.readFrom(task.stderrOffset)
-    task.stdoutOffset = out.nextOffset
-    task.stderrOffset = err.nextOffset
-
-    // Single newline between sections: stdout chunks usually end with one
-    // already; add it only when missing.
-    const separator = out.text.length > 0 && !out.text.endsWith('\n') ? '\n' : ''
-    const delta = out.text
-      + (err.text.length > 0 ? `${separator}[stderr]\n${err.text}` : '')
-    return {
-      task,
-      delta,
-      lossy: out.lossy || err.lossy,
-      ...out.spillPath !== undefined ? { stdoutSpillPath: out.spillPath } : {},
-      ...err.spillPath !== undefined ? { stderrSpillPath: err.spillPath } : {},
-    }
-  }
-
-  kill(id: BashTaskId): boolean {
-    const task = this.tasks.get(id)
-    if (!task) throw new Error(`unknown bash task "${id}"`)
-    if (task.status !== 'running') return false
-    task.status = 'killed'
-    task.running.kill()
-    return true
-  }
+  protected onProcessDone(_proc: BashProcess, _stderr: string): void {}
 }
 
 export default LocalBashExecutor

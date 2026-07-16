@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -7,7 +7,13 @@ import Loader from '@cordisjs/plugin-loader'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
 import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
-import type { Message } from '@deepseek-ai/dsh-llm'
+import { CallId, type Message } from '@deepseek-ai/dsh-llm'
+
+declare module '@deepseek-ai/dsh-tasks' {
+  interface TaskKindMap {
+    probe: 'probe'
+  }
+}
 
 async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
   const agent = { session: { header: { cwd } } } as unknown as Agent
@@ -28,12 +34,13 @@ async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
  * Loader-path guard (export shape, `unwrapExports`) is the app packages' keyless
  * bin smokes; here we assert the composition + config forwarding.
  */
-async function mount(config?: agentCore.Config): Promise<Context> {
+async function mount(config?: agentCore.Config, withBash = false): Promise<Context> {
   const oldDshHome = process.env.DSH_HOME
   const oldAgentsHome = process.env.DSH_AGENTS_HOME
   process.env.DSH_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-home-'))
   process.env.DSH_AGENTS_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-agents-'))
   const ctx = new Context()
+  if (withBash) ctx.provide('bash', { sandboxMode: undefined })
   try {
     await ctx.plugin(agentCore, config)
     // The bundle mounts its children inside apply() (not awaited there); let their
@@ -86,6 +93,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(ctx.get('tools')).toBeDefined()
     expect(ctx.get('skills')).toBeDefined()
     expect(ctx.get('agents')).toBeDefined()
+    expect(ctx.get('tasks')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
     await ctx.fiber.dispose()
   })
@@ -153,6 +161,33 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('forwards its bundled tool configs to tool-bash and tool-tasks', async () => {
+    const ctx = await mount({
+      toolBash: { enableRunInBackground: false },
+      toolTasks: { waitTimeoutMs: 7, maxWaitTimeoutMs: 11 },
+    }, true)
+
+    const bash = ctx.tools.schemas().find(tool => tool.name === 'bash')
+    expect(bash).toBeDefined()
+    expect(Object.keys((bash!.parameters as { properties: Record<string, unknown> }).properties))
+      .not.toContain('run_in_background')
+
+    const id = ctx.tasks.start({
+      kind: 'probe',
+      label: 'config forwarding probe',
+      run: () => ({ cancel: () => {}, done: Promise.resolve({ status: 'completed' }) }),
+    })
+    const wait = vi.spyOn(ctx.tasks, 'wait')
+    await ctx.tools.execute({
+      callId: CallId('task-config-forwarding'),
+      name: 'task_output',
+      arguments: { task_id: id, wait: true },
+    })
+    expect(wait).toHaveBeenCalledWith(id, 7, undefined, undefined)
+
+    await ctx.fiber.dispose()
+  })
+
   it('uses the default skill config when apply is called directly without skills', async () => {
     await withIsolatedSkillHomes(async () => {
       const ctx = new Context()
@@ -177,7 +212,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       })
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'skill'])
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'skill', 'task_kill', 'task_list', 'task_output'])
     await ctx.fiber.dispose()
   })
 
