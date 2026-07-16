@@ -4,9 +4,9 @@
 
 `SystemPrompt` — provided by `@deepseek-ai/dsh-system-prompt`.
 
-Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
+Registry service for the prompt inputs assembled before each model step.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/system-prompt/src/index.ts#L291)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/system-prompt/src/index.ts#L209)
 
 ### ctx.systemPrompt.section(section)
 
@@ -14,27 +14,27 @@ Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections,
 section(section: PromptSection): () => void
 ```
 
-Contribute a text section to the system prompt. Order is determined by `section.order` (ascending). Throws if a section with the same name is already registered (a duplicate would silently double prompt text — e.g. a double-loaded tool plugin). The section is removed when the calling fiber is disposed. Emits `system-prompt/change` on register/unregister.
+Register an ordered prompt section in the calling context's scope. A scoped section shadows a global section with the same name; duplicates within one layer and non-finite orders throw. Registration and disposal emit `system-prompt/change`.
 
-- `section` — the section to contribute (name, order, text or provider).
+- `section` — the section to register.
 
-**Returns** the disposer that removes the section.
+**Returns** the exact Cordis effect disposer.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/system-prompt/src/index.ts#L340)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/system-prompt/src/index.ts#L250)
 
 ### ctx.systemPrompt.tools(provider)
 
 ```ts website-api
-tools(provider: () => ToolSchema[]): () => void
+tools(provider: (context: AssembleContext) => ToolProviderResult): () => void
 ```
 
-Contribute a tool-schema provider that is evaluated at each assembly call (so it can reflect the live registry state). The provider is removed when the calling fiber is disposed. A provider must not return a schema named TOOL_ORDER_REST; that name is reserved for Config.toolOrder's rest entry and rejects the assembly. Emits `system-prompt/change`.
+Register a tool-schema provider in the calling context's scope. Global and matching scoped providers both contribute; returning the reserved TOOL_ORDER_REST name makes assembly fail.
 
-- `provider` — evaluated at every `assemble` for fresh schemas.
+- `provider` — evaluated for each assembly with its context.
 
-**Returns** the disposer that removes the provider.
+**Returns** the exact Cordis effect disposer.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/system-prompt/src/index.ts#L373)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/system-prompt/src/index.ts#L291)
 
 ### ctx.systemPrompt.variable(name, provider)
 
@@ -42,14 +42,14 @@ Contribute a tool-schema provider that is evaluated at each assembly call (so it
 variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void
 ```
 
-Contribute a named prompt variable, referenced from section text as `{{name}}`. The provider is evaluated at each assembly with that assembly's AssembleContext; returning `undefined` means "no value for this assembly" (a section referencing it then fails to render — a deployment must not claim facts it does not have). Throws on a name that does not match `[a-z][a-z0-9_]*` (it could never be referenced) or is already registered. Removed when the calling fiber is disposed; emits `system-prompt/change` on register/unregister.
+Register a prompt variable in the calling context's scope. Scoped values shadow globals; invalid or duplicate names throw. A provider may return `undefined`, but rendering a section that references that value then fails.
 
-- `name` — the reference name (matches `[a-z][a-z0-9_]*`).
-- `provider` — evaluated at every `assemble` for the value.
+- `name` — the `[a-z][a-z0-9_]*` reference name.
+- `provider` — evaluated for each assembly.
 
-**Returns** the disposer that removes the variable.
+**Returns** the exact Cordis effect disposer.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/system-prompt/src/index.ts#L403)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/system-prompt/src/index.ts#L325)
 
 ### ctx.systemPrompt.assemble(context?)
 
@@ -57,10 +57,10 @@ Contribute a named prompt variable, referenced from section text as `{{name}}`. 
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Assemble the current prompt for one caller: section texts are resolved against `context` and sorted by order, tools collected from all providers and put in the canonical model-facing order (Config.toolOrder, or lexicographic name order when unconfigured — provider registration order is a plugin-load artifact and never reaches the assembly; a configured order naming a tool no provider contributed rejects the assembly), and every registered variable resolved against `context` into `assembly.variables`. Tool schemas are deep-cloned because adapters and request waterfalls may mutate schema objects. Runs through the `system-prompt/assemble` waterfall, giving listeners the opportunity to mutate or replace the assembly before it reaches the model — like the sections' `order` sort, tool canonicalization happens on the initial assembly, and a listener owns the determinism of whatever it emits. Await the result before reading the assembly values — waterfall listeners may be async. Interpolation happens later, in renderPrompt.
+Assemble global and scoped providers, detach tool parameters, apply canonical ordering, then run the assembly waterfall. Scoped sections and variables shadow globals; the returned waterfall value is authoritative.
 
-- `context` — what this assembly is for (defaults to an empty context; see `AssembleContext`).
+- `context` — the optional scope and plugin-defined assembly fields.
 
-**Returns** the assembly after the waterfall has run.
+**Returns** the authoritative post-waterfall assembly.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/system-prompt/src/index.ts#L447)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/system-prompt/src/index.ts#L365)

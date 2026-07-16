@@ -4,14 +4,9 @@
 
 `WorkflowService` (abstract seam) — provided by `@deepseek-ai/dsh-workflow`.
 
-Abstract workflow execution service. Subclass, implement start, and load the subclass as a plugin — it registers as `ctx.workflows` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
-Semantics every implementation must honor:
-- start throws synchronously for a request that cannot begin (an unparseable script, an invalid meta block). Once it returns a WorkflowRun, `result` NEVER rejects — every failure resolves with `stopReason: 'error'` (or `'cancelled'`) — and once the run is cancelled, `result` SETTLES within the implementation's bounded grace even if the script itself never settles (a consumer awaiting `result` must never be wedged past a cancellation).
-- The `workflow/*` events fire through emitWorkflowEvent (data snapshots, per-listener containment); `workflow/end` fires exactly once per started run, after `result` is settled or as it settles.
-- `dispose()` reaches quiescence within a bounded grace: it cancels, waits for the script to settle AND its started children to finish disposing, and abandons whatever is left rather than hanging its caller (the engine documents what abandonment leaves behind).
-- Runs are HOLDER-OWNED: the engine hands control (`cancel`/`dispose`) to the `start()` caller and does not track its live runs — disposing the engine's own fiber mid-run deliberately leaves those runs to their holders' teardown, so an engine reload cannot yank a run out from under the consumer awaiting it.
+Workflow execution seam. Invalid requests throw before publication; a live run is holder-owned, its result never rejects, cancellation and disposal are bounded, and disposal waits for child cleanup within that bound. Lifecycle listener failures are contained, and `workflow/end` fires exactly once as the result settles.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/workflow/workflow/src/index.ts#L210)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/workflow/workflow/src/index.ts#L159)
 
 ### ctx.workflows.start(request)
 
@@ -25,4 +20,4 @@ Parse and execute a workflow script.
 
 **Returns** the live run; its `result` resolves when the script settles.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/workflow/workflow/src/index.ts#L221)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/workflow/workflow/src/index.ts#L170)

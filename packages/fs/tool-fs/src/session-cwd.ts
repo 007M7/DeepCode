@@ -1,18 +1,10 @@
 /**
- * Derive the working directory a filesystem tool resolves relative paths
- * against: the calling agent's per-session workspace
- * (`exec.agent.session.header.cwd`), so each ACP session's `read`/`write`/`edit`
- * act on ITS workspace, not the server's launch dir — mirroring how
+ * Derive the working directory a filesystem tool resolves relative paths against: the calling
+ * agent's per-session workspace (`exec.agent.session.header.cwd`), so each ACP session's
+ * `read`/`write`/`edit` act on ITS workspace, not the server's launch dir — mirroring how
  * `dsh-tool-bash` defaults a bash `workdir` to the session cwd.
- *
- * The `agent` is optional-chained — a non-agent caller yields `undefined`, and
- * the tool then calls `ctx.fs.resolve(path)` with no base so the backend applies
- * its own configured default (preserving the non-ACP / no-session behavior).
- * `session`/`header` are non-optional on a real `Agent`, so only `agent` needs
- * the guard (mirroring `dsh-tool-bash`'s `resolveWorkdir`). Returning `undefined`
- * rather than reading `process.cwd()` here keeps the default in ONE place (the
- * provider), per the "explicit > implicit at seams" convention.
- *
+ * Non-agent calls return `undefined`, leaving the fallback in the provider rather than reading
+ * `process.cwd()` at the tool seam.
  * @module @deepseek-ai/dsh-tool-fs/session-cwd
  */
 

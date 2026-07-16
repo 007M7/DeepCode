@@ -1,8 +1,12 @@
 # dsh-invariants
 
-Dev-mode event-contract invariants and session-log freeze. A pure-listener plugin (everything is a plugin) that asserts the harness event contract at runtime and, optionally, freezes logged session-event data so any code that mutates history throws instead of corrupting silently.
+Runtime event-contract assertions intended for development diagnostics. This pure-listener plugin checks relationships among session events, agent states, scoped dispatches, and model requests; it does not own or change product behavior.
 
-**Off in production.** Enable it in tests and the demos, where a contract violation should fail loudly. It costs nothing when not registered, and doubles as executable documentation of the event taxonomy — the assertions *are* the contract.
+The plugin has no environment guard: it is active wherever it is registered. The default [`dsh-agent-spine-demo`](../../examples/agent-spine-demo/README.md) bundle mounts it unconditionally; a custom composition can omit it when the runtime cost is undesirable. It doubles as executable documentation of the event taxonomy — the assertions *are* the contract.
+
+Session itself owns immutable log storage in every composition: it takes one lossless JSON snapshot of each accepted event, deep-freezes that record, and exposes the log through immutable array snapshots. The invariants plugin checks the cross-record and cross-seam rules that storage immutability cannot express.
+
+Session-log assertions run during Cordis `internal/dispatch`, while `Session.append()` is resolving the `session/event` callback snapshot but before it pushes the candidate into the log. A valid transition is staged by exact event identity and applied to the live trace only when that same committed event reaches the plugin's contained post-commit listener. A later internal dispatch check can therefore veto without advancing either the log or the invariant trace, while ordinary `session/event` observer failures remain observe-only.
 
 ## Plugin
 
@@ -14,17 +18,10 @@ import * as Invariants from '@deepseek-ai/dsh-invariants'
 
 declare const ctx: Context
 
-await ctx.plugin(Invariants)                     // freeze on (default)
-await ctx.plugin(Invariants, { freeze: false })  // assert contract, don't freeze
+await ctx.plugin(Invariants)
 ```
 
-`inject`: `['sessions']` — it reads `ctx.sessions.list()` at apply time to rebuild trace state for sessions that already exist (so a hot reload mid-turn doesn't falsely reject the next event). It listens on `session/created`, `session/event`, and `agent/status`.
-
-### Config
-
-| Key | Default | Meaning |
-|---|---|---|
-| `freeze` | `true` | Deep-freeze each logged event's data so mutating a logged event throws. Set `false` to assert the contract without freezing. |
+`inject`: `['sessions']` — it reads `ctx.sessions.list()` at apply time to rebuild trace state for sessions that already exist, so a hot reload mid-turn does not falsely reject the next event. The oracle listeners are explicitly global so pre-commit staging and post-commit application keep the same audience even if the plugin is mounted under a scoped context; their cleanup still belongs to that mounting fiber. The plugin has no configuration.
 
 ## Invariants asserted
 
@@ -42,14 +39,23 @@ Agent status (per agent):
 
 Model requests (on `llm/stream`):
 
-- **a loop-built request is exactly what the log reconstructs** — a frozen request with a live `sessionId` (the loop-built marker; hand-built one-shots like compaction's summarize are unfrozen and skipped) must carry frozen `messages` deep-equal to the derivation over the log prefix strictly before the in-flight step's `step/start` (rebuilt through a FRESH `Session`, so the live cache cannot vouch for itself — and boundary-correct: content logged after `step/start` legitimately belongs to the next request), and every non-content field must equal the fold of the log's `request/header*` events (see [the reconstructability RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)). Registered with `prepend: true` so a short-circuiting `llm/stream` listener (the replay adapter) cannot silence it; prepend orders it against append-registered listeners only — correctness rests on the seq-bounded rebuild, never listener timing.
+- **a loop-built request is exactly what the log reconstructs** — a frozen request with a live `sessionId` is rebuilt through a fresh `Session` from the prefix before its in-flight `step/start`; later content belongs to the next request, and hand-built unfrozen one-shots are excluded. Frozen messages must match that derivation, while every other field matches folded `request/header*` events. The prepended check runs before ordinary short-circuiting stream listeners, but correctness comes from the sequence boundary rather than listener timing. See the [reconstructability RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
 On any violation it throws `InvariantError` (`code: 'INVARIANT'`).
 
-## Why runtime, not deep-readonly types
+## Why runtime assertions remain useful
 
-A `DeepReadonly<SessionEvent>` is high type-noise across every log consumer, and a plugin can cast straight through it. A dev-mode freeze plus these assertions catch real corruption at zero production cost and zero type noise. The always-on half of that defense — cloning derived messages so request/adapter mutation can't reach back into the log — lives in `dsh-session`'s `deriveMessages`. This package is the dev-mode tripwire. See [dev-mode invariants](../../../docs/rfc/implemented/architecture/2026-06-11-dev-invariants-over-deep-readonly.md).
+Session enforces the per-record storage boundary at runtime, where a cast cannot bypass it. Pervasive `DeepReadonly<SessionEvent>` types would add noise across consumers without expressing relationships such as turn/step nesting, subject-correct scoped dispatch, or equality between a request and its log reconstruction. This plugin checks those relationships wherever it is mounted while `dsh-session` keeps history immutable in every composition. See [source-owned session immutability and dev-mode invariants](../../../docs/rfc/implemented/architecture/2026-06-11-dev-invariants-over-deep-readonly.md).
 
 ## Seeded sessions
 
-A seeded/forked session arrives with events already in its log (the `Session` constructor copies the seed without emitting `session/event`). On `session/created` the plugin replays the existing log through the checker and freezes those entries, so seeded history is held to the same contract.
+A seeded or forked session arrives with events already in its log because construction does not emit `session/event` for each seed record. `Session` validates, snapshots, and freezes every seed record before accepting it; on `session/created`, this plugin replays the accepted log only to rebuild and check its relational trace state.
+
+## Model Experience
+
+None, as this observer only validates events and frozen requests and never rewrites prompts, schemas, messages, or streams.
+
+## Known Limitations and Deferred Work
+
+- **The request-reconstructability assertion covers loop-built requests only** — hand-built one-shots (e.g. compaction's summarize call) carry no live `sessionId` marker and are skipped.
+- **Merge-extended event families get no family-specific assertions** — `compact/*` lock pairing and `hook/*` invoked/result pairing are not checked here; only the core turn/step/chunk/tool-result contract is.

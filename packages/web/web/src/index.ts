@@ -1,28 +1,17 @@
 /**
- * The web access seam (`ctx.web`): a provider registry plus a provider-selecting
- * execution surface for two capabilities — search and fetch. Provider packages
- * register concrete backends with `registerSearchProvider` /
- * `registerFetchProvider`; the model-facing consumer
- * (`@deepseek-ai/dsh-tool-web`) executes through `search()` / `fetch()` and
- * routes on the structured {@link WebError} codes selection throws.
- *
- * The registry half stays close to `LlmService`: a `Map<id, provider>` per
- * capability kind, register methods that return disposers, duplicate ids that
- * throw, and execution-time resolution that throws when the selected provider is
- * absent or unusable — with selection rules that never depend on registration
- * order.
- *
+ * The web access seam (`ctx.web`): registries and provider-selecting execution for search and
+ * fetch. Duplicate ids are rejected. At execution time, a configured provider must exist and
+ * be usable; without one, exactly one usable provider is required, so selection never depends
+ * on registration order.
  * @module @deepseek-ai/dsh-web
  */
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type {
-  WebExecContext,
   WebFetchProvider,
   WebFetchRequest,
   WebFetchResult,
-  WebProviderStatus,
   WebSearchProvider,
   WebSearchRequest,
   WebSearchResult,
@@ -33,12 +22,10 @@ export {
   WebError,
 } from './types.ts'
 export type {
-  WebExecContext,
   WebFetchBody,
   WebFetchProvider,
   WebFetchRequest,
   WebFetchResult,
-  WebProviderStatus,
   WebSearchProvider,
   WebSearchRequest,
   WebSearchResult,
@@ -76,7 +63,7 @@ export interface WebServiceConfig {
  * The web access service. Registered as `ctx.web` (one instance per context).
  *
  * Selection semantics (resolved at execution time, never order-dependent):
- * - A configured id that is registered and `status().available` → that provider.
+ * - A configured id that is registered and `available()` → that provider.
  * - A configured id not registered → `WEB_PROVIDER_CONFIGURED_MISSING`.
  * - A configured id registered but unavailable →
  *   `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.
@@ -147,15 +134,15 @@ export class WebService extends Service {
    * capability cannot run. The seam enforces `request.maxResults` on the result:
    * if the provider over-returns, `sources[]` is truncated and `truncated` set.
    * @param request - the query plus result-shaping options.
-   * @param exec - the tool-execution context, forwarded to the provider.
+   * @param signal - optional cancellation signal forwarded to the provider.
    * @returns the provider's results, capped to `request.maxResults`.
    */
-  async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult> {
+  async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
     const provider = resolveProvider({
       providers: this.searchProviders,
       ...this.searchProviderId !== undefined ? { configuredId: this.searchProviderId } : {},
     })
-    const result = await provider.search(request, exec)
+    const result = await provider.search(request, signal)
     return capSources(result, request.maxResults)
   }
 
@@ -164,21 +151,21 @@ export class WebService extends Service {
    * call time with the selection rules above; throws {@link WebError} when the
    * capability cannot run. A non-2xx response is a result, not a throw.
    * @param request - the URL plus retrieval options.
-   * @param exec - the tool-execution context, forwarded to the provider.
+   * @param signal - optional cancellation signal forwarded to the provider.
    * @returns the retrieval outcome; non-2xx responses resolve descriptively.
    */
-  async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult> {
+  async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult> {
     const provider = resolveProvider({
       providers: this.fetchProviders,
       ...this.fetchProviderId !== undefined ? { configuredId: this.fetchProviderId } : {},
     })
-    return provider.fetch(request, exec)
+    return provider.fetch(request, signal)
   }
 }
 
 interface ResolvableProvider {
   readonly id: string
-  status(): WebProviderStatus
+  available(): boolean
 }
 
 /** Resolve the selected provider or throw the matching {@link WebError}. */
@@ -189,12 +176,12 @@ function resolveProvider<P extends ResolvableProvider>(selection: Selection<P>):
     if (!provider) {
       throw new WebError(`configured web provider "${configuredId}" is not registered`, 'WEB_PROVIDER_CONFIGURED_MISSING')
     }
-    if (!provider.status().available) {
+    if (!provider.available()) {
       throw new WebError(`configured web provider "${configuredId}" is registered but unavailable`, 'WEB_PROVIDER_CONFIGURED_UNAVAILABLE')
     }
     return provider
   }
-  const usable = [...providers.values()].filter(provider => provider.status().available)
+  const usable = [...providers.values()].filter(provider => provider.available())
   const [single] = usable
   if (single === undefined) {
     throw new WebError('no usable web provider is registered', 'WEB_PROVIDER_UNAVAILABLE')

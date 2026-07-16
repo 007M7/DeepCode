@@ -9,20 +9,13 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as acp from '../src/index.ts'
 
 /**
- * With-key e2e for the ACP subagent backend: the harness drives ITSELF as an ACP
- * server. The backend spawns the real `acp-agent` example as a child PROCESS,
- * speaks ACP to it over stdio, and the child runs the REAL model in its own
- * process to answer a prompt. We verify the child's real answer comes back
- * through the seam — the "talk to our own process" smoke the design called for.
- * Key-gated (self-skips without DEEPSEEK_API_KEY).
- *
- * This is the out-of-process analogue of the in-process spawn e2e: there a
- * parent agent on the same context drove a child; here the child is a separate
- * process reached over ACP, proving the seam generalizes across the boundary.
+ * With-key cross-process seam proof: the backend spawns the real acp-agent example, speaks ACP over
+ * stdio, and returns its real model answer. This is the out-of-process counterpart to in-process
+ * spawn coverage and self-skips without `DEEPSEEK_API_KEY`.
  */
 
 // The real acp-agent example: its bin + cordis.yml (the live DeepSeek config).
-const binScript = fileURLToPath(new URL('../../../ui/acp-agent/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('../../../examples/acp-demo/src/bin.ts', import.meta.url))
 const exampleConfig = fileURLToPath(new URL('../../../../examples/acp-agent/cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
@@ -48,7 +41,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
     await ctx.plugin(acp, {
       providerName: 'acp',
       command: process.execPath,
-      args: ['--import', tsxLoader, binScript, exampleConfig],
+      args: ['--import', tsxLoader, binScript, '--config', exampleConfig],
       cwd: workdir,
       permission: 'reject',
       // The child harness needs the key to reach the model; forward it
@@ -57,12 +50,14 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
         ...process.env.DEEPSEEK_API_KEY !== undefined ? { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY } : {},
         ...process.env.DEEPSEEK_BASE_URL !== undefined ? { DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL } : {},
         TSX_TSCONFIG_PATH: repoTsconfig,
+        DSH_PERMISSION_MODE: 'danger-full-access',
       },
     })
 
-    const run = ctx.subagents.start('acp', {
+    const run = await ctx.subagents.start('acp', {
       prompt: [{ type: 'text', text: 'Reply with exactly the word PONG and nothing else. Do not use any tools.' }],
       parent: fakeParent,
+      signal: new AbortController().signal,
     })
     const result = await run.result
     await run.dispose()
@@ -82,7 +77,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
     await ctx.plugin(acp, {
       providerName: 'acp',
       command: process.execPath,
-      args: ['--import', tsxLoader, binScript, exampleConfig],
+      args: ['--import', tsxLoader, binScript, '--config', exampleConfig],
       cwd: workdir,
       // The child needs to act (run bash), so approve its permission prompts.
       permission: 'allow',
@@ -90,14 +85,16 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
         ...process.env.DEEPSEEK_API_KEY !== undefined ? { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY } : {},
         ...process.env.DEEPSEEK_BASE_URL !== undefined ? { DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL } : {},
         TSX_TSCONFIG_PATH: repoTsconfig,
+        DSH_PERMISSION_MODE: 'danger-full-access',
       },
     })
 
-    const run = ctx.subagents.start('acp', {
+    const run = await ctx.subagents.start('acp', {
       prompt: [{ type: 'text', text:
         'Use the bash tool to write the text ACP_CHILD_WAS_HERE into a file named proof.txt '
         + 'in the current directory. Then reply DONE.' }],
       parent: fakeParent,
+      signal: new AbortController().signal,
     })
     const result = await run.result
     await run.dispose()

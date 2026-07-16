@@ -1,23 +1,51 @@
 # @deepseek-ai/dsh-tool-subagent
 
-The model-facing `subagent` tool: delegate a self-contained task to a child agent and return its final output. Pure schema + lifecycle shaping over the [`ctx.subagents`](../subagent/README.md) provider registry — an in-process, ACP, or future A2A backend swaps in without changing what the model sees.
+The model-facing delegation tool over one configured `ctx.subagents` provider. Changing the provider changes transport without changing the execution contract.
 
-## Provider selection is config, not model-facing
+## Provider selection and lifecycle
 
-This plugin binds to **exactly one** provider (`Config.provider`). The model sees only `{ description, prompt }` — there is no provider/type parameter in the schema. To expose more than one transport, load the plugin more than once, each bound to a different provider **and a distinct `toolName`** (the tool registry rejects a duplicate name, so a second load that kept the default `subagent` name would throw). Keeping selection in config (not the schema) is the deliberate split: the *service* holds a multi-provider registry; the *tool* picks one.
+Each plugin instance binds one `provider` to one `toolName`; the model receives no provider selector. Load another distinctly named instance to expose another transport. The tool registers only while its provider exists, avoiding sibling load-order and provider-reload dependencies. Its description follows `provider.inheritsParentContext`: fresh children require standalone prompts, while forked children already see completed parent turns.
 
-## The description states the provider's context contract
+A foreground call passes the execution signal through startup and execution, awaits `run.result`, and always awaits `run.dispose()` before returning. Only `completed` returns final text; abort, refusal, token limit, and other failures become errored tool results without partial output.
 
-The tool description and the `prompt` parameter description are DERIVED from the bound provider's `inheritsParentContext` (`providerWording`): a fresh-context provider (spawn, ACP) gets the standalone-prompt wording ("it does not see this conversation"), an inheriting provider (fork) tells the model the child already sees the conversation's completed turns and its prompt should state only what is new. Because the description is fixed at tool registration, the tool **mirrors the provider's lifecycle** (`subagent/provider-added`/`-removed`): it registers when the bound provider is (or becomes) available and unregisters when the provider goes away — no load-order requirement (the cordis Loader starts sibling entries concurrently, so "listed first" never guaranteed "registered first"), and an HMR reload of the backend re-derives the wording from the fresh provider. While the provider is absent the tool simply does not exist (a `ctx.logger` note records the wait; a typo'd provider name shows up as a tool that never materializes).
+With `run_in_background: true`, the tool registers the parent-owned task before starting the provider. A task-owned signal covers pending startup and the child after the starting call returns. `task_kill` and owner disposal abort it. Settlement awaits startup rollback or child disposal, then maps completed final text, abort to `killed`, and other failures to `failed`. The task has no incremental read; generic task tools own later status, collection, cancellation, and notices. See the [background subagent RFC](../../../docs/rfc/implemented/feature/2026-07-08-background-subagent-tasks.md).
 
-| Config key | Meaning |
+`toolFilter` changes the child's global tool layer but is not a parent-derived authority ceiling. See the [agent-scope security non-goal](../../../docs/rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals).
+
+## Config
+
+| Key | Meaning |
 |---|---|
-| `provider` (required) | The `ctx.subagents` provider name to start runs on (`spawn`, `fork`, `acp`, …). |
-| `toolName` | The model-facing tool name to register (default `subagent`). Set a distinct value per load when exposing multiple providers, e.g. `subagent` + `subagent_acp`. |
-| `agentOptions` | Default per-child `{ model? }` applied to every spawned child. (No per-child persona: the deployment persona is a context-wide section every agent shares.) |
+| `provider` (required) | Provider name (`spawn`, `fork`, `acp`, ...). |
+| `toolName` | Model-facing name, default `subagent`; distinct for every loaded instance. |
+| `enableRunInBackground` | Exposes background mode, default `true`; disabling also rejects forced background calls. |
+| `agentOptions` | Default child options, currently including `model`. |
+| `persona` | Per-child persona; requires provider `persona` capability. |
+| `toolFilter` | Per-child global-tool restriction; requires `toolFilter` capability. |
+| `maxDepth` | Absolute delegation-depth cap; requires `depthLimit` capability. |
 
-## Lifecycle (synchronous collect)
+## Model Experience
 
-`execute` starts a run on the configured provider and **awaits `run.result` inside a `try/finally` that always `dispose()`s the run** — the owned child agent/session is torn down on every path (success, error, abort), never leaked. The tool's abort signal (`exec.signal`) is bridged to `run.cancel()`. A non-`completed` stop reason (aborted/error/max-tokens/refusal) maps to an `isError` tool result rather than returning partial output as success.
+### Tool schema
 
-Background / poll collection is deferred (see the [RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md)); this cut blocks the parent turn until the child finishes.
+**What the model sees**: The generated default [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent) under this instance's configured name while its provider exists. Provider context inheritance changes the tool and prompt descriptions; enabled background mode adds `run_in_background`.
+
+**Token effect**: Fixed schema cost per parent request; each provider instance adds one schema.
+
+### Foreground result
+
+**What the model sees**: The call retains the description and prompt. Success contains only the child's final text; other outcomes become `Error: <message>`. Intermediate child steps stay out of the parent.
+
+**Token effect**: The prompt and result remain in parent history until compaction; child working context remains in the child.
+
+### Background task result
+
+**What the model sees**: Start returns exactly `started background subagent task <id>`. The generic task surface provides later status, final output, cancellation responses, and notices.
+
+**Token effect**: The acknowledgement is retained; final output enters parent history only when collected or injected.
+
+## Known Limitations and Deferred Work
+
+- **Background runs expose final output only** — intermediate child steps stay in the child session.
+- **Duplicate names across waiting instances are detected late** (`TODO(subagent-dup-toolname)`) — preventing provider-registration rollback requires a registry of intended names.
+- **Child policy is fixed per instance** — another model, persona, tool filter, or depth cap requires another distinctly named tool.

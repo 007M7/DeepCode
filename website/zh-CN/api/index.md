@@ -18,15 +18,21 @@ Cordis 微内核提供的基础能力，所有插件开发都建立在这些 API
 
 - [ctx.agentLoop](./harness/agent-loop) — ReAct 循环的创建与恢复
 - [ctx.agents](./harness/agents) — Agent 注册表与工厂
+- [ctx.approval](./harness/approval) — 用户审批
 - [ctx.bash](./harness/bash) — Bash 执行接口（抽象缝）
 - [ctx.codeRuntime](./harness/code-runtime) — 代码执行接口（抽象缝）
 - [ctx.compact](./harness/compact) — 上下文压缩接口（抽象缝）
 - [ctx.fs](./harness/fs) — 文件系统接口（抽象缝）
 - [ctx.llm](./harness/llm) — LLM 服务与适配器注册
+- [ctx.permission](./harness/permission) — 权限策略
+- [ctx.sandbox](./harness/sandbox) — 沙箱执行接口（抽象缝）
 - [ctx.sessionPersistence](./harness/session-persistence) — 会话持久化接口（抽象缝）
+- [ctx.sessionQuery](./harness/session-query) — 会话检索
 - [ctx.sessions](./harness/sessions) — 会话存储
+- [ctx.skills](./harness/skills) — 技能加载
 - [ctx.subagents](./harness/subagents) — 子代理委派
 - [ctx.systemPrompt](./harness/system-prompt) — 系统提示词组装
+- [ctx.tasks](./harness/tasks) — 后台任务
 - [ctx.tools](./harness/tools) — Tool 注册表
 - [ctx.userInteraction](./harness/user-interaction) — 用户交互接口
 - [ctx.web](./harness/web) — Web 搜索与抓取

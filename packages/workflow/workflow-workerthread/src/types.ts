@@ -1,11 +1,7 @@
 /**
- * Non-protocol wire vocabulary for the worker-thread engine: the `workerData` init
- * payload and the child-port interfaces the worker-side runtime consumes.
- * The host⇄worker MESSAGE protocol lives in ./protocol.ts; everything here
- * that a message transports (`ChildStartRequest`, `ChildResult`) is plain
- * JSON data by construction, so the structured-clone hop never meets a value
- * it cannot carry. Types only, per the package convention.
- *
+ * Non-protocol wire vocabulary for the worker-thread engine: the `workerData` init payload and
+ * the child-port interfaces the worker-side runtime consumes. Host/worker messages are defined in
+ * `./protocol.ts`; transported child requests and results are plain JSON for structured clone.
  * @module @deepseek-ai/dsh-workflow-workerthread/types
  */
 
@@ -77,8 +73,6 @@ export interface ChildHandle {
    * failed for its own reasons resolves with a non-`completed` stop reason.
    */
   readonly result: Promise<ChildResult>
-  /** Ask the host to cancel the child (fire-and-forget). */
-  cancel(reason?: string): void
   /** Ask the host to dispose the child; resolves on the host's ack. */
   dispose(): Promise<void>
 }
@@ -91,7 +85,8 @@ export interface ChildPort {
   /**
    * Start one child agent on the host (the `agent()` hook's start half).
    * @param request - the prompt and validated options.
-   * @returns the child handle; rejects when the host refuses the start.
+   * @returns the ready child handle; rejects when synchronous start or the
+   *   provider's asynchronous start fails.
    */
   startAgent(request: ChildStartRequest): Promise<ChildHandle>
 }

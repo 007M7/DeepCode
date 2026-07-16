@@ -1,19 +1,38 @@
 # @deepseek-ai/dsh-subagent-spawn
 
-The in-process **spawn** subagent backend: a [`SubagentProvider`](../subagent/README.md) that runs each child as a **fresh** child [`Agent`](../../core/agent) on the same cordis context (`ctx.agents`) — its own session, its own (or the parent's) model, zero inherited conversation. The cheapest transport, reusing the agent factory's quiescent [`AgentHandle`](../../core/agent) teardown.
+The spawn provider creates a fresh child `Agent` in the current process. The child has its own session, sees no parent conversation history, and reuses the host's agent factory and LLM/tool services.
 
-The run mechanics live in the shared [`@deepseek-ai/dsh-subagent-inprocess`](../subagent-inprocess/README.md) driver (`startInProcessRun`); this backend just passes **no seed** (a fresh child). The [fork](../subagent-fork/README.md) backend is an independent peer over the same driver — neither knows about the other.
+## Behavior
 
-## What it does
+`start(request)` delegates to [`startInProcessRun`](../subagent-inprocess/README.md) with no seed and awaits publication before returning. The child receives parent working-directory/session lineage and inherits the parent model unless overridden, but starts with an empty conversation.
 
-`start(request)` delegates to `startInProcessRun(ctx, request, { providerName })` with no seed: a fresh child agent with the parent's `cwd`/`parentSession` lineage and (by default) the parent's model. See the [driver README](../subagent-inprocess/README.md) for the full lifecycle (depth check, one-shot drive, result read, dispose).
+The shared driver owns depth checking, persona and tool-filter setup, structured output, required-signal cancellation, one-shot execution, result reading, and quiescent disposal. A startup rejection leaves no published child; provider unload after fulfillment does not revoke the holder-owned run.
 
 ## Capabilities
 
-`{ outputSchema: true, depthLimit: true, toolFilter: false }`. It constructs the child, so it enforces a recursion cap, and it supports structured output via the driver's [structured runtime](../subagent-inprocess/README.md) (acquired per structured run inside the driver — this backend registers nothing at apply). Tool-scoping is deferred (the service rejects a request needing it before `start` runs).
+Spawn advertises `{ outputSchema: true, depthLimit: true, toolFilter: true, persona: true }` because it controls the child's creation window and can enforce all four features.
 
 ## Config
 
 | Key | Meaning |
 |---|---|
 | `providerName` | Registry name on `ctx.subagents` (default `spawn`). |
+
+## Model Experience
+
+### Child-agent request
+
+**What the model sees**: The fresh child receives the standalone task content verbatim, inherits the parent model and workspace by default, and sees the global prompt with any configured child-scoped persona shadow. A tool filter removes global wire schemas, executable lookup, and Code Mode SDK bindings for that child but leaves independently registered guidance. It receives zero parent conversation messages; the filter is visibility/composition, not an authority grant inherited from the parent.
+
+**Token effect**: The child pays for a new independent context and history; no parent-history tokens are duplicated. Persona changes this child's repeated prompt cost, while filtering changes its schema or generated SDK cost.
+
+### Parent tool result, indirectly
+
+**What the model sees**: Through `dsh-tool-subagent`, the parent receives only the child's final output or stop-reason error.
+
+**Token effect**: Parent input grows by one data-dependent result retained until compaction.
+
+## Known Limitations and Deferred Work
+
+- **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs.
+- **Fresh means no parent transcript** — the child inherits cwd, lineage, model, and explicitly configured persona/tool restrictions, but none of the parent's conversation; use the fork provider when completed-turn context is required.

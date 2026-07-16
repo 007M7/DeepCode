@@ -28,6 +28,12 @@
     },
     {
       "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/scope"
+    },
+    {
+      "path": "../../ui/user-approval"
     }
   ]
 }

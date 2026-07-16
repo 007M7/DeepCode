@@ -4,53 +4,52 @@
 
 `AgentLoop` — provided by `@deepseek-ai/dsh-agent-loop`.
 
-The agent-loop plugin (`ctx.agentLoop`): creates ReactLoopAgents, runs their loops, and registers them in `ctx.agents`. Also implements the AgentFactory seam, so plugins create/resume agents through `ctx.agents` (the interface) without depending on this concrete package.
-The loop itself is deliberately thin — every behavior beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy declared in @deepseek-ai/dsh-agent.
+Concrete ReactLoopAgent factory and driver service.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L68)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L335)
 
-### ctx.agentLoop.create(id, options?)
-
-```ts website-api
-create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent
-```
-
-Config-driven create: an agent on a FRESH, non-colliding session id per run (`${id}-session-<uuid>`, no cwd). Used for `cordis.yml`-configured agents and as the shared core for the programmatic factory createAgent.
-Why a per-run id, not a fixed `${id}-session`: once a durable persistence backend is loaded, a fixed id collides on the second run — the backend refuses to re-create an id whose log already exists on disk (the SessionId is the identity). A fresh id means each run is a new session.
-TODO(demo): each run starting a brand-new session is fine for demos but is NOT real conversation continuity. A production config-driven agent needs a deliberate resume-or-create policy (resume the prior session if one exists, else start fresh) or an explicit caller-chosen session id — revisit when the UI/ACP path owns session selection.
-
-- `id` — the agent id; also seeds the generated session id.
-- `options` — loop options (model, limits, …); defaults applied per option.
-
-**Returns** the running agent, owned by the calling fiber (no handle).
-
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L142)
-
-### ctx.agentLoop.createAgent(options)
+### ctx.agentLoop.create(id, options?, meta?)
 
 ```ts website-api
-createAgent(options: CreateAgentOptions): AgentHandle
+create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent
 ```
 
-Programmatic factory create (AgentFactory): an agent on a caller-supplied `sessionId` (NOT `${id}-session`), with optional session metadata (validated `cwd`, lineage) and an optional `seed` event prefix. The ACP bridge uses this so the client-generated session id becomes the live/persisted session id; the in-process FORK subagent backend passes a `seed` (a balanced completed-turn prefix of the parent's log) so the child starts with the parent's context. Returns an AgentHandle the owner disposes to tear down exactly this agent.
+Create an agent on a fresh per-run session, owned by the accessing fiber. Constructor-driven config calls use the loop fiber itself.
 
-- `options` — agent id, caller-supplied session id, optional seed/meta, and agent options.
+- `id` — agent registry id.
+- `options` — concrete loop options.
+- `meta` — optional fresh-session workspace metadata.
 
-**Returns** the handle whose dispose tears down exactly this agent.
+**Returns** the published running agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L166)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L389)
 
-### ctx.agentLoop.resume(options)
+### ctx.agentLoop.createAgent(ownerCtx, options)
 
 ```ts website-api
-async resume(options: ResumeAgentOptions): Promise<AgentHandle>
+async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>
 ```
 
-Resume an agent on a persisted session (AgentFactory). Loads the session log + metadata via `ctx.sessionPersistence`, reconstructs the live session with the loaded events (so `lastTurnNumber`/`deriveMessages` continue), and starts a fresh agent on it. The live session id is the resumed id, NOT `${agentId}-session`.
-Requires `ctx.sessionPersistence`; rejects with a clear error if it is not configured. NOT hard-injected (that would make non-persistent demos pend forever) — callers that need resume (ACP) inject `sessionPersistence`, so by the time this runs the service exists.
+Create an owned agent on a caller-supplied session id.
 
-- `options` — the persisted session id to reload, plus agent id/options.
+- `ownerCtx` — caller context that structurally owns the transaction.
+- `options` — identities, session seed/metadata, loop options, setup, and cancellation.
 
-**Returns** the handle for the agent resumed on the reconstructed session.
+**Returns** the published handle.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L194)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L412)
+
+### ctx.agentLoop.resume(ownerCtx, options)
+
+```ts website-api
+async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
+```
+
+Resume an owned agent from the configured persistence service.
+
+- `ownerCtx` — caller context that owns load, setup, and the live lifecycle.
+- `options` — persisted identity, loop options, setup, and cancellation.
+
+**Returns** the published handle.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L443)

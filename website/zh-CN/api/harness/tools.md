@@ -4,9 +4,9 @@
 
 `ToolRegistry` — provided by `@deepseek-ai/dsh-tools`.
 
-Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → `tools/execute` → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly — WHICH schemas is governed by its `mode` config (see Config.mode); under a non-native mode it also registers the `run_code` tool and the `tools:sdk` prompt section itself.
+Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L345)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L363)
 
 ### ctx.tools.register(definition)
 
@@ -14,50 +14,81 @@ Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop e
 register(definition: ToolDefinition): () => void
 ```
 
-Register a tool. Throws if a tool with the same name is already registered. The tool's schema (minus the `execute` function) is automatically contributed to the system-prompt assembly. Disposed with the calling fiber. Emits `tools/change` on register/unregister.
+Register globally or in the calling agent scope. Scoped tools shadow globals; duplicates within one layer and the reserved `run_code` name fail.
 
-- `definition` — the tool's schema plus its execute (and optional presentation) functions.
+- `definition` — the tool schema, execution, and optional presentation functions.
 
-**Returns** the disposer that unregisters the tool.
+**Returns** the exact disposer that unregisters the tool.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L420)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L453)
 
-### ctx.tools.get(name)
+### ctx.tools.restrict(filter)
 
 ```ts website-api
-get(name: string): ToolDefinition | undefined
+restrict(filter: ToolRestriction): () => void
 ```
 
-Look up a registered tool.
+Restrict global tools for the calling agent scope. Empty filters, unknown names, scope-local names, and reserved transport names fail. Restrictions intersect; scoped registrations remain visible.
+
+- `filter` — global-surface mask: `allow` (keep only) and/or `deny` (remove).
+
+**Returns** the exact disposer that lifts this restriction.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L493)
+
+### ctx.tools.guard(guard)
+
+```ts website-api
+guard(guard: ToolGuard): () => void
+```
+
+Register a monotonic guard after the extensible `tools/pre-execute` waterfall. A plain-context guard applies globally; one registered through `agent.ctx` applies only to that agent. Any matching guard may deny by returning a reason, while no guard can force-allow a call another guard denied. The exact effect disposer is returned for ordered ownership and HMR cleanup.
+
+- `guard` — synchronous check; a returned string denies the execution.
+
+**Returns** the exact disposer that unregisters the guard.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L544)
+
+### ctx.tools.get(name, scope?)
+
+```ts website-api
+get(name: string, scope?: ScopeKey): ToolDefinition | undefined
+```
+
+Look up a tool as one scope sees it (scoped shadows global; a restricted-away global reads as absent). Presenters pass the calling agent so the rendered card matches the definition that actually executed.
 
 - `name` — the tool name as registered.
+- `scope` — the viewing scope (the agent); omitted = the global view.
 
-**Returns** the definition, or undefined when no tool has that name.
+**Returns** the definition the scope resolves, or undefined when none is visible.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L447)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L646)
 
-### ctx.tools.schemas()
+### ctx.tools.schemas(scope?)
 
 ```ts website-api
-schemas(): ToolSchema[]
+schemas(scope?: ScopeKey): ToolSchema[]
 ```
 
-Return all registered tool schemas — exactly the model-facing fields (`name`, `description`, `parameters`), as sent to the model via the system-prompt assembly. Constructed EXPLICITLY rather than by stripping known non-schema members: a `ToolDefinition` also carries `execute` and the optional `presentCall`/`presentResult` UI callbacks, and those (especially the functions) must never leak into a model request. An allowlist can't drift when a new non-schema member is added to the definition; a denylist (rest-destructure) would silently leak it.
+Project visible definitions onto the allowlisted model-facing schema fields, excluding execution and presentation callbacks.
 
-**Returns** one deep-cloned schema per registered tool, in registration order.
+- `scope` — the viewing scope (the agent); omitted = the global view.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L462)
+**Returns** one deep-cloned schema per visible tool.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L656)
 
 ### ctx.tools.execute(exec)
 
 ```ts website-api
-async execute(exec: ToolExecution): Promise<ToolExecutionResult>
+async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 ```
 
-Execute one tool call through the `tools/pre-execute` → `tools/execute` (around dispatch) → `tools/post-execute` pipeline. `pre-execute` is the gate (allow/deny), `tools/execute` wraps core dispatch (a timeout/retry/metrics seam), and `post-execute` is the inspect/transform seam; core dispatch sits as the base `next()` of the `tools/execute` waterfall. The whole thing is wrapped in one outer try/catch so a throwing listener (in any waterfall) becomes an `isError` result instead of failing the turn; the tool body ALSO keeps its own inner try/catch, so a thrown tool becomes an `isError` result that `tools/execute` and `post-execute` listeners can still inspect. If the tool is not registered, the result is an `isError` carrying a `UNKNOWN_TOOL` structured error. A thrown HarnessError surfaces its `{ name, code }` on the result.
+Execute through pre-policy, guards, around-dispatch, post-policy, and final notification. Tool and listener failures resolve as materialized error results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen snapshot final observers receive.
 
-- `exec` — the call to run (name, parsed arguments, caller agent, signal).
+- `exec` — the typed same-process call input. The registry assigns its correlation token before policy begins.
 
-**Returns** the final result after every waterfall; failures resolve as `isError` results, never rejections.
+**Returns** the materialized final result.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L487)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L679)

@@ -4,14 +4,9 @@
 
 `SessionPersistence` (abstract seam) — provided by `@deepseek-ai/dsh-session-persistence`.
 
-Abstract durable session-persistence service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.sessionPersistence` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
-Contracts every implementation MUST honor (a DB backend asserts them inside a transaction; a file backend appends at EOF):
-- **Append-only; a crashed turn is closed, not truncated.** Committed events — those at or below a flushed `turn/end` — are never rewritten. A crash can leave an unclosed final turn whose events are real (and possibly large); load preserves them and closes the orphaned turn with synthetic boundary events (see load). Only a never-fully-written torn tail fragment is discarded.
-- **Contiguous seq.** A persisted log is contiguous: `events[i].seq === i`. load rejects a parse error or a `seq` gap in the COMMITTED region (unloadable); append's first event `seq` MUST equal the backend's stored next-seq (after `load` has balanced any interrupted turn).
-- **JSON-serializable data.** `SessionEventMap` is merge-extensible and `event.data` is typed only as `SessionEventMap[K]`, so append REJECTS non-JSON-serializable data with an error naming the offending event type. A backend snapshots (serializes/clones) each event when it buffers, since `session.events` hands out the live mutable object.
-- **Durability.** append returns only once the batch is durable (the file backend fsyncs; a DB commits). create MAY defer the physical write until the first append (lazy materialization).
+Durable append-only session storage. Implementations preserve contiguous, losslessly JSON-serializable events; append resolves only after durability, and load balances a complete interrupted tail without rewriting committed events.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L102)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L30)
 
 ### ctx.sessionPersistence.create(meta)
 
@@ -23,7 +18,7 @@ Register a new session's metadata. A backend MAY defer the physical write until 
 
 - `meta` — the immutable header (id, version, cwd, lineage) to record.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L114)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L42)
 
 ### ctx.sessionPersistence.append(id, events)
 
@@ -36,7 +31,7 @@ Durably persist a batch of events (called from the write-behind drain at the `se
 - `id` — the session the batch belongs to.
 - `events` — the contiguous batch to persist, in seq order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L125)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L53)
 
 ### ctx.sessionPersistence.load(id)
 
@@ -44,14 +39,13 @@ Durably persist a batch of events (called from the write-behind drain at the `se
 abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 ```
 
-Reload a session: its SessionHeader plus the event log up to the last durable checkpoint. Returns `meta` AND `events` so the live session is reconstructed with its `cwd`/lineage, not just its log.
-The loop only flushes at `turn/end`, so a crash can leave a durable log whose final turn never closed: real, fully-written events sit after the last `turn/end`. Those events are PRESERVED — a single turn can be huge in a long-horizon task, so truncating it would destroy real work — and `load` CLOSES the orphaned turn by durably appending the minimal synthetic boundary events: an error `tool/result` for every `tool-call` the crash left unanswered (so the rehydrated history is a valid provider transcript — a dangling assistant tool-call is otherwise rejected), then a `step/end` if a step was open, then a `turn/end` carrying the `{ kind: 'interrupted' }` reason. The returned `events` therefore end on a balanced `turn/end` and are immediately usable as a session seed. Only a never-fully-written TORN tail fragment (a half-written final record) is discarded. Returned events are contiguous (`events[i].seq === i`); a parse error or a `seq` gap in the COMMITTED region (at or before the last real `turn/end`) makes the session unloadable (reject). Rejects an unknown format `version`. See the session-persistence RFC for the crash-recovery contract.
+Load a header and balanced contiguous log. A complete interrupted final turn is preserved and durably closed with missing tool errors plus any open step and turn boundaries; only a torn final record is discarded. Unknown versions and corruption in the committed prefix reject.
 
 - `id` — the persisted session to reload.
 
-**Returns** the header plus the event log, ending on a balanced `turn/end` — immediately usable as a session seed.
+**Returns** the header and a log ending on a balanced `turn/end`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L152)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L63)
 
 ### ctx.sessionPersistence.list()
 
@@ -63,4 +57,4 @@ Lightweight listing from metadata, without a full-log parse.
 
 **Returns** one header per materialized session.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L158)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L69)

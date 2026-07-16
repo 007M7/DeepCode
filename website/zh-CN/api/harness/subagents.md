@@ -4,9 +4,9 @@
 
 `SubagentService` — provided by `@deepseek-ai/dsh-subagent`.
 
-The `subagents` service: a registry of named SubagentProviders and a capability-checked start surface.
+Named provider registry and capability-checked start surface.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L144)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L141)
 
 ### ctx.subagents.registerProvider(provider)
 
@@ -14,13 +14,13 @@ The `subagents` service: a registry of named SubagentProviders and a capability-
 registerProvider(provider: SubagentProvider): () => void
 ```
 
-Register a provider under its `provider.name`. Throws SubagentError (`DUPLICATE_PROVIDER`) if the name is already taken. Effect-scoped: disposed with the calling fiber (HMR-safe). Emits `subagent/provider-added` after the registration and `subagent/provider-removed` on unregistration, so consumers can mirror provider lifecycle instead of assuming load order.
+Register a provider under its name. Registration is effect-scoped and HMR safe; removing a provider blocks new starts but does not revoke runs that were already returned to their holders.
 
-- `provider` — the provider; its `name` is the registry key.
+- `provider` — the trusted provider implementation.
 
-**Returns** the disposer that unregisters the provider.
+**Returns** the exact Cordis effect disposer.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L160)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L155)
 
 ### ctx.subagents.getProvider(name)
 
@@ -28,13 +28,13 @@ Register a provider under its `provider.name`. Throws SubagentError (`DUPLICATE_
 getProvider(name: string): SubagentProvider | undefined
 ```
 
-Look up a registered provider by name (`undefined` if absent).
+Look up a provider by name.
 
-- `name` — the provider name as registered.
+- `name` — the provider name.
 
-**Returns** the provider, or undefined when the name is unknown.
+**Returns** the provider, or undefined when absent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L188)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L178)
 
 ### ctx.subagents.list()
 
@@ -42,23 +42,23 @@ Look up a registered provider by name (`undefined` if absent).
 list(): string[]
 ```
 
-The names of all registered providers (insertion order).
+List registered provider names in insertion order.
 
-**Returns** the registered provider names.
+**Returns** the registered names.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L196)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L186)
 
 ### ctx.subagents.start(name, request)
 
 ```ts website-api
-start(name: string, request: SubagentStartRequest): SubagentRun
+async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
-Start a subagent run on the named provider. Resolves the provider (throws `NO_PROVIDER` if absent), validates every requested START-TIME capability against SubagentProvider.capabilities (throws `UNSUPPORTED_CAPABILITY` for the first unmet one — fail loud, before any child is created), then delegates to SubagentProvider.start and emits `subagent/start` / `subagent/end` around the run.
+Establish a ready child on the named provider. Capability and semantic checks run before delegation. Provider ownership lasts until its promise fulfills; a rejection therefore has no run for the caller to dispose and emits no run lifecycle events.
 
-- `name` — the provider to run on.
-- `request` — the child's prompt, capabilities, and options.
+- `name` — the provider to use.
+- `request` — child prompt, parent, signal, and optional capabilities.
 
-**Returns** the live run (its `result` resolves when the child settles).
+**Returns** the ready holder-owned run.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L211)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L199)

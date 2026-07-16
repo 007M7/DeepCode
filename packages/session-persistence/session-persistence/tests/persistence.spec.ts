@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore, { SessionId, isJsonValue } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
-  SessionPersistence, PersistenceCoordinator, assertSerializable, seedCoversPrefix,
+  SessionPersistence, PersistenceCoordinator,
   type PersistenceBackend, type StoredPrefix,
 } from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
@@ -16,18 +16,10 @@ type MemoryStore = Map<string, { meta: SessionHeader; events: SessionEvent[] }>
 interface MemoryConfig { store?: MemoryStore }
 
 /**
- * A trivial in-memory {@link SessionPersistence} that composes a
- * {@link PersistenceCoordinator} over a dependency-free `Map`-backed
- * {@link PersistenceBackend}. It is BOTH the coordinator's reference vehicle
- * (the simplest possible storage — a `Map<id, {meta, events}>` with no torn
- * tails, so `tornMarker` is always undefined) and the cover for the abstract
- * base's constructor + service registration. The real durable backends are
- * `@deepseek-ai/dsh-session-persistence-jsonl` / `-sqlite`.
- *
- * The store can be supplied via config so two backend instances share one Map —
- * the in-RAM analogue of two backends over the same file/db, which the
- * coordinator orchestration suite's HMR/reload tests need (a fresh instance with
- * an empty in-memory states map adopting an already-materialized session).
+ * Reference {@link PersistenceCoordinator} vehicle and abstract-service coverage, backed by a
+ * dependency-free map with atomic writes and no torn-tail marker. Supplying the map lets multiple
+ * instances share materialized sessions, the in-memory analogue of reload over one file/database;
+ * durable behavior is covered by the JSONL and SQLite backends.
  */
 class MemoryPersistence extends SessionPersistence implements PersistenceBackend<never> {
   static inject = ['sessions']
@@ -61,11 +53,6 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     return this.coordinator.load(id)
   }
 
-  /** White-box accessor: await a specific session's onCreated init. */
-  get inits(): Map<Session, Promise<void>> {
-    return this.coordinator.inits
-  }
-
   // --- PersistenceBackend hooks (the Map storage primitives) ---
 
   // A Map-backed store has no torn tails, so `tornMarker` is never set. Ids are
@@ -88,8 +75,7 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     }
     const existing = this.store.get(m.id)
     if (!existing) {
-      // First batch: `_isMaterialized` is false (the coordinator only omits
-      // materialization on the first batch); writing the entry IS the materialization.
+      // The coordinator sends the first batch for materialization; later batches append.
       this.store.set(m.id, { meta: structuredClone(m), events: structuredClone(events) as SessionEvent[] })
     } else {
       existing.events.push(...structuredClone(events) as SessionEvent[])
@@ -122,12 +108,8 @@ runPersistenceContract('memory', async () => {
   }
 })
 
-// Run the shared coordinator orchestration suite against the in-memory backend.
-// A per-fixture Map is the shared "storage", so two mounted instances see the
-// same materialized sessions (HMR/reload). `corruptTail` is OMITTED: a Map store
-// writes atomically in RAM and has no torn tails, so the suite's torn-tail test
-// self-skips (and asserts the omission). The real torn-tail repair branch is
-// covered by the jsonl/sqlite fixtures, which CAN inject one.
+// Each fixture shares one map across mounts. No `corruptTail` is supplied because map writes are
+// atomic; the suite asserts that skip while JSONL and SQLite cover the repair branch.
 runCoordinatorContract('memory', async (): Promise<CoordinatorFixture> => {
   const store: MemoryStore = new Map()
   return {
@@ -158,39 +140,15 @@ describe('SessionPersistence service registration', () => {
     expect(loaded.events).toHaveLength(6)
     await fiber.dispose()
   })
-})
 
-describe('shared persistence helpers', () => {
-  it('accepts a seed that reproduces the persisted prefix exactly', () => {
-    const log = oneTurnLog()
-    expect(seedCoversPrefix(log, log.slice(0, 3))).toBe(true)
-    expect(seedCoversPrefix(log, [])).toBe(true)
-  })
+  it('rejects non-JSON session metadata before registering lazy state', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(MemoryPersistence)
+    const invalid = { ...meta('invalid-meta'), createdAt: 1n as unknown as number }
 
-  it('rejects a prefix longer than the seed', () => {
-    const log = oneTurnLog()
-    expect(seedCoversPrefix(log.slice(0, 2), log)).toBe(false)
-  })
-
-  it('rejects a same-envelope event with mutated data', () => {
-    const log = oneTurnLog()
-    const tampered = structuredClone(log)
-    const event = tampered[1]!
-    tampered[1] = {
-      ...event,
-      data: { ...event.data, content: [{ type: 'text', text: 'tampered' }] },
-    } as SessionEvent
-    expect(seedCoversPrefix(tampered, log.slice(0, 2))).toBe(false)
-  })
-
-  it('accepts JSON-serializable event data', () => {
-    expect(() => { assertSerializable(oneTurnLog()) }).not.toThrow()
-  })
-
-  it('rejects non-JSON-serializable event data with type and seq context', () => {
-    const bad = [
-      { type: 'user/message', seq: 0, time: 1, data: { content: 1n } },
-    ] as unknown as SessionEvent[]
-    expect(() => { assertSerializable(bad) }).toThrow(/"user\/message".*seq 0/)
+    await expect(ctx.sessionPersistence.create(invalid))
+      .rejects.toThrow('session metadata must be losslessly JSON-serializable')
+    await fiber.dispose()
   })
 })

@@ -1,19 +1,7 @@
 /**
- * Scripted fake ACP agent bin for `dsh-acp-snapshot`'s unit specs. Speaks
- * newline-delimited JSON-RPC on stdio like the real `dsh-acp-agent` bin, but
- * every behavior — how prompts settle, whether session/new rejects, which
- * session logs get persisted, what filesystem noise to leave — comes from a
- * `behavior.json` sitting NEXT to the `$DSH_SNAPSHOT_FILE` fixture, so a spec
- * scripts a whole subprocess run from data. The specs launch it through the
- * REAL `runScenario` spawn path (tsx loader, temp cwd, env plumbing), so the
- * harness plumbing is exercised for real; only the agent behind the protocol
- * is scripted.
- *
- * The specs (not the golden tier) own this bin: it asserts nothing, echoes
- * observable facts into `session/update` text chunks (env probe, permission
- * outcome, seeded-workspace listing) for the spec to read off `rawStdout`, and
- * exits 0 on stdin EOF after writing the scripted logs — mirroring the real
- * bin's dispose-flush-exit shape.
+ * Scripted ACP agent for snapshot-kit tests. A fixture-adjacent `behavior.json` controls the
+ * subprocess reached through the real harness path; the bin reports observations over ACP and
+ * writes scripted logs before exiting on stdin EOF.
  */
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -58,6 +46,13 @@ interface Behavior {
   strayBucketFile?: boolean
   /** Delete the sessions root entirely (harvest must yield no logs). */
   deleteSessionsRoot?: boolean
+  /**
+   * Vocabulary for `session/set_config_option`: allowed values per config id.
+   * A set naming an unknown id or an out-of-vocabulary value rejects (the
+   * real bridge's rule); a valid set answers with the complete refreshed
+   * option state, `currentValue` updated. Absent: every set rejects.
+   */
+  configOptions?: Record<string, string[]>
 }
 
 const sessionsRoot = process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? ''
@@ -81,6 +76,8 @@ let sessionCwd = ''
 let parkedPromptId: number | string | null = null
 /** Resolvers for permission-probe responses, keyed by outbound request id. */
 const pendingPermission = new Map<number, (outcome: unknown) => void>()
+/** Per-run `session/set_config_option` state: config id → current value (first vocabulary entry until set). */
+const currentConfig: Record<string, string> = {}
 
 function send(frame: Record<string, unknown>): void {
   process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...frame })}\n`)
@@ -195,6 +192,32 @@ function handleFrame(frame: Record<string, unknown>): void {
     case 'session/prompt':
       void handlePrompt(id as number | string)
       return
+    case 'session/set_config_option': {
+      const vocabulary = behavior.configOptions
+      const configId = params.configId as string
+      const value = params.value as string
+      const values = vocabulary?.[configId]
+      if (values === undefined) {
+        respondError(id as number | string, `unknown config option ${configId}`)
+        return
+      }
+      if (!values.includes(value)) {
+        respondError(id as number | string, `unknown ${configId} value ${value}`)
+        return
+      }
+      currentConfig[configId] = value
+      // The real bridge's contract: every set answers with the COMPLETE
+      // refreshed option state, not just the changed entry.
+      respond(id as number | string, {
+        configOptions: Object.entries(vocabulary as Record<string, string[]>).map(([cid, vs]) => ({
+          id: cid,
+          type: 'select',
+          currentValue: currentConfig[cid] ?? vs[0],
+          options: vs.map(v => ({ value: v, name: v })),
+        })),
+      })
+      return
+    }
     case 'session/cancel':
       if (parkedPromptId !== null) {
         const parked = parkedPromptId

@@ -1,22 +1,9 @@
 /**
  * The in-process FORK subagent backend: registers a {@link SubagentProvider} on
- * `ctx.subagents` that runs each child as a child {@link Agent} SEEDED with a
- * prefix of the parent's session log — so the child inherits the parent's
- * conversation context instead of starting fresh. The run mechanics live in
- * `@deepseek-ai/dsh-subagent-inprocess` ({@link startInProcessRun}); this
- * backend just computes the seed. The spawn backend is an independent peer over
- * the same driver.
- *
- * The seed boundary is the crux: at the moment a subagent tool's `execute`
- * runs, the parent's CURRENT turn is open and unbalanced (it holds the
- * `assistant/message` with this spawn's tool-call, plus the dangling `tool/call`
- * with no `tool/result`). Seeding that raw prefix gives the child an open turn
- * the session constructor and the dev-mode invariants replay REJECT. So the
- * fork seeds only the **balanced completed-turn prefix**: the parent's log up
- * to and including its last `turn/end`, excluding the in-flight turn entirely.
- *
- * Plugin export shape: named `name`/`inject`/`Config`/`apply`, NO default.
- *
+ * `ctx.subagents` that runs each child as a child {@link Agent} SEEDED with a prefix of the
+ * parent's session log — so the child inherits the parent's conversation context instead of
+ * starting fresh. The seed ends at the last `turn/end`: the current tool-call turn is
+ * unbalanced and cannot be replayed as a valid child session.
  * @module @deepseek-ai/dsh-subagent-fork
  */
 
@@ -32,7 +19,7 @@ export const name = 'subagent-fork'
 // per-run structured runtime gates its capture-tool registration on `tools`
 // itself, so this backend's apply timing (and the delegation tool's position
 // in the model-visible tool list) is unchanged by structured output.
-export const inject = ['subagents', 'agents']
+export const inject = ['subagents']
 
 /** Config: the registry name to register the provider under. */
 export interface Config {
@@ -45,12 +32,10 @@ export const Config: z<Config> = z.object({
 })
 
 /**
- * The balanced completed-turn prefix of `parent`'s log: every event up to and
- * including the last `turn/end`. Empty if the parent has never completed a turn
- * (the in-flight turn is excluded, so a parent on its very first turn forks an
- * empty — i.e. fresh — child). The result is contiguous from seq 0 (the live
- * log keeps `seq === index`), so it is a valid session seed; the in-flight,
- * unbalanced turn is dropped so the invariants replay accepts it.
+ * The balanced completed-turn prefix of `parent`'s log: every event up to and including the
+ * last `turn/end`. The in-flight turn is excluded; before any completed turn the child starts
+ * fresh. Because live sequence numbers equal array indexes, the result remains a valid seed
+ * beginning at sequence zero.
  * @param parent - the agent whose session log to slice.
  * @returns the seed events, contiguous from seq 0; empty when no turn has completed.
  */
@@ -64,20 +49,19 @@ export function completedTurnPrefix(parent: Agent): SessionEvent[] {
 
 /**
  * The fork provider. Supports `depthLimit` and `outputSchema` (via the shared
- * in-process structured runtime); NOT `toolFilter` this cut (the service
- * rejects a request needing it before `start` runs).
+ * in-process structured runtime), plus `toolFilter`/`persona` (scoped
+ * restrict() and a scoped shadowing persona section).
  */
 class ForkProvider implements SubagentProvider {
-  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: false }
+  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
   // Context contract: a forked child IS seeded with the parent's completed-turn prefix.
   readonly inheritsParentContext = true
 
-  constructor(readonly name: string, private readonly ctx: Context) {}
+  constructor(readonly name: string) {}
 
   start(request: SubagentStartRequest) {
     const seed = completedTurnPrefix(request.parent)
-    return startInProcessRun(this.ctx, request, {
-      providerName: this.name,
+    return startInProcessRun(request, {
       // Only pass a seed when there's a completed turn to inherit; an empty seed
       // is equivalent to a fresh child, so omit it to keep the session unseeded.
       ...seed.length > 0 ? { seed } : {},
@@ -86,5 +70,5 @@ class ForkProvider implements SubagentProvider {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  ctx.subagents.registerProvider(new ForkProvider(config.providerName, ctx))
+  ctx.subagents.registerProvider(new ForkProvider(config.providerName))
 }

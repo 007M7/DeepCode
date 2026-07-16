@@ -6,14 +6,14 @@
 
 The web access service. Registered as `ctx.web` (one instance per context).
 Selection semantics (resolved at execution time, never order-dependent):
-- A configured id that is registered and `status().available` → that provider.
+- A configured id that is registered and `available()` → that provider.
 - A configured id not registered → `WEB_PROVIDER_CONFIGURED_MISSING`.
 - A configured id registered but unavailable → `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.
 - No id configured, exactly one registered usable provider → that provider.
 - No id configured, multiple usable providers → `WEB_PROVIDER_AMBIGUOUS`.
 - No id configured, no usable provider → `WEB_PROVIDER_UNAVAILABLE`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/web/web/src/index.ts#L87)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/web/web/src/index.ts#L74)
 
 ### ctx.web.registerSearchProvider(provider)
 
@@ -27,7 +27,7 @@ Register a search provider. Throws WebError `WEB_DUPLICATE_PROVIDER` if its id i
 
 **Returns** the disposer that unregisters the provider.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/web/web/src/index.ts#L116)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/web/web/src/index.ts#L103)
 
 ### ctx.web.registerFetchProvider(provider)
 
@@ -41,34 +41,34 @@ Register a fetch provider. Throws WebError `WEB_DUPLICATE_PROVIDER` if its id is
 
 **Returns** the disposer that unregisters the provider.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/web/web/src/index.ts#L127)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/web/web/src/index.ts#L114)
 
-### ctx.web.search(request, exec?)
+### ctx.web.search(request, signal?)
 
 ```ts website-api
-async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>
+async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>
 ```
 
 Run one search through the selected provider. Resolves the provider at call time with the selection rules above; throws WebError when the capability cannot run. The seam enforces `request.maxResults` on the result: if the provider over-returns, `sources[]` is truncated and `truncated` set.
 
 - `request` — the query plus result-shaping options.
-- `exec` — the tool-execution context, forwarded to the provider.
+- `signal` — optional cancellation signal forwarded to the provider.
 
 **Returns** the provider's results, capped to `request.maxResults`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/web/web/src/index.ts#L153)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/web/web/src/index.ts#L140)
 
-### ctx.web.fetch(request, exec?)
+### ctx.web.fetch(request, signal?)
 
 ```ts website-api
-async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
+async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 ```
 
 Retrieve one URL through the selected provider. Resolves the provider at call time with the selection rules above; throws WebError when the capability cannot run. A non-2xx response is a result, not a throw.
 
 - `request` — the URL plus retrieval options.
-- `exec` — the tool-execution context, forwarded to the provider.
+- `signal` — optional cancellation signal forwarded to the provider.
 
 **Returns** the retrieval outcome; non-2xx responses resolve descriptively.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/web/web/src/index.ts#L170)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/web/web/src/index.ts#L157)

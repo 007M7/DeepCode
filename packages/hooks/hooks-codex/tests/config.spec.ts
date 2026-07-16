@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { parseCodexConfig, CODEX_EVENTS } from '@deepseek-ai/dsh-hooks-codex/src/config.ts'
 
 describe('parseCodexConfig', () => {
-  it('honors only the five Codex events, dropping unknown ones', () => {
+  it('honors only the five bridge-supported Codex events, dropping the rest', () => {
     const { config } = parseCodexConfig({
       PreToolUse: [{ hooks: [{ type: 'command', command: 'a.sh' }] }],
-      SubagentStop: [{ hooks: [{ type: 'command', command: 'b.sh' }] }], // not a Codex event
-      Notification: [{ hooks: [{ type: 'command', command: 'c.sh' }] }], // not a Codex event
+      SubagentStop: [{ hooks: [{ type: 'command', command: 'b.sh' }] }], // current Codex event, unsupported by this bridge
+      Notification: [{ hooks: [{ type: 'command', command: 'c.sh' }] }], // unknown to current Codex
     })
     expect(Object.keys(config)).toEqual(['PreToolUse'])
     expect(CODEX_EVENTS).toContain('PreToolUse')
@@ -18,7 +18,7 @@ describe('parseCodexConfig', () => {
       Stop: [{ hooks: [{ type: 'command', command: '${NOT_SUBSTITUTED}/s.sh', timeout: 10 }] }],
       UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'u.sh', timeoutSec: 20 }] }],
     })
-    // Codex does NO substitution — the literal ${…} survives.
+    // The parser performs no config-time substitution; shell expansion happens later.
     expect(config.Stop).toEqual([{ hooks: [{ command: '${NOT_SUBSTITUTED}/s.sh', timeoutSec: 10 }] }])
     expect(config.UserPromptSubmit).toEqual([{ hooks: [{ command: 'u.sh', timeoutSec: 20 }] }])
   })

@@ -6,7 +6,7 @@
 
 The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L88)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L75)
 
 ### ctx.llm.registerAdapter(models, adapter)
 
@@ -21,7 +21,7 @@ Register an adapter for the given model names. Throws `LlmError` with code `DUPL
 
 **Returns** the disposer that unregisters all of them.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L103)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L90)
 
 ### ctx.llm.models()
 
@@ -33,7 +33,7 @@ Model names with a registered adapter.
 
 **Returns** the registered names, in registration order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L124)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L111)
 
 ### ctx.llm.stream(options)
 
@@ -47,4 +47,4 @@ Stream one model call as raw chunks (token-level deltas). Throws `LlmError` with
 
 **Returns** the chunk stream, possibly wrapped by `llm/stream` listeners.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L141)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L128)

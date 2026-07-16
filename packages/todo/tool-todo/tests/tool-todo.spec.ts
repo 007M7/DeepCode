@@ -149,10 +149,7 @@ describe('dsh-tool-todo', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/apply', () => {
-    // Postmortem 0001 guard: this plugin HAS `inject = ['tools']`, so a stray
-    // `export default apply` would collapse the module via `unwrapExports`
-    // (`exports.default ?? exports`), DROP `inject`, and crash at load with
-    // "cannot get property … without inject". Guard the shape directly.
+    // A default export would make Loader unwrap only apply and drop `inject`.
     expect('default' in tool).toBe(false)
     expect(tool.name).toBe('tool-todo')
     expect(tool.inject).toEqual(['tools'])

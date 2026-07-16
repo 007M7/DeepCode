@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
-import { Session, SessionId, isSurfaceEligibleType, isSurfaceEvent } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, foldSurface, isSurfaceEligibleType, isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
 
 /** Build a minimal session with turn boundaries and a single user message. */
@@ -14,6 +14,59 @@ function surfaceSession(): Session {
 }
 
 describe('SurfaceManager', () => {
+  it('shares exact nodes and nested replacement ranges with foldSurface', () => {
+    const s = new Session(SessionId('shared-fold'))
+    s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'summary' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] })
+    s.append('assistant/message', { turn: 1, step: 2, content: [{ type: 'text', text: 'summary 2' }] }, { surfaceOp: { op: 'replace', start: 2, end: 1 }, sourceEventSeqs: [2, 1] })
+
+    const folded = foldSurface(s.events)
+    expect(folded.nodes).toEqual(s.surface.nodes)
+    expect(folded.replacements).toEqual([
+      { seq: 2, start: 0, end: 0, shadowedSeqs: [0] },
+      { seq: 3, start: 2, end: 1, shadowedSeqs: [2, 1] },
+    ])
+    folded.nodes[0]!.next = 99
+    folded.replacements[0]!.shadowedSeqs.push(99)
+    expect(s.surface.nodes).toEqual([{ seq: 3, prev: null, next: null }])
+    expect(foldSurface(s.events).replacements[0]!.shadowedSeqs).toEqual([0])
+  })
+
+  it('does not retain fold-only replacement history in incremental state', () => {
+    const s = new Session(SessionId('incremental-state'))
+    s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'b' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 } })
+
+    expect(s.surface.nodes).toEqual([{ seq: 1, prev: null, next: null }])
+    const manager = s.surface as unknown as { _state: object }
+    expect(Object.hasOwn(manager._state, 'replacements')).toBe(false)
+    expect(foldSurface(s.events).replacements).toEqual([
+      { seq: 1, start: 0, end: 0, shadowedSeqs: [0] },
+    ])
+  })
+
+  it('foldSurface reports the same invalid replacement failures as the incremental manager', () => {
+    const s = new Session(SessionId('shared-fold-invalid'))
+    s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 42, end: 0 }, sourceEventSeqs: [0] })
+
+    expect(() => foldSurface(s.events)).toThrow(/start seq 42 not found/)
+    expect(() => s.surface.nodes).toThrow(/start seq 42 not found/)
+  })
+
+  it('foldSurface rejects a surface-eligible event without its mandatory marker', () => {
+    const malformed: SessionEvent = {
+      type: 'user/message',
+      seq: 0,
+      time: 1,
+      data: { content: [{ type: 'text', text: 'hidden' }], source: { kind: 'user' } },
+    }
+
+    expect(() => foldSurface([malformed]))
+      .toThrow(/surface event "user\/message" \(seq 0\) carries no surfaceOp marker/)
+  })
+
   it('rebuilds a linked list from surfaceOp: append markers', () => {
     const s = surfaceSession()
     const nodes = s.surface.nodes
@@ -26,14 +79,6 @@ describe('SurfaceManager', () => {
     expect(nodes[1]!.seq).toBe(2)
     expect(nodes[1]!.prev).toBe(1)
     expect(nodes[1]!.next).toBeNull()
-  })
-
-  it('invalidate resets to full rebuild', () => {
-    const s = surfaceSession()
-    expect(s.surface.nodes.length).toBe(2)
-    // After invalidate, the surface should rebuild from scratch on next access.
-    ;(s.surface).invalidate()
-    expect(s.surface.nodes.length).toBe(2) // same result, but rebuilt
   })
 
   it('empty surface yields empty nodes', () => {
@@ -70,14 +115,11 @@ describe('SurfaceManager', () => {
 
   it('rebuild with replace operation splices out shadowed nodes', () => {
     const s = surfaceSession()
-    // seq: 0=turn/start, 1=user, 2=assistant, 3=turn/end
-    // Surface nodes: seq 1 (user), seq 2 (assistant).
-    // Replace both with a compaction marker. Both 1 and 2 are valid surface seqs.
+    // Replace surface seqs 1 (user) and 2 (assistant) with the summary.
     s.append('assistant/message',
       { turn: 2, step: 1, content: [{ type: 'text', text: 'summary' }] },
       { surfaceOp: { op: 'replace', start: 1, end: 2 }, sourceEventSeqs: [1, 2] },
     )
-    // Now the surface should have just the compaction node.
     expect(s.surface.nodes.length).toBe(1)
     expect(s.surface.nodes[0]!.seq).toBe(4) // seq of the compaction marker
     expect(s.surface.nodes[0]!.prev).toBeNull()
@@ -336,7 +378,7 @@ describe('surface type guards', () => {
 })
 
 describe('SurfaceManager.replaceGeneration', () => {
-  it('folds the pending log delta on access and counts replaces and invalidations', () => {
+  it('folds the pending log delta on access and counts replaces', () => {
     const s = new Session(SessionId('gen'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('user/message', { content: [{ type: 'text', text: 'one' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -350,10 +392,5 @@ describe('SurfaceManager.replaceGeneration', () => {
       content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
     }, { surfaceOp: { op: 'replace', start: nodes[0]!.seq, end: nodes[1]!.seq }, sourceEventSeqs: [nodes[0]!.seq, nodes[1]!.seq] })
     expect(s.surface.replaceGeneration).toBe(1)
-
-    // invalidate() is a rewrite too: the generation moves forward (and the
-    // refold re-counts the replace), never backwards.
-    s.surface.invalidate()
-    expect(s.surface.replaceGeneration).toBeGreaterThan(1)
   })
 })

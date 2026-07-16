@@ -4,16 +4,9 @@
 
 `FileSystem` (abstract seam) — provided by `@deepseek-ai/dsh-fs`.
 
-Abstract filesystem provider service. Subclass, implement the seven storage primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
-Semantics every backend must honor:
-- resolve returns a stable FsTarget; the same underlying file reached by different input paths must yield the same `targetKey` so stale guards and target lookup agree across paths (e.g. through symlinks).
-- stat returns FsInfo metadata (never content) or `undefined` when the target is absent.
-- readText/streamText read the whole regular text file (the stream for large files); both own regular-file checks, UTF-8 decoding, binary/NUL rejection, and `FS_NOT_TEXT`.
-- listDir returns direct children of a directory in stable name order with resolved child targets and cheap metadata only. It never reads file contents. Missing targets throw `FS_NOT_FOUND`, non-directories throw `FS_NOT_DIRECTORY`, permission failures throw `FS_PERMISSION_DENIED`, and other backend I/O failures throw `FS_IO_ERROR`.
-- writeText is atomic temp-file + rename. `expected` is OPTIONAL: omit it for an unconditional create-or-overwrite (the bare-provider default), or supply a FsWriteIntent to guard the write.
-- editText verifies `expected.version` BEFORE literal matching (so a stale edit reports `FS_STALE_VERSION`, not `FS_EDIT_NOT_FOUND`/ `FS_AMBIGUOUS_EDIT` against newer content), then applies literal replacement and writes atomically — all inside one mutation critical section. `expected` is OPTIONAL: omit it for an unconditional edit of the current content (a missing target still reports `FS_STALE_VERSION`).
+Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L172)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L78)
 
 ### ctx.fs.resolve(path, opts?)
 
@@ -22,14 +15,13 @@ abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>
 ```
 
 Resolve a model/plugin-supplied path into a stable FsTarget. May perform I/O (a remote/sandboxed backend may need a round-trip to map a path to a stable identity), hence async even though the local backend only normalizes + realpaths.
-`opts.cwd` is the base directory a RELATIVE `path` resolves against; an absolute `path` ignores it. Omitted ⇒ the backend's own default base (the local backend uses its configured `cwd`). The CALLER supplies this — the seam does not read a session or agent — so a tool can resolve against the caller's per-session workspace (`exec.agent.session.header.cwd`) without the provider depending on `dsh-agent`/`dsh-session`. Mirrors how `dsh-tool-bash` defaults a bash `workdir` to the session cwd.
 
 - `path` — the path to resolve; relative paths resolve against `opts.cwd`.
 - `opts` — `cwd` overrides the backend's default base for relative paths.
 
 **Returns** the stable target; the same file yields the same `targetKey`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L194)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L92)
 
 ### ctx.fs.stat(target, signal?)
 
@@ -44,7 +36,7 @@ Return target metadata, or `undefined` when the target does not exist.
 
 **Returns** metadata only, never content; undefined for an absent target.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L202)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L100)
 
 ### ctx.fs.readText(target, signal?)
 
@@ -59,7 +51,7 @@ Read the whole regular text file as a single decoded string.
 
 **Returns** the full decoded UTF-8 content.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L210)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L108)
 
 ### ctx.fs.streamText(target, signal?)
 
@@ -74,7 +66,7 @@ Stream the whole regular text file as decoded text chunks (same text semantics a
 
 **Returns** the chunk iterable, decoded and validated like `readText`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L221)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L119)
 
 ### ctx.fs.listDir(target, signal?)
 
@@ -89,7 +81,7 @@ List direct children of a directory in stable name order. Returns resolved child
 
 **Returns** one entry per direct child, in stable name order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L230)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L128)
 
 ### ctx.fs.writeText(target, content, expected?, signal?)
 
@@ -97,7 +89,7 @@ List direct children of a directory in stable name order. Returns resolved child
 abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
 ```
 
-Create or fully replace a UTF-8 text file atomically. `expected` is the create-vs-replace decision and stale guard when supplied; OMITTING it is an unconditional create-or-overwrite (the bare provider — no version guard, no read-first requirement). Atomic either way.
+Atomically create or replace UTF-8 text. `expected` guards intent and staleness; omission allows unconditional overwrite.
 
 - `target` — the resolved target to write.
 - `content` — the full new file content.
@@ -106,7 +98,7 @@ Create or fully replace a UTF-8 text file atomically. `expected` is the create-v
 
 **Returns** the outcome, including the version the write produced.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L243)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L139)
 
 ### ctx.fs.editText(target, edit, expected?, signal?)
 
@@ -114,7 +106,7 @@ Create or fully replace a UTF-8 text file atomically. `expected` is the create-v
 abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
 ```
 
-Apply a literal edit to an existing UTF-8 text file. When `expected` is supplied, verifies `expected.version` as the stale guard BEFORE literal matching; OMITTING it edits the current content unconditionally (no version guard). Either way applies the replacement and writes atomically — one mutation critical section — and a missing target reports `FS_STALE_VERSION`.
+Atomically edit literal text. When supplied, the version guard is checked before matching so stale content reports `FS_STALE_VERSION`; omission edits the current content without a freshness precondition.
 
 - `target` — the resolved target to edit.
 - `edit` — the literal search/replace request.
@@ -123,4 +115,4 @@ Apply a literal edit to an existing UTF-8 text file. When `expected` is supplied
 
 **Returns** the outcome, including the version the edit produced.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L257)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L151)

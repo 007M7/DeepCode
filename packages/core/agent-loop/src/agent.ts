@@ -7,12 +7,86 @@
  */
 
 import type { Context } from 'cordis'
+import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { AgentId, AgentOptions, AgentStatus, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { Session } from '@deepseek-ai/dsh-session'
-import { Inbox } from './inbox.ts'
+import { snapshotJsonValue, type Session } from '@deepseek-ai/dsh-session'
+import { Inbox, type InboxMessage } from './inbox.ts'
 import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
+
+/** Sessions already claimed by a concrete driver construction. */
+const claimedDriverSessions = new WeakSet<Session>()
+
+/** Module-private driver entry: its symbol is absent from the package surface. */
+const startDriver = Symbol('dsh.agent-loop.start-driver')
+
+/** Module-private quiescent stop, valid both before and after driver start. */
+const stopDriver = Symbol('dsh.agent-loop.stop-driver')
+
+/** Module-private context binding for the mutually referential agent scope. */
+const bindContext = Symbol('dsh.agent-loop.bind-context')
+
+/** Module-private publication marker. */
+const publishAgent = Symbol('dsh.agent-loop.publish-agent')
+
+/** Factory-owned controls that can operate only on the agent created with them. */
+export interface PreparedReactLoopAgent {
+  /** The unpublished concrete agent. */
+  agent: ReactLoopAgent
+  /** Mark the agent public so teardown emits its status lifecycle. */
+  markPublished(): void
+  /** Stop the prepared instance even when publication has not started its loop. */
+  dispose(): Promise<void> | void
+  /**
+   * Start its driver after publication and session-start notification.
+   * The returned disposer reaches quiescence for both the loop and every
+   * fire-and-forget idle-injection flush the agent started.
+   */
+  startDriver(): () => Promise<void> | void
+}
+
+/**
+ * Construct an unpublished concrete agent with instance-bound lifecycle
+ * controls. Only those paired controls can publish or start this instance.
+ * @param ctx - the agent-loop service context used for driving and events.
+ * @param id - the concrete agent identity.
+ * @param options - loop options for the agent.
+ * @param session - the prepared session the agent will own.
+ * @returns the agent and closures bound only to that exact instance.
+ */
+export function prepareReactLoopAgent(
+  ctx: Context, id: AgentId, options: AgentOptions, session: Session,
+): PreparedReactLoopAgent {
+  if (claimedDriverSessions.has(session)) {
+    throw new Error(`session "${session.id}" already has a concrete agent driver`)
+  }
+  const agent = new ReactLoopAgent(ctx, id, options, session)
+  claimedDriverSessions.add(session)
+  const dispose = () => agent[stopDriver]()
+  return {
+    agent,
+    markPublished: () => { agent[publishAgent]() },
+    dispose,
+    startDriver: () => {
+      agent[startDriver]()
+      return dispose
+    },
+  }
+}
+
+/**
+ * Install the concrete agent's scope context exactly once. Construction and
+ * scope minting are mutually referential (the scope key is the agent), so the
+ * factory performs this one post-construction binding before setup receives
+ * the unpublished agent. The module-private binding rejects a second bind.
+ * @param agent - the unpublished concrete agent to bind.
+ * @param ctx - its fully extended agent scope context.
+ */
+export function bindReactLoopAgentContext(agent: ReactLoopAgent, ctx: Context): void {
+  agent[bindContext](ctx)
+}
 
 /**
  * The concrete {@link Agent} implementation owned by the agent-loop plugin.
@@ -22,14 +96,31 @@ import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
  * the agent/* event taxonomy — plugins never need this class.
  */
 export class ReactLoopAgent implements Agent {
+  /** Queued + steering FIFOs; native-private so callers cannot bypass the public driving verbs. */
+  readonly #inbox = new Inbox()
+
   /**
-   * The queued + steering FIFOs behind {@link send}/{@link steer}. Public so
-   * the driver loop can drain it; {@link cancel} clears it wholesale.
+   * The agent's scope context ({@link Agent.ctx}), wired by the factory right
+   * after the scope is minted — before the agent is registered, announced, or
+   * driven, so no consumer can observe it unset. Definite-assignment (`!`)
+   * expresses that two-phase construction: the agent object and its scope
+   * context are mutually referential (the scope is keyed BY this agent), so
+   * neither can exist strictly before the other.
    */
-  readonly inbox = new Inbox()
+  private boundContext: Context | undefined
+
+  /** The agent's scoped composition context, bound once by its factory. */
+  get ctx(): Context {
+    if (this.boundContext === undefined) throw new Error(`agent "${this.id}" context is not bound`)
+    return this.boundContext
+  }
 
   private _status: AgentStatus = 'idle'
   private currentAbort: AbortController | undefined
+  /** Whether runLoop has been installed into {@link done}. */
+  private driverStarted = false
+  /** Whether registry publication began and status disposal is externally visible. */
+  private published = false
   /**
    * Turn-scoped cancel marker, set by {@link cancel} and read/cleared by the
    * driver loop (via the LoopHandle) at every point a turn could start or
@@ -38,16 +129,7 @@ export class ReactLoopAgent implements Agent {
    * leave it set to wrongly drop a later prompt.
    */
   private cancelRequested = false
-  /**
-   * The resolved reason for the pending {@link cancel} (`reason ?? 'cancelled'`),
-   * read by the driver loop's marker branches so a turn dropped in a
-   * marker-only window (pre-step / continuation, where no `AbortController`
-   * carries the reason) ends with the SAME `{kind:'aborted', reason}` the
-   * mid-step abort path produces from `abort.signal.reason`. Without this the
-   * caller's `cancel(reason)` would be silently replaced by the literal
-   * 'cancelled' whenever the cancel landed outside a running step — making the
-   * logged reason race-dependent and the public `reason?` param half-effective.
-   */
+  /** Pending cancellation reason, preserved even outside an active step signal. */
   private cancelReason = 'cancelled'
   private disposed: Promise<void>
   private resolveDisposed!: () => void
@@ -61,9 +143,15 @@ export class ReactLoopAgent implements Agent {
    * the `disposed` transition fires and leave the promise hanging.
    */
   private idleWaiters: (() => void)[] = []
+  /**
+   * Durability checkpoints started by idle {@link inject} calls. `inject()` is
+   * synchronous, so it cannot await them itself; the driver disposer drains
+   * this set before the lifecycle unregisters the agent or detaches its session.
+   */
+  private pendingIdleFlushes = new Set<Promise<void>>()
 
   constructor(
-    private ctx: Context,
+    private loopCtx: Context,
     public readonly id: AgentId,
     public readonly options: AgentOptions,
     public readonly session: Session,
@@ -80,23 +168,15 @@ export class ReactLoopAgent implements Agent {
   private setStatus(status: AgentStatus): void {
     if (this._status === status || this._status === 'disposed') return
     this._status = status
-    // Release quiescence waiters on a transition OUT of running BEFORE emitting
-    // (the disposer handles the disposed transition separately). Settling first
-    // means a throwing `agent/status` subscriber cannot starve a `whenIdle()`
-    // waiter (docs/defensive-patterns.md "contain callback exceptions" — a lifecycle await must
-    // not hang on one bad listener).
+    // Settle first so a throwing status listener cannot starve quiescence waiters.
     if (status !== 'running') this.settleIdleWaiters()
-    try {
-      this.ctx.emit('agent/status', this, status)
-    } catch (error: unknown) {
-      this.ctx.logger.warn(`agent "${this.id}": agent/status listener threw on ${status}: ${String(error)}`)
-    }
+    agentEvents(this.loopCtx, this).emit('agent/status', status)
   }
 
   /**
    * Resolve and clear all pending {@link whenIdle} waiters. Called on a
    * running→idle transition (from {@link setStatus}) and on disposal (from the
-   * {@link start} disposer, which chains `done` for true loop-exit quiescence).
+   * internal driver disposer, which chains `done` for true loop-exit quiescence).
    */
   private settleIdleWaiters(): void {
     const waiters = this.idleWaiters
@@ -108,23 +188,45 @@ export class ReactLoopAgent implements Agent {
     return options?.source ?? { kind: 'user' }
   }
 
-  send(content: ContentBlock[], options?: SendOptions): void {
-    if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
+  /**
+   * Accept one public send/steer payload as the exact detached record shared by
+   * the live notification and inbox. Lossless-JSON materialization reads every
+   * nested field once; deep freeze prevents an observer from rewriting queued
+   * work before the loop drains it.
+   */
+  private acceptInboxMessage(content: ContentBlock[], options?: SendOptions): InboxMessage {
     const source = this.resolveSource(options)
-    this.inbox.enqueue({ content, source })
-    this.ctx.emit('agent/queued', this, content, { source, steering: false })
+    const accepted = snapshotJsonValue({ content, source })
+    if (accepted === undefined) {
+      throw new TypeError('agent message content and source must be losslessly JSON-serializable')
+    }
+    return deepFreeze(accepted)
+  }
+
+  /** Reject a driving operation once teardown has synchronously closed the agent. */
+  private assertNotDisposed(): void {
+    if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
+  }
+
+  send(content: ContentBlock[], options?: SendOptions): void {
+    this.assertNotDisposed()
+    const accepted = this.acceptInboxMessage(content, options)
+    this.#inbox.enqueue(accepted)
+    const info = { source: accepted.source, steering: false } as const
+    agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
   }
 
   steer(content: ContentBlock[], options?: SendOptions): void {
-    if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
+    this.assertNotDisposed()
     if (this._status !== 'running') { this.send(content, options); return }
-    const source = this.resolveSource(options)
-    this.inbox.steer({ content, source })
-    this.ctx.emit('agent/queued', this, content, { source, steering: true })
+    const accepted = this.acceptInboxMessage(content, options)
+    this.#inbox.steer(accepted)
+    const info = { source: accepted.source, steering: true } as const
+    agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
   }
 
   inject(content: ContentBlock[], options?: SendOptions): void {
-    if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
+    this.assertNotDisposed()
     const source = this.resolveSource(options)
     if (isTurnOpen(this.session)) {
       // A turn is open in the LOG (decided from the log, not agent status —
@@ -136,76 +238,43 @@ export class ReactLoopAgent implements Agent {
     // No turn open: wrap the injection in a one-shot turn so every event stays
     // turn-enclosed (the durability/replay boundary is the turn).
     const turn = lastTurnNumber(this.session) + 1
-    // Once turn/start enters the log, a turn/end is OWED no matter what — even
-    // if a throwing `session/event` listener escapes from the turn/start append
-    // (Session.append pushes the event BEFORE notifying listeners) or the
-    // context/message append throws (non-serializable content, throwing
-    // listener). The finally re-checks the log via isTurnOpen() and closes the
-    // turn if one was actually opened, so the log never carries a permanently
-    // open injection turn that would corrupt later turns/replay. (If the
-    // turn/start append throws BEFORE pushing — non-serializable trigger, which
-    // can't happen for our fixed trigger — no turn was opened and none is owed.)
+    // Once turn/start enters the log, a turn/end is owed even if the message
+    // append fails acceptance or pre-commit validation. The finally re-checks
+    // the log and closes only a turn that actually opened; post-commit observers
+    // are contained by Session and cannot create a false append failure.
     try {
       this.session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
       this.session.append('context/message', { content, source }, { surfaceOp: 'append' })
     } finally {
-      // Close the turn if turn/start made it into the log. Contain a throwing
-      // turn/end listener: Session.append pushes before notifying, so a throw
-      // here still leaves turn/end in the log (the turn is balanced) — swallow
-      // it so it neither replaces the original exception nor skips the flush
-      // decision below. (It surfaces through the flush path is not needed; the
-      // turn-balance contract is what matters and it holds.)
+      // Close the turn if turn/start made it into the log. A pre-commit veto
+      // must escape rather than being mistaken for a committed turn/end.
       if (isTurnOpen(this.session)) {
-        try {
-          this.session.append('turn/end', { turn, reason: { kind: 'completed' } })
-        } catch {
-          // turn/end is already in the log (pushed before the listener threw),
-          // so the turn is balanced; the throw is the listener's bug.
-        }
+        this.session.append('turn/end', { turn, reason: { kind: 'completed' } })
       }
-      // Decide the durability checkpoint from the LOG, not a flag: a turn was
-      // recorded iff this turn's turn/start is logged (it may have been closed
-      // by a throwing-listener turn/end above, which still counts). A
-      // `turnRecorded` boolean set after append('turn/end') would be skipped by
-      // a throwing turn/end listener, losing the flush for a balanced in-memory
-      // turn (crash before the next turn/dispose would drop the idle injection).
+      // Decide the durability checkpoint from the log: an accepted one-shot
+      // turn must be flushed even when its message append was the failing step.
       const turnRecorded = this.session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
-      // Checkpoint the one-shot turn for durability, exactly as the loop does at
-      // every turn/end. The loop is NOT running (we are idle), so nothing else
-      // will flush this turn. Fire-and-forget with error containment: inject()
-      // is synchronous, and a persistence backend failing must not throw into
-      // the caller (e.g. a tool-bash task-done callback). Disposal still drains
-      // independently, so a slow flush is safe. A flush failure is reported via
-      // agent/error (step 0 — the idle-injection convention, there is no real
-      // step) AND the logger, mirroring the loop's post-turn/end flush path so
-      // plugins monitoring agent/error see idle-injection persistence failures
-      // too. A throwing agent/error listener is contained.
+      // Keep inject() synchronous: report checkpoint failures live instead of
+      // rejecting the caller, and track the task so disposal still drains it.
       if (turnRecorded) {
-        void Promise.resolve(this.ctx.parallel('session/flush', this.session)).catch((error: unknown) => {
-          const err = error instanceof Error ? error : new Error(String(error))
-          this.ctx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${err.message}`)
-          try {
-            this.ctx.emit('agent/error', this, turn, 0, err)
-          } catch {
-            // contained: the failure is already logged; a throwing agent/error
-            // listener must not escape this fire-and-forget catch.
-          }
+        // Through the store's flush (the carrier owner), never a raw parallel.
+        const flush = this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
+          const rendered = renderThrown(error)
+          const err = error instanceof Error ? error : new Error(rendered)
+          this.loopCtx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${rendered}`)
+          agentEvents(this.loopCtx, this).emit('agent/error', turn, 0, err)
         })
+        this.pendingIdleFlushes.add(flush)
+        // Retire on either settlement path.
+        const retire = (): void => { this.pendingIdleFlushes.delete(flush) }
+        void flush.then(retire, retire)
       }
     }
   }
 
   cancel(reason?: string): void {
-    // Arm-gate: only mark a cancellation when there is actually work to cancel —
-    // a running turn, an in-flight step, or queued/steering work. An idle cancel
-    // with nothing pending is a true no-op; arming the marker then would wrongly
-    // drop the NEXT legitimate prompt (the marker is consumed only at the loop's
-    // turn-decision points, which an idle parked loop does not reach until woken
-    // by a real send()). Note the gate canNOT be `status === 'running'` alone:
-    // the pre-step window (a send() queued but the loop not yet flipped to
-    // running) has status `idle` with `hasQueued` true, and the marker exists
-    // precisely to cover it.
-    if (this._status === 'running' || this.currentAbort !== undefined || this.inbox.hasQueued || this.inbox.hasSteering) {
+    // Arm only for current work; an idle marker would cancel the next prompt.
+    if (this._status === 'running' || this.currentAbort !== undefined || this.#inbox.hasQueued || this.#inbox.hasSteering) {
       this.cancelRequested = true
       // Capture the resolved reason for the marker-only windows (pre-step /
       // continuation). The mid-step path reads it from abort.signal.reason
@@ -216,7 +285,7 @@ export class ReactLoopAgent implements Agent {
     // cancelled turn's steering is not re-enqueued). Cleared directly even when
     // the loop is parked in waitForQueued — there is no turn to stop and nothing
     // left for the parked loop to run, so no wake is needed.
-    this.inbox.clear()
+    this.#inbox.clear()
     // Interrupt an in-flight step immediately (the running turn observes the
     // abort and ends `aborted`). The marker covers the windows where no step is
     // running (pre-step, continuation).
@@ -224,29 +293,14 @@ export class ReactLoopAgent implements Agent {
   }
 
   /**
-   * Resolve once the agent has reached quiescence after settling out of
-   * `running`. If it is already disposed, awaits {@link done} (the loop-exit
-   * promise) — `agent/status('disposed')` fires in the disposer BEFORE the
-   * driver loop has unwound, so it is NOT itself a quiescence signal. If it is
-   * idle AND has no queued work, resolves immediately. Otherwise queues an
-   * internal waiter (see {@link idleWaiters}) released on the next
-   * running→idle/disposed transition, resolving on `idle` directly (the turn
-   * fully ended) or chaining {@link done} on `disposed` (wait for the loop to
-   * actually exit). Implements the {@link Agent.whenIdle} contract: a non-owner
-   * quiescence-observation hook, distinct from teardown (a lifecycle owner stops
-   * and unregisters via `AgentHandle.dispose()`, which awaits {@link done}
-   * directly, not through this).
+   * Resolve immediately when idle with no queued work, on the next quiescent
+   * idle transition otherwise, or after driver exit when already disposed.
+   * This observes quiescence; it does not own teardown.
    */
   whenIdle(): Promise<void> {
     if (this._status === 'disposed') return this.done
-    if (this._status !== 'running' && !this.inbox.hasQueued) return Promise.resolve()
-    // Register an internal waiter (resolved by settleIdleWaiters on the next
-    // running→idle/disposed transition), NOT an effect-scoped `ctx.on` listener:
-    // a concurrent fiber disposal runs this agent's listener disposers, which
-    // could remove a `ctx.on` waiter before the `disposed` transition fires and
-    // hang the promise. On disposal the disposer settles the waiter AND we chain
-    // `done` here for true loop-exit quiescence (status flips to disposed before
-    // the loop unwinds); a plain idle transition resolves directly.
+    if (this._status !== 'running' && !this.#inbox.hasQueued) return Promise.resolve()
+    // Agent-owned waiters survive concurrent fiber disposal.
     return new Promise<void>((resolve) => {
       this.idleWaiters.push(() => {
         resolve(this._status === 'disposed' ? this.done : undefined)
@@ -254,17 +308,27 @@ export class ReactLoopAgent implements Agent {
     })
   }
 
+  /** Bind the mutually referential scope context once. */
+  private [bindContext](ctx: Context): void {
+    if (this.boundContext !== undefined) throw new Error(`agent "${this.id}" context is already bound`)
+    this.boundContext = ctx
+  }
+
+  /** Mark that public lifecycle publication began. */
+  private [publishAgent](): void {
+    this.published = true
+  }
+
   /**
-   * Start the driver loop. Returns a disposer: calling it sets status to
-   * `disposed`, emits `agent/status('disposed')`, resolves the disposed
-   * promise (unblocking the idle wait), releases any `whenIdle` waiters, and
-   * aborts the current request if any. The returned `agent.done` promise
-   * resolves once the loop exits.
-   * @returns the disposer — idempotent and infallible (it runs inside the
-   *   fiber's LIFO disposal chain, where a throw would skip later disposers).
+   * Start the driver loop. The prepared controller already owns its stable
+   * disposer, so teardown can mark the agent disposed even in the narrow
+   * publication window before this method runs.
    */
-  start(): () => void {
-    this.done = runLoop(this.ctx, this, {
+  [startDriver](): void {
+    if (this._status === 'disposed') return
+    this.driverStarted = true
+    this.done = runLoop(this.loopCtx, this, {
+      inbox: this.#inbox,
       setStatus: (status) => { this.setStatus(status) },
       setAbort: controller => void (this.currentAbort = controller),
       disposed: this.disposed,
@@ -272,19 +336,18 @@ export class ReactLoopAgent implements Agent {
       isCancelled: () => this.cancelRequested,
       cancelReason: () => this.cancelReason,
       clearCancel: () => { this.cancelRequested = false },
-      // Settle whenIdle() waiters WITHOUT a status transition — the pre-step
-      // cancel-skip path drops the about-to-run turn and re-parks without ever
-      // flipping running→idle, so a waiter registered in the pre-step window
-      // (status idle, hasQueued was true) would otherwise hang. This emits no
-      // agent/status, so an ACP agent/status listener never sees a spurious idle
-      // that would resolve a freshly-queued prompt as cancelled.
+      // Pre-step cancellation re-parks without emitting a status transition.
       settleIdle: () => { this.settleIdleWaiters() },
     })
-    // The disposer must be infallible: it runs inside the fiber's LIFO
-    // disposal chain, where a throw would skip later disposers (e.g. the
-    // registry unregistration) and leave `done` pending forever.
-    return () => {
-      if (this._status === 'disposed') return
+  }
+
+  /**
+   * Quiescent stop shared by pre-start rollback and live teardown. It marks the
+   * agent disposed synchronously, contains an unexpected loop rejection, and
+   * drains every idle-injection flush before resolving.
+   */
+  private [stopDriver](): Promise<void> | void {
+    if (this._status !== 'disposed') {
       this._status = 'disposed'
       this.resolveDisposed()
       // Release whenIdle waiters BEFORE the (guarded) event emit — they are
@@ -292,14 +355,36 @@ export class ReactLoopAgent implements Agent {
       // waiter chains `done`, so it resolves only once the loop actually exits.
       this.settleIdleWaiters()
       this.currentAbort?.abort('disposed')
-      // setStatus refuses transitions out of 'disposed', so emit directly —
-      // 'disposed' is part of the agent/status contract. Guarded: a throwing
-      // listener must not break the disposal chain.
-      try {
-        this.ctx.emit('agent/status', this, 'disposed')
-      } catch {
-        // listener error during disposal — nothing safe left to do with it
+      // An unpublished rollback has no public status lifecycle to announce.
+      // Once publication begins, disposed is part of the agent/status contract.
+      if (this.published) {
+        agentEvents(this.loopCtx, this).emit('agent/status', 'disposed')
       }
     }
+    // Before runLoop starts there is normally nothing asynchronous to drain;
+    // keep publication rollback synchronous so create() cannot throw while its
+    // session/agent entries are still briefly live. A session-start listener
+    // may have called inject(), however, so preserve
+    // its durability checkpoint as a real quiescence boundary.
+    if (!this.driverStarted && this.pendingIdleFlushes.size === 0) return
+    return this.drainDriver()
   }
+
+  /** Await the loop (when started) and every outstanding idle flush. */
+  private async drainDriver(): Promise<void> {
+    // An unexpected driver rejection must not skip registry/session/scope
+    // cleanup. The normal loop contains turn failures itself; allSettled is the
+    // final lifecycle backstop for anything outside those boundaries.
+    await Promise.allSettled([this.done])
+    // Repeat because settled flushes retire in adjacent promise reactions;
+    // allSettled keeps reporting failures from skipping ownership teardown.
+    while (this.pendingIdleFlushes.size > 0) {
+      await Promise.allSettled([...this.pendingIdleFlushes])
+    }
+  }
+}
+
+/** Render an ordinary thrown value for the error event and log. */
+function renderThrown(value: unknown): string {
+  return value instanceof Error ? value.message : String(value)
 }

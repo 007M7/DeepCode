@@ -1,19 +1,13 @@
 /**
- * The worker-side half of the engine: {@link runWorkerSession} wires one
- * MessagePort to one {@link WorkflowExecution} — hook progress and child
- * starts go out as messages, run control and child lifecycle come back in —
- * and posts the run's terminal result exactly once. Deliberately separated
- * from the thread bootstrap (./worker.ts): the whole session is drivable
- * in-process over a `MessageChannel`, which is where its unit coverage lives
- * (code inside a real Worker is invisible to the main process's coverage).
+ * The worker-side half of the engine: {@link runWorkerSession} wires one MessagePort to one
+ * {@link WorkflowExecution} — hook progress and child starts go out as messages, run control
+ * and child lifecycle come back in — and posts the run's terminal result exactly once. Keeping it
+ * separate from `worker.ts` lets unit tests drive the session over a MessageChannel, because main
+ * process coverage cannot observe code inside a real Worker.
  *
- * Startup handshake: the session posts `ready` and runs the script only
- * after the host's `go` — without it, a cancellation racing the worker's
- * boot could arrive AFTER the script's initial synchronous slice already
- * ran, and a run cancelled before start must not execute the body at all.
- * A `cancel` arriving instead of `go` still releases the gate: `drive()`
- * sees the cancelled state and settles without running the body.
- *
+ * The session announces ready and waits for `go`, so cancellation racing startup can prevent even
+ * the script's synchronous prefix. A cancel in place of `go` releases the gate into a cancelled
+ * drive without executing the body.
  * @module @deepseek-ai/dsh-workflow-workerthread/session
  */
 
@@ -59,10 +53,6 @@ class RpcChildHandle implements ChildHandle {
     this.result = entry.settled.promise
   }
 
-  cancel(reason?: string): void {
-    this.post(WorkerToHostType.ChildCancel, { callId: this.callId, reason })
-  }
-
   dispose(): Promise<void> {
     this.post(WorkerToHostType.ChildDispose, { callId: this.callId })
     return this.entry.disposed.promise
@@ -71,7 +61,7 @@ class RpcChildHandle implements ChildHandle {
 
 /**
  * The worker-side child-RPC bridge ({@link ChildPort}): allocates callIds,
- * posts the start/cancel/dispose RPCs, and owns the per-call pending
+ * posts the start/dispose RPCs, and owns the per-call pending
  * book-keeping the session's message handler settles via the `onChild*`
  * entry points.
  */
@@ -89,24 +79,26 @@ class ChildRpcBridge implements ChildPort {
       settled: Promise.withResolvers<ChildResult>(),
       disposed: Promise.withResolvers<void>(),
     }
-    // Containment: when the start is refused (or the run torn down) the
-    // settled promise may never gain a consumer — it must not surface as an
-    // unhandled rejection and kill the worker.
-    entry.settled.promise.catch(() => { /* consumed: unconsumed child settlement after a refused start */ })
+    // Containment: when asynchronous provider start fails (or
+    // the run is torn down), the settled promise may never gain a consumer —
+    // it must not surface as an unhandled rejection and kill the worker.
+    entry.settled.promise.catch(() => { /* consumed: unconsumed child settlement after failed start */ })
     this.pending.set(callId, entry)
     this.post(WorkerToHostType.ChildStart, { callId, request })
     const childId = await entry.started.promise
     return new RpcChildHandle(this.post, callId, entry, childId)
   }
 
-  /** The host started the child; releases the `startAgent` await. */
+  /** The host established a ready child; releases the `startAgent` await. */
   onChildStarted(callId: number, childId: string): void {
     this.pending.get(callId)?.started.resolve(childId)
   }
 
-  /** The host refused the start; `startAgent` rejects with the rendered cause. */
+  /** Asynchronous provider start failed; reject and retire the pending RPC. */
   onChildStartError(callId: number, rendered: string): void {
-    this.pending.get(callId)?.started.reject(new Error(rendered))
+    const entry = this.pending.get(callId)
+    this.pending.delete(callId)
+    entry?.started.reject(new Error(rendered))
   }
 
   /** The child's terminal result arrived. */
@@ -139,12 +131,11 @@ export function requireParentPort(port: MessagePort | null): MessagePort {
 }
 
 /**
- * Run one workflow script to settlement against `port`, posting the terminal
- * result message exactly once; resolves after that post (stray children may
- * still be winding down through the port — the host owns their teardown and
- * ultimately terminates the thread). Never rejects: a constructor failure
- * (unparseable body — host pre-parse makes this a Node-version-skew signal)
- * is reported as an `error` result rather than dying without a result.
+ * Run one workflow script to settlement against `port`, posting the terminal result message
+ * exactly once; resolves after that post (stray children may still be winding down through the
+ * port — the host owns their teardown and ultimately terminates the thread). It never rejects:
+ * constructor failure becomes an error result. Host pre-parse makes syntax failure here a likely
+ * Node-version skew, but the session still reports it instead of dying silently.
  * @param port - the channel to the host (the real `parentPort`, or one side
  *   of an in-process `MessageChannel` in tests).
  * @param init - the run payload the host provided as `workerData`.

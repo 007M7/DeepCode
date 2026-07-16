@@ -1,36 +1,11 @@
 /**
- * Vocabulary for the web capability seam (`ctx.web`): the search/fetch
- * request/result shapes providers produce and consumers format, the provider
- * status discriminant selection reads, the execution-control context, and the
- * typed error taxonomy.
- *
- * These types are shared by every provider backend
- * (`@deepseek-ai/dsh-web-search-exa`, `@deepseek-ai/dsh-web-search-perplexity`,
- * `@deepseek-ai/dsh-web-fetch-local`, and future backends) and by the
- * model-facing consumer (`@deepseek-ai/dsh-tool-web`). Search and fetch share no
- * request schema and no business logic, but they are deliberately one seam:
- * `ctx.web` is a single web-access middle layer with one provider-selection
- * policy, one abort/error vocabulary, and one product-facing configuration
- * point. The cost is the parallel `Search`/`Fetch` shapes below; that
- * parallelism is intentional.
- *
+ * Vocabulary for the web capability seam (`ctx.web`). Search and fetch deliberately share one
+ * seam so provider selection, cancellation, errors, and product configuration have one owner,
+ * while retaining separate request and result shapes.
  * @module @deepseek-ai/dsh-web/types
  */
 
 import { HarnessError } from '@deepseek-ai/dsh-llm'
-
-/**
- * Execution control threaded from the tool layer through the seam into a
- * provider's network requests, stream readers, and expensive decoding. It is
- * NOT business input: the first version carries only `signal` so `tool-web` can
- * propagate turn cancellation, tool timeout, and agent disposal. It deliberately
- * does NOT carry `ToolExecution`, which would make `dsh-web` depend on
- * `dsh-tools`.
- */
-export interface WebExecContext {
-  /** Abort signal a provider must honor for its network/decoding work. */
-  readonly signal?: AbortSignal
-}
 
 /**
  * What one search-capable backend can return. The model-facing argument is just
@@ -56,10 +31,6 @@ export interface WebSearchRequest {
  * when it cut `sources[]` down to `maxResults`.
  */
 export interface WebSearchResult {
-  /** Id of the provider that produced this result. */
-  readonly providerId: string
-  /** Echo of the query the provider answered. */
-  readonly query: string
   /** Optional provider-generated answer text, search context, or summary. */
   readonly content?: string
   /** Citeable sources, already truncated to the request's `maxResults`. */
@@ -83,14 +54,13 @@ export interface WebSearchSource {
 }
 
 /**
- * What one fetch-capable backend is asked to retrieve. `timeoutMs` is an
- * optional positive hint the provider caps. The request deliberately omits
- * `format`, `prompt`, and extraction controls — those are presentation or
- * higher-level LLM concerns, not safe-retrieval inputs.
+ * What one fetch-capable backend is asked to retrieve. The request deliberately
+ * omits timeout, format, prompt, and extraction controls: cancellation is a
+ * direct execution argument, while presentation and higher-level LLM concerns
+ * belong outside safe retrieval.
  */
 export interface WebFetchRequest {
   readonly url: string
-  readonly timeoutMs?: number
 }
 
 /**
@@ -100,8 +70,6 @@ export interface WebFetchRequest {
  * represent the resource.
  */
 export interface WebFetchResult {
-  /** Id of the provider that produced this result. */
-  readonly providerId: string
   /** The final URL after allowed redirects (the request URL is in the request). */
   readonly url: string
   /** HTTP status code of the fetched response. */
@@ -126,27 +94,15 @@ export type WebFetchBody =
   | { readonly kind: 'text'; readonly content: string }
 
 /**
- * Whether one concrete provider implementation is usable, by cheap local checks
- * only (credential presence, parseable endpoint config). A provider `status()`
- * must NOT make network calls. It is an input to execution-time selection, not
- * a health system: `WebService.search()`/`fetch()` read it to pick a usable
- * provider, and selection failure surfaces as the structured {@link WebError}
- * codes callers route on.
- */
-export type WebProviderStatus =
-  | { readonly available: true }
-  | { readonly available: false; readonly reason: 'missing-credential' | 'misconfigured' }
-
-/**
  * A search-capable backend. Registered with `ctx.web.registerSearchProvider`.
  * `id` is a stable string, unique within the search capability kind.
  */
 export interface WebSearchProvider {
   readonly id: string
   /** Cheap local usability check; must not make network calls. */
-  status(): WebProviderStatus
-  /** Run one search; honor `exec.signal` for cancellation. */
-  search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>
+  available(): boolean
+  /** Run one search; honor `signal` for cancellation. */
+  search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>
 }
 
 /**
@@ -156,45 +112,17 @@ export interface WebSearchProvider {
 export interface WebFetchProvider {
   readonly id: string
   /** Cheap local usability check; must not make network calls. */
-  status(): WebProviderStatus
-  /** Retrieve one URL; honor `exec.signal` for cancellation. */
-  fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
+  available(): boolean
+  /** Retrieve one URL; honor `signal` for cancellation. */
+  fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 }
 
 /**
- * Typed web error. Extends {@link HarnessError} so it carries a stable,
- * machine-routable `code` (a `string`, like every other seam's error) and
- * chains `cause`. `ToolRegistry.execute()` converts a thrown `WebError` into an
- * error tool result whose structured metadata exposes the code, so callers
- * (hooks, tests, UI) route on it.
- *
- * The `code` is an open `string`, NOT a closed union: a provider may raise its
- * own codes without editing this package, and a consumer must tolerate an
- * unknown code (a future provider will introduce ones this file never named).
- * The codes split by who owns them — seam-neutral codes any provider may see,
- * versus codes specific to a single implementation:
- *
- * Seam-neutral (raised by `WebService` selection and the shared contract):
- * - `WEB_PROVIDER_UNAVAILABLE`: no provider configured and none usable.
- * - `WEB_PROVIDER_CONFIGURED_MISSING`: a configured id is not registered.
- * - `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`: a configured id is registered but its
- *   `status()` reports unavailable.
- * - `WEB_PROVIDER_AMBIGUOUS`: no id configured and multiple usable providers
- *   exist (selection refuses to pick by registration order).
- * - `WEB_DUPLICATE_PROVIDER`: a registration-time programming error — an id is
- *   already registered for that capability kind.
- * - `WEB_ABORTED`: the operation was aborted via `WebExecContext.signal`.
- * - `WEB_PROVIDER_ERROR`: catch-all for a provider's own failure surfaced
- *   through the seam, including network/transport failure (DNS, connection
- *   refused, TLS).
- *
- * Fetch-transport codes (owned by the `dsh-web-fetch-local` implementation; a
- * different fetch backend need not raise these and may raise its own):
- * - `WEB_INVALID_URL`: the fetch URL is malformed or not http(s).
- * - `WEB_BLOCKED_URL`: the fetch URL is rejected by policy (credentials in URL).
- * - `WEB_REDIRECT_BLOCKED`: a cross-origin redirect was refused.
- * - `WEB_FETCH_TOO_LARGE`: the response exceeded the byte/character cap.
- * - `WEB_FETCH_TIMEOUT`: the fetch exceeded its timeout.
- * - `WEB_UNSUPPORTED_CONTENT_TYPE`: the response content type cannot be decoded.
+ * Typed web error with a machine-routable, open-string `code` and chained `cause`.
+ * Consumers must tolerate provider-specific codes. Shared codes cover unavailable,
+ * missing, unusable, ambiguous, or duplicate providers, cancellation, and provider failure;
+ * the local fetch provider additionally distinguishes invalid or blocked URLs, redirects,
+ * size and timeout limits, and unsupported content types. Tool execution exposes the code in
+ * structured error metadata.
  */
 export class WebError extends HarnessError {}

@@ -5,13 +5,23 @@
 `BashExecutor` (abstract seam) — provided by `@deepseek-ai/dsh-bash`.
 
 Abstract bash execution service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.bash` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
-Semantics every implementation must honor:
-- run REJECTS only for infrastructure failures (unusable workdir, missing shell, pre-aborted signal). Nonzero exits, timeout kills, and abort kills RESOLVE with a descriptive BashRunResult — reporting a failed command is the tool layer's job, not an exception.
-- start returns immediately; no timeout applies to background tasks (callers stop them via kill or the spec's AbortSignal). Completion must fire the onTaskDone listeners exactly once per task, and must NOT fire after the service is disposed.
-- readOutput is incremental: consecutive reads never re-deliver output. Implementations bound their buffers; reads that lost data flag `lossy` and point at full-stream spill files when available.
-- Disposal kills every running task and awaits their exit (no orphan processes survive `fiber.dispose()`).
+Implementations must honor these semantics:
+- run rejects only for infrastructure failures. Nonzero exits, timeout kills, and abort kills resolve with a BashRunResult.
+- start returns immediately; no timeout applies to background processes. `done` settles at process close and never rejects; spawn failures settle as `killed` with the error on stderr.
+- BashProcess.readOutput is incremental: consecutive reads never repeat output. Lossy reads report truncation and available spill files.
+- Disposal kills all running background processes and awaits their exit.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L59)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L46)
+
+### ctx.bash.sandboxMode
+
+```ts website-api
+get sandboxMode(): SandboxMode | undefined
+```
+
+The sandbox mode this executor applies by default, or `undefined` when it does not sandbox commands.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L56)
 
 ### ctx.bash.resolve(request)
 
@@ -19,13 +29,13 @@ Semantics every implementation must honor:
 abstract resolve(request: BashExecRequest): BashExecSpec
 ```
 
-Resolve a caller's BashExecRequest into a fully-specified BashExecSpec, applying this implementation's config defaults and caps (working directory, default/max timeout). Consumers (tool layer) call this, then pass the result to run/start — keeping defaulting in the implementation that owns the config while the seam type stays explicit (no hidden `?? default` inside run/start).
+Apply implementation-owned defaults and caps to a request before execution.
 
 - `request` — the caller's request; omitted fields get this implementation's defaults, capped fields are clamped.
 
 **Returns** the fully-specified spec to hand to `run`/`start`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L84)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L66)
 
 ### ctx.bash.run(spec)
 
@@ -39,100 +49,18 @@ Run a command in the foreground; resolves when it finishes.
 
 **Returns** the outcome; nonzero exits, timeout kills, and abort kills resolve with a descriptive result rather than reject.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L92)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L74)
 
 ### ctx.bash.start(spec)
 
 ```ts website-api
-abstract start(spec: BashExecSpec): BashTask
+abstract start(spec: BashExecSpec): BashProcess
 ```
 
-Start a background task and return its handle immediately.
+Start a background process and return its handle immediately.
 
 - `spec` — a resolved spec from `resolve`, never a raw request.
 
-**Returns** the live task handle; completion fires `onTaskDone`.
+**Returns** the live process handle (reads, kill, quiescence promise).
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L99)
-
-### ctx.bash.get(id)
-
-```ts website-api
-abstract get(id: BashTaskId): BashTask | undefined
-```
-
-Look up a background task by id.
-
-- `id` — the task id to look up.
-
-**Returns** the tracked task, or undefined for an id this executor never issued.
-
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L106)
-
-### ctx.bash.ownerOf(id)
-
-```ts website-api
-abstract ownerOf(id: BashTaskId): OwnerToken | undefined
-```
-
-The opaque OWNER token recorded for a background task at start (from the BashExecSpec's `owner`), or `undefined` for an unknown id OR a known-but-ownerless task. The executor stores and returns the token verbatim — it never interprets it; the access POLICY (who may read/kill a task) lives in the consumer (`@deepseek-ai/dsh-tool-bash`), which compares `ownerOf(id)` to the caller's token. Collapsing unknown-id and known-but-unowned into the same `undefined` is fine: the consumer's access gate treats `undefined` as "open", and a genuinely unknown id then fails loudly at the subsequent readOutput/kill ("unknown task"). Storing ownership in the executor (disposed with ITS fiber) — not in the tool plugin — is what makes ownership survive a `tool-bash` HMR reload.
-
-- `id` — the background task id to look up ownership for.
-
-**Returns** the token recorded at start, verbatim; undefined for an unknown id or a known-but-ownerless task.
-
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L124)
-
-### ctx.bash.list()
-
-```ts website-api
-abstract list(): BashTask[]
-```
-
-All tracked background tasks (insertion order).
-
-**Returns** every task this executor started, running or finished.
-
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L130)
-
-### ctx.bash.readOutput(id)
-
-```ts website-api
-abstract readOutput(id: BashTaskId): BashTaskRead
-```
-
-Read output produced since the previous read. Throws for unknown ids.
-
-- `id` — the task to read from.
-
-**Returns** the incremental read; consecutive reads never re-deliver output.
-
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L137)
-
-### ctx.bash.kill(id)
-
-```ts website-api
-abstract kill(id: BashTaskId): boolean
-```
-
-Kill a running background task. Returns false when it had already finished (no-op). Throws for unknown ids.
-
-- `id` — the task to kill.
-
-**Returns** true when this call killed it, false when it had already finished.
-
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L145)
-
-### ctx.bash.onTaskDone(listener)
-
-```ts website-api
-onTaskDone(listener: BashTaskListener): () => void
-```
-
-Register a background-task completion listener (disposed with the calling fiber). Listeners never fire after this service is disposed.
-
-- `listener` — called exactly once per task completion.
-
-**Returns** the disposer that unregisters the listener.
-
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L153)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L81)

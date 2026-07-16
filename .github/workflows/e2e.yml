@@ -82,6 +82,16 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
+      # The with-key escalation e2e self-skips without a usable runner. Install
+      # bwrap so trusted CI exercises it; the userns knob is best-effort and the
+      # test's functional probe decides.
+      - name: Install bubblewrap (unrestrict userns)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
+            || echo "apparmor userns knob absent — the functional probe decides"
+
       # Guard against a false green: the e2e suites self-skip when the key is
       # absent, so a missing/misconfigured secret would otherwise pass as
       # "all skipped". This job only runs on trusted events (the `if:` above

@@ -58,12 +58,8 @@ describe('acp bridge — session/load replay', () => {
   })
 
   it('replays a persisted tool call with the TOOL-OWNED presentation (title/rawInput/console output)', async () => {
-    // A turn with a REAL bash tool call is persisted, then loaded by a fresh
-    // bridge. The replayed tool_call/tool_call_update must carry the tool's OWN
-    // presentation — identical to how it streamed live — via a throwaway
-    // presenter that pairs call→result as the log replays in order. Uses the
-    // shipping tool (withBash), not a stand-in (docs/testing.md "prefer the real
-    // implementation over a mock in tests").
+    // Persist a real bash call, then replay it through a fresh bridge. A throwaway presenter pairs
+    // call and result in log order so replay uses the shipping tool's same cards as live streaming.
     live = await makeBridgeHarness({
       storageDir,
       withBash: true,
@@ -95,10 +91,8 @@ describe('acp bridge — session/load replay', () => {
   })
 
   it('replays a persisted todo/write as a plan sessionUpdate on load', async () => {
-    // A turn whose model called todo_write persists a todo/write event. A fresh
-    // bridge loading the session must re-emit the ACP `plan` update from the log
-    // (the load replay runs every event through streamSessionEventUpdate), so an
-    // editor reopening the session sees the current plan.
+    // A persisted `todo/write` must replay as an ACP plan update so a reopened editor sees the
+    // current plan, not just the tool transcript.
     live = await makeBridgeHarness({
       storageDir,
       withTodo: true,
@@ -169,11 +163,8 @@ describe('acp bridge — session/load replay', () => {
   })
 
   it('a load whose resume finishes after a client disconnect leaks no live session', async () => {
-    // A session/load is mid-resume() when the client transport closes. The load
-    // must NOT end up with a live registered agent for the connection that is
-    // already gone. (The bridge's post-await `closed` guard backs this on real
-    // stdio; here the SDK rejects the in-flight request on close — either way no
-    // agent survives.) Stall persistence so resume() is pending across the close.
+    // Stall persistence so transport closes while resume is pending. Whether the SDK rejects first
+    // or the bridge's post-await guard fires, no agent may survive for the dead connection.
     live = await makeBridgeHarness({ storageDir, script: [textResponse('x')] })
     await live.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await live.client.newSession({ cwd: process.cwd(), mcpServers: [] })
@@ -198,10 +189,9 @@ describe('acp bridge — session/load replay', () => {
   })
 
   it('rejects load when the requested cwd does not match the persisted session cwd', async () => {
-    // Seed a session on disk whose header.cwd is a DIFFERENT absolute path than
-    // the server's launch dir. The bridge must LOAD it (per-session cwd is
-    // honored — the resumed session keeps header.cwd, and bash routes there), no
-    // longer reject on a mismatch.
+    // Seed a session on disk whose header.cwd is a DIFFERENT absolute path than the server's
+    // launch dir. Resume must retain the header cwd and route bash there rather than reject the
+    // mismatch or substitute the server cwd.
     loader = await makeBridgeHarness({ storageDir, script: [] })
     const otherCwd = '/some/other/workspace'
     await loader.ctx.sessionPersistence.create({
@@ -237,9 +227,8 @@ describe('acp bridge — session/load replay', () => {
   })
 
   it('rejects loading a persisted session that has NO cwd (would silently run in the launch dir)', async () => {
-    // A legacy / externally-created session log with no header.cwd. The bridge
-    // must reject the load rather than accept it and let bash silently fall back
-    // to the server's launch dir (the request cwd does not override the header).
+    // A legacy/external log without `header.cwd` must be rejected; the request cwd does not override
+    // it, and accepting would let bash silently fall back to the server launch directory.
     loader = await makeBridgeHarness({ storageDir, script: [] })
     await loader.ctx.sessionPersistence.create({
       version: SESSION_FORMAT_VERSION, id: SessionId('legacy'), createdAt: 1, // no cwd

@@ -1,43 +1,24 @@
 /**
- * Generate (and verify) the relationship-diagram docs.
- *
- * This is the relationship layer above the existing catalogs:
- * - module-graph.md answers "which packages depend on which packages?"
- * - cordis-catalog/ answers "which events and services exist?"
- * - tool-catalog.md answers "which tools does the model see?"
- * - generated relationship diagrams answer "how do those pieces fit together?"
- *
- * Generated pages discover the enumerable facts from source. Hybrid pages use
- * discovered inventory plus small manifests for policy that source cannot infer
- * (for example, whether a package is an implementation or consumer in a seam).
- * Curated pages are still emitted here so the graph docs are one regenerated unit,
- * but their diagrams intentionally explain flow and ownership rather than
- * pretending to enumerate every source edge.
- *
- *   `tsx scripts/gen-doc-graphs.ts`          -> write generated diagram docs
- *   `tsx scripts/gen-doc-graphs.ts --check`  -> exit 1 if any file is stale
+ * Generate the relationship layer above the module, Cordis, and tool catalogs.
+ * Enumerable facts come from source; hybrid graphs add manifests for policy the
+ * source cannot infer, while curated graphs explain flow and ownership.
+ * `--check` verifies the generated set.
  */
 
-import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
 import { collectEvents, collectServices } from './gen-cordis-catalog.ts'
+import {
+  collectPackageGraph,
+  escapeMermaidLabel as escLabel,
+  graphNodeId as nodeId,
+  type PackageGraphNode,
+} from './package-graph.ts'
+import { TypeScriptProject } from './ts-project.ts'
 
 const root = resolve(import.meta.dirname, '..')
-const SCOPE = '@deepseek-ai/dsh-'
-
-interface PkgJson {
-  name: string
-  peerDependencies?: Record<string, string>
-}
-
-interface Pkg {
-  short: string
-  name: string
-  group: string
-  rel: string
-  deps: string[]
-}
+type Pkg = PackageGraphNode
 
 interface GraphDoc {
   rel: string
@@ -65,19 +46,32 @@ interface EventRelation {
   listeners: Set<string>
 }
 
+interface PackageSource {
+  rel: string
+  pkg: string
+  sourceFile: ts.SourceFile
+}
+
+type EventReceiverKind = 'context' | 'agent-dispatch' | 'events-service'
+
 const GROUP_ORDER = [
   'util',
   'llm',
   'core',
   'bash',
+  'sandbox',
   'fs',
+  'skill',
   'compact',
   'subagent',
+  'tasks',
+  'workflow',
   'web',
   'todo',
   'cordis',
   'hooks',
   'session-persistence',
+  'session-query',
   'support',
   'ui',
 ]
@@ -97,7 +91,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'session',
     title: 'In-memory session store',
     mode: 'core',
-    consumers: ['agent-loop', 'agent', 'session-persistence', 'subagent-inprocess', 'invariants'],
+    consumers: ['agent-loop', 'agent', 'session-persistence', 'session-query', 'subagent-inprocess', 'invariants'],
     note: 'Owns append-only Session instances and emits the durable session event feed.',
   },
   {
@@ -106,8 +100,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Durable session persistence seam',
     mode: 'seam',
     implementations: ['session-persistence-jsonl', 'session-persistence-sqlite'],
-    consumers: ['agent-loop', 'acp'],
+    consumers: ['agent-loop', 'acp', 'session-query'],
     note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
+  },
+  {
+    key: 'sessionQuery',
+    pkg: 'session-query',
+    title: 'Exact session-history reads',
+    mode: 'seam',
+    note: 'Resolves live and optional persisted logs into one logical corpus for exact reads.',
   },
   {
     key: 'systemPrompt',
@@ -120,26 +121,35 @@ const SERVICE_ROLES: ServiceRole[] = [
   {
     key: 'tools',
     pkg: 'tools',
-    title: 'Tool registry and execution waterfall',
+    title: 'Tool registry and guarded execution pipeline',
     mode: 'core',
-    consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-cordis', 'tool-fs', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
-    note: 'Registers tool definitions, exposes schemas to the prompt, and routes calls through tools/pre-execute and tools/post-execute.',
+    consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-cordis', 'tool-fs', 'tool-skill', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
+    note: 'Registers capabilities, owns Code Mode transport, and routes calls through pre-policy, monotonic guards, around dispatch, post-policy, and final-result observation.',
   },
   {
     key: 'userInteraction',
     pkg: 'user-interaction',
     title: 'Human question/answer seam',
     mode: 'seam',
-    implementations: ['stdio-agent', 'acp'],
-    consumers: ['tool-ask-user', 'stdio-agent', 'acp'],
+    implementations: ['stdio-demo', 'acp'],
+    consumers: ['tool-ask-user', 'stdio-demo', 'acp'],
     note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
+  },
+  {
+    key: 'skills',
+    pkg: 'skill',
+    title: 'Skill provider registry',
+    mode: 'seam',
+    implementations: ['skill-local'],
+    consumers: ['tool-skill'],
+    note: 'Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies.',
   },
   {
     key: 'agents',
     pkg: 'agent',
     title: 'Agent registry',
     mode: 'core',
-    consumers: ['agent-loop', 'acp', 'subagent-inprocess', 'stdio-agent', 'invariants'],
+    consumers: ['agent-loop', 'acp', 'subagent-inprocess', 'stdio-demo', 'invariants'],
     note: 'Owns live Agent handles and the create/resume factory seam.',
   },
   {
@@ -147,7 +157,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'agent-loop',
     title: 'Concrete loop driver',
     mode: 'bundle',
-    consumers: ['agent-core'],
+    consumers: ['agent-spine-demo'],
     note: 'The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package.',
   },
   {
@@ -155,9 +165,36 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'bash',
     title: 'Bash executor seam',
     mode: 'seam',
-    implementations: ['bash-local'],
+    implementations: ['bash-local', 'bash-sandbox'],
     consumers: ['tool-bash', 'hooks-claude', 'hooks-codex'],
-    note: 'The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors can replace bash-local.',
+    note: 'The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors replace bash-local without touching them.',
+  },
+  {
+    key: 'sandbox',
+    pkg: 'sandbox',
+    title: 'Process-sandbox seam',
+    mode: 'seam',
+    implementations: ['sandbox-local'],
+    consumers: ['bash-sandbox'],
+    note: 'Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement.',
+  },
+  {
+    key: 'approval',
+    pkg: 'approval',
+    title: 'Approval seam',
+    mode: 'seam',
+    implementations: ['acp'],
+    consumers: ['tools', 'tool-bash'],
+    note: 'One-shot permission decisions dispatched over the `approval/request` waterfall; answerers are listeners (the ACP bridge for its own agents), absence fails closed to `unavailable`.',
+  },
+  {
+    key: 'permission',
+    pkg: 'permission',
+    title: 'Permission presets',
+    mode: 'core',
+    implementations: [],
+    consumers: ['acp'],
+    note: 'User-facing preset table (`workspace-write`/`danger-full-access`) bundling the sandbox-mode and approval-policy knobs; a switch writes one `permission/preset` event through to both knob events.',
   },
   {
     key: 'codeRuntime',
@@ -197,6 +234,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Providers implement transports; tool-subagent exposes one configured provider as a model-facing tool name.',
   },
   {
+    key: 'tasks',
+    pkg: 'tasks',
+    title: 'Background task registry',
+    mode: 'core',
+    consumers: ['tool-bash', 'tool-subagent', 'tool-tasks'],
+    note: 'Producers (tool-bash background commands, tool-subagent background delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it.',
+  },
+  {
     key: 'web',
     pkg: 'web',
     title: 'Web access provider registry',
@@ -214,22 +259,6 @@ const SERVICE_ROLES: ServiceRole[] = [
     consumers: ['tool-workflow'],
     note: 'One engine per context (bash shape, no named-provider registry); the worker-thread engine fans agent() calls out through ctx.subagents.',
   },
-]
-
-const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: string }> = [
-  // Subagent lifecycle events intentionally bypass ctx.emit and call
-  // ctx.events.dispatch directly so one throwing listener cannot starve later
-  // listeners or strand an already-started child run.
-  { event: 'subagent/start', pkg: 'subagent', method: 'events.dispatch' },
-  { event: 'subagent/end', pkg: 'subagent', method: 'events.dispatch' },
-  // The workflow/* lifecycle events dispatch the same way, for the same
-  // per-listener-containment reason (WorkflowService.emitWorkflowEvent).
-  { event: 'workflow/start', pkg: 'workflow', method: 'events.dispatch' },
-  { event: 'workflow/phase', pkg: 'workflow', method: 'events.dispatch' },
-  { event: 'workflow/log', pkg: 'workflow', method: 'events.dispatch' },
-  { event: 'workflow/agent-start', pkg: 'workflow', method: 'events.dispatch' },
-  { event: 'workflow/agent-end', pkg: 'workflow', method: 'events.dispatch' },
-  { event: 'workflow/end', pkg: 'workflow', method: 'events.dispatch' },
 ]
 
 function generatedHeader(title: string): string[] {
@@ -252,62 +281,6 @@ function graphIndexLink(rel: string): string {
 
 function linkFromDoc(docRel: string, targetRel: string): string {
   return relative(dirname(docRel), targetRel).replaceAll('\\', '/')
-}
-
-function collectPackages(): Pkg[] {
-  const pkgs: Pkg[] = []
-  for (const rel of globSync('packages/*/*/package.json', { cwd: root }).sort()) {
-    const json = JSON.parse(readFileSync(resolve(root, rel), 'utf8')) as PkgJson
-    if (!json.name.startsWith(SCOPE)) continue
-    const [, group, leaf] = rel.split('/')
-    if (group === undefined || leaf === undefined) throw new Error(`gen-doc-graphs: unexpected package path ${rel}`)
-    const deps = Object.keys(json.peerDependencies ?? {})
-      .filter(dep => dep.startsWith(SCOPE))
-      .map(dep => dep.slice(SCOPE.length))
-      .sort()
-    pkgs.push({
-      short: json.name.slice(SCOPE.length),
-      name: json.name,
-      group,
-      rel: dirname(rel),
-      deps,
-    })
-  }
-  return topoSort(pkgs)
-}
-
-function topoSort(pkgs: Pkg[]): Pkg[] {
-  const remaining = new Map(pkgs.map(p => [p.short, p]))
-  const placed = new Set<string>()
-  const out: Pkg[] = []
-  while (remaining.size > 0) {
-    const ready = [...remaining.values()]
-      .filter(pkg => pkg.deps.every(dep => placed.has(dep)))
-      .sort(comparePackages)
-    if (ready.length === 0) throw new Error(`gen-doc-graphs: dependency cycle among ${[...remaining.keys()].join(', ')}`)
-    for (const pkg of ready) {
-      out.push(pkg)
-      placed.add(pkg.short)
-      remaining.delete(pkg.short)
-    }
-  }
-  return out
-}
-
-function comparePackages(a: Pkg, b: Pkg): number {
-  const groupA = GROUP_ORDER.indexOf(a.group)
-  const groupB = GROUP_ORDER.indexOf(b.group)
-  const normA = groupA === -1 ? Number.MAX_SAFE_INTEGER : groupA
-  const normB = groupB === -1 ? Number.MAX_SAFE_INTEGER : groupB
-  return normA - normB || a.group.localeCompare(b.group) || a.short.localeCompare(b.short)
-}
-
-function nodeId(prefix: string, value: string): string {
-  return `${prefix}_${value.replace(/[^a-zA-Z0-9_]/g, '_')}`
-}
-
-function escLabel(value: string): string {
-  return value.replace(/"/g, '\\"')
 }
 
 function mermaidCode(value: string): string {
@@ -459,11 +432,11 @@ type AppExample = typeof APP_EXAMPLES[number]
 function renderAppExpansion(lines: string[], appNode: string, pluginName: string): void {
   const agentCore = nodeId('bundle', 'agent_core')
   const jsonl = nodeId('bundle', 'jsonl')
-  lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-core"]`)
+  lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
-  if (pluginName === '@deepseek-ai/dsh-stdio-agent') {
+  if (pluginName === '@deepseek-ai/dsh-stdio-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'stdio')}["readline UI<br/>console logger<br/>pre-created main agent"]`)
-  } else if (pluginName === '@deepseek-ai/dsh-acp-agent') {
+  } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]`)
   }
   lines.push(
@@ -489,7 +462,7 @@ function renderAppComposition(example: AppExample): string {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
-    if (plugin.name === '@deepseek-ai/dsh-stdio-agent' || plugin.name === '@deepseek-ai/dsh-acp-agent') {
+    if (plugin.name === '@deepseek-ai/dsh-stdio-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
       renderAppExpansion(lines, pluginNode, plugin.name)
     }
   }
@@ -506,65 +479,256 @@ function renderAppComposition(example: AppExample): string {
   return lines.join('\n')
 }
 
-function collectEventRelations(): Map<string, EventRelation> {
-  const out = new Map<string, EventRelation>()
-  const ensure = (event: string): EventRelation => {
-    const existing = out.get(event)
-    if (existing) return existing
-    const next = { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
-    out.set(event, next)
-    return next
+/** Collect event dispatch/listener relations from real cross-file receiver types. */
+class EventRelationCollector {
+  private readonly relations = new Map<string, EventRelation>()
+  private readonly callSites = new Map<ts.SignatureDeclaration | ts.JSDocSignature, ts.CallExpression[]>()
+  private readonly contextType: ts.Type
+  private readonly agentDispatchType: ts.Type
+  private readonly eventsServiceType: ts.Type
+
+  constructor(
+    private readonly project: TypeScriptProject,
+    private readonly sources: readonly PackageSource[],
+  ) {
+    this.contextType = this.declaredType('vendor/cordis/src/context.ts', 'Context')
+    this.agentDispatchType = this.declaredType('packages/core/agent/src/dispatch.ts', 'AgentEventDispatch')
+    this.eventsServiceType = this.declaredType('vendor/cordis/src/events.ts', 'EventsService')
+    this.indexCallSites()
   }
-  for (const rel of globSync('packages/*/*/src/**/*.ts', { cwd: root }).sort()) {
-    const [, , leaf] = rel.split('/')
-    if (leaf === undefined) continue
-    const text = readFileSync(resolve(root, rel), 'utf8')
-    const sf = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true)
+
+  /** Return all event relations discovered from the Program. */
+  collect(): Map<string, EventRelation> {
+    for (const source of this.sources) this.visitSource(source)
+    return this.relations
+  }
+
+  /** Resolve one named class/interface declaration to its merged instance type. */
+  private declaredType(relativePath: string, name: string): ts.Type {
+    const sourceFile = this.project.sourceFile(relativePath)
+    const declaration = sourceFile.statements.find((statement): statement is ts.ClassDeclaration | ts.InterfaceDeclaration => {
+      return (ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement)) && statement.name?.text === name
+    })
+    const symbol = declaration?.name && this.project.checker.getSymbolAtLocation(declaration.name)
+    if (!symbol) throw new Error(`cannot resolve TypeScript type ${name} from ${relativePath}`)
+    return this.project.checker.getDeclaredTypeOfSymbol(symbol)
+  }
+
+  /** Index resolved local function calls for narrow argument-flow recovery. */
+  private indexCallSites(): void {
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        const declaration = this.project.checker.getResolvedSignature(node)?.declaration
+        if (declaration) {
+          const calls = this.callSites.get(declaration) ?? []
+          calls.push(node)
+          this.callSites.set(declaration, calls)
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    for (const source of this.sources) visit(source.sourceFile)
+  }
+
+  /** Walk one package source file and classify event API calls by receiver type. */
+  private visitSource(source: PackageSource): void {
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+        const receiverKind = this.receiverKind(node.expression.expression)
         const method = node.expression.name.text
-        if (!isCordisContextReceiver(node.expression, sf)) {
-          ts.forEachChild(node, visit)
-          return
-        }
-        if (method === 'on') {
-          const event = eventArg(node.arguments, method)
-          if (event) ensure(event).listeners.add(leaf)
-        } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
-          const event = eventArg(node.arguments, method)
-          if (event) {
-            const relation = ensure(event)
-            const methods = relation.dispatchers.get(leaf) ?? new Set<string>()
-            methods.add(method)
-            relation.dispatchers.set(leaf, methods)
+        if (receiverKind === 'events-service' && method === 'dispatch') {
+          const argumentList = node.arguments[1]
+          if (argumentList) {
+            for (const event of this.eventNamesFromArgumentList(argumentList, new Set())) {
+              this.addDispatcher(event, source.pkg, 'events.dispatch')
+            }
+          }
+        } else if (receiverKind === 'context' || receiverKind === 'agent-dispatch') {
+          const eventNames = this.eventNamesFromCall(node, receiverKind)
+          if (method === 'on' || method === 'once') {
+            for (const event of eventNames) this.ensure(event).listeners.add(source.pkg)
+          } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
+            for (const event of eventNames) this.addDispatcher(event, source.pkg, method)
           }
         }
       }
       ts.forEachChild(node, visit)
     }
-    visit(sf)
+    visit(source.sourceFile)
   }
-  for (const entry of DYNAMIC_EVENT_DISPATCHERS) {
-    const relation = ensure(entry.event)
-    const methods = relation.dispatchers.get(entry.pkg) ?? new Set<string>()
-    methods.add(entry.method)
-    relation.dispatchers.set(entry.pkg, methods)
+
+  /** Classify a receiver using assignability to the repository's actual event API types. */
+  private receiverKind(receiver: ts.Expression): EventReceiverKind | undefined {
+    const type = this.project.checker.getTypeAtLocation(receiver)
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never)) return undefined
+    if (this.project.checker.isTypeAssignableTo(type, this.eventsServiceType)) return 'events-service'
+    if (this.project.checker.isTypeAssignableTo(type, this.contextType)) return 'context'
+    if (this.project.checker.isTypeAssignableTo(type, this.agentDispatchType)) return 'agent-dispatch'
+    return undefined
   }
+
+  /** Resolve the event-name argument for Context and fused agent dispatch calls. */
+  private eventNamesFromCall(call: ts.CallExpression, receiverKind: Exclude<EventReceiverKind, 'events-service'>): Set<string> {
+    const candidates = receiverKind === 'context' ? call.arguments.slice(0, 2) : call.arguments.slice(0, 1)
+    for (const candidate of candidates) {
+      const values = this.finiteStringValues(candidate)
+      if (values) return values
+    }
+    return new Set()
+  }
+
+  /** Recover the event slot from the argument array handed to EventsService.dispatch(). */
+  private eventNamesFromArgumentList(expression: ts.Expression, seen: Set<ts.Node>): Set<string> {
+    const current = unwrapExpression(expression)
+    if (seen.has(current)) return new Set()
+    seen.add(current)
+
+    if (ts.isArrayLiteralExpression(current)) {
+      for (const element of current.elements.slice(0, 2)) {
+        if (ts.isOmittedExpression(element) || ts.isSpreadElement(element)) continue
+        const values = this.finiteStringValues(element)
+        if (values) return values
+      }
+      return new Set()
+    }
+    if (ts.isConditionalExpression(current)) {
+      return unionSets(
+        this.eventNamesFromArgumentList(current.whenTrue, new Set(seen)),
+        this.eventNamesFromArgumentList(current.whenFalse, new Set(seen)),
+      )
+    }
+    if (!ts.isIdentifier(current)) return new Set()
+
+    const symbol = this.project.checker.getSymbolAtLocation(current)
+    if (!symbol) return new Set()
+    const events = new Set<string>()
+    for (const declaration of symbol.declarations ?? []) {
+      if (ts.isVariableDeclaration(declaration) && declaration.initializer && isConstDeclaration(declaration)) {
+        addAll(events, this.eventNamesFromArgumentList(declaration.initializer, new Set(seen)))
+      } else if (ts.isParameter(declaration)) {
+        addAll(events, this.eventNamesFromParameter(declaration, seen))
+      }
+    }
+    return events
+  }
+
+  /** Follow a non-exported local helper parameter back to every resolved call site. */
+  private eventNamesFromParameter(parameter: ts.ParameterDeclaration, seen: Set<ts.Node>): Set<string> {
+    const owner = parameter.parent
+    if (!ts.isFunctionDeclaration(owner) || hasExportModifier(owner)) return new Set()
+    const index = owner.parameters.indexOf(parameter)
+    if (index < 0) return new Set()
+    const events = new Set<string>()
+    for (const call of this.callSites.get(owner) ?? []) {
+      const argument = call.arguments[index]
+      if (argument) addAll(events, this.eventNamesFromArgumentList(argument, new Set(seen)))
+    }
+    return events
+  }
+
+  /** Return a finite string-literal value set, rejecting widened and generic strings. */
+  private finiteStringValues(expression: ts.Expression): Set<string> | undefined {
+    const current = unwrapExpression(expression)
+    if (ts.isStringLiteralLike(current)) return new Set([current.text])
+    if (this.isForwardedAgentEventParameter(current)) return undefined
+    return finiteStringTypeValues(this.project.checker.getTypeAtLocation(current))
+  }
+
+  /** Reject the contextual parameter inside the AgentEventDispatch forwarding object. */
+  private isForwardedAgentEventParameter(expression: ts.Expression): boolean {
+    if (!ts.isIdentifier(expression)) return false
+    const declarations = this.project.checker.getSymbolAtLocation(expression)?.declarations ?? []
+    return declarations.some((declaration) => {
+      if (!ts.isParameter(declaration)) return false
+      const method = declaration.parent
+      if (!ts.isMethodDeclaration(method) || !ts.isObjectLiteralExpression(method.parent)) return false
+      const contextualType = this.project.checker.getContextualType(method.parent)
+      return contextualType !== undefined
+        && this.project.checker.isTypeAssignableTo(contextualType, this.agentDispatchType)
+    })
+  }
+
+  /** Get or create one relation row. */
+  private ensure(event: string): EventRelation {
+    const existing = this.relations.get(event)
+    if (existing) return existing
+    const relation = { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
+    this.relations.set(event, relation)
+    return relation
+  }
+
+  /** Add one dispatcher method without duplicating package/method labels. */
+  private addDispatcher(event: string, pkg: string, method: string): void {
+    const relation = this.ensure(event)
+    const methods = relation.dispatchers.get(pkg) ?? new Set<string>()
+    methods.add(method)
+    relation.dispatchers.set(pkg, methods)
+  }
+}
+
+/** Peel syntax-only wrappers that do not change an expression's runtime value. */
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current = expression
+  while (
+    ts.isParenthesizedExpression(current)
+    || ts.isAsExpression(current)
+    || ts.isTypeAssertionExpression(current)
+    || ts.isNonNullExpression(current)
+    || ts.isSatisfiesExpression(current)
+  ) {
+    current = current.expression
+  }
+  return current
+}
+
+/** Return every value only when a type is a closed string-literal union. */
+function finiteStringTypeValues(type: ts.Type): Set<string> | undefined {
+  if (type.flags & ts.TypeFlags.StringLiteral) {
+    return new Set([(type as ts.StringLiteralType).value])
+  }
+  if (type.flags & ts.TypeFlags.Never) return new Set()
+  if (!type.isUnion()) return undefined
+  const values = new Set<string>()
+  for (const member of type.types) {
+    const memberValues = finiteStringTypeValues(member)
+    if (!memberValues) return undefined
+    addAll(values, memberValues)
+  }
+  return values
+}
+
+/** Return whether a variable declaration belongs to a const declaration list. */
+function isConstDeclaration(declaration: ts.VariableDeclaration): boolean {
+  return (declaration.parent.flags & ts.NodeFlags.Const) !== 0
+}
+
+/** Return whether a declaration is visible to callers outside its source module. */
+function hasExportModifier(node: ts.Node): boolean {
+  return ts.canHaveModifiers(node) && (ts.getModifiers(node)?.some((modifier) => {
+    return modifier.kind === ts.SyntaxKind.ExportKeyword || modifier.kind === ts.SyntaxKind.DefaultKeyword
+  }) ?? false)
+}
+
+/** Add every member of source to target. */
+function addAll<T>(target: Set<T>, source: ReadonlySet<T>): void {
+  for (const value of source) target.add(value)
+}
+
+/** Return the union of two sets without mutating either input. */
+function unionSets<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): Set<T> {
+  const out = new Set(left)
+  addAll(out, right)
   return out
 }
 
-function isCordisContextReceiver(expr: ts.PropertyAccessExpression, sf: ts.SourceFile): boolean {
-  const target = expr.expression.getText(sf)
-  return target === 'ctx' || target === 'this.ctx'
-}
-
-function eventArg(args: ts.NodeArray<ts.Expression>, method: string): string | undefined {
-  if (method === 'waterfall') {
-    const arg = args.find(ts.isStringLiteralLike)
-    return arg?.text
-  }
-  const first = args[0]
-  return first && ts.isStringLiteralLike(first) ? first.text : undefined
+function collectEventRelations(): Map<string, EventRelation> {
+  const project = new TypeScriptProject(root)
+  const sources = project.sourceFiles().flatMap((sourceFile): PackageSource[] => {
+    const rel = project.relativePath(sourceFile)
+    const match = /^packages\/[^/]+\/([^/]+)\/src\/.+\.ts$/.exec(rel)
+    return match?.[1] ? [{ rel, pkg: match[1], sourceFile }] : []
+  }).sort((left, right) => left.rel.localeCompare(right.rel))
+  return new EventRelationCollector(project, sources).collect()
 }
 
 function relationPackages(map: Map<string, Set<string>>, pkgsByShort: Map<string, Pkg>): string {
@@ -584,10 +748,10 @@ function renderEventRelations(pkgs: Pkg[]): string {
   const events = collectEvents()
   const relations = collectEventRelations()
   const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
-  const maintenance = 'hybrid generated: Cordis event declarations and most producer/listener edges are AST-scanned; dynamic dispatch sites are classified in `scripts/gen-doc-graphs.ts`'
+  const maintenance = 'generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program'
   const lines = generatedHeader('Event Producer And Consumer Matrix')
   lines.push(
-    'This matrix shows which packages dispatch each harness-owned event and which packages listen to it. It is intentionally a table rather than one large graph: events are many-to-many, and dense relation data is easier to review in rows. Dynamic dispatch overrides cover sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment.',
+    'This matrix shows which packages dispatch each harness-owned event and which packages listen to it. It is intentionally a table rather than one large graph: events are many-to-many, and dense relation data is easier to review in rows. Receiver and event-name types also cover contained dispatch sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment.',
     '',
     '| Event | Mode | Declared in | Dispatchers | Listeners |',
     '| --- | --- | --- | --- | --- |',
@@ -595,6 +759,19 @@ function renderEventRelations(pkgs: Pkg[]): string {
   for (const event of [...events].sort((a, b) => a.name.localeCompare(b.name))) {
     const relation = relations.get(event.name) ?? { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
     lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
+  }
+  // Every declared event needs a dispatcher: zero means dead vocabulary or an
+  // unrecognized semantic dispatch shape. Listener-free extension points remain valid.
+  const undispatched = [...events]
+    .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
+    .map(event => event.name)
+    .sort()
+  if (undispatched.length > 0) {
+    throw new Error(
+      `event-producer-consumer matrix: no dispatcher found for declared event${undispatched.length > 1 ? 's' : ''} `
+      + `${undispatched.map(name => `"${name}"`).join(', ')} — dead vocabulary, or a dispatch shape the semantic scan misses `
+      + '(teach scripts/gen-doc-graphs.ts the shape)',
+    )
   }
   const declared = new Set(events.map(event => event.name))
   const extra = [...relations.keys()].filter(event => !declared.has(event)).sort()
@@ -650,6 +827,7 @@ function renderLifecycle(): string {
     '  Tools-->>Session: tool-owned events when applicable',
     `  Driver->>Session: ${mermaidCode('tool/result')} and ${mermaidCode('step/end')}`,
     `  Driver->>Hooks: ${mermaidCode('agent/turn-continuation')} waterfall`,
+    `  Driver->>Hooks: ${mermaidCode('agent/turn-stop')} serial terminal checkpoint`,
     `  Driver->>Session: ${mermaidCode('turn/end')}`,
     `  Driver->>Persistence: ${mermaidCode('session/flush')} parallel checkpoint`,
     `  Driver-->>SDK: ${mermaidCode('agent/status')} idle`,
@@ -665,7 +843,7 @@ function renderToolPipeline(): string {
   const maintenance = 'curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs'
   return [
     ...generatedHeader('Tool Execution Pipeline'),
-    'This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, and UI rendering fit without changing the loop. The key extension points are the `tools/pre-execute`, `tools/execute`, and `tools/post-execute` waterfalls.',
+    'This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, final-outcome observation, and UI rendering fit without changing the loop. The transformable extension points are the `tools/pre-execute`, `tools/execute`, and `tools/post-execute` waterfalls; monotonic guards and `tools/result` are the owner-enforced boundaries around them.',
     '',
     '```mermaid',
     'flowchart TD',
@@ -673,33 +851,44 @@ function renderToolPipeline(): string {
     `  toolCall["Session event: ${mermaidCode('tool/call')}<br/>logged before execution"]`,
     '  presentCall["UI pending card<br/>presentCall(args)"]',
     `  pre["${mermaidCode('tools/pre-execute')} waterfall<br/>hooks, permission, sandbox"]`,
-    '  denied["deny or ask<br/>tool body skipped"]',
+    '  guards["Registered monotonic guards<br/>deny or abstain; identity protected"]',
+    '  denied["denied or approval refused<br/>tool body skipped"]',
+    `  approval["${mermaidCode('ctx.approval')} one-shot prompt<br/>absent or unanswerable: deny"]`,
     `  around["${mermaidCode('tools/execute')} waterfall<br/>timeout, retry, metrics (around dispatch)"]`,
     '  toolBody["Registered tool execute() body"]',
     `  fsGate["${mermaidCode('fs/write-intent')} or ${mermaidCode('fs/edit-intent')}<br/>tool-fs mutations only"]`,
     `  owned["Tool-owned session events<br/>${mermaidCode('todo/write')}, ${mermaidCode('fs/observed')}, ${mermaidCode('hook/invoked')}, ${mermaidCode('hook/result')}, ${mermaidCode('tool/code-dispatch')}"]`,
     `  post["${mermaidCode('tools/post-execute')} waterfall<br/>accept, block, replace, add context"]`,
+    `  final["${mermaidCode('tools/result')} synchronous notification<br/>frozen authoritative outcome"]`,
     '  context["Buffered additionalContext<br/>context/message after all tool results"]',
     `  toolResult["Session event: ${mermaidCode('tool/result')}<br/>single model-facing outcome"]`,
+    '  allResults["All calls in the step settled<br/>and tool/result events recorded"]',
     '  presentResult["UI completed card<br/>presentResult(args, result)"]',
     '  model --> toolCall',
     '  toolCall --> presentCall',
     '  toolCall --> pre',
-    '  pre -->|allow| around',
+    '  pre -->|allow| guards',
+    '  guards -->|allow| around',
+    '  guards -->|deny| denied',
     '  around --> toolBody',
-    '  pre -->|deny or ask| denied',
+    '  pre -->|deny| denied',
+    '  pre -->|ask| approval',
+    '  approval -->|allowed-once| guards',
+    '  approval -->|rejected, cancelled, unavailable| denied',
     '  denied --> post',
     '  toolBody --> fsGate',
     '  fsGate --> toolBody',
     '  toolBody --> owned',
     '  toolBody --> around',
     '  around --> post',
-    '  post --> context',
-    '  post --> toolResult',
+    '  post --> final',
+    '  final --> toolResult',
     '  toolResult --> presentResult',
+    '  toolResult --> allResults',
+    '  allResults --> context',
     '```',
     '',
-    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and future permission prompts live on the generic pre/post tool waterfalls; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service. Code Mode rides the same pipeline twice over: `run_code` is itself a registered tool body, and each tool call its program makes re-enters `ctx.tools.execute()` through BOTH waterfalls — serialized one at a time, logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call\'s `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).',
+    'Filesystem read-before-edit checks stay below `tool-fs` on `fs/*` events. Generic pre/post waterfalls host hooks and approval policy; `ctx.approval` resolves asks before monotonic guards, and owner policy that must not be reordered remains a registered guard. Around-dispatch concerns such as timeouts wrap `tools/execute`, while `tools/result` observes the immutable outcome after transforms, lossless-JSON validation, and outer error normalization. This lets hooks span tool families without coupling the tools to one policy service. Code Mode sends both the reserved `run_code` transport and its serialized sub-calls through the pipeline; sub-calls carry the parent token, log `tool/code-dispatch`, surface denials as binding rejections, and omit `additionalContext` to preserve call/result adjacency.',
     '',
     ...maintenanceFooter(maintenance),
   ].join('\n')
@@ -735,7 +924,7 @@ function renderSnapshotReplay(): string {
 }
 
 function renderDocs(): GraphDoc[] {
-  const pkgs = collectPackages()
+  const pkgs = collectPackageGraph(root, GROUP_ORDER, 'gen-doc-graphs')
   const docs: GraphDoc[] = [
     { rel: 'docs/capability-seams.md', content: renderCapabilitySeams(pkgs) },
     ...APP_EXAMPLES.map(example => ({ rel: example.rel, content: renderAppComposition(example) })),

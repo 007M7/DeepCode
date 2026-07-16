@@ -4,14 +4,9 @@
 
 `CodeRuntime` (abstract seam) — provided by `@deepseek-ai/dsh-code-runtime`.
 
-Abstract code-execution service. Subclass, implement run and the two descriptors, and load the subclass as a plugin — it registers as `ctx.codeRuntime` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
-Semantics every implementation must honor:
-- run resolves with an error FIELD for every program outcome — parse/transform failures, thrown exceptions, budget expiry, abort, substrate death (CodeRunFailure's taxonomy). It REJECTS only for caller misuse of the seam itself (e.g. a run submitted after disposal).
-- Binding calls bridge to the caller's CodeBindingFunctions verbatim; arguments and resolutions must be structured-cloneable, and the runtime treats the program as a hostile peer (arbitrary binding names are own properties, malformed traffic is rejected or ignored, never crashes the host).
-- Runs are isolated from each other: no state survives from one run to the next through the runtime.
-- Disposal reaches quiescence: in-flight runs are terminated AND awaited before the service's own teardown completes (no orphan substrate survives `fiber.dispose()`).
+Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate failures resolve in CodeRunResult; only seam misuse rejects. Implementations bridge structured-cloneable bindings while treating programs as hostile peers, isolate runs from one another, and terminate and await in-flight runs during disposal.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/code-runtime/code-runtime/src/index.ts#L59)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/code-runtime/code-runtime/src/index.ts#L30)
 
 ### ctx.codeRuntime.language
 
@@ -21,7 +16,7 @@ abstract readonly language: string
 
 The source language run expects `program` to be written in, as a lowercase identifier. Informational, not gating — a consumer that generates language-specific presentation (typed SDK stubs, usage instructions) switches on it and fails loud on a language it cannot present. Well-known value: `'typescript'`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/code-runtime/code-runtime/src/index.ts#L67)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/code-runtime/code-runtime/src/index.ts#L38)
 
 ### ctx.codeRuntime.isolation
 
@@ -31,7 +26,7 @@ abstract readonly isolation: string
 
 The execution substrate, as a lowercase identifier. Informational, not gating — a descriptor so deployments and diagnostics can tell backends apart, not a security claim. Well-known values: `'worker-thread'`, `'process'`, `'container'`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/code-runtime/code-runtime/src/index.ts#L75)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/code-runtime/code-runtime/src/index.ts#L46)
 
 ### ctx.codeRuntime.run(request)
 
@@ -45,4 +40,4 @@ Execute one program against the request's bindings and capture what it emitted. 
 
 **Returns** the run's outcome: completion value (when transferable), the ordered log capture, and the failure (if any).
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/code-runtime/code-runtime/src/index.ts#L90)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/code-runtime/code-runtime/src/index.ts#L61)

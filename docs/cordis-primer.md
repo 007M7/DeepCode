@@ -27,9 +27,13 @@ The mode is part of the event's public contract. New harness events document it 
 
 `ctx.waterfall` is around-middleware. A listener receives `(...args, next)`. Call `next()` to delegate the possibly wrapped result to the next service; return without `next()` to short-circuit. Values propagate through `next()`'s return value.
 
-Cooperative listeners usually mutate a shared request or decision object and then delegate. A listener can also choose to repalce the result entirely and downstream listeners will only see the result after replacement. Use `prepend: true` only when the listener must run before ordinary registrations.
+Cooperative listeners usually mutate a shared request or decision object and then delegate. A listener can also choose to replace the result entirely and downstream listeners will only see the result after replacement. Use `prepend: true` only when the listener must run before ordinary registrations.
 
 For single-decision events, short-circuiting is the design. A policy listener can return without `next()` when it owns the decision, while a listener that only annotates or observes must delegate.
+
+## Loader Configuration
+
+`@cordisjs/plugin-include` parses `!!js` into expression nodes, but the Loader interpolates only an entry's `config` before mounting the plugin. Entry metadata (`id`, `name`, `group`, `disabled`, `inject`, `intercept`, and `isolate`) remains literal; `disabled: !!js ...` is therefore a truthy object that always disables the entry. Use explicit config overlays when environment selection changes which plugins are mounted.
 
 ## Practical Rules
 

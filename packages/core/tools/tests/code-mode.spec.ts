@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import { createScope } from '@deepseek-ai/dsh-scope'
+import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Config, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap } from '@deepseek-ai/dsh-session'
@@ -52,6 +55,15 @@ async function setup(options: SetupOptions = {}) {
     runtime = ctx.codeRuntime as FakeRuntime
   }
   return { ctx, tools: ctx.tools, systemPrompt: ctx.systemPrompt, runtime: runtime! }
+}
+
+/** Mint one production-shaped agent scope that can register scoped tool policy. */
+async function mintAgentScope(ctx: Context, name = 'scoped'): Promise<{ scope: Scope; agent: Agent }> {
+  const agent = { id: AgentId(name) } as Agent
+  let scope!: Scope
+  await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
+    { inject: ['tools', 'systemPrompt'] }))
+  return { scope, agent }
 }
 
 /** Register a trivial echo tool; returns the calls it received. */
@@ -111,12 +123,142 @@ describe('mode-aware wire contribution', () => {
     expect(sdk?.text).not.toContain('run_code(args:')
   })
 
+  it.each(['code', 'both'] as const)('treats expert assembly output as authoritative in mode %s', async (mode) => {
+    const { ctx, systemPrompt } = await setup({ mode })
+    registerEcho(ctx)
+    ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      const assembly = await next()
+      return {
+        ...assembly,
+        sections: assembly.sections.filter(section => section.name !== 'tools:sdk'),
+        tools: assembly.tools.filter(tool => tool.name !== RUN_CODE_NAME),
+      }
+    }, { prepend: true })
+
+    const assembly = await systemPrompt.assemble()
+    expect(assembly.sections.some(section => section.name === 'tools:sdk')).toBe(false)
+    expect(assembly.tools.some(tool => tool.name === RUN_CODE_NAME)).toBe(false)
+  })
+
+  it.each(['code', 'both'] as const)('lets one scope shadow the default SDK section in mode %s', async (mode) => {
+    const { ctx, systemPrompt } = await setup({ mode })
+    registerEcho(ctx)
+    const { scope, agent } = await mintAgentScope(ctx)
+    scope.ctx.systemPrompt.section({ name: 'tools:sdk', order: 150, text: 'SCOPED SDK' })
+
+    const scoped = await systemPrompt.assemble({ scope: agent })
+    const global = await systemPrompt.assemble()
+    expect(scoped.sections.find(section => section.name === 'tools:sdk')?.text).toBe('SCOPED SDK')
+    expect(global.sections.find(section => section.name === 'tools:sdk')?.text).toContain('declare const tools:')
+  })
+
   it("mode 'both' contributes every native schema plus run_code, and the SDK section", async () => {
     const { ctx, systemPrompt } = await setup({ mode: 'both' })
     registerEcho(ctx)
     const assembly = await systemPrompt.assemble()
     expect(assembly.tools.map(tool => tool.name)).toEqual(['echo', RUN_CODE_NAME])
     expect(assembly.sections.some(section => section.name === 'tools:sdk')).toBe(true)
+  })
+
+  it.each(['code', 'both'] as const)('keeps the run_code transport outside scoped allow-list filtering in mode %s', async (mode) => {
+    const { ctx, systemPrompt, runtime } = await setup({ mode })
+    registerEcho(ctx, 'echo')
+    registerEcho(ctx, 'hidden')
+    const { scope, agent } = await mintAgentScope(ctx)
+    const lift = scope.ctx.tools.restrict({ allow: ['echo'] })
+
+    const assembly = await systemPrompt.assemble({ scope: agent })
+    expect(assembly.tools.map(tool => tool.name)).toEqual(mode === 'code'
+      ? [RUN_CODE_NAME]
+      : ['echo', RUN_CODE_NAME])
+    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text
+    expect(sdk).toContain('echo(args:')
+    expect(sdk).not.toContain('hidden(args:')
+
+    runtime.behavior = request => Promise.resolve({
+      logs: [],
+      value: Object.keys(request.bindings[0]!.functions).sort().join(','),
+    })
+    const result = await runCode(ctx, 'return Object.keys(tools)', { agent })
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: 'echo' }])
+
+    lift()
+    const unrestricted = await systemPrompt.assemble({ scope: agent })
+    expect(unrestricted.tools.map(tool => tool.name)).toEqual(mode === 'code'
+      ? [RUN_CODE_NAME]
+      : ['echo', 'hidden', RUN_CODE_NAME])
+  })
+
+  it.each(['code', 'both'] as const)('keeps the run_code transport outside scoped deny-list filtering in mode %s', async (mode) => {
+    const { ctx, systemPrompt, runtime } = await setup({ mode })
+    registerEcho(ctx, 'denied')
+    registerEcho(ctx, 'kept')
+    const { scope, agent } = await mintAgentScope(ctx)
+    scope.ctx.tools.restrict({ deny: ['denied'] })
+
+    const assembly = await systemPrompt.assemble({ scope: agent })
+    expect(assembly.tools.map(tool => tool.name)).toEqual(mode === 'code'
+      ? [RUN_CODE_NAME]
+      : ['kept', RUN_CODE_NAME])
+    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text
+    expect(sdk).not.toContain('denied(args:')
+    expect(sdk).toContain('kept(args:')
+
+    runtime.behavior = request => Promise.resolve({
+      logs: [],
+      value: Object.keys(request.bindings[0]!.functions).sort().join(','),
+    })
+    const result = await runCode(ctx, 'return Object.keys(tools)', { agent })
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: 'kept' }])
+  })
+
+  it.each(['code', 'both'] as const)('reserves run_code against scoped shadows and explicit restrictions in mode %s', async (mode) => {
+    const { ctx, systemPrompt } = await setup({ mode })
+    const { scope, agent } = await mintAgentScope(ctx)
+    const impostor = defineTool({
+      name: RUN_CODE_NAME,
+      description: 'Scoped impostor.',
+      parameters: {},
+      execute: () => Promise.resolve([{ type: 'text' as const, text: 'impostor' }]),
+    })
+
+    expect(() => scope.ctx.tools.register(impostor)).toThrow(/reserved for the Code Mode presentation transport/)
+    expect(() => ctx.tools.register(impostor)).toThrow(/reserved for the Code Mode presentation transport/)
+    expect(() => scope.ctx.tools.restrict({ allow: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
+    expect(() => scope.ctx.tools.restrict({ deny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
+    scope.ctx.systemPrompt.section({ name: 'scoped-note', order: 149, text: 'safe note' })
+    scope.ctx.tools.register(defineTool({
+      name: 'scoped_safe',
+      description: 'Safe scoped tool.',
+      parameters: {},
+      execute: () => Promise.resolve([{ type: 'text' as const, text: 'safe' }]),
+    }))
+
+    const assembly = await systemPrompt.assemble({ scope: agent })
+    const transports = assembly.tools.filter(tool => tool.name === RUN_CODE_NAME)
+    expect(transports).toHaveLength(1)
+    expect(transports[0]?.description).toContain('Execute a TypeScript program')
+    expect(assembly.sections.find(section => section.name === 'scoped-note')?.text).toBe('safe note')
+    expect(assembly.sections.find(section => section.name === 'tools:sdk')?.text).toContain('scoped_safe(args:')
+    expect(ctx.tools.get(RUN_CODE_NAME, agent)).toBe(ctx.tools.get(RUN_CODE_NAME))
+    const result = await runCode(ctx, 'return 1', { agent })
+    expect(result.content).toEqual([{ type: 'text', text: '(run_code completed with no output)' }])
+  })
+
+  it.each(['code', 'both'] as const)('keeps run_code in the toolOrder universe without exposing it as a restriction target in mode %s', async (mode) => {
+    const { ctx, systemPrompt } = await setup({
+      mode,
+      toolOrder: [RUN_CODE_NAME, '<unlisted-tools>'],
+    })
+    registerEcho(ctx)
+    const { agent } = await mintAgentScope(ctx)
+
+    const assembly = await systemPrompt.assemble({ scope: agent })
+    expect(assembly.tools.map(tool => tool.name)).toEqual(mode === 'code'
+      ? [RUN_CODE_NAME]
+      : [RUN_CODE_NAME, 'echo'])
   })
 
   it("never exposes run_code to programs, even under mode 'both' (no recursive dispatch path)", async () => {
@@ -186,7 +328,7 @@ describe('the run_code dispatch bridge', () => {
       const tools = request.bindings[0]!.functions
       const first = await tools.echo!({ value: 'one' })
       const second = await tools.echo!({ value: 'two' })
-      return { logs: [{ source: 'console', level: 'log', text: `saw ${String(first)}` }], value: second }
+      return { logs: [`saw ${String(first)}`], value: second }
     }
     const result = await runCode(ctx, 'const …: string = …', { agent })
     expect(result.isError).toBe(false)
@@ -197,7 +339,35 @@ describe('the run_code dispatch bridge', () => {
       { parentCallId: 'call-1', subCallId: 'call-1:code:1', name: 'echo', arguments: { value: 'one' }, isError: false, resultSummary: 'echo:one' },
       { parentCallId: 'call-1', subCallId: 'call-1:code:2', name: 'echo', arguments: { value: 'two' }, isError: false, resultSummary: 'echo:two' },
     ])
-    expect(result.meta).toEqual({ logs: [{ source: 'console', level: 'log', text: 'saw echo:one' }], dispatches: 2 })
+    expect(result.meta).toEqual({ logs: ['saw echo:one'] })
+  })
+
+  it('exposes only an opaque parent token to nested result observers', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    registerEcho(ctx)
+    runtime.behavior = async (request) => {
+      await request.bindings[0]!.functions.echo!({ value: 'nested' })
+      return { logs: [], value: 'done' }
+    }
+
+    // Freeze the nested observer's parent correlation. If that were the live
+    // outer execution object, the timeout-style wrapper could not restore it.
+    ctx.on('tools/execute', async (exec, next) => {
+      if (exec.name !== RUN_CODE_NAME) return next()
+      const previous = exec.signal
+      exec.signal = new AbortController().signal
+      const result = await next()
+      if (previous === undefined) delete exec.signal
+      else exec.signal = previous
+      return result
+    })
+    ctx.on('tools/result', (exec) => {
+      if (exec.parent !== undefined) Object.freeze(exec.parent)
+    })
+
+    const result = await runCode(ctx, 'await tools.echo({ value: "nested" })')
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: 'done' }])
   })
 
   it('serializes Promise.all dispatches: tool executions never overlap, in submission order', async () => {
@@ -333,7 +503,7 @@ describe('the run_code dispatch bridge', () => {
   it('converts a failed run into a structured isError result carrying kind, message, and captured logs', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     runtime.behavior = () => Promise.resolve({
-      logs: [{ source: 'console', level: 'log', text: 'got this far' }],
+      logs: ['got this far'],
       error: { kind: 'timeout', message: 'compute budget exhausted (300ms busy)' },
     })
     const result = await runCode(ctx, 'program')
@@ -405,11 +575,8 @@ describe('the run_code dispatch bridge', () => {
       },
     }))
     runtime.behavior = async (request) => {
-      // Start a sub-dispatch, keep its rejection held, and fail the run once
-      // the tool is genuinely in flight — a seam error AFTER work has begun.
-      // The bridge's settlement still owes quiescence: without the finally,
-      // run_code would return now and the slow tool would finish (and log)
-      // afterwards.
+      // Start a sub-dispatch, keep its rejection held, and fail the run once the tool is
+      // genuinely in flight — a seam error after work has begun.
       request.bindings[0]!.functions.slow!({ id: 'orphan' }).catch(() => 'held')
       await inFlight
       throw new Error('backend exploded')
@@ -460,7 +627,7 @@ describe('the run_code dispatch bridge', () => {
     const view = tool.presentResult?.({ code: 'return 1' }, {
       content: [{ type: 'text', text: 'model-facing' }],
       isError: false,
-      meta: { logs: [{ source: 'console', level: 'log', text: 'printed' }], dispatches: 1 },
+      meta: { logs: ['printed'] },
     })
     // The result omits the title — an update replaces only provided fields,
     // so the pending card's program title persists through completion.
@@ -469,9 +636,10 @@ describe('the run_code dispatch bridge', () => {
       content: [{ type: 'text', text: 'printed' }],
     })
     // No captured output → no content either; everything pending persists.
-    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { logs: [], dispatches: 2 } }))
+    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { logs: [] } }))
       .toEqual({ card: 'generic' })
     // Replay with an unrecognizable meta falls back to the generic rendering.
+    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { logs: [{ text: 'legacy' }], dispatches: 1 } })).toBeUndefined()
     expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { other: true } })).toBeUndefined()
     expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false })).toBeUndefined()
   })
@@ -533,16 +701,17 @@ describe('the run_code dispatch bridge', () => {
     expect(events.filter(event => event.type === 'tool/code-dispatch')).toEqual([])
   })
 
-  it('logs the value the tool RECEIVED even when the tool mutates its arguments', async () => {
+  it('gives the tool and durable log the same immutable argument value', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const { agent, events } = fakeAgent()
+    let mutationSucceeded: boolean | undefined
     ctx.tools.register(defineTool({
       name: 'mutator',
-      description: 'Mutates its own args object.',
+      description: 'Attempts to mutate its args object.',
       parameters: { list: { type: 'array', required: true } },
       execute(args) {
-        args.list.push('injected-by-tool')
-        return Promise.resolve([{ type: 'text' as const, text: 'mutated' }])
+        mutationSucceeded = Reflect.set(args.list, 1, 'injected-by-tool')
+        return Promise.resolve([{ type: 'text' as const, text: 'protected' }])
       },
     }))
     runtime.behavior = async (request) => {
@@ -551,6 +720,7 @@ describe('the run_code dispatch bridge', () => {
     }
     const result = await runCode(ctx, 'program', { agent })
     expect(result.isError).toBe(false)
+    expect(mutationSucceeded).toBe(false)
     const dispatch = events.find(event => event.type === 'tool/code-dispatch')?.data as SessionEventMap['tool/code-dispatch']
     expect(dispatch.arguments).toEqual({ list: ['original'] })
   })

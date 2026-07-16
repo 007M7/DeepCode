@@ -31,6 +31,10 @@
       "link": "/zh-CN/api/harness/agents"
     },
     {
+      "text": "ctx.approval",
+      "link": "/zh-CN/api/harness/approval"
+    },
+    {
       "text": "ctx.bash",
       "link": "/zh-CN/api/harness/bash"
     },
@@ -51,12 +55,28 @@
       "link": "/zh-CN/api/harness/llm"
     },
     {
+      "text": "ctx.permission",
+      "link": "/zh-CN/api/harness/permission"
+    },
+    {
+      "text": "ctx.sandbox",
+      "link": "/zh-CN/api/harness/sandbox"
+    },
+    {
       "text": "ctx.sessionPersistence",
       "link": "/zh-CN/api/harness/session-persistence"
     },
     {
+      "text": "ctx.sessionQuery",
+      "link": "/zh-CN/api/harness/session-query"
+    },
+    {
       "text": "ctx.sessions",
       "link": "/zh-CN/api/harness/sessions"
+    },
+    {
+      "text": "ctx.skills",
+      "link": "/zh-CN/api/harness/skills"
     },
     {
       "text": "ctx.subagents",
@@ -65,6 +85,10 @@
     {
       "text": "ctx.systemPrompt",
       "link": "/zh-CN/api/harness/system-prompt"
+    },
+    {
+      "text": "ctx.tasks",
+      "link": "/zh-CN/api/harness/tasks"
     },
     {
       "text": "ctx.tools",

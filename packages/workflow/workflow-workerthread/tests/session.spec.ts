@@ -212,7 +212,7 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     host.close()
   })
 
-  it('cancel mid-run: in-flight children get cancel RPCs, hooks throw at entry, the run reports cancelled', async () => {
+  it('cancel mid-run: hooks throw at entry and the run reports cancelled', async () => {
     const host = fakeHost()
     void runWorkerSession(host.port, init(`
       phase('before')
@@ -232,7 +232,6 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     const result = await host.result()
     expect(result.stopReason).toBe('cancelled')
     expect(result.error).toContain('stop everything')
-    expect(host.ofType(WorkerToHostType.ChildCancel).map(m => m.callId)).toContain(callId)
     expect(host.ofType(WorkerToHostType.AgentEnd)[0]!.info.outcome).toBe('cancelled')
     // No post-cancel narration left the runtime (the hooks threw at entry).
     expect(host.ofType(WorkerToHostType.Phase).map(m => m.title)).toEqual(['before'])
@@ -433,24 +432,20 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     host.close()
   })
 
-  it('a cancel landing DURING the start round-trip winds the fresh child down (cancel + dispose) and dies cancelled', async () => {
+  it('a cancel landing DURING the start round-trip disposes the fresh child and dies cancelled', async () => {
     const host = fakeHost({ manual: true })
     void runWorkerSession(host.port, init("return await agent('p')"))
     await vi.waitFor(() => { expect(host.ofType(WorkerToHostType.ChildStart).length).toBe(1) })
     const callId = host.ofType(WorkerToHostType.ChildStart)[0]!.callId
-    // Cancel FIRST, then the (stale) started reply: the worker processes them
-    // in order, so the agent() continuation resumes already-cancelled — the
-    // window the real host cannot produce (it refuses starts once cancelled)
-    // but a teardown race can.
+    // Simulate a teardown race by delivering cancellation before a stale start reply.
     host.send({ type: HostToWorkerType.Cancel, reason: 'raced the start' })
     host.send({ type: HostToWorkerType.ChildStarted, callId, childId: 'child-0' })
     const result = await host.result()
     expect(result.stopReason).toBe('cancelled')
     await vi.waitFor(() => {
-      expect(host.ofType(WorkerToHostType.ChildCancel).map(m => m.callId)).toContain(callId)
       expect(host.ofType(WorkerToHostType.ChildDispose).map(m => m.callId)).toContain(callId)
     })
-    // The child never became an agent-start: it was wound down pre-lifecycle.
+    // The unpublished child is disposed without a lifecycle announcement.
     expect(host.ofType(WorkerToHostType.AgentStart)).toEqual([])
     host.close()
   })

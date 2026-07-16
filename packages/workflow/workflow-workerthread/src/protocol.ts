@@ -1,18 +1,9 @@
 /**
- * The host⇄worker wire protocol: one string-valued enum of message tags per
- * direction, a payload map giving each tag its parameters (the single source
- * of truth), and the message unions derived from them. Everything in a
- * payload is plain JSON data by construction (the runtime materializes
- * script values before they reach a message; the host projects seam results
- * down to their JSON fields), so the structured-clone hop never meets a
- * value it cannot carry.
- *
- * Both directions are CLOSED (engine-owned): each side switches on `type`
- * and ends with `assertNever` — an unknown message is a protocol bug, never
- * something to skip silently. Senders go through a generic
- * `post(type, payload)` whose payload parameter is looked up from the map,
- * so a tag/payload mismatch is a compile error at the call site.
- *
+ * The host⇄worker wire protocol: one string-valued enum of message tags per direction, a
+ * payload map giving each tag its parameters (the single source of truth), and the message
+ * unions derived from them. Payloads are plain JSON by construction for structured clone. Both
+ * directions are closed engine protocols whose receivers use `assertNever`; generic typed senders
+ * make tag/payload mismatches compile-time errors rather than silently skipped messages.
  * @module @deepseek-ai/dsh-workflow-workerthread/protocol
  */
 
@@ -33,8 +24,6 @@ export enum WorkerToHostType {
   AgentEnd = 'agent-end',
   /** Child RPC: start a child on the host (answered by ChildStarted or ChildStartError). */
   ChildStart = 'child-start',
-  /** Child RPC: cancel a started child (fire-and-forget). */
-  ChildCancel = 'child-cancel',
   /** Child RPC: dispose a started child (answered by ChildDisposed). */
   ChildDispose = 'child-dispose',
   /** The run's single terminal result. */
@@ -55,8 +44,6 @@ export interface WorkerToHostPayloads {
   [WorkerToHostType.AgentEnd]: { info: WorkflowAgentEndInfo }
   /** The RPC correlation id and the prompt plus validated options. */
   [WorkerToHostType.ChildStart]: { callId: number; request: ChildStartRequest }
-  /** The RPC correlation id and the cancel reason (undefined = unspecified). */
-  [WorkerToHostType.ChildCancel]: { callId: number; reason: string | undefined }
   /** The RPC correlation id of the child to dispose. */
   [WorkerToHostType.ChildDispose]: { callId: number }
   /** The run's terminal outcome. */
@@ -69,9 +56,9 @@ export enum HostToWorkerType {
   Go = 'go',
   /** Cancel the run: hooks start throwing and the script dies at its next await. */
   Cancel = 'cancel',
-  /** Child RPC reply: the start succeeded (exactly one of ChildStarted/ChildStartError per ChildStart). */
+  /** Child RPC reply: the provider fulfilled with a ready run (exactly one start reply per ChildStart). */
   ChildStarted = 'child-started',
-  /** Child RPC reply: the start was refused or threw. */
+  /** Child RPC reply: the provider's asynchronous start failed. */
   ChildStartError = 'child-start-error',
   /** Child RPC: a started child's result RESOLVED (its JSON projection). */
   ChildSettled = 'child-settled',
@@ -112,4 +99,3 @@ export type WorkerToHostMessage<T extends WorkerToHostType = WorkerToHostType> =
  */
 export type HostToWorkerMessage<T extends HostToWorkerType = HostToWorkerType> =
   { [K in T]: { type: K } & HostToWorkerPayloads[K] }[T]
-

@@ -31,7 +31,7 @@ Harness 使用 `cordis.yml` 描述一个 Agent 加载哪些插件、以什么参
 # 应用主体：把 session 管理、tool 调度、agent loop 等组装成一个可交互的终端 Agent
 # 只需告诉它用哪个模型 (`model`)、什么人设 (`persona`)
 - id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-agent'
+  name: '@deepseek-ai/dsh-stdio-demo'
   config:
     model: mock-echo
     persona: 'You are echo-agent, a demo agent.'
@@ -74,7 +74,7 @@ Harness 使用 `cordis.yml` 描述一个 Agent 加载哪些插件、以什么参
 # `persona` 是系统提示词，{{model}} 会被替换为实际模型名
 # `resumeSessionId` 设了就恢复旧对话，没设就每次新建
 - id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-agent'
+  name: '@deepseek-ai/dsh-stdio-demo'
   config:
     model: deepseek-v4-flash
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
@@ -157,7 +157,7 @@ Harness 使用 `cordis.yml` 描述一个 Agent 加载哪些插件、以什么参
   name: '@deepseek-ai/dsh-tool-fs'
 ```
 
-和 echo-agent 对比：同一个 `dsh-stdio-agent` 应用主体，只是把 mock 换成了真实 API，加上了更多工具插件。
+和 echo-agent 对比：同一个 `dsh-stdio-demo` 应用主体，只是把 mock 换成了真实 API，加上了更多工具插件。
 
 ## 语法详解
 
@@ -222,7 +222,7 @@ config:
 
 ### stdio-agent（标准应用主体）
 
-**包名:** `@deepseek-ai/dsh-stdio-agent`
+**包名:** `@deepseek-ai/dsh-stdio-demo`
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -354,7 +354,7 @@ hmr 仅用于开发环境。它需要 `node --expose-internals` 启动参数，`
 1. **hmr** — 热替换（仅开发时需要）
 2. **LLM 适配器** — 模型后端
 3. **执行器** — bash、fs 等能力提供者
-4. **应用主体** — `dsh-stdio-agent` 或 `dsh-acp-agent`
+4. **应用主体** — `dsh-stdio-demo` 或 `dsh-acp-demo`
 5. **附加插件** — compact、subagent、todo 等
 
 应用主体内部已经捆绑了核心能力（session、tools、agent-loop），不需要手动加载。

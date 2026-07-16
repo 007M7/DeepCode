@@ -1,11 +1,9 @@
 /**
- * Integration: the real fetch backend (`dsh-web-fetch-local`) + a real search
- * provider (`dsh-web-search-exa`) + the real seam (`dsh-web`) + the model tool
- * (`dsh-tool-web`) + the tool-call timeout policy (`dsh-timeout-policy`),
- * exercised through `ctx.tools.execute()` — nothing bypasses the tool registry.
- * Fetch hits a real loopback HTTP server (verifying the WORLD); search runs the
- * real Exa provider over a stubbed global `fetch` (the network is the one
- * boundary we mock).
+ * Integration: the real fetch backend (`dsh-web-fetch-local`) + a real search provider
+ * (`dsh-web-search-exa`) + the real seam (`dsh-web`) + the model tool (`dsh-tool-web`) + the
+ * tool-call timeout policy (`dsh-timeout-policy`), exercised through `ctx.tools.execute()` —
+ * nothing bypasses the tool registry. Fetch verifies world effects against loopback HTTP; search
+ * uses the real Exa provider with only its network boundary stubbed.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -136,7 +134,7 @@ describe('tool-call timeout returns TOOL_TIMEOUT (deadline wins over a slow fetc
     await tctx.plugin(ToolRegistry)
     await tctx.plugin(WebService, { fetchProvider: WebFetchLocal.LOCAL_FETCH_PROVIDER_ID })
     // Provider backstop well ABOVE the tool-call budget, so the policy wins.
-    await tctx.plugin(WebFetchLocal, { timeoutMs: 30_000, maxTimeoutMs: 60_000 })
+    await tctx.plugin(WebFetchLocal, { timeoutMs: 30_000 })
     await tctx.plugin(TimeoutPolicy)
     // The tool-call budget is declared by tool-web config, enforced by the policy.
     tfiber = await tctx.plugin(ToolWeb, { fetchTimeoutMs: 50 })
@@ -158,12 +156,18 @@ describe('tool-call timeout returns TOOL_TIMEOUT (deadline wins over a slow fetc
     expect(text).toContain('timed out after 50ms')
   })
 
-  it('the provider backstop still protects a DIRECT ctx.web.fetch() call (no tool-call policy in that path)', async () => {
-    // A direct seam caller does not go through tools/execute, so the tool-call
-    // policy never applies; the provider's OWN timeout is the only budget. A
-    // short per-request hint proves the provider backstop is intact and classifies
-    // as WEB_FETCH_TIMEOUT (the provider-owned code), never TOOL_TIMEOUT.
-    const err = await tctx.web.fetch({ url: slowBase, timeoutMs: 50 }).then(
+  it('the provider backstop still protects a direct provider call (no tool-call policy in that path)', async () => {
+    // A direct provider caller bypasses tools/execute, so a short configured backstop
+    // must produce provider-owned WEB_FETCH_TIMEOUT rather than TOOL_TIMEOUT.
+    const direct = new WebFetchLocal.LocalFetchProvider({
+      maxUrlLength: 2048,
+      maxResponseBytes: 5_000_000,
+      maxBodyChars: 100_000,
+      timeoutMs: 50,
+      maxRedirects: 5,
+      userAgent: 'integration-test',
+    })
+    const err = await direct.fetch({ url: slowBase }).then(
       () => undefined,
       (e: unknown) => e as { code?: string },
     )

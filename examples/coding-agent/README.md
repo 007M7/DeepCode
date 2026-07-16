@@ -11,7 +11,7 @@ The REPL agent demo wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem t
 pnpm run demo:repl
 ```
 
-Type a coding task. The agent works through the `read`/`write`/`edit` filesystem tools for ordinary file operations and `bash` (+ `bash_output` / `bash_kill` for background tasks) for shell commands, searches, and test runs, each in a fresh `bash -c` (the system prompt tells the model to pass `workdir` instead of `cd`). Both the fs tools and bash resolve relative paths against the session workspace. It can also delegate with `subagent`/`subagent_fork` and track multi-step work with `todo_write` (a whole-list task tracker rendered as a checklist). Reasoning streams dimmed; tool calls/results render inline.
+Type a coding task. The agent works through the `read`/`write`/`edit` filesystem tools for ordinary file operations and `bash` (+ the generic `task_output` / `task_list` / `task_kill` for background tasks) for shell commands, searches, and test runs, each in a fresh `bash -c` (the system prompt tells the model to pass `workdir` instead of `cd`). Both the fs tools and bash resolve relative paths against the session workspace. It can also delegate with `subagent`/`subagent_fork` and track multi-step work with `todo_write` (a whole-list task tracker rendered as a checklist). Reasoning streams dimmed; tool calls/results render inline.
 
 ```
 > fix the failing test in /path/to/project
@@ -33,7 +33,7 @@ The id is wired through `cordis.yml` (`resumeSessionId: !!js process.env.RESUME_
 
 ## Code Mode
 
-[`code-mode.cordis.yml`](code-mode.cordis.yml) is this same tree flipped to [Code Mode](../../docs/rfc/implemented/feature/2026-06-15-code-mode.md): an include overlay over `./cordis.yml` whose two patches insert the worker-thread code runtime (`@deepseek-ai/dsh-code-runtime-worker`, registering `ctx.codeRuntime`) and set `tools: { mode: code }` on the app. The model is then offered exactly ONE wire tool — `run_code` — plus a generated TypeScript SDK section declaring every other registered tool; it composes them by writing a program, each program tool call bridges back through the ordinary `tools/pre-execute`/`post-execute` pipeline one at a time and is logged as a `tool/code-dispatch` session event, and ONLY what the program prints or returns re-enters its context. (Flip the mode to `both` to offer native calls AND `run_code` side by side.)
+[`code-mode.cordis.yml`](code-mode.cordis.yml) overlays the same tree with the worker-thread runtime and `tools: { mode: code }`. The model receives one `run_code` transport plus a generated TypeScript SDK for the visible tools; only program output returns to model context. Use `mode: both` to expose native calls alongside `run_code`. See the [Code Mode RFC](../../docs/rfc/implemented/feature/2026-06-15-code-mode.md) for the execution contract.
 
 ```sh
 pnpm run demo:code-mode        # this overlay under the REPL (default UI)
@@ -48,14 +48,14 @@ and watch the transcript: one `run_code` call, a program looping over tools, and
 
 ## What each leaf entry demonstrates
 
-This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads one app package, and adds product tools that are intentionally outside the shared spine. The spine (sessions, system-prompt, tools, agents, invariants, `agent-loop`) and the front-door cluster (console logger, JSONL persistence, readline UI, the pre-created `main` agent) live inside the [`@deepseek-ai/dsh-stdio-agent`](../../packages/ui/stdio-agent) app and the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) bundle it loads; the leaf wires the backends and model-facing optional tools:
+This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads one app package, and adds product tools that are intentionally outside the shared spine. The spine (sessions, system-prompt, tools, agents, invariants, `agent-loop`) and the front-door cluster (console logger, JSONL persistence, readline UI, the pre-created `main` agent) live inside the [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo) app and the [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) bundle it loads; the leaf wires the backends and model-facing optional tools:
 
 | Entry | Demonstrates |
 |---|---|
 | `hmr` (`@cordisjs/plugin-hmr`) | the dev/demo edit-reload loop — a **leaf** entry (not baked into the app) because it is Loader-only and needs `node --expose-internals`, which `demo:repl` passes |
 | `llm-deepseek` | real `LlmAdapter` via config (`!!js process.env.…` secrets); swap one line to `@deepseek-ai/dsh-llm-pi-ai` for the library-backed twin |
-| `bash` (`dsh-bash-local`) | the executor implementation — the swappable half of the bash seam. The model-facing `bash`/`bash_output`/`bash_kill` tool schemas (`tool-bash`) come from `agent-core`, so only the executor is a leaf choice |
-| `stdio-agent` (`@deepseek-ai/dsh-stdio-agent`) | the app bundle: the agent-core spine + console logger + JSONL persistence + readline UI + a pre-created `main` agent. Its config carries the model, system prompt, `persistenceRoot` (`./.sessions`), and `resumeSessionId` — so persistence and the agent are configured here, not wired as separate leaf plugins |
+| `bash` (`dsh-bash-local`) | the executor implementation — the swappable half of the bash seam. The model-facing `bash` schema (`tool-bash`) and generic `task_*` controls (`tool-tasks`) come from `dsh-agent-spine-demo`, so only the executor is a leaf choice |
+| `stdio-agent` (`@deepseek-ai/dsh-stdio-demo`) | the app bundle: the agent-spine demo + console logger + JSONL persistence + readline UI + a pre-created `main` agent. Its config carries the model, system prompt, `persistenceRoot` (`./.sessions`), and `resumeSessionId` — so persistence and the agent are configured here, not wired as separate leaf plugins |
 | `subagent`, `subagent-spawn`, `subagent-fork` | the subagent provider registry plus the two in-process backends: a fresh child and a child seeded with the parent's completed-turn prefix |
 | `tool-subagent`, `tool-subagent-fork` | two model-facing `dsh-tool-subagent` loads, each bound to a different provider and exposed under a distinct tool name (`subagent`, `subagent_fork`) |
 | `tool-todo` | the model-facing `todo_write` tool; writes the whole task list to the session log and renders as a checklist in stdio |

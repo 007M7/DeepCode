@@ -13,7 +13,7 @@ Harness 将一个 AI Agent（智能体） 所需要的所有能力——LLM 调�
     apiKey: !!js process.env.DEEPSEEK_API_KEY
 
 # 选择应用模板
-- name: '@deepseek-ai/dsh-stdio-agent'
+- name: '@deepseek-ai/dsh-stdio-demo'
   config:
     model: deepseek-v4-flash
 ```

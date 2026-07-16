@@ -34,6 +34,9 @@
     },
     {
       "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/scope"
     }
   ]
 }

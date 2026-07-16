@@ -7,7 +7,7 @@
 In-memory session store (`ctx.sessions`).
 Persistence is intentionally not implemented here — persistence plugins subscribe to `session/event` and flush on `session/flush` / dispose.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L405)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L564)
 
 ### ctx.sessions.create(id?, options?)
 
@@ -16,14 +16,14 @@ create(id?: SessionId, options?: CreateSessionOptions): Session
 ```
 
 Create a session owned by the calling fiber: disposing that fiber stops event notification and removes the session from the store. `options.seed` populates the session with a copy of those events (replay/fork); `options.meta` attaches creation metadata (validated absolute `cwd`, `parentSession` lineage) as the immutable SessionHeader (the store fills `version`/`id`/`createdAt`).
-For an agent whose session must be torn down IN ORDER with its loop (so the loop's final flush is captured before `onAppend` detaches), do NOT use this — fold the session lifecycle into the agent's own effect via prepare + enter + announce (see `dsh-agent-loop`'s `startOwned`).
+For an agent whose session must be torn down IN ORDER with its loop (so the loop's final flush is captured before the store attachment ends), do NOT use this — fold the session lifecycle into the agent's own effect via prepare + enter + announce (see `dsh-agent-loop`'s creation transaction).
 
 - `id` — the session id; omitted, the store mints `session-<n>`.
 - `options` — seed events and/or creation metadata for the header.
 
 **Returns** the live session, already entered and announced.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L433)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L593)
 
 ### ctx.sessions.prepare(id?, options?)
 
@@ -31,14 +31,14 @@ For an agent whose session must be torn down IN ORDER with its loop (so the loop
 prepare(id?: SessionId, options?: CreateSessionOptions): Session
 ```
 
-Build a session WITHOUT entering it into the store — validate the id/cwd and construct the Session (with its immutable SessionHeader). Pairs with enter + announce: a caller that owns a composite `ctx.effect` (the agent factory) folds the session lifecycle into that ONE effect so a fiber unload tears the session + agent down as a single ORDERED chain rather than as racing sibling effects — which would detach `onAppend` before the loop's closing `session/flush`, dropping the closing events.
+Build a session WITHOUT entering it into the store — validate the id/cwd and construct the Session (with its immutable SessionHeader). Pairs with enter + announce: a caller that owns a composite `ctx.effect` (the agent factory) folds the session lifecycle into that ONE effect so a fiber unload tears the session + agent down as a single ORDERED chain rather than as racing sibling effects — which would remove the publication hooks before the loop's closing `session/flush`, dropping the closing events.
 
 - `id` — the session id; omitted, the store mints `session-<n>`.
 - `options` — seed events and/or creation metadata for the header.
 
 **Returns** the constructed session, NOT yet in the store.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L461)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L622)
 
 ### ctx.sessions.enter(session)
 
@@ -46,14 +46,14 @@ Build a session WITHOUT entering it into the store — validate the id/cwd and c
 enter(session: Session): () => void
 ```
 
-Enter a prepared session into the store: wire `onAppend` → `session/event` and add it to the store. Returns the DETACH disposer (`onAppend = undefined` + store removal). Does NOT emit `session/created` — the caller yields this disposer inside its effect and THEN calls announce, so a throwing `session/created` listener rolls the attach back instead of leaking it.
+Enter a prepared session into the store: install the module-private append publication hooks and add it to the store. Returns the DETACH disposer (hooks + store removal). Does NOT emit `session/created` — the caller yields this disposer inside its effect and THEN calls announce, so a throwing `session/created` listener rolls the attach back instead of leaking it.
 Re-checks the id for a duplicate: `prepare` and `enter` are public cross-package primitives and a caller may interleave arbitrary work (or another create) between them, so a stale prepared session must NOT overwrite a live store entry of the same id — its detach disposer would later delete the REAL session. The create convenience and the agent factory call the two back-to-back so they never trip this, but the public seam cannot assume that.
 
 - `session` — a `prepare`d session not yet in the store.
 
-**Returns** the detach disposer (`onAppend = undefined` + store removal).
+**Returns** the detach disposer (publication hooks + store removal). When called from a synchronous `session/created` listener, removal and disposal wait until that creation dispatch unwinds.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L499)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L666)
 
 ### ctx.sessions.announce(session)
 
@@ -61,11 +61,25 @@ Re-checks the id for a duplicate: `prepare` and `enter` are public cross-package
 announce(session: Session): void
 ```
 
-Emit `session/created` for an entered session. Separate from enter so the caller can yield the detach disposer first (rollback safety — see enter).
+Emit `session/created` exactly once for an entered session (with the carrier enter captured). Separate from enter so the caller can yield the detach disposer first (rollback safety — see enter).
 
 - `session` — the entered session to announce to listeners.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L513)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L721)
+
+### ctx.sessions.flush(session)
+
+```ts website-api
+async flush(session: Session): Promise<void>
+```
+
+Dispatch the awaited `session/flush` durability checkpoint for `session`, with the carrier captured at enter. THE flush entry point: the store owns the carrier, so callers (the loop's turn-end checkpoint, idle injection, teardown drains) must come through here rather than dispatch a raw `ctx.parallel('session/flush', …)` — one owner, one spelling, and the scoped-dispatch invariant can pin it.
+
+- `session` — the session whose buffered events must reach durable storage.
+
+**Returns** resolves when every flush listener has settled; after all settle, rejects with the first registered listener failure if any listener failed.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L773)
 
 ### ctx.sessions.get(id)
 
@@ -79,7 +93,7 @@ Look up a live session.
 
 **Returns** the session, or undefined when no live session has that id.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L522)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L805)
 
 ### ctx.sessions.list()
 
@@ -91,7 +105,7 @@ All live sessions, in creation order.
 
 **Returns** a fresh array; mutating it does not affect the store.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L530)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L813)
 
 ### ctx.sessions.fork(source, boundary?, childSessionId?)
 
@@ -107,4 +121,4 @@ Create a live child session from a turn-enclosed prefix of a live source. `bound
 
 **Returns** The created live child session.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L547)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L830)

@@ -3,16 +3,16 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { AddressInfo } from 'node:net'
 import { Context } from 'cordis'
 import WebService from '@deepseek-ai/dsh-web'
-import { LocalFetchProvider, LOCAL_FETCH_PROVIDER_ID, classifyContentType, decoderForCharset, isSameOrigin, parseCharset, validateFetchUrl } from '@deepseek-ai/dsh-web-fetch-local'
+import { LocalFetchProvider, LOCAL_FETCH_PROVIDER_ID } from '@deepseek-ai/dsh-web-fetch-local'
 import type { LocalFetchLimits } from '@deepseek-ai/dsh-web-fetch-local'
 import * as fetchPlugin from '@deepseek-ai/dsh-web-fetch-local'
+import { classifyContentType, decoderForCharset, isSameOrigin, parseCharset, validateFetchUrl } from '../src/policy.ts'
 
 const limits: LocalFetchLimits = {
   maxUrlLength: 2048,
   maxResponseBytes: 5_000_000,
   maxBodyChars: 100_000,
   timeoutMs: 5_000,
-  maxTimeoutMs: 10_000,
   maxRedirects: 5,
   userAgent: 'test-agent/1.0',
 }
@@ -82,7 +82,7 @@ describe('LocalFetchProvider success', () => {
   it('fetches a text body', async () => {
     handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('hello world') }
     const result = await provider().fetch({ url: base })
-    expect(result.providerId).toBe(LOCAL_FETCH_PROVIDER_ID)
+    expect(provider().available()).toBe(true)
     expect(result.statusCode).toBe(200)
     expect(result.body).toEqual({ kind: 'text', content: 'hello world' })
     expect(result.truncated).toBe(false)
@@ -287,14 +287,14 @@ describe('LocalFetchProvider invalid URLs and abort', () => {
   it('honors a pre-aborted signal', async () => {
     const controller = new AbortController()
     controller.abort()
-    await expect(provider().fetch({ url: base }, { signal: controller.signal }))
+    await expect(provider().fetch({ url: base }, controller.signal))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
 
   it('aborts an in-flight fetch via the signal', async () => {
     handler = (_req, _res) => { /* never responds */ }
     const controller = new AbortController()
-    const promise = provider().fetch({ url: base }, { signal: controller.signal })
+    const promise = provider().fetch({ url: base }, controller.signal)
     controller.abort()
     await expect(promise).rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
@@ -325,11 +325,6 @@ describe('LocalFetchProvider invalid URLs and abort', () => {
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
   })
 
-  it('caps the per-request timeout at maxTimeoutMs', async () => {
-    handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('ok') }
-    const result = await provider({ maxTimeoutMs: 10_000 }).fetch({ url: base, timeoutMs: 999_999 })
-    expect(result.statusCode).toBe(200)
-  })
 })
 
 describe('LocalFetchProvider body cancellation on error paths', () => {
@@ -378,7 +373,7 @@ describe('web-fetch-local plugin registration', () => {
     await ctx.plugin(WebService, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
     const fiber = await ctx.plugin(fetchPlugin, {})
     await expect(ctx.web.fetch({ url: `${base}/` }))
-      .resolves.toMatchObject({ providerId: LOCAL_FETCH_PROVIDER_ID, statusCode: 200 })
+      .resolves.toMatchObject({ statusCode: 200 })
     await fiber.dispose()
     await expect(ctx.web.fetch({ url: `${base}/` }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CONFIGURED_MISSING' }))
@@ -402,6 +397,13 @@ describe('web-fetch-local plugin registration', () => {
       .rejects.toThrow(/timeoutMs must be a positive finite number/)
   })
 
+  it('rejects a timeout beyond Node timer range at construction', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
+    await expect(ctx.plugin(fetchPlugin, { timeoutMs: 2_147_483_648 }))
+      .rejects.toThrow(/timeoutMs must be no greater than 2147483647/)
+  })
+
   it('rejects a fractional redirect cap at construction', async () => {
     const ctx = new Context()
     await ctx.plugin(WebService, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
@@ -421,7 +423,7 @@ describe('web-fetch-local plugin registration', () => {
     await ctx.plugin(WebService, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
     const fiber = await ctx.plugin(fetchPlugin, { maxRedirects: 0 })
     await expect(ctx.web.fetch({ url: `${base}/` }))
-      .resolves.toMatchObject({ providerId: LOCAL_FETCH_PROVIDER_ID, statusCode: 200 })
+      .resolves.toMatchObject({ statusCode: 200 })
     await fiber.dispose()
   })
 })
