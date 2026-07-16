@@ -7,7 +7,7 @@ export default defineConfig({
   // to source; native resolution would fall through to absent `lib/` outputs.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
   test: {
-    include: ['packages/*/*/tests/**/*.spec.ts', 'examples/*/tests/**/*.spec.ts'],
+    include: ['packages/*/*/tests/**/*.spec.ts', 'examples/*/tests/**/*.spec.ts', 'scripts/**/*.spec.ts'],
     coverage: {
       provider: 'v8',
       // Coverage measures OUR runtime source. Types-only files carry no

@@ -4,6 +4,22 @@
  * child before returning its run, so fulfillment is the single publication and
  * ownership-transfer boundary.
  *
+ * Unlike the bash seam (one executor per context, second load throws), MULTIPLE
+ * providers coexist here: each registers under a unique name and a caller picks
+ * one by name. The shape mirrors the LLM adapter registry
+ * (`LlmService.registerAdapter`), not the single-service bash executor.
+ *
+ * This package is the INTERFACE third of the capability seam. Implementations
+ * (`@deepseek-ai/dsh-subagent-spawn`, `-fork`, `-acp`) and the model-facing
+ * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
+ *
+ * Scope: the seam stays collection-agnostic — a run is started and its
+ * `result` awaited, whether the consumer blocks on it (foreground) or
+ * registers it as a `ctx.tasks` background task (the generic runtime owns
+ * ids/polling/stop; this seam gains nothing task-shaped). Steering
+ * ({@link SubagentRun.sendMessage}) is part of the contract but intentionally
+ * unused.
+ *
  * Same-process providers are trusted typed collaborators. Requests, provider
  * descriptors, results, and lifecycle payloads are borrowed immutable values;
  * serialization and hostile-input validation belong at real process, worker,

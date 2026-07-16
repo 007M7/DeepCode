@@ -12,9 +12,9 @@ This is distinct from "who provides vs. needs a capability at runtime", which Co
 
 A swappable capability is **three packages**:
 
-1. **Interface** — an abstract service + the vocabulary types, owning the `ctx.<key>` and depending only on cordis (e.g. `dsh-bash`: `BashExecutor`, `BashRunResult`, `BashTask`).
+1. **Interface** — an abstract service + the vocabulary types, owning the `ctx.<key>` and depending only on its vocabulary dependencies (e.g. `dsh-bash`: `BashExecutor`, `BashRunResult`, `BashProcess`).
 2. **Implementation** — a concrete subclass loaded as a plugin (e.g. `dsh-bash-local`: subprocesses, process-group kills, spill-file truncation). Sandboxed/remote backends are sibling packages implementing the same interface.
-3. **Consumer** — what the model and plugins see (e.g. `dsh-tool-bash`: the `bash`/`bash_output`/`bash_kill` tool schemas). Consumers `inject` the interface key and never import implementation types.
+3. **Consumer** — what the model and plugins see (e.g. `dsh-tool-bash`: the `bash` schema, with background handles registered into the generic task runtime). Consumers `inject` the interface key and never import implementation types.
 
 Implementation and consumer then evolve independently: a sandboxed executor replaces `dsh-bash-local` without touching a tool schema.
 

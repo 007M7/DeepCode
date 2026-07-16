@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**DeepSeek Harness SDK** 是用于构建 agent harness 的 SDK，采取基于插件的设计。
+**DeepSeek Harness SDK** 是用于构建 agent harness（智能体框架）的 SDK，采取基于插件的设计。
 
 ## 开发
 

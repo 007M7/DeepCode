@@ -3,10 +3,10 @@ import { Context } from 'cordis'
 import WebService from '@deepseek-ai/dsh-web'
 import {
   PerplexitySearchProvider,
-  mapPerplexityResponse,
   PERPLEXITY_PROVIDER_ID,
 } from '@deepseek-ai/dsh-web-search-perplexity'
 import * as perplexityPlugin from '@deepseek-ai/dsh-web-search-perplexity'
+import { mapPerplexityResponse } from '../src/provider.ts'
 
 const options = { apiKey: 'pplx-key', baseURL: 'https://api.perplexity.test', model: 'sonar', maxTokens: 1024 }
 

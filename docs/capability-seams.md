@@ -75,6 +75,9 @@ flowchart LR
   pkg_subagent_fork["subagent-fork"]
   pkg_subagent_acp["subagent-acp"]
   pkg_subagent_mock["subagent-mock"]
+  pkg_tasks["tasks"]
+  svc_tasks["ctx.tasks<br/>Background task registry"]
+  pkg_tool_tasks["tool-tasks"]
   pkg_web["web"]
   svc_web["ctx.web<br/>Web access provider registry"]
   pkg_web_search_exa["web-search-exa"]
@@ -120,6 +123,7 @@ flowchart LR
   pkg_subagent_mock --> svc_subagents
   pkg_subagent_spawn --> svc_subagents
   pkg_system_prompt --> svc_systemPrompt
+  pkg_tasks --> svc_tasks
   pkg_tools --> svc_tools
   pkg_user_interaction --> svc_userInteraction
   pkg_web --> svc_web
@@ -162,6 +166,9 @@ flowchart LR
   svc_systemPrompt --> pkg_tool_fs
   svc_systemPrompt --> pkg_tool_web
   svc_systemPrompt --> pkg_tools
+  svc_tasks --> pkg_tool_bash
+  svc_tasks --> pkg_tool_subagent
+  svc_tasks --> pkg_tool_tasks
   svc_tools --> pkg_acp
   svc_tools --> pkg_agent_loop
   svc_tools --> pkg_tool_ask_user
@@ -200,6 +207,7 @@ flowchart LR
 | `ctx.fs` | `seam` | [`fs`](../packages/fs/fs) | [`fs-local`](../packages/fs/fs-local) | [`tool-fs`](../packages/fs/tool-fs) | [`fs-policy`](../packages/fs/fs-policy) | tool-fs executes read/write/edit through ctx.fs; fs-policy contributes observed-state checks through the fs/* event gate. |
 | `ctx.compact` | `seam` | [`compact`](../packages/compact/compact) | [`compact-basic`](../packages/compact/compact-basic) | [`compact-basic`](../packages/compact/compact-basic) | - | The basic backend currently consumes the pre-step event directly; a model-facing compact tool remains deferred. |
 | `ctx.subagents` | `seam` | [`subagent`](../packages/subagent/subagent) | [`subagent-spawn`](../packages/subagent/subagent-spawn), [`subagent-fork`](../packages/subagent/subagent-fork), [`subagent-acp`](../packages/subagent/subagent-acp), [`subagent-mock`](../packages/support/subagent-mock) | [`tool-subagent`](../packages/subagent/tool-subagent) | - | Providers implement transports; tool-subagent exposes one configured provider as a model-facing tool name. |
+| `ctx.tasks` | `core` | [`tasks`](../packages/tasks/tasks) | - | [`tool-bash`](../packages/bash/tool-bash), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-tasks`](../packages/tasks/tool-tasks) | - | Producers (tool-bash background commands, tool-subagent background delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it. |
 | `ctx.web` | `seam` | [`web`](../packages/web/web) | [`web-search-exa`](../packages/web/web-search-exa), [`web-search-perplexity`](../packages/web/web-search-perplexity), [`web-search-deepseek`](../packages/web/web-search-deepseek), [`web-fetch-local`](../packages/web/web-fetch-local) | [`tool-web`](../packages/web/tool-web) | - | Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names. |
 | `ctx.workflows` | `seam` | [`workflow`](../packages/workflow/workflow) | [`workflow-workerthread`](../packages/workflow/workflow-workerthread) | [`tool-workflow`](../packages/workflow/tool-workflow) | - | One engine per context (bash shape, no named-provider registry); the worker-thread engine fans agent() calls out through ctx.subagents. |
 
