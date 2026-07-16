@@ -10,11 +10,11 @@ harness 已具备文本搜索与文件读取能力，但二者都无法识别程
 
 语言服务器协议（Language Server Protocol，LSP）支持分属三个职责方：模型需要稳定的查询 schema，harness 需要提供方选择与规范化结果，本地实现则负责进程、JSON-RPC、工作区、同步与文件系统行为。将三者合并会使模型契约绑定本地子进程，并阻碍远程或沙箱原生提供方。
 
-许多语言服务器只有在查询文档已按当前文本打开时才能稳定工作。兼容的 agent 客户端必须限制这项状态、定义内部读取是否算作模型观察，并确保文档快照与服务器工作区索引位于同一文件系统命名空间。
+许多语言服务器在查询文档已按当前文本打开时表现最佳。兼容的 agent 客户端必须限制这项状态、定义内部读取是否算作模型观察，并确保文档快照与服务器工作区索引位于同一文件系统命名空间。
 
 ## 决策
 
-将 LSP 建成由三个 package 组成的能力服务边界，其中包含一个只读模型工具和一个通用本地提供方实现：
+将 LSP 建成由三个包（package）组成的能力服务边界，其中包含一个只读模型工具和一个通用本地提供方实现：
 
 1. `packages/lsp/lsp` 下的 `@deepseek-ai/dsh-lsp` 负责 `ctx.lsp`、提供方注册与选择、标准化请求与结果、执行控制，以及结构化 LSP 错误。
 2. `packages/lsp/lsp-local` 下的 `@deepseek-ai/dsh-lsp-local` 将配置的 stdio 语言服务器适配到该服务边界。多个插件实例可注册不同的服务器命令和扩展名到语言 id 的映射。
@@ -114,7 +114,7 @@ ACP 使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_p
 
 `dsh-lsp-local` 通过 Node API 在子进程所在的主机命名空间中规范化并读取文件。它拒绝缺失、非普通、非 UTF-8、超大或规范路径越出工作区的源文件，并在校验与读取期间保持同一句柄。它不使用 `ctx.fs` 或发送 `fs/observed`：只有 LSP 结果对模型可见，因此查询不满足写前读取策略。
 
-`read` 工具的输出带窗口与行号，进入 transcript 且已被观察，不适合作为源文件。在 `tool-lsp` 内读取还会把提供方专用同步职责交给消费方，并排除非本地提供方。
+`read` 工具的输出带窗口与行号，进入 transcript（文本记录）且已被观察，不适合作为源文件。在 `tool-lsp` 内读取还会把提供方专用同步职责交给消费方，并排除非本地提供方。
 
 本地提供方对每次查询都采用兼容优先的临时打开流程。它接受旧式 `textDocumentSync` 的 `Full` 或 `Incremental`，也接受设置了 `openClose: true` 的选项；同步能力缺失、为 `None` 或明确不兼容时，在 `didOpen` 前以不支持错误失败。
 
@@ -129,7 +129,7 @@ ACP 使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_p
 
 ## 本地服务器生命周期与协议行为
 
-`dsh-lsp-local` 按 `(provider id, canonical workspace realpath)` 懒启动一个服务器，并通过 single-flight 合并启动。插件加载时，它在清除凭据并应用环境变量覆盖后解析可执行文件；命令不可用时在注册前失败，解析保持懒执行，启动不经过 shell。`maxMessageBytes` 默认值为 `16_000_000`，`maxStderrBytes` 默认值为 `1_000_000`，`maxDocumentBytes` 默认值为 `4_000_000`。崩溃使当前查询失败且不重放；后续查询可以替换进程。每次查询最多启动一个进程，因此 MVP 不设置跨请求重启计数器。
+`dsh-lsp-local` 按 `(provider id, canonical workspace realpath)` 懒启动一个服务器，并通过 single-flight 合并启动。插件加载时，它在清除凭据并应用环境变量覆盖后解析可执行文件；命令不可用时在注册前失败。服务器进程的启动保持懒执行（首次查询时才拉起），且不经过 shell。`maxMessageBytes` 默认值为 `16_000_000`，`maxStderrBytes` 默认值为 `1_000_000`，`maxDocumentBytes` 默认值为 `4_000_000`。崩溃使当前查询失败且不重放；后续查询可以替换进程。每次查询最多启动一个进程，因此 MVP 不设置跨请求重启计数器。
 
 初始化声明 `general.positionEncodings: ['utf-16']`、`workspace: { workspaceFolders: true, configuration: true }`、`textDocument.hover.contentFormat: ['markdown', 'plaintext']`，以及 definition 与 implementation 的 `linkSupport: true`，但不支持动态注册。服务器返回的操作与同步能力均为真源。服务器省略 `positionEncoding` 时默认为 `utf-16`；其他值均属于协议错误。配置可以提供初始化选项和 `workspace/configuration` 响应，但客户端拒绝 `workspace/applyEdit`，绝不执行命令或编辑。
 
@@ -173,7 +173,7 @@ ACP 使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_p
 
 ## 测试
 
-- Package 测试固定三个 package 的依赖方向、运行时注入和仅通过 `ctx.lsp` 通信的边界。
+- 包测试固定三个包的依赖方向、运行时注入和仅通过 `ctx.lsp` 通信的边界。
 - 工具测试固定四种操作、坐标校验、配置限制与省略标记、提示词和 ACP 展示。
 - 注册表测试固定原子占用/释放、不受顺序影响的选择，以及结构化的不可用、已释放、冲突和不支持操作错误。
 - 测试用 stdio server 固定精确的初始化能力、四种协议映射、`Location`/`LocationLink` 与 `hover` 归一化，以及 `references.includeDeclaration`。
@@ -183,7 +183,7 @@ ACP 使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_p
 - 主机文件系统测试固定 session cwd 要求、符号链接下相对与绝对源路径的规范 containment、文档校验、file/non-file URI 渲染、无格式源文本和不发送 `fs/observed`。
 - 无密钥且固定版本的 TypeScript 真实服务器 e2e 覆盖四种操作；可运行配置使用同一项显式提供方映射。
 - 快照覆盖模型可见 schema、提示词、结果、省略提示和 ACP 渲染；构建产物冒烟测试覆盖分帧与清理。
-- Package 与架构文档覆盖配置、安全边界和搜索/读取指导；同一改动中，新的 `packages/lsp/` package 组要加入 AGENTS.md 的仓库布局块、packages/README.md 的分组表和 architecture.md。
+- 包与架构文档覆盖配置、安全边界和搜索/读取指导；同一改动中，新的 `packages/lsp/` 包组要加入 AGENTS.md 的仓库布局块、packages/README.md 的分组表和 architecture.md。
 
 ## 影响
 
