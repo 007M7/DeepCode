@@ -21,7 +21,7 @@ const stdioBin = join(repoRoot, 'packages/examples/stdio-demo/lib/bin.js')
 const dshPackages = [
   'examples/agent-spine-demo', 'core/agent', 'core/session', 'core/system-prompt',
   'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash', 'bash/bash-local',
-  'bash/tool-bash', 'prompt/workspace-context', 'support/invariants', 'ui/app-boot',
+  'bash/tool-bash', 'context/workspace-context', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
   'session-persistence/session-persistence-jsonl', 'examples/stdio-demo', 'util/paths',
   'ui/stdio', 'ui/tool-ask-user', 'ui/user-interaction',

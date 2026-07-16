@@ -12,7 +12,7 @@ The lifecycle has two distinct classes of content. The initial applicable chain 
 
 ## Decision
 
-The implementation lives in `packages/prompt/workspace-context` as `@deepseek-ai/dsh-workspace-context`. It is a prompt/context extension, not a core service or a filesystem backend. `@deepseek-ai/dsh-agent-core` mounts it for both product front doors and forwards its config. The plugin consumes `agent/session-prefix`, `tools/post-execute`, and the optional `ctx.fs` capability.
+The implementation lives in `packages/context/workspace-context` as `@deepseek-ai/dsh-workspace-context`. It is a request-context extension, not a core service or a filesystem backend. `@deepseek-ai/dsh-agent-core` mounts it for both product front doors and forwards its config. The plugin consumes `agent/session-prefix`, `tools/post-execute`, and the optional `ctx.fs` capability.
 
 The plugin does not statically inject `fs`. Providerless product trees therefore boot normally and the plugin no-ops until a filesystem provider exists. All production reads go through that provider. Candidate probes call `lstat` before `resolve`, so a repository-owned final-component symlink is rejected rather than followed outside the workspace. The session-prefix signal and dynamic tool execution signal propagate through resolution, metadata probes, and streaming reads, so cancellation does not wait for an unrelated filesystem scan. Once `lstat` identifies a regular-file winner, a provider exception or disagreement during resolve/stat is classified as unavailable: it is neither interpreted as a deletion nor allowed to fall through to a lower-priority candidate.
 
@@ -32,7 +32,7 @@ The plugin prepends its contribution before `await next()` returns, so session-p
 
 A resumed agent creates a new loop instance and recomposes the baseline from current files, with the new prefix anchored by the resume request header. This permits current baseline content on resume without mutating a prefix already used by an earlier instance.
 
-The baseline is a user-role `<system-reminder>` with `Instructions from: <path>` sections and explicit authority and precedence language. This familiar model-facing frame avoids a harness-specific XML vocabulary. Project paths are root-relative and the user-global path is `~/.dsh/AGENTS.md` for the default home or `$DSH_HOME/AGENTS.md` for a configured home. A literal `</system-reminder>` inside file content is escaped. The package README owns the exact current [prompt shape](../../../../packages/prompt/workspace-context/README.md#prompt-shape).
+The baseline is a user-role `<system-reminder>` with `Instructions from: <path>` sections and explicit authority and precedence language. This familiar model-facing frame avoids a harness-specific XML vocabulary. Project paths are root-relative and the user-global path is `~/.dsh/AGENTS.md` for the default home or `$DSH_HOME/AGENTS.md` for a configured home. A literal `</system-reminder>` inside file content is escaped. The package README owns the exact current [prompt shape](../../../../packages/context/workspace-context/README.md#prompt-shape).
 
 ### Dynamic Discovery And Refresh
 

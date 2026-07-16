@@ -42,7 +42,7 @@
     { "path": "./packages/skill/skill-local" },
     { "path": "./packages/skill/tool-skill" },
     { "path": "./packages/ui/tool-ask-user" },
-    { "path": "./packages/prompt/workspace-context" },
+    { "path": "./packages/context/workspace-context" },
     { "path": "./packages/core/agent-loop" },
     { "path": "./packages/examples/agent-spine-demo" },
     { "path": "./packages/bash/bash" },

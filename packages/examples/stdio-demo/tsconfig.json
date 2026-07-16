@@ -33,7 +33,7 @@
       "path": "../agent-spine-demo"
     },
     {
-      "path": "../../prompt/workspace-context"
+      "path": "../../context/workspace-context"
     },
     {
       "path": "../../ui/user-interaction"

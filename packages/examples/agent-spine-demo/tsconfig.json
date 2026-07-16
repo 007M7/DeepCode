@@ -42,7 +42,7 @@
       "path": "../../core/agent"
     },
     {
-      "path": "../../prompt/workspace-context"
+      "path": "../../context/workspace-context"
     },
     {
       "path": "../../core/agent-loop"
