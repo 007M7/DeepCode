@@ -13,7 +13,8 @@ import { Context } from 'cordis'
 import type { BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
 import { SANDBOX_UNAVAILABLE, SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
-import { classifyDenial, classifyRunnerFailure, SandboxBashExecutor, shellQuote } from '@deepseek-ai/dsh-bash-sandbox'
+import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
+import { classifyDenial, classifyRunnerFailure, shellQuote } from '../src/helpers.ts'
 import type { Config } from '@deepseek-ai/dsh-bash-sandbox'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-sandbox-spec-'))
