@@ -98,6 +98,7 @@ interface ObservedPersistedSession {
 }
 
 interface PersistenceBinding {
+  readonly identity: symbol
   readonly service?: SessionPersistence
 }
 
@@ -164,8 +165,8 @@ export class SessionSearchSqlite extends SessionSearchService {
   private readonly _instance = randomUUID()
   private readonly _ready: Promise<void>
   private _db: DatabaseSync | undefined
-  private _persistenceBinding: PersistenceBinding = {}
-  private _lastPersistenceBinding: PersistenceBinding | undefined
+  private _persistenceBinding: PersistenceBinding = { identity: Symbol() }
+  private _lastPersistenceIdentity: symbol | undefined
   private _persistenceEpoch = 0
   private _globalGeneration = 0
   private _localGeneration = 0
@@ -183,12 +184,12 @@ export class SessionSearchSqlite extends SessionSearchService {
     void this._ready.catch(() => undefined)
     this._optionalPersistenceFiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
       const service = childCtx.sessionPersistence
-      const binding = { service }
+      const binding = { identity: Symbol(), service }
       this._persistenceBinding = binding
       childCtx.effect(() => () => {
         /* v8 ignore next -- a stale optional-service disposer cannot clear a replacement */
         if (this._persistenceBinding !== binding) return
-        this._persistenceBinding = {}
+        this._persistenceBinding = { identity: Symbol() }
       }, 'sessionSearchSqlite.persistenceBinding')
     })
     ctx.effect(() => {
@@ -335,8 +336,8 @@ export class SessionSearchSqlite extends SessionSearchService {
       : persistedRows.filter(row => !observation.persisted.has(row.id as SessionId))
     const liveChanges = [...observation.live.values()].filter(entry => liveById.get(entry.header.id)?.fingerprint !== entry.fingerprint)
     const liveDeletes = liveRows.filter(row => !observation.live.has(row.id as SessionId))
-    const pointerChanged = this._lastPersistenceBinding !== undefined
-      && this._lastPersistenceBinding !== observation.persistenceBinding
+    const pointerChanged = this._lastPersistenceIdentity !== undefined
+      && this._lastPersistenceIdentity !== observation.persistenceBinding.identity
     const hasWrites = persistentChanges.length > 0
       || persistentDeletes.length > 0
       || liveChanges.length > 0
@@ -390,7 +391,7 @@ export class SessionSearchSqlite extends SessionSearchService {
     if (hasWrites || pointerChanged) this._globalGeneration += 1
     if (pointerChanged) this._persistenceEpoch += 1
     this._localGeneration = nextLocalGeneration
-    this._lastPersistenceBinding = observation.persistenceBinding
+    this._lastPersistenceIdentity = observation.persistenceBinding.identity
   }
 
   private async _observeStable(
@@ -404,8 +405,8 @@ export class SessionSearchSqlite extends SessionSearchService {
       let persisted = new Map<SessionId, ObservedPersistedSession>()
       if (persistence !== undefined) {
         try {
-          const canReuseIndexed = this._lastPersistenceBinding === undefined
-            || this._lastPersistenceBinding === persistenceBinding
+          const canReuseIndexed = this._lastPersistenceIdentity === undefined
+            || this._lastPersistenceIdentity === persistenceBinding.identity
           const before = await waitWithAbort(persistence.listSnapshots(), signal)
           persisted = materializePersistenceSnapshots(before)
           for (const entry of persisted.values()) {
