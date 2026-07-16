@@ -561,7 +561,7 @@ describe('SQLite reconciliation and source lifecycle', () => {
     expect(TestPersistence.loads.get(added.id)).toBe(1)
   })
 
-  it('retries if the source revision changes while live sessions are observed', async () => {
+  it('retries if the persistence binding changes while live sessions are observed', async () => {
     const durable = header('live-boundary-retry')
     TestPersistence.reset([{ meta: durable, events: messageEvents('durable needle') }])
     const ctx = await liveContext()
