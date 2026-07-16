@@ -61,6 +61,9 @@ function truncateUtf8(value: string, maxBytes: number): string {
 }
 
 function escapeInstructionContent(content: string): string {
+  // TODO(instruction-frame-paths): apply the same delimiter neutralization to
+  // every interpolated path, scope, and previous path; repository-controlled
+  // names can otherwise close the plugin-owned system-reminder frame.
   return content.replaceAll(SYSTEM_REMINDER_CLOSE, '<\\/system-reminder>')
 }
 
@@ -132,6 +135,9 @@ export function renderInstructionChanges(
   const omitted = new Set(rendered.omitted.map(file => file.absolutePath))
   return {
     text: rendered.text,
+    // TODO(rendered-change-proof): retain a transition only when its semantic
+    // notice survived rendering; a tiny compact budget can currently return
+    // unrelated notice text while still committing the full state transition.
     changes: items.filter(item => !omitted.has(item.file.absolutePath)).map(item => item.change),
   }
 }

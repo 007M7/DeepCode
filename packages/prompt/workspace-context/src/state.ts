@@ -388,6 +388,8 @@ export async function reconcileInstructionContext(
   for (const [scope, change] of visible) effective.set(scope, change)
   /* v8 ignore next -- normal agents carry an absolute session cwd. */
   const cwd = session.header.cwd ?? process.cwd()
+  // TODO(frozen-project-root): retain the baseline root for the loop instance;
+  // recomputing it after marker edits reinterprets the existing relative scope keys.
   const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem, options.signal)
   const scopes = new Set<string>()
   if (options.includeBaselineScopes) {

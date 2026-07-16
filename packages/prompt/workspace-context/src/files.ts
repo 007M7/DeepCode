@@ -101,6 +101,9 @@ async function fsStatFile(
   fileSystem: FileSystem,
   signal?: AbortSignal,
 ): Promise<StatFileProbe> {
+  // TODO(instruction-symlink-race): replace this lstat -> resolve -> read
+  // protocol, including probeScopeInstruction below, with a provider-owned
+  // atomic no-follow read so the final component cannot change after validation.
   let pathInfo: FsPathInfo | undefined
   try {
     pathInfo = await fileSystem.lstat(path, undefined, signal)
@@ -142,6 +145,8 @@ async function existsAsMarker(path: string, fileSystem?: FileSystem, signal?: Ab
       return await fileSystem.stat(target, signal) !== undefined
     } catch {
       signal?.throwIfAborted()
+      // TODO(root-marker-unavailable): preserve provider failure separately from
+      // absence and stop discovery; continuing upward can cross into an ancestor project.
       return false
     }
   }
@@ -316,6 +321,9 @@ async function readBounded(
   fileSystem?: FileSystem,
   signal?: AbortSignal,
 ): Promise<string | undefined> {
+  // TODO(total-instruction-read-bound): enforce an aggregate source budget
+  // across a complete baseline or reconciliation batch; the render budget is
+  // applied only after every accepted file has been read under this per-file cap.
   signal?.throwIfAborted()
   if (file.size !== undefined && file.size > maxSourceBytes) return undefined
   try {
