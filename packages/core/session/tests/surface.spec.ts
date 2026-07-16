@@ -108,14 +108,10 @@ describe('SurfaceManager', () => {
 
   it('rebuild with replace operation splices out shadowed nodes', () => {
     const s = surfaceSession()
-    // seq: 0=turn/start, 1=user, 2=assistant, 3=turn/end
-    // Surface nodes: seq 1 (user), seq 2 (assistant).
-    // Replace both with a compaction marker. Both 1 and 2 are valid surface seqs.
     s.append('assistant/message',
       { turn: 2, step: 1, content: [{ type: 'text', text: 'summary' }] },
       { surfaceOp: { op: 'replace', start: 1, end: 2 }, sourceEventSeqs: [1, 2] },
     )
-    // Now the surface should have just the compaction node.
     expect(s.surface.nodes).toEqual([4])
   })
 

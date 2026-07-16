@@ -46,19 +46,17 @@ messages = session.deriveMessages()   ⟵ single derive, reflects the compaction
 request  = waterfall agent/request    ⟵ pure request transform (hooks, model switch)
 ```
 
-This makes the layering correct *by construction*: compaction mutates the surface, the loop derives **once** from the result (no double-derive), and at `pre-step` the assembled `messages` do not yet exist — so a listener structurally *cannot* see or be expected to act on downstream-injected context. `agent/request` reverts to a pure request transformer. Firing the seam **before** `step/start` (not inside the open step) is load-bearing for crash-safety: compaction's log-only `compact/*` records and its replacement node land *outside* any step, so the honest log structure a crash leaves (a dangling `compact/start` sitting before the synthetic `turn/end` that turn-repair appends) holds without a half-open step to reconcile. The seam is `serial` (awaited, in registration order), not `parallel`: a listener mutates the surface as a side effect — there is nothing to transform or return — and serial isolates listeners from each other so two surface-mutating listeners can never interleave their `session.append`s. Cordis `serial` does bail early if a listener returns a bail value, so `agent/pre-step` listeners are typed/documented to return `void` and must not use that bail channel as a semantic veto surface.
-
-This **amends** the original RFC's claim of "NO changes to `dsh-agent-loop`; compaction is a pure plugin." That claim was load-bearing for a wrong design — reusing `agent/request` was the mistake. Per the pre-release "foundation over blast radius" stance, adding the correct seam (one event declaration in `dsh-agent`, one awaited emit in the loop) beats preserving a no-change boast that locked in the double-derive.
+The loop derives messages once after `agent/pre-step`. Running before `step/start` keeps compaction records outside any half-open step, simplifying crash repair. The seam is awaited and serial so surface mutations cannot interleave; listeners return `void` and do not use Cordis bail values as vetoes.
 
 ### Retention is turn-agnostic; tool-pairing balance is the only structural guard
 
 Auto-compaction fires before **every** step, not once per turn. This is **load-bearing for runaway-turn survival**: a tool-heavy ReAct turn appends an `assistant/message` + a `tool/result` per step, so the surface grows *within* a turn. A single turn can grow past the window on its own (a "runaway turn") — and the only moment to rescue it before the next model call overflows is the next step's `pre-step` checkpoint. Gating compaction to a turn's first step (or, worse, retaining the whole in-flight turn verbatim) re-opens exactly the hole compaction exists to close: the harness would die when compaction is most needed.
 
-So retention does **not** protect the in-flight turn, and turn boundaries play no role in it. `compactIfNeeded` walks the surface entries tail→head, summing per-entry token estimates, and retains the smallest tail-run of **whole units** whose total reaches `retainTokens`; everything older is compacted (head-anchored — see below). A *unit* is either a whole closed step (its `assistant/message` plus its `tool/result`s) or a single no-step entry (a pre-step `user/message`, inter-step `steering/message`, or injection `context/message`). The walk rounds toward retaining *more*: when the raw token cutoff lands mid-step, it extends the retained side head-ward until the cut before the retained entry is **tool-pairing balanced**. The single structural guard is therefore **tool-pairing balance** — a region's edges are balanced cuts on the *surface* (no unanswered `tool-call` crosses either edge), so a compacted region never splits a step's tool-calls from their `tool/result`s (which would produce a transcript every provider rejects). The check is decided over surface order, **not** the log's `step/*` markers: a compaction lands a replacement at a high log seq whose surface position is the head, so a log-position scan misreads its neighbours — `dsh-session` exports `isToolPairingBalanced(nodes, events, beforeSeq)` for the surface-anchored check. `compactRegion` enforces it strictly, throwing on a boundary that would split a step.
+`compactIfNeeded` retains the smallest tail of whole surface units whose estimated size reaches `retainTokens` and compacts older nodes. A unit is a complete closed step or one no-step message. If the token cutoff lands inside a step, retention expands until the cut is tool-pairing balanced. Balance is checked on surface order, not log sequence, because replacement summaries have new sequence numbers at old surface positions. `compactRegion` rejects boundaries that split a tool call from its result. The in-flight turn receives no special retention.
 
 A runaway turn thus compacts exactly like any other history: its early *closed* steps get summarized while its recent steps stay verbatim. When the only compactable content left is an un-splittable open tail step (its tool-calls have no results yet), compaction declines (`null`) and retries once that step closes.
 
-**Single-unit overflow is out of scope, by design.** If a single retained unit — one closed step, or a large free node such as a pasted `user/message` — *alone* exceeds the budget, compaction cannot help and the next model call may go out over-budget. Bounding an individual unit's size is a separate concern (output truncation), handled elsewhere; compaction makes no promise about it, and the harness without such a mechanism can still break on a single oversized unit. This is named honestly rather than papered over.
+**Single-unit overflow is out of scope, by design.** If a single retained unit — one closed step, or a large free entry such as a pasted `user/message` — *alone* exceeds the budget, compaction cannot help and the next model call may go out over-budget. Bounding an individual unit's size is a separate concern (output truncation), handled elsewhere; compaction makes no promise about it, and the harness without such a mechanism can still break on a single oversized unit. This is named honestly rather than papered over.
 
 ### Head-anchoring: one auto checkpoint, always at the head
 
@@ -70,7 +68,7 @@ Auto-compaction always starts at the surface head, merging the prior checkpoint 
 
 ### Surface replacement: `compact/*` events are log-only; one `user/message` carries the summary
 
-Because `SurfaceEventType` is closed, the summary cannot ride on a `compact/*` event. The backend instead appends a **single `user/message`** with `surfaceOp: { op: 'replace', start, end }` whose `content` is the (framed) summary and whose `sourceEventSeqs` covers the shadowed nodes *and* the bookkeeping events. The `compact/*` events are pure log records (lock + provenance). The surface mutation sits **inside** the lock — `compact/end` is the last event appended:
+Because `SurfaceEventType` is closed, the summary cannot ride on a `compact/*` event. The backend instead appends a **single `user/message`** with `surfaceOp: { op: 'replace', start, end }` whose `content` is the (framed) summary and whose `sourceEventSeqs` covers the shadowed entries *and* the bookkeeping events. The `compact/*` events are pure log records (lock + provenance). The surface mutation sits **inside** the lock — `compact/end` is the last event appended:
 
 ```
 compact/start    → log-only. Acquires the lock.
@@ -81,7 +79,7 @@ user/message     → surfaceOp { op:'replace', start, end }. THE surface mutatio
 compact/end      → log-only. Releases the lock (carries `error` on a recoverable failure).
 ```
 
-`deriveMessages()` then yields `[summary_as_user_message, ...retained_nodes]`. Reusing `user/message` is honest rather than a workaround: a summary genuinely *is* user-role context.
+`deriveMessages()` then yields `[summary_as_user_message, ...retained_entries]`. Reusing `user/message` is honest rather than a workaround: a summary genuinely *is* user-role context.
 
 ### Checkpoint framing + incremental merge (backend-private)
 
@@ -116,7 +114,7 @@ Two failure paths, both documented:
 - **New loop seam**: `agent/pre-step` (`@mode serial`) declared in `dsh-agent` and emitted by `dsh-agent-loop` after system assembly and before `step/start`. This is a documented change to the loop — `docs/architecture.md` records it and the generated cordis catalog carries its signature.
 - **`SessionEventMap`** gains `compact/start` / `compact/summary` / `compact/end` by declaration merging (merge-extensible); `SurfaceEventType` is **not** touched. These are session events, not cordis `Events`, so the event-taxonomy gate needs no entry.
 - **`dsh-session`** gains the tool-pairing balance predicate (`isToolPairingBalanced`, in `tool-pairing.ts`, exported from the package index) that `compactRegion`/`compactIfNeeded` use to keep a collapsed region from splitting a step's tool-call/result pair. The surface `replace` op and the surface-metadata runtime guard already existed and are reused.
-- **`dsh-invariants`** drops its `surface replace: start must be <= end` assertion: a head-anchored compaction lands a high-seq replacement node at an older range's *position*, so `start > end` numerically is normal and valid (the range is positional, validated by the surface's `indexOf` checks that remain). The turn-enclosure invariant is reused unchanged.
+- **`dsh-invariants`** drops its `surface replace: start must be <= end` assertion: a head-anchored compaction lands a high-seq replacement entry at an older range's *position*, so `start > end` numerically is normal and valid (the range is positional, validated by the surface's `indexOf` checks that remain). The turn-enclosure invariant is reused unchanged.
 - **Wiring**: `dsh-compact-basic` is loaded in `examples/coding-agent`'s `cordis.yml`, so the seam ships in the real demo (it was previously loaded nowhere).
 
 ## Testing
