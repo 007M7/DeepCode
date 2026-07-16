@@ -123,8 +123,8 @@ function isReplaceOp(value: object): value is Extract<SurfaceOp, { op: 'replace'
     && isEventSeq(op['end'])
 }
 
-/** Validate event-local metadata and narrow a surface-eligible event. */
-function surfaceEventOf(event: SessionEvent): SurfaceEvent | undefined {
+/** Validate event-local surface eligibility and return its operation. */
+function surfaceOpOf(event: SessionEvent): SurfaceOp | undefined {
   const raw = event as SessionEvent & { surfaceOp?: unknown; sourceEventSeqs?: unknown }
   if (!isSurfaceEligibleType(event.type)) {
     if (raw.surfaceOp !== undefined) {
@@ -135,45 +135,50 @@ function surfaceEventOf(event: SessionEvent): SurfaceEvent | undefined {
     }
     return
   }
-  if (raw.surfaceOp === undefined) {
+  const op = raw.surfaceOp
+  if (op === undefined) {
     throw new Error(`session event "${event.type}" is surface-eligible and requires a surfaceOp marker`)
   }
-  if (raw.surfaceOp !== 'append') {
-    if (raw.surfaceOp === null || typeof raw.surfaceOp !== 'object' || Array.isArray(raw.surfaceOp)) {
-      throw new Error(`session event "${event.type}" carries an invalid surfaceOp`)
-    }
-    if (!isReplaceOp(raw.surfaceOp)) {
-      throw new Error(`session event "${event.type}" carries an invalid replace surfaceOp`)
-    }
+  if (op === 'append') return op
+  if (op === null || typeof op !== 'object' || Array.isArray(op)) {
+    throw new Error(`session event "${event.type}" carries an invalid surfaceOp`)
   }
-  if (raw.sourceEventSeqs !== undefined && !Array.isArray(raw.sourceEventSeqs)) {
-    throw new Error(`sourceEventSeqs on event at seq ${event.seq} must be an array when present`)
+  if (!isReplaceOp(op)) {
+    throw new Error(`session event "${event.type}" carries an invalid replace surfaceOp`)
   }
-  if (Array.isArray(raw.sourceEventSeqs) && !raw.sourceEventSeqs.every(isEventSeq)) {
-    throw new Error(`session event "${event.type}" sourceEventSeqs must contain non-negative safe integers`)
-  }
-  return event as SurfaceEvent
+  return op
 }
 
 /** Validate provenance against prior log entries and the replacement range. */
 function assertProvenance(
-  event: SurfaceEvent,
+  event: SessionEvent,
   shadowedSeqs: readonly number[],
 ): void {
-  const sources = event.sourceEventSeqs
-  if (sources !== undefined && sources.length === 0) {
-    throw new Error('sourceEventSeqs must not be empty when present')
-  }
-  const sourceSet = new Set(sources ?? [])
-  if (sources !== undefined && sourceSet.size !== sources.length) {
-    throw new Error('sourceEventSeqs must not contain duplicates')
-  }
-  for (const source of sources ?? []) {
-    if (source >= event.seq) {
-      throw new Error(`sourceEventSeqs must reference earlier events: ${source} >= current seq ${event.seq}`)
+  const raw = (event as SessionEvent & { sourceEventSeqs?: unknown }).sourceEventSeqs
+  const sources = new Set<number>()
+  if (raw !== undefined) {
+    if (!Array.isArray(raw)) {
+      throw new Error(`sourceEventSeqs on event at seq ${event.seq} must be an array when present`)
+    }
+    if (raw.length === 0) {
+      throw new Error('sourceEventSeqs must not be empty when present')
+    }
+    let nonEarlierSource: number | undefined
+    for (const source of raw) {
+      if (!isEventSeq(source)) {
+        throw new Error(`session event "${event.type}" sourceEventSeqs must densely contain non-negative safe integers`)
+      }
+      sources.add(source)
+      if (nonEarlierSource === undefined && source >= event.seq) nonEarlierSource = source
+    }
+    if (sources.size !== raw.length) {
+      throw new Error('sourceEventSeqs must not contain duplicates')
+    }
+    if (nonEarlierSource !== undefined) {
+      throw new Error(`sourceEventSeqs must reference earlier events: ${nonEarlierSource} >= current seq ${event.seq}`)
     }
   }
-  const missing = shadowedSeqs.filter(seq => !sourceSet.has(seq))
+  const missing = shadowedSeqs.filter(seq => !sources.has(seq))
   if (missing.length > 0) {
     throw new Error(`surface replace: sourceEventSeqs must include every shadowed surface node; missing ${missing.join(', ')}`)
   }
@@ -213,19 +218,19 @@ function planSurfaceEvent(
   if (event.seq !== expectedSeq) {
     throw new Error(`session event seq ${event.seq} is not contiguous; expected ${expectedSeq}`)
   }
-  const surfaceEvent = surfaceEventOf(event)
-  if (surfaceEvent === undefined) return
-  if (surfaceEvent.surfaceOp === 'append') {
-    assertProvenance(surfaceEvent, [])
+  const surfaceOp = surfaceOpOf(event)
+  if (surfaceOp === undefined) return
+  if (surfaceOp === 'append') {
+    assertProvenance(event, [])
     return { kind: 'append', seq: event.seq }
   }
-  const range = replacementRange(state, surfaceEvent.surfaceOp)
-  assertProvenance(surfaceEvent, range.shadowedSeqs)
+  const range = replacementRange(state, surfaceOp)
+  assertProvenance(event, range.shadowedSeqs)
   return {
     kind: 'replace',
     seq: event.seq,
-    start: surfaceEvent.surfaceOp.start,
-    end: surfaceEvent.surfaceOp.end,
+    start: surfaceOp.start,
+    end: surfaceOp.end,
     ...range,
   }
 }

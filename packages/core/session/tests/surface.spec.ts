@@ -58,6 +58,7 @@ describe('foldSurface provenance', () => {
     ['a non-array', [{ ...provenanceEvent(0, undefined), sourceEventSeqs: 'invalid' }], /must be an array/],
     ['an empty array', [provenanceEvent(0, [])], /must not be empty/],
     ['duplicates', [provenanceEvent(0, undefined), provenanceEvent(1, [0, 0])], /must not contain duplicates/],
+    ['a sparse array', [provenanceEvent(0, Array<number>(1))], /densely contain/],
     ['a non-number', [{ ...provenanceEvent(0, undefined), sourceEventSeqs: ['0'] }], /non-negative safe integers/],
     ['a fractional number', [provenanceEvent(0, [0.5])], /non-negative safe integers/],
     ['a negative number', [provenanceEvent(0, [-1])], /non-negative safe integers/],

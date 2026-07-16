@@ -358,6 +358,9 @@ describe('session event tracing', () => {
     ['empty sources', [
       appendEvent(0, []),
     ]],
+    ['sparse sources', [
+      appendEvent(0, Array<number>(1)),
+    ]],
     ['duplicate sources', [
       appendEvent(0),
       appendEvent(1, [0, 0]),
