@@ -30,7 +30,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
 scripts/     repo gates and generators
-website/     VitePress docs site (zh-CN)
+website/     VitePress docs site (zh-CN); api/ pages generated from source
 ```
 
 Per-package map: the group READMEs, indexed from [packages/README.md](packages/README.md).

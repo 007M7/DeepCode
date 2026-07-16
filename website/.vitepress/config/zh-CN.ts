@@ -1,4 +1,5 @@
 import type { DefaultTheme, LocaleSpecificConfig } from 'vitepress'
+import apiSidebarData from './api-sidebar.json'
 
 const guideSidebar: DefaultTheme.SidebarItem[] = [
   {
@@ -37,29 +38,20 @@ const developSidebar: DefaultTheme.SidebarItem[] = [
   },
 ]
 
+// The API section sidebar is GENERATED (scripts/gen-website-api.ts writes
+// api-sidebar.json alongside the pages), so navigation can never drift from
+// the generated page set. Only the hand-written hub link lives here.
 const apiSidebar: DefaultTheme.SidebarItem[] = [
   {
     text: '框架 API',
     items: [
       { text: '总览', link: '/zh-CN/api/' },
-      { text: 'Context', link: '/zh-CN/api/cordis/context' },
-      { text: 'Events', link: '/zh-CN/api/cordis/events' },
-      { text: 'Fiber', link: '/zh-CN/api/cordis/fiber' },
-      { text: 'Registry', link: '/zh-CN/api/cordis/registry' },
-      { text: 'Service', link: '/zh-CN/api/cordis/service' },
+      ...apiSidebarData.cordis,
     ],
   },
   {
     text: 'Harness API',
-    items: [
-      { text: 'Tools (dsh-tools)', link: '/zh-CN/api/harness/tools' },
-      { text: 'LLM (dsh-llm)', link: '/zh-CN/api/harness/llm' },
-      { text: 'Session (dsh-session)', link: '/zh-CN/api/harness/session' },
-      { text: 'Agent (dsh-agent)', link: '/zh-CN/api/harness/agent' },
-      { text: 'Bash (dsh-bash)', link: '/zh-CN/api/harness/bash' },
-      { text: 'Filesystem (dsh-fs)', link: '/zh-CN/api/harness/fs' },
-      { text: 'Subagent (dsh-subagent)', link: '/zh-CN/api/harness/subagent' },
-    ],
+    items: apiSidebarData.harness,
   },
 ]
 
