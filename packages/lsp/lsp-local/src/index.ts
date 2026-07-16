@@ -21,8 +21,6 @@ import type {
   LspProviderQuery,
   LspQueryResult,
 } from '@deepseek-ai/dsh-lsp'
-// Side-effect type import: declaration-merges `ctx.lsp` onto Context.
-import type {} from '@deepseek-ai/dsh-lsp'
 import { canonicalizeWorkspace, readHostSource } from './host.ts'
 import { abortError, LspInstance } from './instance.ts'
 import type { InstanceSpec } from './instance.ts'

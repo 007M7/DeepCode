@@ -457,7 +457,7 @@ export interface LspLocalServerConfig {
 }
 ```
 
-Source: [`packages/lsp/lsp-local/src/index.ts:85`](../packages/lsp/lsp-local/src/index.ts)
+Source: [`packages/lsp/lsp-local/src/index.ts:83`](../packages/lsp/lsp-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-mcp-client`
 
