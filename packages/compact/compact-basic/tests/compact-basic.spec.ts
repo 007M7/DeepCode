@@ -1548,40 +1548,23 @@ describe('BasicCompactService edge cases', () => {
 
 describe('BasicCompactService positional range (surface seqs are not monotonic after a replace)', () => {
   it('compacts a second region after the first replace lands a high-seq summary at the head position', async () => {
-    // A replace inserts the new summary node (a high seq) AT the shadowed
-    // range's surface position, so the surface becomes
-    // [highSeqSummary, …olderRetainedLowerSeqs]. A second compaction over a
-    // range whose start node has a HIGHER seq than its end node must still
-    // succeed — the range is positional, not a numeric seq interval.
+    // Replacement can make surface seqs non-monotonic; ranges remain positional.
     const svc = createTestService({ auto: false })
     const session = multiTurnSession(4, 1)
 
-    // First compaction: shadow the two oldest surface nodes.
     const nodes0 = session.surface.nodes
     const first = await compactRegion(svc, session, nodes0[0]!, nodes0[1]!, 'm')
 
-    // The summary node now sits at the head with a seq HIGHER than the
-    // retained older nodes that follow it — the non-monotonic surface. (The
-    // head is the user/message replace node, appended after the compact/summary
-    // provenance event, so its seq is at least first.summarySeq.)
     const nodes1 = session.surface.nodes
     expect(nodes1[0]!).toBeGreaterThanOrEqual(first.summarySeq)
     expect(nodes1[0]!).toBeGreaterThan(nodes1[1]!)
 
-    // Second compaction: shadow [summary(head) … turn-2's step end]. The start
-    // seq (the head summary node) is GREATER than the end seq (an older retained
-    // node), so the range is a SURFACE-POSITION span, not a numeric seq interval.
-    // The end must land on a step boundary (turn-2's assistant message closes
-    // its step).
     const startSeq = nodes1[0]!
     const endSeq = nodes1[2]!
     expect(startSeq).toBeGreaterThan(endSeq)
     const second = await compactRegion(svc, session, startSeq, endSeq, 'm')
 
-    // Exactly the three nodes at surface positions [0..2] are shadowed, in
-    // surface order — the positional slice, regardless of their seq values.
     expect(second.shadowedSeqs).toEqual([nodes1[0]!, nodes1[1]!, nodes1[2]!])
-    // The surface still derives cleanly: a new head replace node + the rest.
     const finalNodes = session.surface.nodes
     expect(finalNodes[0]!).toBeGreaterThanOrEqual(second.summarySeq)
     expect(session.deriveMessages().length).toBe(finalNodes.length)
@@ -1591,20 +1574,13 @@ describe('BasicCompactService positional range (surface seqs are not monotonic a
     const svc = createTestService({ auto: false })
     const session = multiTurnSession(3, 1)
 
-    // First compaction shadows the oldest two surface nodes, landing a high-seq
-    // summary node at the head.
     const n0 = session.surface.nodes
     await compactRegion(svc, session, n0[0]!, n0[1]!, 'm')
 
-    // Second compaction spans [head summary … turn-2's step end]. The head's seq
-    // is higher than the older retained nodes' seqs, so a log-seq-order walk
-    // would emit the older messages BEFORE the checkpoint.
     const n1 = session.surface.nodes
     svc.summarizeCalls = []
     await compactRegion(svc, session, n1[0]!, n1[2]!, 'm')
 
-    // The extracted transcript follows surface order: the checkpoint (head)
-    // first, then the older retained messages — matching deriveMessages().
     const { text } = svc.summarizeCalls[0]!
     const checkpointIdx = text.indexOf('compacted-summary')
     const olderIdx = text.indexOf('turn 2 user')

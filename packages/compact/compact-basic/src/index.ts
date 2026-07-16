@@ -337,13 +337,7 @@ export class BasicCompactService extends CompactService {
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
-    // Resolve the range by surface POSITION, not numeric seq interval. A prior
-    // replace lands a fresh high-seq summary node AT the shadowed range's
-    // position, so the surface order (head→tail) no longer tracks seq order —
-    // `[newSummarySeq, olderRetainedSeq, …]` is normal. Indexing into the
-    // ordered node list and slicing it is the only correct way to read a range;
-    // a `seq >= start && seq <= end` interval test would mis-collect
-    // nodes (and `start > end` would falsely reject) once that happens.
+    // Resolve by surface position: a newer replacement seq may occupy an older slot.
     const nodes = session.surface.nodes
     const startIdx = nodes.indexOf(start)
     const endIdx = nodes.indexOf(end)
@@ -510,14 +504,8 @@ export class BasicCompactService extends CompactService {
     // The whole surface fits the retain budget — nothing to compact.
     if (keepFromIdx === 0) return null
 
-    // Round the cutoff to a tool-pairing boundary: if the cut before
-    // `nodes[keepFromIdx]` is unbalanced (an unanswered tool-call sits before
-    // it — i.e. it is mid-step), extend the retained side head-ward until the
-    // cut is balanced, so the compacted range ends without splitting an
-    // assistant↔result pair. A node that belongs to no step is already a
-    // balanced (free) boundary. Decline if no balanced cut exists at or below
-    // `keepFromIdx` (the compactable range is only an un-splittable open tail
-    // step — retry once it closes).
+    // Round the cutoff head-ward to a tool-pairing boundary; decline when no
+    // safe compactable prefix exists.
     while (keepFromIdx > 0) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       if (isToolPairingBalanced(nodes, events, nodes[keepFromIdx]!)) break
