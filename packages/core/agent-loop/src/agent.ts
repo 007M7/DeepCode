@@ -276,12 +276,13 @@ export class ReactLoopAgent implements Agent {
     const active = this.turnCancellation
     if (active === undefined && !this.#inbox.hasQueued && !this.#inbox.hasSteering) return
     if (active === undefined) this.preRunCancelled = true
-    else active.request(accepted)
     // Drop all pending queued + steering work (un-started prompts never run; the
-    // cancelled turn's steering is not re-enqueued). Cleared directly even when
-    // the loop is parked in waitForQueued — there is no turn to stop and nothing
-    // left for the parked loop to run, so no wake is needed.
+    // cancelled turn's steering is not re-enqueued). Clear before abort dispatch,
+    // whose synchronous observers may enqueue replacement work that must survive.
+    // This is direct even when the loop is parked in waitForQueued — there is no
+    // turn to stop and nothing left for the parked loop to run, so no wake is needed.
     this.#inbox.clear()
+    if (active !== undefined) active.request(accepted)
   }
 
   /**

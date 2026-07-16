@@ -124,6 +124,40 @@ describe('Agent.cancel()', () => {
     expect(reasons).toEqual([{ kind: 'aborted' }])
   })
 
+  it('keeps replacement work queued synchronously by an abort observer', async () => {
+    const adapter = new MockAdapter(['hang', textResponse('replacement reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('abort-observer-replacement'), { model: 'mock' })
+
+    send(agent, 'original')
+    await expect.poll(() => adapter.requests.length).toBe(1)
+    const signal = adapter.requests[0]?.signal
+    if (signal === undefined) throw new Error('model request omitted its turn signal')
+    signal.addEventListener('abort', () => { send(agent, 'replacement') }, { once: true })
+    const idle = waitForIdle(ctx, agent)
+    agent.cancel({ kind: 'user' })
+    await Promise.race([
+      idle,
+      new Promise((_resolve, reject) => {
+        setTimeout(() => {
+          reject(new Error(`replacement did not settle: ${JSON.stringify({
+            status: agent.status,
+            requests: adapter.requests.length,
+            users: userTexts(agent),
+            events: agent.session.events.map(event => event.type),
+          })}`))
+        }, 1000)
+      }),
+    ])
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(userTexts(agent)).toEqual(['original', 'replacement'])
+    const reasons = agent.session.events
+      .filter(event => event.type === 'turn/end')
+      .map(event => event.type === 'turn/end' ? event.data.reason : undefined)
+    expect(reasons).toEqual([{ kind: 'aborted' }, { kind: 'completed' }])
+  })
+
   it('cancel() with no cause defaults to user when aborting an active turn', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-16-explicit-turn-cancellation.md: 3716895c145c24603a93dab99108489e19154490
-2026-07-16-explicit-turn-cancellation.zh.md: d2f8a4227d38a05d7ed1dd5135a20d3b4e94deed
+2026-07-16-explicit-turn-cancellation.zh.md: 912f6ae7efcb5e0124c45e1a044b5cf140a6ab52
