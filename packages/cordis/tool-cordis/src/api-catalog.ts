@@ -53,6 +53,15 @@ export interface TypeApiEntry {
 /** Every harness `ctx.<key>` service, sorted by key. */
 export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
+    key: 'agentExecution',
+    summary: 'Ambient Agent identity within one process-local asynchronous chain.',
+    methods: [
+      'current(): AgentExecution | undefined',
+      'require(): AgentExecution',
+      'run<T>(execution: AgentExecution | undefined, operation: () => T): T',
+    ],
+  },
+  {
     key: 'agentLoop',
     summary: 'Concrete ReactLoopAgent factory and driver service.',
     methods: [
@@ -504,6 +513,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Agent',
     declaration: 'export interface Agent {\n    readonly id: AgentId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: SendOptions): void;\n    cancel(reason?: string): void;\n    whenIdle(): Promise<void>;\n}',
+  },
+  {
+    name: 'AgentExecution',
+    declaration: 'export interface AgentExecution {\n    readonly agent: Agent;\n}',
   },
   {
     name: 'AgentFactory',

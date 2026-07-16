@@ -9,6 +9,20 @@ This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verifie
 
 The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns. The **inherited tier** at the end is the cordis-core + loader/hmr/timer `ctx` surface a plugin also sees — pinned vendor source, summarized tersely.
 
+## `ctx.agentExecution` — `AgentExecutionService` (abstract seam)
+
+Ambient Agent identity within one process-local asynchronous chain.
+
+```ts cordis-catalog
+current(): AgentExecution | undefined
+require(): AgentExecution
+run<T>(execution: AgentExecution | undefined, operation: () => T): T
+```
+
+Types: [AgentExecution](../core-data-structures/core.md)
+
+Source: [`packages/core/agent-execution/src/index.ts:17`](../../packages/core/agent-execution/src/index.ts)
+
 ## `ctx.agentLoop` — `AgentLoop`
 
 Concrete ReactLoopAgent factory and driver service.
@@ -19,7 +33,7 @@ async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<Agent
 async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:335`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:336`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 

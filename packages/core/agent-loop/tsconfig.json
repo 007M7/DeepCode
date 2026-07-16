@@ -36,6 +36,9 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../core/agent-execution"
+    },
+    {
       "path": "../../core/scope"
     }
   ]

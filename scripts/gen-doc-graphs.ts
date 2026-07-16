@@ -153,6 +153,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns live Agent handles and the create/resume factory seam.',
   },
   {
+    key: 'agentExecution',
+    pkg: 'agent-execution',
+    title: 'Agent execution context',
+    mode: 'core',
+    consumers: ['agent-loop'],
+    note: 'Carries the exact initiating Agent across one process-local asynchronous driver chain; explicit identities remain authoritative at external boundaries.',
+  },
+  {
     key: 'agentLoop',
     pkg: 'agent-loop',
     title: 'Concrete loop driver',

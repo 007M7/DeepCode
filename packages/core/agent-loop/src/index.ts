@@ -11,6 +11,7 @@ import z from 'schemastery'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-agent-execution'
 import type {
   AgentFactory,
   AgentHandle,
@@ -333,7 +334,7 @@ export interface Config {
 
 /** Concrete ReactLoopAgent factory and driver service. */
 export class AgentLoop extends Service implements AgentFactory {
-  static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt']
+  static inject = ['agents', 'agentExecution', 'sessions', 'llm', 'tools', 'systemPrompt']
 
   /** Runtime schema for declarative agents. */
   static Config = z.object({

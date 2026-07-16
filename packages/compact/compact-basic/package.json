@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-agent-execution": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
     "@deepseek-ai/dsh-compact": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",

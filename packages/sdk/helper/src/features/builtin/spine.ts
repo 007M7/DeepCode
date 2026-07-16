@@ -36,6 +36,10 @@ class SpineOption extends FeatureOption {
       }, ['persona'], config => requiredString(config, 'persona')),
       ...npmCordisConfigEntry(ID, { id: 'tools', name: '@deepseek-ai/dsh-tools' }, []),
       ...npmCordisConfigEntry(ID, { id: 'agent', name: '@deepseek-ai/dsh-agent' }),
+      ...npmCordisConfigEntry(ID, {
+        id: 'agent-execution',
+        name: '@deepseek-ai/dsh-agent-execution',
+      }),
       ...npmCordisConfigEntry(ID, { id: 'invariants', name: '@deepseek-ai/dsh-invariants' }),
       ...npmCordisConfigEntry(ID, {
         id: 'agent-loop',

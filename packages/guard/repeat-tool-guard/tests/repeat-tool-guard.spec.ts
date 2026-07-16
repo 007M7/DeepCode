@@ -5,6 +5,7 @@ import SessionStore, { type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import * as RepeatToolGuard from '@deepseek-ai/dsh-repeat-tool-guard'
 import type { Config } from '@deepseek-ai/dsh-repeat-tool-guard'
@@ -26,6 +27,7 @@ async function harness(config: Config = {}): Promise<Context> {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentExecutionProvider)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(RepeatToolGuard, config)
   ctx.tools.register(defineTool({ name: 'probe', description: 'p', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
@@ -368,6 +370,7 @@ describe('config validation fails loud', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(AgentLoop, { agents: [] })
     return ctx
   }

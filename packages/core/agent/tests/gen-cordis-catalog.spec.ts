@@ -160,6 +160,26 @@ export class FixService {
     expect(services[0]?.methods).toHaveLength(3)
   })
 
+  it('extracts an interface service as an abstract seam', () => {
+    const services = collectServices(makeService(`/** Fixture service interface. */
+export interface FixService {
+  /**
+   * Do the thing.
+   * @param id - which thing to do.
+   * @returns the outcome of doing it.
+   */
+  run(id: string): string
+}`))
+    expect(services).toHaveLength(1)
+    expect(services[0]).toMatchObject({
+      key: 'fix',
+      type: 'FixService',
+      abstract: true,
+      doc: 'Fixture service interface.',
+    })
+    expect(services[0]?.methods).toEqual(['run(id: string): string'])
+  })
+
   it('hard-errors on a public method with no JSDoc at all', () => {
     expect(() => collectServices(makeService(
       '/** Fixture service. */\nexport class FixService {\n  run(id: string): string { return id }\n}',

@@ -327,7 +327,7 @@ export class ReactLoopAgent implements Agent {
   [startDriver](): void {
     if (this._status === 'disposed') return
     this.driverStarted = true
-    this.done = runLoop(this.loopCtx, this, {
+    this.done = this.loopCtx.agentExecution.run({ agent: this }, () => runLoop(this.loopCtx, this, {
       inbox: this.#inbox,
       setStatus: (status) => { this.setStatus(status) },
       setAbort: controller => void (this.currentAbort = controller),
@@ -338,7 +338,7 @@ export class ReactLoopAgent implements Agent {
       clearCancel: () => { this.cancelRequested = false },
       // Pre-step cancellation re-parks without emitting a status transition.
       settleIdle: () => { this.settleIdleWaiters() },
-    })
+    }))
   }
 
   /**

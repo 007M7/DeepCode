@@ -26,6 +26,8 @@ const FENCE = 'ts cordis-catalog'
 // TODO(catalog-type-links): verify or generate link-map coverage.
 export const LINK_MAP: Record<string, string> = {
   Agent: 'core.md',
+  AgentExecution: 'core.md',
+  AgentExecutionService: 'core.md',
   ContentBlock: 'core.md',
   Message: 'core.md',
   MessageSource: 'core.md',
@@ -84,13 +86,13 @@ interface ServiceEntry {
   key: string
   /** The service class/interface name, e.g. `LlmService`. */
   type: string
-  /** Whether the service class is abstract (a seam interface). */
+  /** Whether the service declaration is abstract (a seam interface). */
   abstract: boolean
-  /** Class-level JSDoc prose, one line per paragraph. */
+  /** Declaration-level JSDoc prose, one line per paragraph. */
   doc: string
   /** Public method signatures (bodies stripped), in source order. */
   methods: string[]
-  /** Source pointer of the class declaration. */
+  /** Source pointer of the service declaration. */
   source: string
 }
 
@@ -172,8 +174,8 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
   return entries
 }
 
-/** Walk every harness `interface Context` block + its service class, hard-
- * erroring (aggregated) on any JSDoc-completeness violation: a class or public
+/** Walk every harness `interface Context` block + its service declaration,
+ * hard-erroring (aggregated) on any JSDoc-completeness violation: a service or public
  * method without JSDoc prose, an undocumented parameter, a stale `@param`, a
  * missing `@returns` on a non-void method, or an inferred (unannotated) return
  * type the pure-AST walk cannot classify.
@@ -199,18 +201,23 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
       }
     }
     if (keyToType.size === 0) continue
-    // Find each service class declared in the same file and emit an entry.
+    // Find each service declaration in the same file and emit an entry.
     for (const [key, type] of keyToType) {
-      const cls = sf.statements.find(
-        (s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === type,
+      const declaration = sf.statements.find(
+        (s): s is ts.ClassDeclaration | ts.InterfaceDeclaration =>
+          (ts.isClassDeclaration(s) || ts.isInterfaceDeclaration(s)) && s.name?.text === type,
       )
-      if (!cls) continue // a Pick-mixin member (e.g. timer helpers), not a class here
-      const abstract = cls.modifiers?.some(m => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false
-      const clsDoc = parseJsDoc(rawJsDoc(text, cls)).doc
-      if (!clsDoc) violations.push(`service ctx.${key} (${pointer(rel, sf, cls)}): class ${type} has no JSDoc.`)
+      if (!declaration) continue // a Pick-mixin member (e.g. timer helpers), not a declaration here
+      const abstract = ts.isInterfaceDeclaration(declaration)
+        || (declaration.modifiers?.some(m => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false)
+      const declarationDoc = parseJsDoc(rawJsDoc(text, declaration)).doc
+      if (!declarationDoc) {
+        const kind = ts.isInterfaceDeclaration(declaration) ? 'interface' : 'class'
+        violations.push(`service ctx.${key} (${pointer(rel, sf, declaration)}): ${kind} ${type} has no JSDoc.`)
+      }
       const methods: string[] = []
-      for (const member of cls.members) {
-        if (!ts.isMethodDeclaration(member)) continue
+      for (const member of declaration.members) {
+        if (!ts.isMethodDeclaration(member) && !ts.isMethodSignature(member)) continue
         // Only instance methods callable through `ctx.<key>` are surface;
         // private, protected, and static methods are not.
         const nonPublic = member.modifiers?.some(m =>
@@ -238,9 +245,9 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
         key,
         type,
         abstract,
-        doc: clsDoc,
+        doc: declarationDoc,
         methods,
-        source: pointer(rel, sf, cls),
+        source: pointer(rel, sf, declaration),
       })
     }
   }

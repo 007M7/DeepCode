@@ -6,6 +6,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { bindReactLoopAgentContext, prepareReactLoopAgent } from '../src/agent.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
@@ -17,6 +18,7 @@ async function harness(adapter: MockAdapter) {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentExecutionProvider)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
@@ -51,6 +53,7 @@ function send(agent: ReactLoopAgent, text: string) {
 describe('ReactLoopAgent', () => {
   it('rejects access before context binding and a second driver for one session', async () => {
     const ctx = new Context()
+    await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('exclusive-driver'))
     const prepared = prepareReactLoopAgent(ctx, AgentId('first-driver'), { model: 'mock' }, session)
@@ -252,6 +255,7 @@ describe('ReactLoopAgent', () => {
   it('disposer is idempotent (double-stop)', async () => {
     // The internal start seam exposes one idle driver's disposer for repeated invocation.
     const ctx = new Context()
+    await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('test'))
     const prepared = prepareReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
@@ -361,6 +365,7 @@ describe('ReactLoopAgent', () => {
     // Queue the internal waiter while running, then dispose the bare driver. Its disposed branch
     // must chain the loop's `done` promise rather than resolve before exit.
     const ctx = new Context()
+    await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(LlmService)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SystemPrompt)

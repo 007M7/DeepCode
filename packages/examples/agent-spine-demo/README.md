@@ -17,6 +17,7 @@ Read this package for the whole plugin tree and its composition order.
 @deepseek-ai/dsh-skill            skill provider registry
 @deepseek-ai/dsh-skill-local      local filesystem skill provider
 @deepseek-ai/dsh-agent            agent registry + agent/* event vocabulary
+@deepseek-ai/dsh-agent-execution  process-local ambient Agent execution context
 @deepseek-ai/dsh-tasks            generic background-task registry
 @deepseek-ai/dsh-invariants       dev-mode event-contract assertions
 @deepseek-ai/dsh-tool-bash        the model-facing bash schema

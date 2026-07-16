@@ -45,6 +45,8 @@ flowchart LR
   svc_skills["ctx.skills<br/>Skill provider registry"]
   pkg_skill_local["skill-local"]
   svc_agents["ctx.agents<br/>Agent registry"]
+  pkg_agent_execution["agent-execution"]
+  svc_agentExecution["ctx.agentExecution<br/>Agent execution context"]
   svc_agentLoop["ctx.agentLoop<br/>Concrete loop driver"]
   pkg_agent_spine_demo["agent-spine-demo"]
   pkg_bash["bash"]
@@ -91,6 +93,7 @@ flowchart LR
   pkg_acp --> svc_approval
   pkg_acp --> svc_userInteraction
   pkg_agent --> svc_agents
+  pkg_agent_execution --> svc_agentExecution
   pkg_agent_loop --> svc_agentLoop
   pkg_approval --> svc_approval
   pkg_bash --> svc_bash
@@ -133,6 +136,7 @@ flowchart LR
   pkg_web_search_perplexity --> svc_web
   pkg_workflow --> svc_workflows
   pkg_workflow_workerthread --> svc_workflows
+  svc_agentExecution --> pkg_agent_loop
   svc_agentLoop --> pkg_agent_spine_demo
   svc_agents --> pkg_acp
   svc_agents --> pkg_agent_loop
@@ -198,6 +202,7 @@ flowchart LR
 | `ctx.userInteraction` | `seam` | [`user-interaction`](../packages/ui/user-interaction) | [`stdio-demo`](../packages/examples/stdio-demo), [`acp`](../packages/ui/acp) | [`tool-ask-user`](../packages/ui/tool-ask-user), [`stdio-demo`](../packages/examples/stdio-demo), [`acp`](../packages/ui/acp) | - | UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise. |
 | `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-local`](../packages/skill/skill-local) | [`tool-skill`](../packages/skill/tool-skill) | - | Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies. |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/ui/acp), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`stdio-demo`](../packages/examples/stdio-demo), [`invariants`](../packages/support/invariants) | - | Owns live Agent handles and the create/resume factory seam. |
+| `ctx.agentExecution` | `core` | [`agent-execution`](../packages/core/agent-execution) | - | [`agent-loop`](../packages/core/agent-loop) | - | Carries the exact initiating Agent across one process-local asynchronous driver chain; explicit identities remain authoritative at external boundaries. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`agent-spine-demo`](../packages/examples/agent-spine-demo) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |
 | `ctx.bash` | `seam` | [`bash`](../packages/bash/bash) | [`bash-local`](../packages/bash/bash-local), [`bash-sandbox`](../packages/bash/bash-sandbox) | [`tool-bash`](../packages/bash/tool-bash), [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors replace bash-local without touching them. |
 | `ctx.sandbox` | `seam` | [`sandbox`](../packages/sandbox/sandbox) | [`sandbox-local`](../packages/sandbox/sandbox-local) | [`bash-sandbox`](../packages/bash/bash-sandbox) | - | Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement. |
