@@ -68,4 +68,6 @@ Deep infrastructure gains one trusted process-local initiating Agent without wid
 
 The dependency is implicit in function signatures and carries a live capability object. Consumers must restrict it to cross-cutting infrastructure, treat ambient presence as neither liveness nor authorization, and retain explicit cancellation and ownership checks. ALS also has an always-on propagation cost and does not cross worker, process, HTTP, or durable queue boundaries.
 
+The teardown design deliberately accepts Node's [Stability 1 (Experimental)](https://nodejs.org/api/async_context.html#asynclocalstoragedisable) `AsyncLocalStorage.disable()` dependency. Node requires `disable()` before an ALS instance can be garbage-collected, which matters when HMR replaces provider-owned instances; the service state guard prevents a later `run()` from re-entering the instance after disposal.
+
 The frame deliberately omits turn, step, signal, cwd, sandbox, and authorization. A real consumer that cannot use existing explicit fields must justify any refinement separately; a stale copied field may at most mislabel telemetry, never grant control.

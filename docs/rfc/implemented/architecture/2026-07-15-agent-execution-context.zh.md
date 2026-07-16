@@ -68,4 +68,6 @@ export interface AgentExecutionService {
 
 该依赖不会出现在函数签名中，并且携带一个存活能力对象。消费方必须将其限制在横切基础设施中，把隐式存在视为既不证明存活、也不授予权限，并保留显式取消和归属检查。ALS 还有常驻传播成本，也无法跨越 worker、进程、HTTP 或持久化队列边界。
 
+该 teardown 设计有意接受 Node [Stability 1（实验性）](https://nodejs.org/api/async_context.html#asynclocalstoragedisable) 的 `AsyncLocalStorage.disable()` 依赖。Node 要求在 ALS 实例可被垃圾回收前调用 `disable()`，这对 HMR 替换提供方所拥有的实例尤为重要；服务状态守卫会阻止 dispose 后通过后续 `run()` 重新进入该实例。
+
 该帧有意省略轮次、步骤、signal、cwd、沙箱和授权。若真实消费方无法使用现有显式字段，必须另行论证扩展；陈旧字段最多只能误标遥测数据，绝不能授予控制权。
