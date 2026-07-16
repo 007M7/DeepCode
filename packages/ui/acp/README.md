@@ -99,7 +99,7 @@ The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loa
 
 **What the model sees**: When optional consumers are loaded, ACP form answers become the exact JSON shape documented by `dsh-tool-ask-user`. Failures become `Error: ACP user questions must come from an agent-owned request`, `Error: ACP user question has no matching session`, `Error: ACP elicitation request failed`, `Error: ask_user_question was cancelled by the user`, `Error: ask_user_question returned no answer`, or `Error: ask_user_question was aborted before the user answered`. Permission decisions control whether another tool yields success or denial. ACP tool cards, terminal output, diffs, and streamed session updates are UI-only.
 
-**Token effect**: Answer, error, and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens.
+**Token effect**: Answer, error, and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens. A replacement `tool/result` still changes the model-facing session surface, but live and replayed ACP feeds ignore it as an execution update so the original terminal or diff completion is not overwritten.
 
 ### Permission preset switches
 

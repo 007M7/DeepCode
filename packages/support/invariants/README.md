@@ -31,7 +31,7 @@ Session log (per session):
 - **turns pair and nest** — `turn/start` opens a turn, `turn/end` closes the matching one; no overlapping turns.
 - **steps nest in turns** — `step/start` opens a step in the open turn; `step/end` closes the matching step.
 - **chunks belong to an open step** — `step/start` precedes its `assistant/chunk`s.
-- **an appended `tool/result` needs a prior `tool/call`** — fresh `surfaceOp: 'append'` results name the open step and consume its pending call, while a provenance-backed single-node `replace` is a turn-enclosed surface rewrite of an already-executed result. A `tool/call` may still have no result when the execution pipeline throws.
+- **an appended `tool/result` needs a prior `tool/call`** — fresh `surfaceOp: 'append'` results name the open step and consume its pending call. A replacement exemption applies only to a provenance-backed rewrite of one current `tool/result` node whose complete data is identical except for `content`; it must still be turn-enclosed. A `tool/call` may still have no result when the execution pipeline throws.
 - **provenance sources are valid and unambiguous** — `sourceEventSeqs` contains unique earlier known seqs; only `assistant/message` may carry an explicit empty list, which denotes a known empty provider stream rather than absent legacy provenance.
 
 Agent status (per agent):

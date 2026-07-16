@@ -27,7 +27,7 @@ The plugin seeds display labels from the live agent registry, then tracks `agent
 
 **What the model sees**: Each non-empty terminal line outside an active question becomes one text block, sent with `agent.send()` while the target agent is idle and `agent.steer()` while it is running.
 
-**Token effect**: Submitted text is retained under the agent loop's normal session-history and compaction rules. The welcome banner, `> ` prompt, rendered transcript, and `[tool call]` / `[tool result]` terminal lines add no tokens.
+**Token effect**: Submitted text is retained under the agent loop's normal session-history and compaction rules. The welcome banner, `> ` prompt, rendered transcript, and `[tool call]` / `[tool result]` terminal lines add no tokens. A replacement `tool/result` remains model-visible through the session surface but is not rendered as a second execution; stdio keeps the original full-fidelity result line.
 
 ### Terminal user-interaction answers
 

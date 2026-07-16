@@ -107,11 +107,11 @@ Each step renders one prompt assembly. Plugins contribute ordered sections, tool
 
 Post-tool context follows all results, preserving call/result adjacency. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering while the step signal remains open. Leftover steering becomes next-turn input. `agent/turn-stop` is terminal through close and flush: later steering is discarded, while ordinary queued prompts survive.
 
-When loaded, `dsh-compact-basic` consumes that post-step checkpoint for `ctx.tokenMeter` pressure under the actual routed header. Once pressure or canonical context overflow qualifies, it runs optional `ctx.toolResultPrune` rewriting before summary selection and remeasures the replayed surface. Overflow recovery authorizes retry after either pruning or tool-balanced summary compaction advances `surface.replaceGeneration`. The same turn signal owns both paths.
+When loaded, `dsh-compact-basic` consumes that post-step checkpoint for `ctx.tokenMeter` pressure under the actual routed header. Once pressure or canonical context overflow qualifies, it runs optional `ctx.toolResultPrune` rewriting before summary selection and remeasures the replayed surface. Overflow recovery authorizes retry after either pruning or tool-balanced summary compaction advances `surface.replaceGeneration`, including when later summary work fails after a prune. The same turn signal owns both paths, and cancellation still wins.
 
 ### Failure Boundaries
 
-The turn is the containment boundary. `LlmService` preserves and privately tags errors from final adapter selection, dispatch, and iteration. Those errors and terminal in-band error/aborted finishes close the failed step before `agent/request-error`; retry reconstructs the next numbered step from the log, while decline or failed recovery preserves the provider error. Attempts count consecutive failures and reset after success.
+The turn is the containment boundary. `LlmService` preserves and privately tags errors from final adapter selection, dispatch, and iteration. Those errors and terminal in-band error/aborted finishes close the failed step before `agent/request-error`; retry reconstructs the next numbered step from the log, while decline or recovery failure before any replacement preserves the provider error. Attempts count consecutive failures and reset after success.
 
 Prompt, middleware, result, tool, post-step, and continuation failures remain ordinary `agent/error` failures. Cancellation and disposal beat recovery. Durable undispatched tool calls receive synthetic `ABORTED` results, preventing dangling replay. `cancel()` clears queues and aborts active work; disposal awaits quiescence before unregistering.
 

@@ -7,6 +7,7 @@
  * @module @deepseek-ai/dsh-invariants
  */
 
+import { isDeepStrictEqual } from 'node:util'
 import type { Context } from 'cordis'
 import { carrierKeyOf, isScopeCarrier } from '@deepseek-ai/dsh-scope'
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
@@ -50,13 +51,14 @@ interface SessionTrace {
   pendingCalls: Set<CallId>
   /** Every seq seen so far — validates `sourceEventSeqs` references. */
   knownSeqs: Set<number>
-  /**
-   * The seqs currently on the surface linked list, in linked-list order
-   * (head to tail). A replace reorders this relative to seq order (the new
-   * node takes the replaced range's position), so range validation is
-   * positional, not by seq comparison.
-   */
-  surface: number[]
+  /** Current surface nodes in linked-list order, with immutable event identity. */
+  surface: SurfaceTraceNode[]
+}
+
+/** Immutable identity retained only while an event is on the current surface. */
+interface SurfaceTraceNode {
+  seq: number
+  event: SessionEvent<SurfaceEventType>
 }
 
 /** One accepted event's deferred mutation of a live session trace. */
@@ -70,8 +72,9 @@ interface SessionTraceTransition {
     | { kind: 'clear' }
   /** The event's mutation of the derived surface order. */
   surface:
-    | { kind: 'none' | 'append' }
-    | { kind: 'replace'; start: number; count: number }
+    | { kind: 'none' }
+    | { kind: 'append'; node: SurfaceTraceNode }
+    | { kind: 'replace'; start: number; count: number; node: SurfaceTraceNode }
   /** The committed event sequence to add to the known-sequence set. */
   seq: number
 }
@@ -83,6 +86,18 @@ function requireOpenStep(trace: SessionTrace, kind: string, turn: number, step: 
       `${kind} names turn ${turn}/step ${step} but open is turn ${trace.openTurn}/step ${trace.openStep}`,
     )
   }
+}
+
+/** Compare future-safe tool-result data while deliberately excluding content. */
+function sameToolResultDataExceptContent(
+  original: SessionEvent<'tool/result'>['data'],
+  replacement: SessionEvent<'tool/result'>['data'],
+): boolean {
+  const originalRest = { ...original } as Record<string, unknown>
+  const replacementRest = { ...replacement } as Record<string, unknown>
+  delete originalRest['content']
+  delete replacementRest['content']
+  return isDeepStrictEqual(originalRest, replacementRest)
 }
 
 /** Validate one candidate event without mutating the committed session trace. */
@@ -139,14 +154,14 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
   // positional range — every shadowed node must appear in sourceEventSeqs.
   if (se.surfaceOp !== undefined) {
     if (se.surfaceOp === 'append') {
-      surface = { kind: 'append' }
+      surface = { kind: 'append', node: { seq: event.seq, event: se } }
     } else {
       const { start, end } = se.surfaceOp
-      const startIdx = trace.surface.indexOf(start)
+      const startIdx = trace.surface.findIndex(node => node.seq === start)
       if (startIdx === -1) {
         throw new InvariantError(`surface replace: start seq ${start} is not on the surface`)
       }
-      const endIdx = trace.surface.indexOf(end)
+      const endIdx = trace.surface.findIndex(node => node.seq === end)
       if (endIdx === -1) {
         throw new InvariantError(`surface replace: end seq ${end} is not on the surface`)
       }
@@ -155,13 +170,18 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
       }
       // Every node the replace shadows (surface positions [startIdx, endIdx]
       // inclusive) must appear in sourceEventSeqs — the provenance contract.
-      const shadowed = trace.surface.slice(startIdx, endIdx + 1)
+      const shadowed = trace.surface.slice(startIdx, endIdx + 1).map(node => node.seq)
       const recorded = new Set(se.sourceEventSeqs ?? [])
       const missing = shadowed.filter(seq => !recorded.has(seq))
       if (missing.length > 0) {
         throw new InvariantError(`surface replace: sourceEventSeqs must include every shadowed surface node; missing ${missing.join(', ')}`)
       }
-      surface = { kind: 'replace', start: startIdx, count: shadowed.length }
+      surface = {
+        kind: 'replace',
+        start: startIdx,
+        count: shadowed.length,
+        node: { seq: event.seq, event: se },
+      }
     }
   }
 
@@ -232,14 +252,25 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
       break
     }
     case 'tool/result': {
-      // A replacement rewrites an already-executed result whose recorded
-      // turn/step can be closed. Surface provenance above validates the rewrite;
-      // only fresh appends consume an open step's pending call.
+      // Only a content-only rewrite of one CURRENT tool-result node may bypass
+      // open-step/pending-call checks. The trace retains immutable surface event
+      // identity, so this validation never indexes a mutable or stale session.
       if (se.surfaceOp !== undefined && se.surfaceOp !== 'append') {
         if (trace.openTurn === null) {
           throw new InvariantError(
             'tool/result surface replacement appended outside any open turn',
           )
+        }
+        const { start, end } = se.surfaceOp
+        if (start !== end) {
+          throw new InvariantError('tool/result surface replacement must rewrite exactly one current node')
+        }
+        const original = trace.surface.find(node => node.seq === start)?.event
+        if (original?.type !== 'tool/result') {
+          throw new InvariantError('tool/result surface replacement must target a current tool/result')
+        }
+        if (!sameToolResultDataExceptContent(original.data, event.data)) {
+          throw new InvariantError('tool/result surface replacement may change only content')
         }
         break
       }
@@ -302,10 +333,14 @@ function applyTransition(trace: SessionTrace, transition: SessionTraceTransition
     case 'none':
       break
     case 'append':
-      trace.surface.push(transition.seq)
+      trace.surface.push(transition.surface.node)
       break
     case 'replace':
-      trace.surface.splice(transition.surface.start, transition.surface.count, transition.seq)
+      trace.surface.splice(
+        transition.surface.start,
+        transition.surface.count,
+        transition.surface.node,
+      )
       break
     /* v8 ignore next -- validateEvent produces this closed transition union */
     default:

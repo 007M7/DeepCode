@@ -105,6 +105,22 @@ describe('streamSessionEventUpdate', () => {
     expect((failed[0] as { status: string }).status).toBe('failed')
   })
 
+  it('emits no execution update for a tool-result surface replacement', () => {
+    const replacement = {
+      ...evt('tool/result', {
+        turn: 1,
+        step: 1,
+        callId: CallId('c1'),
+        content: [{ type: 'text', text: '[... tool result middle pruned ...]' }],
+        isError: false,
+      }),
+      seq: 2,
+      surfaceOp: { op: 'replace', start: 1, end: 1 },
+      sourceEventSeqs: [1],
+    } as SessionEvent
+    expect(updatesFor(replacement)).toEqual([])
+  })
+
   it('drops non-text tool-result content (text-only)', () => {
     const update = updatesFor(evt('tool/result', {
       turn: 1, step: 1, callId: CallId('c1'),
@@ -450,6 +466,16 @@ describe('terminal-card mapping (capability-gated)', () => {
 
   const callEvent = evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'bash', arguments: JSON.stringify({ command: 'echo hi', description: 'Greet' }) })
   const resultEvent = evt('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'hi\n' }], isError: false })
+  const prunedResultEvent = {
+    ...resultEvent,
+    seq: 2,
+    data: {
+      ...resultEvent.data,
+      content: [{ type: 'text', text: '[... tool result middle pruned ...]' }],
+    },
+    surfaceOp: { op: 'replace', start: 1, end: 1 },
+    sourceEventSeqs: [1],
+  } as SessionEvent
 
   function termUpdates(tool: ToolDefinition, enabled: boolean, cwd: string | undefined, ...events: SessionEvent[]): SessionNotification['update'][] {
     const presenter = new ToolPresenter(registryOf(tool))
@@ -474,6 +500,27 @@ describe('terminal-card mapping (capability-gated)', () => {
       toolCallId: 'c1',
       status: 'completed',
       _meta: { terminal_output: { terminal_id: 'c1', data: 'hi\n' }, terminal_exit: { terminal_id: 'c1', exit_code: 0 } },
+    })
+  })
+
+  it('live/replay translation preserves the original terminal completion across a pruning rewrite', () => {
+    const updates = termUpdates(
+      termTool({ card: 'terminal' }, { output: 'hi\n', exitCode: 0 }),
+      true,
+      '/work/proj',
+      callEvent,
+      resultEvent,
+      prunedResultEvent,
+    )
+    expect(updates).toHaveLength(2)
+    expect(updates[1]).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'c1',
+      status: 'completed',
+      _meta: {
+        terminal_output: { terminal_id: 'c1', data: 'hi\n' },
+        terminal_exit: { terminal_id: 'c1', exit_code: 0 },
+      },
     })
   })
 
@@ -633,17 +680,38 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
   // call-time snippet, then the tool/result carries the tool's computed applied-hunk `meta`,
   // which presentResult narrows into a `diff` result card the bridge forwards as `{ type:
   // 'diff' }` content blocks. The real tool is required because its result metadata is the contract.
-  it('forwards the applied-hunk meta onto the wire as tool_call_update diff content', async () => {
+  it('live/replay translation keeps the applied diff when a pruning rewrite follows', async () => {
     const ctx = await fsCtx()
     const presenter = new ToolPresenter(ctx.tools)
     const args = JSON.stringify({ file_path: 'src/b.ts', old_string: 'OLD', new_string: 'NEW' })
     // The applied hunk the tool would compute and persist on the result meta.
     const meta = { diffs: [{ path: 'src/b.ts', oldText: 'a\nOLD\nb', newText: 'a\nNEW\nb' }] }
-    const [, resultUpdate] = updatesWith(
+    const originalResult = evt('tool/result', {
+      turn: 1,
+      step: 1,
+      callId: CallId('e1'),
+      content: [{ type: 'text', text: 'ok' }],
+      isError: false,
+      meta,
+    })
+    const replacement = {
+      ...originalResult,
+      seq: 3,
+      data: {
+        ...originalResult.data,
+        content: [{ type: 'text', text: '[... tool result middle pruned ...]' }],
+      },
+      surfaceOp: { op: 'replace', start: 2, end: 2 },
+      sourceEventSeqs: [2],
+    } as SessionEvent
+    const updates = updatesWith(
       presenter,
       evt('tool/call', { turn: 1, step: 1, callId: CallId('e1'), name: 'edit', arguments: args }),
-      evt('tool/result', { turn: 1, step: 1, callId: CallId('e1'), content: [{ type: 'text', text: 'ok' }], isError: false, meta }),
+      originalResult,
+      replacement,
     )
+    expect(updates).toHaveLength(2)
+    const resultUpdate = updates[1]
     expect(resultUpdate).toEqual({
       sessionUpdate: 'tool_call_update',
       toolCallId: 'e1',

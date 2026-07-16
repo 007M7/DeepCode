@@ -1022,6 +1022,51 @@ describe('automatic listener and loader composition', () => {
     expect(compact.calls[0]!.text).toContain('tool result middle pruned')
   })
 
+  it('retries from a durable prune when later overflow summarization throws', async () => {
+    const ctx = createContext(10_000)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
+    void new ToolResultPruneService(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
+    const compact = new TestCompactService(ctx, {
+      thresholdRatio: 1,
+      retainTokens: 900,
+    })
+    compact.error = new Error('summary unavailable after prune')
+    const session = oversizedToolResult(3_000, true)
+
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'retry' })
+    expect(session.surface.replaceGeneration).toBe(1)
+    expect(session.events.filter(event => event.type === 'tool/result')).toHaveLength(2)
+    expect(session.events.findLast(event => event.type === 'compact/end')?.data)
+      .toMatchObject({ error: 'summary unavailable after prune' })
+    expect(warnings).toContainEqual(expect.stringContaining('retrying from the replacement surface'))
+  })
+
+  it('lets cancellation win when summary throws after a durable prune', async () => {
+    const ctx = createContext(10_000)
+    const controller = new AbortController()
+    void new ToolResultPruneService(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
+    const compact = new TestCompactService(ctx, {
+      thresholdRatio: 1,
+      retainTokens: 900,
+    })
+    compact.mutateDuringSummary = () => { controller.abort('cancelled during summary') }
+    compact.error = new Error('summary cancelled after prune')
+    const session = oversizedToolResult(3_000, true)
+
+    expect(await recover(ctx, agent(session, MODEL), overflow(), 0, controller.signal))
+      .toEqual({ action: 'fail' })
+    expect(session.surface.replaceGeneration).toBe(1)
+  })
+
   it('preserves the newest whole tool-call/result pair during forced overflow compaction', async () => {
     const ctx = createContext()
     void new TestCompactService(ctx, {
