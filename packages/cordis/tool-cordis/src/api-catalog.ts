@@ -84,17 +84,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'bash',
-    summary: 'Registers one `ctx.bash` implementation.',
+    summary: 'Abstract bash execution service.',
     methods: [
       'abstract resolve(request: BashExecRequest): BashExecSpec',
       'abstract run(spec: BashExecSpec): Promise<BashRunResult>',
-      'abstract start(spec: BashExecSpec): BashTask',
-      'abstract get(id: BashTaskId): BashTask | undefined',
-      'abstract ownerOf(id: BashTaskId): OwnerToken | undefined',
-      'abstract list(): BashTask[]',
-      'abstract readOutput(id: BashTaskId): BashTaskRead',
-      'abstract kill(id: BashTaskId): boolean',
-      'onTaskDone(listener: BashTaskListener): () => void',
+      'abstract start(spec: BashExecSpec): BashProcess',
     ],
   },
   {
@@ -217,6 +211,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'tasks',
+    summary: 'The `tasks` service: the runtime-global background task registry.',
+    methods: [
+      'start(spec: TaskStart): TaskId',
+      'list(caller?: Agent): TaskSnapshot[]',
+      'get(id: TaskId, caller?: Agent): TaskSnapshot',
+      'read(id: TaskId, caller?: Agent): TaskRead',
+      'kill(id: TaskId, caller?: Agent, reason?: string): \'requested\' | \'already-finished\'',
+      'async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>',
+      'onTaskDone(listener: TaskDoneListener): () => void',
+      'attachSurface(name: string): () => void',
+    ],
+  },
+  {
     key: 'tools',
     summary: 'Tool registry and execution pipeline.',
     methods: [
@@ -242,8 +250,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       'registerSearchProvider(provider: WebSearchProvider): () => void',
       'registerFetchProvider(provider: WebFetchProvider): () => void',
-      'async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>',
-      'async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>',
+      'async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>',
+      'async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>',
     ],
   },
   {
@@ -388,18 +396,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     mode: 'parallel',
     signature: '\'session/flush\'(this: Scoped<Session>, session: Session): Promise<void> | void',
     summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
-  },
-  {
-    name: 'skill/provider-added',
-    mode: 'emit',
-    signature: '\'skill/provider-added\'(provider: SkillProvider): void',
-    summary: 'A skill provider became resolvable in the `ctx.skills` registry.',
-  },
-  {
-    name: 'skill/provider-removed',
-    mode: 'emit',
-    signature: '\'skill/provider-removed\'(name: string): void',
-    summary: 'A skill provider left the registry because its plugin fiber was disposed.',
   },
   {
     name: 'subagent/end',
@@ -569,15 +565,27 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AssembledSection',
-    declaration: 'export interface AssembledSection {\n    name: string;\n    order: number;\n    text: string;\n}',
+    declaration: 'export interface AssembledSection {\n    name: string;\n    text: string;\n}',
   },
   {
     name: 'BashExecRequest',
-    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner?: OwnerToken | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
   },
   {
     name: 'BashExecSpec',
-    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    owner: OwnerToken | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
+  },
+  {
+    name: 'BashProcess',
+    declaration: 'export interface BashProcess {\n    status: BashProcessStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n    sandbox?: BashSandboxInfo;\n    readOutput(): BashProcessRead;\n    kill(): boolean;\n}',
+  },
+  {
+    name: 'BashProcessRead',
+    declaration: 'export interface BashProcessRead {\n    delta: string;\n    lossy: boolean;\n    stdoutSpillPath?: string;\n    stderrSpillPath?: string;\n}',
+  },
+  {
+    name: 'BashProcessStatus',
+    declaration: 'export type BashProcessStatus = \'running\' | \'completed\' | \'killed\';',
   },
   {
     name: 'BashRunResult',
@@ -586,26 +594,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'BashSandboxInfo',
     declaration: 'export interface BashSandboxInfo {\n    mode: SandboxMode;\n    denied: boolean;\n    enforcement?: SandboxEnforcement;\n    runnerFailed?: boolean;\n}',
-  },
-  {
-    name: 'BashTask',
-    declaration: 'export interface BashTask {\n    readonly id: BashTaskId;\n    readonly command: string;\n    status: BashTaskStatus;\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n    readonly done: Promise<void>;\n    sandbox?: BashSandboxInfo;\n}',
-  },
-  {
-    name: 'BashTaskId',
-    declaration: 'export type BashTaskId = Branded<\'BashTaskId\'>;',
-  },
-  {
-    name: 'BashTaskListener',
-    declaration: 'export type BashTaskListener = (task: BashTask) => void;',
-  },
-  {
-    name: 'BashTaskRead',
-    declaration: 'export interface BashTaskRead {\n    task: BashTask;\n    delta: string;\n    lossy: boolean;\n    stdoutSpillPath?: string;\n    stderrSpillPath?: string;\n}',
-  },
-  {
-    name: 'BashTaskStatus',
-    declaration: 'export type BashTaskStatus = \'running\' | \'completed\' | \'killed\';',
   },
   {
     name: 'Branded',
@@ -624,10 +612,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CodeBindingNamespace {\n    global: string;\n    functions: Record<string, CodeBindingFunction>;\n}',
   },
   {
-    name: 'CodeLogEntry',
-    declaration: 'export interface CodeLogEntry {\n    source: \'console\' | \'stdout\' | \'stderr\';\n    level?: \'log\' | \'info\' | \'warn\' | \'error\' | \'debug\';\n    text: string;\n}',
-  },
-  {
     name: 'CodeRunFailure',
     declaration: 'export interface CodeRunFailure {\n    kind: \'exception\' | \'timeout\' | \'abort\' | \'worker-exit\';\n    message: string;\n}',
   },
@@ -637,7 +621,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CodeRunResult',
-    declaration: 'export interface CodeRunResult {\n    value?: unknown;\n    logs: CodeLogEntry[];\n    error?: CodeRunFailure;\n}',
+    declaration: 'export interface CodeRunResult {\n    value?: unknown;\n    logs: string[];\n    error?: CodeRunFailure;\n}',
   },
   {
     name: 'CollectedOutput',
@@ -762,10 +746,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MessageSourceMap',
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    };\n}',
-  },
-  {
-    name: 'OwnerToken',
-    declaration: 'export type OwnerToken = Branded<\'OwnerToken\'>;',
   },
   {
     name: 'PresetOption',
@@ -960,6 +940,46 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SurfaceOp = \'append\' | {\n    op: \'replace\';\n    start: number;\n    end: number;\n};',
   },
   {
+    name: 'TaskDoneListener',
+    declaration: 'export type TaskDoneListener = (snapshot: TaskSnapshot, owner: Agent | undefined) => void | PromiseLike<void>;',
+  },
+  {
+    name: 'TaskHooks',
+    declaration: 'export interface TaskHooks {\n    cancel(reason?: string): void;\n    done: Promise<TaskOutcome>;\n    readOutput?(): string;\n}',
+  },
+  {
+    name: 'TaskId',
+    declaration: 'export type TaskId = Branded<\'TaskId\'>;',
+  },
+  {
+    name: 'TaskKind',
+    declaration: 'export type TaskKind = TaskKindMap[keyof TaskKindMap];',
+  },
+  {
+    name: 'TaskKindMap',
+    declaration: 'export interface TaskKindMap {\n    bash: \'bash\';\n    subagent: \'subagent\';\n}',
+  },
+  {
+    name: 'TaskOutcome',
+    declaration: 'export interface TaskOutcome {\n    status: \'completed\' | \'killed\' | \'failed\';\n    detail?: string;\n    output?: string;\n}',
+  },
+  {
+    name: 'TaskRead',
+    declaration: 'export interface TaskRead {\n    text: string;\n    snapshot: TaskSnapshot;\n}',
+  },
+  {
+    name: 'TaskSnapshot',
+    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: TaskKind;\n    label: string;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
+  },
+  {
+    name: 'TaskStart',
+    declaration: 'export interface TaskStart {\n    kind: TaskKind;\n    label: string;\n    owner?: Agent;\n    run(): TaskHooks;\n}',
+  },
+  {
+    name: 'TaskStatus',
+    declaration: 'export type TaskStatus = \'running\' | \'stopping\' | \'completed\' | \'killed\' | \'failed\';',
+  },
+  {
     name: 'TerminalCallView',
     declaration: 'export interface TerminalCallView {\n    card: \'terminal\';\n    title: string;\n    description?: string;\n    cwd?: string;\n}',
   },
@@ -1009,7 +1029,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionResult',
-    declaration: 'export interface ToolExecutionResult {\n    callId: CallId;\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContext?: HookContext;\n    meta?: unknown;\n}',
+    declaration: 'export interface ToolExecutionResult {\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContext?: HookContext;\n    meta?: unknown;\n}',
   },
   {
     name: 'ToolExecutionToken',
@@ -1064,32 +1084,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface UserInteractionProvider {\n    ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>;\n}',
   },
   {
-    name: 'WebExecContext',
-    declaration: 'export interface WebExecContext {\n    readonly signal?: AbortSignal;\n}',
-  },
-  {
     name: 'WebFetchBody',
     declaration: 'export type WebFetchBody = {\n    readonly kind: \'html\';\n    readonly content: string;\n} | {\n    readonly kind: \'text\';\n    readonly content: string;\n};',
   },
   {
     name: 'WebFetchProvider',
-    declaration: 'export interface WebFetchProvider {\n    readonly id: string;\n    status(): WebProviderStatus;\n    fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>;\n}',
+    declaration: 'export interface WebFetchProvider {\n    readonly id: string;\n    available(): boolean;\n    fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>;\n}',
   },
   {
     name: 'WebFetchRequest',
-    declaration: 'export interface WebFetchRequest {\n    readonly url: string;\n    readonly timeoutMs?: number;\n}',
+    declaration: 'export interface WebFetchRequest {\n    readonly url: string;\n}',
   },
   {
     name: 'WebFetchResult',
-    declaration: 'export interface WebFetchResult {\n    readonly providerId: string;\n    readonly url: string;\n    readonly statusCode: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
-  },
-  {
-    name: 'WebProviderStatus',
-    declaration: 'export type WebProviderStatus = {\n    readonly available: true;\n} | {\n    readonly available: false;\n    readonly reason: \'missing-credential\' | \'misconfigured\';\n};',
+    declaration: 'export interface WebFetchResult {\n    readonly url: string;\n    readonly statusCode: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
   },
   {
     name: 'WebSearchProvider',
-    declaration: 'export interface WebSearchProvider {\n    readonly id: string;\n    status(): WebProviderStatus;\n    search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>;\n}',
+    declaration: 'export interface WebSearchProvider {\n    readonly id: string;\n    available(): boolean;\n    search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>;\n}',
   },
   {
     name: 'WebSearchRequest',
@@ -1097,7 +1109,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebSearchResult',
-    declaration: 'export interface WebSearchResult {\n    readonly providerId: string;\n    readonly query: string;\n    readonly content?: string;\n    readonly sources: readonly WebSearchSource[];\n    readonly truncated: boolean;\n}',
+    declaration: 'export interface WebSearchResult {\n    readonly content?: string;\n    readonly sources: readonly WebSearchSource[];\n    readonly truncated: boolean;\n}',
   },
   {
     name: 'WebSearchSource',

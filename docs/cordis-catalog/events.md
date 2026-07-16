@@ -279,28 +279,6 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Source: [`packages/core/session/src/index.ts:79`](../../packages/core/session/src/index.ts)
 
-## `skill/*`
-
-### `skill/provider-added` — emit
-
-A skill provider became resolvable in the `ctx.skills` registry. Consumers can observe this instead of depending on Cordis plugin load order, which is concurrent for sibling plugins.
-
-```ts cordis-catalog
-'skill/provider-added'(provider: SkillProvider): void
-```
-
-Source: [`packages/skill/skill/src/index.ts:131`](../../packages/skill/skill/src/index.ts)
-
-### `skill/provider-removed` — emit
-
-A skill provider left the registry because its plugin fiber was disposed.
-
-```ts cordis-catalog
-'skill/provider-removed'(name: string): void
-```
-
-Source: [`packages/skill/skill/src/index.ts:137`](../../packages/skill/skill/src/index.ts)
-
 ## `subagent/*`
 
 ### `subagent/end` — emit
@@ -311,7 +289,7 @@ A ready child settled. Scope-filtered dispatch uses the same delegating parent c
 'subagent/end'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:92`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:108`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -321,7 +299,7 @@ A provider became resolvable in the registry.
 'subagent/provider-added'(provider: SubagentProvider): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:66`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:82`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-removed` — emit
 
@@ -331,7 +309,7 @@ A provider left the registry. Accepted runs remain holder-owned.
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:72`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:88`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
@@ -341,7 +319,7 @@ A provider established a ready child. For in-process providers, `ctx.agents.get(
 'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:83`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:99`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 

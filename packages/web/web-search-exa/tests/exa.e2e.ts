@@ -17,7 +17,6 @@ maybe('ExaSearchProvider real API', () => {
       highlightsPerResult: EXA_DEFAULT_HIGHLIGHTS_PER_RESULT,
     })
     const result = await provider.search({ query: 'DeepSeek Harness SDK', maxResults: 5 })
-    expect(result.providerId).toBe('exa')
     expect(result.sources.length).toBeGreaterThan(0)
     for (const source of result.sources) expect(source.url).toMatch(/^https?:\/\//)
   }, 30_000)

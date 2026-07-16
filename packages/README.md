@@ -4,7 +4,7 @@ Packages use the `@deepseek-ai/dsh-*` scope. Each is a Cordis `Service` subclass
 
 ## Hierarchy
 
-Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group directory is a pure container (no `package.json`); the package name stays `@deepseek-ai/dsh-<pkg>` regardless of group. **Each group README is the canonical per-package map** — package roles, ctx keys, and the product-vs-support split live there, next to the code.
+Packages live at `packages/<group>/<pkg>/`; groups are containers, while names remain `@deepseek-ai/dsh-<pkg>`. **Each group README is the canonical package/ctx-key map.**
 
 | Group | Role | Release expectation |
 |---|---|---|
@@ -18,6 +18,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`compact/`](compact/README.md) | Compaction capability family: the abstract seam + a basic backend (tool deferred) | Product — stable surface |
 | [`context/`](context/README.md) | Opt-in request-context enrichment | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
+| [`tasks/`](tasks/README.md) | Generic background-task runtime and model-facing `task_*` control tools | Product — stable surface |
 | [`workflow/`](workflow/README.md) | Workflow capability family: the script-engine seam, the worker-thread engine, and the model-facing `workflow` tool | Product — stable surface |
 | [`web/`](web/README.md) | Web capability family: the abstract seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
 | [`timeout/`](timeout/README.md) | Tool-call timeout policy: the `tools/execute` deadline enforcer | Product — stable surface |
@@ -27,16 +28,18 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
 | [`session-query/`](session-query/README.md) | Session retrieval: logical corpus, bounded reads, lineage, and event relationships | Product — stable surface |
-| [`ui/`](ui/README.md) | Editor/client integration surfaces: ACP bridge, JSON-RPC SDK server, app packages, user-approval and user-interaction seams, ask-user tool | Product — stable surface |
-| [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, replay adapter, subagent mock) | Support — lower compatibility expectations |
+| [`sdk/`](sdk/README.md) | Project SDK tooling | Product — stable surface |
+| [`ui/`](ui/README.md) | Editor/client integration surfaces: ACP bridge, JSON-RPC SDK server, user-approval/user-interaction seams, ask-user tool | Product — stable surface |
+| [`examples/`](examples/README.md) | Demo bundles (agent-spine + stdio/ACP/JSON-RPC bins) the leaves load | Support — example infra |
+| [`support/`](support/README.md) | Support infrastructure (invariants, replay, Loader smokes) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (the `Branded<B>` primitive) | Support — small, stable, harness-dep-free |
 
-The split is the point: a package's group says whether it is part of the product API or support/test/example infrastructure, so release and removal decisions do not treat every package as an equal public contract. New packages join an existing group; adding a new top-level group is a deliberate act (extend the group READMEs and this table).
+Groups distinguish product API from support infrastructure. New packages join an existing group; a new group updates its README and this table.
 
 ## Dependencies
 
 The inter-package dependency graph is generated: [docs/module-graph.md](../docs/module-graph.md) (`pnpm run gen-module-graph`, freshness-gated in CI).
 
-The rule it must obey: **extension plugins depend on interfaces, never on the concrete loop.** `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. The sanctioned exception is a **composition/bundle** package like `dsh-agent-core`, whose whole job is to assemble the concrete spine: it depends on `dsh-agent-loop` (and the other concrete spine plugins) on purpose. The rule constrains plugins that EXTEND the system, not the bundle that COMPOSES it. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [capability seams](../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)).
+The rule it must obey: **extension plugins depend on interfaces, never on the concrete loop.** `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. The sanctioned exception is a **composition/bundle** package like `dsh-agent-spine-demo`, whose whole job is to assemble the concrete spine: it depends on `dsh-agent-loop` (and the other concrete spine plugins) on purpose. The rule constrains plugins that EXTEND the system, not the bundle that COMPOSES it. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [capability seams](../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)).
 
 Package READMEs cover purpose, APIs, extension points, and [Model Experience](../docs/cookbook/adding-a-package.md#4-write-the-package-readme) unless on the model-agnostic [omission allowlist](../scripts/verify-package-readme-model-experience.ts). They also carry `## Known Limitations and Deferred Work` or use its [allowlist](../scripts/verify-package-readme-limitations.ts).
