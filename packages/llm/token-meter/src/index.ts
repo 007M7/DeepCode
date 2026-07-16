@@ -23,6 +23,9 @@ export type * from './types.ts'
 /** Default service-wide provider context capacity. */
 const DEFAULT_CONTEXT_WINDOW = 128_000
 
+/** Complete public configuration key set. */
+const TOKEN_METER_CONFIG_KEYS: ReadonlySet<string> = new Set(['contextWindow'])
+
 /** Fixed text-density estimate used until exact tokenization is needed. */
 const CHARS_PER_TOKEN = 4
 
@@ -69,8 +72,20 @@ function optionalHeaderEquals(
   return headerEquals(left, right)
 }
 
+/** Reject stale or misspelled keys before defaults can hide them. */
+function validateConfigKeys(config: TokenMeterConfig): void {
+  for (const key of Object.keys(config)) {
+    if (!TOKEN_METER_CONFIG_KEYS.has(key)) {
+      throw new Error(
+        `TokenMeterConfig: unknown key "${key}" (allowed: contextWindow)`,
+      )
+    }
+  }
+}
+
 /** Resolve and validate the one service-wide context capacity. */
 function resolveContextWindow(config: TokenMeterConfig): number {
+  validateConfigKeys(config)
   const contextWindow = config.contextWindow === undefined
     ? DEFAULT_CONTEXT_WINDOW
     : config.contextWindow

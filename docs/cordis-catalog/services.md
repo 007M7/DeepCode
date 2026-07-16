@@ -273,7 +273,7 @@ estimateMessage(message: Message): number
 
 Types: [Message](../core-data-structures/core.md)
 
-Source: [`packages/llm/token-meter/src/index.ts:92`](../../packages/llm/token-meter/src/index.ts)
+Source: [`packages/llm/token-meter/src/index.ts:107`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

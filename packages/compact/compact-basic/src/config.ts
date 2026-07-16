@@ -14,6 +14,28 @@ const DEFAULT_THRESHOLD_RATIO = 0.8
 /** Default verbatim-tail fraction of the token meter's context window. */
 const DEFAULT_RETAIN_RATIO = 0.16
 
+/** Complete public configuration key set. */
+const BASIC_COMPACT_CONFIG_KEYS: ReadonlySet<string> = new Set([
+  'thresholdRatio',
+  'retainTokens',
+  'summarizationModel',
+  'maxTokens',
+  'compactionRetries',
+  'auto',
+])
+
+/** Reject stale or misspelled keys before defaults can hide them. */
+function validateConfigKeys(config: BasicCompactConfig): void {
+  for (const key of Object.keys(config)) {
+    if (!BASIC_COMPACT_CONFIG_KEYS.has(key)) {
+      throw new Error(
+        `BasicCompactConfig: unknown key "${key}" `
+        + '(allowed: thresholdRatio, retainTokens, summarizationModel, maxTokens, compactionRetries, auto)',
+      )
+    }
+  }
+}
+
 /**
  * Resolve defaults and validate the service-wide compaction policy.
  * @param config - raw compact-basic configuration.
@@ -24,6 +46,7 @@ export function resolveConfig(
   config: BasicCompactConfig = {},
   tokenMeter: TokenMeterService,
 ): ResolvedConfig {
+  validateConfigKeys(config)
   const thresholdRatio = config.thresholdRatio ?? DEFAULT_THRESHOLD_RATIO
   const retainTokens = config.retainTokens
     ?? Math.floor(tokenMeter.contextWindow * DEFAULT_RETAIN_RATIO)

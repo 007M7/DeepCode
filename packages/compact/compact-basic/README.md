@@ -20,7 +20,7 @@ This backend owns the compaction policy:
 
 ## Config (`BasicCompactConfig`)
 
-Every setting is optional. The pressure and retention policy applies to the token meter's single context window.
+Every setting is optional. The pressure and retention policy applies to the token meter's single context window. Unrecognized top-level keys are rejected.
 
 | Key | Required | Meaning |
 |---|---|---|

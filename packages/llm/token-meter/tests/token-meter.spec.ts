@@ -81,6 +81,11 @@ describe('TokenMeterService configuration and registration', () => {
     expect(meter({ contextWindow: 32_000 }).contextWindow).toBe(32_000)
   })
 
+  it.each(['models', 'contextWidow'])('rejects unknown top-level config key %s', (key) => {
+    expect(() => meter({ [key]: {} }))
+      .toThrow(`TokenMeterConfig: unknown key "${key}"`)
+  })
+
   it.each([
     { contextWindow: 0 },
     { contextWindow: -1 },

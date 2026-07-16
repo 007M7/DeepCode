@@ -163,6 +163,8 @@ describe('compact configuration and defaults', () => {
       [{ thresholdRatio: 1.1 }, /number in \(0, 1\]/],
       [{ retainTokens: -1 }, /non-negative integer/],
       [{ thresholdRatio: 0.5, retainTokens: 500 }, /less than threshold/],
+      [{ models: { [MODEL]: { retainTokens: 10 } } }, /BasicCompactConfig: unknown key "models"/],
+      [{ thresholdRato: 0.5 }, /BasicCompactConfig: unknown key "thresholdRato"/],
     ] as Array<[unknown, RegExp]>
 
     for (const [config, pattern] of bad) {

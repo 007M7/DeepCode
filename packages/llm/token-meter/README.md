@@ -8,7 +8,7 @@ Replay-aware token measurement through the singleton `ctx.tokenMeter` service. I
 |---|---:|---|
 | `contextWindow` | `128000` | Positive integer service-wide context capacity. |
 
-The estimator intentionally uses one fixed heuristic: four characters per token plus structural overhead for roles, blocks, and request-envelope fields. `contextWindow` is the only deployment setting. Direct construction validates it; Loader mounts first apply the package's Schemastery shape validation.
+The estimator intentionally uses one fixed heuristic: four characters per token plus structural overhead for roles, blocks, and request-envelope fields. `contextWindow` is the only deployment setting. Direct construction validates it; Loader mounts first apply the package's Schemastery shape validation. Unrecognized top-level keys are rejected.
 
 ## Measurement contract
 
