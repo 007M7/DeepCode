@@ -1,6 +1,6 @@
 # `@deepseek-ai/dsh-app-boot`
 
-Shared boot glue for the app bins ([`dsh-stdio-agent`](../stdio-agent/README.md), [`dsh-acp-agent`](../acp-agent/README.md)): each bin is a thin self-executing composition over these helpers, parameterized by its diagnostic prefix, so the loader-failure lore lives once — under the per-file coverage gate — instead of drifting between two published artifacts.
+Shared boot glue for the app bins ([`dsh-stdio-demo`](../../examples/stdio-demo/README.md), [`dsh-acp-demo`](../../examples/acp-demo/README.md)): each bin is a thin self-executing composition over these helpers, parameterized by its diagnostic prefix, so the loader-failure lore lives once — under the per-file coverage gate — instead of drifting between two published artifacts.
 
 | Export | Role |
 |---|---|
@@ -12,7 +12,9 @@ Shared boot glue for the app bins ([`dsh-stdio-agent`](../stdio-agent/README.md)
 
 Two failure classes the guards handle: `loader.await()` swallows init rejections (`Promise.allSettled`) — Node still exits non-zero on the resulting unhandled rejection, and `installFailLoud` replaces the noisy dump with one labelled line and a guaranteed `exit(1)`; a failed plugin IMPORT is only logged by the Loader (the process would otherwise exit 0 on a usable config typo), leaving a fiber-less entry that `assertEntriesLoaded` turns into a `boot()` rejection.
 
-Bare plugin specifiers in a config (`@deepseek-ai/dsh-*`) resolve through the cordis Loader's internal module loader, using `node --expose-internals` or the optional `node-addon-require-builtin` fallback. the bins' subprocess smokes exercise that path, while this package's unit suite drives `boot()` in-process against configs with relative specifiers.
+Bare plugin specifiers in a config (`@deepseek-ai/dsh-*`, npm packages) resolve through the cordis Loader's internal module loader when Node runs with `--expose-internals` or the optional `node-addon-require-builtin` fallback is installed; without either, consumers must install plugins where plain Node import resolution can find them. Relative specifiers resolve against the config directory with no flag. The bins' subprocess smokes exercise the internal-loader path, while this package's unit suite drives `boot()` in-process against configs with relative specifiers.
+
+This package carries no loader hooks and no dev-mode surface: the `dsh-scripts` launcher ([`sdk/scripts`](../../sdk/scripts/README.md), with the shared project model in [`sdk/helper`](../../sdk/helper/README.md)) owns process startup, tsx registration, and local-plugin source resolution, and consumes these helpers for the boot sequence itself.
 
 ## Model Experience
 

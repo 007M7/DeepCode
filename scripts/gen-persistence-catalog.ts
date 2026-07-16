@@ -7,7 +7,7 @@
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { parseJsDoc, pointer, rawJsDoc, reportViolations } from './jsdoc.ts'
 
@@ -117,7 +117,7 @@ export function collectLogEvents(scanRoot: string = root): LogEventEntry[] {
   const violations: string[] = []
   const seen = new Map<string, string>()
   let owningDecl: string | null = null
-  for (const rel of globSync('packages/*/*/src/**/*.ts', { cwd: scanRoot }).sort()) {
+  for (const rel of globSync('packages/*/*/src/**/*.ts', { cwd: scanRoot }).map(s => s.split(sep).join('/')).sort()) {
     const abs = resolve(scanRoot, rel)
     const text = readFileSync(abs, 'utf8')
     if (!text.includes('SessionEventMap')) continue
@@ -194,7 +194,7 @@ export function collectLogEvents(scanRoot: string = root): LogEventEntry[] {
  */
 export function collectSurfaceEventTypes(scanRoot: string = root): string[] {
   const found: { names: string[]; source: string }[] = []
-  for (const rel of globSync('packages/*/*/src/**/*.ts', { cwd: scanRoot }).sort()) {
+  for (const rel of globSync('packages/*/*/src/**/*.ts', { cwd: scanRoot }).map(s => s.split(sep).join('/')).sort()) {
     const abs = resolve(scanRoot, rel)
     const text = readFileSync(abs, 'utf8')
     if (!text.includes('SurfaceEventType')) continue

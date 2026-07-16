@@ -6,4 +6,4 @@ The model-facing todo tool. A single **product** package — there is no interfa
 |---|---|---|
 | `tool-todo/` | Model-facing `todo_write` tool; writes the whole list to the session log (`todo/write`) | (registers on `ctx.tools`) |
 
-The list lives on the event-sourced session log (`SessionEventMap['todo/write']`, owned by [`dsh-session`](../core/session)); this package is the thin consumer that appends the snapshot. UIs render off `session/event`: the [stdio app's readline UI](../ui/stdio-agent) prints the list, the [ACP bridge](../ui/acp) maps it to a `plan` sessionUpdate.
+The list lives on the event-sourced session log (`SessionEventMap['todo/write']`, owned by [`dsh-session`](../core/session)); this package is the thin consumer that appends the snapshot. UIs render off `session/event`: the [stdio app's readline UI](../examples/stdio-demo) prints the list, the [ACP bridge](../ui/acp) maps it to a `plan` sessionUpdate.
