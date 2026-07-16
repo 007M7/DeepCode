@@ -47,9 +47,9 @@ describe('supportsTransientOpen', () => {
     expect(supportsTransientOpen({ openClose: false, change: 2 })).toBe(false)
   })
 
-  it('falls back to the change enum when openClose is omitted', () => {
-    expect(supportsTransientOpen({ change: 1 })).toBe(true)
-    expect(supportsTransientOpen({ change: 0 })).toBe(false)
+  it('requires an explicit openClose for the options form (no change-enum fallback)', () => {
+    expect(supportsTransientOpen({ change: 1 })).toBe(false)
+    expect(supportsTransientOpen({ change: 2 })).toBe(false)
     expect(supportsTransientOpen({})).toBe(false)
   })
 })

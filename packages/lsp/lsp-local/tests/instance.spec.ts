@@ -3,9 +3,9 @@ import { mkdtemp, mkdir, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
-import { LspInstance } from '@deepseek-ai/dsh-lsp-local'
+import { LspInstance, readHostSource } from '@deepseek-ai/dsh-lsp-local'
 import type { InstanceSpec } from '@deepseek-ai/dsh-lsp-local/src/instance.ts'
-import type { LspProviderQuery } from '@deepseek-ai/dsh-lsp'
+import type { LspProviderQuery, LspQueryResult } from '@deepseek-ai/dsh-lsp'
 
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
@@ -38,7 +38,6 @@ function makeInstance(env: Record<string, string> = {}, overrides: Partial<Insta
     initializationOptions: { init: true },
     maxMessageBytes: 16_000_000,
     maxStderrBytes: 100_000,
-    maxDocumentBytes: 4_000_000,
     shutdownTimeoutMs: 200,
     killGraceMs: 200,
     ...overrides,
@@ -49,6 +48,12 @@ function makeInstance(env: Record<string, string> = {}, overrides: Partial<Insta
 
 function query(operation: LspProviderQuery['operation'] = 'definition'): LspProviderQuery {
   return { operation, filePath: 'a.ts', position: { line: 0, character: 6 }, workspaceRoot: ws, languageId: 'typescript' }
+}
+
+/** Run a query against an instance, reading the source first the way the provider does. */
+async function run(instance: LspInstance, operation: LspProviderQuery['operation'] = 'definition', signal?: AbortSignal): Promise<LspQueryResult> {
+  const source = await readHostSource('a.ts', ws, 4_000_000)
+  return instance.query(query(operation), source, signal)
 }
 
 /** Build an instance whose "server" is an inline node script (for teardown-escalation control). */
@@ -62,7 +67,6 @@ function scriptInstance(script: string, overrides: Partial<InstanceSpec> = {}): 
     initializationOptions: null,
     maxMessageBytes: 16_000_000,
     maxStderrBytes: 100_000,
-    maxDocumentBytes: 4_000_000,
     shutdownTimeoutMs: 150,
     killGraceMs: 150,
     ...overrides,
@@ -87,51 +91,98 @@ describe('LspInstance server-request handling', () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'configuration', LSP_FAKE_DEF: locJson() })
     // The query drives didOpen, which makes the fake emit workspace/configuration; a healthy answer
     // keeps the query working.
-    await expect(instance.query(query('definition'))).resolves.toMatchObject({ kind: 'locations' })
+    await expect(run(instance, 'definition')).resolves.toMatchObject({ kind: 'locations' })
   })
 
   it('accepts a lifecycle client/registerCapability request', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'lifecycle', LSP_FAKE_DEF: 'null' })
-    await expect(instance.query(query('definition'))).resolves.toEqual({ kind: 'locations', locations: [] })
+    await expect(run(instance, 'definition')).resolves.toEqual({ kind: 'locations', locations: [] })
   })
 
   it('rejects a workspace/applyEdit request but keeps serving', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'applyEdit', LSP_FAKE_DEF: 'null' })
-    await expect(instance.query(query('definition'))).resolves.toEqual({ kind: 'locations', locations: [] })
+    await expect(run(instance, 'definition')).resolves.toEqual({ kind: 'locations', locations: [] })
   })
 
   it('rejects an unknown server request but keeps serving', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'unknown', LSP_FAKE_DEF: 'null' })
-    await expect(instance.query(query('definition'))).resolves.toEqual({ kind: 'locations', locations: [] })
+    await expect(run(instance, 'definition')).resolves.toEqual({ kind: 'locations', locations: [] })
   })
 })
 
 describe('LspInstance query and abort', () => {
   it('sends includeDeclaration for references', async () => {
     const instance = makeInstance({ LSP_FAKE_REFS: JSON.stringify([JSON.parse(locJson())]) })
-    await expect(instance.query(query('references'))).resolves.toMatchObject({ kind: 'locations' })
+    await expect(run(instance, 'references')).resolves.toMatchObject({ kind: 'locations' })
   })
 
   it('rejects a query aborted before it starts', async () => {
     const instance = makeInstance({ LSP_FAKE_DEF: 'null' })
     const controller = new AbortController()
     controller.abort(new Error('pre-abort'))
-    await expect(instance.query(query('definition'), controller.signal)).rejects.toThrow(/pre-abort/)
+    await expect(run(instance, 'definition', controller.signal)).rejects.toThrow(/pre-abort/)
   })
 
   it('cancels an in-flight request on abort and rejects', async () => {
     const instance = makeInstance({ LSP_FAKE_HANG: '1' })
     const controller = new AbortController()
     // Warm the instance first so the abort lands during the hanging request, not during startup.
-    const pending = instance.query(query('definition'), controller.signal)
+    const pending = run(instance, 'definition', controller.signal)
     await new Promise<void>(resolve => setTimeout(resolve, 300))
     controller.abort(new Error('mid-flight'))
     await expect(pending).rejects.toThrow(/mid-flight/)
   })
 
+  it('terminates the instance when the server ignores $/cancelRequest past the grace', async () => {
+    // The hang server never honors cancellation, so after the bounded grace the instance must be torn
+    // down (its process closed) rather than left with an active request.
+    const instance = makeInstance({ LSP_FAKE_HANG: '1' }, { killGraceMs: 100 })
+    const controller = new AbortController()
+    const pending = run(instance, 'definition', controller.signal)
+    await new Promise<void>(resolve => setTimeout(resolve, 300))
+    controller.abort(new Error('mid-flight'))
+    await expect(pending).rejects.toThrow(/mid-flight/)
+    expect(instance.dead).toBe(true)
+  })
+
+  it('resolves the cancel grace when the server honors $/cancelRequest', async () => {
+    // A server that answers $/cancelRequest by settling the pending request lets the grace race
+    // resolve via the request rather than the timeout, so the instance is NOT force-terminated.
+    const script = 'let b=Buffer.alloc(0),reqId=null;'
+      + 'const fr=(o)=>{const x=Buffer.from(JSON.stringify({jsonrpc:"2.0",...o}));return Buffer.concat([Buffer.from(`Content-Length: ${x.length}\\r\\n\\r\\n`),x]);};'
+      + 'process.stdin.on("data",c=>{b=Buffer.concat([b,c]);for(;;){const s=b.indexOf("\\r\\n\\r\\n");if(s<0)break;const len=Number(/(\\d+)/.exec(b.toString("ascii",0,s))[1]);if(b.length<s+4+len)break;const m=JSON.parse(b.toString("utf8",s+4,s+4+len));b=b.subarray(s+4+len);'
+      + 'if(m.method==="initialize")process.stdout.write(fr({id:m.id,result:{capabilities:{positionEncoding:"utf-16",textDocumentSync:1,definitionProvider:true}}}));'
+      + 'else if(m.method==="textDocument/definition")reqId=m.id;'
+      + 'else if(m.method==="$/cancelRequest"&&reqId!==null)process.stdout.write(fr({id:reqId,error:{code:-32800,message:"request cancelled"}}));'
+      + 'else if(m.method==="shutdown")process.stdout.write(fr({id:m.id,result:null}));'
+      + 'else if(m.method==="exit")process.exit(0);'
+      + '}});'
+    const instance = scriptInstance(script, { killGraceMs: 2_000 })
+    const controller = new AbortController()
+    const pending = run(instance, 'definition', controller.signal)
+    await new Promise<void>(resolve => setTimeout(resolve, 300))
+    controller.abort(new Error('mid-flight'))
+    await expect(pending).rejects.toThrow(/mid-flight/)
+    // The server acknowledged cancellation within grace, so the instance was not force-killed.
+    expect(instance.dead).toBe(false)
+    await instance.dispose()
+  })
+
+  it('observes abort while awaiting a slow initialize handshake', async () => {
+    // A server that answers nothing (not even initialize) leaves `ready` pending; an abort must be
+    // observed during that wait instead of hanging the tool-timeout signal.
+    const instance = scriptInstance('setInterval(()=>{},1000)', { killGraceMs: 100 })
+    const controller = new AbortController()
+    const pending = run(instance, 'definition', controller.signal)
+    await new Promise<void>(resolve => setTimeout(resolve, 150))
+    controller.abort(new Error('handshake-abort'))
+    await expect(pending).rejects.toThrow(/handshake-abort/)
+    await instance.dispose()
+  })
+
   it('rejects when the server lacks the operation capability', async () => {
     const instance = makeInstance({ LSP_FAKE_CAPS: JSON.stringify({ definitionProvider: false }), LSP_FAKE_DEF: 'null' })
-    await expect(instance.query(query('definition'))).rejects.toThrow(/does not support definition/)
+    await expect(run(instance, 'definition')).rejects.toThrow(/does not support definition/)
   })
 
   it('propagates a server error response even when a signal is supplied (not an abort)', async () => {
@@ -139,28 +190,28 @@ describe('LspInstance query and abort', () => {
     // without treating it as an abort.
     const instance = makeInstance({ LSP_FAKE_ERROR: '1' })
     const controller = new AbortController()
-    await expect(instance.query(query('definition'), controller.signal)).rejects.toThrow(/server refused/)
+    await expect(run(instance, 'definition', controller.signal)).rejects.toThrow(/server refused/)
   })
 })
 
 describe('LspInstance disposal', () => {
   it('is idempotent — a second dispose awaits close without error', async () => {
     const instance = makeInstance({ LSP_FAKE_DEF: 'null' })
-    await instance.query(query('definition'))
+    await run(instance, 'definition')
     await instance.dispose()
     await expect(instance.dispose()).resolves.toBeUndefined()
   })
 
   it('rejects a query after disposal', async () => {
     const instance = makeInstance({ LSP_FAKE_DEF: 'null' })
-    await instance.query(query('definition'))
+    await run(instance, 'definition')
     await instance.dispose()
-    await expect(instance.query(query('definition'))).rejects.toThrow(/disposed/)
+    await expect(run(instance, 'definition')).rejects.toThrow(/disposed/)
   })
 
   it('reports dead after the process closes', async () => {
     const instance = makeInstance({ LSP_FAKE_DEF: 'null' })
-    await instance.query(query('definition'))
+    await run(instance, 'definition')
     await instance.dispose()
     expect(instance.dead).toBe(true)
   })
@@ -169,14 +220,14 @@ describe('LspInstance disposal', () => {
     // Server answers initialize, ignores shutdown, and traps SIGTERM so only SIGKILL stops it.
     const script = RESPONDING_SERVER + 'process.on("SIGTERM",()=>{});'
     const instance = scriptInstance(script, { shutdownTimeoutMs: 100, killGraceMs: 100 })
-    await instance.query(query('definition'))
+    await run(instance, 'definition')
     await expect(instance.dispose()).resolves.toBeUndefined()
   })
 
   it('carries a non-Error abort reason as a generic aborted error', async () => {
     const instance = makeInstance({ LSP_FAKE_HANG: '1' })
     const controller = new AbortController()
-    const pending = instance.query(query('definition'), controller.signal)
+    const pending = run(instance, 'definition', controller.signal)
     await new Promise<void>(resolve => setTimeout(resolve, 200))
     controller.abort('a string reason, not an Error')
     await expect(pending).rejects.toThrow(/aborted/)

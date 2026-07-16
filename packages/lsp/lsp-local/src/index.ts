@@ -23,7 +23,7 @@ import type {
 } from '@deepseek-ai/dsh-lsp'
 // Side-effect type import: declaration-merges `ctx.lsp` onto Context.
 import type {} from '@deepseek-ai/dsh-lsp'
-import { canonicalizeWorkspace } from './host.ts'
+import { canonicalizeWorkspace, readHostSource } from './host.ts'
 import { LspInstance } from './instance.ts'
 import type { InstanceSpec } from './instance.ts'
 
@@ -110,6 +110,10 @@ export const Config: z<Config> = z.object({
  */
 export function apply(ctx: Context, config: Config): void {
   const resolved = config as ResolvedConfig
+  // Teardown budgets feed `deadline()`, whose `<= 0` is the internal no-timeout sentinel; a
+  // nonpositive value would let a server that ignores shutdown hang disposal forever. Fail at load.
+  assertPositiveInteger('shutdownTimeoutMs', resolved.shutdownTimeoutMs)
+  assertPositiveInteger('killGraceMs', resolved.killGraceMs)
   const childEnv = buildChildEnv(resolved.env)
   // Resolve the executable eagerly so a misconfigured command fails at load, not on first query.
   const executable = resolveExecutable(resolved.command, childEnv)
@@ -122,6 +126,13 @@ export function apply(ctx: Context, config: Config): void {
       await provider.disposeAll()
     }
   }, 'lsp-local.registerProvider')
+}
+
+/** Reject a nonpositive or non-integer config value at load, so misconfiguration fails loud. */
+function assertPositiveInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`lsp-local: ${name} must be a positive integer`)
+  }
 }
 
 /** A pooled generic provider: one server process per canonical workspace, created on demand. */
@@ -141,13 +152,26 @@ class LocalLspProvider implements LspProvider {
     this.extensionToLanguage = config.extensionToLanguage
   }
 
+  /** Read the disposed flag through a method so a `query()` await cannot narrow it to a literal. */
+  private isDisposed(): boolean {
+    return this.disposed
+  }
+
   async query(request: LspProviderQuery, signal?: AbortSignal): Promise<LspQueryResult> {
-    /* v8 ignore next -- the seam unregisters this provider on dispose, so a query never reaches a disposed provider; defensive. */
-    if (this.disposed) throw new Error('lsp-local provider is disposed')
+    /* v8 ignore next -- the seam unregisters this provider on dispose, so a query never reaches it disposed; defensive. */
+    if (this.isDisposed()) throw new Error('lsp-local provider is disposed')
     const workspace = await canonicalizeWorkspace(request.workspaceRoot)
+    // Validate and read the source BEFORE spawning a server: a missing/external/non-regular/oversized
+    // source must fail without leaving an idle process pooled (the pre-start rejection contract), and
+    // the single-handle read preserves the containment/size checks against a mid-read swap.
+    const source = await readHostSource(request.filePath, workspace, this.config.maxDocumentBytes)
+    // Re-check disposal after the awaits: disposeAll() may have snapshotted the instance map while we
+    // were canonicalizing/reading, so creating a server now would leave it unowned by teardown.
+    /* v8 ignore next -- guards a dispose landing during the canonicalize/read await; not a reproducible unit race. */
+    if (this.isDisposed()) throw new Error('lsp-local provider is disposed')
     const instance = await this.instanceFor(workspace)
     try {
-      return await instance.query(request, signal)
+      return await instance.query(request, source, signal)
     } finally {
       // A crashed/closed process must not be reused: drop its slot so the next query starts fresh,
       // but only if the slot still holds THIS instance (a concurrent replacement must survive).
@@ -185,7 +209,6 @@ class LocalLspProvider implements LspProvider {
       initializationOptions: this.config.initializationOptions,
       maxMessageBytes: this.config.maxMessageBytes,
       maxStderrBytes: this.config.maxStderrBytes,
-      maxDocumentBytes: this.config.maxDocumentBytes,
       shutdownTimeoutMs: this.config.shutdownTimeoutMs,
       killGraceMs: this.config.killGraceMs,
     }
@@ -232,6 +255,10 @@ function buildChildEnv(extra: Record<string, string>): Record<string, string> {
  */
 function resolveExecutable(command: string, childEnv: Record<string, string>): string {
   if (isAbsolute(command)) {
+    // Verify an absolute command too, so an unavailable one fails at load, not on the first query.
+    if (!isExecutableSync(command)) {
+      throw new Error(`lsp-local: command "${command}" is not an executable file`)
+    }
     return command
   }
   /* v8 ignore next -- buildChildEnv always sets PATH from the ambient env; the further fallbacks are defensive. */

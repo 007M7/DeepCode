@@ -9,7 +9,7 @@
  * @module @deepseek-ai/dsh-lsp-local/host
  */
 
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { open, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, resolve as resolvePath, sep } from 'node:path'
 
 /** A validated source: its canonical absolute path and current UTF-8 text. */
@@ -68,16 +68,24 @@ export async function readHostSource(
   if (!isInside(canonicalWorkspace, canonicalPath)) {
     throw new Error(`source "${filePath}" resolves outside the workspace`)
   }
-  const info = await stat(canonicalPath)
-  if (!info.isFile()) {
-    throw new Error(`source "${filePath}" is not a regular file`)
+  // Open ONE handle after containment, then stat and read through it: a concurrent replace between
+  // realpath and read cannot swap the target, so the regular-file and size checks bind the bytes we
+  // actually read (no path-based TOCTOU).
+  const handle = await open(canonicalPath, 'r')
+  try {
+    const info = await handle.stat()
+    if (!info.isFile()) {
+      throw new Error(`source "${filePath}" is not a regular file`)
+    }
+    if (info.size > maxDocumentBytes) {
+      throw new Error(`source "${filePath}" is ${info.size} bytes, over the ${maxDocumentBytes}-byte limit`)
+    }
+    const buffer = await handle.readFile()
+    const text = decodeUtf8Strict(buffer, filePath)
+    return { canonicalPath, text }
+  } finally {
+    await handle.close()
   }
-  if (info.size > maxDocumentBytes) {
-    throw new Error(`source "${filePath}" is ${info.size} bytes, over the ${maxDocumentBytes}-byte limit`)
-  }
-  const buffer = await readFile(canonicalPath)
-  const text = decodeUtf8Strict(buffer, filePath)
-  return { canonicalPath, text }
 }
 
 /** Whether `child` is the workspace itself or a descendant of it (both already canonical). */
@@ -88,13 +96,13 @@ function isInside(workspace: string, child: string): boolean {
   return child.startsWith(base)
 }
 
-/** Decode UTF-8 strictly (a replacement char means the source was not valid UTF-8 text). */
+/** Decode strictly as UTF-8: a fatal decoder rejects only malformed bytes, keeping a legitimate U+FFFD. */
 function decodeUtf8Strict(buffer: Buffer, filePath: string): string {
-  const text = buffer.toString('utf8')
-  if (text.includes('�')) {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer)
+  } catch {
     throw new Error(`source "${filePath}" is not valid UTF-8 text`)
   }
-  return text
 }
 
 /** Extract a message from an unknown thrown value without leaking `any`. */

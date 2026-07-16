@@ -102,4 +102,12 @@ describe('readHostSource', () => {
     await writeFile(join(ws, 'bin.ts'), Buffer.from([0xff, 0xfe, 0x00]))
     await expect(readHostSource('bin.ts', ws, BIG)).rejects.toThrow(/not valid UTF-8/)
   })
+
+  it('keeps a valid U+FFFD replacement character in otherwise-valid UTF-8', async () => {
+    // The literal replacement char is valid UTF-8; a fatal decoder must accept it (only malformed
+    // byte sequences are rejected).
+    await writeFile(join(ws, 'repl.ts'), 'const s = "�"\n')
+    const source = await readHostSource('repl.ts', ws, BIG)
+    expect(source.text).toBe('const s = "�"\n')
+  })
 })

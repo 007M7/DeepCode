@@ -174,8 +174,9 @@ export class LspConnection {
   }
 
   private onStderr(chunk: Buffer): void {
-    if (this.stderr.length >= this.spec.maxStderrBytes) return
-    this.stderr = (this.stderr + chunk.toString('utf8')).slice(0, this.spec.maxStderrBytes)
+    // Retain the TAIL, not the prefix: a language server's fatal diagnostic usually appears just
+    // before it exits, so the final bounded segment is the useful one.
+    this.stderr = (this.stderr + chunk.toString('utf8')).slice(-this.spec.maxStderrBytes)
   }
 
   private dispatch(message: unknown): void {

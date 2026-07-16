@@ -75,4 +75,31 @@ describe('lsp-local provider resolution', () => {
     await expect(lsp.query(query())).rejects.toThrow(expect.objectContaining({ code: 'LSP_UNAVAILABLE' }))
     await ctx.fiber.dispose()
   })
+
+  it('rejects a nonpositive teardown budget at load', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await expect(ctx.plugin(LspLocal, {
+      providerId: 'bad-budget',
+      command: process.execPath,
+      args: ['-e', ''],
+      extensionToLanguage: { '.ts': 'typescript' },
+      killGraceMs: 0,
+    })).rejects.toThrow(/killGraceMs must be a positive integer/)
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects an absolute command that is not executable at load', async () => {
+    const notExe = join(root, 'not-exe.txt')
+    await writeFile(notExe, 'plain text, not executable')
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await expect(ctx.plugin(LspLocal, {
+      providerId: 'abs-bad',
+      command: notExe,
+      args: [],
+      extensionToLanguage: { '.ts': 'typescript' },
+    })).rejects.toThrow(/is not an executable file/)
+    await ctx.fiber.dispose()
+  })
 })

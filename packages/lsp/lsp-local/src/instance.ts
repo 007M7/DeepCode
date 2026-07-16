@@ -8,6 +8,7 @@
  */
 
 import { pathToFileURL } from 'node:url'
+import { LspError } from '@deepseek-ai/dsh-lsp'
 import type {
   LspOperation,
   LspProviderQuery,
@@ -16,7 +17,7 @@ import type {
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { LspConnection } from './connection.ts'
 import type { ConnectionSpec } from './connection.ts'
-import { readHostSource } from './host.ts'
+import type { HostSource } from './host.ts'
 import type { WireInitializeResult, WireServerCapabilities } from './protocol.ts'
 import {
   negotiatePositionEncoding,
@@ -31,8 +32,6 @@ import {
 export interface InstanceSpec extends ConnectionSpec {
   /** Static `initialize` options forwarded to the server. */
   readonly initializationOptions: unknown
-  /** Largest source file this host will open (bytes). */
-  readonly maxDocumentBytes: number
   /** Graceful `shutdown`/`exit` budget before escalation (ms). */
   readonly shutdownTimeoutMs: number
   /** SIGTERM→SIGKILL grace after graceful shutdown fails (ms). */
@@ -74,11 +73,12 @@ export class LspInstance {
   /**
    * Run one query through the serialized queue.
    * @param request - the resolved provider query.
+   * @param source - the pre-validated, already-read host source (the provider reads before spawning).
    * @param signal - optional cancellation for this query's full lifecycle.
    * @returns the normalized result.
    */
-  query(request: LspProviderQuery, signal?: AbortSignal): Promise<LspQueryResult> {
-    const run = this.queue.then(() => this.runQuery(request, signal))
+  query(request: LspProviderQuery, source: HostSource, signal?: AbortSignal): Promise<LspQueryResult> {
+    const run = this.queue.then(() => this.runQuery(request, source, signal))
     // Keep the tail alive regardless of this query's outcome so the next caller still serializes.
     this.queue = run.then(() => undefined, () => undefined)
     return run
@@ -99,24 +99,26 @@ export class LspInstance {
     this.connection.notify('initialized', {})
   }
 
-  private async runQuery(request: LspProviderQuery, signal?: AbortSignal): Promise<LspQueryResult> {
+  private async runQuery(request: LspProviderQuery, source: HostSource, signal?: AbortSignal): Promise<LspQueryResult> {
     if (this.disposed) throw new Error('LSP instance was disposed')
     if (signal?.aborted) throw abortError(signal)
-    await this.ready
+    // Observe abort during the handshake wait: a server that never answers `initialize` must not
+    // block the tool-timeout signal here (the timeout policy awaits our quiescence, not the promise).
+    await this.abortable(this.ready, signal)
     const capabilities = this.capabilities
     /* v8 ignore next -- `ready` resolves only after capabilities are set, else it rejects above; defensive. */
     if (capabilities === undefined) throw new Error('LSP instance is not initialized')
     if (!supportsOperation(capabilities, request.operation)) {
-      throw new Error(`server does not support ${request.operation}`)
+      throw new LspError(`server does not support ${request.operation}`, 'LSP_UNSUPPORTED_OPERATION')
     }
     if (!supportsTransientOpen(capabilities.textDocumentSync)) {
-      throw new Error('server does not support the transient textDocument/didOpen this host requires')
+      throw new LspError('server does not support the transient textDocument/didOpen this host requires', 'LSP_UNSUPPORTED_OPERATION')
     }
 
-    const source = await readHostSource(request.filePath, this.spec.cwd, this.spec.maxDocumentBytes)
     const uri = pathToFileURL(source.canonicalPath).href
     let opened = false
     try {
+      /* v8 ignore next -- guards an abort landing between the ready wait and didOpen; not deterministically reproducible. */
       if (signal?.aborted) throw abortError(signal)
       this.connection.notify('textDocument/didOpen', {
         textDocument: { uri, languageId: request.languageId, version: 1, text: source.text },
@@ -125,7 +127,10 @@ export class LspInstance {
       const payload = await this.sendRequest(request.operation, uri, request.position, signal)
       return this.normalize(request.operation, payload)
     } finally {
-      if (opened) {
+      // A disposed or closed instance (e.g. an aborted request whose server ignored
+      // `$/cancelRequest`) is already tearing down; sending didClose would race that teardown and let
+      // the next queued query's document lifecycle overlap the still-active request.
+      if (opened && !this.dead) {
         try {
           this.connection.notify('textDocument/didClose', { textDocument: { uri } })
         } catch (error) {
@@ -139,6 +144,21 @@ export class LspInstance {
         }
       }
     }
+  }
+
+  /**
+   * Await `work`, but reject as soon as `signal` aborts. The underlying `work` promise keeps its own
+   * handlers, so an orphaned rejection after abort is not unhandled.
+   */
+  private abortable<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+    if (signal === undefined) return work
+    /* v8 ignore next -- runQuery checks signal.aborted before each abortable() call, so it is not already aborted here; defensive. */
+    if (signal.aborted) return Promise.reject(abortError(signal))
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = (): void => { reject(abortError(signal)) }
+      signal.addEventListener('abort', onAbort, { once: true })
+      work.then(resolve, reject).finally(() => { signal.removeEventListener('abort', onAbort) })
+    })
   }
 
   private async sendRequest(
@@ -160,21 +180,33 @@ export class LspInstance {
     return this.raceAbort(send, requestId, signal)
   }
 
-  /** Race a pending request against abort; on abort, send `$/cancelRequest` and reject. */
+  /**
+   * Race a pending request against abort. On abort, send `$/cancelRequest` and give the server a
+   * bounded grace to acknowledge; if it does not settle in time, invalidate and tear down the
+   * instance so the still-active request cannot overlap the next queued query's document lifecycle.
+   */
   private async raceAbort(send: Promise<unknown>, requestId: number, signal: AbortSignal): Promise<unknown> {
-    const abort = new Promise<never>((_, reject) => {
-      const onAbort = (): void => { reject(abortError(signal)) }
-      /* v8 ignore next -- runQuery checks signal.aborted before sending, so it is not yet aborted here; defensive. */
-      if (signal.aborted) { onAbort(); return }
-      signal.addEventListener('abort', onAbort, { once: true })
-      // Remove the abort listener once the request settles either way; the finally-promise inherits
-      // send's rejection, so catch it to avoid an unhandled rejection when abort already won.
-      send.finally(() => { signal.removeEventListener('abort', onAbort) }).catch(() => {})
-    })
     try {
-      return await Promise.race([send, abort])
+      return await this.abortable(send, signal)
     } catch (error) {
-      if (signal.aborted) this.connection.cancel(requestId)
+      if (!signal.aborted) throw error
+      this.connection.cancel(requestId)
+      // Wait, bounded, for the server to honor the cancellation. If it does not, the request is still
+      // running: terminate the instance (disposal awaits process close) so nothing outlives the query.
+      using grace = deadline(undefined, this.spec.killGraceMs, 'LSP_CANCEL_GRACE')
+      // `settled` is true if the request finished (either outcome) before the grace elapsed.
+      const settled = await Promise.race([
+        send.then(markSettled, markSettled),
+        new Promise<boolean>((resolve) => {
+          /* v8 ignore next -- the cancel-grace deadline signal is freshly armed and not yet aborted here; defensive. */
+          if (grace.signal.aborted) { resolve(false); return }
+          grace.signal.addEventListener('abort', () => { resolve(false) }, { once: true })
+        }),
+      ])
+      if (!settled && !this.disposed) {
+        this.disposed = true
+        await this.tearDown(abortError(signal))
+      }
       throw error
     }
   }
@@ -265,6 +297,11 @@ const LIFECYCLE_NOOP_METHODS = new Set([
   'client/registerCapability',
   'client/unregisterCapability',
 ])
+
+/** Mark a settled request in the cancel-grace race (either outcome means the request finished). */
+function markSettled(): boolean {
+  return true
+}
 
 /** Build an abort Error carrying the signal's reason (preserving a timeout classification). */
 function abortError(signal: AbortSignal): Error {

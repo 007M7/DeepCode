@@ -21,7 +21,6 @@ import type {
   WireRange,
   WireServerCapabilities,
   WireTextDocumentSyncKind,
-  WireTextDocumentSyncOptions,
 } from './protocol.ts'
 
 /**
@@ -71,23 +70,20 @@ export function supportsOperation(capabilities: WireServerCapabilities, operatio
 
 /**
  * Whether a `textDocumentSync` value permits the transient `didOpen`/`didClose` this host relies on.
+ * The legacy enum form implies open/close for `Full`/`Incremental`; the options form requires an
+ * explicit `openClose: true`, because the protocol defaults an omitted `openClose` to false.
  * @param sync - the server's advertised `textDocumentSync` capability.
  * @returns true when transient open/close is supported.
  */
 export function supportsTransientOpen(sync: WireServerCapabilities['textDocumentSync']): boolean {
   if (sync === undefined) return false
   if (typeof sync === 'number') return isOpenCloseKind(sync)
-  return sync.openClose === true || (sync.openClose === undefined && changeAllowsOpenClose(sync))
+  return sync.openClose === true
 }
 
 /** Legacy enum: `Full` (1) or `Incremental` (2) imply open/close support; `None` (0) does not. */
 function isOpenCloseKind(kind: WireTextDocumentSyncKind): boolean {
   return kind === 1 || kind === 2
-}
-
-/** Options without an explicit `openClose` fall back to the legacy `change` enum's implication. */
-function changeAllowsOpenClose(sync: WireTextDocumentSyncOptions): boolean {
-  return sync.change !== undefined && isOpenCloseKind(sync.change)
 }
 
 /**
