@@ -1,5 +1,7 @@
 # RFC: Property-based testing for protocol-shaped code
 
+English | [中文](2026-06-11-property-based-testing.zh.md)
+
 Status: implemented
 
 > Merges the original proposal and the decision record for one topic. It found a real BlockAssembler duplicate-`block-end` bug on first run.

@@ -1,5 +1,7 @@
 # RFC: Filesystem capability seam — ctx.fs, local backend, and model-facing filesystem tools
 
+English | [中文](2026-06-17-filesystem-capability-seam.zh.md)
+
 Status: implemented
 
 ## Problem

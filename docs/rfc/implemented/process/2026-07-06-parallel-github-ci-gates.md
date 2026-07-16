@@ -1,5 +1,7 @@
 # RFC: Parallel GitHub CI gates
 
+English | [中文](2026-07-06-parallel-github-ci-gates.zh.md)
+
 Status: implemented
 
 ## Problem

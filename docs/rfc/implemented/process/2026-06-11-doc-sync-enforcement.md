@@ -1,5 +1,7 @@
 # RFC: Doc-sync enforcement
 
+English | [中文](2026-06-11-doc-sync-enforcement.zh.md)
+
 Status: implemented
 
 ## Problem

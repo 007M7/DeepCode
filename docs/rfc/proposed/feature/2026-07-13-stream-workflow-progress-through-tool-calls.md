@@ -1,5 +1,7 @@
 # RFC: Stream workflow progress through tool calls
 
+English | [中文](2026-07-13-stream-workflow-progress-through-tool-calls.zh.md)
+
 Status: proposed
 
 ## Problem

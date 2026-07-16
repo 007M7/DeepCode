@@ -1,5 +1,7 @@
 # RFC: Architectural conformance — dependency rules and the adapter kit
 
+English | [中文](2026-06-11-architectural-conformance.zh.md)
+
 Status: proposed
 
 ## Problem

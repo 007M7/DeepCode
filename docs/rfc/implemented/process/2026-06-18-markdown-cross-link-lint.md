@@ -1,5 +1,7 @@
 # RFC: Markdown cross-link validity linting
 
+English | [中文](2026-06-18-markdown-cross-link-lint.zh.md)
+
 Status: implemented
 
 ## Problem

@@ -1,5 +1,7 @@
 # RFC: Compaction as a capability seam (abstract contract + basic backend)
 
+English | [中文](2026-06-18-compaction-capability-seam.zh.md)
+
 Status: implemented
 
 ## Problem

@@ -1,5 +1,7 @@
 # RFC: ACP subagent backend (out-of-process delegation)
 
+English | [中文](2026-06-22-acp-subagent-backend.zh.md)
+
 Status: implemented
 
 ## Problem

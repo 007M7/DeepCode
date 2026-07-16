@@ -1,5 +1,7 @@
 # RFC: Prune producer-less vocabulary variants (block cache hints, the `agent` message source, the `continuation` turn trigger)
 
+English | [中文](2026-07-04-prune-producerless-vocabulary-variants.zh.md)
+
 Status: implemented
 
 ## Problem

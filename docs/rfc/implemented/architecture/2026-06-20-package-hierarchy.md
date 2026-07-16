@@ -1,5 +1,7 @@
 # RFC: Reorganize packages into a modular hierarchy
 
+English | [中文](2026-06-20-package-hierarchy.zh.md)
+
 Status: implemented
 
 ## Problem

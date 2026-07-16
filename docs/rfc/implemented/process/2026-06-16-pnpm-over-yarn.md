@@ -1,5 +1,7 @@
 # RFC: pnpm as the package manager instead of Yarn 4
 
+English | [中文](2026-06-16-pnpm-over-yarn.zh.md)
+
 Status: implemented
 
 ## Problem

@@ -1,5 +1,7 @@
 # RFC: Drop unused session lineage metadata
 
+English | [中文](2026-06-20-drop-unused-session-lineage.zh.md)
+
 Status: rejected — `parentSession` is part of the documented fork/sub-agent seam and is already preserved by the agent/session resume path. The field is future-facing, but it is not accidental dead state.
 
 ## Problem

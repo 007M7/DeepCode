@@ -1,5 +1,7 @@
 # RFC: A gated Known-Limitations section in every package README
 
+English | [中文](2026-07-10-readme-known-limitations-gate.zh.md)
+
 Status: implemented
 
 ## Problem

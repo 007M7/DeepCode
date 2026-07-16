@@ -1,5 +1,7 @@
 # RFC: Drop the mutable session summary
 
+English | [中文](2026-06-19-drop-mutable-session-summary.zh.md)
+
 Status: implemented
 
 ## Problem

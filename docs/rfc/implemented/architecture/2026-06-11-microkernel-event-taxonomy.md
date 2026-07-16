@@ -1,5 +1,7 @@
 # RFC: Microkernel — extension via Cordis event taxonomy, one concrete loop
 
+English | [中文](2026-06-11-microkernel-event-taxonomy.zh.md)
+
 Status: implemented
 
 ## Problem

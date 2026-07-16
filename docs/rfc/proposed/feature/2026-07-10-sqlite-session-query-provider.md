@@ -1,5 +1,7 @@
 # RFC: SQLite FTS5 session search
 
+English | [中文](2026-07-10-sqlite-session-query-provider.zh.md)
+
 Status: proposed
 
 ## Problem

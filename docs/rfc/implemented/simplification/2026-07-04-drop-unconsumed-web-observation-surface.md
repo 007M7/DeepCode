@@ -1,5 +1,7 @@
 # RFC: Drop the unconsumed web observation surface — the `providers-change` event and the status methods
 
+English | [中文](2026-07-04-drop-unconsumed-web-observation-surface.zh.md)
+
 Status: implemented
 
 ## Problem

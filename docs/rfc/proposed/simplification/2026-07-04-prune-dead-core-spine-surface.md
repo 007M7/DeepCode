@@ -1,5 +1,7 @@
 # RFC: Prune dead public and result surface
 
+English | [中文](2026-07-04-prune-dead-core-spine-surface.zh.md)
+
 Status: proposed
 
 ## Problem

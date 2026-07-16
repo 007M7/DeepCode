@@ -1,5 +1,7 @@
 # RFC: Generated plugin config catalog
 
+English | [中文](2026-07-06-generated-config-catalog.zh.md)
+
 Status: implemented
 
 ## Problem

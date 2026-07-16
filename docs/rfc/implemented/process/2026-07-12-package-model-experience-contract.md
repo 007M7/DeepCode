@@ -1,5 +1,7 @@
 # RFC: Package Model Experience contract
 
+English | [中文](2026-07-12-package-model-experience-contract.zh.md)
+
 Status: implemented
 
 ## Problem

@@ -1,5 +1,7 @@
 # RFC: Unify the agent id and the session id
 
+English | [中文](2026-06-20-unify-agent-and-session-id.zh.md)
+
 Status: proposed
 
 ## Problem

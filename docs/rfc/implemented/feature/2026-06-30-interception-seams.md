@@ -1,5 +1,7 @@
 # RFC: Interception seams — the typed-Decision surface a hook programs against
 
+English | [中文](2026-06-30-interception-seams.zh.md)
+
 Status: implemented
 
 ## Problem

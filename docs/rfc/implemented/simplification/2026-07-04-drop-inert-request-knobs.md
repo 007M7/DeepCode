@@ -1,5 +1,7 @@
 # RFC: Drop `GenerateOptions.prefill` and `ToolSchema.strict` — request knobs with no working end-to-end path
 
+English | [中文](2026-07-04-drop-inert-request-knobs.zh.md)
+
 Status: implemented
 
 ## Problem

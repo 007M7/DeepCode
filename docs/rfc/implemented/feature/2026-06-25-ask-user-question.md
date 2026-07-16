@@ -1,5 +1,7 @@
 # RFC: Ask-user question capability
 
+English | [中文](2026-06-25-ask-user-question.zh.md)
+
 Status: implemented
 
 ## Problem

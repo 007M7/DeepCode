@@ -1,5 +1,7 @@
 # RFC: Classify RFCs by kind via path-encoded subdirectories
 
+English | [中文](2026-06-20-rfc-classification.zh.md)
+
 Status: implemented
 
 ## Problem

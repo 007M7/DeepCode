@@ -1,5 +1,7 @@
 # RFC: Session surface — a linked list over the event log for LLM message derivation
 
+English | [中文](2026-06-18-session-surface.zh.md)
+
 Status: implemented
 
 ## Problem

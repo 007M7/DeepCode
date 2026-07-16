@@ -1,5 +1,7 @@
 # RFC: Extract a generic long-running tool runtime
 
+English | [中文](2026-06-20-generic-long-running-tool-runtime.zh.md)
+
 Status: proposed
 
 ## Problem

@@ -1,5 +1,7 @@
 # RFC: Documentation tiers, budgets, and the ceiling gate
 
+English | [中文](2026-07-04-doc-tiers-and-budgets.zh.md)
+
 Status: implemented
 
 ## Problem

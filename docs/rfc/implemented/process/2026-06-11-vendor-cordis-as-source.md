@@ -1,5 +1,7 @@
 # RFC: Vendor Cordis as source, not npm dependencies
 
+English | [中文](2026-06-11-vendor-cordis-as-source.zh.md)
+
 Status: implemented
 
 ## Problem

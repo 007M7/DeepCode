@@ -1,5 +1,7 @@
 # RFC: dsh-hooks-claude + dsh-hooks-codex — the Claude Code / Codex hook bridges
 
+English | [中文](2026-06-30-hook-bridges.zh.md)
+
 Status: implemented
 
 ## Problem

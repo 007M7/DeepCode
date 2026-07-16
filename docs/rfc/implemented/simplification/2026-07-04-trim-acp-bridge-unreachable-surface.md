@@ -1,5 +1,7 @@
 # RFC: Trim unreachable ACP bridge surface — the branding knobs and the kind-sniffing fallback
 
+English | [中文](2026-07-04-trim-acp-bridge-unreachable-surface.zh.md)
+
 Status: implemented
 
 ## Problem

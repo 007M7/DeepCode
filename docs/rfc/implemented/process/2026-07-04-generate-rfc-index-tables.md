@@ -1,5 +1,7 @@
 # RFC: Generate the RFC index tables
 
+English | [中文](2026-07-04-generate-rfc-index-tables.zh.md)
+
 Status: implemented
 
 ## Problem

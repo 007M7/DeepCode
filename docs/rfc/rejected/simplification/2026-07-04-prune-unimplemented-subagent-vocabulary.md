@@ -1,5 +1,7 @@
 # RFC: Prune the unimplemented subagent seam vocabulary
 
+English | [中文](2026-07-04-prune-unimplemented-subagent-vocabulary.zh.md)
+
 Status: rejected — the deferred capability vocabulary (`outputSchema`/`structured`, `toolFilter`, `sendMessage`/`resume`) is intentionally reserved surface: the seam advertises the full intended contract ahead of its implementations by design, so providers and consumers grow into a stable shape rather than re-negotiating it per capability. The consumer-evidence analysis below stands as the record of what is currently unimplemented.
 
 ## Problem

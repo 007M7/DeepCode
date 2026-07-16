@@ -1,5 +1,7 @@
 # RFC: Subagent provider-lifecycle events — `subagent/provider-added` / `subagent/provider-removed`
 
+English | [中文](2026-07-05-subagent-provider-lifecycle-events.zh.md)
+
 Status: implemented
 
 ## Problem

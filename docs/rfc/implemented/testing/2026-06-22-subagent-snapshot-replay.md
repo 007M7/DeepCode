@@ -1,5 +1,7 @@
 # RFC: Per-session snapshot replay for nested agents
 
+English | [中文](2026-06-22-subagent-snapshot-replay.zh.md)
+
 Status: implemented
 
 ## Problem

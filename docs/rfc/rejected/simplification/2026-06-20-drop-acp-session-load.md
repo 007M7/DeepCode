@@ -1,5 +1,7 @@
 # RFC: Drop ACP session/load until resume has a product shape
 
+English | [中文](2026-06-20-drop-acp-session-load.zh.md)
+
 Status: rejected — Zed is the current target ACP client, advertises and exercises load-capable sessions, and keeps pending-load state for concurrent `session/load`. The bridge should keep `session/load` and make the resume contract solid.
 
 ## Problem

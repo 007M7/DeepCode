@@ -1,5 +1,7 @@
 # RFC: Mutation testing as the coverage counterweight
 
+English | [中文](2026-06-11-mutation-testing.zh.md)
+
 Status: proposed
 
 ## Problem

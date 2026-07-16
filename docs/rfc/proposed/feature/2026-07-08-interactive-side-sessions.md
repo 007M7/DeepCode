@@ -1,5 +1,7 @@
 # RFC: Interactive side sessions and merge-back
 
+English | [中文](2026-07-08-interactive-side-sessions.zh.md)
+
 Status: proposed
 
 ## Problem

@@ -1,5 +1,7 @@
 # RFC: Every LLM request is reconstructable from the session log
 
+English | [中文](2026-07-05-reconstructable-requests.zh.md)
+
 Status: implemented
 
 ## Problem

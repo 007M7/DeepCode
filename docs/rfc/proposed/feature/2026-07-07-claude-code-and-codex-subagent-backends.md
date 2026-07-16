@@ -1,5 +1,7 @@
 # RFC: Claude Code and Codex subagent backends (out-of-process delegation to external coding agents)
 
+English | [中文](2026-07-07-claude-code-and-codex-subagent-backends.zh.md)
+
 Status: proposed
 
 ## Problem

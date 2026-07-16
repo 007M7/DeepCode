@@ -1,5 +1,7 @@
 # RFC: Mandatory `User-Agent` attribution for provider requests
 
+English | [中文](2026-06-21-mandatory-app-attribution-headers.zh.md)
+
 Status: implemented
 
 ## Problem

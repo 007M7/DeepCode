@@ -1,5 +1,7 @@
 # RFC: Provider-neutral content-block vocabulary owned by dsh-llm
 
+English | [中文](2026-06-11-content-block-vocabulary.zh.md)
+
 Status: implemented
 
 ## Problem

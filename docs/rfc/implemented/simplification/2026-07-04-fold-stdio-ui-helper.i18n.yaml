@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write
+2026-07-04-fold-stdio-ui-helper.md: 8d26af190a957b424960519f77cbe132291c74de
+2026-07-04-fold-stdio-ui-helper.zh.md: 879cce0d40e396b56f1a961b5ff190bab4fd70dd

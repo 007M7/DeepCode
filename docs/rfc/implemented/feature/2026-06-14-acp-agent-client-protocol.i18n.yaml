@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write
+2026-06-14-acp-agent-client-protocol.md: 0bb2a2f2e307b8f23a3a9ca98edb2a2d3b5df0a8
+2026-06-14-acp-agent-client-protocol.zh.md: 19744cb9f4d4b675586d4327a1da423fdea21b77

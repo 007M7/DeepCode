@@ -1,5 +1,7 @@
 # RFC: Fold trace-only session facts into load-bearing events
 
+English | [中文](2026-06-20-collapse-trace-only-session-events.zh.md)
+
 Status: implemented
 
 ## Problem

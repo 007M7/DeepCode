@@ -1,5 +1,7 @@
 # RFC: Core-data-structures catalog and the `ts type-equiv` drift gate
 
+English | [中文](2026-06-20-core-data-structures-catalog.zh.md)
+
 Status: implemented
 
 ## Problem

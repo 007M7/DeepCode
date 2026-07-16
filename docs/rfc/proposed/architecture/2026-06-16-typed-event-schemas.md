@@ -1,5 +1,7 @@
 # RFC: Runtime schemas for the event vocabulary (Zod vs the merge-extensible-map pattern)
 
+English | [中文](2026-06-16-typed-event-schemas.zh.md)
+
 Status: proposed
 
 ## Problem

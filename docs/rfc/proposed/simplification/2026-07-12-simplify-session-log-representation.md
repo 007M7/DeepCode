@@ -1,5 +1,7 @@
 # RFC: Simplify session-log representation
 
+English | [中文](2026-07-12-simplify-session-log-representation.zh.md)
+
 Status: proposed
 
 ## Problem

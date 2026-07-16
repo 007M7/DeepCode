@@ -1,5 +1,7 @@
 # RFC: Export-surface JSDoc gate
 
+English | [中文](2026-07-06-export-surface-jsdoc-gate.zh.md)
+
 Status: implemented
 
 ## Problem

@@ -1,5 +1,7 @@
 # RFC: Multiplex concurrent ACP sessions over one connection
 
+English | [中文](2026-06-14-acp-multi-session.zh.md)
+
 Status: implemented
 
 ## Problem

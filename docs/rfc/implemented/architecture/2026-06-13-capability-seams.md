@@ -1,5 +1,7 @@
 # RFC: Capability seams — interface / implementation / consumer split
 
+English | [中文](2026-06-13-capability-seams.zh.md)
+
 Status: implemented
 
 ## Problem

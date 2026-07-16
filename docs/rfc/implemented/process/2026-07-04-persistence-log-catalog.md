@@ -1,5 +1,7 @@
 # RFC: Generated persistence log event catalog
 
+English | [中文](2026-07-04-persistence-log-catalog.zh.md)
+
 Status: implemented
 
 ## Problem

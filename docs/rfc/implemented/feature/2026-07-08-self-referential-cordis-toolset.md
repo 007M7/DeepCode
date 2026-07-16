@@ -1,5 +1,7 @@
 # RFC: The self-referential cordis toolset
 
+English | [中文](2026-07-08-self-referential-cordis-toolset.zh.md)
+
 Status: implemented
 
 ## Problem

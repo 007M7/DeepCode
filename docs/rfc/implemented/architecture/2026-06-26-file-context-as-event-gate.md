@@ -1,5 +1,7 @@
 # RFC: Make `dsh-fs-policy` an event-gate plugin, not a method interface
 
+English | [中文](2026-06-26-file-context-as-event-gate.zh.md)
+
 Status: implemented
 
 ## Problem

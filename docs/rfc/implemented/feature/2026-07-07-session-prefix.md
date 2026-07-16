@@ -1,5 +1,7 @@
 # RFC: The session prefix — request-only messages in front of the derived history
 
+English | [中文](2026-07-07-session-prefix.zh.md)
+
 Status: implemented
 
 ## Problem

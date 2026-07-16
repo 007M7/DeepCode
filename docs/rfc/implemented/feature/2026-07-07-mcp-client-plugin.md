@@ -1,5 +1,7 @@
 # RFC: MCP client plugin — connect to external MCP servers and bridge their tools
 
+English | [中文](2026-07-07-mcp-client-plugin.zh.md)
+
 Status: implemented
 
 ## Problem

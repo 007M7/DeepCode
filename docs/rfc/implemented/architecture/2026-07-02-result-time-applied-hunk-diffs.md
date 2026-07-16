@@ -1,5 +1,7 @@
 # RFC: Result-time applied-hunk diffs for file mutations
 
+English | [中文](2026-07-02-result-time-applied-hunk-diffs.zh.md)
+
 Status: implemented
 
 ## Problem

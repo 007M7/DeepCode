@@ -1,5 +1,7 @@
 # RFC: Drop the `image` content block until a path can honor it
 
+English | [中文](2026-07-04-drop-image-content-block.zh.md)
+
 Status: implemented
 
 ## Problem

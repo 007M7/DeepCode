@@ -1,5 +1,7 @@
 # RFC: TSC-first build and one tsconfig
 
+English | [中文](2026-06-17-ts-build-config.zh.md)
+
 Status: implemented
 
 ## Problem

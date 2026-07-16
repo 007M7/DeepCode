@@ -1,5 +1,7 @@
 # RFC: Every session event is enclosed in a turn
 
+English | [中文](2026-06-15-turn-enclosure-invariant.zh.md)
+
 Status: implemented
 
 ## Problem

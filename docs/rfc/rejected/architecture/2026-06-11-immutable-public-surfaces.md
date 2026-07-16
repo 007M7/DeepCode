@@ -1,5 +1,7 @@
 # RFC: Deep-readonly public surfaces
 
+English | [中文](2026-06-11-immutable-public-surfaces.zh.md)
+
 Status: rejected — the pervasive `DeepReadonly<T>` type flip is replaced by source-owned runtime immutability in `Session` plus relational development assertions. See [source-owned session immutability and dev-mode invariants](../../implemented/architecture/2026-06-11-dev-invariants-over-deep-readonly.md).
 
 ## Problem
