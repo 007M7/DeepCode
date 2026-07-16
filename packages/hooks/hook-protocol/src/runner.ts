@@ -27,7 +27,7 @@ export interface RunHookOptions {
   env?: Record<string, string>
   /** Working directory for the hook (defaults to the executor's own default when omitted). */
   cwd?: string
-  /** Abort signal — cancels the hook run when fired (the parent step aborts). */
+  /** Explicit owning-operation signal; firing it cancels the hook run. */
   signal?: AbortSignal
   /** Whether to append a trailing newline to the stdin payload (CC yes, Codex no). */
   trailingNewline: boolean

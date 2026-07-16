@@ -22,12 +22,12 @@ function stubAgent(rawId: string): Agent {
 }
 
 describe('AgentRegistry', () => {
-  it('keeps terminal stop decisions synchronous', () => {
+  it('allows terminal stop policy to cooperate asynchronously with turn cancellation', () => {
     type TurnStopListener = Events['agent/turn-stop']
     type AsyncTurnStopListener = () => Promise<ContinuationStop | undefined>
 
-    expectTypeOf<AsyncTurnStopListener>().not.toExtend<TurnStopListener>()
-    expectTypeOf<ReturnType<TurnStopListener>>().toEqualTypeOf<ContinuationStop | undefined>()
+    expectTypeOf<AsyncTurnStopListener>().toExtend<TurnStopListener>()
+    expectTypeOf<Awaited<ReturnType<TurnStopListener>>>().toEqualTypeOf<ContinuationStop | undefined>()
   })
 
   it('registers exact entries, emits lifecycle events, and unregisters on owner disposal', async () => {

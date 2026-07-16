@@ -10,9 +10,9 @@ Several ACP and tool-bash limitations were symptoms of the same missing seam: pl
 
 Three seams: the queue-aware cancel, the `AgentHandle` disposer, and the bash owner token.
 
-### 1. Queue-aware `Agent.cancel(reason?)`
+### 1. Queue-aware `Agent.cancel(cause?)`
 
-`cancel()` is the single public stop primitive. It clears queued and steering input, aborts an in-flight step, and arms a turn-scoped marker checked at each turn boundary. A queued prompt therefore cannot start after cancellation or absorb later input. `whenIdle()` waits for post-cancel quiescence, and ACP `session/cancel` maps to this method. An idle cancel does not arm the marker.
+`cancel()` is the single public stop primitive. It clears queued and steering input and aborts the active turn through one private turn cancellation holder; a cause-less pre-run marker covers work not yet claimed by the driver without leaking into replacement input. The typed cause is `user` or `parent`, with omission and ACP `session/cancel` mapping to `user`. `whenIdle()` waits for actual post-cancel quiescence, and an idle cancel validates its cause without arming future work. See the [explicit turn cancellation contract](2026-07-16-explicit-turn-cancellation.md).
 
 ### 2. `AgentHandle` async disposer
 

@@ -246,6 +246,14 @@ The fifteen event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, 
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
+`AgentCancelCause` identifies the runtime caller without widening the durable turn outcome. The concrete Agent validates, detaches, and freezes this value before placing it on the current turn signal; Session replay records only that the turn was aborted.
+
+```ts type-equiv
+type AgentCancelCause =
+  | { readonly kind: 'user' }
+  | { readonly kind: 'parent' }
+```
+
 ```ts type-equiv
 interface Agent {
   readonly id: AgentId
@@ -300,22 +308,14 @@ interface Agent {
   inject(content: ContentBlock[], options?: SendOptions): void
 
   /**
-   * Cancel ALL pending work for the agent. `cancel()`:
-   *
-   * - clears the queued FIFO (un-started prompts never run) and the steering
-   *   FIFO (steering for the cancelled turn is dropped, not re-enqueued);
-   * - aborts the in-flight step if one is running (the turn ends `aborted`);
-   * - drops a turn that is about to start (a `cancel()` landing in the
-   *   pre-step window — after a `send()` queued but before the loop flips to
-   *   `running`, or after `running` is emitted but before the first step) so
-   *   that queued prompt does not run and cannot be batched into the cancelled
-   *   turn.
-   *
-   * After `cancel()`, `whenIdle()` resolves on the post-cancel quiescent state.
-   * `cancel()` on an idle agent with nothing queued or running is a safe no-op
-   * — it does NOT arm anything that would drop a later legitimate prompt.
+   * Clear queued and steering work, including work waiting to start, and abort
+   * the active turn. The first cause wins for that turn, and `whenIdle()` resolves
+   * after cancellation reaches quiescence. Omission means `{ kind: 'user' }`;
+   * invalid causes throw synchronously even while idle. Idle cancellation is a
+   * no-op after validation and does not arm a later cancel.
+   * @param cause - the stable caller intent carried by the current turn signal.
    */
-  cancel(reason?: string): void
+  cancel(cause?: AgentCancelCause): void
 
   /**
    * Resolve once the agent has reached quiescence after settling out of

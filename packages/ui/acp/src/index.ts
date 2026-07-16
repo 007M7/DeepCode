@@ -495,7 +495,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // invariants and persistence observe the events in log order; the first flush
   // clears pending state. Promptless injection turns leave the switch pending,
   // with no request or execution under stale settings.
-  ctx.on('agent/prompt-submit', (agent, _content, _source, next) => {
+  ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next) => {
     const sessionId = bySession.get(agent)
     const rec = sessionId === undefined ? undefined : sessions.get(sessionId)
     if (rec !== undefined) flushPendingSwitches(rec)
@@ -706,7 +706,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       cancel(params: CancelNotification): Promise<void> {
         const rec = sessions.get(SessionId(params.sessionId))
         if (rec === undefined) return Promise.resolve()
-        // session/cancel maps to the queue-aware agent.cancel(reason): it aborts
+        // session/cancel maps to the queue-aware user cancel cause: it aborts
         // a RUNNING step, clears the queued + steering FIFOs, and drops a
         // turn that is about to start (the pre-step window) — so a queued-but-
         // not-yet-started prompt never runs, and a prompt accepted right after
@@ -717,7 +717,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // settle it, because cancel() may drop the turn before any turn/end is
         // emitted, and removing this direct settle would move the RPC's
         // resolution onto a later observer path, changing its timing.
-        rec.agent.cancel('session/cancel')
+        rec.agent.cancel({ kind: 'user' })
         settlePrompt(rec, 'cancelled')
         return Promise.resolve()
       },
@@ -778,7 +778,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
    * Tear ALL live sessions down to quiescence (docs/defensive-patterns.md "dispose must reach
    * quiescence"): for each session settle any pending prompt `cancelled`, then
    * run that session's {@link AgentHandle} `dispose()` — which stops the loop
-   * (sets `disposed`, aborts the in-flight step), AWAITS the loop's exit (the
+   * (sets `disposed`, aborts the active turn), AWAITS the loop's exit (the
    * final `turn/end` + `session/flush` are captured while the store-owned publication hooks are still
    * attached), unregisters the agent, and removes its session from the store.
    * The per-session disposes run in parallel. Idempotent — clears the `sessions`
@@ -817,7 +817,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       await Promise.all(recs.map(async (rec) => {
         settlePrompt(rec, 'cancelled')
         // Per-agent dispose (the AgentHandle disposer): unregister this agent,
-        // stop its loop (sets disposed + aborts the in-flight step), await
+        // stop its loop (sets disposed + aborts the active turn), await
         // quiescence (the loop exit + final flush), and remove its session — so
         // a bare client disconnect leaves NO registered agent and NO
         // session-store entry, not just an idled-but-still-registered one.

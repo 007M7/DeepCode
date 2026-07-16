@@ -6,11 +6,12 @@ Source: [`packages/core/system-prompt/src/index.ts`](../../packages/core/system-
 
 ## Assembly context
 
-`AssembleContext` identifies the scope layer one assembly resolves. It is merge-extensible: `dsh-agent` adds the optional live `agent` field, and `assembleContextFor(agent)` sets that field and `scope` together.
+`AssembleContext` identifies the scope layer one assembly resolves and may carry the explicit control signal for that request. It is merge-extensible: `dsh-agent` adds the optional live `agent` field, and `assembleContextFor(agent, signal)` sets the explicit fields together. A bare assembly has neither scope nor signal.
 
 ```ts type-equiv
 interface AssembleContext {
   scope?: ScopeKey
+  signal?: AbortSignal
 }
 ```
 

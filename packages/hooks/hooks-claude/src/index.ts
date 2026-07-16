@@ -210,9 +210,9 @@ export function apply(ctx: Context, config: Config): void {
 
   // --- UserPromptSubmit → PromptDecision. The prompt text is the payload; no
   // matcher subject (CC ignores matchers for this event). ---
-  ctx.on('agent/prompt-submit', async (agent, content, _source, next): Promise<PromptDecision> => {
+  ctx.on('agent/prompt-submit', async (agent, content, _source, signal, next): Promise<PromptDecision> => {
     const turn = lastTurn(agent)
-    const merged = await runPoint('UserPromptSubmit', '', promptPayload(agent, content), { agent, turn })
+    const merged = await runPoint('UserPromptSubmit', '', promptPayload(agent, content), { agent, turn, signal })
     if (merged.decision === 'deny') {
       return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
     }
@@ -261,8 +261,8 @@ export function apply(ctx: Context, config: Config): void {
 
   // A blocking Stop hook forces continuation with its reason.
   // TODO(stop-loop-guard): cap consecutive forced continuations; hooks must self-limit meanwhile.
-  ctx.on('agent/turn-continuation', async (agent, turn, _default, next): Promise<ContinuationDecision> => {
-    const merged = await runPoint('Stop', '', stopPayload(agent), { agent, turn })
+  ctx.on('agent/turn-continuation', async (agent, turn, _default, signal, next): Promise<ContinuationDecision> => {
+    const merged = await runPoint('Stop', '', stopPayload(agent), { agent, turn, signal })
     if (merged.decision === 'deny') {
       // A blocking Stop hook forces continuation.
       const text = merged.reason ?? 'continue: blocked by Stop hook'

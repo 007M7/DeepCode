@@ -7,12 +7,13 @@
  */
 
 import type { Context } from 'cordis'
-import { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { AgentId, AgentOptions, AgentStatus, SendOptions } from '@deepseek-ai/dsh-agent'
+import { agentEvents, normalizeAgentCancelCause } from '@deepseek-ai/dsh-agent'
+import type { AgentCancelCause, AgentId, AgentOptions, AgentStatus, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { snapshotJsonValue, type Session } from '@deepseek-ai/dsh-session'
+import { DISPOSED_INTERRUPT_REASON, TurnCancellation } from './cancellation.ts'
 import { Inbox, type InboxMessage } from './inbox.ts'
 import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
 
@@ -91,7 +92,7 @@ export function bindReactLoopAgentContext(agent: ReactLoopAgent, ctx: Context): 
 /**
  * The concrete {@link Agent} implementation owned by the agent-loop plugin.
  *
- * Owns the inbox (queued + steering FIFOs), the per-step AbortController, and
+ * Owns the inbox (queued + steering FIFOs), one turn cancellation holder, and
  * the loop driver. Everything observable happens through session events and
  * the agent/* event taxonomy — plugins never need this class.
  */
@@ -116,21 +117,18 @@ export class ReactLoopAgent implements Agent {
   }
 
   private _status: AgentStatus = 'idle'
-  private currentAbort: AbortController | undefined
+  /** Active turn owner, installed before the running notification and retained through flush. */
+  private turnCancellation: TurnCancellation | undefined
   /** Whether runLoop has been installed into {@link done}. */
   private driverStarted = false
   /** Whether registry publication began and status disposal is externally visible. */
   private published = false
   /**
-   * Turn-scoped cancel marker, set by {@link cancel} and read/cleared by the
-   * driver loop (via the LoopHandle) at every point a turn could start or
-   * continue. Armed ONLY when there is something to cancel (a running turn, an
-   * in-flight step, or queued/steering work), so an idle no-op cancel cannot
-   * leave it set to wrongly drop a later prompt.
+   * Cause-less marker for queued work cancelled before the driver installs a
+   * turn owner. It never represents an active turn and cannot leak a cause into
+   * replacement work.
    */
-  private cancelRequested = false
-  /** Pending cancellation reason, preserved even outside an active step signal. */
-  private cancelReason = 'cancelled'
+  private preRunCancelled = false
   private disposed: Promise<void>
   private resolveDisposed!: () => void
   /** Resolves when the driver loop has fully exited (tests/disposal). */
@@ -272,24 +270,18 @@ export class ReactLoopAgent implements Agent {
     }
   }
 
-  cancel(reason?: string): void {
-    // Arm only for current work; an idle marker would cancel the next prompt.
-    if (this._status === 'running' || this.currentAbort !== undefined || this.#inbox.hasQueued || this.#inbox.hasSteering) {
-      this.cancelRequested = true
-      // Capture the resolved reason for the marker-only windows (pre-step /
-      // continuation). The mid-step path reads it from abort.signal.reason
-      // below; the marker path reads it via the LoopHandle's cancelReason().
-      this.cancelReason = reason ?? 'cancelled'
-    }
+  cancel(cause?: AgentCancelCause): void {
+    // Validate before the idle no-op so misuse fails consistently in every state.
+    const accepted = normalizeAgentCancelCause(cause ?? { kind: 'user' })
+    const active = this.turnCancellation
+    if (active === undefined && !this.#inbox.hasQueued && !this.#inbox.hasSteering) return
+    if (active === undefined) this.preRunCancelled = true
+    else active.request(accepted)
     // Drop all pending queued + steering work (un-started prompts never run; the
     // cancelled turn's steering is not re-enqueued). Cleared directly even when
     // the loop is parked in waitForQueued — there is no turn to stop and nothing
     // left for the parked loop to run, so no wake is needed.
     this.#inbox.clear()
-    // Interrupt an in-flight step immediately (the running turn observes the
-    // abort and ends `aborted`). The marker covers the windows where no step is
-    // running (pre-step, continuation).
-    this.currentAbort?.abort(reason ?? 'cancelled')
   }
 
   /**
@@ -330,13 +322,20 @@ export class ReactLoopAgent implements Agent {
     this.done = this.loopCtx.agentExecution.run({ agent: this }, () => runLoop(this.loopCtx, this, {
       inbox: this.#inbox,
       setStatus: (status) => { this.setStatus(status) },
-      setAbort: controller => void (this.currentAbort = controller),
+      installTurnCancellation: () => {
+        const cancellation = new TurnCancellation()
+        this.turnCancellation = cancellation
+        return cancellation
+      },
+      clearTurnCancellation: (cancellation) => {
+        /* v8 ignore else -- the internal driver clears only the exact holder returned by its latest install */
+        if (this.turnCancellation === cancellation) this.turnCancellation = undefined
+      },
       disposed: this.disposed,
       isDisposed: () => this._status === 'disposed',
-      isCancelled: () => this.cancelRequested,
-      cancelReason: () => this.cancelReason,
-      clearCancel: () => { this.cancelRequested = false },
-      // Pre-step cancellation re-parks without emitting a status transition.
+      isPreRunCancelled: () => this.preRunCancelled,
+      clearPreRunCancel: () => { this.preRunCancelled = false },
+      // Pre-run cancellation re-parks without emitting a status transition.
       settleIdle: () => { this.settleIdleWaiters() },
     }))
   }
@@ -354,7 +353,7 @@ export class ReactLoopAgent implements Agent {
       // internal state that must settle even if a listener throws below. Each
       // waiter chains `done`, so it resolves only once the loop actually exits.
       this.settleIdleWaiters()
-      this.currentAbort?.abort('disposed')
+      this.turnCancellation?.request(DISPOSED_INTERRUPT_REASON)
       // An unpublished rollback has no public status lifecycle to announce.
       // Once publication begins, disposed is part of the agent/status contract.
       if (this.published) {

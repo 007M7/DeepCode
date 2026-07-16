@@ -102,7 +102,7 @@ Post-tool context follows all results, preserving call/result adjacency. Steerin
 
 ### Failure Boundaries
 
-The turn contains listener, adapter, and step failures: it records an error reason and emits `agent/error` without killing the driver. `cancel()` clears pending work, aborts active model/tool work when possible, and records the turn end. Disposal stops and drains the loop before unregistering the agent.
+The turn contains listener, adapter, and step failures: it records an error reason and emits `agent/error` without killing the driver. One explicit `AbortSignal` spans prompt submission, prompt assembly, all steps, continuation, turn close, and flush; `cancel()` clears pending work and carries a typed `user` or `parent` runtime cause, while the durable turn records only `aborted` and disposal remains a distinct higher-priority terminal state. Cooperative work must settle before the loop reports quiescence. See the [explicit turn cancellation decision](rfc/implemented/architecture/2026-07-16-explicit-turn-cancellation.md).
 
 Every session event is turn-enclosed. Reload closes an interrupted tail with a synthetic `interrupted` end; failures after durable turn close only emit `agent/error`. A turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) defines each variant.
 
@@ -116,7 +116,7 @@ Every live agent owns a scoped `agent.ctx`; its registrations shadow globals, re
 
 ### Agent Execution Context
 
-`AgentLoop` wraps each concrete driver in process-local `ctx.agentExecution`; child creation and setup stay outside its boundary, and explicit identities remain authoritative. See the [package contract](../packages/core/agent-execution/README.md) and [decision](rfc/implemented/architecture/2026-07-15-agent-execution-context.md).
+`AgentLoop` wraps each concrete driver in process-local `ctx.agentExecution`; its ALS frame contains only `{ agent }`. Child creation and setup stay outside the boundary, and turn, step, signal, cwd, and authority remain explicit. See the [package contract](../packages/core/agent-execution/README.md) and [decision](rfc/implemented/architecture/2026-07-15-agent-execution-context.md).
 
 ## State
 

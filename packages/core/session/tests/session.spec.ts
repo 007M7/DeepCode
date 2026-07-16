@@ -40,6 +40,16 @@ describe('Session', () => {
     expect(structuredClone(turnEnd.data.reason)).toEqual({ kind: 'max-tokens' })
   })
 
+  it('round-trips the coarse aborted turn outcome', () => {
+    const session = new Session(SessionId('aborted'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
+    const replayed = new Session(SessionId('aborted-replay'), structuredClone(session.events))
+    expect(replayed.events).toEqual(session.events)
+    const turnEnd = replayed.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
+  })
+
   it('renders context and steering messages as tagged synthetic user content', () => {
     const session = new Session(SessionId('s2'))
     session.append('context/message', {

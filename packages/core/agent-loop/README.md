@@ -48,11 +48,13 @@ Configured agents start automatically. `cwd` applies only to fresh sessions; `re
 
 ### Loop lifecycle (`loop.ts`)
 
-The driver owns one agent for its lifetime and runs inside `ctx.agentExecution.run({ agent }, ...)`, so process-local asynchronous continuations can recover the initiating Agent. Creation, persistence load, and unpublished setup stay outside the child boundary; explicit Agent fields remain authoritative at service, worker, process, persistence, and wire boundaries. The [execution-context package](../agent-execution/README.md) owns propagation and detached-work rules.
+The driver owns one agent for its lifetime and runs inside `ctx.agentExecution.run({ agent }, ...)`, so process-local asynchronous continuations can recover the initiating Agent. The ALS frame contains only `{ agent }`: creation, persistence load, and unpublished setup stay outside the child boundary, while turn, step, signal, and other control state remain explicit at every seam. The [execution-context package](../agent-execution/README.md) owns propagation and detached-work rules.
 
 The loop records turn, step, request, stream, and tool boundaries in the session log; live extension events coordinate policy around those durable facts. The [architecture turn flow](../../../docs/architecture.md#turn-flow) and generated [event catalog](../../../docs/cordis-catalog/events.md) are the authoritative sequence and signatures.
 
-Plugin failure ends the current turn, not the loop. Cancellation clears pending work and aborts the current step without leaking to the next prompt. Terminal continuation stops remain authoritative through turn close and durability flush.
+Plugin failure ends the current turn, not the loop. The loop creates one private turn cancellation holder before announcing `running`, passes its single signal through prompt handling, prompt assembly, every step, model and tool execution, continuation, terminal stop, turn end, and durability flush, then discards it. A replacement prompt accepted after cancellation receives a fresh holder, while all work in the cancelled turn observes the first typed runtime cause. The durable turn outcome is only `aborted`; disposal is a separate runtime interrupt and wins classification even if cancellation reached the signal first.
+
+Cancellation is cooperative: the loop checks for interruption between awaited boundaries but does not abandon an in-process listener, adapter, or tool Promise with `Promise.race`. `whenIdle()` and handle disposal therefore observe real quiescence. See the [explicit turn cancellation RFC](../../../docs/rfc/implemented/architecture/2026-07-16-explicit-turn-cancellation.md).
 
 ### What belongs to plugins
 

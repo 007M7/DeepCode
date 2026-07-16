@@ -329,7 +329,7 @@ describe('ReactLoopAgent', () => {
     expect(settled).toBe(false)
 
     await waitForStatus(ctx, agent, 'running')
-    agent.cancel('done')
+    agent.cancel({ kind: 'user' })
     await idle
     expect(settled).toBe(true)
     expect(agent.status).toBe('idle')

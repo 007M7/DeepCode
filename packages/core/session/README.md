@@ -64,6 +64,8 @@ Merge-extensible via `SessionEventMap` — a plugin declaration-merges its own t
 
 Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types for typed turn boundaries — `kind`-tagged instead of strings).
 
+An interrupted live turn ends with the coarse `{ kind: 'aborted' }` outcome. Caller identity belongs to the Agent's runtime cancellation signal rather than the durable transcript; disposal remains the separate `{ kind: 'disposed' }` terminal state.
+
 Every `SessionEvent` carries two optional top-level fields (structural metadata):
 
 - `sourceEventSeqs?: number[]` — seq numbers of provenance sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed nodes behind a compaction replace node).

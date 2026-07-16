@@ -59,7 +59,7 @@ describe('session log records what agent/step-result actually produced', () => {
 
     // Plugin rewrites the message: replaces the text AND adds a tool call.
     let rewritten = false
-    ctx.on('agent/step-result', async (_agent, _turn, _step, _message, next) => {
+    ctx.on('agent/step-result', async (_agent, _turn, _step, _message, _signal, next) => {
       if (rewritten) return next()
       rewritten = true
       return {
@@ -92,7 +92,7 @@ describe('session log records what agent/step-result actually produced', () => {
 })
 
 describe('abort during tool execution ends the turn', () => {
-  it('aborting the in-flight step inside a tool prevents both remaining tools and the next model step', async () => {
+  it('cancelling the active turn inside a tool prevents both remaining tools and the next model step', async () => {
     const adapter = new MockAdapter([
       // model asks for two tool calls in one step
       [
@@ -113,11 +113,7 @@ describe('abort during tool execution ends the turn', () => {
       parameters: {},
       async execute() {
         executed.push('aborter')
-        // Fire the in-flight step's AbortController directly (the loop registers
-        // it on the agent). This is the bare step-abort path — distinct from
-        // cancel(), which would also clear the inbox; here the subject is the
-        // loop's response to its running step being aborted mid-tool.
-        ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
+        agent.cancel({ kind: 'user' })
         return [{ type: 'text', text: 'done' }]
       },
     }))
@@ -139,7 +135,7 @@ describe('abort during tool execution ends the turn', () => {
 
     expect(executed).toEqual(['aborter'])           // second tool never ran
     expect(adapter.requests).toHaveLength(1)        // no follow-up model call
-    expect(reasons).toEqual([{ kind: 'aborted', reason: 'user interrupt' }])
+    expect(reasons).toEqual([{ kind: 'aborted' }])
   })
 })
 
@@ -153,7 +149,7 @@ describe('steering from late extension points is never stranded', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let steeredOnce = false
-    ctx.on('agent/turn-continuation', async (_agent, _turn, _decision, next) => {
+    ctx.on('agent/turn-continuation', async (_agent, _turn, _decision, _signal, next) => {
       if (!steeredOnce) {
         steeredOnce = true
         agent.steer([{ type: 'text', text: 'one more thing' }])
@@ -227,25 +223,19 @@ describe('steering from late extension points is never stranded', () => {
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('too late for this turn')
   })
 
-  it('steering queued during an aborted step is re-delivered, not silently consumed', async () => {
-    const adapter = new MockAdapter(['hang', textResponse('recovered')])
+  it('steering queued before turn cancellation is discarded with the cancelled work', async () => {
+    const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     agent.steer([{ type: 'text', text: 'redirect' }])
-    // Abort ONLY the in-flight step, via its AbortController directly — NOT
-    // cancel(), which clears the inbox and would drop the queued steering this
-    // test proves survives a step abort. There is no public step-only abort
-    // verb (cancel() is the only public stop primitive), so reach the private
-    // controller the loop registered.
-    ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
+    agent.cancel({ kind: 'user' })
     await waitForIdle(ctx, agent)
 
-    // a new turn ran with the steering content delivered as a message
-    expect(adapter.requests).toHaveLength(2)
-    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('redirect')
+    expect(adapter.requests).toHaveLength(1)
+    expect(JSON.stringify(agent.session.events)).not.toContain('redirect')
   })
 })
 
@@ -383,7 +373,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), {}) // no model — router plugin decides
 
-    ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, config, _signal, _next) => {
       return { ...config, model: 'mock' }
     })
 
@@ -843,7 +833,7 @@ describe('turn and step boundary recovery', () => {
 
   it('disposal during a running turn ends the turn with reason disposed (balanced)', async () => {
     // The 'hang' adapter blocks in stream() until the signal aborts; disposing
-    // the agent's fiber mid-turn aborts the in-flight step. The turn must close
+    // the agent's fiber mid-turn aborts the active turn. The turn must close
     // balanced with reason disposed (no error event for a disposal).
     const adapter = new MockAdapter(['hang'])
     const ctx = await balancedHarness(adapter)
@@ -1085,7 +1075,7 @@ describe('surface: assistant/message omits sourceEventSeqs when no chunks stream
     await ctx.plugin(Invariants)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    ctx.on('agent/step-result', async (_agent, _turn, _step, _message, _next) => ({
+    ctx.on('agent/step-result', async (_agent, _turn, _step, _message, _signal, _next) => ({
       role: 'assistant' as const,
       content: [{ type: 'text' as const, text: 'injected' }],
     }))
@@ -1190,7 +1180,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 50))
-    agent.cancel('user cancelled during assembly')
+    agent.cancel({ kind: 'user' })
 
     releaseAssemble()
     await waitForIdle(ctx, agent)
@@ -1202,15 +1192,12 @@ describe('disposal and cancellation during pre-step assembly', () => {
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
     expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({
-      kind: 'aborted',
-      reason: 'user cancelled during assembly',
-    })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
     expect(e.some(x => x.type === 'assistant/message')).toBe(false)
     expect(adapter.requests).toHaveLength(0)
-    expect(reasons).toEqual([{ kind: 'aborted', reason: 'user cancelled during assembly' }])
+    expect(reasons).toEqual([{ kind: 'aborted' }])
   })
 
   it('disposal during agent/pre-step seam ends the turn disposed', { timeout: 15000 }, async () => {
@@ -1297,7 +1284,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
-    agent.cancel('user cancelled')
+    agent.cancel({ kind: 'user' })
 
     releasePreStep()
     await waitForIdle(ctx, agent)
@@ -1308,10 +1295,10 @@ describe('disposal and cancellation during pre-step assembly', () => {
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
     expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: 'user cancelled' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
-    expect(reasons).toEqual([{ kind: 'aborted', reason: 'user cancelled' }])
+    expect(reasons).toEqual([{ kind: 'aborted' }])
   })
 
   it('disposal during assembly does not leak an LLM call or append assistant/chunk', { timeout: 15000 }, async () => {

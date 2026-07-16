@@ -10,6 +10,7 @@
     { "doc": "docs/core-data-structures/core.md", "symbol": "ToolSchema", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "LlmCallConfig", "source": "packages/llm/llm/src/call-config.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "AgentCancelCause", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "Agent", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "AgentExecution", "source": "packages/core/agent-execution/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "AgentExecutionService", "source": "packages/core/agent-execution/src/index.ts" },

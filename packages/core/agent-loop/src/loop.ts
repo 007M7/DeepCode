@@ -6,9 +6,9 @@
  */
 
 import type { Context } from 'cordis'
-import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
-import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
-import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
+import type { FinishReason, GenerateOptions, LlmCallConfig, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
+import { assertNever, BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
+import { agentEvents, agentInterruptReasonOf, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
@@ -19,6 +19,7 @@ import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { ReactLoopAgent } from './agent.ts'
 import type { Inbox } from './inbox.ts'
+import type { TurnCancellation } from './cancellation.ts'
 
 /** An Error with an optional machine-readable code (e.g., from LlmError or a throwing plugin). */
 type CodedError = Error & { code?: string }
@@ -68,21 +69,65 @@ function stepFinishReason(finish: FinishReason): TurnEndReason | undefined {
   }
 }
 
+/** Internal control-flow sentinel; durable classification comes only from the turn signal. */
+const TURN_INTERRUPTED = new Error('turn interrupted')
+
+/** Stop at an explicit cooperative boundary without stringifying the runtime reason. */
+function interruptionCheckpoint(signal: AbortSignal): void {
+  if (signal.aborted) throw TURN_INTERRUPTED
+}
+
+/** Classify a supported turn interruption, with lifecycle disposal taking precedence. */
+function interruptionTurnEndReason(handle: LoopHandle, signal: AbortSignal): TurnEndReason | undefined {
+  if (handle.isDisposed()) return { kind: 'disposed' }
+  const reason = agentInterruptReasonOf(signal)
+  if (reason === undefined) return undefined
+  switch (reason.kind) {
+    case 'user':
+    case 'parent':
+      return { kind: 'aborted' }
+    /* v8 ignore next 2 -- the private holder requests disposed only after lifecycle state flips, which returns above */
+    case 'disposed':
+      return { kind: 'disposed' }
+    /* v8 ignore next 2 -- AgentInterruptReason is closed and the public helper filters unsupported reasons */
+    default:
+      return assertNever(reason, 'AgentInterruptReason')
+  }
+}
+
+/** Append the durable assembled assistant message when it carries content or usage. */
+function appendAssistantMessage(
+  session: Session,
+  turn: number,
+  step: number,
+  message: Message,
+  usage: TokenUsage | undefined,
+  chunkSeqs: number[],
+): void {
+  if (message.content.length === 0 && usage === undefined) return
+  session.append(
+    'assistant/message',
+    { turn, step, content: message.content, ...usage === undefined ? {} : { usage } },
+    { surfaceOp: 'append', ...(chunkSeqs.length > 0 ? { sourceEventSeqs: chunkSeqs } : {}) },
+  )
+}
+
 /** Mutable agent controls supplied to the loop driver. */
 export interface LoopHandle {
   /** Native-private agent inbox handed to the driver only at internal startup. */
   readonly inbox: Inbox
   setStatus(status: 'idle' | 'running'): void
-  setAbort(controller: AbortController | undefined): void
+  /** Install a fresh active-turn owner before the running notification. */
+  installTurnCancellation(): TurnCancellation
+  /** Clear only the exact owner whose turn and durability flush settled. */
+  clearTurnCancellation(cancellation: TurnCancellation): void
   /** Resolves when the agent is disposed — unblocks the idle wait. */
   disposed: Promise<void>
   isDisposed(): boolean
-  /** Whether cancellation is pending for the current loop iteration. */
-  isCancelled(): boolean
-  /** Resolved pending-cancellation reason; meaningful only while {@link isCancelled} is true. */
-  cancelReason(): string
-  /** Clear the cancel marker (called once per iteration after the turn returns). */
-  clearCancel(): void
+  /** Whether queued work was cancelled before an active turn owner existed. */
+  isPreRunCancelled(): boolean
+  /** Clear the cause-less pre-run marker without affecting replacement work. */
+  clearPreRunCancel(): void
   /** Settle idle waiters when pre-running cancellation skips a turn, without emitting `agent/status`. */
   settleIdle(): void
 }
@@ -92,7 +137,7 @@ export interface LoopHandle {
  * current turn without terminating the driver.
  * @param ctx - the plugin context the loop reaches events (agent/…, session/flush) and services (systemPrompt, llm, tools) through.
  * @param agent - the agent this invocation drives for its whole lifetime (its inbox, session, and options).
- * @param handle - the bridge to the agent's mutable state: status/abort setters plus the disposal and cancel-marker reads.
+ * @param handle - the bridge to status, turn cancellation ownership, disposal, and pre-run cancellation state.
  */
 export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle): Promise<void> {
   // Per-instance prefix and request-header state; conversation history remains in the session log.
@@ -108,31 +153,38 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
 
     // Cancellation between wake and `running` skips only the cancelled work;
     // a replacement prompt still runs and owns the eventual idle transition.
-    if (handle.isCancelled()) {
-      handle.clearCancel()
+    if (handle.isPreRunCancelled()) {
+      handle.clearPreRunCancel()
       if (!handle.inbox.hasQueued) {
         handle.settleIdle()
         continue
       }
     }
 
+    let cancellation = handle.installTurnCancellation()
     handle.setStatus('running')
 
-    // A synchronous `running` listener can cancel before `runTurn`; balance the
-    // status only when no replacement prompt was queued by that listener.
-    if (handle.isCancelled()) {
-      handle.clearCancel()
+    if (handle.isDisposed()) {
+      handle.clearTurnCancellation(cancellation)
+      break
+    }
+
+    // A synchronous running listener may cancel old work and enqueue a
+    // replacement. The replacement receives a fresh, non-aborted turn owner.
+    if (cancellation.signal.aborted) {
+      handle.clearTurnCancellation(cancellation)
       if (!handle.inbox.hasQueued) {
         handle.setStatus('idle')
         continue
       }
+      cancellation = handle.installTurnCancellation()
     }
 
     // Idle injection can add a turn, so derive the next number from the log.
     const turn = lastTurnNumber(session) + 1
     let terminalStopped = false
     try {
-      terminalStopped = await runTurn(ctx, events, agent, handle, turn, transmission)
+      terminalStopped = await runTurn(ctx, events, agent, handle, turn, transmission, cancellation.signal)
     } catch (error: unknown) {
       // Pre-turn failure has no durable boundary to close; report it without appending outside a turn.
       const err = toError(error)
@@ -140,10 +192,9 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
       try {
         events.emit('agent/error', turn, 0, err)
       } catch { /* contained: a throwing agent/error listener must not kill the driver */ }
+    } finally {
+      handle.clearTurnCancellation(cancellation)
     }
-
-    // Reset per iteration, including when a prompt arrives during the flush window.
-    handle.clearCancel()
 
     // Late steering becomes queued input unless terminal policy stopped the turn.
     for (const message of handle.inbox.drainSteering()) {
@@ -156,6 +207,7 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
 
 async function runTurn(
   ctx: Context, events: AgentEventDispatch, agent: ReactLoopAgent, handle: LoopHandle, turn: number, transmission: TransmissionLog,
+  signal: AbortSignal,
 ): Promise<boolean> {
   const { session } = agent
 
@@ -202,6 +254,7 @@ async function runTurn(
     // matter what throws below; the catch + closeTurn guarantee it. A pre-commit
     // veto leaves no turn/start in the log and therefore owes no turn/end.
     session.append('turn/start', { turn, trigger })
+    interruptionCheckpoint(signal)
     // Each drained queued message runs the `agent/prompt-submit` waterfall before
     // it becomes a `user/message` — a hook can rewrite the prompt or block it.
     // Recorded INSIDE the turn (after turn/start) so every event is turn-enclosed;
@@ -215,9 +268,10 @@ async function runTurn(
     let lastBlockReason = 'prompt blocked by hook'
     for (const message of queued) {
       const decision = await events.waterfall(
-        'agent/prompt-submit', message.content, message.source,
+        'agent/prompt-submit', message.content, message.source, signal,
         () => Promise.resolve<PromptDecision>({ kind: 'allow' }),
       )
+      interruptionCheckpoint(signal)
       if (decision.kind === 'block') {
         lastBlockReason = decision.reason
         // Record the veto durably: `PromptDecision.reason` is the durable record
@@ -253,24 +307,10 @@ async function runTurn(
       // the request.
       drainSteering(agent, handle.inbox, turn)
 
-      // The step's AbortController exists BEFORE any async pre-step work so a
-      // dispose() or cancel() — in a synchronous turn-start listener or an
-      // async listener whose effect fires before we block — always has an armed
-      // abort to cancel against. isDisposed below covers disposal, which does
-      // NOT set the cancel marker. Cleared on every exit path below.
-      const abort = new AbortController()
-      handle.setAbort(abort)
-
       // Assemble once before pre-step so pressure checks and the request share the same prompt.
-      const assembly = await ctx.systemPrompt.assemble(assembleContextFor(agent))
+      const assembly = await ctx.systemPrompt.assemble(assembleContextFor(agent, signal))
+      interruptionCheckpoint(signal)
       const fullSystemPrompt = renderPrompt(assembly)
-
-      // Cancellation or disposal during assembly ends the turn before any step opens.
-      if (handle.isCancelled() || handle.isDisposed()) {
-        handle.setAbort(undefined)
-        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
-        break
-      }
 
       // Compose the request-only prefix once per loop instance before pressure
       // checks. It precedes all derived history and is recorded only in the
@@ -278,28 +318,17 @@ async function runTurn(
       if (transmission.sessionPrefix === undefined) {
         const emptyPrefix: Message[] = deepFreeze([])
         const composed = await events.waterfall(
-          'agent/session-prefix', emptyPrefix, abort.signal,
+          'agent/session-prefix', emptyPrefix, signal,
           () => Promise.resolve(emptyPrefix),
         )
-
         // Never cache an interrupted composition; the next turn recomposes it.
-        if (handle.isCancelled() || handle.isDisposed()) {
-          handle.setAbort(undefined)
-          reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
-          break
-        }
+        interruptionCheckpoint(signal)
         transmission.sessionPrefix = deepFreeze(structuredClone(composed))
       }
 
       // Await surface mutations outside the step; pressure checks receive the pending prefix.
-      await events.serial('agent/pre-step', turn, step, fullSystemPrompt, transmission.sessionPrefix, abort.signal)
-
-      // Interruption landing during the pre-step seam: do not open an empty step.
-      if (handle.isCancelled() || handle.isDisposed()) {
-        handle.setAbort(undefined)
-        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
-        break
-      }
+      await events.serial('agent/pre-step', turn, step, fullSystemPrompt, transmission.sessionPrefix, signal)
+      interruptionCheckpoint(signal)
 
       // Snapshot the exact log prefix before step/start: the reconstruction
       // boundary. Appends after this synchronous snapshot join the next request.
@@ -310,26 +339,15 @@ async function runTurn(
       // pre-commit veto throws before this assignment; post-commit observers
       // are contained inside Session.append().
       stepOpen = true
-
-      // Cancel landing in the step-start window: a synchronous `session/event`
-      // step/start listener can cancel after the step is already open. Check
-      // AFTER the step/start append and before `runStep`: drop the step, end the
-      // turn accordingly. closeStep balances the already-appended step/start.
-      if (handle.isCancelled() || handle.isDisposed()) {
-        handle.setAbort(undefined)
-        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
-        closeStep()
-        break
-      }
+      // A synchronous step/start observer can cancel after the step opened.
+      interruptionCheckpoint(signal)
 
       let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
         stepOutcome = await runStep(
-          ctx, events, agent, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
+          ctx, events, agent, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, signal)
       } catch (error: unknown) {
         stepOutcome = { error: toError(error) }
-      } finally {
-        handle.setAbort(undefined)
       }
 
       if ('error' in stepOutcome) {
@@ -338,14 +356,9 @@ async function runTurn(
         // starts a fresh turn instead of being silently consumed.
         closeStep()
         const { error } = stepOutcome
-        if (handle.isDisposed()) {
-          reason = { kind: 'disposed' }
-        } else if (abort.signal.aborted) {
-          /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-          reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
-        } else {
-          failTurn(error)
-        }
+        const interruption = interruptionTurnEndReason(handle, signal)
+        if (interruption === undefined) failTurn(error)
+        else reason = interruption
         break
       }
 
@@ -357,17 +370,20 @@ async function runTurn(
       const steered = drainSteering(agent, handle.inbox, turn)
 
       closeStep()
+      interruptionCheckpoint(signal)
 
       const defaultDecision: ContinuationDecision = { action: stepOutcome.hadToolCalls || steered ? 'continue' : 'stop' }
       let decision: ContinuationDecision
       try {
         decision = await events.waterfall(
-          'agent/turn-continuation', turn, defaultDecision,
+          'agent/turn-continuation', turn, defaultDecision, signal,
           () => Promise.resolve(defaultDecision),
         )
+        interruptionCheckpoint(signal)
       } catch (error: unknown) {
-        // A broken continuation plugin ends the turn, not the loop.
-        failTurn(toError(error))
+        const interruption = interruptionTurnEndReason(handle, signal)
+        if (interruption === undefined) failTurn(toError(error))
+        else reason = interruption
         break
       }
 
@@ -383,12 +399,13 @@ async function runTurn(
       // Terminal policy is monotonic and runs after ordinary continuation folding.
       let terminalStop = false
       try {
-        const stop = await events.serial('agent/turn-stop', turn)
+        const stop = await events.serial('agent/turn-stop', turn, signal)
+        interruptionCheckpoint(signal)
         terminalStop = stop !== undefined
       } catch (error: unknown) {
-        // A broken terminal policy is an ordinary continuation failure: fail
-        // this turn closed while leaving the driver alive for later turns.
-        failTurn(toError(error))
+        const interruption = interruptionTurnEndReason(handle, signal)
+        if (interruption === undefined) failTurn(toError(error))
+        else reason = interruption
         break
       }
       if (terminalStop) {
@@ -396,12 +413,6 @@ async function runTurn(
         // Terminal stop discards steering but preserves ordinary queued prompts.
         handle.inbox.drainSteering()
         shouldContinue = false
-      }
-
-      // The marker catches cancellation after the step controller was cleared.
-      if (handle.isCancelled()) {
-        reason = { kind: 'aborted', reason: handle.cancelReason() }
-        break
       }
 
       if (!shouldContinue || handle.isDisposed()) {
@@ -418,12 +429,9 @@ async function runTurn(
     const turnStartLogged = session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
     if (!turnStartLogged) throw error
     closeStep()
-    // Preserve an established disposal reason; otherwise report the failure.
-    if (handle.isDisposed() && !errorReported) { // eslint-disable-line @typescript-eslint/no-unnecessary-condition
-      reason = { kind: 'disposed' }
-    } else {
-      failTurn(toError(error))
-    }
+    const interruption = interruptionTurnEndReason(handle, signal)
+    if (interruption === undefined) failTurn(toError(error))
+    else reason = interruption
     closeTurn()
   }
 
@@ -480,7 +488,8 @@ async function runStep(
     : { model: options.model ?? '' }))
 
   // Listener replacements are recorded in the request header before dispatch.
-  const config = await events.waterfall('agent/request', turn, step, seedConfig, () => Promise.resolve(seedConfig))
+  const config = await events.waterfall('agent/request', turn, step, seedConfig, signal, () => Promise.resolve(seedConfig))
+  interruptionCheckpoint(signal)
   if (!config.model) {
     throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
   }
@@ -514,12 +523,12 @@ async function runStep(
   const assembler = new BlockAssembler()
   const chunkSeqs: number[] = []
   for await (const chunk of ctx.llm.stream(request)) {
-    /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
+    interruptionCheckpoint(signal)
     const chunkEvent = session.append('assistant/chunk', { turn, step, chunk })
     chunkSeqs.push(chunkEvent.seq)
     assembler.push(chunk)
   }
+  interruptionCheckpoint(signal)
 
   // Normalize failure finish chunks into the same path as thrown stream errors.
   const stepError = finishError(assembler.finish)
@@ -527,39 +536,26 @@ async function runStep(
 
   if (assembler.finish.kind === 'max-tokens') {
     let message: Message = withoutToolCalls(assembler.message())
-    message = withoutToolCalls(await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message)))
+    message = withoutToolCalls(await events.waterfall('agent/step-result', turn, step, message, signal, () => Promise.resolve(message)))
+    interruptionCheckpoint(signal)
     // Preserve usage even when max-token truncation produced no content.
-    if (message.content.length > 0 || assembler.usage) {
-      // The finish chunk guarantees non-empty provenance here.
-      session.append(
-        'assistant/message',
-        { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
-        { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
-      )
-    }
+    appendAssistantMessage(session, turn, step, message, assembler.usage, chunkSeqs)
     return { hadToolCalls: false, finish: assembler.finish }
   }
 
   // Record the post-waterfall message that tool dispatch uses.
   let message: Message = assembler.message()
-  message = await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message))
+  message = await events.waterfall('agent/step-result', turn, step, message, signal, () => Promise.resolve(message))
+  interruptionCheckpoint(signal)
 
-  // Empty messages exist only to carry usage; omit empty provenance.
-  if (message.content.length > 0 || assembler.usage) {
-    session.append(
-      'assistant/message',
-      { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
-      { surfaceOp: 'append', ...(chunkSeqs.length > 0 ? { sourceEventSeqs: chunkSeqs } : {}) },
-    )
-  }
+  appendAssistantMessage(session, turn, step, message, assembler.usage, chunkSeqs)
 
   // Tool execution stays sequential; recheck abort around each normalized result.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
   // Buffer context until all results are appended to preserve call/result adjacency.
   const pendingContext: HookContext[] = []
   for (const call of toolCalls) {
-    /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
+    interruptionCheckpoint(signal)
     const callEvent = session.append('tool/call', { turn, step, callId: call.id, name: call.name, arguments: call.arguments })
     let parsedArguments: unknown
     try {
@@ -588,11 +584,7 @@ async function runStep(
       ...result.meta !== undefined ? { meta: result.meta } : {},
     }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
     if (result.additionalContext) pendingContext.push(result.additionalContext)
-    // The signal may flip while the tool is awaited.
-    /* v8 ignore start -- signal.reason default unreachable: cancel()/disposal always set it */
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    /* v8 ignore stop */
+    interruptionCheckpoint(signal)
   }
 
   // Append buffered context after the complete result batch.

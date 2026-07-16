@@ -62,7 +62,7 @@ describe('agent/prompt-submit', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const seen: string[] = []
-    ctx.on('agent/prompt-submit', async (_agent, content, _source, next) => {
+    ctx.on('agent/prompt-submit', async (_agent, content, _source, _signal, next) => {
       seen.push(content.map(b => (b.type === 'text' ? b.text : '')).join(''))
       return next()
     })
@@ -191,7 +191,7 @@ describe('agent/prompt-submit', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    ctx.on('agent/prompt-submit', async (_agent, content, _source, next): Promise<PromptDecision> => {
+    ctx.on('agent/prompt-submit', async (_agent, content, _source, _signal, next): Promise<PromptDecision> => {
       const text = content.map(b => (b.type === 'text' ? b.text : '')).join('')
       return text === 'secret' ? { kind: 'block', reason: 'policy: no secrets' } : next()
     })
@@ -498,7 +498,7 @@ describe('agent/turn-continuation (ContinuationDecision)', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let forced = false
-    ctx.on('agent/turn-continuation', async (_agent, _turn, _default, next): Promise<ContinuationDecision> => {
+    ctx.on('agent/turn-continuation', async (_agent, _turn, _default, _signal, next): Promise<ContinuationDecision> => {
       if (!forced) {
         forced = true
         return { action: 'continue', reason: { content: [{ type: 'text', text: 'keep going on the goal' }], source: { kind: 'plugin', plugin: 'goal' } } }
@@ -626,7 +626,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
         )
       })
       // 2. PromptSubmit: block a forbidden prompt, annotate the rest.
-      ctx.on('agent/prompt-submit', async (_agent, content, _source, next): Promise<PromptDecision> => {
+      ctx.on('agent/prompt-submit', async (_agent, content, _source, _signal, next): Promise<PromptDecision> => {
         const text = content.map(b => (b.type === 'text' ? b.text : '')).join('')
         if (text.includes('rm -rf')) return { kind: 'block', reason: 'destructive prompt blocked' }
         return next()
