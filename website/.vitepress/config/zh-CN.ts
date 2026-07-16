@@ -85,7 +85,9 @@ export const zhCN: LocaleSpecificConfig<DefaultTheme.Config> = {
       '/zh-CN/api/': apiSidebar,
       '/zh-CN/design/': designSidebar,
     },
-    outline: { label: '本页目录' },
+    // level [2,3]: the generated API pages put each member at h3 (### ctx.foo)
+    // under an h2 scope/statics group — both belong in the page outline.
+    outline: { label: '本页目录', level: [2, 3] },
     docFooter: { prev: '上一篇', next: '下一篇' },
   },
 }
