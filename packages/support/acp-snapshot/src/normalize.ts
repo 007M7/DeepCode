@@ -14,6 +14,16 @@ const MESSAGE_PREFIX = '{{messagePrefix}}'
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+const LOCAL_SPILL_PATH_RE = new RegExp(
+  String.raw`\{\{cwd\}\}/\.spill/session-[0-9a-f]{12}/[0-9a-f]{12}-([A-Za-z0-9._~-]+?)`
+  + String.raw`(?=\. Use read with offset/limit|[\s)]|$)`,
+  'g',
+)
+const SNAPSHOT_SPILL_PATH_RE = new RegExp(
+  String.raw`/tmp/dsh-acp-snapshot-spill/session-[0-9a-f]{12}/[0-9a-f]{12}-([A-Za-z0-9._~-]+?)`
+  + String.raw`(?=\. Use read with offset/limit|[\s)]|$)`,
+  'g',
+)
 
 /** Inputs the normalizers need to recognize a run's volatile values. */
 export interface NormalizeContext {
@@ -29,6 +39,9 @@ function scrubString(value: string, ctx: NormalizeContext): string {
   // cwd first (longest, most specific), then explicit session ids, then any
   // residual UUID (covers ids that appear in places we didn't enumerate).
   out = out.split(ctx.cwd).join(CWD)
+  out = out.split(`/private${CWD}`).join(CWD)
+  out = out.replace(LOCAL_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
+  out = out.replace(SNAPSHOT_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
   for (const id of ctx.sessionIds) out = out.split(id).join(SESSION_ID)
   out = out.replace(UUID_RE, SESSION_ID)
   return out

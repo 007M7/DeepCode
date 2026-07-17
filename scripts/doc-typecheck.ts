@@ -1,7 +1,7 @@
 /**
- * Typecheck Markdown `ts` fences against workspace sources. `ignore-check`
- * fences are reported as opt-outs; generated catalog fragments and
- * `type-equiv` blocks are skipped here because their owning gates verify them.
+ * Typecheck Markdown `ts` fences against the workspace API. `ignore-check` fences are reported as
+ * opt-outs; generated catalog fragments and `type-equiv` blocks are skipped here because their
+ * owning gates verify them. A build-coordinated mode consumes existing declarations without emit.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -62,25 +62,106 @@ function extractBlocks(absPath: string): Block[] {
   return blocks
 }
 
+const configHost: ts.ParseConfigFileHost = {
+  ...ts.sys,
+  getCurrentDirectory: () => root,
+  onUnRecoverableConfigFileDiagnostic(diagnostic) {
+    throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))
+  },
+}
+
+/** Load root settings and redirect workspace aliases to declarations from the coordinated build. */
+function builtTypeCompilerOptions(): ts.CompilerOptions {
+  const configPath = join(root, 'tsconfig.json')
+  const parsed = ts.getParsedCommandLineOfConfigFile(configPath, {}, configHost)
+  if (!parsed) throw new Error(`doc-typecheck: cannot parse ${configPath}`)
+  if (parsed.errors.length > 0) {
+    throw new Error(parsed.errors.map(error => ts.flattenDiagnosticMessageText(error.messageText, '\n')).join('\n'))
+  }
+  if (parsed.options.paths === undefined) throw new Error('doc-typecheck: root tsconfig has no workspace paths')
+  const paths = Object.fromEntries(Object.entries(parsed.options.paths).map(([specifier, candidates]) => [
+    specifier,
+    candidates.map((candidate) => {
+      if (!candidate.endsWith('/src')) {
+        throw new Error(`doc-typecheck: cannot map workspace source path to built declarations: ${candidate}`)
+      }
+      return `${candidate.slice(0, -'/src'.length)}/lib/types`
+    }),
+  ]))
+  const options: ts.CompilerOptions = {
+    ...parsed.options,
+    paths,
+    noEmit: true,
+    composite: false,
+    incremental: false,
+    declaration: false,
+    declarationMap: false,
+    sourceMap: false,
+    noUnusedLocals: false,
+    noUnusedParameters: false,
+  }
+  delete options.tsBuildInfoFile
+  return options
+}
+
+/** Compile Markdown blocks as virtual files against declarations from the coordinated build. */
+function compileBlocksAgainstBuiltTypes(blocks: Block[]): readonly ts.Diagnostic[] {
+  const options = builtTypeCompilerOptions()
+  const sources = new Map<string, string>()
+  for (const [index, block] of blocks.entries()) {
+    const fileName = resolve(root, '.doc-typecheck', `block-${index}.ts`)
+    sources.set(fileName, block.code.endsWith('\n') ? block.code : `${block.code}\n`)
+  }
+
+  const baseHost = ts.createCompilerHost(options, true)
+  const host: ts.CompilerHost = {
+    ...baseHost,
+    fileExists(fileName) {
+      return sources.has(resolve(fileName)) || baseHost.fileExists(fileName)
+    },
+    readFile(fileName) {
+      return sources.get(resolve(fileName)) ?? baseHost.readFile(fileName)
+    },
+    getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile) {
+      const source = sources.get(resolve(fileName))
+      if (source !== undefined) return ts.createSourceFile(fileName, source, languageVersion, true)
+      return baseHost.getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile)
+    },
+    writeFile() {
+      throw new Error('doc-typecheck: noEmit compilation attempted to write output')
+    },
+  }
+  const program = ts.createProgram([...sources.keys()], options, host)
+  return ts.getPreEmitDiagnostics(program)
+}
+
+/** Render compiler diagnostics with virtual block paths mapped back to Markdown. */
+function formatDiagnostics(diagnostics: readonly ts.Diagnostic[], blocks: Block[]): string {
+  const formatted = ts.formatDiagnostics(diagnostics, {
+    getCanonicalFileName: fileName => fileName,
+    getCurrentDirectory: () => root,
+    getNewLine: () => ts.sys.newLine,
+  })
+  return remapBlockPaths(formatted, blocks)
+}
+
 /** Reuse the repo typecheck graph references from a temp project one directory below root. */
 function workspaceReferences(): { path: string }[] {
   const file = join(root, 'tsconfig.json')
-  // Parse with TypeScript's own JSONC reader, not a hand-rolled comment strip:
-  // a regex strip mistakes the `/*/` in a wildcard path candidate
-  // (`./packages/core/*/src`) for a block comment and corrupts the map.
-  const result = ts.readConfigFile(file, p => readFileSync(p, 'utf8'))
+  // Parse with TypeScript's own JSONC reader: a regex comment stripper corrupts the `/*/` path
+  // candidate in the workspace wildcard.
+  const result = ts.readConfigFile(file, path => readFileSync(path, 'utf8'))
   if (result.error) {
     throw new Error(`doc-typecheck: cannot read ${file}: ${ts.flattenDiagnosticMessageText(result.error.messageText, '\n')}`)
   }
-  // `config` is typed `any` by the TS API; narrow it to the one field we read.
-  const { references } = result.config as { compilerOptions: { paths: Record<string, string[]> }; references: { path: string }[] }
-  return references.map(({ path }) => {
-    const relativeToTemp = path.startsWith('./') ? `../${path.slice(2)}` : `../${path}`
-    return { path: relativeToTemp }
-  })
+  // `config` is typed `any` by the TS API; narrow it to the one field read here.
+  const { references } = result.config as { references: { path: string }[] }
+  return references.map(({ path }) => ({
+    path: path.startsWith('./') ? `../${path.slice(2)}` : `../${path}`,
+  }))
 }
 
-/** The standalone tsconfig for the temp typecheck project. */
+/** The standalone temp project used when no coordinated build owns declaration freshness. */
 function tempTsconfig(): string {
   return JSON.stringify({
     extends: '../tsconfig.json',
@@ -91,6 +172,39 @@ function tempTsconfig(): string {
     },
     include: ['block-*.ts'],
     references: workspaceReferences(),
+  })
+}
+
+/** Compile blocks through project references for the standalone command. */
+function compileBlocksStandalone(blocks: Block[]): string | undefined {
+  const tmp = mkdtempSync(join(root, '.doc-typecheck-'))
+  try {
+    writeFileSync(join(tmp, 'tsconfig.json'), tempTsconfig())
+    for (const [index, block] of blocks.entries()) {
+      writeFileSync(join(tmp, `block-${index}.ts`), block.code.endsWith('\n') ? block.code : `${block.code}\n`)
+    }
+    try {
+      // Invoke tsc's JS entry through Node instead of a platform-specific shell shim.
+      execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-b', join(tmp, 'tsconfig.json')], {
+        cwd: root,
+        stdio: 'pipe',
+      })
+      return undefined
+    } catch (error: unknown) {
+      const failed = error as { stdout?: Buffer; stderr?: Buffer }
+      return remapBlockPaths(`${failed.stdout?.toString() ?? ''}${failed.stderr?.toString() ?? ''}`, blocks)
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+}
+
+/** Map virtual or temporary block paths back to their owning Markdown fences. */
+function remapBlockPaths(output: string, blocks: Block[]): string {
+  return output.replace(/(?:[^\s:()]*[/\\])?block-(\d+)\.ts\((\d+),(\d+)\)/g, (_match, index: string, line: string, column: string) => {
+    const block = blocks[Number(index)]
+    if (!block) return `block-${index}.ts(${line},${column})`
+    return `${block.file} (block at line ${block.line}, +${line}:${column})`
   })
 }
 
@@ -114,45 +228,24 @@ if (checked.length === 0) {
   process.exit(0)
 }
 
-const tmp = mkdtempSync(join(root, '.doc-typecheck-'))
-try {
-  writeFileSync(join(tmp, 'tsconfig.json'), tempTsconfig())
-  const fileForBlock = new Map<string, Block>()
-  checked.forEach((block, i) => {
-    const name = `block-${i}.ts`
-    writeFileSync(join(tmp, name), block.code.endsWith('\n') ? block.code : `${block.code}\n`)
-    fileForBlock.set(name, block)
-  })
+const useBuiltTypes = process.env.DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT === '1'
+const compilationError = useBuiltTypes
+  ? (() => {
+    const diagnostics = compileBlocksAgainstBuiltTypes(checked)
+    return diagnostics.length === 0 ? undefined : formatDiagnostics(diagnostics, checked)
+  })()
+  : compileBlocksStandalone(checked)
+if (compilationError !== undefined) {
+  console.error('doc-typecheck: documentation code blocks failed to compile.\n')
+  console.error(compilationError)
+  process.exit(1)
+}
 
-  try {
-    // tsc's JS entry via the current node, not the .bin shim: the extensionless
-    // shim is not spawnable on Windows (the CVE-2024-27980 class the sibling
-    // scripts hit), and the .cmd variant would need shell:true, which
-    // concatenates args UNESCAPED — a hazard for the temp project path. The JS
-    // entry behaves identically on every platform.
-    execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-b', join(tmp, 'tsconfig.json')], { cwd: root, stdio: 'pipe' })
-  } catch (error: unknown) {
-    const failed = error as { stdout?: Buffer; stderr?: Buffer }
-    const out = `${failed.stdout?.toString() ?? ''}${failed.stderr?.toString() ?? ''}`
-    // Rewrite "block-N.ts(line,col)" to the real "file:fenceLine" for triage.
-    const remapped = out.replace(/(?:[^\s:()]*[/\\])?block-(\d+)\.ts\((\d+),(\d+)\)/g, (_m, idx: string, ln: string, col: string) => {
-      const block = fileForBlock.get(`block-${idx}.ts`)
-      if (!block) return `block-${idx}.ts(${ln},${col})`
-      return `${block.file} (block at line ${block.line}, +${ln}:${col})`
-    })
-    console.error('doc-typecheck: documentation code blocks failed to compile.\n')
-    console.error(remapped)
-    process.exit(1)
-  }
-
-  const ratio = ignored.length / ratioDenominator
-  const skipped = all.length - ratioDenominator
-  console.log(`doc-typecheck: ${checked.length} block(s) compiled, ${ignored.length} ignored (${(ratio * 100).toFixed(0)}% opt-out), ${skipped} type-equiv/catalog (checked elsewhere).`)
-  // Guard against the escape hatch becoming the norm.
-  if (ratioDenominator >= 4 && ratio > 0.5) {
-    console.error(`doc-typecheck: too many blocks opt out of checking (${ignored.length}/${ratioDenominator}). Make them compile or delete them.`)
-    process.exit(1)
-  }
-} finally {
-  rmSync(tmp, { recursive: true, force: true })
+const ratio = ignored.length / ratioDenominator
+const skipped = all.length - ratioDenominator
+console.log(`doc-typecheck: ${checked.length} block(s) compiled, ${ignored.length} ignored (${(ratio * 100).toFixed(0)}% opt-out), ${skipped} type-equiv/catalog (checked elsewhere).`)
+// Guard against the escape hatch becoming the norm.
+if (ratioDenominator >= 4 && ratio > 0.5) {
+  console.error(`doc-typecheck: too many blocks opt out of checking (${ignored.length}/${ratioDenominator}). Make them compile or delete them.`)
+  process.exit(1)
 }

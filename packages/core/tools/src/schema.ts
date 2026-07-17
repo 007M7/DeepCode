@@ -1,7 +1,7 @@
 /** Typed tool-parameter DSL with argument inference and JSON Schema output. @module dsh-tools/schema */
 
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ToolDefinition, ToolExecuteReturn, ToolExecution, ToolResult } from './index.ts'
+import type { ToolDefinition, ToolExecuteReturn, ToolRunContext, ToolResult } from './index.ts'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
 
 // ---------------------------------------------------------------------------
@@ -289,7 +289,7 @@ export interface DefineToolOptions<S extends SchemaSpec> {
    * content only) or a `{ content, meta }` object to also attach a tool-private
    * presentation payload (see {@link ToolExecuteReturn}).
    */
-  execute(args: InferArgs<S>, exec: ToolExecution): Promise<ToolExecuteReturn>
+  execute(args: InferArgs<S>, exec: ToolRunContext): Promise<ToolExecuteReturn>
   /**
    * Optional: how to present the PENDING state of one call in a UI (an editor
    * tool-call card, a CLI log line). `args` is the typed, schema-validated
@@ -333,7 +333,7 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
-    async execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn> {
+    async execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn> {
       // Validate the model-generated args before the typed body runs. On
       // mismatch we throw ToolArgsError; the registry turns it into an
       // isError result so the model can self-correct. After this guard, the

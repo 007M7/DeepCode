@@ -241,10 +241,11 @@ describe('isToolPairingBalanced — CBR-001: a head checkpoint left by a replace
     // summary user/message — appended now, so it carries a high log seq.
     const u1 = seqOf(s, 'user/message')
     const result = s.events.find(e => e.type === 'tool/result')!.seq
+    const shadowedSeqs = s.surface.nodes.map(node => node.seq)
     s.append('user/message', {
       content: [{ type: 'text', text: 'CHECKPOINT' }],
       source: { kind: 'plugin', plugin: 'compact' },
-    }, { surfaceOp: { op: 'replace', start: u1, end: result } })
+    }, { surfaceOp: { op: 'replace', start: u1, end: result }, sourceEventSeqs: shadowedSeqs })
     // The step's own assistant/message lands AFTER the checkpoint in the log,
     // still inside the open step.
     s.append('assistant/message', { turn: 2, step: 1, content: [{ type: 'text', text: 'a2' }] }, SURFACE)
