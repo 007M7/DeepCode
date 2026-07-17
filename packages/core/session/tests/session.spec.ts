@@ -59,6 +59,28 @@ describe('Session', () => {
     expect(steeringMessage!.content[0]).toMatchObject({ type: 'text', text: '<steering source="user">' })
   })
 
+  it('renders raw context without a generic envelope while preserving structured metadata', () => {
+    const session = new Session(SessionId('s2-raw'))
+    const meta = {
+      kind: 'workspace-instructions',
+      version: 1,
+      changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md', digest: 'abc123' }],
+    }
+    session.append('context/message', {
+      content: [{ type: 'text', text: '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>' }],
+      source: { kind: 'plugin', plugin: 'workspace-context' },
+      envelope: 'raw',
+      meta,
+    }, { surfaceOp: 'append' })
+
+    expect(session.deriveMessages()).toEqual([{
+      role: 'user',
+      content: [{ type: 'text', text: '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>' }],
+    }])
+    const event = session.events[0]
+    expect(event?.type === 'context/message' && event.data.meta).toEqual(meta)
+  })
+
   it('replays identically from a seeded event log', () => {
     const original = new Session(SessionId('s3'))
     original.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })

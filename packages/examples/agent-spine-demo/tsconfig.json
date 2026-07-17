@@ -42,6 +42,9 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../context/workspace-context"
+    },
+    {
       "path": "../../core/agent-loop"
     },
     {

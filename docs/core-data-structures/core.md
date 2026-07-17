@@ -246,6 +246,15 @@ The fifteen event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, 
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
+`InjectOptions` extends ordinary message attribution with context-only framing and durable model-hidden JSON metadata:
+
+```ts type-equiv
+interface InjectOptions extends SendOptions {
+  envelope?: ContextEnvelope
+  meta?: JsonValue
+}
+```
+
 ```ts type-equiv
 interface Agent {
   readonly id: AgentId
@@ -282,8 +291,10 @@ interface Agent {
   /**
    * Inject in-session context (file-change notices, skill content, cron
    * notifications, …): appends a `context/message` session event the next model
-   * request sees at its chronological position, rendered as tagged synthetic
-   * context rather than a user prompt. Does not run the model.
+   * request sees at its chronological position, rendered as synthetic context
+   * rather than a user prompt. The default uses the canonical context tag;
+   * `options.envelope: 'raw'` preserves caller-owned framing. Does not run the
+   * model.
    *
    * Turn-enclosure (the turn-enclosure RFC): an inject while a turn is open joins that turn;
    * an inject while idle wraps its `context/message` in a one-shot `injection`
@@ -293,11 +304,11 @@ interface Agent {
    * (inject is synchronous): a failing flush is reported via `agent/error`
    * (step `0`) and the logger, never thrown into the caller.
    *
-   * Live-adapter review has validated the tagged-envelope rendering against
-   * current DeepSeek behavior; provider-specific mismatches belong in that
-   * adapter, not in the canonical session vocabulary.
+   * Live-adapter review has validated the canonical tagged-envelope rendering
+   * against current DeepSeek behavior; provider-specific mismatches belong in
+   * that adapter, not in the canonical session vocabulary.
    */
-  inject(content: ContentBlock[], options?: SendOptions): void
+  inject(content: ContentBlock[], options?: InjectOptions): void
 
   /**
    * Cancel ALL pending work for the agent. `cancel()`:
@@ -353,7 +364,7 @@ The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, che
 
 ## Interception decisions
 
-Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. They share one envelope for model-facing context, `HookContext`, which is `inject()`ed as a `context/message` and so carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt).
+Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. Prompt and post-tool decisions share one model-facing context shape, `HookContext`, which is `inject()`ed as a `context/message` and therefore carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt). Its optional `envelope` selects the canonical context tag or caller-owned raw framing, while JSON `meta` persists plugin state without exposing it to the model. Both decisions carry `additionalContexts[]` so every entry preserves its own provenance, framing, and metadata. Continuation reasons are steering messages instead and deliberately use the narrower content/source shape.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -361,23 +372,25 @@ Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types
 interface HookContext {
   content: ContentBlock[]
   source: MessageSource
+  envelope?: ContextEnvelope
+  meta?: JsonValue
 }
 ```
 
-`agent/prompt-submit` returns a `PromptDecision` (allow a drained queued message — optionally rewriting its `content` or attaching `additionalContext` — or block it; a batch whose every prompt is blocked opens a zero-step turn that ends `rejected`):
+`agent/prompt-submit` returns a `PromptDecision` (allow a drained queued message — optionally rewriting its `content` or attaching `additionalContexts` — or block it; a batch whose every prompt is blocked opens a zero-step turn that ends `rejected`):
 
 ```ts type-equiv
 type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
   | { kind: 'block'; reason: string }
 ```
 
-`agent/turn-continuation` returns a `ContinuationDecision` (the loop's default is `continue` when the step had tool calls or steering was injected, else `stop`; a `continue` `reason` is recorded as next-step steering in the same turn — the typed `/goal` pattern):
+`agent/turn-continuation` returns a `ContinuationDecision` (the loop's default is `continue` when the step had tool calls or steering was injected, else `stop`; a `continue` `reason` is recorded as next-step steering in the same turn and therefore carries no context envelope or metadata — the typed `/goal` pattern):
 
 ```ts type-equiv
 type ContinuationDecision =
   | { action: 'stop' }
-  | { action: 'continue'; reason?: HookContext }
+  | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
 ```
 
 `agent/turn-stop` returns the stop-only `ContinuationStop` subset or `undefined`. The loop calls this serial checkpoint after folding the ordinary decision, its reason, and pending steering; a stop is terminal and discards pending steering.
