@@ -285,6 +285,10 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // Harvest EVERY persisted log (parent + any subagent children) while the
     // temp dirs still exist, ordered primary-first.
     sessionLogs = await harvestSessionLogs(sessionsRoot)
+  } catch (error: unknown) {
+    const stderr = stderrChunks.join('')
+    if (stderr === '') throw error
+    throw new Error(`snapshot-harness: scenario failed: ${String(error)}\nagent stderr:\n${stderr}`, { cause: error })
   } finally {
     // Failure-safe teardown: kill a still-running child and drop the temp dirs
     // even if seeding/spawn/a step/harvest threw, so a flaky run never leaks a
