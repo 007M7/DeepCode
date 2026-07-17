@@ -16,6 +16,7 @@ describe('runLoaderSmoke', () => {
       binScript: fixture('success'),
       configPath,
       tsconfigPath,
+      mode: 'src',
       env: { LOADER_SMOKE_MARKER: 'present' },
       stdinLines: ['one', 'two'],
     })

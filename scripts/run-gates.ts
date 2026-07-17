@@ -167,7 +167,8 @@ function gatesForMode(selected: Mode): Gate[] {
       ]
     case 'ci-snapshot':
       return [
-        pnpmScript('snapshot', 'test:snapshot'),
+        pnpmScript('build', 'build'),
+        snapshotGate(),
       ]
     case 'ci-artifacts':
       return ciArtifactGates()
@@ -186,7 +187,7 @@ function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
         pnpmScript('test', 'test'),
         pnpmScript('duplication', 'duplication'),
-        pnpmScript('snapshot', 'test:snapshot'),
+        snapshotGate(),
         pnpmScript('build', 'build'),
         ...hygieneLeafGates({ artifactNeeds: ['build'] }),
         ...docSyncLeafGates({
@@ -207,7 +208,7 @@ function ciPrimaryGates(): Gate[] {
     lintGate(),
     pnpmScript('duplication', 'duplication'),
     coverageGate(),
-    pnpmScript('snapshot', 'test:snapshot'),
+    snapshotGate(),
     demoSmokeGate({ needs: ['lint'] }),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
@@ -281,6 +282,16 @@ function coverageGate(): Gate {
     ...positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers'),
   ], {
     label: 'test:coverage',
+  })
+}
+
+// The snapshot suite boots the example bins in `lib` mode (built artifact under plain Node,
+// plugins via real exports) — CI and pre-push already build, so they exercise what ships rather
+// than the tsx/source path dev uses. It therefore waits on `build`.
+function snapshotGate(): Gate {
+  return pnpmScript('snapshot', 'test:snapshot', {
+    env: { DSH_EXAMPLE_MODE: 'lib' },
+    needs: ['build'],
   })
 }
 

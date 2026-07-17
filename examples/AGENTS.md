@@ -1,6 +1,6 @@
 # AGENTS.md — Examples
 
-Runnable harness compositions. **Examples are NOT workspaces**: their private `package.json` files are dependency-free stubs, and the cordis Loader boots each `cordis.yml` unbuilt through `tsx` plus the root tsconfig paths.
+Runnable harness compositions. `examples/` is one workspace member and the module-resolution root for runnable and test Cordis configs; it is not a build target. [package.json](package.json) declares the packages loaded by those configs, while each leaf's private `package.json` remains metadata only.
 
 Extract reusable logic into `packages/`, where per-file coverage and README gates apply. Examples keep only `cordis.yml` wiring, demo artifacts, and e2e/snapshot scenarios; app package bins own boot glue.
 
@@ -13,7 +13,7 @@ Each example has both:
 
 Mock-only examples require only the keyless tier; state that exception in the test.
 
-Keyless stdio smokes use `@deepseek-ai/dsh-loader-smoke` for isolation, root-tsconfig loading, subprocess lifecycle, diagnostics, EOF, and cleanup; tests supply paths, environment, input, and assertions.
+Keyless stdio smokes use `@deepseek-ai/dsh-loader-smoke`; tests supply paths, environment, input, and assertions. Every checked-in test Cordis config lives under its corresponding `examples/<agent>/` leaf. Map a package-owned config to `examples/<agent>/tests/fixtures/<group>/<package>/cordis.yml`, keep its driver and assertions package-local, and declare every package it names in both root `tsconfig.json` references and `examples/package.json`.
 
 Do not inventory example tests here; the `tests/` trees and root scripts are authoritative.
 
