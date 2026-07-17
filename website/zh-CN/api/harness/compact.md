@@ -6,7 +6,7 @@
 
 Abstract compaction service. Implementations own token estimation, retention, and summarization, but a successful run must replace the selected surface span with one summary node and prevent concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L36)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L37)
 
 ### ctx.compact.compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)
 
@@ -23,7 +23,7 @@ Check token pressure and compact if the conversation is too large. Estimate the 
 
 **Returns** the compaction result, or `null` if no compaction was needed.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L56)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L57)
 
 ### ctx.compact.compactRegion(session, start, end, agent, signal?)
 
@@ -31,7 +31,7 @@ Check token pressure and compact if the conversation is too large. Estimate the 
 abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
-Forcibly compact a range of surface nodes into a single summary node. `start` and `end` name an inclusive span by surface position, not numeric seq order; replacements can make visible seqs non-monotonic. Both edges must be balanced so assistant tool calls remain paired with their results. A model- backed implementation forwards cancellation and rejects active, missing, reversed, or unbalanced ranges.
+Forcibly compact a range of surface nodes into a single summary node. `start` and `end` name an inclusive span by surface position, not numeric seq order; replacements can make visible seqs non-monotonic. Both edges must be balanced so assistant tool calls remain paired with their results. A model- backed implementation forwards cancellation and rejects active, missing, reversed, or unbalanced ranges. Use toolPairingBalancedBefore and toolPairingBalancedAfter for the edge checks.
 
 - `session` — session to mutate.
 - `start` — first surface seq, inclusive.
@@ -41,4 +41,4 @@ Forcibly compact a range of surface nodes into a single summary node. `start` an
 
 **Returns** the replaced range and summary.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L79)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L82)

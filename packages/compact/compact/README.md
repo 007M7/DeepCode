@@ -6,7 +6,7 @@ This package is the interface tier of the compaction capability, split so each c
 
 | Package | Role |
 |---|---|
-| `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + the shared transcript renderer (`renderTranscript`/`renderContentBlocks`) |
+| `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + tool-pairing boundary helpers + the shared transcript renderer (`renderTranscript`/`renderContentBlocks`) |
 | `@deepseek-ai/dsh-compact-basic` | a backend: chars-per-token estimation (`charsPerToken`, default 4) + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-tool-compact` (deferred) | the model-facing `/compact` tool over `ctx.compact` |
 
@@ -22,6 +22,12 @@ Both methods are **abstract** — the backend owns the entire strategy (token es
 | `compactRegion(session, start, end, agent, signal?)` | Forcibly summarize surface nodes `[start, end]` (inclusive seqs) into a single replacement node. **Throws** if a compaction is already in progress, if `start`/`end` aren't surface nodes, or if `start` is positioned after `end` on the surface. The range is a SURFACE-POSITION span, not a numeric seq interval — after a prior replace lands a fresh high-seq summary node at the shadowed range's position, surface order no longer tracks seq order. |
 
 `compactIfNeeded` takes a required `signal`; `compactRegion`'s is optional. A backend that summarizes via `ctx.llm.stream()` **must** forward it into the call's `GenerateOptions.signal`, so an abort or fiber dispose tears down the in-flight summarization instead of leaving an orphaned model call running past the cancellation. The session being compacted comes from the agent context; the turn that the `compact/*` events belong to is recoverable from the log (the currently-open turn), so the backend stamps it from the log rather than trusting a caller-supplied value.
+
+## Tool-pairing boundaries
+
+The interface exports `toolPairingBalancedBefore(session, node)` and `toolPairingBalancedAfter(session, node)` for snapping and validating compaction edges. A safe edge has no unanswered assistant tool call crossing it. Each helper identifies the node by seq alone and answers from balances cached per cut in current surface order, so a stale caller-held `node.next` cannot choose the cut.
+
+The private per-session cache is keyed by `session.surface.replaceGeneration` and the processed surface-node count. An unchanged generation extends the fold with unseen tail nodes only; a log-only append with no new surface node does no event reads, while a replacement generation rebuilds current membership and balances. Missing event seqs and a `tool/result` without a preceding open call reject as corrupt surface state.
 
 ## Surface contract
 
