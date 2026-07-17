@@ -9,7 +9,7 @@ This is the implementation tier of the compaction capability — see the [interf
 This backend owns the compaction policy:
 
 - **Estimation** — a configurable characters-per-token heuristic counts the current session prefix supplied to pre-step, derived history, and system prompt, matching the next request rather than stale logged prefix state.
-- **Retention** — compact the oldest whole surface units while preserving a recent tail and balanced tool-call/result cuts. Turn boundaries do not protect old steps inside a runaway turn. An open indivisible tail declines until it closes; a single unit larger than the budget remains out of scope.
+- **Retention** — compact the oldest whole surface units while preserving a recent tail and balanced tool-call/result cuts through the [`dsh-compact` boundary helpers](../compact/README.md#tool-pairing-boundaries). Turn boundaries do not protect old steps inside a runaway turn. An open indivisible tail declines until it closes; a single unit larger than the budget remains out of scope.
 - **Convergence** — retry head-checkpoint compaction up to `compactionRetries`; reject a summary that does not shrink its source, and throw if retries cannot return below threshold.
 - **Summarization** — a direct `llm/stream` call uses the configured model and cap without running the loop-only `agent/request` seam. The input transcript preserves non-text blocks as tagged placeholders; only returned text enters the checkpoint, excluding reasoning and tool calls that would leak private reasoning or create an orphaned call.
 - **Framing** — the replacement user message marks established checkpoint context with `<compacted-summary>` tags. The raw summary remains on the provenance event, and later automatic cycles merge the prior checkpoint.

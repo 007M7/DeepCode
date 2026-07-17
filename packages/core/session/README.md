@@ -79,7 +79,7 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 
 - Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`, `session.header`) is what such a backend stores beside the log.
 - Replay/fork: `create(id, { seed })` validates and freezes a contiguous log and rebuilds its surface. `fork(source, boundary?, childSessionId?)` selects a completed-turn prefix and records lineage.
-- Compaction: the `dsh-compact-basic` plugin appends a `user/message` with `surfaceOp: { op: 'replace', start, end }` to shadow old surface nodes behind a summary checkpoint.
+- Compaction: the `dsh-compact-basic` plugin appends a `user/message` with `surfaceOp: { op: 'replace', start, end }` to shadow old surface nodes behind a summary checkpoint. Tool-pairing boundary policy and its cache belong to the [`dsh-compact` seam](../../compact/compact/README.md), while this package owns surface membership, positional links, and `replaceGeneration`.
 
 ## Model Experience
 

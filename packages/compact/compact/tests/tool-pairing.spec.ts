@@ -1,0 +1,330 @@
+import { describe, expect, it } from 'vitest'
+import { CallId } from '@deepseek-ai/dsh-llm'
+import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SurfaceNode } from '@deepseek-ai/dsh-session'
+
+const SURFACE = { surfaceOp: 'append' as const }
+
+function seqOf(session: Session, type: SessionEvent['type'], nth = 0): number {
+  return session.events.filter(event => event.type === type)[nth]!.seq
+}
+
+function nodeAt(session: Session, seq: number): SurfaceNode {
+  const node = session.surface.nodes.find(candidate => candidate.seq === seq)
+  if (node === undefined) throw new Error(`seq ${seq} is not a surface node`)
+  return node
+}
+
+function before(session: Session, type: SessionEvent['type'], nth = 0): boolean {
+  return toolPairingBalancedBefore(session, nodeAt(session, seqOf(session, type, nth)))
+}
+
+function after(session: Session, type: SessionEvent['type'], nth = 0): boolean {
+  return toolPairingBalancedAfter(session, nodeAt(session, seqOf(session, type, nth)))
+}
+
+function closedToolStep(): Session {
+  const session = new Session(SessionId('closed-tool-step'))
+  session.append('user/message', {
+    content: [{ type: 'text', text: 'go' }],
+    source: { kind: 'user' },
+  }, SURFACE)
+  session.append('assistant/message', {
+    turn: 1,
+    step: 1,
+    content: [{ type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' }],
+  }, SURFACE)
+  session.append('tool/result', {
+    turn: 1,
+    step: 1,
+    callId: CallId('c1'),
+    content: [{ type: 'text', text: 'done' }],
+    isError: false,
+  }, SURFACE)
+  return session
+}
+
+describe('tool-pairing boundaries', () => {
+  it('classifies closed and open single-call steps', () => {
+    const closed = closedToolStep()
+    expect(before(closed, 'user/message')).toBe(true)
+    expect(after(closed, 'user/message')).toBe(true)
+    expect(before(closed, 'assistant/message')).toBe(true)
+    expect(after(closed, 'assistant/message')).toBe(false)
+    expect(before(closed, 'tool/result')).toBe(false)
+    expect(after(closed, 'tool/result')).toBe(true)
+
+    const open = new Session(SessionId('open-tool-step'))
+    open.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      content: [{ type: 'tool-call', id: CallId('open'), name: 'bash', arguments: '{}' }],
+    }, SURFACE)
+    expect(toolPairingBalancedAfter(open, open.surface.nodes[0]!)).toBe(false)
+  })
+
+  it('requires every result from a multiple-call assistant message', () => {
+    const session = new Session(SessionId('multiple-calls'))
+    session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      content: [
+        { type: 'tool-call', id: CallId('c1'), name: 'one', arguments: '{}' },
+        { type: 'tool-call', id: CallId('c2'), name: 'two', arguments: '{}' },
+      ],
+    }, SURFACE)
+    session.append('tool/result', {
+      turn: 1, step: 1, callId: CallId('c1'), content: [], isError: false,
+    }, SURFACE)
+    session.append('tool/result', {
+      turn: 1, step: 1, callId: CallId('c2'), content: [], isError: false,
+    }, SURFACE)
+
+    expect(after(session, 'tool/result', 0)).toBe(false)
+    expect(after(session, 'tool/result', 1)).toBe(true)
+  })
+
+  it('keeps neutral nodes inside an open pair unbalanced and free nodes balanced', () => {
+    const midStep = new Session(SessionId('neutral-mid-step'))
+    midStep.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      content: [{ type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' }],
+    }, SURFACE)
+    midStep.append('context/message', {
+      content: [{ type: 'text', text: 'background update' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }, SURFACE)
+    midStep.append('tool/result', {
+      turn: 1, step: 1, callId: CallId('c1'), content: [], isError: false,
+    }, SURFACE)
+    expect(before(midStep, 'context/message')).toBe(false)
+    expect(after(midStep, 'context/message')).toBe(false)
+
+    const free = new Session(SessionId('neutral-free'))
+    free.append('context/message', {
+      content: [{ type: 'text', text: 'idle injection' }],
+      source: { kind: 'user' },
+    }, SURFACE)
+    expect(before(free, 'context/message')).toBe(true)
+    expect(after(free, 'context/message')).toBe(true)
+  })
+})
+
+describe('tool-pairing surface identity', () => {
+  it('rebuilds after replace and rejects nodes removed from current membership', () => {
+    const session = closedToolStep()
+    const staleTail = nodeAt(session, seqOf(session, 'tool/result'))
+    expect(toolPairingBalancedAfter(session, staleTail)).toBe(true)
+
+    const nodes = session.surface.nodes
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'checkpoint' }],
+      source: { kind: 'plugin', plugin: 'compact' },
+    }, {
+      surfaceOp: { op: 'replace', start: nodes[0]!.seq, end: nodes.at(-1)!.seq },
+      sourceEventSeqs: nodes.map(node => node.seq),
+    })
+
+    const checkpoint = session.surface.nodes[0]!
+    expect(toolPairingBalancedBefore(session, checkpoint)).toBe(true)
+    expect(toolPairingBalancedAfter(session, checkpoint)).toBe(true)
+    expect(() => toolPairingBalancedBefore(session, staleTail)).toThrow(/surface seq .* not found/)
+    expect(() => toolPairingBalancedAfter(session, staleTail)).toThrow(/surface seq .* not found/)
+  })
+
+  it('ignores a caller-held node next field and answers from cached balances', () => {
+    const session = closedToolStep()
+    const assistant = nodeAt(session, seqOf(session, 'assistant/message'))
+    expect(toolPairingBalancedAfter(session, { ...assistant, next: null })).toBe(false)
+    expect(toolPairingBalancedAfter(session, { ...assistant, next: 999 })).toBe(false)
+  })
+
+  it('rejects missing seqs before and after, including an empty surface', () => {
+    const session = new Session(SessionId('missing-membership'))
+    const missing: SurfaceNode = { seq: 999, prev: null, next: null }
+    expect(() => toolPairingBalancedBefore(session, missing)).toThrow(/surface seq 999 not found/)
+    expect(() => toolPairingBalancedAfter(session, missing)).toThrow(/surface seq 999 not found/)
+
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'first node after empty cache' }],
+      source: { kind: 'user' },
+    }, SURFACE)
+    expect(toolPairingBalancedAfter(session, session.surface.nodes[0]!)).toBe(true)
+  })
+})
+
+describe('tool-pairing cache refresh', () => {
+  it('does no event reads for unchanged or log-only growth, folds only appended nodes, and rebuilds on replace', () => {
+    const events: SessionEvent[] = [
+      {
+        type: 'user/message', seq: 0, time: 0,
+        data: { content: [{ type: 'text', text: 'user' }], source: { kind: 'user' } },
+        surfaceOp: 'append',
+      },
+      {
+        type: 'assistant/message', seq: 1, time: 1,
+        data: { turn: 1, step: 1, content: [{ type: 'tool-call', id: CallId('c1'), name: 'one', arguments: '{}' }] },
+        surfaceOp: 'append',
+      },
+      {
+        type: 'tool/result', seq: 2, time: 2,
+        data: { turn: 1, step: 1, callId: CallId('c1'), content: [], isError: false },
+        surfaceOp: 'append',
+      },
+    ]
+    const nodes: SurfaceNode[] = [
+      { seq: 0, prev: null, next: 1 },
+      { seq: 1, prev: 0, next: 2 },
+      { seq: 2, prev: 1, next: null },
+    ]
+    let generation = 0
+    let eventCollectionReads = 0
+    let eventIndexReads = 0
+    const trackedEvents = new Proxy(events, {
+      get(target, property, receiver) {
+        if (typeof property === 'string' && /^\d+$/.test(property)) eventIndexReads += 1
+        return Reflect.get(target, property, receiver) as unknown
+      },
+    })
+    const surface = {
+      get nodes() { return nodes },
+      get replaceGeneration() { return generation },
+    }
+    const session = {
+      surface,
+      get events() {
+        eventCollectionReads += 1
+        return trackedEvents
+      },
+    } as unknown as Session
+
+    expect(toolPairingBalancedAfter(session, nodes[2]!)).toBe(true)
+    expect(eventCollectionReads).toBe(1)
+    expect(eventIndexReads).toBe(3)
+
+    expect(toolPairingBalancedBefore(session, nodes[0]!)).toBe(true)
+    expect(toolPairingBalancedAfter(session, nodes[1]!)).toBe(false)
+    expect(eventCollectionReads).toBe(1)
+    expect(eventIndexReads).toBe(3)
+
+    events.push({
+      type: 'turn/end', seq: 3, time: 3,
+      data: { turn: 1, reason: { kind: 'completed' } },
+    })
+    expect(toolPairingBalancedAfter(session, nodes[2]!)).toBe(true)
+    expect(eventCollectionReads).toBe(1)
+    expect(eventIndexReads).toBe(3)
+
+    events.push({
+      type: 'user/message', seq: 4, time: 4,
+      data: { content: [{ type: 'text', text: 'tail' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    })
+    nodes.push({ seq: 4, prev: 2, next: null })
+    expect(toolPairingBalancedAfter(session, nodes[3]!)).toBe(true)
+    expect(eventCollectionReads).toBe(2)
+    expect(eventIndexReads).toBe(4)
+
+    events.push(
+      {
+        type: 'assistant/message', seq: 5, time: 5,
+        data: { turn: 2, step: 1, content: [{ type: 'tool-call', id: CallId('c2'), name: 'two', arguments: '{}' }] },
+        surfaceOp: 'append',
+      },
+      {
+        type: 'tool/result', seq: 6, time: 6,
+        data: { turn: 2, step: 1, callId: CallId('c2'), content: [], isError: false },
+        surfaceOp: 'append',
+      },
+    )
+    nodes.push(
+      { seq: 5, prev: 4, next: 6 },
+      { seq: 6, prev: 5, next: null },
+    )
+    expect(toolPairingBalancedAfter(session, nodes[5]!)).toBe(true)
+    expect(eventCollectionReads).toBe(3)
+    expect(eventIndexReads).toBe(6)
+
+    events.push({
+      type: 'user/message', seq: 7, time: 7,
+      data: { content: [{ type: 'text', text: 'replacement' }], source: { kind: 'user' } },
+      surfaceOp: { op: 'replace', start: 0, end: 6 },
+    })
+    nodes.splice(0, nodes.length, { seq: 7, prev: null, next: null })
+    generation += 1
+    expect(toolPairingBalancedAfter(session, nodes[0]!)).toBe(true)
+    expect(eventCollectionReads).toBe(4)
+    expect(eventIndexReads).toBe(7)
+  })
+
+  it('rebuilds defensively when a same-generation surface node count regresses', () => {
+    const events: SessionEvent[] = [
+      {
+        type: 'user/message', seq: 0, time: 0,
+        data: { content: [], source: { kind: 'user' } }, surfaceOp: 'append',
+      },
+      {
+        type: 'user/message', seq: 1, time: 1,
+        data: { content: [], source: { kind: 'user' } }, surfaceOp: 'append',
+      },
+    ]
+    const nodes: SurfaceNode[] = [
+      { seq: 0, prev: null, next: 1 },
+      { seq: 1, prev: 0, next: null },
+    ]
+    const session = {
+      events,
+      surface: { nodes, replaceGeneration: 0 },
+    } as unknown as Session
+    expect(toolPairingBalancedAfter(session, nodes[1]!)).toBe(true)
+    nodes.pop()
+    expect(toolPairingBalancedAfter(session, nodes[0]!)).toBe(true)
+  })
+})
+
+describe('tool-pairing corrupt surfaces', () => {
+  it('throws for an orphan result during a rebuild', () => {
+    const session = new Session(SessionId('orphan-rebuild'))
+    session.append('tool/result', {
+      turn: 1, step: 1, callId: CallId('orphan'), content: [], isError: false,
+    }, SURFACE)
+    expect(() => toolPairingBalancedAfter(session, session.surface.nodes[0]!)).toThrow(/no matching tool-call/)
+  })
+
+  it('retries an orphan result in an appended tail without committing partial cache state', () => {
+    const session = new Session(SessionId('orphan-tail'))
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'safe head' }], source: { kind: 'user' },
+    }, SURFACE)
+    expect(toolPairingBalancedAfter(session, session.surface.nodes[0]!)).toBe(true)
+    session.append('tool/result', {
+      turn: 1, step: 1, callId: CallId('orphan'), content: [], isError: false,
+    }, SURFACE)
+    expect(() => toolPairingBalancedAfter(session, session.surface.nodes[1]!)).toThrow(/no matching tool-call/)
+    expect(() => toolPairingBalancedAfter(session, session.surface.nodes[1]!)).toThrow(/no matching tool-call/)
+  })
+
+  it('throws when a current surface seq has no matching event or indexes the wrong event', () => {
+    const missingNode: SurfaceNode = { seq: 1, prev: null, next: null }
+    const missing = {
+      events: [{
+        type: 'user/message', seq: 0, time: 0,
+        data: { content: [], source: { kind: 'user' } }, surfaceOp: 'append',
+      } satisfies SessionEvent],
+      surface: { nodes: [missingNode], replaceGeneration: 0 },
+    } as unknown as Session
+    expect(() => toolPairingBalancedBefore(missing, missingNode)).toThrow(/no matching session event/)
+
+    const mismatchedNode: SurfaceNode = { seq: 0, prev: null, next: null }
+    const mismatched = {
+      events: [{
+        type: 'user/message', seq: 99, time: 0,
+        data: { content: [], source: { kind: 'user' } }, surfaceOp: 'append',
+      } satisfies SessionEvent],
+      surface: { nodes: [mismatchedNode], replaceGeneration: 0 },
+    } as unknown as Session
+    expect(() => toolPairingBalancedBefore(mismatched, mismatchedNode)).toThrow(/no matching session event/)
+  })
+})
