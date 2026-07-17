@@ -67,6 +67,7 @@ const GROUP_ORDER = [
   'tasks',
   'workflow',
   'web',
+  'spill',
   'todo',
   'cordis',
   'hooks',
@@ -249,6 +250,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['web-search-exa', 'web-search-perplexity', 'web-search-deepseek', 'web-fetch-local'],
     consumers: ['tool-web'],
     note: 'Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names.',
+  },
+  {
+    key: 'spillStore',
+    pkg: 'spill',
+    title: 'Spill storage seam',
+    mode: 'seam',
+    implementations: ['spill-local'],
+    consumers: ['spill-policy'],
+    note: 'The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill.',
   },
   {
     key: 'workflows',
