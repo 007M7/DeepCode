@@ -138,7 +138,6 @@ flowchart TD
   end
   subgraph group_sdk["packages/sdk"]
     pkg_helper["helper"]
-    pkg_plugin_fetch["plugin-fetch"]
     pkg_scripts["scripts"]
     pkg_telemetry["telemetry"]
   end
@@ -154,7 +153,6 @@ flowchart TD
   pkg_llm --> pkg_brand
   pkg_code_runtime_worker --> pkg_code_runtime
   pkg_helper --> pkg_brand
-  pkg_plugin_fetch --> pkg_brand
   pkg_scripts --> pkg_app_boot
   pkg_telemetry --> pkg_brand
   pkg_llm_deepseek --> pkg_llm
@@ -446,7 +444,6 @@ flowchart TD
 | [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand) |
 | [`code-runtime-worker`](../packages/code-runtime/code-runtime-worker) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime) |
 | [`helper`](../packages/sdk/helper) | `sdk` | [`brand`](../packages/util/brand) |
-| [`plugin-fetch`](../packages/sdk/plugin-fetch) | `sdk` | [`brand`](../packages/util/brand) |
 | [`scripts`](../packages/sdk/scripts) | `sdk` | [`app-boot`](../packages/ui/app-boot) |
 | [`telemetry`](../packages/sdk/telemetry) | `sdk` | [`brand`](../packages/util/brand) |
 | [`llm-deepseek`](../packages/llm/llm-deepseek) | `llm` | [`llm`](../packages/llm/llm) |
