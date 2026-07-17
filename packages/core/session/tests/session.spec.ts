@@ -317,35 +317,52 @@ describe('Session', () => {
       type: 'user/message',
       seq: 0,
       time: 1,
+      data: { content: [{ type: 'text', text: 'source' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    }, {
+      type: 'user/message',
+      seq: 1,
+      time: 2,
       data: { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } },
       surfaceOp,
+      sourceEventSeqs: [0],
     }] as unknown as SessionEvent[]
 
     const session = new Session(SessionId('seed-unstable-metadata'), seed)
-    const event = session.events[0]!
+    const event = session.events[1]!
     if (event.type !== 'user/message') throw new Error('test fixture must remain a user/message')
 
     expect(reads).toBe(1)
     expect(event.surfaceOp).toEqual({ op: 'replace', start: 0, end: 0 })
   })
 
-  it('adds seed context when surface validation throws a non-Error value', () => {
+  it.each([
+    ['an Error', new Error('validator failed'), 'validator failed'],
+    ['a non-Error value', 'validator failed', 'invalid surface metadata'],
+  ] as const)('adds seed context when surface validation throws %s', (_name, failure, expected) => {
     const originalHasOwn = Object.hasOwn
     const hasOwn = vi.spyOn(Object, 'hasOwn').mockImplementation((object: object, property: PropertyKey): boolean => {
-      if ((object as Record<string, unknown>)['op'] === 'replace') throw 'validator failed'
+      if ((object as Record<string, unknown>)['op'] === 'replace') throw failure
       return originalHasOwn(object, property)
     })
     const seed = [{
       type: 'user/message',
       seq: 0,
       time: 1,
+      data: { content: [{ type: 'text', text: 'source' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    }, {
+      type: 'user/message',
+      seq: 1,
+      time: 2,
       data: { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } },
       surfaceOp: { op: 'replace', start: 0, end: 0 },
+      sourceEventSeqs: [0],
     }] as unknown as SessionEvent[]
 
     try {
       expect(() => new Session(SessionId('seed-non-error-metadata-failure'), seed))
-        .toThrow('invalid seed event at index 0: invalid surface metadata')
+        .toThrow(`invalid seed event at index 1: ${expected}`)
     } finally {
       hasOwn.mockRestore()
     }
@@ -431,6 +448,11 @@ describe('Session', () => {
 
   it('reads a nested append-metadata getter once and stores its first JSON value', () => {
     const session = new Session(SessionId('append-unstable-metadata'))
+    const source = session.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'source' }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
     let reads = 0
     const surfaceOp = Object.defineProperty({ op: 'replace', end: 0 }, 'start', {
       enumerable: true,
@@ -443,12 +465,12 @@ describe('Session', () => {
     const event = session.append(
       'user/message',
       { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } },
-      { surfaceOp } as never,
+      { surfaceOp, sourceEventSeqs: [0] } as never,
     )
 
     expect(reads).toBe(1)
     expect(event.surfaceOp).toEqual({ op: 'replace', start: 0, end: 0 })
-    expect(session.events).toEqual([event])
+    expect(session.events).toEqual([source, event])
   })
 
   it('rejects invalid plain surface metadata shapes at append', () => {
@@ -484,7 +506,7 @@ describe('Session', () => {
       'turn/start',
       { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
       { surfaceOp: 'append' },
-    )).toThrow(/not surface-eligible and cannot carry surface metadata/)
+    )).toThrow(/not surface-eligible and cannot carry surfaceOp/)
     expect(() => new Session(SessionId('non-surface-metadata-seed'), [{
       type: 'turn/start',
       seq: 0,
