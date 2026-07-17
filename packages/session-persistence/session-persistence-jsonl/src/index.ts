@@ -8,7 +8,7 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { open, mkdir, readFile, readdir, link, rm, truncate } from 'node:fs/promises'
+import { open, mkdir, readFile, readdir, link, rm, stat as fsStat, truncate } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
@@ -389,7 +389,27 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     } catch (error) {
       // Only ENOENT means absent. A permission/I/O error must surface rather
       // than letting load or collision checks proceed under false absence.
-      if (isENOENT(error)) return false
+      // Windows reports ENOENT, not ENOTDIR, for `regular-file/child`; verify
+      // the immediate parent so a blocked cwd bucket remains a storage fault.
+      if (isENOENT(error)) {
+        await this.assertLogParentAllowsAbsence(path)
+        return false
+      }
+      throw error
+    }
+  }
+
+  private async assertLogParentAllowsAbsence(path: string): Promise<void> {
+    try {
+      const parent = dirname(path)
+      const info = await fsStat(parent)
+      if (info.isDirectory()) return
+      const error = new Error(`ENOTDIR: parent path exists but is not a directory: ${parent}`) as NodeJS.ErrnoException
+      error.code = 'ENOTDIR'
+      error.path = parent
+      throw error
+    } catch (error) {
+      if (isENOENT(error)) return
       throw error
     }
   }
