@@ -152,7 +152,7 @@ function localPackageDirectories(): Map<string, string> {
 }
 
 function rootProjectReferences(): Set<string> {
-  const config = ts.readConfigFile(resolve(root, 'tsconfig.json'), ts.sys.readFile)
+  const config = ts.readConfigFile(resolve(root, 'tsconfig.json'), path => ts.sys.readFile(path))
   if (config.error !== undefined) {
     throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, '\n'))
   }
