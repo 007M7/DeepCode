@@ -210,6 +210,61 @@ describe('SQLite session search', () => {
     })
   })
 
+  it('searches at the supported FTS5 outer-predicate boundary in both scopes', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('predicate-boundary'), {
+      seed: messageEvents('needle'),
+      meta: { cwd: '/work' },
+    })
+    const sessionFilters = Array.from(
+      { length: 14 },
+      () => ({ kind: 'cwd' as const, values: ['/work', null] }),
+    )
+    const eventFilters = Array.from(
+      { length: 13 },
+      () => ({ kind: 'type' as const, values: ['user/message' as const] }),
+    )
+
+    await expect(ctx.sessionSearch.searchSessions({ query: 'needle', sessionFilters }))
+      .resolves.toMatchObject({ items: [{ header: { id: session.id } }] })
+    await expect(ctx.sessionSearch.searchEvents({
+      sessionId: session.id,
+      query: 'needle',
+      filters: eventFilters,
+    })).resolves.toMatchObject({ items: [{ sessionId: session.id, seq: 0 }] })
+  })
+
+  it('rejects unsupported FTS5 outer-predicate counts with typed errors', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('predicate-limit'), { seed: messageEvents('needle') })
+    const sessionFilters = Array.from(
+      { length: 1_100 },
+      () => ({ kind: 'id' as const, values: [session.id] }),
+    )
+    const eventFilters = Array.from(
+      { length: 1_100 },
+      () => ({ kind: 'type' as const, values: ['user/message' as const] }),
+    )
+
+    await expect(ctx.sessionSearch.searchSessions({ query: 'needle', sessionFilters }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    await expect(ctx.sessionSearch.searchEvents({
+      sessionId: session.id,
+      query: 'needle',
+      filters: eventFilters,
+    })).rejects.toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    await expect(ctx.sessionSearch.searchSessions({
+      query: 'needle',
+      sessionFilters: sessionFilters.slice(0, 7),
+      eventFilters: eventFilters.slice(0, 8),
+    })).rejects.toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    await expect(ctx.sessionSearch.searchEvents({
+      sessionId: session.id,
+      query: 'needle',
+      filters: eventFilters.slice(0, 14),
+    })).rejects.toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+  })
+
   it('uses literal phrase tokens, stable ties, and bounded Unicode snippets', async () => {
     const ctx = await liveContext({ path: ':memory:', defaultLimit: 10, maxLimit: 10, snippetChars: 5 })
     ctx.sessions.create(SessionId('a'), { seed: messageEvents('😀😀 alpha beta BRAID 😀😀', 10), meta: { createdAt: 1 } })

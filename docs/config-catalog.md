@@ -666,7 +666,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session-query/session-query-sqlite/src/index.ts:72`](../packages/session-query/session-query-sqlite/src/index.ts)
+Source: [`packages/session-query/session-query-sqlite/src/index.ts:73`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill`
 

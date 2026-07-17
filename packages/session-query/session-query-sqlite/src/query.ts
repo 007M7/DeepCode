@@ -26,6 +26,9 @@ export const SQLITE_MAX_PAGE_LIMIT = Number.MAX_SAFE_INTEGER - 1
 /** Portable host-parameter ceiling shared by predicate and statement builders. */
 export const SQLITE_PORTABLE_VARIABLE_LIMIT = 32_766
 
+/** Supported outer-predicate budget that keeps SQLite FTS5 MATCH usable. */
+export const SQLITE_FTS5_OUTER_PREDICATE_LIMIT = 14
+
 /**
  * Reject prospective SQLite binding growth beyond the portable ceiling.
  * @param count - binding count at the current construction boundary.
@@ -34,6 +37,19 @@ export function assertPortableBindingCount(count: number): void {
   if (count > SQLITE_PORTABLE_VARIABLE_LIMIT) {
     throw new SessionQueryError(
       `session-search request exceeds SQLite's portable ${SQLITE_PORTABLE_VARIABLE_LIMIT}-variable limit; reduce filter values`,
+      'SESSION_QUERY_INVALID_FILTER',
+    )
+  }
+}
+
+/**
+ * Reject compiled outer predicates beyond the supported FTS5 planner budget.
+ * @param count - predicate count including fixed statement predicates.
+ */
+export function assertFts5OuterPredicateCount(count: number): void {
+  if (count > SQLITE_FTS5_OUTER_PREDICATE_LIMIT) {
+    throw new SessionQueryError(
+      `session-search request exceeds the supported SQLite FTS5 outer-predicate budget of ${SQLITE_FTS5_OUTER_PREDICATE_LIMIT}; reduce filters`,
       'SESSION_QUERY_INVALID_FILTER',
     )
   }
@@ -71,6 +87,8 @@ export interface SqlWhere {
   sql: string
   /** Bindings in placeholder order. */
   params: Array<string | number>
+  /** Number of compiled predicates in `sql`. */
+  predicateCount: number
 }
 
 /**
@@ -163,7 +181,8 @@ export function buildSessionWhere(filters: readonly SessionResultFilter[]): SqlW
         unknownFilter(filter)
     }
   }
-  return { sql: clauses.join(' AND '), params }
+  assertFts5OuterPredicateCount(clauses.length)
+  return { sql: clauses.join(' AND '), params, predicateCount: clauses.length }
 }
 
 /**
@@ -192,7 +211,8 @@ export function buildEventWhere(filters: readonly SessionEventMetadataFilter[]):
         unknownFilter(filter)
     }
   }
-  return { sql: clauses.join(' AND '), params }
+  assertFts5OuterPredicateCount(clauses.length)
+  return { sql: clauses.join(' AND '), params, predicateCount: clauses.length }
 }
 
 /**

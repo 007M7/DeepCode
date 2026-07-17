@@ -11,6 +11,7 @@ import {
   normalizeSessionRequest,
   quoteFtsData,
   requestFingerprint,
+  SQLITE_FTS5_OUTER_PREDICATE_LIMIT,
   SQLITE_MAX_PAGE_LIMIT,
   type NormalizedEventRequest,
   type NormalizedSessionRequest,
@@ -111,24 +112,36 @@ describe('SQLite search request normalization', () => {
 
 describe('SQLite search predicate compilation', () => {
   it('compiles all logical-session clauses including empty and nullable values', () => {
-    expect(buildSessionWhere([])).toEqual({ sql: '', params: [] })
-    expect(buildSessionWhere([{ kind: 'id', values: [] }])).toEqual({ sql: '0', params: [] })
+    expect(buildSessionWhere([])).toEqual({ sql: '', params: [], predicateCount: 0 })
+    expect(buildSessionWhere([{ kind: 'id', values: [] }])).toEqual({
+      sql: '0',
+      params: [],
+      predicateCount: 1,
+    })
     expect(buildSessionWhere([{ kind: 'id', values: [SessionId('a'), SessionId('b')] }])).toEqual({
       sql: 'session_id IN (?, ?)',
       params: [SessionId('a'), SessionId('b')],
+      predicateCount: 1,
     })
-    expect(buildSessionWhere([{ kind: 'cwd', values: [] }])).toEqual({ sql: '0', params: [] })
+    expect(buildSessionWhere([{ kind: 'cwd', values: [] }])).toEqual({
+      sql: '0',
+      params: [],
+      predicateCount: 1,
+    })
     expect(buildSessionWhere([{ kind: 'cwd', values: [null] }])).toEqual({
       sql: '(cwd IS NULL)',
       params: [],
+      predicateCount: 1,
     })
     expect(buildSessionWhere([{ kind: 'cwd', values: ['/a'] }])).toEqual({
       sql: '(cwd IN (?))',
       params: ['/a'],
+      predicateCount: 1,
     })
     expect(buildSessionWhere([{ kind: 'parent', values: [SessionId('p'), null] }])).toEqual({
       sql: '(parent_session IN (?) OR parent_session IS NULL)',
       params: [SessionId('p')],
+      predicateCount: 1,
     })
     expect(buildSessionWhere([
       { kind: 'created-at', from: 1, to: 2 },
@@ -138,8 +151,13 @@ describe('SQLite search predicate compilation', () => {
     ])).toEqual({
       sql: 'CAST(created_at AS INTEGER) >= ? AND CAST(created_at AS INTEGER) <= ? AND 0 AND live = 1',
       params: [1, 2],
+      predicateCount: 4,
     })
-    expect(buildSessionWhere([{ kind: 'created-at' }])).toEqual({ sql: '', params: [] })
+    expect(buildSessionWhere([{ kind: 'created-at' }])).toEqual({
+      sql: '',
+      params: [],
+      predicateCount: 0,
+    })
   })
 
   it('compiles every event clause and empty lists', () => {
@@ -151,11 +169,25 @@ describe('SQLite search predicate compilation', () => {
     ])).toEqual({
       sql: 'CAST(seq AS INTEGER) >= ? AND CAST(time AS INTEGER) <= ? AND type IN (?) AND surface IN (?, ?)',
       params: [1, 9, 'user/message', 'current', 'log-only'],
+      predicateCount: 4,
     })
     expect(buildEventWhere([
       { kind: 'type', values: [] },
       { kind: 'surface', values: [] },
-    ])).toEqual({ sql: '0 AND 0', params: [] })
+    ])).toEqual({ sql: '0 AND 0', params: [], predicateCount: 2 })
+  })
+
+  it('rejects predicate builders above the supported FTS5 outer budget', () => {
+    const filters = Array.from(
+      { length: SQLITE_FTS5_OUTER_PREDICATE_LIMIT },
+      () => ({ kind: 'id' as const, values: [SessionId('safe')] }),
+    )
+
+    expect(buildSessionWhere(filters).predicateCount).toBe(SQLITE_FTS5_OUTER_PREDICATE_LIMIT)
+    expect(() => buildSessionWhere([
+      ...filters,
+      { kind: 'id', values: [SessionId('over')] },
+    ])).toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
   })
 
   it('rejects runtime-unknown filter discriminants in both SQL builders', () => {

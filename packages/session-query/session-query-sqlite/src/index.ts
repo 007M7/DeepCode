@@ -40,6 +40,7 @@ import {
   type NormalizedSessionRequest,
   FTS_HIGHLIGHT_END,
   FTS_HIGHLIGHT_START,
+  assertFts5OuterPredicateCount,
   assertPortableBindingCount,
   buildEventWhere,
   buildSessionWhere,
@@ -558,6 +559,7 @@ export class SessionSearchSqlite extends SessionSearchService {
     const selected = selectedDocumentsSql()
     const sessionWhere = buildSessionWhere(request.sessionFilters)
     const eventWhere = buildEventWhere(request.eventFilters)
+    assertFts5OuterPredicateCount(sessionWhere.predicateCount + eventWhere.predicateCount)
     const where = [sessionWhere.sql, eventWhere.sql].filter(Boolean).join(' AND ')
     const bindings = [
       ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
@@ -593,6 +595,7 @@ export class SessionSearchSqlite extends SessionSearchService {
   ): SearchRow[] {
     const selected = selectedDocumentsSql()
     const eventWhere = buildEventWhere(request.filters)
+    assertFts5OuterPredicateCount(1 + eventWhere.predicateCount)
     const where = ['session_id = ?', eventWhere.sql].filter(Boolean).join(' AND ')
     const bindings = [
       ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
