@@ -445,6 +445,19 @@ describe('SQLite session search', () => {
       ],
     })).rejects.toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
   })
+
+  it('rejects one 125,000-value filter list with a typed error', async () => {
+    const ctx = await liveContext()
+    const ids = Array.from(
+      { length: 125_000 },
+      (_, index) => SessionId(`oversized-binding-${index}`),
+    )
+
+    await expect(ctx.sessionSearch.searchSessions({
+      query: 'needle',
+      sessionFilters: [{ kind: 'id', values: ids }],
+    })).rejects.toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+  })
 })
 
 describe('SQLite reconciliation and source lifecycle', () => {

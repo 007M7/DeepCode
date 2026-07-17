@@ -23,6 +23,22 @@ export const FTS_HIGHLIGHT_END = '\uFDD1'
 /** Largest page size whose internal lookahead remains an exact SQLite integer binding. */
 export const SQLITE_MAX_PAGE_LIMIT = Number.MAX_SAFE_INTEGER - 1
 
+/** Portable host-parameter ceiling shared by predicate and statement builders. */
+export const SQLITE_PORTABLE_VARIABLE_LIMIT = 32_766
+
+/**
+ * Reject prospective SQLite binding growth beyond the portable ceiling.
+ * @param count - binding count at the current construction boundary.
+ */
+export function assertPortableBindingCount(count: number): void {
+  if (count > SQLITE_PORTABLE_VARIABLE_LIMIT) {
+    throw new SessionQueryError(
+      `session-search request exceeds SQLite's portable ${SQLITE_PORTABLE_VARIABLE_LIMIT}-variable limit; reduce filter values`,
+      'SESSION_QUERY_INVALID_FILTER',
+    )
+  }
+}
+
 /** Limit defaults needed to normalize a search request. */
 export interface QueryLimits {
   /** Page size used when the request omits one. */
@@ -356,8 +372,7 @@ function addList(
     clauses.push('0')
     return
   }
-  clauses.push(`${column} IN (${values.map(() => '?').join(', ')})`)
-  params.push(...values)
+  clauses.push(`${column} IN (${appendListBindings(params, values)})`)
 }
 
 function addNullableList(
@@ -373,8 +388,7 @@ function addNullableList(
   const concrete = values.filter((value): value is string => value !== null)
   const parts: string[] = []
   if (concrete.length > 0) {
-    parts.push(`${column} IN (${concrete.map(() => '?').join(', ')})`)
-    params.push(...concrete)
+    parts.push(`${column} IN (${appendListBindings(params, concrete)})`)
   }
   if (values.includes(null)) parts.push(`${column} IS NULL`)
   clauses.push(`(${parts.join(' OR ')})`)
@@ -387,13 +401,24 @@ function addRange(
   range: { from?: number; to?: number },
 ): void {
   if (range.from !== undefined) {
+    assertPortableBindingCount(params.length + 1)
     clauses.push(`CAST(${column} AS INTEGER) >= ?`)
     params.push(range.from)
   }
   if (range.to !== undefined) {
+    assertPortableBindingCount(params.length + 1)
     clauses.push(`CAST(${column} AS INTEGER) <= ?`)
     params.push(range.to)
   }
+}
+
+function appendListBindings(
+  params: Array<string | number>,
+  values: readonly (string | number)[],
+): string {
+  assertPortableBindingCount(params.length + values.length)
+  for (const value of values) params.push(value)
+  return values.map(() => '?').join(', ')
 }
 
 function canonicalFilters(filters: readonly (SessionResultFilter | SessionEventMetadataFilter)[]): unknown[] {

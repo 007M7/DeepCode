@@ -40,6 +40,7 @@ import {
   type NormalizedSessionRequest,
   FTS_HIGHLIGHT_END,
   FTS_HIGHLIGHT_START,
+  assertPortableBindingCount,
   buildEventWhere,
   buildSessionWhere,
   makeSnippet,
@@ -64,8 +65,7 @@ export const SESSION_QUERY_SQLITE_MAX_LIMIT = 100
 /** Default maximum snippet length in Unicode code points. */
 export const SESSION_QUERY_SQLITE_SNIPPET_CHARS = 240
 
-// A serialized search tolerates one transient source change; repeated churn
-// fails instead of monopolizing the operation queue.
+// One transient source change gets a retry; repeated churn fails rather than monopolizing the queue.
 const STABLE_OBSERVATION_ATTEMPTS = 2
 
 /** SQLite session-search configuration. */
@@ -566,7 +566,7 @@ export class SessionSearchSqlite extends SessionSearchService {
       request.limit + 1,
       offset,
     ]
-    assertPortableBindingCount(bindings)
+    assertPortableBindingCount(bindings.length)
     return this._requireDb().prepare(`
       ${selected.sql},
       filtered AS (
@@ -601,7 +601,7 @@ export class SessionSearchSqlite extends SessionSearchService {
       request.limit + 1,
       offset,
     ]
-    assertPortableBindingCount(bindings)
+    assertPortableBindingCount(bindings.length)
     return this._requireDb().prepare(`
       ${selected.sql}
       SELECT * FROM matched
@@ -730,19 +730,6 @@ function selectedDocumentsParams(query: string, persistenceVisible: boolean): Ar
     FTS_HIGHLIGHT_START,
     Buffer.byteLength(FTS_HIGHLIGHT_START, 'utf8'),
   ]
-}
-
-// SQLite builds may raise this ceiling; supported modern versions share 32,766
-// as the portable host-parameter limit.
-const SQLITE_PORTABLE_VARIABLE_LIMIT = 32_766
-
-function assertPortableBindingCount(bindings: readonly (string | number)[]): void {
-  if (bindings.length > SQLITE_PORTABLE_VARIABLE_LIMIT) {
-    throw new SessionQueryError(
-      `session-search request requires ${bindings.length} SQLite bindings; reduce filters to stay within the portable ${SQLITE_PORTABLE_VARIABLE_LIMIT}-variable limit`,
-      'SESSION_QUERY_INVALID_FILTER',
-    )
-  }
 }
 
 function observeLive(session: Session): ObservedSession {
