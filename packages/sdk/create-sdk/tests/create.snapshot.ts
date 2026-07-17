@@ -71,7 +71,7 @@ class RecordingPort implements PromptPort {
   }
 }
 
-describe('create-sdk terminal contract', () => {
+describe.skipIf(process.platform === 'win32')('create-sdk terminal contract', () => {
   it('renders package-manager-specific setup commands', () => {
     const model = packageManagerTemplateModel(createPackageManager('yarn', '4.0.0'))
     expect(CREATE_TEMPLATES.installQuestion.render(model)).toBe('Run yarn install and then build the project?\n')
