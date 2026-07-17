@@ -870,10 +870,12 @@ Source: [`packages/core/system-prompt/src/index.ts:143`](../packages/core/system
 Requires: `agents`
 
 ```ts config-catalog
-/** Request-time clock formatting. Invalid values fail plugin load. */
+/** Request-preparation clock formatting and append scheduling. Invalid values fail plugin load. */
 export interface Config {
   /** IANA time zone used for the rendered timestamp. Omit to resolve the Node process's system zone at plugin load. */
   timeZone?: string
+  /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject on every eligible pre-step attempt. */
+  refreshIntervalMs?: number
 }
 ```
 

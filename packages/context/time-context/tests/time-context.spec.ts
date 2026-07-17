@@ -65,9 +65,15 @@ function openMessageTurn(session: Session, turn: number): void {
 }
 
 function contextTexts(session: Session): string[] {
-  return session.events
-    .filter(event => event.type === 'context/message')
-    .map(event => event.data.content.find(block => block.type === 'text')?.text ?? '')
+  const texts: string[] = []
+  for (const event of session.events) {
+    if (event.type === 'context/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'time-context') {
+      texts.push(event.data.content.find(block => block.type === 'text')?.text ?? '')
+    }
+  }
+  return texts
 }
 
 async function fire(
@@ -146,7 +152,7 @@ describe('durable step context', () => {
     await fire(ctx, sessionAgent(session), 1, 1)
 
     expect(contextTexts(session)).toEqual([
-      'Time recorded before turn 1, step 1: 2026-07-15T09:01:01+08:00[Asia/Shanghai]\n'
+      'Time sampled while preparing turn 1, step 1: 2026-07-15T09:01:01+08:00[Asia/Shanghai]\n'
       + 'Elapsed since the preceding model-visible message: 1d 1h 1m 1s.',
     ])
     const event = session.events.at(-1)
@@ -168,8 +174,11 @@ describe('durable step context', () => {
     )
   })
 
-  it('uses the preceding durable step-context timestamp after step one', async () => {
-    const { ctx } = await mount()
+  it.each([
+    ['omitted interval', {}],
+    ['zero interval', { refreshIntervalMs: 0 }],
+  ] as const)('uses the preceding durable step-context timestamp after step one with %s', async (_label, config) => {
+    const { ctx } = await mount(config)
     const session = new Session(SessionId('later-step'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 3)
@@ -179,7 +188,7 @@ describe('durable step context', () => {
     await fire(ctx, agent, 3, 2)
 
     expect(contextTexts(session)[1]).toBe(
-      'Time recorded before turn 3, step 2: 2026-07-14T00:01:01+00:00[UTC]\n'
+      'Time sampled while preparing turn 3, step 2: 2026-07-14T00:01:01+00:00[UTC]\n'
       + 'Elapsed since the preceding step context: 1m 1s.',
     )
   })
@@ -207,8 +216,8 @@ describe('durable step context', () => {
     )
   })
 
-  it('clamps backward wall-clock movement against the preceding context to zero', async () => {
-    const { ctx } = await mount()
+  it('injects after backward wall-clock movement and clamps elapsed time to zero', async () => {
+    const { ctx } = await mount({ refreshIntervalMs: 60_000 })
     const session = new Session(SessionId('backward'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
@@ -217,7 +226,68 @@ describe('durable step context', () => {
 
     await fire(ctx, agent, 1, 2)
 
+    expect(contextTexts(session)).toHaveLength(2)
     expect(contextTexts(session)[1]).toContain('Elapsed since the preceding step context: 0s.')
+  })
+
+  it('uses a shadowed durable injection after resume and injects at the exact threshold', async () => {
+    const { ctx } = await mount({ refreshIntervalMs: 1_000 })
+    const original = new Session(SessionId('seed-source'))
+    openMessageTurn(original, 1)
+    await fire(ctx, sessionAgent(original), 1, 1)
+    const user = original.events.find(event => event.type === 'user/message')
+    const reading = original.events.find(event => event.type === 'context/message')
+    if (user === undefined || reading === undefined) throw new Error('missing source surface events')
+    original.append('context/message', {
+      content: [{ type: 'text', text: 'compacted history' }],
+      source: { kind: 'plugin', plugin: 'compact-basic' },
+    }, {
+      surfaceOp: { op: 'replace', start: user.seq, end: reading.seq },
+      sourceEventSeqs: [user.seq, reading.seq],
+    })
+    original.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    expect(JSON.stringify(original.deriveMessages())).not.toContain('Time sampled while preparing')
+
+    const resumed = new Session(SessionId('resumed'), [...original.events])
+    const resumedAgent = sessionAgent(resumed)
+    vi.setSystemTime(BASE + 999)
+    openMessageTurn(resumed, 2)
+    const beforeSkip = resumed.events.length
+
+    await fire(ctx, resumedAgent, 2, 1)
+
+    expect(resumed.events).toHaveLength(beforeSkip)
+    expect(contextTexts(resumed)).toHaveLength(1)
+
+    vi.setSystemTime(BASE + 1_000)
+    await fire(ctx, resumedAgent, 2, 2)
+
+    expect(contextTexts(resumed)).toHaveLength(2)
+    expect(contextTexts(resumed)[1]).toContain(
+      'Elapsed since the preceding step context: unavailable.',
+    )
+  })
+
+  it('applies a positive interval across turns without sharing state between sessions', async () => {
+    const { ctx } = await mount({ refreshIntervalMs: 1_000 })
+    const first = new Session(SessionId('interval-first'))
+    const firstAgent = sessionAgent(first, 'first-agent')
+    openMessageTurn(first, 1)
+    await fire(ctx, firstAgent, 1, 1)
+    first.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    vi.setSystemTime(BASE + 500)
+    openMessageTurn(first, 2)
+    const beforeSkip = first.events.length
+    await fire(ctx, firstAgent, 2, 1)
+
+    const independent = new Session(SessionId('interval-independent'))
+    openMessageTurn(independent, 1)
+    await fire(ctx, sessionAgent(independent, 'independent-agent'), 1, 1)
+
+    expect(first.events).toHaveLength(beforeSkip)
+    expect(contextTexts(first)).toHaveLength(1)
+    expect(contextTexts(independent)).toHaveLength(1)
   })
 
   it('runs before ordinary pre-step listeners and skips an already-aborted step', async () => {
@@ -268,6 +338,15 @@ describe('configuration and lifecycle', () => {
     await expect(unresolved.plugin(timeContext, {})).rejects.toThrow(/failed to resolve the system time zone/)
   })
 
+  it('rejects invalid refresh intervals at plugin load with one diagnostic', async () => {
+    const invalid = [-1, 0.5, Number.MAX_SAFE_INTEGER + 1, Number.POSITIVE_INFINITY, Number.NaN]
+    for (const refreshIntervalMs of invalid) {
+      await expect(mount({ refreshIntervalMs })).rejects.toThrow(
+        'time-context: refreshIntervalMs must be a non-negative safe integer',
+      )
+    }
+  })
+
   it('removes its listener when the plugin fiber disposes', async () => {
     const { ctx, fiber } = await mount()
     const session = new Session(SessionId('dispose'))
@@ -283,6 +362,32 @@ describe('configuration and lifecycle', () => {
 })
 
 describe('real agent-loop request history', () => {
+  it.each([
+    ['throws', 'error'],
+    ['cancels', 'aborted'],
+  ] as const)('retains the preparation reading when a later pre-step listener %s', async (mode, reasonKind) => {
+    const adapter = new ScriptedAdapter([textResponse('unused')])
+    const ctx = await loopHarness(adapter)
+    let laterSawReading = false
+    ctx.on('agent/pre-step', (subject) => {
+      laterSawReading = contextTexts(subject.session).length === 1
+      if (mode === 'throws') throw new Error('later pre-step failure')
+      subject.cancel('later pre-step cancellation')
+    })
+    const agent = ctx.agentLoop.create(AgentId(`late-${mode}`), { model: 'mock' })
+
+    agent.send([{ type: 'text', text: 'start' }])
+    await agent.whenIdle()
+
+    expect(laterSawReading).toBe(true)
+    expect(contextTexts(agent.session)).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.events.some(event => event.type === 'step/start')).toBe(false)
+    const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe(reasonKind)
+    await ctx.fiber.dispose()
+  })
+
   it('persists one ordered context per request, accumulates readings, and leaves system headers unchanged', async () => {
     const adapter = new ScriptedAdapter([toolCallResponse(), textResponse('done')])
     const ctx = await loopHarness(adapter)
@@ -314,17 +419,17 @@ describe('real agent-loop request history', () => {
 
     const firstRequestText = requestText(adapter.requests[0]!)
     const secondRequestText = requestText(adapter.requests[1]!)
-    expect(firstRequestText).toContain('Time recorded before turn 1, step 1:')
+    expect(firstRequestText).toContain('Time sampled while preparing turn 1, step 1:')
     expect(firstRequestText).toContain('Elapsed since the preceding model-visible message: 0s.')
-    expect(firstRequestText).not.toContain('Time recorded before turn 1, step 2:')
-    expect(secondRequestText).toContain('Time recorded before turn 1, step 1:')
-    expect(secondRequestText).toContain('Time recorded before turn 1, step 2:')
+    expect(firstRequestText).not.toContain('Time sampled while preparing turn 1, step 2:')
+    expect(secondRequestText).toContain('Time sampled while preparing turn 1, step 1:')
+    expect(secondRequestText).toContain('Time sampled while preparing turn 1, step 2:')
     expect(secondRequestText).toContain('Elapsed since the preceding step context: 1m 1s.')
 
-    for (const request of adapter.requests) expect(request.system).not.toContain('Time recorded before')
+    for (const request of adapter.requests) expect(request.system).not.toContain('Time sampled while preparing')
     const headers = agent.session.events.filter(event => event.type === 'request/header'
       || event.type === 'request/header-delta')
-    expect(JSON.stringify(headers)).not.toContain('Time recorded before')
+    expect(JSON.stringify(headers)).not.toContain('Time sampled while preparing')
     expect(agent.session.events.filter(event => event.type === 'request/header-delta')).toHaveLength(0)
     await ctx.fiber.dispose()
   })
@@ -348,6 +453,6 @@ describe('real Loader export path', () => {
     const session = new Session(SessionId('loader'))
     openMessageTurn(session, 1)
     await fire(ctx, sessionAgent(session), 1, 1)
-    expect(contextTexts(session)[0]).toContain('Time recorded before turn 1, step 1:')
+    expect(contextTexts(session)[0]).toContain('Time sampled while preparing turn 1, step 1:')
   })
 })

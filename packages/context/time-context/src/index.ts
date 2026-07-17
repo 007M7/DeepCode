@@ -1,6 +1,6 @@
 /**
- * Opt-in per-step clock context. Every pending model request receives a
- * durable, source-attributed time reading in conversation history.
+ * Opt-in request-preparation clock context. Eligible pre-step attempts append
+ * durable, source-attributed time readings to conversation history.
  *
  * @module @deepseek-ai/dsh-time-context
  */
@@ -16,15 +16,18 @@ export const name = 'time-context'
 /** The agent registry that owns the pre-step lifecycle seam. */
 export const inject = ['agents']
 
-/** Request-time clock formatting. Invalid values fail plugin load. */
+/** Request-preparation clock formatting and append scheduling. Invalid values fail plugin load. */
 export interface Config {
   /** IANA time zone used for the rendered timestamp. Omit to resolve the Node process's system zone at plugin load. */
   timeZone?: string
+  /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject on every eligible pre-step attempt. */
+  refreshIntervalMs?: number
 }
 
 /** Schemastery validation for {@link Config}. */
 export const Config: z<Config> = z.object({
   timeZone: z.string(),
+  refreshIntervalMs: z.number(),
 })
 
 type TimestampPart = 'day' | 'hour' | 'minute' | 'month' | 'second' | 'timeZoneName' | 'year'
@@ -86,6 +89,18 @@ function precedingStepContextTime(agent: Agent, turn: number): number | undefine
   return undefined
 }
 
+/** Find this plugin's latest durable injection, including a shadowed surface event. */
+function latestInjectionTime(agent: Agent): number | undefined {
+  for (const event of [...agent.session.events].reverse()) {
+    if (event.type === 'context/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === name) {
+      return event.time
+    }
+  }
+  return undefined
+}
+
 function renderText(
   now: number,
   turn: number,
@@ -96,18 +111,32 @@ function renderText(
 ): string {
   const elapsed = previous === undefined ? 'unavailable' : formatDuration(now - previous)
   const baseline = step === 1 ? 'model-visible message' : 'step context'
-  return `Time recorded before turn ${turn}, step ${step}: ${formatTimestamp(now, formatter, timeZone)}\n`
+  return `Time sampled while preparing turn ${turn}, step ${step}: ${formatTimestamp(now, formatter, timeZone)}\n`
     + `Elapsed since the preceding ${baseline}: ${elapsed}.`
+}
+
+/** Reject refresh intervals that cannot represent an exact elapsed-millisecond threshold. */
+function validateRefreshInterval(refreshIntervalMs: number | undefined): void {
+  if (refreshIntervalMs !== undefined && (
+    !Number.isSafeInteger(refreshIntervalMs)
+    || refreshIntervalMs < 0
+  )) {
+    throw new TypeError(
+      `time-context: refreshIntervalMs must be a non-negative safe integer, got ${String(refreshIntervalMs)}`,
+    )
+  }
 }
 
 /**
  * Register a prepended pre-step listener for the lifetime of `ctx`.
  * @param ctx - plugin context; the listener is disposed with it.
- * @param config - validated time zone configuration.
- * @throws when the configured or process time zone cannot be resolved.
+ * @param config - time zone and durable refresh scheduling configuration.
+ * @throws when the refresh interval is invalid or the configured or process time zone cannot be resolved.
  */
 export function apply(ctx: Context, config: Config): void {
   const timeZone = config.timeZone
+  const refreshIntervalMs = config.refreshIntervalMs
+  validateRefreshInterval(refreshIntervalMs)
   let formatter: Intl.DateTimeFormat
   try {
     formatter = new Intl.DateTimeFormat('en-US', {
@@ -139,6 +168,12 @@ export function apply(ctx: Context, config: Config): void {
   ) => {
     if (signal.aborted) return
     const now = Date.now()
+    if (refreshIntervalMs !== undefined && refreshIntervalMs > 0) {
+      const lastInjection = latestInjectionTime(agent)
+      if (lastInjection !== undefined
+        && now >= lastInjection
+        && now - lastInjection < refreshIntervalMs) return
+    }
     const previous = step === 1
       ? precedingMessageTime(agent)
       : precedingStepContextTime(agent, turn)

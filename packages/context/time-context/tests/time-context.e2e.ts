@@ -12,8 +12,8 @@ const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.m
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 const PROCESS_TIMEOUT_MS = 30_000
 const TEST_TIMEOUT_MS = PROCESS_TIMEOUT_MS + 15_000
-const FIRST_REPLY = '[main turn 1] You said: "Time recorded before turn 1, step 1:'
-const SECOND_REPLY = '[main turn 2] You said: "Time recorded before turn 2, step 1:'
+const FIRST_REPLY = '[main turn 1] You said: "Time sampled while preparing turn 1, step 1:'
+const SECOND_REPLY = '[main turn 2] You said: "Time sampled while preparing turn 2, step 1:'
 
 let child: ChildProcessWithoutNullStreams | undefined
 let workdir: string | undefined
@@ -112,15 +112,15 @@ describe('time-context through a real cordis.yml and stdio process', () => {
       .map(block => block.text)
       .join('\n'))
     expect(contextText[0]).toMatch(
-      /Time recorded before turn 1, step 1: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00\[Asia\/Shanghai\]/,
+      /Time sampled while preparing turn 1, step 1: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00\[Asia\/Shanghai\]/,
     )
     expect(contextText[0]).toMatch(
       /Elapsed since the preceding model-visible message: (?:\d+d )?(?:\d+h )?(?:\d+m )?\d+s\./,
     )
-    expect(contextText[1]).toMatch(/Time recorded before turn 2, step 1:/)
+    expect(contextText[1]).toMatch(/Time sampled while preparing turn 2, step 1:/)
 
     const headers = events.filter(event => event.type === 'request/header'
       || event.type === 'request/header-delta')
-    expect(JSON.stringify(headers)).not.toContain('Time recorded before')
+    expect(JSON.stringify(headers)).not.toContain('Time sampled while preparing')
   }, TEST_TIMEOUT_MS)
 })
