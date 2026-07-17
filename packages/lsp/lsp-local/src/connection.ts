@@ -10,6 +10,7 @@
 import type { ChildProcessByStdio } from 'node:child_process'
 import { spawn } from 'node:child_process'
 import type { Readable, Writable } from 'node:stream'
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { encodeMessage, MessageDecoder } from './framing.ts'
 
 /** How to launch the server and answer its config requests. */
@@ -164,6 +165,19 @@ export class LspConnection {
   }
 
   /**
+   * Wait until the owned process group has no members.
+   * @param signal - optional bound for the wait.
+   * @returns `true` when the group exited, or `false` when the signal aborted first.
+   */
+  async waitForProcessGroupExit(signal?: AbortSignal): Promise<boolean> {
+    while (this.processGroupAlive()) {
+      if (signal?.aborted) return false
+      await yieldToEventLoop()
+    }
+    return true
+  }
+
+  /**
    * Signal the whole process group (negative pid) so helper processes are reached; fall back to the
    * direct child if the group send fails. Never throws — teardown races process exit.
    */
@@ -179,6 +193,25 @@ export class LspConnection {
       } catch {
         // Already dead; nothing to signal.
       }
+    }
+  }
+
+  /** Whether the detached process group still has at least one member. */
+  private processGroupAlive(): boolean {
+    const pid = this.child.pid
+    /* v8 ignore next -- only an asynchronous spawn failure omits pid; its close path owns cleanup. */
+    if (pid === undefined) return false
+    try {
+      process.kill(-pid, 0)
+      return true
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ESRCH') return false
+      /* v8 ignore start -- EPERM and non-POSIX negative-pid failures are platform defenses; CI runs
+         process-group lifecycle tests on POSIX hosts where absence reports ESRCH. */
+      if (code === 'EPERM') return true
+      return this.child.exitCode === null && this.child.signalCode === null
+      /* v8 ignore stop */
     }
   }
 

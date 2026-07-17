@@ -48,6 +48,8 @@ export class LspInstance {
   /** The serialization tail: each query awaits the prior one, so lifecycles never interleave. */
   private queue: Promise<unknown> = Promise.resolve()
   private disposed = false
+  /** The one teardown transaction shared by abort, failure, and explicit disposal. */
+  private teardownPromise: Promise<void> | undefined
   /** Set once the process closes, so the pool can synchronously skip a dead instance. */
   private processClosed = false
   /** Populated once `initialize` succeeds; a failed handshake rejects every query. */
@@ -116,9 +118,8 @@ export class LspInstance {
       await this.abortable(this.ready, signal)
     } catch (error) {
       if (!this.dead) {
-        this.disposed = true
         /* v8 ignore next -- ready rejects with an Error (abort reason or initialize failure); the String() fallback is defensive. */
-        await this.tearDown(error instanceof Error ? error : new Error(String(error)))
+        await this.startTeardown(error instanceof Error ? error : new Error(String(error)))
       }
       throw error
     }
@@ -155,8 +156,7 @@ export class LspInstance {
              listener, so a synchronous didClose write failure is a defensive path. */
           // A close-write failure does not replace the settled result/error, but the instance can no
           // longer be trusted: invalidate it and await bounded process termination.
-          this.disposed = true
-          void this.tearDown(error instanceof Error ? error : new Error(String(error)))
+          void this.startTeardown(error instanceof Error ? error : new Error(String(error)))
           /* v8 ignore stop */
         }
       }
@@ -210,19 +210,20 @@ export class LspInstance {
       this.connection.cancel(requestId)
       // Wait, bounded, for the server to honor the cancellation. If it does not, the request is still
       // running: terminate the instance (disposal awaits process close) so nothing outlives the query.
-      using grace = deadline(undefined, this.spec.killGraceMs, 'LSP_CANCEL_GRACE')
-      // `settled` is true if the request finished (either outcome) before the grace elapsed.
-      const settled = await Promise.race([
-        send.then(markSettled, markSettled),
-        new Promise<boolean>((resolve) => {
-          /* v8 ignore next -- the cancel-grace deadline signal is freshly armed and not yet aborted here; defensive. */
-          if (grace.signal.aborted) { resolve(false); return }
-          grace.signal.addEventListener('abort', () => { resolve(false) }, { once: true })
-        }),
-      ])
-      if (!settled && !this.disposed) {
-        this.disposed = true
-        await this.tearDown(abortError(signal))
+      const grace = deadline(undefined, this.spec.killGraceMs, 'LSP_CANCEL_GRACE')
+      try {
+        // `settled` is true if the request finished (either outcome) before the grace elapsed.
+        const settled = await Promise.race([
+          send.then(markSettled, markSettled),
+          new Promise<boolean>((resolve) => {
+            /* v8 ignore next -- the cancel-grace deadline signal is freshly armed and not yet aborted here; defensive. */
+            if (grace.signal.aborted) { resolve(false); return }
+            grace.signal.addEventListener('abort', () => { resolve(false) }, { once: true })
+          }),
+        ])
+        if (!settled) await this.startTeardown(abortError(signal))
+      } finally {
+        grace[Symbol.dispose]()
       }
       throw error
     }
@@ -262,21 +263,24 @@ export class LspInstance {
    * process close so nothing outlives disposal.
    */
   async dispose(): Promise<void> {
-    if (this.disposed) {
-      await this.connection.closed
-      return
-    }
+    await this.startTeardown(new Error('LSP instance disposed'))
+  }
+
+  /** Publish disposal once and make every caller await the same quiescence boundary. */
+  private startTeardown(reason: Error): Promise<void> {
     this.disposed = true
-    await this.tearDown(new Error('LSP instance disposed'))
+    this.teardownPromise ??= this.tearDown(reason)
+    return this.teardownPromise
   }
 
   private async tearDown(_reason: Error): Promise<void> {
+    const shutdownDeadline = deadline(undefined, this.spec.shutdownTimeoutMs, 'LSP_SHUTDOWN')
     try {
-      using shutdownDeadline = deadline(undefined, this.spec.shutdownTimeoutMs, 'LSP_SHUTDOWN')
       await this.gracefulShutdown(shutdownDeadline.signal)
-      return
     } catch {
-      // Graceful shutdown failed or timed out: fall through to signal escalation.
+      // Graceful shutdown failed or timed out; process-group cleanup below remains authoritative.
+    } finally {
+      shutdownDeadline[Symbol.dispose]()
     }
     await this.forceTerminate()
   }
@@ -288,20 +292,21 @@ export class LspInstance {
     await this.abortable(this.connection.closed, signal)
   }
 
-  /** SIGTERM, wait `killGraceMs` for close, then SIGKILL; await full process close either way. */
+  /** SIGTERM the group, escalate after `killGraceMs`, then await leader and helper exit. */
   private async forceTerminate(): Promise<void> {
     this.connection.terminate()
-    using graceDeadline = deadline(undefined, this.spec.killGraceMs, 'LSP_KILL_GRACE')
-    const closedInTime = await Promise.race([
-      this.connection.closed.then(() => true),
-      new Promise<boolean>((resolve) => {
-        /* v8 ignore next -- the kill-grace deadline signal is freshly armed and not yet aborted here; defensive. */
-        if (graceDeadline.signal.aborted) { resolve(false); return }
-        graceDeadline.signal.addEventListener('abort', () => { resolve(false) }, { once: true })
-      }),
+    const graceDeadline = deadline(undefined, this.spec.killGraceMs, 'LSP_KILL_GRACE')
+    let groupExited: boolean
+    try {
+      groupExited = await this.connection.waitForProcessGroupExit(graceDeadline.signal)
+    } finally {
+      graceDeadline[Symbol.dispose]()
+    }
+    if (!groupExited) this.connection.kill()
+    await Promise.all([
+      this.connection.closed,
+      this.connection.waitForProcessGroupExit(),
     ])
-    if (!closedInTime) this.connection.kill()
-    await this.connection.closed
   }
 }
 

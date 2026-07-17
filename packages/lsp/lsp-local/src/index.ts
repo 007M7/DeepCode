@@ -169,8 +169,8 @@ function assertPositiveInteger(providerId: string, name: string, value: number):
 class LocalLspProvider implements LspProvider {
   readonly id: LspProviderId
   readonly extensionToLanguage: Readonly<Record<string, string>>
-  /** Single-flight map: canonical workspace realpath → the (pending) instance for it. */
-  private readonly instances = new Map<string, Promise<LspInstance>>()
+  /** One live instance per canonical workspace realpath. */
+  private readonly instances = new Map<string, LspInstance>()
   private disposed = false
 
   constructor(
@@ -188,12 +188,17 @@ class LocalLspProvider implements LspProvider {
     return this.disposed
   }
 
-  async query(request: LspProviderQuery, signal?: AbortSignal): Promise<LspQueryResult> {
-    /* v8 ignore next -- the seam unregisters this provider on dispose, so a query never reaches it disposed; defensive. */
+  /** Reject work that cannot publish or use a provider-owned instance. */
+  private assertActive(signal?: AbortSignal): void {
+    /* v8 ignore next -- the seam unregisters this provider before disposal; direct in-flight calls
+       exercise the post-await check instead. */
     if (this.isDisposed()) throw new Error('lsp-local provider is disposed')
-    // Honor an already-aborted signal before any host I/O so a canceled request neither reads nor
-    // spawns a server.
     if (signal?.aborted) throw abortError(signal)
+  }
+
+  async query(request: LspProviderQuery, signal?: AbortSignal): Promise<LspQueryResult> {
+    // Honor an already-aborted signal before host I/O so a canceled request never starts a server.
+    this.assertActive(signal)
     const workspace = await canonicalizeWorkspace(request.workspaceRoot)
     // Validate and read the source BEFORE spawning a server: a missing/external/non-regular/oversized
     // source must fail without leaving an idle process pooled (the pre-start rejection contract), and
@@ -201,49 +206,37 @@ class LocalLspProvider implements LspProvider {
     const source = await readHostSource(request.filePath, workspace, this.config.maxDocumentBytes)
     // Re-check disposal after the awaits: disposeAll() may have snapshotted the instance map while we
     // were canonicalizing/reading, so creating a server now would leave it unowned by teardown.
-    /* v8 ignore next -- guards a dispose landing during the canonicalize/read await; not a reproducible unit race. */
-    if (this.isDisposed()) throw new Error('lsp-local provider is disposed')
-    // Re-check cancellation too: an abort during the canonicalize/read awaits must not go on to spawn
-    // (or pool) a server solely for an operation the caller already gave up on.
-    if (signal?.aborted) throw abortError(signal)
-    let instance = await this.instanceFor(workspace)
-    // A pooled server that exited while idle resolves to a dead instance: evict it and create a fresh
-    // one before dispatch, so this query does not have to fail on a closed connection first. One retry
-    // suffices — the replacement was just constructed and has not been used.
+    this.assertActive(signal)
+    let instance = this.instanceFor(workspace)
+    // Eviction and replacement are synchronous so disposal cannot snapshot the pool between them and
+    // miss a newly spawned process.
     if (instance.dead) {
-      await this.evictIfCurrent(workspace, instance)
-      instance = await this.instanceFor(workspace)
+      this.evictIfCurrent(workspace, instance)
+      instance = this.instanceFor(workspace)
     }
     try {
       return await instance.query(request, source, signal)
     } finally {
       // A crashed/closed process must not be reused: drop its slot so the next query starts fresh,
       // but only if the slot still holds THIS instance (a concurrent replacement must survive).
-      if (instance.dead) await this.evictIfCurrent(workspace, instance)
+      if (instance.dead) this.evictIfCurrent(workspace, instance)
     }
   }
 
-  /** Single-flight one instance per canonical workspace; a rejected creation clears the slot. */
-  private instanceFor(workspace: string): Promise<LspInstance> {
+  /** Return or synchronously publish the one instance for a canonical workspace. */
+  private instanceFor(workspace: string): LspInstance {
+    this.assertActive()
     const existing = this.instances.get(workspace)
     if (existing !== undefined) return existing
-    const created = Promise.resolve().then(() => this.createInstance(workspace))
+    const created = this.createInstance(workspace)
     this.instances.set(workspace, created)
-    /* v8 ignore next 3 -- createInstance (the LspInstance constructor) does not throw; spawn failures
-       surface asynchronously through the instance, so this creation-rejection cleanup is defensive. */
-    created.catch(() => {
-      if (this.instances.get(workspace) === created) this.instances.delete(workspace)
-    })
     return created
   }
 
-  /** Drop the slot for `workspace` iff it still resolves to `instance` (a concurrent replacement survives). */
-  private async evictIfCurrent(workspace: string, instance: LspInstance): Promise<void> {
-    const slot = this.instances.get(workspace)
-    /* v8 ignore next -- the slot-undefined/mismatch arm needs a concurrent eviction of the same slot; defensive. */
-    if (slot !== undefined && (await settledInstance(slot)) === instance) {
-      this.instances.delete(workspace)
-    }
+  /** Drop the slot iff it still contains this instance. */
+  private evictIfCurrent(workspace: string, instance: LspInstance): void {
+    /* v8 ignore next -- mismatch requires another query to replace the slot before this finally runs. */
+    if (this.instances.get(workspace) === instance) this.instances.delete(workspace)
   }
 
   private createInstance(workspace: string): LspInstance {
@@ -265,26 +258,9 @@ class LocalLspProvider implements LspProvider {
   /** Dispose every live instance and block further queries. */
   async disposeAll(): Promise<void> {
     this.disposed = true
-    const pending = [...this.instances.values()]
+    const live = [...this.instances.values()]
     this.instances.clear()
-    await Promise.all(pending.map(async (entry) => {
-      try {
-        const instance = await entry
-        await instance.dispose()
-      } catch {
-        // A never-initialized instance already rejected; nothing to tear down.
-      }
-    }))
-  }
-}
-
-/** Resolve a slot promise to its instance for identity comparison, tolerating a pending rejection. */
-async function settledInstance(slot: Promise<LspInstance>): Promise<LspInstance | undefined> {
-  try {
-    return await slot
-  } catch {
-    /* v8 ignore next -- a slot promise only rejects if createInstance throws, which it never does; defensive. */
-    return undefined
+    await Promise.all(live.map(instance => instance.dispose()))
   }
 }
 

@@ -236,6 +236,26 @@ describe('LspInstance disposal', () => {
     await expect(instance.dispose()).resolves.toBeUndefined()
   })
 
+  it('awaits a surviving process-group helper on every concurrent dispose', async () => {
+    const marker = join(root, 'helper.pid')
+    const helper = 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000);'
+    const script = 'const{spawn}=require("node:child_process");const{writeFileSync}=require("node:fs");'
+      + `const helper=spawn(process.execPath,["-e",${JSON.stringify(helper)}],{stdio:"ignore"});`
+      + `writeFileSync(${JSON.stringify(marker)},String(helper.pid));`
+      + RESPONDING_SERVER
+    const instance = scriptInstance(script, { shutdownTimeoutMs: 100, killGraceMs: 100 })
+    await run(instance, 'definition')
+    const helperPid = Number(await readFile(marker, 'utf8'))
+    try {
+      const first = instance.dispose()
+      await instance.dispose()
+      expect(processAlive(helperPid)).toBe(false)
+      await first
+    } finally {
+      if (processAlive(helperPid)) process.kill(helperPid, 'SIGKILL')
+    }
+  })
+
   it('carries a non-Error abort reason as a generic aborted error', async () => {
     const instance = makeInstance({ LSP_FAKE_HANG: '1' })
     const controller = new AbortController()
@@ -245,3 +265,14 @@ describe('LspInstance disposal', () => {
     await expect(pending).rejects.toThrow(/aborted/)
   })
 })
+
+/** Probe a pid without changing its state. */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+    throw error
+  }
+}

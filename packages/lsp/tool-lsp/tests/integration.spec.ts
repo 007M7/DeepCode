@@ -12,10 +12,8 @@ import * as TimeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 
 /**
- * Real-composition integration: the model-facing `lsp` tool over the real seam, the real
- * `dsh-lsp-local` provider (driving an inline stdio server), and the real `dsh-timeout-policy`, all
- * driven only through `ctx.tools.execute()`. Pins that a query round-trips end to end and that the
- * policy's `TOOL_TIMEOUT` budget wins when the server hangs.
+ * Focused in-process integration of the model-facing tool, seam, local provider, and timeout policy.
+ * The `lsp-definition` ACP snapshot owns the shipped Loader/app entry path.
  */
 
 let root: string
@@ -77,7 +75,7 @@ function call(ctx: Context, args: unknown) {
   })
 }
 
-describe('tool-lsp real composition', () => {
+describe('tool-lsp integration', () => {
   it('round-trips a definition query through the real provider and renders a location', async () => {
     const ctx = await mount(false)
     const result = await call(ctx, { operation: 'definition', file_path: 'a.ts', line: 1, character: 7 })

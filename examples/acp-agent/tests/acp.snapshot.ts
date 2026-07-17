@@ -28,6 +28,7 @@ const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import
 const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
+const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
   switch (value) {
@@ -55,6 +56,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
   { name: 'workspace-edit', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'fs', configPath: FS_CONFIG },
+  { name: 'lsp-definition', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'lsp', configPath: LSP_CONFIG },
   { name: 'fs-read', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
   { name: 'fs-write', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
   { name: 'fs-edit', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
