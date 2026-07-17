@@ -2,7 +2,7 @@
 
 # Harness events
 
-Every event the harness packages declare on the cordis event bus (39 total), grouped by scope. The **mode** is the dispatch semantics (`emit` fire-and-forget, `parallel` awaited, `serial` first-bail, `waterfall` veto-chain — a waterfall listener MUST call `next()` to delegate).
+Every event the harness packages declare on the cordis event bus (40 total), grouped by scope. The **mode** is the dispatch semantics (`emit` fire-and-forget, `parallel` awaited, `serial` first-bail, `waterfall` veto-chain — a waterfall listener MUST call `next()` to delegate).
 
 ## agent/*
 
@@ -228,6 +228,22 @@ Ask composed answerers for one decision. Return an outcome to claim the request 
 - `req` — the pending decision (agent, tool identity, reason, signal).
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/user-approval/src/index.ts#L31)
+
+## bash/*
+
+### bash/resolve-mode
+
+**Mode:** `waterfall`
+
+```ts website-api
+'bash/resolve-mode'(this: BashExecutor, session: Session | undefined, next: () => Promise<SandboxMode>): Promise<SandboxMode>
+```
+
+Waterfall around BashExecutor.resolveMode's base — the session's standing override falling back to the executor's configured default. A policy plugin narrows the resolution per call by clamping `await next()` (a session mode's `access` cap is the shipped example); returning without `next()` replaces the resolution outright. Dispatched only for a confining executor — a never-confining one resolves `undefined` without consulting listeners, so a listener always receives a real base mode from `next()`.
+
+- `session` — the session the call belongs to (its log carries the override fold and any mode state a listener clamps by); `undefined` for a sessionless caller.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L49)
 
 ## fs/*
 

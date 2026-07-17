@@ -59,6 +59,10 @@
       "link": "/zh-CN/api/harness/llm"
     },
     {
+      "text": "ctx.modes",
+      "link": "/zh-CN/api/harness/modes"
+    },
+    {
       "text": "ctx.permission",
       "link": "/zh-CN/api/harness/permission"
     },

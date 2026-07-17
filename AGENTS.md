@@ -95,9 +95,7 @@ pnpm exec vitest run --config vitest.e2e.config.ts packages/examples/stdio-demo/
 
 ## Agent efficiency
 
-Habits earned by measured session waste.
-
-- **One-round gate runs**: any long command lands its FULL output in a temp file, prints a short summary, and on non-zero exit auto-expands capped failure context (`grep -B3 -A15 -E 'FAIL|ERROR' "$out" | head -60`) in the SAME invocation — never re-run to recover detail a filter discarded.
+- **One-round gate runs**: write full output to a temp file, print a summary, and include failure context (`grep -B3 -A15 -E 'FAIL|ERROR' "$out" | head -60`) in that invocation; never rerun to recover filtered detail.
 
 ## Secrets / .env
 
