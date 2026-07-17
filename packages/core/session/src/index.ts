@@ -13,7 +13,7 @@ import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { ContextEnvelope, CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
@@ -225,6 +225,22 @@ interface SessionEntry {
 
 /** Store attachment for the append path; module-private to keep Session store-agnostic publicly. */
 const attachments = new WeakMap<Session, SessionEntry>()
+
+/**
+ * Render one context contribution exactly as it will appear in model history.
+ * @param content - content blocks supplied by the context producer.
+ * @param source - attribution used by the canonical context envelope.
+ * @param envelope - canonical tagged framing or caller-owned raw framing.
+ * @returns a detached block list ready for the derived model transcript.
+ */
+export function renderContextContent(
+  content: ContentBlock[],
+  source: MessageSource,
+  envelope: ContextEnvelope = 'context',
+): ContentBlock[] {
+  const cloned = structuredClone(content)
+  return envelope === 'raw' ? cloned : renderTagged('context', cloned, source)
+}
 
 /**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
@@ -514,8 +530,8 @@ export class Session {
         }
       }
       case 'context/message': {
-        const { content, source } = event.data
-        return { role: 'user', content: renderTagged('context', content, source) }
+        const { content, source, envelope } = event.data
+        return { role: 'user', content: renderContextContent(content, source, envelope) }
       }
       case 'steering/message': {
         const { content, source } = event.data

@@ -117,8 +117,9 @@ Source: [`packages/compact/compact/src/index.ts:36`](../../packages/compact/comp
 Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.
 
 ```ts cordis-catalog
-abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>
+abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>
 abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
+abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>
 abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
 abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
 abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
@@ -128,7 +129,7 @@ abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: F
 
 Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:78`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:80`](../../packages/fs/fs/src/index.ts)
 
 ## `ctx.llm` — `LlmService`
 
@@ -216,7 +217,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:564`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:580`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -230,6 +231,22 @@ async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefiniti
 ```
 
 Source: [`packages/skill/skill/src/index.ts:141`](../../packages/skill/skill/src/index.ts)
+
+## `ctx.spillStore` — `SpillStore` (abstract seam)
+
+Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+
+Semantics every implementation must honor:
+
+- saveText persists the FULL `content` verbatim and returns an opaque locator, exact byte length, and model-facing retrieval guidance.
+- Storage is scoped by the request's SaveTextSpill.owner session; the backend chooses a private (not world-readable) location and a collision-free name derived from — never equal to — the caller's `suggestedName`.
+- `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).
+
+```ts cordis-catalog
+abstract saveText(input: SaveTextSpill): Promise<SpillRef>
+```
+
+Source: [`packages/spill/spill/src/index.ts:45`](../../packages/spill/spill/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 
@@ -291,7 +308,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:363`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:378`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

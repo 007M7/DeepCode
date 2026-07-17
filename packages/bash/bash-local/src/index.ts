@@ -92,10 +92,13 @@ export class LocalBashExecutor extends BashExecutor {
       this.config.maxTimeoutMs,
       'bash-local: request.timeoutMs',
     )
+    const stdoutMaxBytes = request.stdoutMaxBytes ?? this.config.maxOutputBytes
+    assertPositiveFinite('request.stdoutMaxBytes', stdoutMaxBytes)
     return {
       command: request.command,
       workdir: request.workdir ?? this.config.cwd ?? process.cwd(),
       timeoutMs,
+      stdoutMaxBytes,
       ...request.signal ? { signal: request.signal } : {},
       // Carry stdin/ordinary env/trusted dshEnv through verbatim — optional,
       // no config default. run.ts owns the scrub and merge order.
@@ -115,7 +118,8 @@ export class LocalBashExecutor extends BashExecutor {
     const outcome = await runBash({
       command: spec.command,
       cwd: spec.workdir,
-      maxOutputBytes: this.config.maxOutputBytes,
+      stdoutMaxBytes: spec.stdoutMaxBytes,
+      stderrMaxBytes: this.config.maxOutputBytes,
       graceMs: this.config.graceMs,
       signal: d.signal,
       stdin: spec.stdin,
@@ -133,7 +137,8 @@ export class LocalBashExecutor extends BashExecutor {
     const running = runBash({
       command: spec.command,
       cwd: spec.workdir,
-      maxOutputBytes: this.config.maxOutputBytes,
+      stdoutMaxBytes: this.config.maxOutputBytes,
+      stderrMaxBytes: this.config.maxOutputBytes,
       graceMs: this.config.graceMs,
       signal: spec.signal,
       stdin: spec.stdin,

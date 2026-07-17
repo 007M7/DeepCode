@@ -30,6 +30,7 @@ interface SentenceContract {
 const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
   'packages/core/scope': 'The package is a model-agnostic registration and lifecycle primitive; model-facing consumers own any context selection.',
   'packages/util/brand': 'The package is a type-only primitive erased at compile time.',
+  'packages/util/paths': 'The package only resolves harness-owned host paths; model-facing consumers own any rendered use.',
 }
 
 /**
@@ -54,6 +55,8 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/session-query/session-query': { kind: 'none', reason: 'The trusted query service exposes cloned records only to callers and registers no model surface.' },
   'packages/skill/skill': { kind: 'indirect', reason: 'The provider registry delegates model rendering to dsh-tool-skill.' },
   'packages/skill/skill-local': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-skill.' },
+  'packages/spill/spill': { kind: 'indirect', reason: 'The storage seam delegates model rendering to spill consumers.' },
+  'packages/spill/spill-local': { kind: 'indirect', reason: 'The storage backend delegates model rendering to spill consumers.' },
   'packages/subagent/subagent': { kind: 'indirect', reason: 'The provider registry delegates parent-model rendering to dsh-tool-subagent.' },
   'packages/subagent/subagent-subprocess': { kind: 'indirect', reason: 'Only process-based subagent backends compose a child model request.' },
   'packages/support/acp-snapshot': { kind: 'none', reason: 'The test harness observes and normalizes transcripts without changing live requests.' },
@@ -69,6 +72,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/ui/user-interaction': { kind: 'indirect', reason: 'Model-facing consumers render provider answers and seam errors.' },
   'packages/util/home': { kind: 'indirect', reason: 'Only dsh-tool-bash exposes the resolved home to model commands.' },
   'packages/util/timeout': { kind: 'indirect', reason: 'Only timeout consumers render timeout outcomes.' },
+  'packages/util/retention': { kind: 'indirect', reason: 'Only retention consumers render retained content and omission metadata.' },
   'packages/web/web': { kind: 'indirect', reason: 'The provider registry delegates model rendering to dsh-tool-web.' },
   'packages/web/web-fetch-local': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
   'packages/web/web-search-exa': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },

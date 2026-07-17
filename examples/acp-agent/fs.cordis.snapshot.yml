@@ -17,5 +17,13 @@
             name: '@deepseek-ai/dsh-fs-policy'
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
+          - id: spill-local
+            name: '@deepseek-ai/dsh-spill-local'
+            config:
+              root: !!js process.env.DSH_SNAPSHOT_SPILL_ROOT ?? './.spill'
+          - id: spill-policy
+            name: '@deepseek-ai/dsh-spill-policy'
+            config:
+              maxInlineBytes: 800
           - id: llm-replay
             name: '@deepseek-ai/dsh-llm-replay'

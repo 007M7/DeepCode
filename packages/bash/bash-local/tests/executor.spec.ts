@@ -71,6 +71,23 @@ describe('LocalBashExecutor.run', () => {
     const { bash } = await setup()
     expect(() => bash.resolve({ command: 'true', timeoutMs: Number.NaN })).toThrow(/request\.timeoutMs/)
     expect(() => bash.resolve({ command: 'true', timeoutMs: -1 })).toThrow(/request\.timeoutMs/)
+    expect(() => bash.resolve({ command: 'true', stdoutMaxBytes: Number.NaN })).toThrow(/request\.stdoutMaxBytes/)
+    expect(() => bash.resolve({ command: 'true', stdoutMaxBytes: -1 })).toThrow(/request\.stdoutMaxBytes/)
+  })
+
+  it('defaults stdoutMaxBytes to maxOutputBytes and lets foreground callers raise stdout only', async () => {
+    const { bash } = await setup({ maxOutputBytes: 100 })
+    expect(bash.resolve({ command: 'true' }).stdoutMaxBytes).toBe(100)
+
+    const result = await bash.run(bash.resolve({
+      command: 'printf "%.0sx" $(seq 1 500); printf "%.0se" $(seq 1 500) >&2',
+      stdoutMaxBytes: 500,
+    }))
+
+    expect(result.stdout.truncated).toBe(false)
+    expect(result.stdout.text).toBe('x'.repeat(500))
+    expect(result.stderr.truncated).toBe(true)
+    expect(result.stderr.text.length).toBeLessThanOrEqual(100)
   })
 
   it('per-call timeout takes precedence under the cap and kills on expiry', async () => {
