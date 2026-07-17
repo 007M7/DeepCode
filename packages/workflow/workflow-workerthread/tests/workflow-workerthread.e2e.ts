@@ -37,7 +37,7 @@ async function harness(): Promise<Context> {
   await built.plugin(AgentRegistry)
   await built.plugin(AgentExecutionProvider)
   await built.plugin(AgentLoop, { agents: [] })
-  await built.plugin(LlmDeepSeek, { models: ['deepseek-v4-flash'] })
+  await built.plugin(LlmDeepSeek)
   await built.plugin(SubagentService)
   await built.plugin(Spawn, { providerName: 'spawn' })
   await built.plugin(WorkerWorkflowEngine, { provider: 'spawn' })
@@ -66,7 +66,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('worker workflow engine with-key 
     const parentHandle = await ctx.agents.create({
       agentId: AgentId('wf-worker-e2e-parent'),
       sessionId: 'wf-worker-e2e-session' as never,
-      agentOptions: { model: 'deepseek-v4-flash' },
+      agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     })
 
     const events: string[] = []

@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, type ContentBlock, type GenerateOptions } from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import { CallId, type ContentBlock, type GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { ContinuationDecision } from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { Config as ToolConfig, StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
@@ -44,10 +41,9 @@ const SCHEMA: StructuredOutputSchema = {
 async function setup(script: Script, options: SetupOptions = {}) {
   const ctx = new Context()
   const adapter = new MockAdapter(script)
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry, { mode: options.toolMode ?? 'native' })
+  await mountAgentLoopTestDependencies(ctx, {
+    tools: { mode: options.toolMode ?? 'native' },
+  })
   if (options.toolMode === 'code' || options.toolMode === 'both') {
     ctx.provide('codeRuntime', {
       language: 'typescript',
@@ -55,9 +51,7 @@ async function setup(script: Script, options: SetupOptions = {}) {
       run: options.codeRun ?? (() => Promise.resolve({ logs: [] })),
     } as never)
   }
-  await ctx.plugin(AgentRegistry)
   await ctx.plugin(Invariants)
-  await ctx.plugin(AgentExecutionProvider)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
   const disposeProvider = ctx.subagents.registerProvider({
@@ -67,7 +61,7 @@ async function setup(script: Script, options: SetupOptions = {}) {
     start: (request: SubagentStartRequest) => startInProcessRun(request, {}),
   })
   ctx.llm.registerAdapter(['mock'], adapter)
-  const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+  const parent = ctx.agentLoop.create(AgentId('parent'), { provider: 'mock', model: 'mock' })
   return { ctx, parent, adapter, disposeProvider }
 }
 

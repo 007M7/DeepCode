@@ -1,0 +1,315 @@
+/**
+ * The model-facing `grep` tool: search file contents with a ripgrep regular
+ * expression. Execution goes through the bash seam (`ctx.bash`) with a fixed
+ * line-oriented `rg --json` command so file path, line number, and line text
+ * parse without colon-splitting ambiguity — this module owns the model-facing
+ * schema, argument validation, shell-safe command construction, `--json`
+ * record parsing, per-line preview retention, match retention, grouping, and
+ * formatting; process concerns stay behind `ctx.bash`.
+ *
+ * @module @deepseek-ai/dsh-tool-fs-search/grep
+ */
+
+import type { Context } from 'cordis'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView } from '@deepseek-ai/dsh-tools'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { ItemRetainer, TextRetainer } from '@deepseek-ai/dsh-retention'
+import type { RetainedItems } from '@deepseek-ai/dsh-retention'
+import type { SpillRef } from '@deepseek-ai/dsh-spill'
+import type {} from '@deepseek-ai/dsh-bash'
+import type {} from '@deepseek-ai/dsh-system-prompt'
+import { SearchError, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
+import { singleQuote } from './shell-quote.ts'
+
+/**
+ * Default cap on flat matches retained inline by one `grep` call (the
+ * `grepMaxMatches` config), matching Claude Code's default `GrepTool`
+ * `head_limit`.
+ */
+export const GREP_MAX_MATCHES = 250
+
+/**
+ * Default cap in bytes on one matched-line preview (the `grepMaxLineBytes`
+ * config); the cut preserves UTF-8 boundaries.
+ */
+export const GREP_MAX_LINE_BYTES = 2000
+
+/** Resolved grep-tool caps — plugin config after defaulting (see `Config` in index.ts). */
+export interface GrepToolCaps {
+  /** Max flat matches retained inline; later matches go to the formatted spill file. */
+  maxMatches: number
+  /** Max bytes retained per matched-line preview. */
+  maxLineBytes: number
+  /** Cap on the complete raw `rg` stdout the tool will parse. */
+  rawOutputMaxBytes: number
+  /** Cooperative tool-call budget (ms) attached as `ToolDefinition.timeoutMs`. */
+  timeoutMs: number
+}
+
+/** Validated `grep` arguments. */
+export interface GrepInput {
+  pattern: string
+  path?: string
+  include?: string
+}
+
+/** One parsed match: the file, the 1-based line number, and the (possibly previewed) line text. */
+export interface GrepMatch {
+  path: string
+  lineNumber: number
+  line: string
+}
+
+/**
+ * Reject an `include` that is not ONE positive glob filter: blank strings,
+ * negated patterns (`!…`), and comma-separated lists. A comma inside a brace
+ * group is fine — `*.{ts,tsx}` is one glob with alternation, not a list.
+ */
+function validateInclude(include: string): void {
+  if (include.trim().length === 0) throw new Error('include must be a non-empty glob when given')
+  if (include.startsWith('!')) throw new Error('include must be a positive glob filter; negated patterns ("!…") are not supported')
+  let braceDepth = 0
+  for (const char of include) {
+    if (char === '{') braceDepth++
+    else if (char === '}') braceDepth = Math.max(0, braceDepth - 1)
+    else if (char === ',' && braceDepth === 0) {
+      throw new Error('include must be one glob, not a comma-separated list (use {a,b} alternation instead)')
+    }
+  }
+}
+
+/**
+ * Validate value constraints the schema DSL can't express: a non-EMPTY
+ * `pattern` (whitespace is a legitimate regex), a non-blank `path` when given,
+ * and a single positive `include` glob ({@link GrepInput}). Throws a plain
+ * `Error` (an ordinary tool argument error) otherwise.
+ *
+ * @param args - the schema-validated `grep` arguments.
+ * @returns the accepted input, unchanged.
+ */
+export function parseGrepArgs(args: { pattern: string; path?: string; include?: string }): GrepInput {
+  if (args.pattern.length === 0) throw new Error('pattern must be a non-empty string')
+  if (args.path !== undefined && args.path.trim().length === 0) throw new Error('path must be a non-empty string when given')
+  if (args.include !== undefined) validateInclude(args.include)
+  return {
+    pattern: args.pattern,
+    ...args.path !== undefined ? { path: args.path } : {},
+    ...args.include !== undefined ? { include: args.include } : {},
+  }
+}
+
+/**
+ * Build the fixed line-oriented `rg --json` command for one `grep` call. Every
+ * model-controlled value ({@link GrepInput.pattern}, {@link GrepInput.path},
+ * {@link GrepInput.include}) passes through {@link singleQuote}; the pattern
+ * and include ride in `--flag=value` form and the target behind `--`, so a
+ * leading-dash value can never be parsed as a flag.
+ *
+ * @param input - the validated arguments.
+ * @returns the complete, shell-safe command string.
+ */
+export function buildGrepCommand(input: GrepInput): string {
+  const parts = ['rg --json', `--regexp=${singleQuote(input.pattern)}`]
+  if (input.include !== undefined) parts.push(`--glob=${singleQuote(input.include)}`)
+  if (input.path !== undefined) parts.push('--', singleQuote(input.path))
+  return parts.join(' ')
+}
+
+/**
+ * The uniform malformed-output failure: raw `rg --json` is an internal
+ * transport, so a shape surprise is a search failure, not a partial result.
+ */
+function malformedRecord(detail: string, cause?: unknown): SearchError {
+  return new SearchError(`grep received malformed ripgrep --json output (${detail})`, 'SEARCH_FAILED', cause !== undefined ? { cause } : undefined)
+}
+
+/**
+ * Parse one `rg --json` NDJSON line into a match, `undefined` for the
+ * non-match record types (`begin`/`end`/`context`/`summary`). A line that is
+ * not JSON, or a `match` record missing its path / line number / line content,
+ * throws {@link SearchError} `SEARCH_FAILED`. A match whose line is not valid
+ * UTF-8 (ripgrep sends base64 `bytes` instead of `text`) yields a placeholder
+ * preview rather than failing the whole search.
+ */
+function parseRecord(line: string): GrepMatch | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(line)
+  } catch (error: unknown) {
+    throw malformedRecord('a line is not JSON', error)
+  }
+  if (typeof parsed !== 'object' || parsed === null) throw malformedRecord('a record is not an object')
+  const record = parsed as { type?: unknown; data?: unknown }
+  // Non-match record types (begin/end/context/summary — and any future type)
+  // are transport framing, not results: skipped, not malformed.
+  if (record.type !== 'match') return undefined
+  if (typeof record.data !== 'object' || record.data === null) throw malformedRecord('a match record has no data')
+  const data = record.data as { path?: unknown; line_number?: unknown; lines?: unknown }
+  const pathText = typeof data.path === 'object' && data.path !== null ? (data.path as { text?: unknown }).text : undefined
+  if (typeof pathText !== 'string') throw malformedRecord('a match record has no path text')
+  if (typeof data.line_number !== 'number') throw malformedRecord('a match record has no line number')
+  if (typeof data.lines !== 'object' || data.lines === null) throw malformedRecord('a match record has no line content')
+  const lines = data.lines as { text?: unknown; bytes?: unknown }
+  if (typeof lines.text === 'string') {
+    return { path: pathText, lineNumber: data.line_number, line: lines.text.replace(/\r?\n$/, '') }
+  }
+  if (typeof lines.bytes === 'string') {
+    return { path: pathText, lineNumber: data.line_number, line: '(line is not valid UTF-8)' }
+  }
+  throw malformedRecord('a match record has neither line text nor bytes')
+}
+
+/**
+ * Parse complete `rg --json` stdout into flat matches, in output order (ripgrep
+ * emits one file's matches contiguously). Only `match` records are consumed.
+ *
+ * @param stdout - the complete raw `rg --json` stdout.
+ * @returns the flat matches; empty for output with no match records.
+ */
+export function parseGrepMatches(stdout: string): GrepMatch[] {
+  const matches: GrepMatch[] = []
+  for (const line of stdout.split('\n')) {
+    if (line.length === 0) continue
+    const match = parseRecord(line)
+    if (match !== undefined) matches.push(match)
+  }
+  return matches
+}
+
+/**
+ * Bound one matched-line preview to `maxBytes` (UTF-8 boundary preserved) and
+ * mark the cut. The cap is a per-line budget fact; the complete line stays in
+ * the searched file for `read`.
+ *
+ * @param line - the matched line text (trailing newline already stripped).
+ * @param maxBytes - the preview budget in bytes.
+ * @returns the preview, suffixed with ` (line truncated)` when bytes were cut.
+ */
+export function previewLine(line: string, maxBytes: number): string {
+  const retainer = new TextRetainer({ kind: 'head', maxBytes })
+  retainer.push(line)
+  const kept = retainer.finish()
+  return kept.truncated ? `${kept.text} (line truncated)` : kept.text
+}
+
+/** `match` / `matches` for a count. */
+function matchNoun(count: number): string {
+  return count === 1 ? 'match' : 'matches'
+}
+
+/**
+ * Group flat matches by file (first-seen order) into the model-facing body:
+ * each file's display path, then one `Line N: <text>` row per match.
+ *
+ * @param matches - the flat matches to render.
+ * @returns the grouped body text.
+ */
+export function formatGrepMatches(matches: GrepMatch[]): string {
+  const byFile = new Map<string, GrepMatch[]>()
+  for (const match of matches) {
+    const group = byFile.get(match.path)
+    if (group !== undefined) group.push(match)
+    else byFile.set(match.path, [match])
+  }
+  const sections: string[] = []
+  for (const [path, group] of byFile) {
+    sections.push(`${path}\n${group.map(m => `Line ${m.lineNumber}: ${m.line}`).join('\n')}`)
+  }
+  return sections.join('\n\n')
+}
+
+/**
+ * Format the model-facing `grep` result: a found-count header, the retained
+ * matches grouped by file, then — when the result was capped — a footer
+ * carrying either the formatted-spill recovery locator or the could-not-save
+ * explanation. The omitted count is a budget fact: the search itself completed.
+ *
+ * @param retained - the retention outcome over every parsed match.
+ * @param spillRef - the saved complete-result reference, or `undefined` when unsaved.
+ * @returns the model-facing text.
+ */
+export function formatGrepOutput(retained: RetainedItems<GrepMatch>, spillRef: SpillRef | undefined): string {
+  const header = retained.truncated
+    ? `Found ${retained.kept} of ${retained.seen} matches`
+    : `Found ${retained.seen} ${matchNoun(retained.seen)}`
+  const body = formatGrepMatches(retained.items)
+  if (!retained.truncated) return `${header}\n\n${body}`
+  const recovery = spillRef !== undefined
+    ? `Full grep result stored at: ${spillRef.locator}. ${spillRef.retrievalHint}`
+    : 'The complete result could not be saved; narrow pattern, path, or include to see more.'
+  return `${header}\n\n${body}\n\n(${recovery})`
+}
+
+/**
+ * Pending-call presentation: a search card titled by the pattern (and target /
+ * include filter).
+ *
+ * @param args - the raw tool arguments; `pattern`, `path`, and `include` feed the title.
+ * @returns the generic card view (`kind: 'search'`) shown while the call runs.
+ */
+export function presentGrepCall(args: { pattern: string; path?: string; include?: string }): GenericCallView {
+  const where = args.path !== undefined ? ` in ${args.path}` : ''
+  const filter = args.include !== undefined ? ` (${args.include})` : ''
+  return { card: 'generic', title: `Grep ${args.pattern}${where}${filter}`, kind: 'search', rawInput: args.pattern }
+}
+
+/**
+ * Register the `grep` tool and its system-prompt guidance.
+ *
+ * @param ctx - the plugin context; registrations are effects scoped to it, and
+ *   execution uses its `bash` service.
+ * @param caps - the deployment's resolved grep caps (plugin config after defaulting).
+ */
+export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
+  ctx.systemPrompt.section({
+    name: 'tool:grep',
+    order: 104,
+    text: 'Use the grep tool — not shell grep or rg — to search file contents. Use read on a matched file when you need surrounding context.',
+  })
+
+  ctx.tools.register(defineTool({
+    name: 'grep',
+    description: 'Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. '
+      + `Returns the first ${caps.maxMatches} matches inline; a capped result reports where the complete match list was saved. `
+      + 'Use read on a matched file for surrounding context.',
+    parameters: {
+      pattern: { type: 'string', required: true, description: 'Regular expression to search for (ripgrep syntax).' },
+      path: { type: 'string', description: 'File or directory to search. Defaults to the session workspace; a relative path resolves against it.' },
+      include: { type: 'string', description: 'One glob filter for which files to search (e.g. "*.ts", "*.{js,jsx}"). Not a list; negation is not supported.' },
+    },
+    timeoutMs: caps.timeoutMs,
+    async execute(args, exec): Promise<ContentBlock[]> {
+      const input = parseGrepArgs(args)
+      const run = await runRipgrep(ctx, exec, 'grep', buildGrepCommand(input), caps.rawOutputMaxBytes)
+      if (run.noMatches) return [{ type: 'text', text: 'No matches found' }]
+
+      const retainer = new ItemRetainer<GrepMatch>({ kind: 'head', maxItems: caps.maxMatches })
+      const all: GrepMatch[] = []
+      for (const raw of parseGrepMatches(run.stdout)) {
+        const match: GrepMatch = {
+          path: toWorkdirRelative(raw.path, run.workdir),
+          lineNumber: raw.lineNumber,
+          line: previewLine(raw.line, caps.maxLineBytes),
+        }
+        all.push(match)
+        retainer.push(match)
+      }
+      const retained = retainer.finish()
+
+      // The spill file stores the FULL formatted match list (same grouped,
+      // per-line-previewed shape the model saw), so read offset/limit pages the
+      // same logical result; save only when the inline page omitted matches.
+      const spillRef = retained.truncated
+        ? await trySaveFormattedResult(
+          ctx,
+          exec,
+          'grep-results.txt',
+          `Found ${all.length} ${matchNoun(all.length)}\n\n${formatGrepMatches(all)}`,
+        )
+        : undefined
+      return [{ type: 'text', text: formatGrepOutput(retained, spillRef) }]
+    },
+    presentCall: presentGrepCall,
+  }))
+}

@@ -129,8 +129,8 @@ describe('AgentLoop execution context', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    const a = ctx.agentLoop.create(AgentId('a'), { model: 'mock' })
-    const b = ctx.agentLoop.create(AgentId('b'), { model: 'mock' })
+    const a = ctx.agentLoop.create(AgentId('a'), { provider: 'mock', model: 'mock' })
+    const b = ctx.agentLoop.create(AgentId('b'), { provider: 'mock', model: 'mock' })
     const idleA = waitForIdle(ctx, a)
     const idleB = waitForIdle(ctx, b)
     send(a, 'a')
@@ -169,7 +169,7 @@ describe('AgentLoop execution context', () => {
         const handle = await exec.agent.ctx.agents.create({
           agentId: AgentId('child'),
           sessionId: SessionId('child-session'),
-          agentOptions: { model: 'mock' },
+          agentOptions: { provider: 'mock', model: 'mock' },
           setup: (agentCtx) => {
             parentDuringSetup = ctx.agentExecution.require().agent
             explicitChild = agentCtx.agent
@@ -197,7 +197,7 @@ describe('AgentLoop execution context', () => {
     const parentHandle = await ctx.agents.create({
       agentId: AgentId('parent'),
       sessionId: SessionId('parent-session'),
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
     })
     const idle = waitForIdle(ctx, parentHandle.agent)
     send(parentHandle.agent, 'spawn')
@@ -255,7 +255,7 @@ describe('AgentLoop execution context', () => {
     const handle = await ctx.agents.create({
       agentId: AgentId('transport'),
       sessionId: SessionId('transport-session'),
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
     })
     const idle = waitForIdle(ctx, handle.agent)
     send(handle.agent, 'call transport')
@@ -314,7 +314,7 @@ describe('AgentLoop execution context', () => {
     const oldHandle = await ctx.agents.create({
       agentId: AgentId('before-restart'),
       sessionId: SessionId('before-restart-session'),
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
     })
     const oldAgent = oldHandle.agent
     send(oldAgent, 'block')
@@ -332,7 +332,7 @@ describe('AgentLoop execution context', () => {
     const newHandle = await ctx.agents.create({
       agentId: AgentId('after-restart'),
       sessionId: SessionId('after-restart-session'),
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
     })
     const newAgent = newHandle.agent
     const idle = waitForIdle(ctx, newAgent)
@@ -359,7 +359,7 @@ describe('AgentLoop execution context', () => {
     const handle = await ctx.agents.create({
       agentId: AgentId('root-dispose'),
       sessionId: SessionId('root-dispose-session'),
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
     })
     const agent = handle.agent
     send(agent, 'block')

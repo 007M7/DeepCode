@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import SkillService from '@deepseek-ai/dsh-skill'
-import { FileSystem, FsVersion, type FsDirEntry, type FsEditOutcome, type FsEditRequest, type FsInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
+import { FileSystem, FsVersion, type FsDirEntry, type FsEditOutcome, type FsEditRequest, type FsInfo, type FsPathInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import * as SkillLocal from '../src/index.ts'
 
 async function tempDir(name: string): Promise<string> {
@@ -46,6 +46,20 @@ class TestFileSystem extends FileSystem {
       return {
         version: FsVersion(String(info.mtimeMs)),
         type: info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other',
+        size: info.size,
+      }
+    } catch {
+      return undefined
+    }
+  }
+
+  override async lstat(path: string): Promise<FsPathInfo | undefined> {
+    try {
+      const fs = await import('node:fs/promises')
+      const info = await fs.lstat(path)
+      return {
+        version: FsVersion(String(info.mtimeMs)),
+        type: info.isSymbolicLink() ? 'symlink' : info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other',
         size: info.size,
       }
     } catch {

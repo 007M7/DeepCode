@@ -205,7 +205,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     const resuming = ctx.agents.resume({
       agentId: AgentId('resumed-atomic'),
       resumeSessionId: sessionId,
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
       setup: async (agentCtx) => {
         expect(agentCtx.agent?.id).toBe(AgentId('resumed-atomic'))
         expect(agentCtx.agent?.session.events).toHaveLength(2)
@@ -246,7 +246,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     const handle = await ctx.agents.resume({
       agentId,
       resumeSessionId: sessionId,
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
     })
     const transactionLabels = [
       `agentLoop.owner(${agentId})`,
@@ -271,7 +271,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await expect(ctx.agents.resume({
       agentId: AgentId('resume-reject'),
       resumeSessionId: sessionId,
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
       setup: async () => {
         await Promise.resolve()
         throw new Error('resume setup failed')
@@ -284,7 +284,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     const retry = await ctx.agents.resume({
       agentId: AgentId('resume-reject'),
       resumeSessionId: sessionId,
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
     })
     await retry.dispose()
     await ctx.fiber.dispose()
@@ -305,7 +305,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
       resuming = inner.agents.resume({
         agentId: AgentId('resume-owner-race'),
         resumeSessionId: sessionId,
-        agentOptions: { model: 'mock' },
+        agentOptions: { provider: 'mock', model: 'mock' },
         setup: async () => {
           setupStarted.resolve(undefined)
           await gate.promise
@@ -352,7 +352,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
 
     let resuming!: ReturnType<typeof ctx.agents.resume>
     const owner = await ctx.plugin(Object.assign((inner: Context) => {
-      resuming = inner.agents.resume({ agentId, resumeSessionId: sessionId, agentOptions: { model: 'mock' } })
+      resuming = inner.agents.resume({ agentId, resumeSessionId: sessionId, agentOptions: { provider: 'mock', model: 'mock' } })
     }, { inject: ['agents'] }))
     await loadStarted.promise
 
@@ -364,7 +364,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
 
     // owner.dispose() awaited transaction settlement, so the same identities
     // can be reused before awaiting the public rejection.
-    const retry = await promptly(ctx.agents.resume({ agentId, resumeSessionId: sessionId, agentOptions: { model: 'mock' } }))
+    const retry = await promptly(ctx.agents.resume({ agentId, resumeSessionId: sessionId, agentOptions: { provider: 'mock', model: 'mock' } }))
     await rejection
     expect(loads).toBe(2)
     expect(published).toEqual(['session/created', 'agent/created', 'agent/session-start'])
@@ -409,7 +409,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     ctx.on('session/created', () => void published.push('session/created'))
     ctx.on('agent/created', () => void published.push('agent/created'))
 
-    const resuming = ctx.agents.resume({ agentId, resumeSessionId: sessionId, agentOptions: { model: 'mock' } })
+    const resuming = ctx.agents.resume({ agentId, resumeSessionId: sessionId, agentOptions: { provider: 'mock', model: 'mock' } })
     await loadStarted.promise
     const rejection = expect(promptly(resuming)).rejects.toThrow(/agent loop is not active/)
     await promptly(loopFiber.dispose())

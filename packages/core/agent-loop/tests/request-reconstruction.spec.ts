@@ -1,9 +1,8 @@
 /**
  * Loop-level reconstructability: every request the loop sends is a pure function of the
- * session log — messages are the derivation at the step/start boundary, the header is the fold
- * of request/header* events — and every request is an append-extension of its predecessor
- * unless a logged event (compaction replace, header change) explains the difference. Mock-adapter
- * requests are the observable, and the final offline rebuild states the full contract end to end.
+ * session log — messages derive at the step/start boundary and the header is the latest
+ * request/header snapshot. Each request extends its predecessor unless a logged compaction
+ * replacement or header change explains the difference.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -74,7 +73,7 @@ describe('request stability across the loop', () => {
     ])
     const ctx = await harness(adapter)
     registerEcho(ctx)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -87,7 +86,7 @@ describe('request stability across the loop', () => {
       expect(Object.isFrozen(request.messages)).toBe(true)
     }
     // One anchoring header snapshot; no further header events (nothing changed).
-    const headerEvents = agent.session.events.filter(e => e.type === 'request/header' || e.type === 'request/header-delta')
+    const headerEvents = agent.session.events.filter(e => e.type === 'request/header')
     expect(headerEvents).toHaveLength(1)
     expect(headerEvents[0]?.type === 'request/header' && headerEvents[0].data.reason).toBe('initial')
   })
@@ -95,7 +94,7 @@ describe('request stability across the loop', () => {
   it('a later turn append-extends the previous turn (one conversation, one log)', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'first')
     await waitForIdle(ctx, agent)
@@ -109,7 +108,7 @@ describe('request stability across the loop', () => {
   it('a compaction replace rewrites the resend, and the log explains it', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'first')
     await waitForIdle(ctx, agent)
@@ -124,8 +123,8 @@ describe('request stability across the loop', () => {
         content: [{ type: 'text', text: '[summary of turn 1]' }],
         source: { kind: 'plugin', plugin: 'test-compact' },
       }, {
-        surfaceOp: { op: 'replace', start: nodes[0]!.seq, end: nodes[1]!.seq },
-        sourceEventSeqs: [nodes[0]!.seq, nodes[1]!.seq],
+        surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! },
+        sourceEventSeqs: [nodes[0]!, nodes[1]!],
       })
     })
 
@@ -139,24 +138,25 @@ describe('request stability across the loop', () => {
     expect(agent.session.events.filter(e => e.type === 'request/header')).toHaveLength(1)
   })
 
-  it('a real system-prompt change is a logged header delta; a stable prompt logs nothing', async () => {
+  it('a real system-prompt change is a full changed-header snapshot; a stable prompt logs nothing', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two'), textResponse('three')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'first')
     await waitForIdle(ctx, agent)
     send(agent, 'second')
     await waitForIdle(ctx, agent)
     // Identical assembly re-rendered per step is NOT a change.
-    expect(agent.session.events.filter(e => e.type === 'request/header-delta')).toHaveLength(0)
+    expect(agent.session.events.filter(e => e.type === 'request/header')).toHaveLength(1)
 
     ctx.systemPrompt.section({ name: 'extra', order: 2, text: 'new guidance' })
     send(agent, 'third')
     await waitForIdle(ctx, agent)
 
-    const deltas = agent.session.events.filter(e => e.type === 'request/header-delta')
-    expect(deltas).toHaveLength(1)
+    const snapshots = agent.session.events.filter(e => e.type === 'request/header')
+    expect(snapshots).toHaveLength(2)
+    expect(snapshots[1]?.data.reason).toBe('change')
     expect(adapter.requests[2]!.system).toContain('new guidance')
     // History is preserved across the change — only the header moved.
     expect(adapter.requests[2]!.messages.length).toBeGreaterThan(adapter.requests[1]!.messages.length)
@@ -165,7 +165,7 @@ describe('request stability across the loop', () => {
   it('an inject() during the agent/request waterfall joins the NEXT request (the step/start boundary)', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     let injected = false
     ctx.on('agent/request', async (_agent, _turn, _step, _config, next) => {
@@ -193,7 +193,7 @@ describe('request stability across the loop', () => {
   it('a mutation attempt on the frozen request content throws into the step (loud, not silent)', async () => {
     const adapter = new MockAdapter([textResponse('one')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     const errors: Error[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
@@ -214,7 +214,7 @@ describe('request stability across the loop', () => {
   it('a fresh loop instance over a seeded log anchors with a resume snapshot and stays cache-aligned', async () => {
     const adapter = new MockAdapter([textResponse('one')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('gen1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('gen1'), { provider: 'mock', model: 'mock' })
     send(agent, 'first')
     await waitForIdle(ctx, agent)
 
@@ -226,7 +226,7 @@ describe('request stability across the loop', () => {
       agentId: AgentId('gen2'),
       sessionId: SessionId('gen2-session'),
       seed: [...agent.session.events],
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
     })
     const agent2 = handle.agent as ReactLoopAgent
     send(agent2, 'second')
@@ -243,7 +243,7 @@ describe('request stability across the loop', () => {
   it('a delegating listener cannot mutate the seed through next() — the fold stays log-true', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/request', async (_agent, _turn, _step, _config, next) => {
       const config = await next()
@@ -262,9 +262,9 @@ describe('request stability across the loop', () => {
     send(agent, 'second')
     await waitForIdle(ctx, agent)
 
-    // No delta was logged (nothing really changed), and the session's own
+    // No changed snapshot was logged (nothing really changed), and the session's own
     // fold is immutable state.
-    expect(agent.session.events.filter(e => e.type === 'request/header-delta')).toHaveLength(0)
+    expect(agent.session.events.filter(e => e.type === 'request/header')).toHaveLength(1)
     expect(Object.isFrozen(agent.session.requestHeader())).toBe(true)
     expect(adapter.requests[1]!.temperature).toBeUndefined()
   })
@@ -277,7 +277,7 @@ describe('request stability across the loop', () => {
     ])
     const ctx = await harness(adapter)
     registerEcho(ctx)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -298,7 +298,7 @@ describe('request stability across the loop', () => {
       const rebuilt = new Session(SessionId(`rebuild-${index}`), structuredClone(events.slice(0, stepStart.seq)))
       expect(structuredClone(request.messages)).toEqual(rebuilt.deriveMessages())
 
-      // Header: the fold of request/header* events up to this step's dispatch
+      // Header: the latest request/header snapshot up to this step's dispatch
       // (its header event sits between step/start and the first chunk).
       const firstChunk = events.find(e => e.type === 'assistant/chunk' && e.seq > stepStart.seq)!
       const header = foldRequestHeader(events.slice(0, firstChunk.seq))!

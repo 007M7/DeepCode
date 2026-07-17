@@ -1,6 +1,6 @@
 # REPL agent with swappable DeepSeek and local-bash backends. `dsh-stdio-demo`
-# supplies the agent spine, generic task controls, logging, JSONL persistence,
-# readline UI, and `main` agent.
+# supplies the agent spine, workspace instructions, generic task controls,
+# logging, JSONL persistence, readline UI, and `main` agent.
 # HMR remains a leaf because it requires Loader internals; `demo:repl` passes
 # `--expose-internals`. The app bin loads the gitignored root `.env`; this file
 # reads `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL` through `!!js`.
@@ -11,16 +11,12 @@
   config:
     root: ['.']
 
-# The DeepSeek adapter. Swap to '@deepseek-ai/dsh-llm-pi-ai' for the pi-ai-backed
-# twin (same config shape; `reasoning: high` replaces thinking/reasoningEffort).
+# The native DeepSeek adapter.
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
-    models:
-      - deepseek-v4-pro
-      - deepseek-v4-flash
 
 # Local executor for the app bundle's bash tool.
 - id: bash
@@ -32,11 +28,14 @@
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-demo'
   config:
+    provider: deepseek
     model: deepseek-v4-flash
     # Set RESUME_SESSION_ID to continue a prior persisted session (the ids live
     # under ./.sessions); unset starts a fresh session each run.
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
     persistenceRoot: './.sessions'
+    workspaceContext:
+      maxBytes: 65536
     welcome: 'agent REPL ready. Give it a coding task.'
     # Keep the persona to identity and behavior; tool plugins own tool guidance.
     # The loop resolves {{model}} from this agent's configuration.
@@ -46,17 +45,14 @@
       Verify your work by running the code or tests. Keep answers brief and
       factual.
 
-# Summarize an older range when derived history approaches the context window.
-# This leaf consumes `ctx.llm` and the app's `agent/pre-step` seam.
+# Replay-aware request pressure with one service-wide context window.
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+# Summarize an older range when measured history approaches the context window.
+# Service-wide policy provides the ordinary threshold and retained-tail defaults.
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
-  config:
-    contextWindow: 128000
-    thresholdRatio: 0.8
-    retainTokens: 20480
-    summarizationModel: ''
-    maxTokens: 8192
-    compactionRetries: 1
 
 # Expose fresh-child `spawn` and completed-prefix `fork` through independent
 # in-process backends. Each tool instance needs a distinct `toolName`; the registry
@@ -112,3 +108,29 @@
 
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
+
+# Bash-backed discovery tools (glob/grep): fixed ripgrep commands through the
+# local bash executor above — not ctx.fs. Capped results save the complete
+# formatted list through the spill backend below (ctx.spillStore, optional).
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+
+# The tool-call timeout enforcer: arms each declared ToolDefinition.timeoutMs
+# (the search tools above declare 30s) as a deadline on exec.signal. Without
+# it a declared budget is advisory and only the bash executor's own timeout
+# backstop applies.
+- id: timeout-policy
+  name: '@deepseek-ai/dsh-timeout-policy'
+
+# Tool-output spill stack: a local backend that saves oversized tool text under
+# a private session-scoped dir, and the tools/post-execute policy that replaces
+# an over-budget plain-text result with a preview + the spill locator/retrieval
+# hint. A leaf pair after the app (needs ctx.tools). The policy is a no-op until
+# a tool returns more than maxInlineBytes of plain text.
+- id: spill-local
+  name: '@deepseek-ai/dsh-spill-local'
+
+- id: spill-policy
+  name: '@deepseek-ai/dsh-spill-policy'
+  config:
+    maxInlineBytes: 50000
