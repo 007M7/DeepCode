@@ -28,6 +28,9 @@
   name: '@deepseek-ai/dsh-acp-demo'
   config:
     model: deepseek-v4-flash
+    # Keep this example's prompt fixed to its explicit persona; workspace
+    # instructions are demonstrated by a separate composition.
+    workspaceContext: false
     # Persistence root: $DSH_SNAPSHOT_SESSIONS_ROOT when the snapshot harness
     # sets it (so a record run's logs land where the harness harvests them),
     # else the local ./.sessions default.
