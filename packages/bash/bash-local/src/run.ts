@@ -52,8 +52,10 @@ export function childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
 export interface SpawnSpec {
   command: string
   cwd: string
-  /** Per-stream in-memory cap; overflow spills to disk (tail kept in memory). */
-  maxOutputBytes: number
+  /** Stdout in-memory cap; overflow spills to disk (tail kept in memory). */
+  stdoutMaxBytes: number
+  /** Stderr in-memory cap; overflow spills to disk (tail kept in memory). */
+  stderrMaxBytes: number
   /** Grace period between the SIGTERM and the SIGKILL escalation on a kill. */
   graceMs: number
   /**
@@ -283,8 +285,8 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     ? spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
     : spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
 
-  const stdout = new OutputCollector(spec.maxOutputBytes, 'stdout', spillDir)
-  const stderr = new OutputCollector(spec.maxOutputBytes, 'stderr', spillDir)
+  const stdout = new OutputCollector(spec.stdoutMaxBytes, 'stdout', spillDir)
+  const stderr = new OutputCollector(spec.stderrMaxBytes, 'stderr', spillDir)
   child.stdout.on('data', (chunk: Buffer) => { stdout.push(chunk) })
   child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk) })
 

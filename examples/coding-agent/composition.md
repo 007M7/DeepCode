@@ -47,6 +47,14 @@ flowchart LR
   cfg --> plugin_coding_fs_policy
   plugin_coding_tool_fs["tool-fs<br/>@deepseek-ai/dsh-tool-fs"]
   cfg --> plugin_coding_tool_fs
+  plugin_coding_tool_fs_search["tool-fs-search<br/>@deepseek-ai/dsh-tool-fs-search"]
+  cfg --> plugin_coding_tool_fs_search
+  plugin_coding_timeout_policy["timeout-policy<br/>@deepseek-ai/dsh-timeout-policy"]
+  cfg --> plugin_coding_timeout_policy
+  plugin_coding_spill_local["spill-local<br/>@deepseek-ai/dsh-spill-local"]
+  cfg --> plugin_coding_spill_local
+  plugin_coding_spill_policy["spill-policy<br/>@deepseek-ai/dsh-spill-policy"]
+  cfg --> plugin_coding_spill_policy
 ```
 
 | Plugin id | Package / module |
@@ -67,6 +75,10 @@ flowchart LR
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
 | `tool-fs` | `@deepseek-ai/dsh-tool-fs` |
+| `tool-fs-search` | `@deepseek-ai/dsh-tool-fs-search` |
+| `timeout-policy` | `@deepseek-ai/dsh-timeout-policy` |
+| `spill-local` | `@deepseek-ai/dsh-spill-local` |
+| `spill-policy` | `@deepseek-ai/dsh-spill-policy` |
 
 Source config: [`examples/coding-agent/cordis.yml`](cordis.yml).
 

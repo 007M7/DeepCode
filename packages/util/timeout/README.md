@@ -25,12 +25,19 @@ import { clampTimeout, deadline, timeoutOf, TimeoutReason } from '@deepseek-ai/d
 
 ## Usage shape
 
-```ts ignore-check
+```ts
+import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
+
+declare function runWork(options: { signal: AbortSignal }): Promise<unknown>
+
 // Scope-lifetime consumer (foreground bash, one fetch): `using` disposes the timer.
-using d = deadline(upstream, timeoutMs, 'BASH_TIMEOUT')
-const outcome = await runWork({ signal: d.signal })            // work listens on d.signal and terminates itself
-const timedOut = timeoutOf(d.signal, 'BASH_TIMEOUT') !== undefined  // classify the first abort, scoped to OUR code
-const aborted = d.signal.aborted && !timedOut                  // mutually exclusive: timeout won, or cancel did
+export async function runWithDeadline(upstream: AbortSignal | undefined, timeoutMs: number): Promise<unknown> {
+  using d = deadline(upstream, timeoutMs, 'BASH_TIMEOUT')
+  const outcome = await runWork({ signal: d.signal })               // work listens on d.signal and terminates itself
+  const timedOut = timeoutOf(d.signal, 'BASH_TIMEOUT') !== undefined // classify the first abort, scoped to OUR code
+  const aborted = d.signal.aborted && !timedOut                     // mutually exclusive: timeout won, or cancel did
+  return { outcome, timedOut, aborted }
+}
 ```
 
 The signal only *notifies* — the caller MUST attach its own termination (`d.signal.addEventListener('abort', kill)`, or hand `d.signal` to `fetch`). Racing a promise against a timer would resolve the tool-call while the child process or socket leaks on; handing out a signal forces a real termination path to exist.
