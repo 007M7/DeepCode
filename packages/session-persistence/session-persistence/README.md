@@ -8,6 +8,7 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 
 | Method | Contract |
 |---|---|
+| `locate(meta): SessionLocation \| undefined` | Resolve an absolute per-session artifact target without I/O or materialization. Backends without an independent local artifact return `undefined`. |
 | `create(meta): Promise<void>` | Register a new session's metadata. MAY defer the physical write until the first `append` (lazy materialization). |
 | `append(id, events): Promise<void>` | Durably persist a batch (from the `session/flush` drain). Append-only; first event `seq` == stored next-seq after any repair; rejects non-JSON-serializable data naming the offending type. |
 | `load(id): Promise<{ meta; events }>` | Reload meta + log. Preserves an interrupted (unclosed) final turn and closes it with synthetic closers — an error `tool/result` per unanswered `tool-call`, then `step/end?`+`turn/end {interrupted}` (a turn can be huge — never truncated); only a torn tail fragment is dropped. Events contiguous (`events[i].seq === i`); rejects a committed-region gap/parse error or unknown `version`. |
@@ -23,6 +24,8 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 ## The write coordinator
 
 `PersistenceCoordinator` owns per-id state, write-behind buffers and serialization, the `session/event` → `session/flush` drain, lazy materialization, crash-tail repair, session adoption, and quiescent disposal. A first-party backend composes one, implements the small `PersistenceBackend` storage hook interface, and delegates its four public service methods. JSONL and SQLite therefore share lifecycle correctness while retaining different storage primitives; see the [coordinator RFC](../../../docs/rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
+
+The side-effect-free `locate` query remains backend-owned because it describes storage topology rather than write orchestration.
 
 The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinator and storage):
 
@@ -44,9 +47,9 @@ Import `runPersistenceContract` from `tests/contract.ts` (the public-API contrac
 
 Three backends run these suites: an in-memory reference (in `tests/`), `dsh-session-persistence-jsonl` (append-only file log) and `dsh-session-persistence-sqlite` (`node:sqlite`, each `SessionEvent` one row `(session_id, seq, type, time, data, source_event_seqs, surface_op)`). All passing the same contract + coordinator suite is the proof that the seam is genuinely backend-agnostic — lazy materialization, crash-tail-on-load, and contiguous-seq hold identically over file bytes and over a transactional store.
 
-## Metadata types
+## Metadata and location types
 
-Re-exported from `dsh-session`: `SessionHeader` (immutable session metadata: `version`, `id`, `createdAt`, `cwd?`, `parentSession?`, `seedLength?`).
+Re-exported from `dsh-session`: `SessionHeader` (immutable session metadata: `version`, `id`, `createdAt`, `cwd?`, `parentSession?`, `seedLength?`). `SessionLocation` is `{ readonly kind: string; readonly path: string }`; its path is an absolute backend target, not proof that the artifact exists or contains an unflushed turn.
 
 ## Model Experience
 

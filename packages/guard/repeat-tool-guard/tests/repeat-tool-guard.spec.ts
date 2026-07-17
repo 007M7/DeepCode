@@ -309,7 +309,7 @@ describe('fold onto the downstream decision', () => {
     ctx.on('tools/post-execute', async () => ({
       kind: 'block' as const,
       feedback: [{ type: 'text' as const, text: 'nope' }],
-      additionalContext: { content: [{ type: 'text' as const, text: 'downstream-ctx' }], source: { kind: 'plugin' as const, plugin: 'test' } },
+      additionalContexts: [{ content: [{ type: 'text' as const, text: 'downstream-ctx' }], source: { kind: 'plugin' as const, plugin: 'test' } }],
     }))
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'probe', { q: 1 }),
@@ -322,14 +322,14 @@ describe('fold onto the downstream decision', () => {
     await waitForIdle(ctx, agent)
 
     const found = reminders(agent)
-    expect(found).toHaveLength(2)
+    expect(found).toHaveLength(3)
     // Call 1: below threshold — the downstream context passes through untouched.
     expect(found[0]!.text).toBe('downstream-ctx')
     expect(found[0]!.source).toEqual({ kind: 'plugin', plugin: 'test' })
-    // Call 2: reminder folded in front, single merged context, the guard's source.
+    // Call 2: reminder and downstream context retain separate provenance.
     expect(found[1]!.text).toContain('repeating the exact same tool call')
-    expect(found[1]!.text).toContain('|downstream-ctx')
     expect(found[1]!.source).toEqual(GUARD_SOURCE)
+    expect(found[2]).toEqual({ text: 'downstream-ctx', source: { kind: 'plugin', plugin: 'test' } })
     // The block's feedback reached the tool result unchanged.
     const results = [...agent.session.events].filter((e): e is SessionEvent<'tool/result'> => e.type === 'tool/result')
     expect(results.every(r => r.data.isError)).toBe(true)
