@@ -28,6 +28,11 @@ export type InjectKey = keyof {
  * On classes it contributes to the plugin's static `inject` map. On methods it
  * delays the method call until the declared services are available.
  */
+/**
+ * @param name — the required service name.
+ * @param config — optional intercept config applied for that service.
+ * @returns the class or method decorator.
+ */
 export function Inject<K extends InjectKey>(name: K, config?: Context[K] extends { [symbols.config]: infer T } ? T : never) {
   return function (value: any, decorator: ClassDecoratorContext<any> | ClassMethodDecoratorContext<any>) {
     if (decorator.kind === 'class') {
@@ -55,7 +60,13 @@ export function Inject<K extends InjectKey>(name: K, config?: Context[K] extends
 
 /** Utilities for normalizing plugin dependency declarations. */
 export namespace Inject {
-  /** Convert array/object/class-inherited inject metadata into a plain map. */
+  /**
+   * Convert array/object/class-inherited inject metadata into a plain map.
+   *
+   * @param inject — the declaration to normalize; `null`/`undefined` add nothing.
+   * @param result — the map to fill (service name → intercept config or `null`).
+   * @returns `result`.
+   */
   export function resolve(inject: Inject | null | undefined, result: Dict = Object.create(null)) {
     if (!inject) return result
     if (Array.isArray(inject)) {
@@ -86,10 +97,15 @@ export type Plugin<T = any> =
 export namespace Plugin {
   /** Shared metadata understood by the plugin registry and related tooling. */
   export interface Base<T = any> {
+    /** Display name used for fiber diagnostics and logger names. */
     name?: string
+    /** Standard-schema validator applied to config before the plugin starts. */
     Config?: StandardSchemaV1<any, T>
+    /** Services the plugin requires; it only loads while all are available. */
     inject?: Inject
+    /** Service name(s) the plugin provides (read by `Service` and by loaders). */
     provide?: string | string[]
+    /** Service names whose intercept config the plugin declares it consumes. */
     intercept?: Dict<boolean>
   }
 
@@ -117,9 +133,13 @@ export namespace Plugin {
 
   /** Mutable registry record shared by all fibers of one plugin callback. */
   export interface Runtime {
+    /** Display name copied from the first registered plugin shape. */
     name?: string
+    /** Every live fiber of this plugin (one per `ctx.plugin()` call). */
     fibers: DisposableList<Fiber>
+    /** The executable entrypoint all fibers share (registry identity key). */
     callback: globalThis.Function
+    /** Standard-schema validator applied to each fiber's config. */
     Config?: StandardSchemaV1
   }
 }
@@ -142,7 +162,25 @@ type GetPluginConfig<P> =
 
 declare module './context.ts' {
   export interface Context {
+    /**
+     * Run a callback once the requested services are available.
+     *
+     * Shorthand for `ctx.plugin({ inject, apply: callback })`: the callback
+     * is unloaded and re-run whenever a required service changes.
+     *
+     * @param deps — required services, as an array or a name → config map.
+     * @param callback — plugin body called with `(ctx, config)`.
+     * @returns the fiber; awaiting it settles once loading finished.
+     */
     inject(deps: Inject, callback: Plugin.Function<void>): Fiber & PromiseLike<Fiber>
+    /**
+     * Load a plugin in the current context.
+     *
+     * @param plugin — a function, class, or `{ apply }` object plugin.
+     * @param args — the plugin config, validated against its `Config` schema.
+     * @returns the fiber; awaiting it settles once loading finished
+     * (rejecting on config or startup errors).
+     */
     plugin<P extends Plugin>(plugin: P, ...args: Spread<GetPluginConfig<P>>): Fiber & PromiseLike<Fiber>
   }
 }
@@ -164,15 +202,22 @@ export class RegistryService {
     })
   }
 
+  /** Allocate the next fiber uid (increments on every read). */
   get counter() {
     return ++this._counter
   }
 
+  /** Number of registered plugin runtimes. */
   get size() {
     return this._internal.size
   }
 
-  /** Resolve a supported plugin shape to its executable callback. */
+  /**
+   * Resolve a supported plugin shape to its executable callback.
+   *
+   * @param plugin — a function, class, or `{ apply }` object plugin.
+   * @returns the callback identifying the plugin, or `undefined` if invalid.
+   */
   resolve(plugin: Plugin): Function | undefined {
     // plugin.apply may throw
     try {
@@ -181,17 +226,34 @@ export class RegistryService {
     } catch {}
   }
 
+  /**
+   * Look up the runtime record for a plugin.
+   *
+   * @param plugin — any supported plugin shape.
+   * @returns the runtime, or `undefined` when the plugin is not registered.
+   */
   get(plugin: Plugin) {
     const key = this.resolve(plugin)
     return key && this._internal.get(key)
   }
 
+  /**
+   * Check whether a plugin has a registered runtime.
+   *
+   * @param plugin — any supported plugin shape.
+   * @returns `true` when at least one fiber of the plugin exists.
+   */
   has(plugin: Plugin) {
     const key = this.resolve(plugin)
     return !!key && this._internal.has(key)
   }
 
-  /** Dispose every running fiber for a plugin and remove its runtime record. */
+  /**
+   * Dispose every running fiber for a plugin and remove its runtime record.
+   *
+   * @param plugin — any supported plugin shape.
+   * @returns the removed runtime, or `undefined` when none was registered.
+   */
   delete(plugin: Plugin) {
     const key = this.resolve(plugin)
     const runtime = key && this._internal.get(key)
@@ -203,28 +265,53 @@ export class RegistryService {
     return runtime
   }
 
+  /** Iterate the registered plugin callbacks. */
   keys() {
     return this._internal.keys()
   }
 
+  /** Iterate the registered plugin runtimes. */
   values() {
     return this._internal.values()
   }
 
+  /** Iterate `[callback, runtime]` pairs. */
   entries() {
     return this._internal.entries()
   }
 
+  /**
+   * Visit every registered runtime.
+   *
+   * @param callback — receives each runtime and its identifying callback.
+   */
   forEach(callback: (value: Plugin.Runtime, key: Function) => void) {
     return this._internal.forEach(callback)
   }
 
-  /** Start a callback once the requested dependencies are available. */
+  /**
+   * Start a callback once the requested dependencies are available.
+   *
+   * @param inject — required services, as an array or a name → config map.
+   * @param callback — plugin body called with `(ctx, config)`.
+   * @returns the fiber; awaiting it settles once loading finished.
+   */
   inject(inject: Inject, callback: Plugin.Function<void>) {
     return this.plugin({ inject, apply: callback, name: callback.name })
   }
 
-  /** Start a plugin in the current context and return its fiber. */
+  /**
+   * Start a plugin in the current context and return its fiber.
+   *
+   * Creates (or reuses) the plugin's runtime record, then starts a new fiber
+   * under the current context. Throws if `plugin` is not a supported shape or
+   * if the current fiber is already disposed.
+   *
+   * @param plugin — a function, class, or `{ apply }` object plugin.
+   * @param config — the plugin config, validated against its `Config` schema.
+   * @param getOuterStack — captures the caller stack for effect diagnostics.
+   * @returns the fiber; awaiting it settles once loading finished.
+   */
   plugin(plugin: Plugin, config?: any, getOuterStack = buildOuterStack()) {
     // check if it's a valid plugin
     const callback = this.resolve(plugin)

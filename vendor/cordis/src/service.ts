@@ -9,19 +9,36 @@ import { createCallable, joinPrototype, symbols, Tracker } from './utils.ts'
  * registered immediately and is automatically removed with the owning fiber.
  */
 export abstract class Service<out T = never> {
+  /** Symbol key of an instance method run after construction (class plugins). */
   static readonly init: unique symbol = symbols.init
+  /** Symbol key of the availability predicate passed to `ctx.provide()`. */
   static readonly check: unique symbol = symbols.check
+  /** Symbol key of the phantom intercept-config type parameter. */
   static readonly config: unique symbol = symbols.config
+  /** Symbol key of the call body making a service callable (e.g. `ctx.logger()`). */
   static readonly invoke: unique symbol = symbols.invoke
+  /** Symbol key of the helper deriving an extended service instance. */
   static readonly extend: unique symbol = symbols.extend
+  /** Symbol key of the tracker metadata used for context tracing. */
   static readonly tracker: unique symbol = symbols.tracker
+  /** Symbol key of the intercept-config resolution helper below. */
   static readonly resolveConfig: unique symbol = symbols.resolveConfig
 
   declare [symbols.config]: T
 
+  /** The service name this instance is registered under. */
   public name!: string
 
-  /** Register this instance as `name` in the current context. */
+  /**
+   * Register this instance as `name` in the current context.
+   *
+   * Calls `ctx.reflect.provide(name, this, this[Service.check])`, so the
+   * service is unregistered automatically when the owning fiber unloads.
+   * Services with a `[Service.invoke]` body return a callable instance.
+   *
+   * @param ctx — the context to register in (stored as `this.ctx`).
+   * @param name — the service name; defaults to the static `provide` field.
+   */
   constructor(protected ctx: Context, name: string) {
     name ??= this.constructor['provide'] as string
 
@@ -55,7 +72,17 @@ export abstract class Service<out T = never> {
     return Object.assign(self, props)
   }
 
-  /** Merge intercept config from ancestors with optional base and head values. */
+  /**
+   * Merge intercept config from ancestors with optional base and head values.
+   *
+   * Entries added closer to the root apply first; `base` is prepended and
+   * `head` appended. Uses `Config.merge` when the service declares one,
+   * otherwise a shallow `Object.assign`.
+   *
+   * @param base — lowest-precedence config merged before all intercepts.
+   * @param head — highest-precedence config merged after all intercepts.
+   * @returns the merged config.
+   */
   [symbols.resolveConfig](base?: T, head?: T): T {
     let intercept = this.ctx[Context.intercept]
     const configs: any[] = []
