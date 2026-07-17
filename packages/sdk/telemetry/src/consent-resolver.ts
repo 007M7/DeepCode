@@ -1,12 +1,12 @@
 /**
  * Consent resolution for dsh-sdk telemetry.
  *
- * Consent is carried by the telemetry plugin's enabled/disabled state in the
- * project `cordis.yml`: an enabled entry means opt-in, a `disabled: true` entry
- * means opt-out. The resolver PARSES `cordis.yml` — it never boots a Cordis
- * application — because several launcher commands (`build`, `create`) never
- * boot Cordis at all. `DO_NOT_TRACK` and CI environment signals force a denial
- * regardless of file state.
+ * Telemetry is OFF only when `cordis.yml` contains a telemetry entry that is
+ * explicitly `disabled`; every other file state reports (no `cordis.yml`, an
+ * enabled entry, or no telemetry entry at all). The resolver PARSES `cordis.yml`
+ * — it never boots a Cordis application — because several launcher commands
+ * (`build`, `create`) never boot Cordis at all. `DO_NOT_TRACK` and CI
+ * environment signals force a denial regardless of file state.
  *
  * @module @deepseek-ai/dsh-telemetry/consent-resolver
  */
@@ -56,7 +56,7 @@ export interface ConsentResolverOptions {
   honorEnvOptOut?: boolean
   /** Consent when `cordis.yml` does not exist yet (first `create`). Defaults to `true` (telemetry is default-on). */
   allowWhenNoConfig?: boolean
-  /** Consent when `cordis.yml` exists but has no telemetry entry. Defaults to `false`. */
+  /** Consent when `cordis.yml` exists but has no telemetry entry. Defaults to `true` (report unless a present entry is disabled). */
   allowWhenEntryAbsent?: boolean
 }
 
@@ -94,7 +94,7 @@ export class ConsentResolver {
     this.#env = options.env ?? process.env
     this.#honorEnvOptOut = options.honorEnvOptOut ?? true
     this.#allowWhenNoConfig = options.allowWhenNoConfig ?? true
-    this.#allowWhenEntryAbsent = options.allowWhenEntryAbsent ?? false
+    this.#allowWhenEntryAbsent = options.allowWhenEntryAbsent ?? true
   }
 
   /**

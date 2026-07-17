@@ -10,7 +10,7 @@ Launcher-side telemetry primitives for the dsh-sdk toolchain. This is a plain li
 | `getOrCreateAnonymousId` | Random UUID persisted in a per-user GLOBAL config file (never in the project, never derived from git). |
 | `TelemetryReporter` | Fire-and-forget send: `report()` never blocks or throws; delivery resolves on every path; `flush()` optionally drains in-flight sends within a cap. |
 
-Consent is carried by the telemetry entry in `cordis.yml`, so disabling telemetry is disabling that entry. When `cordis.yml` does not yet exist (first `create`) consent defaults to allowed; when it exists without a telemetry entry consent defaults to denied — both are configurable on `ConsentResolver`.
+Consent is carried by the telemetry entry in `cordis.yml`, so disabling telemetry is disabling that entry. Telemetry reports by default and is off only when a present telemetry entry is explicitly `disabled`: a missing `cordis.yml` (first `create`), an enabled entry, or a `cordis.yml` with no telemetry entry all report. `DO_NOT_TRACK`/CI always deny. The no-config and absent-entry defaults are configurable on `ConsentResolver`.
 
 The collection endpoint is a fixed constant (`DSH_TELEMETRY_ENDPOINT`); its `.invalid` placeholder must be replaced with the real endpoint before release.
 

@@ -84,23 +84,23 @@ describe('ConsentResolver cordis.yml state', () => {
       .toEqual<ConsentDecision>({ allowed: true, reason: 'enabled' })
   })
 
-  it('reports absent when cordis.yml has no telemetry entry, defaulting to deny', async () => {
+  it('reports (allows) when cordis.yml has no telemetry entry', async () => {
     const yml = '- id: llm\n  name: \'@deepseek-ai/dsh-llm-deepseek\'\n'
     expect(await resolver.resolve(await projectDir(yml)))
-      .toEqual<ConsentDecision>({ allowed: false, reason: 'absent' })
+      .toEqual<ConsentDecision>({ allowed: true, reason: 'absent' })
   })
 
-  it('can allow when the entry is absent', async () => {
+  it('can be told to deny when the entry is absent', async () => {
     const yml = '- id: llm\n  name: \'@deepseek-ai/dsh-llm-deepseek\'\n'
-    const decision = await new ConsentResolver({ env: {}, allowWhenEntryAbsent: true }).resolve(await projectDir(yml))
-    expect(decision).toEqual<ConsentDecision>({ allowed: true, reason: 'absent' })
+    const decision = await new ConsentResolver({ env: {}, allowWhenEntryAbsent: false }).resolve(await projectDir(yml))
+    expect(decision).toEqual<ConsentDecision>({ allowed: false, reason: 'absent' })
   })
 
-  it('skips non-object sequence items and a non-sequence root', async () => {
+  it('skips non-object sequence items and a non-sequence root, still reporting absent', async () => {
     expect(await resolver.resolve(await projectDir('- just-a-string\n- id: x\n  name: y\n')))
-      .toEqual<ConsentDecision>({ allowed: false, reason: 'absent' })
+      .toEqual<ConsentDecision>({ allowed: true, reason: 'absent' })
     expect(await resolver.resolve(await projectDir('root: not-a-sequence\n')))
-      .toEqual<ConsentDecision>({ allowed: false, reason: 'absent' })
+      .toEqual<ConsentDecision>({ allowed: true, reason: 'absent' })
   })
 
   it('honors a custom telemetry plugin name', async () => {
