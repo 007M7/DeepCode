@@ -1,10 +1,7 @@
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -21,15 +18,13 @@ import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
  */
 export async function spawnHarness(workdir: string): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
   // This harness installs only the global default persona, so both parent and
   // spawned children render it. It stays neutral for both roles; the
   // delegation nudge lives in the e2e's user prompt and the subagent tool's
   // own description.
-  await ctx.plugin(SystemPrompt, { persona: 'You are a coding agent. Report only when the requested work is done.' })
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx, {
+    systemPrompt: { persona: 'You are a coding agent. Report only when the requested work is done.' },
+  })
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LlmDeepSeek, { models: ['deepseek-v4-flash'] })
   await ctx.plugin(LocalBashExecutor, { cwd: workdir, timeoutMs: 30_000 })

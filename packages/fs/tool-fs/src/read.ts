@@ -13,7 +13,7 @@ import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { buildWindow, formatReadOutput } from './read-render.ts'
 import type { FileReadOutcome } from './read-render.ts'
-import { sessionCwd } from './session-cwd.ts'
+import { sessionResolveOptions } from './session-cwd.ts'
 
 /** Default and maximum number of lines returned by one `read` call (the `readLimit` config). */
 export const READ_LIMIT = 2000
@@ -86,8 +86,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
     },
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseReadArgs(args, caps.limit)
-      const cwd = sessionCwd(exec)
-      const target = await ctx.fs.resolve(input.filePath, cwd !== undefined ? { cwd } : undefined)
+      const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec))
 
       // One stat: type check + size routing + the version recorded as observed.
       // A concurrent write can only make a later guarded mutation fail stale and require reread.
