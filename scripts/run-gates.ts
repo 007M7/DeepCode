@@ -163,6 +163,7 @@ function gatesForMode(selected: Mode): Gate[] {
       ]
     case 'ci-coverage':
       return [
+        pnpmScript('build', 'build'),
         coverageGate(),
       ]
     case 'ci-snapshot':
@@ -282,6 +283,8 @@ function coverageGate(): Gate {
     ...positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers'),
   ], {
     label: 'test:coverage',
+    env: { DSH_EXAMPLE_MODE: 'lib' },
+    needs: ['build'],
   })
 }
 

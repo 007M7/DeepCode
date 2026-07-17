@@ -33,6 +33,8 @@ import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 export interface AgentUnderTest {
   /** The agent bin's SOURCE entry (e.g. `packages/examples/acp-demo/src/bin.ts`); the `lib` bin is derived from it. */
   binScript: string
+  /** Explicit plain-Node entry for `lib` mode; intended for test fixtures outside a package `src/` tree. */
+  libBinScript?: string | undefined
   /**
    * The example's live `cordis.yml`. Under `DSH_SNAPSHOT=replay` the bin swaps
    * it for the sibling `cordis.snapshot.yml` (the keyless replay overlay), so
@@ -181,6 +183,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // Node, resolving plugins through the example's workspace node_modules → lib.
     const launch = resolveExampleLaunch({
       srcBin: opts.agent.binScript,
+      libBin: opts.agent.libBinScript,
       configArgs: ['--config', opts.configPath ?? opts.agent.configPath],
       tsconfigPath: opts.agent.tsconfigPath,
       env: {

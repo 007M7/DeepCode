@@ -17,7 +17,6 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 const DEFAULT_PROCESS_TIMEOUT_MS = 30_000
 
@@ -54,6 +53,8 @@ export function resolveExampleMode(raw: string | undefined = process.env[EXAMPLE
 export interface ExampleLaunchOptions {
   /** Absolute path to the example bin's TypeScript source entry (`<pkg>/src/bin.ts`); the `lib` bin is derived from it. */
   readonly srcBin: string
+  /** Explicit plain-Node entry for `lib` mode; test fixtures may point this at Node-type-strippable TypeScript. */
+  readonly libBin?: string | undefined
   /** Arguments passed after the bin — the config, positional (`[configPath]`) or flagged (`['--config', configPath]`). */
   readonly configArgs?: readonly string[]
   /** The mode to launch in; defaults to {@link resolveExampleMode} of the environment. */
@@ -78,11 +79,14 @@ export interface ExampleLaunch {
 
 /** Derive the built-lib bin (`<pkg>/lib/<name>.js`) from a source bin (`<pkg>/src/<name>.ts`). */
 function toLibBin(srcBin: string): string {
-  const marker = '/src/'
-  const cut = srcBin.lastIndexOf(marker)
-  if (cut === -1) throw new Error(`resolveExampleLaunch: expected a "/src/" segment in bin path ${JSON.stringify(srcBin)}.`)
-  const tail = srcBin.slice(cut + marker.length).replace(/\.ts$/, '.js')
-  return `${srcBin.slice(0, cut)}/lib/${tail}`
+  const markerLength = '/src/'.length
+  const cut = Math.max(srcBin.lastIndexOf('/src/'), srcBin.lastIndexOf('\\src\\'))
+  if (cut === -1) {
+    throw new Error(`resolveExampleLaunch: expected a "/src/" segment or Windows equivalent in bin path ${JSON.stringify(srcBin)}.`)
+  }
+  const separator = srcBin.slice(cut, cut + 1)
+  const tail = srcBin.slice(cut + markerLength).replace(/\.ts$/, '.js')
+  return `${srcBin.slice(0, cut)}${separator}lib${separator}${tail}`
 }
 
 /**
@@ -108,12 +112,12 @@ export function resolveExampleLaunch(options: ExampleLaunchOptions): ExampleLaun
     if (options.tsconfigPath === undefined) {
       throw new Error("resolveExampleLaunch: 'src' mode needs tsconfigPath for the workspace paths map.")
     }
-    const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
+    const tsxLoader = import.meta.resolve('tsx')
     env.TSX_TSCONFIG_PATH = options.tsconfigPath
     return { command: process.execPath, args: [...flags, '--import', tsxLoader, options.srcBin, ...configArgs], env }
   }
 
-  return { command: process.execPath, args: [...flags, toLibBin(options.srcBin), ...configArgs], env }
+  return { command: process.execPath, args: [...flags, options.libBin ?? toLibBin(options.srcBin), ...configArgs], env }
 }
 
 /** Inputs that vary between real-Loader example smokes. */
@@ -124,6 +128,8 @@ export interface LoaderSmokeOptions {
   readonly tempDirPrefix: string
   /** Absolute stdio-agent bin SOURCE path (`<pkg>/src/bin.ts`); the `lib` bin is derived from it. */
   readonly binScript: string
+  /** Explicit plain-Node entry for `lib` mode; intended for test fixtures outside a package `src/` tree. */
+  readonly libBinScript?: string | undefined
   /** Absolute real Loader config path. */
   readonly configPath: string
   /** Absolute repo tsconfig path used for unbuilt workspace-package resolution (required in `src` mode). */
@@ -158,6 +164,7 @@ export async function runLoaderSmoke(options: LoaderSmokeOptions): Promise<Loade
   const processTimeoutMs = options.processTimeoutMs ?? DEFAULT_PROCESS_TIMEOUT_MS
   const launch = resolveExampleLaunch({
     srcBin: options.binScript,
+    libBin: options.libBinScript,
     configArgs: [options.configPath],
     ...options.mode !== undefined ? { mode: options.mode } : {},
     tsconfigPath: options.tsconfigPath,

@@ -16,7 +16,8 @@ afterEach(() => {
 
 describe('resolveExampleMode', () => {
   it('defaults absent/empty/src to src', () => {
-    expect(resolveExampleMode(undefined)).toBe('src')
+    Reflect.deleteProperty(process.env, EXAMPLE_MODE_ENV)
+    expect(resolveExampleMode()).toBe('src')
     expect(resolveExampleMode('')).toBe('src')
     expect(resolveExampleMode('src')).toBe('src')
   })
@@ -71,6 +72,12 @@ describe('resolveExampleLaunch', () => {
     expect(env.DSH_HOME).toBe('/tmp/home')
   })
 
+  it('lib mode: uses an explicit plain-Node bin when provided', () => {
+    const fixture = '/repo/packages/support/loader-smoke/tests/fixture.ts'
+    const { args } = resolveExampleLaunch({ srcBin: fixture, libBin: fixture, mode: 'lib' })
+    expect(args).toContain(fixture)
+  })
+
   it('prepends --expose-internals when requested', () => {
     const { args } = resolveExampleLaunch({ srcBin: SRC_BIN, mode: 'lib', exposeInternals: true })
     expect(args[0]).toBe('--expose-internals')
@@ -82,6 +89,14 @@ describe('resolveExampleLaunch', () => {
       mode: 'lib',
     })
     expect(args).toContain('/repo/src/packages/examples/acp-demo/lib/bin.js')
+  })
+
+  it('lib mode: derives the built bin from a Windows source path', () => {
+    const { args } = resolveExampleLaunch({
+      srcBin: String.raw`D:\repo\src\packages\examples\acp-demo\src\bin.ts`,
+      mode: 'lib',
+    })
+    expect(args).toContain(String.raw`D:\repo\src\packages\examples\acp-demo\lib\bin.js`)
   })
 
   it('lib mode: throws when the bin has no /src/ segment', () => {

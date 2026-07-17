@@ -44,6 +44,7 @@ describe('runLoaderSmoke', () => {
       label: 'failure fixture',
       tempDirPrefix: 'loader-smoke-fail-',
       binScript: fixture('fail'),
+      libBinScript: fixture('fail'),
       configPath,
       tsconfigPath,
     })).rejects.toThrow('failure fixture exited 7. stdout:\n\nstderr:\nfixture failed')
@@ -54,6 +55,7 @@ describe('runLoaderSmoke', () => {
       label: 'hanging fixture',
       tempDirPrefix: 'loader-smoke-hang-',
       binScript: fixture('hang'),
+      libBinScript: fixture('hang'),
       configPath,
       tsconfigPath,
       processTimeoutMs: 100,
