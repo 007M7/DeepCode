@@ -6,7 +6,7 @@ Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.t
 
 ## Request vs. spec: the `resolve()` split
 
-The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`, filled from config) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package seams" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory came from.
+The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`/`stdoutMaxBytes`, filled from config or request policy) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package seams" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory or output budget came from.
 
 ```ts type-equiv
 interface BashExecRequest {
@@ -15,6 +15,13 @@ interface BashExecRequest {
   workdir?: string | undefined
   /** Timeout override in milliseconds (implementations cap it). */
   timeoutMs?: number | undefined
+  /**
+   * Foreground stdout capture budget in bytes. Absent uses the executor's
+   * default output cap. Trusted in-process consumers use this when they must
+   * parse complete stdout up to their own bounded limit; the model-facing bash
+   * tool does not expose it as a parameter.
+   */
+  stdoutMaxBytes?: number | undefined
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
@@ -57,6 +64,11 @@ interface BashExecSpec {
   command: string
   workdir: string
   timeoutMs: number
+  /**
+   * Resolved foreground stdout capture budget in bytes. `run()` uses it for
+   * stdout; background tasks and stderr keep the executor's own output cap.
+   */
+  stdoutMaxBytes: number
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
@@ -87,6 +99,8 @@ interface BashExecSpec {
 ```
 
 `stdin` and `env` are trusted in-process plugin inputs and are not exposed by `dsh-tool-bash`. The local executor scrubs ambient credentials before merging explicit caller-supplied env. See [the bash-stdin-env RFC](../rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
+
+`stdoutMaxBytes` is also trusted-plugin-only. It lets a foreground consumer request complete stdout up to a bounded parser budget without changing stderr, background tasks, or the model-facing bash tool's ordinary output cap.
 
 ## Foreground runs: `BashRunResult`
 

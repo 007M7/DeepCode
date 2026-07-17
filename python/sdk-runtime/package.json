@@ -33,6 +33,7 @@
     "@deepseek-ai/dsh-llm-deepseek": "workspace:^",
     "@deepseek-ai/dsh-llm-pi-ai": "workspace:^",
     "@deepseek-ai/dsh-permission": "workspace:^",
+    "@deepseek-ai/dsh-paths": "workspace:^",
     "@deepseek-ai/dsh-repeat-tool-guard": "workspace:^",
     "@deepseek-ai/dsh-sandbox": "workspace:^",
     "@deepseek-ai/dsh-scope": "workspace:^",
@@ -70,6 +71,7 @@
     "@deepseek-ai/dsh-web-search-deepseek": "workspace:^",
     "@deepseek-ai/dsh-web-search-exa": "workspace:^",
     "@deepseek-ai/dsh-web-search-perplexity": "workspace:^",
+    "@deepseek-ai/dsh-workspace-context": "workspace:^",
     "@deepseek-ai/dsh-workflow": "workspace:^",
     "@deepseek-ai/dsh-workflow-workerthread": "workspace:^",
     "cordis": "workspace:^"

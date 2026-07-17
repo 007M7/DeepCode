@@ -101,6 +101,7 @@ class RecordingSandboxExecutor extends BashExecutor {
     return {
       command: request.command,
       workdir: request.workdir ?? process.cwd(),
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       timeoutMs: request.timeoutMs ?? 1000,
       ...request.signal ? { signal: request.signal } : {},
       sandboxMode: request.sandboxMode ?? 'read-only',
@@ -140,7 +141,13 @@ class CountingStartExecutor extends BashExecutor {
   starts = 0
 
   resolve(request: BashExecRequest): BashExecSpec {
-    return { command: request.command, workdir: request.workdir ?? '/x', timeoutMs: request.timeoutMs ?? 0, sandboxMode: request.sandboxMode }
+    return {
+      command: request.command,
+      workdir: request.workdir ?? '/x',
+      timeoutMs: request.timeoutMs ?? 0,
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
+      sandboxMode: request.sandboxMode,
+    }
   }
 
   run(): Promise<BashRunResult> { return Promise.reject(new Error('unused')) }
@@ -927,11 +934,12 @@ describe('the model-facing bash tool builds its request from named args only (no
   /**
    * Records every {@link BashExecRequest} the consumer hands to `resolve()`, so a
    * test can assert what the model-facing tool DID and DID NOT forward. The `bash`
-   * tool does not expose `stdin`/`env` as parameters (bash syntax already gives a
-   * model that power), so it must build its request from named args only and
+   * tool does not expose trusted-plugin fields (`stdoutMaxBytes`, `stdin`, or
+   * `env`) as parameters, so it must build its request from named args only and
    * never spread unknown tool-call keys into it. This guard's job is to catch a
    * future refactor that blindly forwards `...args` — which would silently thread
-   * model input into the post-scrub `env` merge — NOT to defend a trust boundary
+   * model input into the post-scrub `env` merge or per-run capture budget — NOT
+   * to defend a trust boundary
    * (the credential scrub in dsh-bash-local is the security control; see the
    * bash-stdin-env RFC). Foreground `run()` returns a canned result; `start()`
    * hands back an already-settled fake handle so the task registration completes.
@@ -944,6 +952,7 @@ describe('the model-facing bash tool builds its request from named args only (no
         command: request.command,
         workdir: request.workdir ?? process.cwd(),
         timeoutMs: request.timeoutMs ?? 0,
+        stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
         ...request.signal ? { signal: request.signal } : {},
         ...request.stdin !== undefined ? { stdin: request.stdin } : {},
         ...request.env !== undefined ? { env: request.env } : {},
@@ -980,7 +989,7 @@ describe('the model-facing bash tool builds its request from named args only (no
     return { ctx, bash: ctx.bash as RecordingBashExecutor }
   }
 
-  it('does not forward env/stdin even when the model includes them as extra arguments', async () => {
+  it('does not forward trusted-only fields even when the model includes them as extra arguments', async () => {
     const { ctx, bash } = await setupRecording()
     // Unknown `env` and `stdin` keys are ignored by the schema and named request construction.
     // This preserves the request shape; it is not a security boundary because shell syntax can
@@ -993,6 +1002,7 @@ describe('the model-facing bash tool builds its request from named args only (no
         description: 'echo',
         env: { SNEAKY_API_KEY: 'leak' },
         stdin: 'malicious payload',
+        stdoutMaxBytes: 999_999,
       },
     })
     expect(bash.requests).toHaveLength(1)
@@ -1000,9 +1010,10 @@ describe('the model-facing bash tool builds its request from named args only (no
     expect(request.command).toBe('echo hi')
     expect('env' in request).toBe(false)
     expect('stdin' in request).toBe(false)
+    expect('stdoutMaxBytes' in request).toBe(false)
   })
 
-  it('a background bash call likewise carries no env/stdin', async () => {
+  it('a background bash call likewise carries no trusted-only fields', async () => {
     const { ctx, bash } = await setupRecording()
     const result = await ctx.tools.execute({
       callId: CallId('no-forward-2'),
@@ -1013,6 +1024,7 @@ describe('the model-facing bash tool builds its request from named args only (no
         run_in_background: true,
         env: { TOKEN: 'leak' },
         stdin: 'x',
+        stdoutMaxBytes: 999_999,
       },
     })
     // The call really went down the background path (the recorder sees the real
@@ -1024,5 +1036,6 @@ describe('the model-facing bash tool builds its request from named args only (no
     expect(request.command).toBe('sleep 1')
     expect('env' in request).toBe(false)
     expect('stdin' in request).toBe(false)
+    expect('stdoutMaxBytes' in request).toBe(false)
   })
 })
