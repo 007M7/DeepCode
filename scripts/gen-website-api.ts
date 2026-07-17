@@ -444,9 +444,9 @@ function collectHarnessServices(violations: string[]): HarnessService[] {
     if (!text.includes('interface Context')) continue
     const body = cordisModuleBody(sf)
     if (!body) continue
-    const pkgJson = rel.replace(/src\/index\.ts$/, 'package.json')
+    const pkgJson = resolve(root, dirname(dirname(rel)), 'package.json')
     // Manifest shape is repo-owned; `name` is the one field read here.
-    const manifest = JSON.parse(readFileSync(resolve(root, pkgJson), 'utf8')) as { name: string }
+    const manifest = JSON.parse(readFileSync(pkgJson, 'utf8')) as { name: string }
     const pkg = manifest.name
     for (const { key, type, cls, abstract, doc: clsDoc } of serviceClasses(body, sf, rel, violations)) {
       const groups = new Map<string, (ts.MethodDeclaration | ts.PropertyDeclaration | ts.GetAccessorDeclaration)[]>()
