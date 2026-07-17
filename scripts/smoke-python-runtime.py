@@ -57,6 +57,7 @@ CUSTOM_CORDIS = """\
 - id: agent-core
   name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
+    workspaceContext: false
     tools:
       mode: both
 - id: sessions

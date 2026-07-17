@@ -122,7 +122,10 @@ describe('tool-pairing surface identity', () => {
     session.append('user/message', {
       content: [{ type: 'text', text: 'checkpoint' }],
       source: { kind: 'plugin', plugin: 'compact' },
-    }, { surfaceOp: { op: 'replace', start: nodes[0]!.seq, end: nodes.at(-1)!.seq } })
+    }, {
+      surfaceOp: { op: 'replace', start: nodes[0]!.seq, end: nodes.at(-1)!.seq },
+      sourceEventSeqs: nodes.map(node => node.seq),
+    })
 
     const checkpoint = session.surface.nodes[0]!
     expect(toolPairingBalancedBefore(session, checkpoint)).toBe(true)

@@ -15,3 +15,4 @@
     persona: 'Test the time-context plugin.'
     welcome: 'time-context e2e ready.'
     persistenceRoot: './.sessions'
+    workspaceContext: false

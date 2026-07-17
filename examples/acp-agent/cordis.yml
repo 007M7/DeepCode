@@ -33,7 +33,7 @@
 - id: permission
   name: '@deepseek-ai/dsh-permission'
 
-# The ACP server app: the agent-core spine + JSONL persistence + the ACP bridge.
+# The ACP server app: the agent-spine-demo spine + JSONL persistence + the ACP bridge.
 # Persistence root: $DSH_SNAPSHOT_SESSIONS_ROOT when the snapshot harness sets it
 # (so it can harvest / isolate the log), else ./.sessions for the demo.
 - id: acp-agent
@@ -41,6 +41,8 @@
   config:
     model: deepseek-v4-flash
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+    workspaceContext:
+      maxBytes: 65536
     # Keep the persona to identity and behavior; tool plugins own tool guidance.
     # The loop resolves {{model}} and each ACP session's client-supplied {{cwd}}.
     persona: |

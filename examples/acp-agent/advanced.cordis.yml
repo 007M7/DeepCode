@@ -10,6 +10,8 @@
         config:
           model: deepseek-v4-flash
           persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+          workspaceContext:
+            maxBytes: 65536
           tools:
             mode: both
           persona: |
