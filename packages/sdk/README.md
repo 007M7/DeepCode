@@ -9,6 +9,7 @@ The [feature RFC](../../docs/rfc/proposed/feature/2026-07-14-sdk-developer-proje
 | [`helper`](helper/README.md) | Project aggregate, edit session, builtin features, project documents, templates, package managers, and prompt abstraction |
 | [`scripts`](scripts/README.md) | The `dsh-sdk` launcher: `start`, `dev`, `build`, and interactive `config` |
 | [`create-sdk`](create-sdk/README.md) | The `npm create @deepseek-ai/sdk` initializer |
+| [`plugin-fetch`](plugin-fetch/README.md) | Fetch an external plugin (github/npm) into a temp dir — pinned and un-executed — for `dsh-sdk create` |
 
 `@deepseek-ai/create-sdk` is the one package-name exception to the repository's `@deepseek-ai/dsh-*` rule: npm's scoped initializer convention requires that name for `npm create @deepseek-ai/sdk`.
 
