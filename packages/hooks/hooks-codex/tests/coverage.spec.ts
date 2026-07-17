@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { type SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
@@ -23,9 +24,12 @@ function hooks(d: string, h: unknown): string {
   writeFileSync(join(d, 'hooks.json'), JSON.stringify({ hooks: h })); return join(d, 'hooks.json')
 }
 
-async function harness(configPath: string, adapter: MockAdapter, opts: { stderrSummaryMaxChars?: number } = {}): Promise<Context> {
+type HarnessOpts = { stderrSummaryMaxChars?: number; sessionRoot?: string }
+async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOpts = {}): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(LlmService); await ctx.plugin(SessionStore); await ctx.plugin(SystemPrompt)
+  await ctx.plugin(LlmService); await ctx.plugin(SessionStore)
+  if (opts.sessionRoot !== undefined) await ctx.plugin(SessionPersistenceJsonl, { root: opts.sessionRoot })
+  await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry); await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   await ctx.plugin(HooksCodex, { configPath, model: 'm', ...opts })
@@ -47,6 +51,28 @@ async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10):
 }
 
 describe('hooks-codex coverage — decision mapping paths', () => {
+  it('uses the persistence locator for transcript_path and null without one', async () => {
+    async function capture(sessionRoot?: string): Promise<{ payload: { transcript_path: string | null }; expected: string | undefined }> {
+      const d = dir()
+      const cap = join(d, 'payload')
+      const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'capture.sh', `#!/usr/bin/env bash\ncat > "${cap}"\n`) }] }] })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+      const ctx = await harness(path, adapter, { ...sessionRoot !== undefined ? { sessionRoot } : {} })
+      ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+      const agent = ctx.agentLoop.create(AgentId('transcript'), { model: 'mock' })
+      agent.send([{ type: 'text', text: 'go' }])
+      await waitForIdle(ctx, agent)
+      return {
+        payload: JSON.parse(readFileSync(cap, 'utf8')) as { transcript_path: string | null },
+        expected: ctx.get('sessionPersistence')?.locate(agent.session.header)?.path,
+      }
+    }
+
+    const located = await capture(dir())
+    expect(located.payload.transcript_path).toBe(located.expected)
+    expect((await capture()).payload.transcript_path).toBeNull()
+  }, 15_000) // Two real agent/hook subprocess loops need loaded pre-push runner headroom.
+
   it('UserPromptSubmit block (exit 2) → rejected turn; default reason on empty stderr', async () => {
     const d = dir()
     hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'b.sh', '#!/usr/bin/env bash\nexit 2\n') }] }] })
@@ -85,7 +111,7 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     expect(te?.type === 'turn/end' && te.data.reason).toMatchObject({ kind: 'rejected', reason: 'policy veto' })
   })
 
-  it('folds the bridge additionalContext WITH a downstream listener that also adds context', async () => {
+  it('preserves separate bridge and downstream prompt contexts with framing and metadata', async () => {
     const d = dir()
     hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'c.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"from-bridge"}}\'\n') }] }] })
     const adapter = new MockAdapter([textResponse('ok')])
@@ -93,7 +119,12 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     ctx.on('agent/prompt-submit', async () => ({
       kind: 'allow' as const,
       content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
-      additionalContext: { content: [{ type: 'text' as const, text: 'from-downstream' }], source: { kind: 'plugin' as const, plugin: 'policy' } },
+      additionalContexts: [{
+        content: [{ type: 'text' as const, text: 'from-downstream' }],
+        source: { kind: 'plugin' as const, plugin: 'policy' },
+        envelope: 'raw' as const,
+        meta: { owner: 'policy' },
+      }],
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
@@ -101,6 +132,13 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     expect(req).toContain('from-bridge')
     expect(req).toContain('from-downstream')
     expect(req).toContain('rewritten-prompt')
+    const contexts = events(agent).filter(event => event.type === 'context/message')
+    expect(contexts.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+      { kind: 'plugin', plugin: 'hooks-codex' },
+      { kind: 'plugin', plugin: 'policy' },
+    ])
+    expect(contexts[1]?.type === 'context/message' && contexts[1].data.envelope).toBe('raw')
+    expect(contexts[1]?.type === 'context/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
   })
 
   it('folds the bridge PostToolUse context onto a downstream ACCEPT that replaces content', async () => {
@@ -115,6 +153,33 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     const result = events(agent).find(e => e.type === 'tool/result')
     expect(result?.type === 'tool/result' && result.data.content.some(b => b.type === 'text' && b.text === 'rewritten-result')).toBe(true)
     expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
+  })
+
+  it('keeps bridge and downstream PostToolUse contexts as separate sourced events', async () => {
+    const d = dir()
+    hooks(d, { PostToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'pc.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"bridge-note"}}\'\n') }] }] })
+    const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+    ctx.on('tools/post-execute', async () => ({
+      kind: 'accept' as const,
+      additionalContexts: [{
+        content: [{ type: 'text' as const, text: 'downstream-note' }],
+        source: { kind: 'plugin' as const, plugin: 'policy' },
+        envelope: 'raw' as const,
+        meta: { owner: 'policy' },
+      }],
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+
+    const contexts = events(agent).filter(event => event.type === 'context/message')
+    expect(contexts.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+      { kind: 'plugin', plugin: 'hooks-codex' },
+      { kind: 'plugin', plugin: 'policy' },
+    ])
+    expect(contexts[1]?.type === 'context/message' && contexts[1].data.envelope).toBe('raw')
+    expect(contexts[1]?.type === 'context/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
   })
 
   it('folds the bridge PostToolUse context onto a downstream listener BLOCK', async () => {
@@ -394,7 +459,7 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     const { CallId } = await import('@deepseek-ai/dsh-llm')
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'Bash', arguments: { command: 'x' } })
     expect(result.isError).toBeFalsy()
-    expect(result.additionalContext?.content.some(b => b.type === 'text' && b.text === 'x')).toBe(true)
+    expect(result.additionalContexts?.[0]?.content.some(b => b.type === 'text' && b.text === 'x')).toBe(true)
   })
 
   it('when the bash executor REJECTS, the hook/result omits exitCode (non-blocking)', async () => {
