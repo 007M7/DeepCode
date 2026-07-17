@@ -2182,7 +2182,10 @@ describe('dynamic nested workspace context injection', () => {
       agent.session.append('user/message', {
         content: [{ type: 'text', text: 'compacted summary' }],
         source: { kind: 'plugin', plugin: 'compact' },
-      }, { surfaceOp: { op: 'replace', start: contextSeq, end: contextSeq } })
+      }, {
+        surfaceOp: { op: 'replace', start: contextSeq, end: contextSeq },
+        sourceEventSeqs: [contextSeq],
+      })
 
       const afterCompact = await ctx.tools.execute({
         callId: CallId('read-after-compact'),
