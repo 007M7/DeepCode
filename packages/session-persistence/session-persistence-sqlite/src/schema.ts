@@ -17,7 +17,7 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 6
+export const SCHEMA_VERSION = 7
 
 /**
  * A row of the `sessions` table — the out-of-log metadata ({@link SessionHeader}).
@@ -33,6 +33,8 @@ export interface SessionRow {
   cwd: string | null
   parent_session: string | null
   seed_length: number | null
+  /** Stable identity assigned when this log is materialized. */
+  incarnation: string
   /** Monotonic log-change token incremented in each mutating transaction. */
   revision: number
 }
@@ -108,6 +110,7 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
       cwd            TEXT,
       parent_session TEXT,
       seed_length    INTEGER,
+      incarnation    TEXT NOT NULL,
       revision       INTEGER NOT NULL
     ) STRICT
   `)

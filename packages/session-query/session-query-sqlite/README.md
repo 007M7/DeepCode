@@ -24,8 +24,8 @@ The database is disposable but reset is guarded: a recognized incompatible searc
 |---|---:|---|
 | `path` | required | Dedicated derived-index SQLite path; `:memory:` is supported. |
 | `journalMode` | `wal` | `wal`, `delete`, `truncate`, or `persist`. |
-| `defaultLimit` | `20` | Page size when a request omits `limit`. |
-| `maxLimit` | `100` | Largest accepted request page size. |
+| `defaultLimit` | `20` | Page size when a request omits `limit`; at most `Number.MAX_SAFE_INTEGER - 1`. |
+| `maxLimit` | `100` | Largest accepted request page size; at most `Number.MAX_SAFE_INTEGER - 1`. |
 | `snippetChars` | `240` | Maximum snippet length in Unicode code points. |
 
 ## Tokenizer and limits

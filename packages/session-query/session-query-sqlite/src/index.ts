@@ -48,6 +48,7 @@ import {
   quoteFtsData,
   requestFingerprint,
   sanitizeFtsText,
+  SQLITE_MAX_PAGE_LIMIT,
 } from './query.ts'
 
 export {
@@ -63,15 +64,19 @@ export const SESSION_QUERY_SQLITE_MAX_LIMIT = 100
 /** Default maximum snippet length in Unicode code points. */
 export const SESSION_QUERY_SQLITE_SNIPPET_CHARS = 240
 
+// A serialized search tolerates one transient source change; repeated churn
+// fails instead of monopolizing the operation queue.
+const STABLE_OBSERVATION_ATTEMPTS = 2
+
 /** SQLite session-search configuration. */
 export interface Config {
   /** Dedicated derived-index path; `:memory:` is supported for tests. */
   path: string
   /** SQLite journal mode. Defaults to `wal`. */
   journalMode?: JournalMode
-  /** Page size when a request omits `limit`. Defaults to 20. */
+  /** Page size when a request omits `limit`. At most `Number.MAX_SAFE_INTEGER - 1`; defaults to 20. */
   defaultLimit?: number
-  /** Largest accepted page size. Defaults to 100. */
+  /** Largest accepted page size. At most `Number.MAX_SAFE_INTEGER - 1`; defaults to 100. */
   maxLimit?: number
   /** Maximum snippet length in Unicode code points. Defaults to 240. */
   snippetChars?: number
@@ -154,8 +159,8 @@ export class SessionSearchSqlite extends SessionSearchService {
   static Config: z<Config> = z.object({
     path: z.string().required(),
     journalMode: z.union(['wal', 'delete', 'truncate', 'persist'] as const).default('wal'),
-    defaultLimit: z.number().step(1).min(1).default(SESSION_QUERY_SQLITE_DEFAULT_LIMIT),
-    maxLimit: z.number().step(1).min(1).default(SESSION_QUERY_SQLITE_MAX_LIMIT),
+    defaultLimit: z.number().step(1).min(1).max(SQLITE_MAX_PAGE_LIMIT).default(SESSION_QUERY_SQLITE_DEFAULT_LIMIT),
+    maxLimit: z.number().step(1).min(1).max(SQLITE_MAX_PAGE_LIMIT).default(SESSION_QUERY_SQLITE_MAX_LIMIT),
     snippetChars: z.number().step(1).min(1).default(SESSION_QUERY_SQLITE_SNIPPET_CHARS),
   })
 
@@ -206,14 +211,14 @@ export class SessionSearchSqlite extends SessionSearchService {
     const signal = exec?.signal
     return this._serialized(signal, async () => {
       await this._ensureReady(signal)
-      await this._reconcile(signal)
+      const persistenceBinding = await this._reconcile(signal)
       assertNotAborted(signal)
       const generation = String(this._globalGeneration)
       const fingerprint = requestFingerprint(normalized)
       const offset = normalized.cursor === undefined
         ? 0
         : decodeCursor(normalized.cursor, this._instance, 'sessions', fingerprint, generation)
-      const rows = this._querySessions(normalized, offset)
+      const rows = this._querySessions(normalized, offset, persistenceBinding)
       return page(rows, normalized.limit, row => this._sessionHit(row), cursorOffset => encodeCursor({
         version: 1,
         instance: this._instance,
@@ -233,14 +238,14 @@ export class SessionSearchSqlite extends SessionSearchService {
     const signal = exec?.signal
     return this._serialized(signal, async () => {
       await this._ensureReady(signal)
-      await this._reconcile(signal)
+      const persistenceBinding = await this._reconcile(signal)
       assertNotAborted(signal)
-      const generation = this._targetGeneration(normalized.sessionId)
+      const generation = this._targetGeneration(normalized.sessionId, persistenceBinding)
       const fingerprint = requestFingerprint(normalized)
       const offset = normalized.cursor === undefined
         ? 0
         : decodeCursor(normalized.cursor, this._instance, 'events', fingerprint, generation)
-      const rows = this._queryEvents(normalized, offset)
+      const rows = this._queryEvents(normalized, offset, persistenceBinding)
       return page(rows, normalized.limit, row => this._eventHit(row), cursorOffset => encodeCursor({
         version: 1,
         instance: this._instance,
@@ -316,7 +321,7 @@ export class SessionSearchSqlite extends SessionSearchService {
     }
   }
 
-  private async _reconcile(signal: AbortSignal | undefined): Promise<void> {
+  private async _reconcile(signal: AbortSignal | undefined): Promise<PersistenceBinding> {
     const db = this._requireDb()
     const persistedRows = db.prepare(
       'SELECT id, revision, generation FROM persisted_sessions',
@@ -392,13 +397,14 @@ export class SessionSearchSqlite extends SessionSearchService {
     if (pointerChanged) this._persistenceEpoch += 1
     this._localGeneration = nextLocalGeneration
     this._lastPersistenceIdentity = observation.persistenceBinding.identity
+    return observation.persistenceBinding
   }
 
   private async _observeStable(
     indexed: ReadonlyMap<SessionId, IndexedPersistedRow>,
     signal: AbortSignal | undefined,
   ): Promise<Observation> {
-    for (;;) {
+    for (let attempt = 0; attempt < STABLE_OBSERVATION_ATTEMPTS; attempt += 1) {
       assertNotAborted(signal)
       const persistenceBinding = this._persistenceBinding
       const persistence = persistenceBinding.service
@@ -446,6 +452,10 @@ export class SessionSearchSqlite extends SessionSearchService {
         return { persistenceBinding, persisted, live }
       }
     }
+    throw new SessionQueryError(
+      'session-search persistence observation did not stabilize after one retry',
+      'SESSION_QUERY_PERSISTENCE_FAILED',
+    )
   }
 
   private _mainGeneration(): number {
@@ -540,7 +550,11 @@ export class SessionSearchSqlite extends SessionSearchService {
     }
   }
 
-  private _querySessions(request: NormalizedSessionRequest, offset: number): SearchRow[] {
+  private _querySessions(
+    request: NormalizedSessionRequest,
+    offset: number,
+    persistenceBinding: PersistenceBinding,
+  ): SearchRow[] {
     const selected = selectedDocumentsSql()
     const sessionWhere = buildSessionWhere(request.sessionFilters)
     const eventWhere = buildEventWhere(request.eventFilters)
@@ -562,7 +576,7 @@ export class SessionSearchSqlite extends SessionSearchService {
       ORDER BY match_count DESC, document_length ASC, time DESC, session_id ASC, seq DESC
       LIMIT ? OFFSET ?
     `).all(
-      ...selectedDocumentsParams(request.query, this._persistenceBinding.service !== undefined),
+      ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
       ...sessionWhere.params,
       ...eventWhere.params,
       request.limit + 1,
@@ -570,7 +584,11 @@ export class SessionSearchSqlite extends SessionSearchService {
     ) as unknown as SearchRow[]
   }
 
-  private _queryEvents(request: NormalizedEventRequest, offset: number): SearchRow[] {
+  private _queryEvents(
+    request: NormalizedEventRequest,
+    offset: number,
+    persistenceBinding: PersistenceBinding,
+  ): SearchRow[] {
     const selected = selectedDocumentsSql()
     const eventWhere = buildEventWhere(request.filters)
     const where = ['session_id = ?', eventWhere.sql].filter(Boolean).join(' AND ')
@@ -581,7 +599,7 @@ export class SessionSearchSqlite extends SessionSearchService {
       ORDER BY match_count DESC, document_length ASC, time DESC, seq DESC
       LIMIT ? OFFSET ?
     `).all(
-      ...selectedDocumentsParams(request.query, this._persistenceBinding.service !== undefined),
+      ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
       request.sessionId,
       ...eventWhere.params,
       request.limit + 1,
@@ -589,13 +607,13 @@ export class SessionSearchSqlite extends SessionSearchService {
     ) as unknown as SearchRow[]
   }
 
-  private _targetGeneration(sessionId: SessionId): string {
+  private _targetGeneration(sessionId: SessionId, persistenceBinding: PersistenceBinding): string {
     const db = this._requireDb()
     const live = db.prepare(
       'SELECT generation FROM temp.live_sessions WHERE id = ?',
     ).get(sessionId) as { generation: number } | undefined
     if (live !== undefined) return `live:${live.generation}`
-    if (this._persistenceBinding.service !== undefined) {
+    if (persistenceBinding.service !== undefined) {
       const persisted = db.prepare(
         'SELECT generation FROM persisted_sessions WHERE id = ?',
       ).get(sessionId) as { generation: number } | undefined
@@ -850,8 +868,8 @@ function resolveConfig(config: Config): ResolvedConfig {
   if (typeof resolved.path !== 'string' || resolved.path.trim().length === 0) {
     throw invalidConfig('path must not be blank')
   }
-  assertPositiveInteger('defaultLimit', resolved.defaultLimit)
-  assertPositiveInteger('maxLimit', resolved.maxLimit)
+  assertPageLimit('defaultLimit', resolved.defaultLimit)
+  assertPageLimit('maxLimit', resolved.maxLimit)
   assertPositiveInteger('snippetChars', resolved.snippetChars)
   if (resolved.defaultLimit > resolved.maxLimit) {
     throw invalidConfig('defaultLimit must be less than or equal to maxLimit')
@@ -863,6 +881,12 @@ function resolveConfig(config: Config): ResolvedConfig {
 
 function assertPositiveInteger(name: string, value: number): void {
   if (!Number.isInteger(value) || value < 1) throw invalidConfig(`${name} must be a positive integer`)
+}
+
+function assertPageLimit(name: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value < 1 || value > SQLITE_MAX_PAGE_LIMIT) {
+    throw invalidConfig(`${name} must be an integer between 1 and ${SQLITE_MAX_PAGE_LIMIT}`)
+  }
 }
 
 function invalidConfig(detail: string): SessionQueryError {

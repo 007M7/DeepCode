@@ -20,6 +20,9 @@ export const FTS_HIGHLIGHT_START = '\uFDD0'
 /** Collision-free marker inserted after an FTS5 match by `highlight()`. */
 export const FTS_HIGHLIGHT_END = '\uFDD1'
 
+/** Largest page size whose internal lookahead remains an exact SQLite integer binding. */
+export const SQLITE_MAX_PAGE_LIMIT = Number.MAX_SAFE_INTEGER - 1
+
 /** Limit defaults needed to normalize a search request. */
 export interface QueryLimits {
   /** Page size used when the request omits one. */
@@ -232,14 +235,17 @@ export function makeSnippet(markedText: string, maxChars: number): string {
   const characters = Array.from(clean)
   if (characters.length <= maxChars) return clean
   if (maxChars === 1) return '…'
-  let start = Math.max(0, matchStart - Math.floor(maxChars / 3))
-  let prefix = start > 0 ? '…' : ''
+  const matchedIndex = Math.min(matchStart, characters.length - 1)
+  let start = Math.max(0, matchedIndex - Math.floor(maxChars / 3))
+  const prefix = start > 0 ? '…' : ''
   let suffix = '…'
   let contentLength = maxChars - prefix.length - suffix.length
   if (contentLength < 1) {
-    start = 0
-    prefix = ''
-    contentLength = maxChars - 1
+    start = matchedIndex
+    suffix = ''
+    contentLength = maxChars - prefix.length - suffix.length
+  } else if (matchedIndex >= start + contentLength) {
+    start = matchedIndex - contentLength + 1
   }
   let end = Math.min(characters.length, start + contentLength)
   if (end === characters.length) {
@@ -326,9 +332,14 @@ function materializeMetadataFilters(
 
 function normalizeLimit(value: number | undefined, limits: QueryLimits): number {
   const limit = value ?? limits.defaultLimit
-  if (!Number.isInteger(limit) || limit < 1 || limit > limits.maxLimit) {
+  const maxLimit = Math.min(limits.maxLimit, SQLITE_MAX_PAGE_LIMIT)
+  if (
+    !Number.isSafeInteger(limit)
+    || limit < 1
+    || limit > maxLimit
+  ) {
     throw new SessionQueryError(
-      `session-search limit must be an integer between 1 and ${limits.maxLimit}`,
+      `session-search limit must be an integer between 1 and ${maxLimit}`,
       'SESSION_QUERY_INVALID_LIMIT',
     )
   }

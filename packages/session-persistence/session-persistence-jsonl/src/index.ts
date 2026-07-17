@@ -145,17 +145,21 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
     const snapshots: SessionPersistenceSnapshot[] = []
     for (const artifact of await this.listArtifacts()) {
-      const identity = await stat(artifact.path, { bigint: true })
-      snapshots.push({
-        header: artifact.header,
-        revision: SessionPersistenceRevision([
-          identity.dev,
-          identity.ino,
-          identity.size,
-          identity.mtimeNs,
-          identity.ctimeNs,
-        ].join(':')),
-      })
+      try {
+        const identity = await stat(artifact.path, { bigint: true })
+        snapshots.push({
+          header: artifact.header,
+          revision: SessionPersistenceRevision([
+            identity.dev,
+            identity.ino,
+            identity.size,
+            identity.mtimeNs,
+            identity.ctimeNs,
+          ].join(':')),
+        })
+      } catch (error: unknown) {
+        if (!isENOENT(error)) throw error
+      }
     }
     return snapshots
   }

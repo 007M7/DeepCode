@@ -378,8 +378,31 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await b.dispose()
   })
 
+  it('changes revisions when a deleted session id is materialized again in the same database', async () => {
+    const path = await freshDbPath()
+    const m = meta('recreated-revision')
+    const first = await backend(path)
+    await first.ctx.sessionPersistence.create(m)
+    await first.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const before = (await first.ctx.sessionPersistence.listSnapshots())[0]?.revision
+    await first.dispose()
+
+    const cleanup = openDatabase(path, 'wal')
+    cleanup.prepare('DELETE FROM sessions WHERE id = ?').run(m.id)
+    cleanup.close()
+
+    const second = await backend(path)
+    await second.ctx.sessionPersistence.create(m)
+    await second.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const after = (await second.ctx.sessionPersistence.listSnapshots())[0]?.revision
+    expect(after).not.toBe(before)
+    expect(String(before)).toMatch(/:revision:1$/)
+    expect(String(after)).toMatch(/:revision:1$/)
+    await second.dispose()
+  })
+
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(6)
+    expect(SCHEMA_VERSION).toBe(7)
   })
 
   it('keeps the revision stable for an empty repair hook', async () => {

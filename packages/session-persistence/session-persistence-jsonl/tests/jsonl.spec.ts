@@ -179,6 +179,39 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await otherCtx.fiber.dispose()
   })
 
+  it('omits a snapshot artifact removed after discovery', async () => {
+    const m = meta('vanishing-snapshot')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = ctx.sessionPersistence as unknown as {
+      listArtifacts(): Promise<Array<{ header: SessionHeader; path: string }>>
+    }
+    const listArtifacts = persistence.listArtifacts.bind(persistence)
+    const discovery = vi.spyOn(persistence, 'listArtifacts').mockImplementation(async () => {
+      const artifacts = await listArtifacts()
+      await rm(artifacts[0]!.path)
+      return artifacts
+    })
+
+    await expect(ctx.sessionPersistence.listSnapshots()).resolves.toEqual([])
+    discovery.mockRestore()
+  })
+
+  it('surfaces non-ENOENT snapshot stat failures after discovery', async () => {
+    const blocker = join(root, 'snapshot-not-a-directory')
+    await writeFile(blocker, 'x')
+    const persistence = ctx.sessionPersistence as unknown as {
+      listArtifacts(): Promise<Array<{ header: SessionHeader; path: string }>>
+    }
+    const discovery = vi.spyOn(persistence, 'listArtifacts').mockResolvedValue([{
+      header: meta('snapshot-stat-failure'),
+      path: join(blocker, 'session.jsonl'),
+    }])
+
+    await expect(ctx.sessionPersistence.listSnapshots()).rejects.toThrow(/ENOTDIR/)
+    discovery.mockRestore()
+  })
+
   it('persists a forked child seed through the existing session write path', async () => {
     const source = ctx.sessions.create(SessionId('persist-parent'), { meta: { cwd: '/workspace' } })
     appendClosedTurn(source)

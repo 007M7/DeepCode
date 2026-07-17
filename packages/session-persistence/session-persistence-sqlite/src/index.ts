@@ -7,6 +7,7 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
+import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdir } from 'node:fs/promises'
@@ -235,7 +236,9 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     const rows = this.db.prepare('SELECT * FROM sessions').all() as unknown as SessionRow[]
     return rows.map(row => ({
       header: rowToMeta(row),
-      revision: SessionPersistenceRevision(`${this.storeIdentity}:revision:${row.revision}`),
+      revision: SessionPersistenceRevision(
+        `${this.storeIdentity}:incarnation:${row.incarnation}:revision:${row.revision}`,
+      ),
     }))
   }
 
@@ -259,8 +262,9 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
    */
   private writeRow(meta: SessionHeader): void {
     this.db.prepare(`
-      INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length, revision)
-      VALUES (?, ?, ?, ?, ?, ?, 0)
+      INSERT INTO sessions
+        (id, version, created_at, cwd, parent_session, seed_length, incarnation, revision)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0)
       ON CONFLICT(id) DO UPDATE SET
         version = excluded.version,
         created_at = excluded.created_at,
@@ -274,6 +278,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       meta.cwd ?? null,
       meta.parentSession ?? null,
       meta.seedLength ?? null,
+      randomUUID(),
     )
   }
 }

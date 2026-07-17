@@ -11,6 +11,7 @@ import {
   normalizeSessionRequest,
   quoteFtsData,
   requestFingerprint,
+  SQLITE_MAX_PAGE_LIMIT,
   type NormalizedEventRequest,
   type NormalizedSessionRequest,
 } from '../src/query.ts'
@@ -88,6 +89,12 @@ describe('SQLite search request normalization', () => {
       expect(() => normalizeEventRequest({ sessionId: SessionId('s'), query: 'x', limit }, limits))
         .toThrow(expectCode('SESSION_QUERY_INVALID_LIMIT'))
     }
+    expect(() => normalizeEventRequest({
+      sessionId: SessionId('s'),
+      query: 'x',
+      limit: SQLITE_MAX_PAGE_LIMIT + 1,
+    }, { defaultLimit: 1, maxLimit: SQLITE_MAX_PAGE_LIMIT + 1 }))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_LIMIT'))
   })
 
   it('materializes owned filter values during normalization', () => {
@@ -214,7 +221,8 @@ describe('SQLite query identity and presentation', () => {
     expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 1)).toBe('…')
     expect(makeSnippet('abcdefghij', 5)).toBe('abcd…')
     expect(makeSnippet(`ab${FTS_HIGHLIGHT_START}c${FTS_HIGHLIGHT_END}defghij`, 5)).toBe('…bcd…')
-    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 2)).toBe('a…')
+    expect(makeSnippet(`ab${FTS_HIGHLIGHT_START}c${FTS_HIGHLIGHT_END}defghij`, 3)).toBe('…c…')
+    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 2)).toBe('…f')
     expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 5)).toBe('…cdef')
     expect(makeSnippet(`  x—${FTS_HIGHLIGHT_START}café${FTS_HIGHLIGHT_END}\n y  `, 20))
       .toBe('x—café y')

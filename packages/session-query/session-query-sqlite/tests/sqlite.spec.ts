@@ -387,6 +387,8 @@ describe('SQLite session search', () => {
       { path: '' },
       { path: ':memory:', defaultLimit: 0 },
       { path: ':memory:', maxLimit: 0 },
+      { path: ':memory:', defaultLimit: 1e100 },
+      { path: ':memory:', maxLimit: 1e100 },
       { path: ':memory:', snippetChars: 0 },
       { path: ':memory:', defaultLimit: 3, maxLimit: 2 },
       { path: ':memory:', journalMode: 'memory' },
@@ -458,6 +460,39 @@ describe('SQLite reconciliation and source lifecycle', () => {
 
     await persistenceFiber.dispose()
     await expect(ctx.sessionSearch.searchSessions({ query: 'durable' })).resolves.toEqual({ items: [] })
+    await expect(ctx.sessionSearch.searchEvents({ sessionId: durable.id, query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SESSION_NOT_FOUND'))
+  })
+
+  it('uses the reconciled persistence binding through the query boundary', async () => {
+    const durable = header('post-reconcile-unmount')
+    TestPersistence.reset([{ meta: durable, events: [
+      ...messageEvents('durable needle', 1),
+      { ...messageEvents('durable needle again', 2)[0]!, seq: 1 },
+    ] }])
+    const ctx = await liveContext({ path: ':memory:', defaultLimit: 1, maxLimit: 2 })
+    const persistence = await ctx.plugin(TestPersistence)
+    const internals = ctx.sessionSearch as unknown as {
+      _reconcile(signal: AbortSignal | undefined): Promise<{
+        identity: symbol
+        service?: SessionPersistence
+      }>
+    }
+    const reconcile = internals._reconcile.bind(internals)
+    const boundary = vi.spyOn(internals, '_reconcile').mockImplementation(async (signal) => {
+      const binding = await reconcile(signal)
+      await persistence.dispose()
+      return binding
+    })
+
+    const page = await ctx.sessionSearch.searchEvents({
+      sessionId: durable.id,
+      query: 'needle',
+      limit: 1,
+    })
+    expect(page.items).toMatchObject([{ sessionId: durable.id }])
+    expect(page.nextCursor).toEqual(expect.any(String))
+    boundary.mockRestore()
     await expect(ctx.sessionSearch.searchEvents({ sessionId: durable.id, query: 'needle' }))
       .rejects.toThrow(expectCode('SESSION_QUERY_SESSION_NOT_FOUND'))
   })
@@ -559,6 +594,22 @@ describe('SQLite reconciliation and source lifecycle', () => {
     expect(page.items.map(item => item.header.id).sort()).toEqual([added.id, first.id].sort())
     expect(TestPersistence.loads.get(first.id)).toBe(2)
     expect(TestPersistence.loads.get(added.id)).toBe(1)
+  })
+
+  it('fails after one retry when persistence snapshots keep changing', async () => {
+    const durable = header('continuous-mutation')
+    TestPersistence.reset([{ meta: durable, events: messageEvents('durable needle') }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    let lists = 0
+    TestPersistence.snapshotEffect = () => {
+      lists += 1
+      TestPersistence.set({ meta: durable, events: messageEvents(`durable needle ${lists}`) })
+    }
+
+    await expect(ctx.sessionSearch.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
+    expect(lists).toBe(4)
   })
 
   it('retries if the persistence binding changes while live sessions are observed', async () => {

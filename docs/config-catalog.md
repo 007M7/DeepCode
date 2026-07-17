@@ -627,7 +627,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:39`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:40`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-query`
 
@@ -654,9 +654,9 @@ export interface Config {
   path: string
   /** SQLite journal mode. Defaults to `wal`. */
   journalMode?: JournalMode
-  /** Page size when a request omits `limit`. Defaults to 20. */
+  /** Page size when a request omits `limit`. At most `Number.MAX_SAFE_INTEGER - 1`; defaults to 20. */
   defaultLimit?: number
-  /** Largest accepted page size. Defaults to 100. */
+  /** Largest accepted page size. At most `Number.MAX_SAFE_INTEGER - 1`; defaults to 100. */
   maxLimit?: number
   /** Maximum snippet length in Unicode code points. Defaults to 240. */
   snippetChars?: number
@@ -666,7 +666,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session-query/session-query-sqlite/src/index.ts:67`](../packages/session-query/session-query-sqlite/src/index.ts)
+Source: [`packages/session-query/session-query-sqlite/src/index.ts:72`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill`
 
