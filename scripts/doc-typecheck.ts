@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { globSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import ts from 'typescript'
+import { extractFences } from './md-fences.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -27,39 +28,21 @@ interface Block {
   code: string
 }
 
+/** The info-string → kind table this gate tracks. */
+const KIND_BY_INFO: Record<string, BlockKind> = {
+  'ts': 'check',
+  'ts ignore-check': 'ignore',
+  'ts type-equiv': 'type-equiv',
+  'ts cordis-catalog': 'cordis-catalog',
+  'ts persistence-catalog': 'persistence-catalog',
+  'ts config-catalog': 'config-catalog',
+}
+
 /** Extract every recognized TypeScript fence from one Markdown file. */
 function extractBlocks(absPath: string): Block[] {
-  const text = readFileSync(absPath, 'utf8')
-  const lines = text.split('\n')
   const file = relative(root, absPath)
-  const blocks: Block[] = []
-  let open: { line: number; kind: BlockKind; body: string[] } | null = null
-
-  lines.forEach((raw, i) => {
-    const fence = /^```(\s*)(\S.*)?$/.exec(raw)
-    if (!fence) {
-      if (open) open.body.push(raw)
-      return
-    }
-    if (open) {
-      // closing fence
-      blocks.push({ file, line: open.line, kind: open.kind, code: open.body.join('\n') })
-      open = null
-      return
-    }
-    // Ignore non-TypeScript fences.
-    const info = (fence[2] ?? '').trim()
-    const kind: BlockKind | null =
-      info === 'ts' ? 'check'
-        : info === 'ts ignore-check' ? 'ignore'
-          : info === 'ts type-equiv' ? 'type-equiv'
-            : info === 'ts cordis-catalog' ? 'cordis-catalog'
-              : info === 'ts persistence-catalog' ? 'persistence-catalog'
-                : info === 'ts config-catalog' ? 'config-catalog'
-                  : null
-    if (kind) open = { line: i + 1, kind, body: [] }
-  })
-  return blocks
+  return extractFences(absPath, info => KIND_BY_INFO[info] ?? null)
+    .map(f => ({ file, line: f.line, kind: f.kind, code: f.code }))
 }
 
 const configHost: ts.ParseConfigFileHost = {
@@ -208,7 +191,7 @@ function remapBlockPaths(output: string, blocks: Block[]): string {
   })
 }
 
-const markdownGlobs = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md']
+const markdownGlobs = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md', 'website/zh-CN/**/*.md']
 
 const files: string[] = []
 for (const pattern of markdownGlobs) {
