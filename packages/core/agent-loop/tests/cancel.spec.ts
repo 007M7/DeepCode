@@ -1,18 +1,15 @@
 /**
- * Tests for the queue-aware `Agent.cancel()` primitive. `cancel()` is the
- * broad verb — it clears queued + steering work, aborts an in-flight step, and
- * drops a turn about to start — whereas a bare step abort (the loop's private
- * `AbortController`) kills only the current step and leaves the queue intact.
- * These tests exercise every window where a cancel can land (idle, pre-step,
- * mid-step, continuation) and the marker's arm/reset rules that keep a cancel
- * from leaking to a later prompt or hanging `whenIdle()`.
- *
+ * Tests for the queue-aware `Agent.cancel()` primitive. `cancel()` is the broad verb — it
+ * clears queued + steering work, aborts an in-flight step, and drops a turn about to start —
+ * whereas a bare step abort (the loop's private `AbortController`) kills only the current step
+ * and leaves the queue intact. The suite covers every landing window plus marker
+ * reset and `whenIdle()` quiescence.
  * @module dsh-agent-loop/tests/cancel
  */
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
+import LlmService, { type Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -95,10 +92,8 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // Queue work, then register a whenIdle() waiter while in the pre-step window
-    // (status idle, hasQueued true) — it does NOT take the fast path. Then cancel.
-    // The skip path must settle this waiter directly (no running→idle transition
-    // ever fires), or it would hang forever.
+    // This waiter cannot rely on a running→idle transition because cancellation
+    // drops the turn before it runs; the skip path must settle it directly.
     send(agent, 'q')
     const idle = agent.whenIdle()
     agent.cancel('pre-step')
@@ -166,15 +161,106 @@ describe('Agent.cancel()', () => {
     expect(reasons.length).toBe(2)
   })
 
+  it('cancel from inside the agent/session-prefix waterfall drops the step (prefix-composition window)', async () => {
+    const adapter = new MockAdapter([textResponse('should not stream')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    // Prefix composition runs before the pre-step seam on the instance's first
+    // step; a cancel landing inside it must drop the about-to-start step
+    // without running the seam or the model.
+    let streamed = false
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next) => {
+      agent.cancel('from prefix composition')
+      return next()
+    })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(streamed).toBe(false)
+    expect(reasons).toEqual([{ kind: 'aborted', reason: 'from prefix composition' }])
+  })
+
+  it('disposal from inside the agent/session-prefix waterfall ends the turn disposed (prefix-composition window)', async () => {
+    const adapter = new MockAdapter([textResponse('should not stream')])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    ctx.llm.registerAdapter(['mock'], adapter)
+
+    const handle = await ctx.agents.create({
+      agentId: AgentId('a-dispose-prefix'),
+      sessionId: SessionId('dispose-prefix-session'),
+      agentOptions: { model: 'mock' },
+    })
+    const agent = handle.agent as ReactLoopAgent
+
+    let disposalDone: Promise<void> | undefined
+    let streamed = false
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next) => {
+      disposalDone = handle.dispose()
+      return next()
+    })
+
+    send(agent, 'go')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await disposalDone
+    await agent.done
+
+    // No step opened, no model call ran, and the turn closed disposed.
+    expect(streamed).toBe(false)
+    expect(adapter.requests).toHaveLength(0)
+    const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
+  })
+
+  it('a cancel-interrupted prefix composition is discarded: the next send recomposes and ships the fresh prefix (stale-cache guard)', async () => {
+    const adapter = new MockAdapter([textResponse('reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    // The interrupted first composition must not cache its degraded empty value;
+    // the next prompt recomposes and logs/sends the fresh prefix.
+    const opener: Message = { role: 'user', content: [{ type: 'text', text: 'fresh opener' }] }
+    let compositions = 0
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => {
+      compositions += 1
+      if (compositions === 1) {
+        agent.cancel('mid-composition')
+        return next()
+      }
+      return [opener, ...await next()]
+    })
+
+    send(agent, 'dropped')
+    await waitForIdle(ctx, agent)
+    send(agent, 'real prompt')
+    await waitForIdle(ctx, agent)
+
+    expect(compositions).toBe(2)
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]?.messages[0]).toEqual(opener)
+    const headerEvent = agent.session.events.find(e => e.type === 'request/header')
+    expect(headerEvent?.type === 'request/header' && headerEvent.data.header.messagePrefix).toEqual([opener])
+  })
+
   it('cancel from a synchronous turn/start session-event listener drops the step (step-start window)', async () => {
     const adapter = new MockAdapter([textResponse('should not stream')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // A turn/start listener fires right after turn/start is appended, BEFORE any
-    // AbortController is installed for the step. Cancelling there must still drop
-    // the step (the turn-scoped marker, not the step AbortController, is what
-    // catches this) — no model step runs.
+    // A turn/start listener fires before a step controller exists, so the
+    // turn-scoped marker—not step abort—must drop the pending step.
     let streamed = false
     ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
     const dispose = ctx.on('session/event', (session, event) => {
@@ -236,7 +322,7 @@ describe('Agent.cancel()', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    const handle = ctx.agents.create({
+    const handle = await ctx.agents.create({
       agentId: AgentId('a-dispose-step-start'),
       sessionId: SessionId('dispose-step-start-session'),
       agentOptions: { model: 'mock' },
@@ -303,10 +389,8 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // setStatus('running') emits agent/status SYNCHRONOUSLY, so a running
-    // listener can cancel in the gap between the loop's pre-step check and
-    // runTurn. The second check (after the running flip) must drop the turn —
-    // runTurn would otherwise throw on the now-empty queue.
+    // `agent/status` is synchronous, so cancellation can land after the first
+    // pre-step check; the second check must drop the now-empty turn.
     let streamed = false
     ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
     const dispose = ctx.on('agent/status', (subject, status) => {
@@ -324,11 +408,7 @@ describe('Agent.cancel()', () => {
   })
 
   it('window 2: whenIdle() does NOT resolve early when a running listener cancels then queues replacement work', async () => {
-    // The window-1 early-resolve race has a window-2 twin: a synchronous
-    // agent/status('running') listener cancels the about-to-run turn AND queues a
-    // replacement. window 2 must NOT settle waiters (via setStatus('idle')) while
-    // the replacement is still queued-and-unrun — it must fall through and run it,
-    // so whenIdle() resolves on the replacement turn's running→idle, not before.
+    // Cancellation must not settle idle while replacement work remains queued.
     const adapter = new MockAdapter([textResponse('A reply'), textResponse('B reply')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -354,11 +434,8 @@ describe('Agent.cancel()', () => {
   })
 
   it('whenIdle() does NOT resolve early when a new prompt is queued during a pre-step cancel', async () => {
-    // The subtle race: a whenIdle() waiter is registered for prompt A; cancel()
-    // clears A; prompt B is queued BEFORE the loop resumes from the idle wait.
-    // The window-1 cancel branch must NOT settle the waiter while B is still
-    // queued-and-unrun — whenIdle() must wait for B's turn to actually run and
-    // settle (the quiescence contract), not resolve before B's first event.
+    // The subtle race: a whenIdle() waiter is registered for prompt A; cancel() clears A;
+    // prompt B is queued before the loop resumes from the idle wait.
     const adapter = new MockAdapter([textResponse('A reply'), textResponse('B reply')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -368,9 +445,8 @@ describe('Agent.cancel()', () => {
     agent.cancel('drop A')     // arms marker, clears A
     send(agent, 'B')           // B races in before the loop resumes
 
-    // whenIdle() must resolve only AFTER B's turn fully ran — by which point B's
-    // user message and a turn/end are in the log. (Before the fix it resolved
-    // immediately, with zero events, then B ran afterward.)
+    // whenIdle() must resolve only after B's turn fully ran — by which point B's user message
+    // and a turn/end are in the log.
     await idle
     expect(userTexts(agent)).toContain('B')
     expect(agent.session.events.some(e => e.type === 'turn/end')).toBe(true)

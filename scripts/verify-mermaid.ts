@@ -1,20 +1,11 @@
 /**
- * Doc-sync gate: verify every fenced ```mermaid block parses with Mermaid's
- * own parser. Markdown link/type/code gates can say a diagram block exists and
- * is linked, but only Mermaid can catch syntax errors that GitHub would fail to
- * render.
- *
- * Scope matches the Markdown link gate so any Mermaid diagram in repo-authored
- * docs is checked: README.md, README.zh.md, docs/** /*.md,
- * packages/* /*.md, packages/* /* /*.md, examples/** /*.md, AGENTS.md,
- * packages/AGENTS.md, and .agents/skills/** /*.md.
- *
- * Run: `tsx scripts/verify-mermaid.ts`.
+ * Parse every repo-authored Mermaid fence with Mermaid itself, catching syntax that link and fence
+ * checks cannot. Scope intentionally matches the Markdown link gate, including standing docs,
+ * package/example docs, and agent skills. Run with `tsx scripts/verify-mermaid.ts`.
  */
 
-import { readFileSync, realpathSync } from 'node:fs'
+import { globSync, readFileSync, realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { glob } from 'node:fs/promises'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { gfm } from 'micromark-extension-gfm'
@@ -72,7 +63,7 @@ const blocks: Block[] = []
 const seen = new Set<string>()
 let checkedFiles = 0
 for (const pattern of PATTERNS) {
-  for await (const match of glob(pattern, { cwd: root })) {
+  for (const match of globSync(pattern, { cwd: root })) {
     const real = realpathSync(resolve(root, match))
     if (seen.has(real)) continue
     seen.add(real)

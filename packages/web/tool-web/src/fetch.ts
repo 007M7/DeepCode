@@ -1,8 +1,8 @@
 /**
- * The model-facing `web_fetch` tool: retrieve the content of a specific URL.
- * Execution goes through `ctx.web` — this module owns the model-facing schema,
- * argument validation, and PRESENTATION (HTML→markdown, truncation formatting),
- * while the fetch provider owns safe retrieval (transport, redirects, caps).
+ * The model-facing `web_fetch` tool. This module owns its schema, validation, and presentation;
+ * `ctx.web` owns retrieval. Timeout is deployment policy, not a model argument: config becomes
+ * `ToolDefinition.timeoutMs`, timeout policy enforces it, and this tool forwards the resulting
+ * signal. A provider timeout remains a backstop for direct seam callers.
  */
 
 import type { Context } from 'cordis'
@@ -15,18 +15,17 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import { htmlToMarkdown } from './html.ts'
 
 /**
- * Validate value constraints the schema DSL can't express: a non-blank `url`,
- * and a positive `timeout_ms` when present. Throws a plain `Error` otherwise.
+ * Validate value constraints the schema DSL can't express: a non-blank `url`.
+ * Throws a plain `Error` otherwise. No timeout parameter — the tool-call budget
+ * is deployment policy declared via `fetchTimeoutMs` config and enforced by
+ * `@deepseek-ai/dsh-timeout-policy`, not a model argument.
  *
  * @param args - the schema-validated `web_fetch` arguments.
- * @returns the arguments renamed to the seam's camelCase request fields.
+ * @returns the arguments as the seam's request fields.
  */
-export function parseFetchArgs(args: { url: string; timeout_ms?: number }): { url: string; timeoutMs?: number } {
+export function parseFetchArgs(args: { url: string }): { url: string } {
   if (args.url.trim().length === 0) throw new Error('url must be a non-empty string')
-  if (args.timeout_ms !== undefined && (!Number.isFinite(args.timeout_ms) || args.timeout_ms <= 0)) {
-    throw new Error('timeout_ms must be a positive number')
-  }
-  return { url: args.url, ...args.timeout_ms !== undefined ? { timeoutMs: args.timeout_ms } : {} }
+  return { url: args.url }
 }
 
 /**
@@ -67,7 +66,7 @@ export function formatFetchOutput(result: WebFetchResult): string {
  * @param args - the raw tool arguments; only `url` feeds the view.
  * @returns the generic card view (`kind: 'fetch'`) shown while the call runs.
  */
-export function presentFetchCall(args: { url: string; timeout_ms?: number }): GenericCallView {
+export function presentFetchCall(args: { url: string }): GenericCallView {
   return { card: 'generic', title: args.url, kind: 'fetch', rawInput: args.url }
 }
 
@@ -76,8 +75,10 @@ export function presentFetchCall(args: { url: string; timeout_ms?: number }): Ge
  *
  * @param ctx - context whose `tools` and `systemPrompt` registries receive the
  *   registrations; both are effect-scoped and unregister on plugin dispose.
+ * @param timeoutMs - the cooperative tool-call budget (ms) attached as the tool's
+ *   `ToolDefinition.timeoutMs` for `@deepseek-ai/dsh-timeout-policy` to enforce.
  */
-export function applyWebFetchTool(ctx: Context): void {
+export function applyWebFetchTool(ctx: Context, timeoutMs: number): void {
   ctx.systemPrompt.section({
     name: 'tool:web_fetch',
     order: 111,
@@ -89,13 +90,13 @@ export function applyWebFetchTool(ctx: Context): void {
     description: 'Fetch the content of a specific HTTP(S) URL and return it decoded to text.',
     parameters: {
       url: { type: 'string', required: true, description: 'The HTTP(S) URL to fetch.' },
-      timeout_ms: { type: 'number', description: 'Optional fetch timeout in milliseconds (capped by the provider).' },
     },
+    timeoutMs,
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseFetchArgs(args)
       const result = await ctx.web.fetch(
-        { url: input.url, ...input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {} },
-        exec.signal ? { signal: exec.signal } : undefined,
+        { url: input.url },
+        exec.signal,
       )
       return [{ type: 'text', text: formatFetchOutput(result) }]
     },

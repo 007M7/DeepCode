@@ -12,6 +12,7 @@
     { "path": "../../llm/llm" },
     { "path": "../../core/tools" },
     { "path": "../../core/system-prompt" },
+    { "path": "../../timeout/timeout-policy" },
     { "path": "../web" }
   ]
 }

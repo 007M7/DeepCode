@@ -3,7 +3,7 @@
 
 # Tool Execution Pipeline
 
-This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, and UI rendering fit without changing the loop. The key extension points are the `tools/pre-execute` and `tools/post-execute` waterfalls.
+This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, final-outcome observation, and UI rendering fit without changing the loop. The transformable extension points are the `tools/pre-execute`, `tools/execute`, and `tools/post-execute` waterfalls; monotonic guards and `tools/result` are the owner-enforced boundaries around them.
 
 ```mermaid
 flowchart TD
@@ -11,29 +11,43 @@ flowchart TD
   toolCall["Session event: <code>tool/call</code><br/>logged before execution"]
   presentCall["UI pending card<br/>presentCall(args)"]
   pre["<code>tools/pre-execute</code> waterfall<br/>hooks, permission, sandbox"]
-  denied["deny or ask<br/>tool body skipped"]
+  guards["Registered monotonic guards<br/>deny or abstain; identity protected"]
+  denied["denied or approval refused<br/>tool body skipped"]
+  approval["<code>ctx.approval</code> one-shot prompt<br/>absent or unanswerable: deny"]
+  around["<code>tools/execute</code> waterfall<br/>timeout, retry, metrics (around dispatch)"]
   toolBody["Registered tool execute() body"]
   fsGate["<code>fs/write-intent</code> or <code>fs/edit-intent</code><br/>tool-fs mutations only"]
-  owned["Tool-owned session events<br/><code>todo/write</code>, <code>fs/observed</code>, <code>hook/invoked</code>, <code>hook/result</code>"]
+  owned["Tool-owned session events<br/><code>todo/write</code>, <code>fs/observed</code>, <code>hook/invoked</code>, <code>hook/result</code>, <code>tool/code-dispatch</code>"]
   post["<code>tools/post-execute</code> waterfall<br/>accept, block, replace, add context"]
-  context["Buffered additionalContext<br/>context/message after all tool results"]
+  final["<code>tools/result</code> synchronous notification<br/>frozen authoritative outcome"]
+  context["Buffered additionalContexts<br/>context/message after all tool results"]
   toolResult["Session event: <code>tool/result</code><br/>single model-facing outcome"]
+  allResults["All calls in the step settled<br/>and tool/result events recorded"]
   presentResult["UI completed card<br/>presentResult(args, result)"]
   model --> toolCall
   toolCall --> presentCall
   toolCall --> pre
-  pre -->|allow| toolBody
-  pre -->|deny or ask| denied
+  pre -->|allow| guards
+  guards -->|allow| around
+  guards -->|deny| denied
+  around --> toolBody
+  pre -->|deny| denied
+  pre -->|ask| approval
+  approval -->|allowed-once| guards
+  approval -->|rejected, cancelled, unavailable| denied
   denied --> post
   toolBody --> fsGate
   fsGate --> toolBody
   toolBody --> owned
-  toolBody --> post
-  post --> context
-  post --> toolResult
+  toolBody --> around
+  around --> post
+  post --> final
+  final --> toolResult
   toolResult --> presentResult
+  toolResult --> allResults
+  allResults --> context
 ```
 
-Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate, while hook bridges and future permission prompts live on the generic tool waterfalls. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service.
+Filesystem read-before-edit checks stay below `tool-fs` on `fs/*` events. Generic pre/post waterfalls host hooks and approval policy; `ctx.approval` resolves asks before monotonic guards, and owner policy that must not be reordered remains a registered guard. Around-dispatch concerns such as timeouts wrap `tools/execute`, while `tools/result` observes the immutable outcome after transforms, lossless-JSON validation, and outer error normalization. This lets hooks span tool families without coupling the tools to one policy service. Code Mode sends both the reserved `run_code` transport and its serialized sub-calls through the pipeline; sub-calls carry the parent token, log `tool/code-dispatch`, surface denials as binding rejections, and omit `additionalContexts` to preserve call/result adjacency.
 
 Maintenance mode: curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs.

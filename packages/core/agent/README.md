@@ -8,61 +8,42 @@ Tracks live agents so UI, hook, and orchestrator plugins can find them without i
 
 ### Public API
 
+`Agent.ctx` owns registrations visible only to that agent. `agentEvents()` couples event subjects to their scope carrier, and `assembleContextFor()` couples the agent and prompt scope. Creation and resume may compose this context through `setup`; the agent remains unpublished and must not be driven until creation resolves.
+
 - `ctx.agents.register(agent: Agent): () => void` — record an **already-constructed** agent. Disposed with the calling fiber.
+- Advanced factory lifecycle: `enter(agent)` publishes without announcing and returns an entry-bound detach; `announce(agent)` emits creation once. Detach during creation dispatch is deferred. Ordinary plugins use `register()`.
 - `ctx.agents.get(id: AgentId): Agent | undefined`
 - `ctx.agents.list(): Agent[]`
 
 #### Factory seam (creation)
 
-Agent *creation* is provided by whichever plugin implements `AgentFactory` (phase 1: `dsh-agent-loop`), registered via `setFactory`. This keeps creation on the `dsh-agent` interface so consumers (UI, the ACP bridge) program against `ctx.agents` without depending on the concrete loop package.
+The loop plugin registers `AgentFactory`, keeping consumers independent of its concrete package. Each call is traced through the caller's context so the caller owns the resulting transaction and handle.
 
 - `ctx.agents.setFactory(factory: AgentFactory): () => void` — register the creation factory (the loop calls this on construction). Throws on a second factory; the slot clears on dispose.
-- `ctx.agents.create(options: CreateAgentOptions): AgentHandle` — construct, start, AND register a new agent on a caller-supplied `sessionId` (with optional `meta.cwd`/`meta.parentSession`/`meta.seedLength` and optional `seed` events for forked children). Distinct from `register` (which only records). Throws if no factory is registered.
-- `ctx.agents.resume(options: ResumeAgentOptions): Promise<AgentHandle>` — load a persisted session ([session persistence](../../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md)) and resume an agent on it. Async; rejects if no factory is registered, or if the factory finds session persistence unconfigured.
+- `ctx.agents.create(options)` creates and composes an unpublished session and agent, then atomically enters the registries and starts the loop. A creation-only signal cancels before publication; same-ID contenders arbitrate at entry and losers roll back.
+- `ctx.agents.resume(options)` loads a persisted session and follows the same composition and publication boundary. It requires [session persistence](../../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md).
 
-`AgentHandle = { agent: Agent; dispose(): Promise<void> }`. The disposer is a **capability** — only the holder can tear this agent down. `dispose()` stops the loop, `await`s its exit (quiescence — NOT just the `disposed` status flip), unregisters the agent, and removes its session from the store, in an order that captures the loop's final `session/flush` before the session is detached. `ctx.agents.get(id)` still returns a bare `Agent` — the handle is only for the OWNER that created it. The ACP bridge and in-process subagent backends are production consumers; config-created agents are owned by the loop fiber and never need a handle.
+`AgentHandle = { agent, dispose }` is the consumer teardown capability; registry observers receive only the bare agent. Disposal stops and drains the loop and idle-injection flushes before unregistering the agent, detaching its session, and unwinding its scope. Caller and factory unload share that memoized boundary.
 
-### Events
+### Live events
 
-The full `agent/*` event taxonomy is declared via declaration merging in `dsh-agent` (not `dsh-agent-loop`), so plugins depend only on this package.
+`dsh-agent` declares the live `agent/*` coordination vocabulary so plugins do not depend on the concrete loop. Exact signatures, dispatch modes, scope-filtering rules, and payload contracts live in the generated [Cordis event catalog](../../../docs/cordis-catalog/events.md); the [architecture turn flow](../../../docs/architecture.md#turn-flow) shows their order relative to durable session events.
 
-#### Lifecycle (emit)
+`agent/created` runs after setup and both registry entries; the following `agent/session-start` is the first supported startup injection point. `agent/disposed` means the exact entry left the registry. The loop quiesces its driver first; directly registered custom agents own any stronger ordering.
 
-- `agent/created`, `agent/disposed` — registration/deregistration
-- `agent/status` — idle / running / disposed transition
-- `agent/queued` — message entered inbox (source-resolved, steering flag)
-- `agent/session-start` — the session lifecycle began (once, before turn 1), carrying a `SessionStartSource` (`startup` for a fresh or forked create, `resume` for a reloaded persisted session; `clear`/`compact` reserved). A pure notification — it cannot block startup; a listener seeds context via `agent.inject()` (a `context/message` the first request sees).
+Most interception points are cooperative waterfalls returning seam-specific decisions. `agent/pre-step` is a serial surface-mutation checkpoint, while `agent/turn-stop` is the terminal serial fold: it runs after ordinary continuation and steering folding, and a returned stop remains in force through turn close and flush so later steering cannot create an extra step or turn. Ordinary queued prompts remain intact. The full rationale is in the [agent-scope runtime-design RFC](../../../docs/rfc/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way).
 
-#### Boundaries are durable session events, not `agent/*` emits
+`PromptDecision.additionalContexts` is an array so every injected context keeps its own source, envelope, and metadata. A `ContinuationDecision` reason is narrower: it becomes a `steering/message`, not a `context/message`, and therefore carries only content and source.
 
-Turn and step boundaries are NOT mirrored as `agent/*` emits: a consumer that needs them reads the durable `turn/start`/`turn/end`/`step/start`/`step/end` events off the `session/event` feed (the session log is the live boundary feed, carrying the `Session` — the turn/step numbers and reasons ride on the event data). See [the event-domain-semantics RFC](../../../docs/rfc/implemented/architecture/2026-06-30-event-domain-semantics.md) and [the remove-boundary-mirror-events RFC](../../../docs/rfc/implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md).
-
-#### Interception seams
-
-`agent/pre-step` is a **serial** surface-mutation checkpoint; the rest are **waterfalls** that return a small, seam-specific typed **Decision** union (the unified idiom across the taxonomy — a CC/Codex bridge maps its `permissionDecision`/`decision`/`continue` fields onto these, a native plugin returns them directly):
-
-- `agent/session-start` (emit) — fired once before the first turn; a listener seeds context via `agent.inject()` (it cannot veto startup).
-- `agent/prompt-submit` — decide what happens to one drained queued message before it becomes a `user/message`: `PromptDecision` = `allow` (optionally rewriting the prompt `content` or attaching `additionalContext`) or `block` (drop it; a batch whose every prompt is blocked opens a zero-step turn that ends `rejected`). Maps onto Claude Code's `UserPromptSubmit`.
-- `agent/pre-step` (serial) — mutate the session surface before the step opens and history is derived (compaction). Fires after `turn/start` and before `step/start`, so a listener's appended events land outside the step.
-- `agent/request` — shape the call config before the model call: a frozen `LlmCallConfig` seed in, a replacement out (model switching, sampling overrides). Content is not shapeable here — every request is a pure function of the session log ([reconstructability RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)); the loop logs whatever config the request actually uses as a `request/header*` event
-- `agent/step-result` — post-process the assembled assistant message before tool dispatch (validates what the log records)
-- `agent/turn-continuation` — override the continue/stop decision via `ContinuationDecision` = `{action:'stop'}` or `{action:'continue', reason?}` (a `continue` `reason` is recorded as next-step steering in the same turn — the typed `/goal` pattern). Force-continue `/loop`, force-stop budget guard.
-
-Tool interception is the `tools/pre-execute` / `tools/post-execute` pair in [`dsh-tools`](../tools/README.md) (`PreToolDecision` allow/deny/ask, `PostToolDecision` accept/block) — same typed-Decision idiom, owned there because it is the tool registry's seam.
-
-#### Error notifications (emit)
-
-- `agent/error` — step/turn error
-
-The model's token stream is NOT an `agent/*` event: read it off the durable `session/event` feed as `assistant/chunk` (the same feed persistence and the ACP bridge use).
+Turn and step boundaries and the model token stream are durable `session/event` facts rather than mirrored `agent/*` notifications. Consumers read `turn/*`, `step/*`, and `assistant/chunk` from the session feed; tool policy and outcome observation belong to the complete pipeline documented by [`dsh-tools`](../tools/README.md).
 
 ### Agent interface (`types.ts`)
 
 The handle every plugin programs against:
 
-- `agent.send(content, options?)` — queue a message; starts a turn when idle
-- `agent.steer(content, options?)` — steer a running turn (inject between steps); behaves like `send` when idle
-- `agent.inject(content, options?)` — inject in-session context (context/message event); the next request sees it. Does not run the model. While a turn is open it joins that turn; while idle it is wrapped in a one-shot `injection` turn so every event stays turn-enclosed ([the turn-enclosure invariant](../../../docs/rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md))
+- `agent.send(content, options?)` — queue a message; starts a turn when idle. Content and resolved source become one detached, deeply frozen lossless-JSON record before `agent/queued` and enqueue; invalid data throws synchronously, and caller or notification-listener in-place mutation cannot change the log or model input (`agent/prompt-submit` still rewrites by returning replacement content).
+- `agent.steer(content, options?)` — steer a running turn (inject between steps); uses the same owned acceptance boundary and behaves like `send` when idle
+- `agent.inject(content, options?)` — inject in-session context (`context/message` event); the next request sees it. `options.envelope` defaults to the canonical `<context>` framing and may be `'raw'` when the caller owns a complete familiar frame; `options.meta` persists opaque JSON state without rendering it. Does not run the model. While a turn is open it joins that turn; while idle it is wrapped in a one-shot `injection` turn so every event stays turn-enclosed ([the turn-enclosure invariant](../../../docs/rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md))
 - `agent.cancel(reason?)` — cancel ALL pending work: clears the queued + steering FIFOs, aborts the in-flight step, and drops a turn about to start (the pre-step window) so a queued-but-not-started prompt never runs. A UI/ACP `session/cancel` maps to this. The single public stop primitive. Idle with nothing pending → a safe no-op.
 - `agent.whenIdle()` — resolve once the agent reaches quiescence after settling out of `running` (idle → immediately; disposed → awaits the loop exit). A non-owner's quiescence-observation hook: it observes the work settling WITHOUT tearing the agent down. Teardown is separate — a lifecycle owner stops and unregisters via `AgentHandle.dispose()`, which awaits the loop exit directly.
 - `agent.session`, `agent.status`, `agent.options`, `agent.id`
@@ -71,8 +52,26 @@ The handle every plugin programs against:
 
 - Agent creation: `AgentLoop.create()` is the concrete config-path implementation (in `dsh-agent-loop`), while programmatic consumers create/resume owned agents through `ctx.agents.create()` / `ctx.agents.resume()`. Replace the loop by implementing `Agent` and registering via `ctx.agents.register()`.
 - Event listeners: all `agent/*` events are declared here — no dependency on the loop package needed.
-- Subagent delegation: implemented by `@deepseek-ai/dsh-subagent`, not by a method on `Agent`; providers create or drive ordinary `Agent` handles through the factory seam, so spawn/fork/ACP transports stay outside the core agent interface.
+- Subagent delegation is not an `Agent` method; providers create or drive ordinary handles through the factory seam, so delegation transports stay outside the core agent interface.
 
-### What is NOT here (TODO)
+## Model Experience
+
+### User, steering, and injected messages
+
+**What the model sees**: `send`, `steer`, and `inject` feed the owning session. `agent/prompt-submit`, `agent/session-prefix`, and other declared events let plugins block a prompt or add request material; this interface contributes no fixed prose itself.
+
+**Token effect**: Accepted content becomes retained history or a repeated session prefix; blocked content contributes no request tokens. Size is caller- and plugin-dependent.
+
+### Agent-scoped request composition
+
+**What the model sees**: Registrations through `agent.ctx` can shadow prompt sections or tools and can install agent-only interceptors during unpublished setup.
+
+**Token effect**: The package adds zero tokens itself; scoped contributions affect only that agent and disappear on disposal.
+
+## Known Limitations and Deferred Work
 
 - **Inter-agent channels beyond delegation** — shared state, streaming child output, and background/poll semantics remain outside the current synchronous `ctx.subagents` seam.
+- **`agent/session-start` cannot gate startup** — it remains a synchronous, veto-less notification; async composition that must finish before publication belongs in the factory's `setup(agentCtx)` transaction instead.
+- **No public step-only abort** — `cancel()` clears ALL pending work (queued + steering + in-flight); an abort that preserves queued prompts returns only with a named consumer ([stop-surface RFC](../../../docs/rfc/implemented/simplification/2026-06-20-public-agent-stop-surface.md)).
+- **`HookContext` carries exactly one `MessageSource`** — contributions from several plugins merged onto one tool call collapse under one source; mixed provenance is unrepresentable.
+- **`SessionStartSource` reserves `'clear'`/`'compact'` with no emitter yet** — only `'startup'`/`'resume'` occur until the driving subsystems land (`TODO(compaction)`).

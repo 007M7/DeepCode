@@ -60,7 +60,7 @@ describe('SessionStore.fork', () => {
     })
   })
 
-  it('forks the latest completed boundary by default and deep-clones seed events', async () => {
+  it('forks the latest completed boundary by default into detached frozen seed events', async () => {
     const { ctx, sessions } = await setup()
     const source = ctx.sessions.create(SessionId('parent'), { meta: { cwd: '/workspace' } })
     appendClosedTurn(source, 1, 'hello')
@@ -70,8 +70,11 @@ describe('SessionStore.fork', () => {
     expect(child.events).toEqual(source.events)
     expect(child.events).not.toBe(source.events)
     expect(child.events[1]).not.toBe(source.events[1])
-    firstUserMessage(child.events).data.content[0] = { type: 'text', text: 'child mutation' }
+    expect(() => {
+      firstUserMessage(child.events).data.content[0] = { type: 'text', text: 'child mutation' }
+    }).toThrow(TypeError)
     expect(firstUserMessage(source.events).data.content).toEqual([{ type: 'text', text: 'hello' }])
+    expect(firstUserMessage(child.events).data.content).toEqual([{ type: 'text', text: 'hello' }])
     expect(child.header).toMatchObject({
       id: SessionId('child'),
       cwd: '/workspace',

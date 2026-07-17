@@ -2,9 +2,12 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import ToolRegistry, {
   defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
   type InferArgs, type SchemaSpec, type PreToolDecision, type PostToolDecision,
+  type ToolExecution, type ToolExecutionResult,
 } from '@deepseek-ai/dsh-tools'
 
 async function setup() {
@@ -62,11 +65,22 @@ describe('ToolRegistry', () => {
     expect(schema.execute).toBeUndefined()
   })
 
+  it('schemas() excludes timeoutMs — the budget must never reach the model', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'budgeted', description: 'has a budget', parameters: {}, timeoutMs: 5_000,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    }))
+    const schema = ctx.tools.schemas().find(s => s.name === 'budgeted')
+    expect(schema).toBeDefined()
+    expect('timeoutMs' in (schema as object)).toBe(false)
+  })
+
   it('executes a tool and returns its content', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
-    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'hi' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false })
   })
 
   it('threads a tool-attached meta (object return form) onto the result', async () => {
@@ -80,7 +94,6 @@ describe('ToolRegistry', () => {
     })
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'meta-tool', arguments: {} })
     expect(result).toEqual({
-      callId: CallId('c1'),
       content: [{ type: 'text', text: 'ok' }],
       isError: false,
       meta: { diffs: [{ path: 'a', oldText: null, newText: 'x' }] },
@@ -97,8 +110,28 @@ describe('ToolRegistry', () => {
       },
     })
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'no-meta-tool', arguments: {} })
-    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'ok' }], isError: false })
     expect('meta' in result).toBe(false)
+  })
+
+  it('normalizes a contract-violating non-cloneable result before final notification', async () => {
+    const ctx = await setup()
+    let observedError: boolean | undefined
+    ctx.on('tools/result', (_exec, result) => { observedError = result.isError })
+    ctx.tools.register({
+      ...echoTool,
+      name: 'bad-meta',
+      async execute() {
+        return { content: [], meta: () => undefined }
+      },
+    })
+
+    const result = await ctx.tools.execute({
+      callId: CallId('bad-meta'), name: 'bad-meta', arguments: {},
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.type === 'text' && result.content[0].text).toContain('Error:')
+    expect(observedError).toBe(true)
   })
 
   it('returns isError results for unknown tools and throwing tools', async () => {
@@ -122,13 +155,34 @@ describe('ToolRegistry', () => {
     expect(thrown.content[0]).toMatchObject({ text: 'Error: exploded' })
   })
 
-  it('ToolNotFoundError carries the tool name and a stable code', async () => {
+  it('normalizes a hostile thrown value whose inspection and coercion both throw', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'hostile-throw',
+      async execute() {
+        throw new Proxy({}, {
+          getPrototypeOf: () => { throw new Error('prototype trap') },
+          has: () => { throw new Error('has trap') },
+          get: () => { throw new Error('get trap') },
+        })
+      },
+    })
+
+    await expect(ctx.tools.execute({
+      callId: CallId('hostile'), name: 'hostile-throw', arguments: {},
+    })).resolves.toMatchObject({
+      isError: true,
+      content: [{ type: 'text', text: 'Error: <unprintable thrown value>' }],
+    })
+  })
+
+  it('ToolNotFoundError carries a stable message and code', async () => {
     const { HarnessError } = await import('@deepseek-ai/dsh-llm')
     const err = new ToolNotFoundError('ghost')
     expect(err).toBeInstanceOf(HarnessError)
     expect(err.name).toBe('ToolNotFoundError')
     expect(err.code).toBe('UNKNOWN_TOOL')
-    expect(err.toolName).toBe('ghost')
     expect(err.message).toBe('unknown tool "ghost"')
   })
 
@@ -146,7 +200,7 @@ describe('ToolRegistry', () => {
     expect(result.content[0]).toMatchObject({ text: 'Error: denied by policy' })
   })
 
-  it('an ask decision degrades to deny until the permission system lands', async () => {
+  it('an ask decision degrades to deny when no approval seam is mounted', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
 
@@ -167,6 +221,107 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval (not yet supported)' })
+  })
+
+  describe('ask routing through ctx.approval', () => {
+    /**
+     * A minimal Agent stand-in — the approval seam reaches
+     * `agent.session.append` and folds `.events`; the seeded open turn
+     * satisfies request()'s enclosure precondition.
+     */
+    function fakeAgent(): Agent {
+      return {
+        session: { events: [{ type: 'turn/start' }], append: () => ({}) },
+      } as unknown as Agent
+    }
+
+    async function approvalSetup() {
+      const ctx = await setup()
+      await ctx.plugin(ApprovalService)
+      ctx.tools.register(echoTool)
+      return ctx
+    }
+
+    it('dispatches the tool when the answerer grants allowed-once, forwarding the ask fields', async () => {
+      const ctx = await approvalSetup()
+      const agent = fakeAgent()
+      const controller = new AbortController()
+      const seen: ApprovalRequest[] = []
+      ctx.on('approval/request', (req) => {
+        seen.push(req)
+        return Promise.resolve<ApprovalOutcome>('allowed-once')
+      })
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> =>
+        ({ kind: 'ask', reason: 'hook wants a human' }))
+
+      const result = await ctx.tools.execute({
+        callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' }, agent, signal: controller.signal,
+      })
+
+      expect(result).toMatchObject({ isError: false, content: [{ type: 'text', text: 'hi' }] })
+      expect(seen).toHaveLength(1)
+      expect(seen[0]).toMatchObject({ agent, toolName: 'echo', callId: 'c1', reason: 'hook wants a human' })
+      expect(seen[0]?.signal).toBe(controller.signal)
+    })
+
+    it('denies with the user-rejection reason on rejected', async () => {
+      const ctx = await approvalSetup()
+      ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      expect(result.isError).toBe(true)
+      expect(result.content[0]).toMatchObject({ text: 'Error: the user rejected tool "echo"' })
+    })
+
+    it('denies with the cancellation reason on cancelled', async () => {
+      const ctx = await approvalSetup()
+      ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('cancelled'))
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      expect(result.isError).toBe(true)
+      expect(result.content[0]).toMatchObject({ text: 'Error: approval for tool "echo" was cancelled' })
+    })
+
+    it('denies with the no-channel reason when the seam is mounted but nobody answers', async () => {
+      const ctx = await approvalSetup()
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      expect(result.isError).toBe(true)
+      expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval, but no approval channel is available' })
+    })
+
+    it('denies an agent-less execution without asking — nothing to route or audit through', async () => {
+      const ctx = await approvalSetup()
+      let asked = false
+      ctx.on('approval/request', () => {
+        asked = true
+        return Promise.resolve<ApprovalOutcome>('allowed-once')
+      })
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {} })
+      expect(asked).toBe(false)
+      expect(result.isError).toBe(true)
+      expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval, but the call has no agent to route it through' })
+    })
+
+    it('turns a rogue outcome from a NON-conforming approval stand-in into an isError result', async () => {
+      // ApprovalService normalizes rogue answers itself; this pins the
+      // registry's own exhaustiveness backstop by shadowing the service with a
+      // stand-in that violates the outcome contract.
+      const ctx = await setup()
+      ctx.tools.register(echoTool)
+      ctx.provide('approval', { request: () => Promise.resolve('yolo') } as unknown as ApprovalService)
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      expect(result.isError).toBe(true)
+      const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
+      expect(text).toContain('unreachable')
+    })
   })
 
   it('a tools/post-execute listener can replace the result content (accept) ', async () => {
@@ -193,7 +348,7 @@ describe('ToolRegistry', () => {
     expect(result.content[0]).toMatchObject({ text: 'output rejected: try again' })
   })
 
-  it('a block decision can ALSO attach additionalContext', async () => {
+  it('a block decision can ALSO attach additionalContexts', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
 
@@ -201,51 +356,95 @@ describe('ToolRegistry', () => {
       ({
         kind: 'block',
         feedback: [{ type: 'text', text: 'rejected' }],
-        additionalContext: { content: [{ type: 'text', text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' } },
+        additionalContexts: [{ content: [{ type: 'text', text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' } }],
       }))
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'rejected' })
-    expect(result.additionalContext).toMatchObject({ content: [{ text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' } })
+    expect(result.additionalContexts).toMatchObject([{ content: [{ text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' } }])
   })
 
-  it('a post-execute additionalContext rides on the result for the loop to buffer', async () => {
+  it('post-execute additionalContexts ride on the result for the loop to buffer', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
 
     ctx.on('tools/post-execute', async (_exec, _result, _next): Promise<PostToolDecision> =>
-      ({ kind: 'accept', additionalContext: { content: [{ type: 'text', text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } } }))
+      ({ kind: 'accept', additionalContexts: [{ content: [{ type: 'text', text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } }] }))
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
-    expect(result.additionalContext).toMatchObject({ content: [{ text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } })
+    expect(result.additionalContexts).toMatchObject([{ content: [{ text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } }])
   })
 
-  it('a post-execute listener mutating the result object cannot corrupt callId/isError/error', async () => {
-    // The decision is the ONLY sanctioned channel to change the outcome. A
-    // listener that reaches in and mutates the passed result reference (flipping
-    // isError, rewriting callId, attaching a bogus error) must NOT affect what
-    // execute() returns — the registry snapshots the authoritative fields before
-    // the waterfall and rebuilds from the snapshot + decision.
+  it('preserves tool-deferred, execute-wrapper, and post-execute contexts in order', async () => {
     const ctx = await setup()
-    ctx.tools.register(echoTool)
-
-    ctx.on('tools/post-execute', async (_exec, result, next) => {
-      const mutable = result as { callId: string; isError: boolean; error?: unknown; content: unknown[] }
-      mutable.callId = 'hijacked'
-      mutable.isError = true
-      mutable.error = { name: 'Evil', code: 'EVIL' }
-      mutable.content.push({ type: 'text', text: 'INJECTED' }) // in-place array mutation
-      return next() // delegate to the default accept — no decision-level override
+    ctx.tools.register(defineTool({
+      name: 'composite',
+      description: 'composite',
+      parameters: {},
+      async execute(_args, exec) {
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-1' }], source: { kind: 'plugin', plugin: 'nested-1' }, meta: { n: 1 } })
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-2' }], source: { kind: 'plugin', plugin: 'nested-2' }, envelope: 'raw' })
+        return [{ type: 'text', text: 'done' }]
+      },
+    }))
+    ctx.on('tools/execute', async (_exec, next) => {
+      const result = await next()
+      return {
+        ...result,
+        additionalContexts: [
+          ...result.additionalContexts ?? [],
+          { content: [{ type: 'text', text: 'wrapper' }], source: { kind: 'plugin', plugin: 'wrapper' } },
+        ],
+      }
+    })
+    ctx.on('tools/post-execute', async (_exec, _result, next): Promise<PostToolDecision> => {
+      const downstream = await next()
+      return {
+        ...downstream,
+        additionalContexts: [
+          { content: [{ type: 'text', text: 'post' }], source: { kind: 'plugin', plugin: 'post' } },
+          ...downstream.additionalContexts ?? [],
+        ],
+      }
     })
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
-    expect(result.callId).toBe(CallId('c1'))   // authoritative exec.callId, not 'hijacked'
-    expect(result.isError).toBe(false)          // the real (successful) dispatch outcome
-    expect(result.error).toBeUndefined()        // no listener-injected error
-    expect(result.content).toHaveLength(1)       // the in-place push did not leak in
-    expect(result.content[0]).toMatchObject({ text: 'hi' })
-    expect(result.content.some(b => (b as { text?: string }).text === 'INJECTED')).toBe(false)
+    const result = await ctx.tools.execute({ callId: CallId('composite'), name: 'composite', arguments: {} })
+
+    expect(result.additionalContexts?.map(context => context.source)).toEqual([
+      { kind: 'plugin', plugin: 'nested-1' },
+      { kind: 'plugin', plugin: 'nested-2' },
+      { kind: 'plugin', plugin: 'wrapper' },
+      { kind: 'plugin', plugin: 'post' },
+    ])
+    expect(result.additionalContexts?.[0]?.meta).toEqual({ n: 1 })
+    expect(result.additionalContexts?.[1]?.envelope).toBe('raw')
+  })
+
+  it('keeps deferred contexts when a composite tool throws, but drops them when the outer call is blocked', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'failing-composite',
+      description: 'failing composite',
+      parameters: {},
+      async execute(_args, exec) {
+        exec.deferContext({ content: [{ type: 'text', text: 'nested' }], source: { kind: 'plugin', plugin: 'nested' } })
+        throw new Error('outer failure')
+      },
+    }))
+
+    const failed = await ctx.tools.execute({ callId: CallId('failed'), name: 'failing-composite', arguments: {} })
+    expect(failed.isError).toBe(true)
+    expect(failed.additionalContexts?.map(context => context.source)).toEqual([{ kind: 'plugin', plugin: 'nested' }])
+
+    ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
+      kind: 'block',
+      feedback: [{ type: 'text', text: 'blocked' }],
+      additionalContexts: [{ content: [{ type: 'text', text: 'block-only' }], source: { kind: 'plugin', plugin: 'blocker' } }],
+    }))
+    const blocked = await ctx.tools.execute({ callId: CallId('blocked'), name: 'failing-composite', arguments: {} })
+    expect(blocked.isError).toBe(true)
+    expect(blocked.additionalContexts?.map(context => context.source)).toEqual([{ kind: 'plugin', plugin: 'blocker' }])
   })
 
   it('composes pre + post waterfalls around dispatch (sandbox-wrap pattern)', async () => {
@@ -272,6 +471,171 @@ describe('ToolRegistry', () => {
     expect(order).toEqual(['pre:before', 'pre:after', 'post:before', 'post:after'])
   })
 
+  it('runs tools/execute after an allowed pre-execute, around dispatch, and before post-execute', async () => {
+    const ctx = await setup()
+    const order: string[] = []
+    ctx.tools.register(defineTool({
+      name: 'traced',
+      description: 'echo',
+      parameters: { text: { type: 'string' } },
+      async execute(args) {
+        order.push('dispatch')
+        return [{ type: 'text' as const, text: args.text ?? '' }]
+      },
+    }))
+
+    ctx.on('tools/pre-execute', async (_exec, next) => { order.push('pre'); return next() })
+    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
+      order.push('execute:before')
+      const result = await next()
+      order.push('execute:after')
+      return result
+    })
+    ctx.on('tools/post-execute', async (_exec, _result, next) => { order.push('post'); return next() })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'traced', arguments: { text: 'hi' } })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false })
+    // The around seam wraps dispatch; pre gates before it, post runs over its result.
+    expect(order).toEqual(['pre', 'execute:before', 'dispatch', 'execute:after', 'post'])
+  })
+
+  it('a pre-execute deny short-circuits before tools/execute (the seam never runs)', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+
+    let entered = false
+    ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'deny', reason: 'nope' }))
+    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
+      entered = true
+      return next()
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'Error: nope' })
+    expect(entered).toBe(false) // a denied call never enters the around-dispatch seam
+  })
+
+  it('a thrown tool is normalized to an isError result BEFORE a tools/execute listener sees next()', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'boom',
+      async execute() { throw new HarnessError('kaboom', 'BOOM') },
+    })
+
+    let seen: { isError: boolean; error?: unknown } | undefined
+    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
+      const result = await next()
+      // The base next() IS dispatch-with-normalization: the wrapper sees the
+      // normalized isError result, never a raw throw from the tool body.
+      seen = { isError: result.isError, error: result.error }
+      return result
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'boom', arguments: {} })
+    expect(seen).toEqual({ isError: true, error: { name: 'HarnessError', code: 'BOOM' } })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'Error: kaboom' })
+  })
+
+  it('a thrown tool normalized inside tools/execute still reaches post-execute', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'boom',
+      async execute() { throw new Error('exploded') },
+    })
+
+    let postSaw: boolean | undefined
+    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => next())
+    ctx.on('tools/post-execute', async (_exec, result, next) => {
+      postSaw = result.isError
+      return next()
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'boom', arguments: {} })
+    expect(postSaw).toBe(true) // the normalized isError still flows through post-execute
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'Error: exploded' })
+  })
+
+  it('a tools/execute listener can replace exec.signal for the dispatched tool (deadline pattern)', async () => {
+    const ctx = await setup()
+    let seenSignal: AbortSignal | undefined
+    ctx.tools.register({
+      ...echoTool,
+      name: 'signal-probe',
+      async execute(_args, exec) {
+        seenSignal = exec.signal
+        return [{ type: 'text' as const, text: 'ok' }]
+      },
+    })
+
+    const upstream = new AbortController().signal
+    const replacement = new AbortController().signal
+    ctx.on('tools/execute', async (exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
+      expect(exec.signal).toBe(upstream)
+      // Cordis next() ignores passed arguments, so a wrapper mutates exec in
+      // place (the documented "mutate the shared object, then delegate" idiom).
+      exec.signal = replacement
+      return next()
+    })
+
+    await ctx.tools.execute({ callId: CallId('c1'), name: 'signal-probe', arguments: {}, signal: upstream })
+    expect(seenSignal).toBe(replacement) // dispatch saw the wrapper's replacement, not the upstream
+  })
+
+  it('a tools/execute listener can short-circuit dispatch by returning a result without next()', async () => {
+    const ctx = await setup()
+    let dispatched = false
+    ctx.tools.register({
+      ...echoTool,
+      name: 'never-runs',
+      async execute() { dispatched = true; return [] },
+    })
+
+    ctx.on('tools/execute', async (_exec: ToolExecution, _next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> =>
+      ({ content: [{ type: 'text', text: 'short-circuited' }], isError: false }))
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'never-runs', arguments: {} })
+    expect(dispatched).toBe(false) // returning without next() skips core dispatch
+    expect(result.content[0]).toMatchObject({ text: 'short-circuited' })
+  })
+
+  it('preserves additionalContexts supplied by an around-dispatch result', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/execute', async () => ({
+      content: [{ type: 'text', text: 'short-circuited with context' }],
+      isError: false,
+      additionalContexts: [{
+        content: [{ type: 'text', text: 'from around dispatch' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }],
+    }))
+
+    const result = await ctx.tools.execute({
+      callId: CallId('around-context'), name: 'echo', arguments: {},
+    })
+    expect(result.additionalContexts).toEqual([{
+      content: [{ type: 'text', text: 'from around dispatch' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }])
+  })
+
+  it('returns an isError result when a tools/execute listener throws', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/execute', async () => { throw new Error('wrapper broke') })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result).toEqual({
+      content: [{ type: 'text', text: 'Error: wrapper broke' }],
+      isError: true,
+    })
+  })
+
   it('returns an isError result when a tools/pre-execute listener throws', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
@@ -282,7 +646,6 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
 
     expect(result).toEqual({
-      callId: CallId('c1'),
       content: [{ type: 'text', text: 'Error: permission hook broke' }],
       isError: true,
     })
@@ -298,7 +661,6 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
 
     expect(result).toEqual({
-      callId: CallId('c1'),
       content: [{ type: 'text', text: 'Error: post hook broke' }],
       isError: true,
     })
@@ -314,7 +676,6 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
 
     expect(result).toMatchObject({
-      callId: CallId('c1'),
       isError: true,
       error: { name: 'HarnessError', code: 'DENIED' },
     })
@@ -334,6 +695,14 @@ describe('ToolRegistry', () => {
       description: 'echo arguments back',
       parameters: { type: 'object', properties: { text: { type: 'string' } } },
     }])
+  })
+
+  it('rejects a non-positive or non-finite registration timeout', async () => {
+    const ctx = await setup()
+    expect(() => ctx.tools.register({ ...echoTool, name: 'zero-timeout', timeoutMs: 0 }))
+      .toThrow('timeoutMs must be a positive finite number')
+    expect(() => ctx.tools.register({ ...echoTool, name: 'infinite-timeout', timeoutMs: Number.POSITIVE_INFINITY }))
+      .toThrow('timeoutMs must be a positive finite number')
   })
 
   it('rejects duplicate names and unregisters on fiber dispose (HMR safety)', async () => {
@@ -381,6 +750,28 @@ describe('ToolRegistry', () => {
     expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo'])
     dispose()
     expect(ctx.tools.get('echo')).toBeUndefined()
+  })
+
+  it('register() returns the EXACT effect disposer: a composite yield nests the teardown in order', async () => {
+    // Registry methods return the exact Cordis effect disposer so a composite yield places
+    // unregistration at its LIFO position. A wrapper would create a concurrent sibling; this async
+    // probe yields during earlier teardown and would then observe the tool already removed.
+    const ctx = await setup()
+    const order: string[] = []
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.effect(function* () {
+        yield () => { order.push('disposed-last') }
+        yield inner.tools.register({ ...echoTool, name: 'nested' })
+        order.push('registered')
+        yield async () => {
+          await new Promise(resolve => setTimeout(resolve, 0))
+          order.push(inner.tools.get('nested') ? 'first: still registered' : 'first: already gone')
+        }
+      })
+    }, { inject: ['tools'] }))
+    await fiber.dispose()
+    expect(order).toEqual(['registered', 'first: still registered', 'disposed-last'])
+    expect(ctx.tools.get('nested')).toBeUndefined()
   })
 })
 
@@ -651,20 +1042,18 @@ describe('schema DSL edge cases', () => {
         port: { type: 'number' },
       },
     })
-    // no 'required' key in the nested object because nothing is required
     const config = jsonSchema.properties['config'] as Record<string, unknown>
     expect('required' in config).toBe(false)
   })
 })
 
-describe('schema DSL regressions (Codex review round 2)', () => {
+describe('schema DSL optional and nested contracts', () => {
   it('InferArgs makes non-required keys genuinely optional (omittable)', () => {
     type Args = InferArgs<{
       path: { type: 'string'; required: true }
       limit: { type: 'number' }
     }>
     expectTypeOf<Args>().toEqualTypeOf<{ path: string; limit?: number }>()
-    // omitting the optional key is assignable — the actual regression
     const omitted: Args = { path: '/tmp' }
     expect(omitted.limit).toBeUndefined()
   })
@@ -915,7 +1304,7 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
       },
     }))
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'reader', arguments: { path: '/x' } })
-    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'read /x' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'read /x' }], isError: false })
   })
 
   it('ToolArgsError carries a stable code and the violation list', () => {
@@ -988,6 +1377,38 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
     // this reaches execute rather than being rejected by the harness.
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'raw', arguments: {} })
     expect(result.isError).toBe(false)
+  })
+
+  it('attaches a positive-finite timeoutMs to the definition', () => {
+    const tool = defineTool({
+      name: 'x', description: 'd', parameters: {}, timeoutMs: 30_000,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })
+    expect(tool.timeoutMs).toBe(30_000)
+  })
+
+  it('omits timeoutMs when not declared', () => {
+    const tool = defineTool({
+      name: 'x', description: 'd', parameters: {},
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })
+    expect(tool.timeoutMs).toBeUndefined()
+  })
+
+  it('throws when timeoutMs is zero or negative', () => {
+    const make = (ms: number) => defineTool({
+      name: 'x', description: 'd', parameters: {}, timeoutMs: ms,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })
+    expect(() => make(0)).toThrow('timeoutMs must be a positive finite number')
+    expect(() => make(-5)).toThrow('positive finite number')
+  })
+
+  it('throws when timeoutMs is non-finite', () => {
+    expect(() => defineTool({
+      name: 'x', description: 'd', parameters: {}, timeoutMs: Infinity,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })).toThrow('positive finite number')
   })
 })
 

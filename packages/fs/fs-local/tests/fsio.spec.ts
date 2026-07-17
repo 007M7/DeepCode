@@ -14,14 +14,15 @@ import {
   applyLiteralEdit,
   listDirectory,
   probe,
+  probeNoFollow,
   readForEdit,
   readWholeText,
   resolveLocalTarget,
   restoreLineEndings,
   streamWholeText,
   writeFileAtomic,
-} from '@deepseek-ai/dsh-fs-local'
-import type { LocalTarget } from '@deepseek-ai/dsh-fs-local'
+} from '../src/fsio.ts'
+import type { LocalTarget } from '../src/fsio.ts'
 import { FsError, FsTargetKey } from '@deepseek-ai/dsh-fs'
 
 let dir: string
@@ -143,6 +144,27 @@ describe('probe', () => {
   it('returns null when an ancestor path segment is a file (ENOTDIR), not a raw throw', async () => {
     await writeFile(join(dir, 'afile'), 'i am a file')
     expect(await probe(join(dir, 'afile', 'child.txt'))).toBeNull()
+  })
+})
+
+describe('probeNoFollow', () => {
+  it('reports symlinks without following them', async () => {
+    const real = join(dir, 'real.txt')
+    const link = join(dir, 'link.txt')
+    await writeFile(real, 'hi')
+    await symlink(real, link)
+
+    expect((await probeNoFollow(real))?.type).toBe('file')
+    const linkInfo = await probeNoFollow(link)
+    expect(linkInfo?.type).toBe('symlink')
+    expect(typeof linkInfo?.version).toBe('string')
+    expect(linkInfo?.size).toBeGreaterThan(0)
+  })
+
+  it('returns null for a missing path or a file-valued ancestor path segment', async () => {
+    expect(await probeNoFollow(join(dir, 'missing'))).toBeNull()
+    await writeFile(join(dir, 'afile'), 'i am a file')
+    expect(await probeNoFollow(join(dir, 'afile', 'child.txt'))).toBeNull()
   })
 })
 

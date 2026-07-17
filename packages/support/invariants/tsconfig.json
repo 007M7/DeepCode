@@ -22,6 +22,21 @@
     },
     {
       "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/scope"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../ui/user-approval"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../subagent/subagent"
     }
   ]
 }

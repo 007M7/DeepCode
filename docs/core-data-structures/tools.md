@@ -1,6 +1,6 @@
 # Tools
 
-The tool pipeline of [dsh-tools](../../packages/core/tools). [core.md](core.md) introduces `ToolDefinition` as the one pipeline-authoring type promoted to the spine and `ToolSchema` as the model-facing wire shape. This page owns the full `ToolDefinition`, the typed schema DSL that builds it, the waterfall execution shapes, and the UI-presentation vocabulary.
+The tool pipeline of [dsh-tools](../../packages/core/tools). [core.md](core.md) introduces `ToolDefinition` as the one pipeline-authoring type promoted to the spine and `ToolSchema` as the model-facing wire shape. This page owns the full `ToolDefinition`, the typed schema DSL that builds it, the guarded execution shapes, and the UI-presentation vocabulary.
 
 Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts) · [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts) · [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)
 
@@ -10,7 +10,15 @@ A `ToolSchema` (the model-facing fields) plus the `execute` function and optiona
 
 ```ts type-equiv
 interface ToolDefinition extends ToolSchema {
-  execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
+  execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>
+  /**
+   * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
+   * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
+   * is NEVER sent to the model — `schemas()` whitelists only name/description/
+   * parameters. Declaring it asserts this tool forwards `exec.signal` to a
+   * cooperative implementation that can reach quiescence when the signal aborts.
+   */
+  timeoutMs?: number
   /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
@@ -73,25 +81,75 @@ type InferArgs<S extends SchemaSpec> = Simplify<
 
 `defineTool({ name, description, parameters, execute, … })` ties it together: `parameters` is a `SchemaSpec`, `execute(args, exec)` gets `args: InferArgs<typeof parameters>`, and the helper converts the spec to JSON Schema (`schemaSpecToJsonSchema`) for the wire and validates model-generated args (`validateArgs`) before the typed body runs. A mismatch throws `ToolArgsError` (`code: 'INVALID_ARGS'`), which the registry turns into an `isError` result so the model can self-correct. Why a custom DSL and not schemastery: tool parameters need JSON Schema (the LLM wire format), not validation/transformation — the lightweight DSL gives the best authoring DX with the smallest surface.
 
-## Execution: the `tools/pre-execute` / `tools/post-execute` pipeline shapes
+Registration is a trusted same-process contract. The registry borrows the typed definition as readonly input and validates only semantic requirements such as a positive finite `timeoutMs`; `schemas()` materializes the explicit model-facing projection at the model boundary so execution and presentation share one resolved definition without leaking callbacks onto the wire.
 
-`ctx.tools.execute()` runs each call through a two-waterfall pipeline — `tools/pre-execute` (the allow/deny/ask gate) → core dispatch → `tools/post-execute` (inspect/replace the result, attach context) — the seams where sandbox, permission, hook, and plan-mode plugins gate or transform a call. The pending call is a `ToolExecution`; the outcome is a `ToolExecutionResult`.
+## `ToolRestriction` — one scope's live global filter
+
+`ToolRestriction` applies only to the live deployment-global tool layer. The registry compiles readonly names into private sets, intersects multiple restrictions, then overlays scope-local tools. A deny-only filter admits later unlisted globals, while an allow-list excludes them.
 
 ```ts type-equiv
-interface ToolExecution {
-  callId: CallId
-  name: string
+interface ToolRestriction {
+  readonly allow?: readonly string[]
+  readonly deny?: readonly string[]
+}
+```
+
+## Execution: extensible waterfalls plus monotonic policy
+
+`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → `tools/result` (the immutable authoritative outcome). The outcome is a `ToolExecutionResult`.
+
+```ts type-equiv
+type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: true }
+```
+
+```ts type-equiv
+interface ToolExecutionInput {
+  readonly callId: CallId
+  readonly name: string
   /** Parsed JSON arguments (unknown — tools validate their own input). */
-  arguments: unknown
+  readonly arguments: unknown
   /** The agent on whose behalf the call runs (set by the agent loop). */
-  agent?: Agent
+  readonly agent?: Agent
+  /**
+   * Opaque token of the enclosing transport execution, when one exists. Code
+   * Mode sets this on SDK sub-dispatches so commit-style observers can wait for
+   * the outer `run_code` outcome without receiving its live mutable execution.
+   */
+  readonly parent?: ToolExecutionToken
   signal?: AbortSignal
 }
 ```
 
+A tool body receives the runtime extension. `deferContext()` is the composite-tool channel: it records nested-dispatch context without injecting inside the still-open outer call.
+
+```ts type-equiv
+interface ToolRunContext extends ToolExecution {
+  /**
+   * Defer one nested-dispatch context until this tool's final result reaches
+   * the agent loop. Contexts retain their individual source, envelope, and
+   * metadata and are emitted in call order.
+   */
+  deferContext(context: HookContext): void
+}
+```
+
+```ts type-equiv
+interface ToolExecution extends ToolExecutionInput {
+  /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
+  readonly token: ToolExecutionToken
+}
+```
+
+`ToolExecutionToken` is an opaque runtime `Symbol` used only for identity comparison. Before policy, `execute()` materializes and freezes arguments, rejects non-JSON input, and assigns the token. Identity fields and the optional parent token remain readonly; only `signal` may change around dispatch. Final observers receive the frozen execution identity.
+
+A `ToolGuard` is scope-aware final pre-dispatch policy. Its shape deliberately has no allow result: `undefined` preserves the waterfall decision, while a returned reason can only reduce permission, so a later listener cannot undo it.
+
+```ts type-equiv
+type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
+```
+
 ```ts type-equiv
 interface ToolExecutionResult {
-  callId: CallId
   content: ContentBlock[]
   isError: boolean
   /**
@@ -101,16 +159,14 @@ interface ToolExecutionResult {
    */
   error?: ToolErrorInfo
   /**
-   * Extra model-facing context a `tools/post-execute` listener attached for the
-   * NEXT request (Claude Code's PostToolUse `additionalContext`). It is NOT part
-   * of this call's `content` — `content`/`feedback` shape the tool RESULT, but
-   * `additionalContext` is a SEPARATE `context/message`. A step can carry
-   * multiple tool calls, so the loop BUFFERS every call's `additionalContext`
-   * and appends them only AFTER all `tool/result`s for the step, keeping
-   * tool-call/result adjacency intact. Carried on the result purely to ferry it
-   * from `execute()` up to the loop's per-step buffer.
+   * Extra model-facing contexts deferred by a composite tool or attached by
+   * `tools/post-execute` listeners for the NEXT request. They are NOT part of
+   * this call's `content`: the loop buffers every context and appends them only
+   * AFTER all `tool/result`s for the step, preserving tool-call/result
+   * adjacency. The array preserves each context's source, envelope, metadata,
+   * and production order instead of flattening mixed plugin provenance.
    */
-  additionalContext?: HookContext
+  additionalContexts?: HookContext[]
   /**
    * The tool-private presentation payload from a successful `execute` (the object
    * return form). Threaded onto the `tool/result` session event and back into
@@ -121,7 +177,11 @@ interface ToolExecutionResult {
 }
 ```
 
-Each interception waterfall returns a typed **Decision** (the idiom shared with the `agent/*` seams). `tools/pre-execute` listeners receive `(exec, next)` and return a `PreToolDecision`; `tools/post-execute` listeners receive `(exec, result, next)` and return a `PostToolDecision`:
+The result carries only the outcome. Call identity remains on the immutable `ToolExecution` that accompanies it through every hook and on the durable `tool/call` / `tool/result` session events, so wrappers cannot create a second, disagreeing identity.
+
+The registry materializes and freezes the final accepted result immediately before `tools/result`. Its content, structured error, additional context, and presentation metadata must round-trip losslessly through JSON; an invalid outcome becomes a JSON-safe `isError` result, so the observed live outcome is safe for the later durable `tool/result` append.
+
+Each interception waterfall returns a typed **Decision** (the idiom shared with the `agent/*` seams). `tools/pre-execute` listeners receive `(exec, next)` and return a `PreToolDecision`; `tools/execute` wrappers return a `ToolExecutionResult`; `tools/post-execute` listeners receive `(exec, result, next)` and return a `PostToolDecision`:
 
 ```ts type-equiv
 type PreToolDecision =
@@ -132,11 +192,47 @@ type PreToolDecision =
 
 ```ts type-equiv
 type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; additionalContext?: HookContext }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'accept'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: HookContext[] }
 ```
 
-Call `next()` to delegate to the default (allow / accept-unchanged), or return a decision to short-circuit. A `pre-execute` `deny` (or `ask`, which degrades to deny until the permission system lands) skips dispatch and yields an `isError` result; input rewrite is deliberately NOT offered on `PreToolDecision` (it would desync the pre-execution audit/history/UI from what ran — its own proposed RFC). A `post-execute` `accept` may replace the model-facing `content` (clean, because `tool/result` is logged after `execute()` returns); a `block` turns the call into an `isError` whose content is the corrective `feedback`. Core dispatch sits between the waterfalls as plain code; the tool body keeps its own try/catch so a thrown tool still reaches `post-execute` as an `isError`. An unregistered tool routes through the same catch as a tool-thrown error, so both failure classes get a structured `{ name, code }` (`ToolNotFoundError` → `UNKNOWN_TOOL`) — the loop records a failed tool call instead of failing the whole turn.
+Call `next()` for the default or return a decision to short-circuit. Pre-policy may deny or ask; only `allowed-once` proceeds, while a non-grant, missing approval channel or service, or agent-less request becomes a denial. Guards may still impose a final denial. Arguments cannot be rewritten because history, audit, UI, and execution must agree.
+
+Post-policy may replace content; a block becomes an `isError` result containing its corrective feedback. `tools/result` receives the frozen execution and result after normalization; observers cannot transform them, and observer failures are contained. Unknown and throwing tools both become structured errors (`ToolNotFoundError` maps to `UNKNOWN_TOOL`), so the call fails without ending the turn.
+
+## The structured-output schema subset
+
+The vocabulary a caller uses to demand a machine-readable result from a subagent (`SubagentStartRequest.outputSchema`, [subagent.md](subagent.md#the-start-request)) or a workflow `agent()` call. It is deliberately NOT full JSON Schema: the schema travels verbatim to the model as a forced tool's `parameters`, and the produced value is validated client-side by `validateStructuredValue` — so every accepted keyword must be one the validator actually enforces, and `assertSupportedOutputSchema` rejects anything else loud (`OutputSchemaError`, listing every violation). Both walkers reason over own enumerable properties only (JSON carries nothing else) and reject non-plain objects (`Date`, `Map`) that would serialize lossily.
+
+```ts type-equiv
+type StructuredScalar = string | number | boolean | null
+```
+
+```ts type-equiv
+type StructuredSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null'
+```
+
+```ts type-equiv
+interface StructuredSchemaNode {
+  type: StructuredSchemaType
+  properties?: Record<string, StructuredSchemaNode>
+  required?: string[]
+  additionalProperties?: boolean
+  items?: StructuredSchemaNode
+  enum?: StructuredScalar[]
+  const?: StructuredScalar
+  description?: string
+  title?: string
+  default?: unknown
+  examples?: unknown
+}
+```
+
+A schema is an object-rooted node (`enum`/`const` are scalar-only; `description`/`title`/`default`/`examples` are annotations, allowed and ignored but still required to be JSON data — they ride the wire):
+
+```ts type-equiv
+type StructuredOutputSchema = StructuredSchemaNode & { type: 'object' }
+```
 
 ## Tool-presentation UI vocabulary
 
@@ -147,4 +243,4 @@ How a tool wants its call shown in a UI (an editor tool-call card, a CLI log lin
 
 `ToolCallKind` (`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`) picks an icon on a generic card. `FileLocation` (`{ path, line? }`) and `FileDiff` (`{ path, oldText, newText }`) are the shared file-card vocabulary. The design is pinned in [the render-intent-union RFC](../rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md); the ACP bridge maps a `diff` card to a `{ type: 'diff' }` content block, a `terminal` card to the `_meta` terminal convention, and relativizes a file card's title against the session cwd.
 
-The full presentation field docs live in [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts). The bash tool's own schemas (`bash`/`bash_output`/`bash_kill`) and the executor they drive are on [bash.md](bash.md).
+The full presentation field docs live in [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts). The `bash` schema and executor are on [bash.md](bash.md); generic background controls are on [tasks.md](tasks.md).

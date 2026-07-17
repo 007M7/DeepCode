@@ -4,6 +4,14 @@ The in-memory, event-sourced model of [dsh-session](../../packages/core/session)
 
 Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
+## Context framing
+
+`ContextEnvelope` selects the standard tagged projection or preserves a producer-owned complete frame. The latter changes framing only; the event remains a user-role `context/message` in chronological history.
+
+```ts type-equiv
+type ContextEnvelope = 'context' | 'raw'
+```
+
 ## `SessionEventMap` — the event vocabulary
 
 The append-only event types. Merge-extensible: a plugin declares extra event types via declaration merging — e.g. the [compaction seam](compaction.md) adds `compact/start` / `compact/summary` / `compact/end`, and `@deepseek-ai/dsh-hook-protocol` adds log-only `hook/invoked` / `hook/result` provenance for a hook bridge. Like `compact/*`, these are NOT `SurfaceEventType`s (no `surfaceOp`). The generated [persistence log event catalog](../persistence-catalog.md) enumerates every member — core and merged — with its payload, surface badge, and declaration site.
@@ -30,9 +38,16 @@ interface SessionEventMap {
   /**
    * In-session context injection (file-change notices, subdir AGENTS.md,
    * skill content, cron notifications, …). Rendered into the derived history
-   * as tagged synthetic context — NOT a user prompt.
+   * as synthetic context — NOT a user prompt. `envelope: 'raw'` lets a caller
+   * supply its own complete framing; `meta` is persisted JSON hidden from the
+   * model.
    */
-  'context/message': { content: ContentBlock[]; source: MessageSource }
+  'context/message': {
+    content: ContentBlock[]
+    source: MessageSource
+    envelope?: ContextEnvelope
+    meta?: JsonValue
+  }
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**
@@ -74,16 +89,15 @@ interface SessionEventMap {
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
-   * Amendment to the folded {@link EpochHeader}: at least one of a
-   * {@link SystemDelta}, a {@link ToolsDelta}, or a whole replacement
-   * {@link LlmCallConfig} (four scalars — not worth diffing). Appended by the
-   * loop inside the step, before dispatch, when the header for this request
-   * differs from the fold of the log so far; the writer verifies
-   * `applyHeaderDelta(previous, delta)` reproduces the new header exactly and
-   * falls back to a `'fallback'` `request/header` snapshot when it cannot, so
-   * a logged delta ALWAYS round-trips. NOT a {@link SurfaceEventType}.
+   * Amendment to the folded {@link EpochHeader}: system line-trim, name-keyed
+   * tools delta, whole replacement config, or whole replacement session
+   * prefix (an EMPTY array encodes the transition to "none"). The
+   * writer verifies `applyHeaderDelta(previous, delta)` reproduces the new
+   * header exactly and falls back to a `'fallback'` `request/header` snapshot
+   * when it cannot, so a logged delta ALWAYS round-trips. NOT a
+   * {@link SurfaceEventType}.
    */
-  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig }
+  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 }
 ```
 
@@ -100,7 +114,7 @@ export interface TodoItem {
 
 ### The request header events: `request/header` and `request/header-delta`
 
-The request envelope — the `EpochHeader` (call config + rendered system prompt + assembled tool schemas) — is logged session state, so every conversation request is a pure function of the log (the reconstructability RFC). A `request/header` snapshot (reason `'initial' | 'resume' | 'fallback'`) anchors the fold at conversation birth, process boundaries, and delta-encoding fallbacks; `request/header-delta` events amend it mid-run. `foldRequestHeader(events)` reconstructs the header any request was built under; the writer round-trip-verifies every delta before logging it, so a well-formed log always folds. Neither is a `SurfaceEventType` — they produce no LLM message.
+The request envelope — the `EpochHeader` (call config + rendered system prompt + assembled tool schemas + the session prefix) — is logged session state, so every conversation request is a pure function of the log (the reconstructability RFC). A `request/header` snapshot (reason `'initial' | 'resume' | 'fallback'`) anchors the fold at conversation birth, process boundaries, and delta-encoding fallbacks; `request/header-delta` events amend it mid-run. `foldRequestHeader(events)` reconstructs the header any request was built under; the writer round-trip-verifies every delta before logging it, so a well-formed log always folds. Neither is a `SurfaceEventType` — they produce no LLM message.
 
 ```ts type-equiv
 export interface EpochHeader {
@@ -110,10 +124,18 @@ export interface EpochHeader {
   system?: string
   /** Assembled tool schemas; absent for a tool-less request. */
   tools?: ToolSchema[]
+  /**
+   * The session prefix: request-only messages sent BEFORE the entire derived
+   * history (the `agent/session-prefix` waterfall's product, composed once
+   * per loop instance and reused for every request it sends). Not session
+   * history — `deriveMessages()` never returns it — so the header is its
+   * only durable record; absent when the instance composed none.
+   */
+  messagePrefix?: Message[]
 }
 ```
 
-Canonical form: an empty system prompt and an empty tool list are ABSENT fields, matching how requests are built. The delta payloads (`SystemDelta` — a common-prefix/suffix line trim; `ToolsDelta` — name-keyed added/removed/changed) live beside the events in [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts).
+Canonical form: an empty system prompt, an empty tool list, and an empty session prefix are ABSENT fields, matching how requests are built. `messagePrefix` is the durable record of the `agent/session-prefix` waterfall's product (the request is `messagePrefix + derived history`); composed once per loop instance and anchored by that instance's snapshot, so the loop never produces a prefix delta in practice — the delta arm (whole-array replacement, an empty array encoding the transition back to absence) exists for codec totality. The other delta payloads (`SystemDelta` — a common-prefix/suffix line trim; `ToolsDelta` — name-keyed added/removed/changed) live beside the events in [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts).
 
 ## `SessionEvent<T>` — one log entry
 
@@ -189,6 +211,26 @@ export interface SurfaceNode {
 }
 ```
 
+### `SurfaceFoldReplacement` and `SurfaceFoldResult` — a complete surface replay
+
+`foldSurface(events)` returns detached current nodes together with the actual node seqs shadowed by each declared replacement range. `SurfaceManager` uses the same transition functions for its incremental cache.
+
+```ts type-equiv
+export interface SurfaceFoldReplacement {
+  seq: number
+  start: number
+  end: number
+  shadowedSeqs: number[]
+}
+```
+
+```ts type-equiv
+export interface SurfaceFoldResult {
+  nodes: SurfaceNode[]
+  replacements: SurfaceFoldReplacement[]
+}
+```
+
 ## Derived history: `deriveMessages()` and `deriveEventMessage()`
 
 `Session.deriveMessages()` projects the event log into the `Message[]` the model sees — cached (each surface node projected once, when first seen; a surface rewrite rebuilds) and frozen (a fresh array per call over shared, deep-frozen messages, so mutating logged history through a projection is unrepresentable). `deriveEventMessage(event)` is the per-node pure function the fold applies — public so external reconstructors and the dev invariant project a log prefix with exactly the same rules and cannot disagree with the cache. The projection rules:
@@ -196,7 +238,8 @@ export interface SurfaceNode {
 - `user/message` → a user message.
 - `assistant/message` → an assistant message. Raw `assistant/chunk` events are replay/UI data and are **skipped** in derivation (the assembled message is authoritative). An **empty-content** `assistant/message` is also skipped — a max-tokens step cut off with no content still records an `assistant/message` to host its `usage`, but a content-less assistant turn must not enter the provider transcript.
 - `tool/result` → a user message carrying a `tool-result` block.
-- `context/message`, `steering/message` → user-role messages wrapped in a tagged envelope (`<context source="…">…</context>`) at their chronological position — the "system-reminder" pattern; the model distinguishes them from real prompts by the envelope.
+- `context/message` → a user-role message at its chronological position. The default `envelope` is `context`, which wraps content as `<context source="…">…</context>`; `envelope: 'raw'` uses caller-owned framing verbatim. Optional JSON `meta` remains in the event log and is never rendered.
+- `steering/message` → a user-role message wrapped in `<steering source="…">…</steering>` at its chronological position.
 
 Everything else (`turn/*`, `step/*`) is structural and does not project into a message. Token usage is observed on `assistant/message.usage` (the step that produced it); an operational error's step number is on `turn/end.reason` for `kind: 'error'`.
 

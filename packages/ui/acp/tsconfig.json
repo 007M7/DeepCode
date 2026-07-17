@@ -30,7 +30,22 @@
       "path": "../../core/tools"
     },
     {
+      "path": "../user-interaction"
+    },
+    {
       "path": "../../session-persistence/session-persistence"
+    },
+    {
+      "path": "../user-approval"
+    },
+    {
+      "path": "../permission"
+    },
+    {
+      "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../bash/bash"
     }
   ]
 }

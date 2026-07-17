@@ -1,11 +1,6 @@
 /**
- * Consumer-surface tests for the filesystem tools as the EXECUTOR. They run the
- * REAL `@deepseek-ai/dsh-fs-policy` gate plugin (the genuine policy
- * collaborator, per the prefer-the-real-implementation rule) over a fake
- * `ctx.fs` provider, so they verify schemas, argument validation, result
- * formatting, FsError→isError propagation, and that each tool dispatches the
- * `fs/*` waterfalls + records observed-state through the gate (read authorizes a
- * later edit) — not just that it moved bytes.
+ * Consumer-surface tests over a fake provider and the real policy collaborator: schemas,
+ * validation, formatting, typed errors, intent dispatch, and observation-driven authorization.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -19,14 +14,16 @@ import type {
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
+  FsPathInfo,
   FsTarget,
   FsWriteIntent,
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
-import { formatReadOutput, STREAM_MIN_SIZE } from '@deepseek-ai/dsh-tool-fs'
-import type { FileReadOutcome } from '@deepseek-ai/dsh-tool-fs'
+import { STREAM_MIN_SIZE } from '../src/read.ts'
+import { formatReadOutput } from '../src/read-render.ts'
+import type { FileReadOutcome } from '../src/read-render.ts'
 
 /** An in-memory fake provider; a test can arm a rejection on any primitive. */
 class FakeFs extends FileSystem {
@@ -45,6 +42,11 @@ class FakeFs extends FileSystem {
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     this.throwIfArmed()
     const content = this.files.get(target.targetKey)
+    if (content === undefined) return undefined
+    return { version: FsVersion('v1'), type: 'file', size: content.length }
+  }
+  override async lstat(path: string): Promise<FsPathInfo | undefined> {
+    const content = this.files.get(`key:${path}`)
     if (content === undefined) return undefined
     return { version: FsVersion('v1'), type: 'file', size: content.length }
   }
@@ -164,11 +166,10 @@ describe('read tool', () => {
     expect(text(result)).toContain('offset must be a positive integer')
   })
 
-  it('rejects a fractional or NaN offset, and a zero/negative limit', async () => {
+  it('rejects a fractional offset and a zero/negative limit', async () => {
     const { ctx } = await setup()
     for (const args of [
       { file_path: 'a.txt', offset: 1.5 },
-      { file_path: 'a.txt', offset: Number.NaN },
       { file_path: 'a.txt', limit: 0 },
       { file_path: 'a.txt', limit: -3 },
     ]) {
@@ -176,6 +177,13 @@ describe('read tool', () => {
       expect(result.isError, JSON.stringify(args)).toBe(true)
       expect(text(result)).toMatch(/must be a positive integer/)
     }
+  })
+
+  it('rejects a non-JSON numeric offset before tool-specific validation', async () => {
+    const { ctx } = await setup()
+    const result = await call(ctx, 'read', { file_path: 'a.txt', offset: Number.NaN })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('tool execution arguments must be losslessly JSON-serializable')
   })
 
   it('rejects a limit above the cap', async () => {
@@ -403,9 +411,8 @@ describe('tool-owned presentation (pure presentCall)', () => {
 })
 
 describe('result-time contextual diff (meta + presentResult)', () => {
-  // An edit records the applied contextual hunk on `tool/result` meta, and the
-  // tool's presentResult narrows it back into a `diff` result card the bridge
-  // renders. Drive execute end-to-end so the meta is the REAL computed hunk.
+  // An edit records the applied contextual hunk on `tool/result` meta, and the tool's
+  // presentResult narrows it back into a `diff` result card the bridge renders.
   const withContext = 'a\nb\nc\nOLD\nd\ne\nf\n'
 
   it('edit: execute attaches the applied hunk as meta { diffs }', async () => {
@@ -446,10 +453,9 @@ describe('result-time contextual diff (meta + presentResult)', () => {
   })
 
   it('write CREATE: no before-version → no meta, but presentResult still renders a whole-file diff card', async () => {
-    // A create has no prior content (no `meta`), yet the completed card must be a
-    // `diff` — an ACP tool_call_update.content REPLACES the call's content, so a
-    // non-diff result would clobber the pending new-file diff. The whole-file diff
-    // is derived from the args (oldText:null), replay-safe.
+    // A create has no prior content (no `meta`), yet the completed card must be a `diff` — an
+    // ACP tool_call_update.content REPLACES the call's content, so a non-diff result would
+    // clobber the pending new-file diff.
     const { ctx } = await setup()
     const session = { header: {} }
     const result = await call(ctx, 'write', { file_path: 'new.txt', content: 'fresh\n' }, { session })

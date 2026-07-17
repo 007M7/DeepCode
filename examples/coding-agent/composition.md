@@ -14,9 +14,9 @@ flowchart LR
   cfg --> plugin_coding_llm_deepseek
   plugin_coding_bash["bash<br/>@deepseek-ai/dsh-bash-local"]
   cfg --> plugin_coding_bash
-  plugin_coding_stdio_agent["stdio-agent<br/>@deepseek-ai/dsh-stdio-agent"]
+  plugin_coding_stdio_agent["stdio-agent<br/>@deepseek-ai/dsh-stdio-demo"]
   cfg --> plugin_coding_stdio_agent
-  plugin_coding_stdio_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-core"]
+  plugin_coding_stdio_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
   plugin_coding_stdio_agent --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
   plugin_coding_stdio_agent --> frontdoor_stdio["readline UI<br/>console logger<br/>pre-created main agent"]
   bundle_agent_core --> spine_llm["ctx.llm"]
@@ -35,6 +35,10 @@ flowchart LR
   cfg --> plugin_coding_tool_subagent
   plugin_coding_tool_subagent_fork["tool-subagent-fork<br/>@deepseek-ai/dsh-tool-subagent"]
   cfg --> plugin_coding_tool_subagent_fork
+  plugin_coding_workflow_workerthread["workflow-workerthread<br/>@deepseek-ai/dsh-workflow-workerthread"]
+  cfg --> plugin_coding_workflow_workerthread
+  plugin_coding_tool_workflow["tool-workflow<br/>@deepseek-ai/dsh-tool-workflow"]
+  cfg --> plugin_coding_tool_workflow
   plugin_coding_tool_todo["tool-todo<br/>@deepseek-ai/dsh-tool-todo"]
   cfg --> plugin_coding_tool_todo
   plugin_coding_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
@@ -43,6 +47,14 @@ flowchart LR
   cfg --> plugin_coding_fs_policy
   plugin_coding_tool_fs["tool-fs<br/>@deepseek-ai/dsh-tool-fs"]
   cfg --> plugin_coding_tool_fs
+  plugin_coding_tool_fs_search["tool-fs-search<br/>@deepseek-ai/dsh-tool-fs-search"]
+  cfg --> plugin_coding_tool_fs_search
+  plugin_coding_timeout_policy["timeout-policy<br/>@deepseek-ai/dsh-timeout-policy"]
+  cfg --> plugin_coding_timeout_policy
+  plugin_coding_spill_local["spill-local<br/>@deepseek-ai/dsh-spill-local"]
+  cfg --> plugin_coding_spill_local
+  plugin_coding_spill_policy["spill-policy<br/>@deepseek-ai/dsh-spill-policy"]
+  cfg --> plugin_coding_spill_policy
 ```
 
 | Plugin id | Package / module |
@@ -50,17 +62,23 @@ flowchart LR
 | `hmr` | `@cordisjs/plugin-hmr` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
-| `stdio-agent` | `@deepseek-ai/dsh-stdio-agent` |
+| `stdio-agent` | `@deepseek-ai/dsh-stdio-demo` |
 | `compact-basic` | `@deepseek-ai/dsh-compact-basic` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
 | `subagent-fork` | `@deepseek-ai/dsh-subagent-fork` |
 | `tool-subagent` | `@deepseek-ai/dsh-tool-subagent` |
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |
+| `workflow-workerthread` | `@deepseek-ai/dsh-workflow-workerthread` |
+| `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
 | `tool-fs` | `@deepseek-ai/dsh-tool-fs` |
+| `tool-fs-search` | `@deepseek-ai/dsh-tool-fs-search` |
+| `timeout-policy` | `@deepseek-ai/dsh-timeout-policy` |
+| `spill-local` | `@deepseek-ai/dsh-spill-local` |
+| `spill-policy` | `@deepseek-ai/dsh-spill-policy` |
 
 Source config: [`examples/coding-agent/cordis.yml`](cordis.yml).
 

@@ -25,8 +25,6 @@ interface WebSearchRequest {
 
 ```ts type-equiv
 interface WebSearchResult {
-  readonly providerId: string
-  readonly query: string
   readonly content?: string
   readonly sources: readonly WebSearchSource[]
   readonly truncated: boolean
@@ -49,7 +47,6 @@ interface WebSearchSource {
 ```ts type-equiv
 interface WebFetchRequest {
   readonly url: string
-  readonly timeoutMs?: number
 }
 ```
 
@@ -57,7 +54,6 @@ HTTP status is part of the fetched resource state, not automatically a failure: 
 
 ```ts type-equiv
 interface WebFetchResult {
-  readonly providerId: string
   readonly url: string
   readonly statusCode: number
   readonly body: WebFetchBody
@@ -73,15 +69,9 @@ type WebFetchBody =
   | { readonly kind: 'text'; readonly content: string }
 ```
 
-## Provider status
+## Provider availability
 
-A provider's `status()` is a cheap LOCAL check (credential presence, parseable config) and **must not make network calls**. It is an input to execution-time selection, not a health system: `search()`/`fetch()` read it to pick a usable provider, and a selection failure surfaces as the structured `WebError` the caller routes on — which carries the branchable detail (the missing id, the ambiguous candidate set) in its code and message.
-
-```ts type-equiv
-type WebProviderStatus =
-  | { readonly available: true }
-  | { readonly available: false; readonly reason: 'missing-credential' | 'misconfigured' }
-```
+A provider's `available(): boolean` is a cheap LOCAL check (credential presence, parseable config) and **must not make network calls**. It is an input to execution-time selection, not a health system: `search()`/`fetch()` read it to pick a usable provider, and a selection failure surfaces as the structured `WebError` the caller routes on — which carries the branchable detail (the missing id or ambiguous candidate set) in its code and message.
 
 Selection never depends on registration, config, or HMR order: a capability has an explicit provider id (config `searchProvider`/`fetchProvider`, or the matching env var feeding the same field), or auto-selects when exactly one usable provider is registered; multiple usable providers with no configured id is `WEB_PROVIDER_AMBIGUOUS`, not first-wins.
 
@@ -91,4 +81,4 @@ Selection never depends on registration, config, or HMR order: a capability has 
 
 ## The service
 
-`WebService` (`ctx.web`, defined in [`packages/web/web/src/index.ts`](../../packages/web/web/src/index.ts)) is a provider registry plus a provider-selecting execution surface, close to `LlmService`'s shape: `registerSearchProvider`/`registerFetchProvider` (duplicate ids throw `WEB_DUPLICATE_PROVIDER`, return disposers) and `search`/`fetch` (resolve the provider at call time, throw a structured `WebError` when the capability cannot run). Providers issue requests with the platform-native `fetch` (Node 24), mirroring `dsh-llm-deepseek`; the `dsh-web-fetch-local` provider owns safe retrieval (http/https-only, credential rejection, byte/char/timeout/redirect caps, same-origin-only redirects with per-hop re-validation, charset decoding) while `dsh-tool-web` owns presentation (HTML→markdown). SSRF / private-network blocking is deferred (see the RFC) — until it lands, `web_fetch` must not be enabled where it can reach sensitive internal targets.
+`WebService` registers search and fetch providers, rejects duplicate ids with `WEB_DUPLICATE_PROVIDER`, and resolves providers at execution time with structured selection errors. The local fetch backend accepts only HTTP(S), rejects credentials, caps redirects, bytes, characters, and time, revalidates every same-origin redirect hop, and decodes the body; the tool owns presentation. Private-network blocking is deferred, so do not enable `web_fetch` where it can reach sensitive internal targets.

@@ -1,26 +1,16 @@
 /**
- * `LocalFetchProvider`: a `WebFetchProvider` that retrieves a concrete public
- * HTTP(S) URL with the platform-native `fetch` (Node 24) and returns a status
- * code plus bounded decoded content. It owns SAFE RESOURCE RETRIEVAL — URL
- * validation, redirect policy, timeout, abort, byte caps, charset decoding,
- * content-type classification, binary rejection — but NOT presentation
- * (HTML→markdown lives in `@deepseek-ai/dsh-tool-web`).
+ * Safe HTTP(S) retrieval for `ctx.web`: validates URLs, follows only same-origin redirects,
+ * enforces time and size limits, classifies and decodes text, and leaves presentation to
+ * `@deepseek-ai/dsh-tool-web`. Requests carry no browser cookies or ambient credentials.
  *
- * Redirects are followed manually (`redirect: 'manual'`) so the provider can
- * enforce a same-origin-only policy: a cross-origin redirect is refused with
- * `WEB_REDIRECT_BLOCKED`, requiring a fresh tool call (Claude Code's WebFetch
- * uses the same model). It does NOT carry browser cookies, editor/git
- * credentials, or implicit access to private services.
- *
- * SSRF / private-network protection is DEFERRED (see the package RFC); until it
- * lands this provider is an SSRF primitive and must not be enabled where it can
- * reach sensitive internal targets.
- *
+ * Private-network and SSRF protection is not implemented; do not enable this provider where
+ * it can reach sensitive internal targets.
  * @module @deepseek-ai/dsh-web-fetch-local/provider
  */
 
 import { WebError } from '@deepseek-ai/dsh-web'
-import type { WebFetchBody, WebFetchProvider, WebFetchRequest, WebFetchResult, WebProviderStatus } from '@deepseek-ai/dsh-web'
+import type { WebFetchBody, WebFetchProvider, WebFetchRequest, WebFetchResult } from '@deepseek-ai/dsh-web'
+import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { classifyContentType, decoderForCharset, isSameOrigin, parseCharset, validateFetchUrl } from './policy.ts'
 
 /** Resolved provider limits (the plugin's schemastery Config supplies defaults). */
@@ -33,8 +23,6 @@ export interface LocalFetchLimits {
   maxBodyChars: number
   /** Default fetch timeout in milliseconds. */
   timeoutMs: number
-  /** Upper bound for a per-request timeout override. */
-  maxTimeoutMs: number
   /** Maximum number of (same-origin) redirect hops to follow. */
   maxRedirects: number
   /** `User-Agent` header sent on every request. */
@@ -51,47 +39,29 @@ export class LocalFetchProvider implements WebFetchProvider {
   constructor(private readonly limits: LocalFetchLimits) {}
 
   /** No credentials to check — an anonymous public fetcher is always usable. */
-  status(): WebProviderStatus {
-    return { available: true }
+  available(): boolean {
+    return true
   }
 
-  async fetch(request: WebFetchRequest, exec?: { readonly signal?: AbortSignal }): Promise<WebFetchResult> {
-    const timeoutMs = request.timeoutMs !== undefined
-      ? Math.min(request.timeoutMs, this.limits.maxTimeoutMs)
-      : this.limits.timeoutMs
+  async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult> {
+    if (signal?.aborted) throw new WebError('web fetch aborted', 'WEB_ABORTED')
 
-    // One controller drives both the caller's abort and our own timeout, so the
-    // network request and the streaming read both stop on either.
-    const controller = new AbortController()
-    const onAbort = (): void => { controller.abort() }
-    if (exec?.signal !== undefined) {
-      if (exec.signal.aborted) throw new WebError('web fetch aborted', 'WEB_ABORTED')
-      exec.signal.addEventListener('abort', onAbort, { once: true })
-    }
-    const timer = setTimeout(() => { controller.abort(new WebError('web fetch timed out', 'WEB_FETCH_TIMEOUT')) }, timeoutMs)
-
-    try {
-      return await this.followAndRead(request.url, controller)
-    } finally {
-      clearTimeout(timer)
-      if (exec?.signal !== undefined) exec.signal.removeEventListener('abort', onAbort)
-    }
+    // One signal stops both the request and body read. The deadline's TimeoutReason later
+    // distinguishes this provider's timeout from caller or outer-deadline cancellation.
+    using d = deadline(signal, this.limits.timeoutMs, 'WEB_FETCH_TIMEOUT')
+    return await this.followAndRead(request.url, d.signal)
   }
 
   /** Follow same-origin redirects up to the hop cap, then read the final response. */
-  private async followAndRead(initialUrl: string, controller: AbortController): Promise<WebFetchResult> {
+  private async followAndRead(initialUrl: string, signal: AbortSignal): Promise<WebFetchResult> {
     let currentUrl = validateFetchUrl(initialUrl, this.limits.maxUrlLength)
     let redirectsFollowed = 0
 
     for (;;) {
-      const response = await this.requestOnce(currentUrl, controller)
+      const response = await this.requestOnce(currentUrl, signal)
 
       if (isRedirectStatus(response.status)) {
-        // The redirect budget is enforced BEFORE this hop's target is resolved
-        // or origin-checked, so `maxRedirects: N` follows at most N redirects
-        // exactly: the (N+1)th redirect is refused as "exceeded" regardless of
-        // where it points (a same-origin/cross-origin distinction on a hop we
-        // are not allowed to follow would be the wrong diagnosis).
+        // Enforce the redirect budget before resolving or validating the next hop.
         if (redirectsFollowed >= this.limits.maxRedirects) {
           await response.body?.cancel()
           throw new WebError(`exceeded the maximum of ${this.limits.maxRedirects} redirects`, 'WEB_REDIRECT_BLOCKED')
@@ -104,10 +74,9 @@ export class LocalFetchProvider implements WebFetchProvider {
           throw new WebError(`redirect response (HTTP ${response.status}) without a Location header`, 'WEB_PROVIDER_ERROR')
         }
         const target = resolveRedirect(location, currentUrl)
-        // Re-validate the target against the same transport hygiene a direct
-        // request gets: a redirect must not be a back door to a credentialed,
-        // non-http(s), or over-long URL that validateFetchUrl would reject. A
-        // rejection here must still cancel the body first (see below).
+        // Re-validate the target against the same transport hygiene a direct request gets: a
+        // redirect must not be a back door to a credentialed, non-http(s), or over-long URL
+        // that validateFetchUrl would reject.
         let validatedTarget: URL
         try {
           validatedTarget = validateFetchUrl(target.toString(), this.limits.maxUrlLength)
@@ -127,20 +96,20 @@ export class LocalFetchProvider implements WebFetchProvider {
         continue
       }
 
-      return await this.readBody(response, currentUrl, controller.signal)
+      return await this.readBody(response, currentUrl, signal)
     }
   }
 
-  private async requestOnce(url: URL, controller: AbortController): Promise<Response> {
+  private async requestOnce(url: URL, signal: AbortSignal): Promise<Response> {
     try {
       return await fetch(url, {
         method: 'GET',
         redirect: 'manual',
         headers: { 'user-agent': this.limits.userAgent, 'accept': 'text/html,application/xhtml+xml,text/*;q=0.9,application/json;q=0.8' },
-        signal: controller.signal,
+        signal,
       })
     } catch (error: unknown) {
-      throw translateAbortOrNetwork(error, controller.signal)
+      throw translateAbortOrNetwork(error, signal)
     }
   }
 
@@ -170,7 +139,6 @@ export class LocalFetchProvider implements WebFetchProvider {
     const body: WebFetchBody = kind === 'html' ? { kind: 'html', content } : { kind: 'text', content }
 
     return {
-      providerId: this.id,
       url: finalUrl.toString(),
       statusCode: response.status,
       body,
@@ -255,24 +223,18 @@ function resolveRedirect(location: string, base: URL): URL {
 }
 
 /**
- * Translate a thrown fetch/stream error into a `WebError`. Our own
- * `WEB_FETCH_TIMEOUT` (passed to `controller.abort(reason)`) and any other
- * already-typed `WebError` pass through; an `AbortError` becomes `WEB_ABORTED`,
- * UNLESS the abort was our timeout — the body-read reader surfaces a generic
- * `AbortError` rather than the abort reason, so we recover the timeout's
- * `WebError` from `signal.reason`; anything else is a transport/network failure
- * (`WEB_PROVIDER_ERROR`).
+ * Translate a thrown fetch/stream error into a `WebError`, classified by the
+ * deadline signal rather than the error's shape (which differs by phase: the
+ * request-phase `fetch` rejects with the abort reason, while the read-phase
+ * reader surfaces a bare `AbortError`). `timeoutOf(signal, 'WEB_FETCH_TIMEOUT')`
+ * recovering OUR reason means our timeout fired (`WEB_FETCH_TIMEOUT`); any other
+ * abort — an upstream cancel, or a foreign/outer deadline's timeout under
+ * nesting — is `WEB_ABORTED`; a throw with the signal NOT aborted is a
+ * transport/network failure (`WEB_PROVIDER_ERROR`).
  */
-function translateAbortOrNetwork(error: unknown, signal?: AbortSignal): WebError {
-  if (error instanceof WebError) return error
-  if (error instanceof DOMException && error.name === 'AbortError') {
-    // A timeout abort carries its WebError as the signal reason; honor the
-    // WEB_FETCH_TIMEOUT contract instead of reporting a generic cancellation.
-    // (Node rejects WITH the reason — the WebError branch above — so this only
-    // fires on a runtime that surfaces a bare AbortError while reason is set.)
-    /* v8 ignore next */
-    if (signal?.reason instanceof WebError) return signal.reason
-    return new WebError('web fetch aborted', 'WEB_ABORTED', { cause: error })
-  }
+function translateAbortOrNetwork(error: unknown, signal: AbortSignal): WebError {
+  const timeout = timeoutOf(signal, 'WEB_FETCH_TIMEOUT')
+  if (timeout !== undefined) return new WebError('web fetch timed out', 'WEB_FETCH_TIMEOUT', { cause: timeout })
+  if (signal.aborted) return new WebError('web fetch aborted', 'WEB_ABORTED', { cause: error })
   return new WebError(`web fetch failed: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
 }

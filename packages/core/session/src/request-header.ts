@@ -1,27 +1,28 @@
 /**
- * Request-header reconstruction utilities: the pure fold/diff/apply trio over
- * the `request/header` / `request/header-delta` session events. Anyone
- * holding a session log reconstructs the {@link EpochHeader} any request was
- * built under by folding these events in log order; the loop uses the same
- * functions to decide whether a step's header changed and to encode the
- * change. Deltas are an encoding optimization with a safety valve — the
- * writer round-trip-verifies every delta before appending and falls back to
- * a full snapshot when the encoding cannot express the change — so folding
- * never needs error recovery on a well-formed log.
- *
+ * Request-header reconstruction utilities over `request/header` snapshots and
+ * `request/header-delta` events. Writers round-trip each proposed delta and use
+ * a full snapshot when the encoding cannot represent the change.
  * @module dsh-session/request-header
  */
 
 import { callConfigEquals } from '@deepseek-ai/dsh-llm'
-import type { LlmCallConfig, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { LlmCallConfig, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { EpochHeader, SessionEvent, SystemDelta, ToolsDelta } from './types.ts'
 
+/** The `request/header-delta` payload shape: each present field amends the folded header. */
+type HeaderDelta = {
+  system?: SystemDelta
+  tools?: ToolsDelta
+  config?: LlmCallConfig
+  messagePrefix?: Message[]
+}
+
 /**
- * Normalize a header to canonical form: an empty system prompt and an empty
- * tool list become ABSENT fields, matching how requests are built (both
- * request-build spreads skip empty values). Diff, fold, and comparison all
- * operate on canonical headers, so "no system prompt" has exactly one
- * representation.
+ * Normalize a header to canonical form: an empty system prompt, an empty
+ * tool list, and an empty session prefix become ABSENT fields, matching how
+ * requests are built (the request-build spreads skip empty values). Diff,
+ * fold, and comparison all operate on canonical headers, so "no system
+ * prompt" (and "no session prefix") has exactly one representation.
  * @param header - the header to normalize (not mutated).
  * @returns the canonical header.
  */
@@ -30,6 +31,7 @@ export function canonicalHeader(header: EpochHeader): EpochHeader {
     config: header.config,
     ...header.system !== undefined && header.system.length > 0 ? { system: header.system } : {},
     ...header.tools !== undefined && header.tools.length > 0 ? { tools: header.tools } : {},
+    ...header.messagePrefix !== undefined && header.messagePrefix.length > 0 ? { messagePrefix: header.messagePrefix } : {},
   }
 }
 
@@ -105,41 +107,46 @@ function applyTools(prev: readonly ToolSchema[], delta: ToolsDelta): ToolSchema[
 }
 
 /**
- * Field-wise equality over canonical headers — the cheap comparison the
- * writer's round-trip guard runs (`applyHeaderDelta(prev, delta)` must equal
- * the intended header) and the loop runs to skip logging an unchanged header.
- * Tools compare per-schema IN ORDER (canonical JSON), so a pure reordering is
- * correctly unequal.
+ * Field-wise equality over canonical headers — the cheap comparison the writer's round-trip
+ * guard runs (`applyHeaderDelta(prev, delta)` must equal the intended header) and the loop
+ * runs to skip logging an unchanged header.
+ *
  * @param a - one canonical header.
  * @param b - the other.
- * @returns whether config, system, and tools (in order) all match.
+ * @returns whether config, system, tools (in order), and the session prefix all match.
  */
 export function headerEquals(a: EpochHeader, b: EpochHeader): boolean {
   if (!callConfigEquals(a.config, b.config) || a.system !== b.system) return false
+  if (!sameMessages(a.messagePrefix, b.messagePrefix)) return false
   const at = a.tools ?? []
   const bt = b.tools ?? []
   return at.length === bt.length && at.every((tool, i) => sameSchema(tool, bt[i] as ToolSchema))
 }
 
+/** Canonical JSON equality over session-prefix arrays; absence equals the empty array. */
+function sameMessages(a: readonly Message[] | undefined, b: readonly Message[] | undefined): boolean {
+  return JSON.stringify(a ?? []) === JSON.stringify(b ?? [])
+}
+
 /**
- * Compute the `request/header-delta` payload between two canonical headers,
- * or undefined when they are equal. The caller MUST round-trip the result
- * ({@link applyHeaderDelta} on `prev` deep-equals `next`) before logging it —
- * the encoding cannot express every change (a pure tool reordering) — and
- * fall back to a full `request/header` snapshot when the check fails.
+ * Compute the `request/header-delta` payload between two canonical headers, or
+ * `undefined` when they are equal. The encoding cannot represent every change,
+ * including pure tool reordering, so callers must apply and compare the result
+ * before logging it and fall back to a full snapshot on mismatch. The session
+ * prefix is replaced whole; an empty array removes it.
+ *
  * @param prev - the folded header the log currently implies.
  * @param next - the header the next request will actually use.
  * @returns the delta payload, or undefined when nothing changed.
  */
-export function diffHeader(
-  prev: EpochHeader, next: EpochHeader,
-): { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig } | undefined {
-  const delta: { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig } = {}
+export function diffHeader(prev: EpochHeader, next: EpochHeader): HeaderDelta | undefined {
+  const delta: HeaderDelta = {}
   if (prev.system !== next.system) delta.system = diffSystem(prev.system, next.system)
   const prevTools = prev.tools ?? []
   const nextTools = next.tools ?? []
   if (JSON.stringify(prevTools) !== JSON.stringify(nextTools)) delta.tools = diffTools(prevTools, nextTools)
   if (!callConfigEquals(prev.config, next.config)) delta.config = next.config
+  if (!sameMessages(prev.messagePrefix, next.messagePrefix)) delta.messagePrefix = next.messagePrefix ?? []
   return Object.keys(delta).length > 0 ? delta : undefined
 }
 
@@ -151,28 +158,26 @@ export function diffHeader(
  * @param delta - the logged delta payload.
  * @returns the canonical header after the delta.
  */
-export function applyHeaderDelta(
-  prev: EpochHeader, delta: { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig },
-): EpochHeader {
+export function applyHeaderDelta(prev: EpochHeader, delta: HeaderDelta): EpochHeader {
   const system = delta.system !== undefined ? applySystem(prev.system, delta.system) : prev.system
   const tools = delta.tools !== undefined ? applyTools(prev.tools ?? [], delta.tools) : prev.tools
+  const messagePrefix = delta.messagePrefix ?? prev.messagePrefix
   return canonicalHeader({
     config: delta.config ?? prev.config,
     ...system !== undefined ? { system } : {},
     ...tools !== undefined ? { tools } : {},
+    ...messagePrefix !== undefined ? { messagePrefix } : {},
   })
 }
 
 /**
- * Fold the header events of a log (or any prefix of one) into the
- * {@link EpochHeader} in force after the last of them: each
- * `request/header` snapshot replaces the state, each `request/header-delta`
- * amends it. The pure, offline form of reconstruction — external tooling and
- * the dev invariant both use it; the live session tracks the same fold
- * incrementally.
+ * Fold the header events of a log (or any prefix of one) into the {@link EpochHeader} in
+ * force after the last of them: each `request/header` snapshot replaces the state, each
+ * `request/header-delta` amends it.
+ *
  * @param events - session events in log order (non-header events are skipped).
- * @param from - a previously folded state to continue from (the live session's
- *   incremental cursor); omit to fold from nothing.
+ * @param from - a previously folded state to continue from (the live session's incremental
+ *   cursor); omit to fold from nothing.
  * @returns the folded header, or undefined when no header event exists yet.
  */
 export function foldRequestHeader(events: readonly SessionEvent[], from?: EpochHeader): EpochHeader | undefined {

@@ -1,35 +1,8 @@
 /**
- * The Agent Client Protocol (ACP) bridge: a client-driver / UI plugin that
- * exposes the harness agent as an ACP server over JSON-RPC stdio, so editors
- * (Zed and other ACP clients) can drive it. The structured analogue of the
- * readline `stdio-chat` plugin.
- *
- * This is NOT a loop change and NOT an ADR-0009 capability seam: it consumes
- * the existing `agent/*` event taxonomy, the `dsh-agent` create/resume factory,
- * and `dsh-session-persistence` (for `session/load`). It maps:
- *
- * - `initialize`     → protocol-version negotiation, text-only capabilities
- * - `session/new`    → `ctx.agents.create({ sessionId, meta:{cwd} })`
- * - `session/load`   → `ctx.agents.resume(...)` then replay the event log
- * - `session/prompt` → `agent.send()`, settle on the owning turn's end (a turn
- *                      that ends in `error` rejects the RPC)
- * - `session/cancel` → `agent.cancel()` (the queue-aware cancel: aborts a
- *                      running step, clears queued + steering work, and drops a
- *                      turn about to start) + settle the in-flight prompt
- *
- * Multi-session (RFC 011): N concurrent sessions per connection, each mapped to
- * its own `ReactLoopAgent`. Sessions are keyed by id in `sessions` (forward) with an
- * `agent→sessionId` reverse map for O(1) demux of `agent/*` events; every
- * `session/event` and `agent/*` event is routed strictly to its owning session
- * record, so two sessions streaming at once never interleave their
- * `session/update` notifications. The `tools/pre-execute` permission gate is
- * deferred — see the TODO(rfc010-permission-gate) note below.
- *
- * stdout is the protocol: this plugin must run in an example that loads NO
- * stdout logger (the console logger writes to stdout and would corrupt the
- * JSON-RPC frames). The guarantee is config-only — see the package README and
- * RFC 010 § Risks.
- *
+ * Multi-session ACP server bridge over JSON-RPC stdio. Creates or resumes
+ * agents, routes their events, settles prompts by turn, and answers approvals.
+ * Each session keeps independent presentation and prompt-correlation state so
+ * concurrent streams cannot cross. Stdout is reserved for protocol frames.
  * @module @deepseek-ai/dsh-acp
  */
 
@@ -47,6 +20,9 @@ import {
   type AuthenticateRequest,
   type CancelNotification,
   type ContentBlock as AcpContentBlock,
+  type CreateElicitationRequest,
+  type ElicitationContentValue,
+  type EnumOption,
   type InitializeRequest,
   type InitializeResponse,
   type LoadSessionRequest,
@@ -57,20 +33,36 @@ import {
   type PlanEntry,
   type PromptRequest,
   type PromptResponse,
+  type SessionConfigOption,
   type SessionNotification,
+  type SetSessionConfigOptionRequest,
+  type SetSessionConfigOptionResponse,
   type Stream,
   type StopReason,
 } from '@agentclientprotocol/sdk'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
-import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
+// Side-effect type import: resolves `ctx.get('permission')` to the service.
+import type {} from '@deepseek-ai/dsh-permission'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
+// Side-effect type import: declaration-merges the `approval/request` waterfall
+// the bridge answers for its own agents (see the approval answerer below).
+import type {} from '@deepseek-ai/dsh-user-approval'
+import {
+  UserInteractionError,
+  type AskUserQuestionAnswer,
+  type AskUserQuestionAnswerItem,
+  type AskUserQuestionItem,
+  type AskUserQuestionOption,
+  type AskUserQuestionRequest,
+} from '@deepseek-ai/dsh-user-interaction'
 import {
   acpPromptToText,
   harnessBlockToAcpContent,
@@ -79,30 +71,16 @@ import {
 } from './codec.ts'
 
 export const name = 'acp'
-// The bridge programs against the interface packages only (architecture rule:
-// plugins never depend on dsh-agent-loop). `sessionPersistence` is required
-// because `initialize` advertises `loadSession: true`. `tools` lets a tool own
-// how its calls render (`presentCall`/`presentResult`); the bridge looks up the
-// definition by name and falls back to a generic presentation when absent.
-export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools']
+// Interface services back advertised loading, tool-owned presentation with a generic fallback, and interaction.
+// TODO(acp-session-inject): remove `sessions`; the bridge never reads it, and ownership is already behind `agents`.
+export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools', 'userInteraction']
 
-/**
- * Build an ACP "invalid params" error whose human detail rides in the message.
- * `RequestError.invalidParams(data, additionalMessage)` keeps the standard
- * "Invalid params" message and appends `additionalMessage`, so we pass the
- * detail as `additionalMessage` (and no structured `data`).
- */
+/** Build an ACP invalid-params error with visible human detail. */
 function invalidParams(detail: string): RequestError {
   return RequestError.invalidParams(undefined, detail)
 }
 
-/**
- * Build an ACP "internal error" whose human detail rides in the message. Used
- * to reject a `session/prompt` whose turn ended in failure: a plain `Error`
- * thrown from a method handler is flattened to a generic "Internal error" on
- * the wire, so we wrap the detail in the SDK's `RequestError.internalError`
- * (which appends `additionalMessage`) to surface *why* the turn failed.
- */
+/** Build an ACP internal error with visible detail; plain handler errors are flattened on wire. */
 function internalError(detail: string): RequestError {
   return RequestError.internalError(undefined, detail)
 }
@@ -111,17 +89,121 @@ function sameWorkspaceCwd(left: string, right: string): boolean {
   return resolvePath(left) === resolvePath(right)
 }
 
+function optionDescription(option: AskUserQuestionOption): string {
+  return option.description === undefined
+    ? option.label
+    : `${option.label}: ${option.description}`
+}
+
+function requireStringContent(
+  content: Record<string, ElicitationContentValue> | null | undefined,
+  key: string,
+): string | undefined {
+  const value = content?.[key]
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+}
+
+function askAbortError(): UserInteractionError {
+  return new UserInteractionError('ask_user_question was aborted before the user answered', 'ASK_ABORTED')
+}
+
+function withAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise
+  if (signal.aborted) return Promise.reject(askAbortError())
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      signal.removeEventListener('abort', onAbort)
+      reject(askAbortError())
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(new Error(String(error), { cause: error }))
+      },
+    )
+  })
+}
+
+function elicitationForQuestion(
+  sessionId: SessionId,
+  question: AskUserQuestionItem,
+  options: AskUserQuestionOption[],
+): CreateElicitationRequest {
+  const title = question.header ?? 'Question'
+  if (options.length === 0) {
+    return {
+      sessionId,
+      mode: 'form',
+      message: question.question,
+      requestedSchema: {
+        type: 'object',
+        title,
+        properties: {
+          custom: { type: 'string', title: question.question },
+        },
+        required: ['custom'],
+      },
+    }
+  }
+
+  const choiceOptions: EnumOption[] = options.map(option => ({
+    const: option.label,
+    title: optionDescription(option),
+  }))
+  const choice = question.multiSelect === true
+    ? {
+      type: 'array' as const,
+      title: question.question,
+      description: 'Choose one or more options, or fill a custom answer below.',
+      items: {
+        anyOf: choiceOptions,
+      },
+    }
+    : {
+      type: 'string' as const,
+      title: question.question,
+      description: 'Choose one option, or fill a custom answer below.',
+      oneOf: choiceOptions,
+    }
+  return {
+    sessionId,
+    mode: 'form',
+    message: question.question,
+    requestedSchema: {
+      type: 'object',
+      title,
+      properties: {
+        choice,
+        custom: {
+          type: 'string',
+          title: 'Custom answer',
+          description: 'Optional free-form answer. Leave empty to use the selected option.',
+        },
+      },
+      required: [],
+    },
+  }
+}
+
+function stringArrayContent(
+  content: Record<string, ElicitationContentValue> | null | undefined,
+  key: string,
+): string[] {
+  const value = content?.[key]
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.length > 0)
+  return typeof value === 'string' && value.length > 0 ? [value] : []
+}
+
 /** Plugin config: the agent template ACP sessions are created from. */
 export interface AcpConfig {
   /** Model name for created agents (must have a registered adapter). */
   model?: string
-  /**
-   * Transport stream override. Production omits this (the plugin wires
-   * `process.stdin`/`process.stdout` via `ndJsonStream`). Tests inject an
-   * in-memory `Stream` (e.g. an `ndJsonStream` over a `Duplex` pair) to drive
-   * the bridge without a subprocess. Not part of the schemastery `Config` —
-   * it is a runtime-only seam, never set from a `cordis.yml`.
-   */
+  /** Runtime-only transport override for tests; production uses stdio. */
   stream?: Stream
 }
 
@@ -129,117 +211,97 @@ export const Config: Schema<AcpConfig> = Schema.object({
   model: Schema.string(),
 })
 
-/**
- * Per-session bridge state. One per live ACP session; held in the `sessions`
- * map keyed by id (RFC 011 multi-session).
- */
+/** Per-session bridge state keyed by ACP session id. */
 interface SessionRecord {
   sessionId: SessionId
   agent: Agent
-  /**
-   * The owned-agent disposer (from the {@link AgentHandle} the factory returned).
-   * Teardown calls it to unregister this ONE agent, stop its loop, await
-   * quiescence, and remove its session — instead of leaving it for the bridge
-   * fiber to reclaim.
-   */
+  /** Owned-agent disposer that reaches per-session quiescence. */
   dispose: () => Promise<void>
-  /**
-   * Resolves tool-owned presentation for THIS session's tool calls and remembers
-   * each in-flight call's `(name, args)` so the matching `tool/result` can find
-   * its tool. Per-session so two concurrent sessions never cross their in-flight
-   * tool state.
-   */
+  /** Per-session tool presenter and in-flight call correlation. */
   presenter: ToolPresenter
-  /**
-   * Whether THIS session renders shell tools as terminal cards — snapshotted
-   * from the client's `_meta.terminal_output` capability at session creation
-   * (`session/new`/`session/load`), NOT re-read live. A capability snapshot per
-   * session means the `tool_call` (which registers the terminal) and the matching
-   * `tool_call_update` (which streams its output) ALWAYS agree, even if a later
-   * `initialize` mutates the connection-level capability between them — otherwise
-   * a re-`initialize` mid-call could orphan a `terminal_output` (call non-terminal,
-   * result terminal) or clobber the card (call terminal, result non-terminal).
-   */
+  /** Session-creation snapshot of terminal-card support for call/result consistency. */
   terminalEnabled: boolean
-  /**
-   * The in-flight `session/prompt`, or `undefined` when none is pending. A
-   * prompt resolves with a {@link StopReason} or rejects with an Error (a
-   * turn that ended in failure). Settled exactly once via {@link settlePrompt}.
-   *
-   * `turn` is the loop turn number this prompt owns, captured from the log's
-   * `turn/start` after `send()`. Until then it is `undefined` (the turn has not
-   * begun). Only a `turn/end` whose turn number equals `turn` settles the prompt
-   * — so a *previous* prompt's late `turn/end` (e.g. an aborted turn whose end
-   * arrives after the next prompt is already installed) can never settle the
-   * wrong prompt. A direct cancel/dispose settle clears the whole in-flight slot,
-   * so a later stale `turn/end` finds no pending prompt.
-   *
-   * `logWatermark` is the session log length at the moment the prompt was
-   * installed (before `send()`). The settle-from-log fallback uses it to infer
-   * the owning `turn/start` from the canonical log even when the live
-   * `session/event` capture was starved (a peer listener that throws on
-   * `turn/start` — see `settleFromLog`): the prompt owns the FIRST `turn/start`
-   * appended at or after this watermark.
-   */
+  /** In-flight prompt and its captured turn number for exact settlement. */
   inflight: {
     resolve: (reason: StopReason) => void
     reject: (error: Error) => void
     turn: number | undefined
-    logWatermark: number
   } | undefined
+  /**
+   * Idle config changes awaiting a turn-enclosed log anchor; last write wins.
+   * Responses overlay them, but a restart before anchoring restores the logged fold.
+   */
+  pendingSwitches: { preset?: string }
 }
 
 /**
  * Drive the in-flight prompt's settle from the harness event stream. The bridge
- * settles off the durable log: the `turn/end` session event on the
- * `session/event` feed for the prompt's own turn, with the agent
- * erroring/settling to idle as a fallback (docs/defensive-patterns.md "honor
- * cross-seam contracts on BOTH sides") for the case where a throwing peer `session/event` listener
- * starved the bridge's listener before it saw the boundary. The first of these
- * to fire settles the prompt; `settle` is then cleared so the others are no-ops
- * (settle-exactly-once).
+ * settles off the durable `turn/end` event for the prompt's own turn. Session
+ * contains post-commit observers independently, and this listener performs
+ * correlation in a `finally` so presentation failure cannot starve settlement.
  */
 export function apply(ctx: Context, config: AcpConfig): void {
-  // Capture the injected services NOW, during apply(), while we are inside this
-  // plugin's fiber (where `inject` grants access). The ACP method handlers run
-  // LATER, from the AgentSideConnection's JSON-RPC read loop — a context that is
-  // NOT this fiber's injection scope — so reading `ctx.agents` / `ctx.logger` /
-  // `ctx.sessionPersistence` lazily inside a handler throws "cannot get property
-  // … without inject". Resolving the references here and closing over them keeps
-  // the handlers working regardless of which fiber later invokes them.
+  // Handlers run later outside this injection scope, so capture services now.
   const agents = ctx.agents
   const sessionPersistence = ctx.sessionPersistence
   const logger = ctx.logger
   const tools = ctx.tools
-  // A new ToolPresenter per session (and a throwaway per load replay), each given
-  // this warn sink so a throwing tool presenter is logged, not propagated.
-  const makePresenter = (): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) })
+  const userInteraction = ctx.userInteraction
+  // Presenter failures are logged and contained per session or replay.
+  const makePresenter = (agent?: Agent): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) }, agent)
 
-  // Live sessions keyed by id (RFC 011 multi-session), plus an agent→sessionId
-  // reverse map so `agent/*` events (which carry only the Agent) demux in O(1).
-  // The two stay in lockstep: a record is added to `sessions` and the agent to
-  // `bySession` together, and removed together.
+  // TODO(derive-acp-session-id): derive event ids from `agent.session`, verify ownership, then remove the reverse map.
+  // Agent events currently carry only the Agent, so retain `SessionRecord.sessionId` and update both indexes together.
+  // Dropping the forward record lets the weak reverse entry expire.
   const sessions = new Map<SessionId, SessionRecord>()
   const bySession = new WeakMap<Agent, SessionId>()
-  // Session ids whose `session/load` is mid-`resume()` (the slot is reserved
-  // before the async resume so a pipelined load/new for the SAME id can't create
-  // two agents). Distinct ids load concurrently; a given id loads once at a time.
+  // Reserve ids across asynchronous resume; distinct ids still load concurrently.
   const loadingIds = new Set<SessionId>()
-  // Set once the bridge has torn down (disposal or client disconnect). An async
-  // `session/load` mid-`resume()` when teardown ran must observe this after its
-  // await and NOT install a record (which would resurrect a live agent/listeners
-  // after the bridge closed). Checked after every load await.
+  // Post-await checks prevent a closing bridge from publishing resumed sessions.
   let closed = false
-  // Whether the client advertised the Zed `_meta.terminal_output` capability in
-  // `initialize`. When true, a tool's terminal presentation is rendered as a
-  // terminal card (content + `_meta.terminal_*`); when false, the bridge uses
-  // the tool's text fallback. Set once in `initialize`, read on every tool event.
+  // Connection-level capability copied into each new session record.
   let terminalOutputCap = false
 
   // Assigned at the bottom, before any agent event can fire (a session only
   // exists after `newSession`, which the client calls after construction), so
   // `notify` never observes it unset — no undefined guard needed.
   let conn: AgentSideConnection
+
+  userInteraction.registerProvider({
+    async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
+      if (request.agent === undefined) {
+        throw new UserInteractionError('ACP user questions must come from an agent-owned request', 'NO_AGENT')
+      }
+      const sessionId = bySession.get(request.agent)
+      if (sessionId === undefined) {
+        throw new UserInteractionError('ACP user question has no matching session', 'NO_SESSION')
+      }
+      const answers: AskUserQuestionAnswerItem[] = []
+      for (const question of request.questions) {
+        const options = question.options ?? []
+        const response = await withAbort(conn.unstable_createElicitation(
+          elicitationForQuestion(sessionId, question, options),
+        ), request.signal).catch((error: unknown) => {
+          if (error instanceof UserInteractionError) throw error
+          throw new UserInteractionError('ACP elicitation request failed', 'ASK_FAILED', { cause: error })
+        })
+        if (response.action !== 'accept') {
+          throw new UserInteractionError('ask_user_question was cancelled by the user', 'ASK_CANCELLED')
+        }
+        const custom = requireStringContent(response.content, 'custom')
+        const selected = stringArrayContent(response.content, 'choice')
+        if (custom === undefined && selected.length === 0) {
+          throw new UserInteractionError('ask_user_question returned no answer', 'NO_ANSWER')
+        }
+        answers.push({
+          id: question.id,
+          selected: custom === undefined ? selected : [],
+          ...custom !== undefined ? { custom } : {},
+        })
+      }
+      return { answers }
+    },
+  })
 
   /**
    * Reject any RPC after the bridge has torn down. The `AgentSideConnection`
@@ -318,86 +380,127 @@ export function apply(ctx: Context, config: AcpConfig): void {
   ctx.on('session/event', (session, event: SessionEvent) => {
     const rec = sessions.get(session.header.id)
     if (rec === undefined) return
-    streamSessionEventUpdate(rec.sessionId, event, notify, rec.presenter, {
-      enabled: rec.terminalEnabled,
-      cwd: session.header.cwd,
-    }, { includeUserMessages: false })
-    const inflight = rec.inflight
-    if (inflight === undefined) return
-    if (event.type === 'turn/start') {
-      // Tag the in-flight prompt with its owning turn — but ONLY a
-      // `message`-triggered turn (the kind a `send()` prompt produces). A turn
-      // a plugin opens between prompt-install and the prompt's own turn (an idle
-      // `agent.inject()` writes a one-shot `injection`-triggered turn) must NOT
-      // be mistaken for the prompt's turn, or its turn/end would settle the RPC
-      // early. The first message turn at/after install owns the prompt
-      // (`turn === undefined` guard); the loop batches queued messages into one
-      // turn, so there is exactly one.
-      if (inflight.turn === undefined && event.data.trigger.kind === 'message') {
-        inflight.turn = event.data.turn
+    try {
+      streamSessionEventUpdate(rec.sessionId, event, notify, rec.presenter, {
+        enabled: rec.terminalEnabled,
+        cwd: session.header.cwd,
+      }, { includeUserMessages: false })
+    } finally {
+      const inflight = rec.inflight
+      if (inflight !== undefined && event.type === 'turn/start') {
+        // The first message-triggered turn after prompt installation owns the
+        // prompt; injection-triggered turns must not settle it early.
+        if (inflight.turn === undefined && event.data.trigger.kind === 'message') {
+          inflight.turn = event.data.turn
+        }
+      } else if (inflight !== undefined && event.type === 'turn/end' && inflight.turn === event.data.turn) {
+        rec.inflight = undefined
+        settleFromTurnEnd(inflight, event.data.reason)
       }
-      return
     }
-    // Settle only on the OWNING turn's end.
-    if (event.type !== 'turn/end' || inflight.turn !== event.data.turn) return
-    rec.inflight = undefined
-    settleFromTurnEnd(inflight, event.data.reason)
   })
 
-  // Settle fallback: a `session/event` listener registered BEFORE ACP that
-  // throws (on `turn/start` OR `turn/end`) would, via cordis `emit`'s
-  // stop-on-throw, starve ACP's listener above — the prompt would hang or, if
-  // only the turn number was missed, settle as the wrong outcome. So when the
-  // agent settles to `idle` (or is disposed), reconcile against the canonical
-  // log: determine the prompt's owning turn (the captured `turn`, or — if the
-  // live capture was starved — the FIRST `turn/start` appended at/after the
-  // install-time `logWatermark`), then settle from that turn's `turn/end`
-  // (reject on error, resolve via codec), or `cancelled` if no owning turn ever
-  // started. Never double-settles — clears `inflight` first.
-  const settleFromLog = (rec: SessionRecord): void => {
-    const inflight = rec.inflight
-    if (inflight === undefined) return
-    const events = rec.agent.session.events
-    // The owning turn number: the captured one, or — if the live capture was
-    // starved — inferred from the log as the first MESSAGE-triggered turn opened
-    // at/after the watermark. The message-trigger filter matches the live
-    // capture: a one-shot `injection` turn a plugin may open between
-    // prompt-install and the prompt's turn is NOT the prompt's turn. Undefined
-    // only if no message turn ever started for this prompt.
-    const owningTurn = inflight.turn ?? events.slice(inflight.logWatermark).find(
-      (e): e is Extract<SessionEvent, { type: 'turn/start' }> =>
-        e.type === 'turn/start' && e.data.trigger.kind === 'message',
-    )?.data.turn
-    // The owning turn's end in the log. If `owningTurn` is undefined (no turn
-    // ever started for this prompt — a torn-down-before-turn case that quiesce's
-    // direct settle normally pre-empts), no `turn/end` matches (turn numbers are
-    // >= 1) and `findLast` returns undefined, falling through to cancelled.
-    const end = events.findLast(
-      (e): e is Extract<SessionEvent, { type: 'turn/end' }> =>
-        e.type === 'turn/end' && e.data.turn === owningTurn,
-    )
-    rec.inflight = undefined
-    if (end === undefined) {
-      // No owning turn / no clean turn/end (torn down mid-turn) → cancelled.
-      inflight.resolve('cancelled')
-      return
-    }
-    settleFromTurnEnd(inflight, end.data.reason)
-  }
-
-  // On a settle to idle/disposed, reconcile any still-pending prompt from the
-  // log (covers a starved `session/event` listener — see settleFromLog). A mid-
-  // step disposal that never appended a clean turn/end resolves `cancelled`.
-  // Demux via the agent→sessionId reverse map.
-  ctx.on('agent/status', (agent, status: AgentStatus) => {
-    const sessionId = bySession.get(agent)
-    if (sessionId === undefined) return
-    const rec = sessions.get(sessionId)
-    if (rec === undefined) return
-    if (status === 'idle' || status === 'disposed') settleFromLog(rec)
+  // --- Approval answerer -----------------------------------------------------
+  // The bridge is the approval channel for the agents it owns: an `ask` routed
+  // through `ctx.approval` (dsh-tools asks and sandbox escalation) becomes
+  // an editor permission prompt attached to the already-streamed tool call. The
+  // listener occupies the single decision slot ONLY for its own agents — a
+  // foreign or call-less request delegates via next() so another answerer (or
+  // the fail-closed `unavailable` default) takes the question. A rejected
+  // `requestPermission` (client gone, bridge torn down) propagates and the
+  // ApprovalService contains it as `unavailable`. Options are one-shot only:
+  // allow_always is a grant-storage design the approval RFC defers, so the
+  // prompt never offers a durable grant the harness could not honor.
+  ctx.on('approval/request', (req, next) => {
+    const sessionId = bySession.get(req.agent)
+    // The protocol requires `toolCall` (the prompt renders attached to it), so
+    // a request without a callId has nothing to attach to — delegate.
+    if (sessionId === undefined || req.callId === undefined) return next()
+    return conn.requestPermission({
+      sessionId,
+      toolCall: { toolCallId: req.callId },
+      options: [
+        { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+        { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+      ],
+    }).then(({ outcome }) => {
+      if (outcome.outcome === 'cancelled') return 'cancelled'
+      // Only the two advertised options exist; an unknown optionId from a
+      // non-conforming client counts as a rejection, never a grant.
+      return outcome.optionId === 'allow-once' ? 'allowed-once' : 'rejected'
+    })
   })
 
   // --- The ACP Agent method surface -----------------------------------------
+
+  /**
+   * Build the single Permissions option when `ctx.permission` is composed.
+   * Its value comes from the session log, overlaid by an unanchored idle
+   * switch, so `session/load` needs no catch-up state.
+   */
+  const configOptionsFor = (agent: Agent, pending: SessionRecord['pendingSwitches'] = {}): SessionConfigOption[] => {
+    const presets = ctx.get('permission')
+    if (presets === undefined) return []
+    const currentValue = pending.preset ?? presets.current(agent.session.events)
+    return [{
+      id: 'permission',
+      name: 'Permissions',
+      description: 'Sets this session\'s sandbox and approval behavior.',
+      category: 'mode',
+      type: 'select',
+      currentValue,
+      options: [
+        ...presets.names.map((name: string) => presets.optionOf(name)),
+        // `custom` is offered only as the current-value echo, never as a target.
+        ...currentValue === 'custom' ? [presets.optionOf('custom')] : [],
+      ],
+    }]
+  }
+
+  /**
+   * Whether the session's log currently has an open turn — the last boundary
+   * event is a `turn/start`. Decides whether a config switch may append NOW
+   * (enclosed) or must wait for the next prompt submission (see
+   * {@link SessionRecord.pendingSwitches}). Read from the LOG, not
+   * `agent.status`: status stays `running` across the gap between two queued
+   * turns, where a bare append would still land outside any turn.
+   */
+  const isTurnOpen = (agent: Agent): boolean => {
+    const events = agent.session.events
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const type = (events[index] as SessionEvent).type
+      if (type === 'turn/start') return true
+      if (type === 'turn/end') return false
+    }
+    return false
+  }
+
+  /**
+   * Anchor a pending preset in the open turn. `PermissionService.set()` skips
+   * net-zero changes, so the log records switches rather than select clicks.
+   */
+  const flushPendingSwitches = (rec: SessionRecord): void => {
+    const pending = rec.pendingSwitches
+    rec.pendingSwitches = {}
+    if (pending.preset === undefined) return
+    const presets = ctx.get('permission')
+    /* v8 ignore next -- a pending preset exists only if the service answered the
+       switch; a valid composition cannot unmount it before anchoring. */
+    if (presets === undefined) return
+    presets.set(rec.agent.session, pending.preset)
+  }
+
+  // Anchor idle switches on the next prompt submission: its turn is open, but
+  // request assembly has not begun. This handler runs outside log emission, so
+  // invariants and persistence observe the events in log order; the first flush
+  // clears pending state. Promptless injection turns leave the switch pending,
+  // with no request or execution under stale settings.
+  ctx.on('agent/prompt-submit', (agent, _content, _source, next) => {
+    const sessionId = bySession.get(agent)
+    const rec = sessionId === undefined ? undefined : sessions.get(sessionId)
+    if (rec !== undefined) flushPendingSwitches(rec)
+    return next()
+  })
 
   const makeAgent = (connection: AgentSideConnection): AcpAgent => {
     conn = connection
@@ -433,27 +536,39 @@ export function apply(ctx: Context, config: AcpConfig): void {
         return Promise.resolve()
       },
 
-      newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+      async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
         assertOpen()
         validateWorkspaceParams(params)
         validateMcpServers(params)
         const sessionId = SessionId(randomUUID())
-        const handle = agents.create({
+        const handle = await agents.create({
           agentId: AgentId(sessionId),
           sessionId,
           meta: { cwd: params.cwd },
           agentOptions: agentOptions(config),
         })
+        // Creation awaits the unpublished setup transaction. A client disconnect
+        // can therefore close this bridge
+        // after the entry check but before the handle resolves; never install a
+        // post-close record that quiesce() could not have seen.
+        /* v8 ignore next 4 -- the in-memory transport rejects the in-flight RPC
+           immediately on close; real stdio may let the handler resume */
+        if (closed) {
+          await handle.dispose()
+          throw internalError('connection closed during session/new')
+        }
         bySession.set(handle.agent, sessionId)
         sessions.set(sessionId, {
           sessionId,
           agent: handle.agent,
           dispose: () => handle.dispose(),
-          presenter: makePresenter(),
+          presenter: makePresenter(handle.agent),
           terminalEnabled: terminalOutputCap,
           inflight: undefined,
+          pendingSwitches: {},
         })
-        return Promise.resolve({ sessionId })
+        const configOptions = configOptionsFor(handle.agent)
+        return { sessionId, ...configOptions.length > 0 ? { configOptions } : {} }
       },
 
       async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
@@ -526,9 +641,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
             sessionId,
             agent,
             dispose: () => handle.dispose(),
-            presenter: makePresenter(),
+            presenter: makePresenter(agent),
             terminalEnabled,
             inflight: undefined,
+            pendingSwitches: {},
           }
           sessions.set(sessionId, record)
           // Replay the persisted event log to the client as session/update. Use
@@ -544,7 +660,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // future live events for this session. The throwaway pairs call→result
           // as the log replays in order (same as live) and is discarded after,
           // so the record's presenter starts clean for the post-load live stream.
-          const replayPresenter = makePresenter()
+          const replayPresenter = makePresenter(agent)
           const replayTerminal: TerminalRendering = {
             enabled: terminalEnabled,
             cwd: agent.session.header.cwd,
@@ -552,7 +668,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
           for (const event of agent.session.events) {
             streamSessionEventUpdate(sessionId, event, notify, replayPresenter, replayTerminal)
           }
-          return {}
+          const configOptions = configOptionsFor(agent)
+          return configOptions.length > 0 ? { configOptions } : {}
         } finally {
           loadingIds.delete(sessionId)
         }
@@ -577,12 +694,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // Install the in-flight slot BEFORE send() (send does not synchronously
         // flip status to running; the session/event listener records the turn
         // number and settle/rejects it). Capture the log length now as the
-        // watermark: the settle-from-log fallback infers the owning turn/start
-        // as the first one appended at/after it, surviving a starved live
-        // capture. A turn that ends in error rejects this promise (the codec
-        // never produces an error stop reason).
+        // A turn that ends in error rejects this promise (the codec never
+        // produces an error stop reason).
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
-          rec.inflight = { resolve, reject, turn: undefined, logWatermark: rec.agent.session.events.length }
+          rec.inflight = { resolve, reject, turn: undefined }
           rec.agent.send([{ type: 'text', text }])
         })
         return { stopReason }
@@ -601,11 +716,46 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // as cancelled directly here: do NOT rely on the resulting turn/end to
         // settle it, because cancel() may drop the turn before any turn/end is
         // emitted, and removing this direct settle would move the RPC's
-        // resolution onto the settleFromLog/agent-status path, changing its
-        // timing.
+        // resolution onto a later observer path, changing its timing.
         rec.agent.cancel('session/cancel')
         settlePrompt(rec, 'cancelled')
         return Promise.resolve()
+      },
+
+      setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
+        assertOpen()
+        const rec = requireSession(SessionId(params.sessionId))
+        // The advertised option is a select, so the boolean-shaped variant of
+        // the request is a protocol misuse regardless of configId.
+        if (typeof params.value !== 'string') {
+          throw invalidParams(`config option ${params.configId} is a select; boolean values are not accepted`)
+        }
+        // Open-turn switches append immediately; idle switches wait for the
+        // next prompt-submit. Only values advertised by this composition are
+        // accepted, and the session log remains the durable store.
+        switch (params.configId) {
+          case 'permission': {
+            const presets = ctx.get('permission')
+            if (presets === undefined) {
+              throw invalidParams(`unknown permission value ${JSON.stringify(params.value)}`)
+            }
+            // Clients may re-send the current selection on session start. Accept
+            // that echo without logging; this is the only valid `custom` request.
+            const current = rec.pendingSwitches.preset ?? presets.current(rec.agent.session.events)
+            if (params.value === current) break
+            if (!presets.names.includes(params.value)) {
+              throw invalidParams(`unknown permission value ${JSON.stringify(params.value)}`)
+            }
+            if (isTurnOpen(rec.agent)) presets.set(rec.agent.session, params.value)
+            else rec.pendingSwitches.preset = params.value
+            break
+          }
+          default:
+            throw invalidParams(`unknown config option ${JSON.stringify(params.configId)}`)
+        }
+        // The spec requires the COMPLETE refreshed config state in the response
+        // (a change may cascade); ours are independent, but the contract holds.
+        return Promise.resolve({ configOptions: configOptionsFor(rec.agent, rec.pendingSwitches) })
       },
     }
   }
@@ -629,15 +779,15 @@ export function apply(ctx: Context, config: AcpConfig): void {
    * quiescence"): for each session settle any pending prompt `cancelled`, then
    * run that session's {@link AgentHandle} `dispose()` — which stops the loop
    * (sets `disposed`, aborts the in-flight step), AWAITS the loop's exit (the
-   * final `turn/end` + `session/flush` are captured while `onAppend` is still
+   * final `turn/end` + `session/flush` are captured while the store-owned publication hooks are still
    * attached), unregisters the agent, and removes its session from the store.
    * The per-session disposes run in parallel. Idempotent — clears the `sessions`
    * map first and memoizes, so a second call (close racing dispose) is a no-op.
    * Shared by Cordis disposal AND client disconnect (`conn.closed`).
    *
-   * Per-agent disposal closes the former pre-step best-effort window — but via
-   * the DISPOSED path, not `cancel()`: the start-disposer resolves `handle.disposed`,
-   * which wakes the parked loop, and `isDisposed()` breaks the loop before a
+   * Per-agent disposal closes the queued-before-run window through the DISPOSED
+   * path, not `cancel()`: the start-disposer resolves `handle.disposed`, which
+   * wakes the parked loop, and `isDisposed()` breaks the loop before a
    * queued-but-not-yet-running turn can start (a turn cut off mid-flight ends
    * with reason `disposed`, not `aborted`). A bare client disconnect (resolves
    * `conn.closed` WITHOUT disposing the fiber) thus leaves NO registered agent
@@ -831,12 +981,8 @@ export function streamSessionEventUpdate(
 }
 
 /**
- * Map a harness todo list to an ACP `plan` body. ACP's `PlanEntry` requires
- * `content` + `priority` + `status`, but a {@link TodoItem} carries no priority,
- * so synthesize a constant `'medium'` on every entry; `status` maps 1:1 (the
- * harness status triple IS `PlanEntryStatus`). The ACP client REPLACES its whole
- * plan on each `plan` update, matching the harness's whole-list-replace
- * semantics, so no per-entry diffing is needed.
+ * Map a whole harness todo list to an ACP plan, assigning medium priority.
+ * Statuses map directly and ACP replaces its whole plan on each update.
  * @param todos - the harness todo list (the whole list, not a diff).
  * @returns the ACP plan body, one entry per todo.
  */
@@ -844,14 +990,7 @@ export function todosToPlan(todos: TodoItem[]): Plan {
   return { entries: todos.map((todo): PlanEntry => ({ content: todo.content, priority: 'medium', status: todo.status })) }
 }
 
-/**
- * Per-connection terminal-rendering context threaded into
- * {@link streamSessionEventUpdate}: whether the client advertised the
- * `_meta.terminal_output` capability, and the session's workspace cwd (the
- * default terminal-card header when a tool doesn't supply its own). Kept out of
- * the pure translator's required params so the no-capability / no-presenter
- * tests stay terse.
- */
+/** Terminal-card capability and workspace context for event rendering. */
 export interface TerminalRendering {
   enabled: boolean
   /** The session workspace cwd (terminal-card header default); `undefined` when the session has none. */
@@ -862,58 +1001,37 @@ export interface TerminalRendering {
 const noTerminalRendering: TerminalRendering = { enabled: false, cwd: undefined }
 
 /**
- * Resolves tool-owned presentation for a session's tool-call events. A tool
- * declares `presentCall`/`presentResult` (see `dsh-tools`) returning a
- * `card`-tagged {@link ToolCallView}/{@link ToolResultView}; this looks them up
- * by name in the registry and applies a generic fallback when a tool defines
- * neither. The returned view is what {@link streamSessionEventUpdate} switches on.
- *
- * The `tool/result` session event does NOT carry the tool name or args — so to
- * call a tool's `presentResult` (which needs both), the presenter remembers each
- * `tool/call`'s `{ name, args, card }` keyed by callId and looks it up on the
- * matching result. The map is bridge-LOCAL (not a change to the event schema or a
- * core service): one presenter per live session
- * (and a throwaway per `session/load` replay), and each entry is removed when its
- * result arrives. In the normal loop a `tool/call` is always followed by a
- * `tool/result` (the registry turns even a thrown tool into an isError result),
- * so the map holds only currently-in-flight calls. The one exception is a step
- * torn down mid-tool (an abort between `tool/call` and `tool/result`), which can
- * leave a single stale entry per such call; this is bounded by the session
- * lifetime (the whole presenter is dropped on teardown) and never affects
- * correctness — a later result for a different callId is unaffected, and the
- * stale entry's only cost is one map slot until the session ends.
+ * Resolve tool-owned call/result views with generic fallbacks. Per-session
+ * call-id state supplies the tool name and arguments omitted from result events.
+ * Each entry is consumed by its result; any remainder dies with the session.
  */
 export class ToolPresenter {
   private readonly pending = new Map<CallId, { name: string; args: unknown; card: ToolCallView['card'] }>()
 
   /**
    * @param tools the registry to resolve tool definitions by name.
-   * @param onError invoked when a tool's `presentCall`/`presentResult` THROWS;
-   *   the presenter swallows the error and falls back to the generic
-   *   presentation so a buggy display callback can never fail a live turn or a
-   *   `session/load` replay (docs/defensive-patterns.md "contain callback exceptions at the
-   *   boundary"). Defaults to a no-op for callers that don't supply a logger.
+   * @param onError receives contained presenter failures before generic fallback.
    */
   constructor(
     private readonly tools: Pick<ToolRegistry, 'get'>,
     private readonly onError: (message: string) => void = () => {},
+    /** Agent scope for tool lookup; absent during replay without a live agent. */
+    private readonly agent?: Agent,
   ) {}
 
   /**
-   * Pending-state render intent for a `tool/call`; remembers `(name, args, card)`
-   * for the matching result.
+   * Resolve a pending call and remember its state for the matching result.
    * @param callId - the call id the matching `tool/result` will look up.
    * @param name - the tool name, resolved against the registry for `presentCall`.
    * @param argsJson - the raw arguments JSON from the event; parsed for the view
    * (a non-JSON string is surfaced raw).
-   * @returns the tool-owned view, or the generic fallback (title = tool name,
-   * kind `other`, parsed args as raw input) when the tool defines none or threw.
+   * @returns the tool-owned view, or a generic parsed-input fallback.
    */
   call(callId: CallId, name: string, argsJson: string): ToolCallView {
     const args = parseToolArguments(argsJson)
     let present: ToolCallView | undefined
     try {
-      present = this.tools.get(name)?.presentCall?.(args)
+      present = this.tools.get(name, this.agent)?.presentCall?.(args)
     } catch (error: unknown) {
       // A throwing presentCall must not break streaming: log and fall back.
       this.onError(`acp: tool "${name}" presentCall threw, using generic presentation: ${String(error)}`)
@@ -929,16 +1047,12 @@ export class ToolPresenter {
   }
 
   /**
-   * Completed-state render intent for a `tool/result`; consumes the remembered
-   * `(name, args, card)`.
-   * @param callId - the id of the matching `tool/call`; an unknown or late id
-   * falls back to the raw content.
+   * Resolve a completed result and consume its remembered call state.
+   * @param callId - matching call id; unknown or late ids use raw content.
    * @param content - the result's content blocks (the fallback and fill-in body).
    * @param isError - whether the result is an error, forwarded to `presentResult`.
    * @param meta - the result's machine-readable meta, forwarded when present.
-   * @returns the tool-owned view — an orphaned `terminal` result (no terminal
-   * call side) and a content-less `generic` are normalized — or the raw-content
-   * generic card when the tool defines no `presentResult` or threw.
+   * @returns the normalized tool-owned view, or a raw-content generic fallback.
    */
   result(callId: CallId, content: ContentBlock[], isError: boolean, meta?: unknown): ToolResultView {
     const call = this.pending.get(callId)
@@ -947,7 +1061,8 @@ export class ToolPresenter {
     if (call === undefined) return { card: 'generic', content }
     let present: ToolResultView | undefined
     try {
-      present = this.tools.get(call.name)?.presentResult?.(call.args, { content, isError, ...meta !== undefined ? { meta } : {} })
+      present = this.tools.get(call.name, this.agent)
+        ?.presentResult?.(call.args, { content, isError, ...meta !== undefined ? { meta } : {} })
     } catch (error: unknown) {
       // A throwing presentResult must not break streaming/replay: log + fall back.
       this.onError(`acp: tool "${call.name}" presentResult threw, using raw result: ${String(error)}`)
@@ -1007,25 +1122,11 @@ type AcpToolCallContent =
   | { type: 'diff'; path: string; oldText: string | null; newText: string }
   | { type: 'terminal'; terminalId: string }
 
-/**
- * Relativize a file card's TITLE path against the session workspace cwd, so a
- * card reads `Read src/foo.ts` rather than `/abs/proj/src/foo.ts` — matching the
- * reference ACP adapter's `toDisplayPath`. Only the TITLE is relativized; the
- * card's `locations`/`diff` paths stay RAW (the editor opens the real path). The
- * pure tool presenter can't see the session cwd, so this happens here where the
- * bridge knows it. The rewrite is an exact substring replace of the known raw
- * path (a card carries the same path in `locations[0]`/`diffs[0]`), never a
- * heuristic. A path outside the workspace, or an absent/relative session cwd, is
- * left unchanged.
- */
+/** Relativize an in-workspace file path in a card title; keep target paths raw. */
 function displayTitle(title: string, rawPath: string | undefined, sessionCwd: string | undefined): string {
   if (rawPath === undefined || sessionCwd === undefined || !isAbsolute(rawPath) || !isAbsolute(sessionCwd)) return title
   const rel = relativePath(sessionCwd, rawPath)
-  // Only relativize a target that stays INSIDE the workspace. `relative` prefixes
-  // a `..` SEGMENT for a target above the cwd — test for the segment (`..` alone
-  // or `..<sep>…`), NOT a bare `..` char prefix, so a sibling like `..cache/x`
-  // (a real in-workspace name) still relativizes. Never relativize to the empty
-  // string (rawPath === cwd — a non-file target).
+  // Reject an empty relative path or a leading parent-directory segment.
   if (rel.length === 0 || rel === '..' || rel.startsWith(`..${pathSep}`)) return title
   return title.split(rawPath).join(rel)
 }

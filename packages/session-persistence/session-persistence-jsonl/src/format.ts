@@ -72,19 +72,13 @@ function isHeaderLine(value: unknown): value is HeaderLine {
 }
 
 /**
- * Encode an arbitrary string as a single safe path segment, injectively over
- * ALL JS (UTF-16) strings — including lone surrogates. A {@link SessionId} is
- * an unvalidated branded string, so this neutralizes `../`, absolute paths,
- * NUL, and separators before any filesystem use.
+ * Encode an arbitrary string as a single safe path segment, injectively over ALL JS (UTF-16)
+ * strings — including lone surrogates. A {@link SessionId} is an unvalidated branded string,
+ * so this neutralizes `../`, absolute paths, NUL, and separators before any filesystem use.
+ * Safe code units remain literal; every other unit, including `~`, becomes
+ * `~XXXX`. Operating on code units preserves lone surrogates, while special-
+ * casing `.` and `..` prevents traversal by an otherwise safe whole segment.
  *
- * Each UTF-16 code unit is either kept literal (the safe set `[A-Za-z0-9_-]`)
- * or escaped as `~XXXX` (its 4-hex-digit code unit). `~` is itself escaped, so
- * the mapping is injective and reversible: distinct inputs never collide. We
- * iterate code UNITS (`charCodeAt`), not code points, so a lone surrogate
- * escapes to a distinct `~XXXX` instead of being normalized to U+FFFD (which
- * `Buffer.from(…, 'utf8')` would do, breaking injectivity). `.` is in the safe
- * set for readability but the whole-segment tokens `.`/`..` are escaped so they
- * can never traverse.
  * @param raw - the string to encode; must be non-empty (throws on `''`).
  * @returns the escaped single path segment, decodable back to `raw`.
  */
@@ -142,38 +136,18 @@ export function eventLine(event: SessionEvent): string {
 
 /**
  * Parse a JSONL log buffer into its preserved event prefix (the header is line
- * 0). Returns the longest prefix of complete, seq-contiguous events plus the
- * byte offset of the end of the last preserved line (`committedBytes`).
+ * 0). Fully written events in an interrupted final turn remain part of the
+ * prefix. The first unparsable record or seq gap after the last `turn/end`
+ * marks a tolerated torn tail; the same hole in the committed region rejects.
  *
- * A crash can leave a durable log whose final turn never closed: real,
- * fully-written events sit after the last `turn/end`. Those are PRESERVED (a
- * single turn can be huge in a long-horizon task — truncating it would destroy
- * real work); the backend closes the orphaned open turn with a synthetic
- * `turn/end {kind:'interrupted'}` on reload (the session-persistence RFC). Only a TORN trailing
- * fragment — a final line never fully flushed (no newline, unparseable, or a
- * seq gap) — is excluded; it bounds the preserved region. A parse error or seq
- * gap AT OR BEFORE the last committed `turn/end` is committed-data corruption
- * and makes the session unloadable (throws).
- *
- * This relies on the session-log invariant that every event lives inside a turn
- * (`Session.append` enforces it): only the final turn can be open, so the
- * preserved tail is at most one unclosed turn.
  * @param buffer - the raw bytes of the log file (header line first).
  * @returns the header, the preserved event prefix, and `committedBytes` — the
  *   byte offset the next append truncates any torn tail to.
  */
 export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionEvent[]; committedBytes: number } {
   const text = buffer.toString('utf8')
-  // Split into complete (newline-terminated) lines, tracking the byte offset of
-  // each line's end so the truncation point is exact (multi-byte chars make the
-  // char offset differ from the byte offset). A trailing line with no newline is
-  // an uncommitted crash fragment and is ignored — it is below the last
-  // turn/end by construction (the loop only flushes whole lines).
-  //
-  // Track the byte offset with a RUNNING accumulator (`endByte`), adding each
-  // line's byte length as we go. Recomputing `Buffer.byteLength(text.slice(0, i))`
-  // per newline would rescan the whole prefix every time — O(n²) over a long
-  // log (one assistant/chunk line per token makes that pathological).
+  // Track complete lines by byte offset: a non-newline tail is torn and ignored,
+  // and a running counter avoids rescanning a long multi-byte log.
   const lines: { text: string; endByte: number }[] = []
   let start = 0
   let byteOffset = 0
@@ -201,14 +175,8 @@ export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionE
   }
   const headerLine = parsedHeader
 
-  // Find the committed region: the prefix up to and including the LAST complete
-  // `turn/end` in the WHOLE log. Two passes so a crash tail after the last
-  // turn/end is tolerated, but corruption/gaps AT OR BEFORE the last committed
-  // turn/end make the log unloadable (committed data must never be silently
-  // dropped).
-  //
-  // Pass 1: parse every line that parses, recording (parsedOk, seq, isTurnEnd,
-  // endByte) per line index. Lines that fail to parse are holes.
+  // Parse every complete record first so the last valid `turn/end` determines
+  // whether an earlier hole is committed corruption or an uncommitted tail.
   interface Parsed { ok: boolean; event?: SessionEvent; endByte: number }
   const parsed: Parsed[] = eventEntries.map((entry) => {
     try {
@@ -226,18 +194,8 @@ export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionE
     if (p?.ok && p.event?.type === 'turn/end') { lastTurnEnd = i; break }
   }
 
-  // Walk the longest PREFIX of complete, seq-contiguous, parseable event lines
-  // (line i is a parsed event with seq === i). This is the preservable region:
-  // it includes any fully-written events of an interrupted final turn AFTER the
-  // last turn/end — those are real, durably-written work and must NOT be
-  // truncated (a single turn can be huge in a long-horizon task; the orphaned
-  // open turn is closed with a synthetic turn/end on reload, not discarded —
-  // the session-persistence RFC). The walk stops at the first hole (unparseable line or seq gap):
-  //   - if that hole is AT OR BEFORE the last committed turn/end, committed data
-  //     was damaged → the session is unloadable (throw);
-  //   - if it is AFTER (or there is no committed turn/end yet), it is the
-  //     tolerated crash boundary — a torn final line never fully flushed — and
-  //     it simply bounds the preserved tail.
+  // Preserve the contiguous prefix, including a complete interrupted turn;
+  // holes through the last committed boundary throw, while later holes stop.
   const preserved: SessionEvent[] = []
   for (let i = 0; i < parsed.length; i++) {
     const p = parsed[i]

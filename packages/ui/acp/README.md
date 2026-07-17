@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-acp
 
-The **Agent Client Protocol (ACP)** bridge: exposes DeepSeek Harness SDK agents as an ACP server over JSON-RPC stdio, so editors (Zed and other ACP clients) can drive them — streaming render, tool-call display, and resumable sessions. Zed is the current target client: baseline ACP behavior should remain reasonable for other clients, but bridge capabilities and compatibility decisions are evaluated against Zed first. **N concurrent sessions per connection** (see [ACP multi-session](../../../docs/rfc/proposed/feature/2026-06-14-acp-multi-session.md)): each maps to its own `ReactLoopAgent`, and every event is demuxed strictly by session id so two sessions streaming at once never interleave.
+Agent Client Protocol bridge over JSON-RPC stdio. Editors can create or resume agents, stream their events, answer questions and approvals, and render tool calls. One connection supports multiple isolated sessions; Zed is the primary compatibility target.
 
 It is a **client-driver / UI plugin**, the structured analogue of the readline `stdio-chat` plugin — NOT a loop change and NOT a [capability seam](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md). It consumes the existing `agent/*` event taxonomy, the `dsh-agent` create/resume factory, and `dsh-session-persistence`.
 
@@ -8,7 +8,7 @@ It is a **client-driver / UI plugin**, the structured analogue of the readline `
 
 `apply(ctx, config)` — wires an `AgentSideConnection` (from `@agentclientprotocol/sdk`) to `process.stdin`/`process.stdout` and implements the ACP `Agent` method surface.
 
-`inject: ['agents', 'sessions', 'sessionPersistence', 'tools']` — programs against the interface packages only (never `dsh-agent-loop`). `sessionPersistence` is required because `initialize` advertises `loadSession: true`; `tools` lets a tool own how its calls render (`presentCall`/`presentResult`) — the bridge looks the definition up by name and falls back to a generic presentation when a tool declares none (see Tool-call presentation).
+The plugin injects `agents`, `sessions`, `sessionPersistence`, `tools`, and `userInteraction`, never the concrete loop. Persistence backs `session/load`; tool definitions own presentation; user interaction maps agent questions to ACP forms.
 
 ### Config
 
@@ -16,7 +16,7 @@ It is a **client-driver / UI plugin**, the structured analogue of the readline `
 |---|---|---|
 | `model` | — | Model name for created agents (must have a registered adapter). |
 
-(No persona key: the deployment persona is `dsh-system-prompt`'s own `persona` config — a context-wide section, so ACP-created agents render it without the bridge carrying prompt text.)
+(No persona key: `dsh-system-prompt`'s own `persona` config supplies the global default section, so ACP-created agents render it without the bridge carrying prompt text. An agent-scoped same-name section may still shadow that default.)
 
 The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' }`) — branding is a literal at the `initialize` site, not config.
 
@@ -26,58 +26,51 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 |---|---|---|
 | `initialize` | static | negotiate `protocolVersion`; advertise baseline prompt capabilities (`text`, plus `resource_link` rendered as text) and `loadSession: true` |
 | `session/new` | `ctx.agents.create({ sessionId, meta:{cwd} })` | creates a new session/agent; N concurrent sessions are allowed, keyed by id; `cwd` must be absolute (it becomes the session's workspace — see Per-session cwd); non-empty `additionalDirectories` and `mcpServers` rejected |
-| `session/load` | `ctx.agents.resume(...)` | replays the persisted event log to the client as `session/update` — the USER side (`user/message` → `user_message_chunk`), assistant text/reasoning (`assistant/chunk`), and tool calls/results (`tool/call` + `tool/result`). Re-loading an already-live id is rejected; the id's load slot is reserved (`loadingIds`) BEFORE the async resume so a pipelined load of the SAME id can't leak a second agent (distinct ids load concurrently). The resumed session keeps its PERSISTED header `cwd`, so its bash tools run in the original workspace; the requested `cwd` must be absolute and match the persisted `cwd`. After the async resume a `closed` re-check refuses to install a record if the bridge tore down mid-load |
+| `session/load` | `ctx.agents.resume(...)` | reserves the id, verifies the persisted cwd, resumes, and replays user, assistant, and tool events |
 | `session/prompt` | `agent.send()` | supports ACP `text` and `resource_link` blocks; rejects image/audio/embedded resource and empty prompts; one in-flight prompt PER session (independent); settles on the OWNING turn's end (a turn that ends in `error` rejects the RPC) |
 | `session/cancel` | `agent.cancel()` | the queue-aware cancel: aborts a running step, clears queued + steering work, and drops a turn about to start, then settles the prompt `cancelled` — for ONLY that session (a cancel never touches another session's stream or prompt) |
-| `session/update` | `session/event` | `agent_message_chunk` (text-delta), `agent_thought_chunk` (reasoning-delta), `user_message_chunk` (load replay), `tool_call`/`tool_call_update` (the render intent — a `card`-tagged `ToolCallView`/`ToolResultView` — owned by the TOOL via `presentCall`/`presentResult`, which the bridge switches on to build the wire shape — see Tool-call presentation) |
+| `session/update` | `session/event` | streams user replay, assistant text/reasoning, and tool render intents |
+| `elicitation/create` | `ctx.userInteraction.ask()` | maps `ask_user_question` questions to ACP form elicitations; option descriptions are shown in enum titles, `multi_select` uses ACP array enums, optionless requests use a required `custom` field, and a non-empty custom answer overrides any selected choice |
+| `session/request_permission` | `approval/request` listener | answers one-shot allow/reject requests for bridge-owned calls; foreign or call-less requests delegate and fail closed if unanswered — see "Permission prompts" |
+| `session/set_config_option` | `ctx.permission.set()` | per-session permission-preset switching over [session config options](https://agentclientprotocol.com/protocol/session-config-options) — see "Session config options" |
 
 ## Multi-session
 
-The bridge multiplexes N sessions over one connection. Live sessions are held in a `Map<sessionId, SessionRecord>` (forward) with a `WeakMap<Agent, sessionId>` reverse map so `agent/*` events — which carry only the `Agent` — demux in O(1). Every `session/event` and `agent/status` is routed strictly to its owning record, so concurrent sessions never cross-settle or interleave their `session/update` notifications. State is per session: one in-flight prompt each, `session/cancel` aborts and settles only its own agent/prompt, and disposal drains every live session in parallel to quiescence. (Per-session *permission* ownership is reserved for the deferred permission gate — `TODO(rfc010-permission-gate)`.)
+Forward and reverse indexes route every event, prompt, cancel, and approval to one session. Each session permits one in-flight prompt; teardown drains all sessions in parallel. See the [multi-session RFC](../../../docs/rfc/implemented/feature/2026-06-14-acp-multi-session.md).
 
-Background-task isolation rides on `dsh-tool-bash`: bash task ids are global and predictable, so each task carries an opaque owner token — the owning agent's `session.header.id` — stored on the task inside the executor (`dsh-bash`'s `ownerOf(id)` seam). `bash_output`/`bash_kill` reject a task whose token differs from the caller's session token, so one session's agent can't read or kill another's task. Ownership is by session TOKEN, not `Agent` object identity — a different `Agent` object on the same session may access the task — and because the token lives on the executor's task it survives a `tool-bash` HMR reload.
+## Session config options
+
+When `ctx.permission` is composed, the bridge advertises one `permission` select in `session/new` and `session/load`. Options come from the deployment's preset table; the current value comes from the session fold, with switch-away-only `custom` for unmatched knobs. `session/set_config_option` accepts advertised presets and writes both sandbox-mode and approval-policy events through `PermissionService.set()`. Open-turn switches append immediately; idle switches overlay responses and anchor at the next `agent/prompt-submit`, before request assembly. A crash before anchoring restores the durable fold. See the [sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md), [`dsh-permission`](../permission/README.md), and [protocol matrix](acp-feature-support.md#6-session-config-options).
+
+The shared [`ctx.tasks` runtime](../../tasks/tasks/) fences access to predictable task ids by the owning session; ACP sessions therefore cannot read or stop one another's background work.
 
 ## Per-session cwd
 
-Each session runs in its own workspace, recorded as the session's `SessionHeader.cwd`. On `session/new` the (absolute) request `cwd` becomes that header cwd; on `session/load` the resumed session keeps its PERSISTED header cwd and the request `cwd` must be absolute and equal to it, so the editor and bash executor agree on the workspace before an agent is constructed. A load whose persisted session has no absolute cwd is REJECTED up front via a metadata-only `list()` check, BEFORE resume constructs an agent (else bash would silently fall back to the server's launch dir, and a post-resume reject would leak the registered agent). `dsh-tool-bash` then defaults the bash workdir to the calling agent's `session.header.cwd` (an explicit model `workdir` still wins; a relative one resolves against the session cwd; with no session cwd the executor falls back to its own config / `process.cwd()`). So the server no longer has to be launched in the workspace — an editor can open any project folder, and N sessions over one connection can each target a different directory. (`additionalDirectories` is still rejected: widening the tool/filesystem scope beyond the single cwd is a separate sandbox concern.)
+`session/new` records the request's absolute cwd in the session header. Before constructing an agent, `session/load` uses persisted metadata to require an absolute request cwd that matches the stored one. Bash defaults to that workspace; an explicit relative workdir resolves against it, and multiple sessions may use different workspaces. `additionalDirectories` remains unsupported.
 
 ## Tool-call presentation
 
-How a tool call renders in the editor is owned by the TOOL, not the bridge — the bridge never special-cases tool names. Each tool may declare `presentCall(args)` (pending state) and `presentResult(args, result)` (completed state) on its `dsh-tools` definition, each returning a **`card`-tagged render intent** — a discriminated union the bridge switches on. `presentCall` returns a `ToolCallView`, one of three cards:
-
-- `{ card: 'generic', title, kind?, rawInput?, content?, locations? }` — the default card: a human-readable `title`, a `kind` for the icon, the salient `rawInput` for a detail view, optional `content` blocks shown alongside, and optional `locations` (`FileLocation[]` = `{ path, line? }[]` files the call reads/modifies, forwarded as `tool_call.locations` so an editor can follow along).
-- `{ card: 'terminal', title, description?, cwd? }` — a shell command → a terminal card (see Terminal card).
-- `{ card: 'diff', title, diffs, locations? }` — a file create/modify → an inline diff card; `diffs` is `FileDiff[]` (`{ path, oldText, newText }`, `oldText: null` ⇒ new file). The bridge emits each diff as an ACP `{ type: 'diff', path, oldText, newText }` `tool_call.content` block, which Zed renders as an inline diff / new-file preview.
-
-`presentResult` returns a `ToolResultView`, one of three cards: `{ card: 'generic', title?, content? }` (an optional replacement `title` and reformatted `content`), `{ card: 'terminal', title?, output?, exitCode?, signal? }` (the captured run output + exit — see Terminal card), or `{ card: 'diff', title?, diffs }` (a completed file mutation → typically the applied hunks with context lines computed from the before/after content, or a whole-file diff for a create; a successful mutation ALWAYS returns this so the model-facing result text can't clobber the diff — an ACP `tool_call_update.content` replaces the call's content). The bridge looks the definition up by name in `ctx.tools` and `switch (view.card)`es to build the ACP `tool_call`/`tool_call_update` wire shape per card; a tool that declares neither gets a generic fallback (title = tool name, raw parsed args as `rawInput`, kind `other` — the bridge never sniffs a kind from the tool name). For example `dsh-tool-bash` returns a `terminal` card for a foreground `bash` (title = the exact `command` "ls -la src", `description` = the model description); the `dsh-tool-fs` `write`/`edit` tools return a `diff` call card and a `diff` result card, and `read` returns a `generic` card (`kind: 'read'`, the read window in its title — `Read foo.txt (5 - 8)` — and a `locations` entry for the file). For a file card the bridge **relativizes the title** against the session cwd (mirroring `claude-agent-acp`'s `toDisplayPath` — `Read src/foo.ts`, not the absolute path) while keeping `locations[]`/`diffs[].path` **raw** so the editor opens the real path.
-
-The `tool/result` session event does not carry the tool name or args — so to call a tool's `presentResult` the bridge keeps a small per-session map from `callId` to the in-flight call's `(name, args)`, populated on `tool/call` and removed as each result is presented (it holds only currently-in-flight calls, never finished ones). This is bridge-local state — NOT a change to the event schema or a core service. The map lives on the `SessionRecord`, so two concurrent sessions never cross their in-flight tool state; a `session/load` replay uses a throwaway presenter that pairs each `tool/call` with its `tool/result` as the log replays in order, so replayed tool cards render identically to live ones.
+Tools return provider-neutral `generic`, `terminal`, or `diff` render intents from `presentCall()` and `presentResult()`. The bridge maps the discriminator to ACP without special-casing tool names and falls back to a generic card. Per-session call-id state supplies result events with their omitted name and arguments during live streaming and replay. See [`dsh-tools`](../../core/tools/README.md#tool-owned-ui-presentation).
 
 ## Terminal card (capability-gated)
 
-A tool whose call IS a shell command (`bash`) can render as a real **terminal card** — a working-directory header with the command's output and an exit-status pill — rather than a plain text block. The tool asks for this with the `terminal` card variant of its render intent (`dsh-tools`: `{ card: 'terminal', title, description?, cwd? }` from `presentCall`, `{ card: 'terminal', title?, output?, exitCode?, signal? }` from `presentResult`); the bridge maps it to the Zed `_meta` convention, gated on the client advertising `clientCapabilities._meta.terminal_output` in `initialize`:
-
-- `tool_call`: `content:[…, {type:'terminal', terminalId}]` + `_meta.terminal_info.{terminal_id, cwd}` — the terminal id is the harness `callId`; the cwd is the card's explicit absolute `cwd`, else a relative `cwd` resolved against the session cwd, else the session's workspace cwd (the bridge fills the default, since the pure tool presenter can't see it). The card's `description` renders as a content block BEFORE the terminal block, so the description sits above the card.
-- `tool_call_update`: `_meta.terminal_output.{terminal_id, data}` (the terminal card's `output`) plus `_meta.terminal_exit.{terminal_id, exit_code | signal}` when the card reported a structured `exitCode`/`signal`. In terminal mode the update's `content` is OMITTED — an ACP `tool_call_update.content` REPLACES the call's content, so sending the fenced text block would clobber the terminal content block from the call.
-
-When the client does NOT advertise the capability, none of the `_meta`/terminal content is emitted: the `tool_call` shows the `description` content block and the `tool_call_update` carries a ` ```console ` text block the bridge DERIVES by fencing the terminal result's `output` (the tool no longer double-encodes the fences) — so a non-Zed client is never worse off. The `_meta` object is ACP's spec-blessed extensibility point; the specific `terminal_info`/`terminal_output`/`terminal_exit` keys are a Zed convention, not the ACP `terminal/create` sub-protocol (which would make the editor execute the command, bypassing `dsh-bash`'s sandbox/env-scrub/ownership/cwd). Live incremental streaming and command classification are follow-ups. See [the terminal-rendering RFC](../../../docs/rfc/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) and [the render-intent-union RFC](../../../docs/rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md).
+When the client advertises `_meta.terminal_output`, terminal intents map to Zed's terminal info, output, and exit metadata. The bridge resolves relative cwd against the session, places the description before the terminal block, and omits result content because ACP updates replace call content. Other clients receive a generic card and bridge-derived fenced console fallback. Session creation snapshots the capability so call and result agree. The command still executes through the harness, not ACP terminal creation. See the [terminal-rendering RFC](../../../docs/rfc/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) and [render-intent RFC](../../../docs/rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md).
 
 ## Settle-exactly-once
 
-A `session/prompt` resolves (or rejects) exactly once, keyed off the canonical session log (the `session/event` stream). One listener captures the prompt's owning turn from the log's `turn/start` and settles on the matching `turn/end` — the durable boundary event (`closeTurn` appends it unconditionally; there is no `agent/*` turn mirror). A prompt settles only on ITS OWN turn (`inflight.turn === turn/end.turn`), so a stale `turn/end` for a previously-cancelled turn whose end arrives late can never settle the wrong prompt. A turn that ends `error` REJECTS the RPC with an internal error carrying the failure message (ACP has no error stop reason); every other reason resolves via the codec. As a fallback, when the agent settles to `idle`/`disposed` with a prompt still pending — e.g. a peer `session/event` listener registered before the bridge threw and starved the bridge's listener — an `agent/status` handler reconciles the prompt from the log (the owning turn's `turn/end`, or `cancelled` if the turn was torn down without one). An empty/whitespace prompt is rejected up front — it would queue no work, so no turn would start and the RPC would hang.
+A prompt captures its owning turn and settles exactly once from the matching durable `turn/end`, even if presentation failed. Turn correlation excludes stale endings. Error turns reject with an ACP internal error; empty prompts reject before enqueue.
+
+## Permission prompts
+
+For a bridge-owned call, the [approval seam](../user-approval/README.md) maps `ask` to an editor prompt with one-shot allow/reject options. Foreign or call-less requests delegate; unknown choices never grant, cancellation stays cancellation, and transport failure becomes fail-closed unavailability. Whether a tool asks remains policy outside the bridge.
 
 ## Disposal & disconnect
 
-Teardown reaches quiescence: for EVERY live session settle any pending prompt as `cancelled`, then run that session's [`AgentHandle`](../../core/agent/README.md) `dispose()` — which stops the loop (sets `disposed` + aborts the in-flight step), `await`s the loop's exit (the final `turn/end` + `session/flush` are captured while the session is still attached), unregisters the agent, and removes its session from the store. A turn cut off mid-flight by teardown ends with reason `disposed` (not `aborted` — `dispose()` uses the disposed path, not `session/cancel`'s queue-aware `cancel()`). The per-session disposes run in parallel. The same teardown runs on a **client disconnect** (`conn.closed` resolves when the editor quits / the transport EOFs), so a vanished client never leaves an orphaned running — or idled-but-still-registered — agent whose `session/update` writes are silently swallowed. The two paths are idempotent and memoized (the first clears the `sessions` map; a second caller awaits the same teardown promise).
-
-## Known limitations (tracked TODOs)
-
-- **`TODO(rfc010-permission-gate)`** — the `tools/pre-execute` permission gate (`session/request_permission`) is NOT implemented; tools run with the executor's full authority. The `agent→sessionId` reverse map is in place so the gate can route a permission request (which receives only `exec.agent`) back to its originating session. [ACP support](../../../docs/rfc/proposed/feature/2026-06-14-acp-agent-client-protocol.md) and [ACP multi-session](../../../docs/rfc/proposed/feature/2026-06-14-acp-multi-session.md) stay `proposed` until the gate (and per-session permission ownership) land.
-- **`additionalDirectories`** — rejected. A session operates in its single `cwd` (see Per-session cwd); widening the tool/filesystem scope to extra roots is a separate sandbox concern, not yet implemented.
+Disposal and client disconnect share one memoized teardown. It cancels pending prompts and disposes all owned agent handles in parallel, waiting for loop exit and final flush before registry removal. Mid-turn teardown records `disposed`; `session/cancel` records `aborted`.
 
 ## stdout is the protocol
 
-The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loads **no stdout logger** (the console logger writes to stdout and would corrupt the frames). The guarantee is config-only — see `examples/acp-agent` (no console logger) and [ACP support risks](../../../docs/rfc/proposed/feature/2026-06-14-acp-agent-client-protocol.md#risks). A stderr exporter is fine for logging.
+The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loads **no stdout logger** (the console logger writes to stdout and would corrupt the frames). The guarantee is config-only — see `examples/acp-agent` (no console logger) and [ACP support risks](../../../docs/rfc/implemented/feature/2026-06-14-acp-agent-client-protocol.md#risks). A stderr exporter is fine for logging.
 
 ## Running
 
@@ -93,3 +86,37 @@ The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loa
   }
 }
 ```
+
+## Model Experience
+
+### User messages
+
+**What the model sees**: Each ACP `session/prompt` becomes an agent user message: text passes through verbatim and each `resource_link` becomes exactly a leading newline, `[resource_link name=<JSON-string> uri=<JSON-string>]`, and a trailing newline. Unsupported image, audio, and embedded-resource blocks are rejected rather than silently omitted.
+
+**Token effect**: Prompt tokens are data-dependent and remain in that session's history until compaction. Concurrent ACP sessions keep separate contexts.
+
+### Human answers and permission decisions
+
+**What the model sees**: When optional consumers are loaded, ACP form answers become the exact JSON shape documented by `dsh-tool-ask-user`. Failures become `Error: ACP user questions must come from an agent-owned request`, `Error: ACP user question has no matching session`, `Error: ACP elicitation request failed`, `Error: ask_user_question was cancelled by the user`, `Error: ask_user_question returned no answer`, or `Error: ask_user_question was aborted before the user answered`. Permission decisions control whether another tool yields success or denial. ACP tool cards, terminal output, diffs, and streamed session updates are UI-only.
+
+**Token effect**: Answer, error, and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens.
+
+### Permission preset switches
+
+**What the model sees**: `session/set_config_option` emits no model message itself. When `dsh-permission` is composed, the bridge writes the selected preset through that service; the resulting model-visible policy prompt and change notice belong to [`dsh-user-approval`](../user-approval/README.md), while sandbox-mode effects belong to [`dsh-tool-bash`](../../bash/tool-bash/README.md). The ACP `Permissions` select, its option descriptions, pending idle value, and refreshed config response remain client-only.
+
+**Token effect**: Zero direct tokens from the ACP option or the log-only `permission/preset` event. Downstream cost is limited to the owning plugins' policy prompt, conditional retained change notice, and any changed tool outcome.
+
+### Loaded sessions
+
+**What the model sees**: `session/load` resumes the persisted log, after which the loop sends its reconstructed history and request header. Replaying that log to the editor is not an extra model message.
+
+**Token effect**: Restored context has the persistence and session packages' normal retained cost; ACP replay to the client adds none.
+
+## Known Limitations and Deferred Work
+
+- **`additionalDirectories`** — rejected. A session operates in its single `cwd` (see Per-session cwd); widening the tool/filesystem scope to extra roots is a separate sandbox concern, not yet implemented.
+- **Prompt content is `text` + `resource_link` only** — image, audio, and embedded-resource blocks are rejected, as is a non-empty `mcpServers` list at `session/new`.
+- **One configured `model` for every created session** — per-session model selection has no config or protocol surface here yet.
+- **Terminal cards render completed output** — live incremental streaming and command classification are named follow-ups of [the terminal-rendering RFC](../../../docs/rfc/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md).
+- **Permission answers are one-shot only** — the bridge offers `allow_once` / `reject_once`; durable `allow_always` grants and their storage/revocation policy remain deferred to the approval seam.

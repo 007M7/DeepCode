@@ -2,8 +2,9 @@ import { mkdtempSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { killGroup, OutputCollector, runBash } from '@deepseek-ai/dsh-bash-local'
-import type { RunningBash } from '@deepseek-ai/dsh-bash-local'
+import type { DshEnvironment } from '@deepseek-ai/dsh-bash'
+import { killGroup, OutputCollector, runBash } from '../src/run.ts'
+import type { RunningBash } from '../src/run.ts'
 
 const { failNextClose } = vi.hoisted(() => ({ failNextClose: { value: false } }))
 vi.mock('node:fs', async (importOriginal) => {
@@ -26,8 +27,8 @@ function spec(command: string, overrides: Partial<Parameters<typeof runBash>[0]>
   return {
     command,
     cwd: process.cwd(),
-    timeoutMs: 0,
-    maxOutputBytes: 64_000,
+    stdoutMaxBytes: 64_000,
+    stderrMaxBytes: 64_000,
     graceMs: 3_000,
     ...overrides,
   }
@@ -50,10 +51,24 @@ async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
 async function waitForStdout(running: RunningBash, expected: string, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (running.stdout.snapshot().text.includes(expected)) return
+    if (running.stdout.readFrom(0).text.includes(expected)) return
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   throw new Error(`stdout did not include ${JSON.stringify(expected)} after ${timeoutMs}ms`)
+}
+
+async function waitForPidFile(path: string, timeoutMs = 5_000): Promise<number> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      const pid = Number(readFileSync(path, 'utf8').trim())
+      if (Number.isSafeInteger(pid) && pid > 0) return pid
+    } catch {
+      // The child shell has not written the pid file yet.
+    }
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  throw new Error(`pid file ${path} was not written after ${timeoutMs}ms`)
 }
 
 describe('runBash', () => {
@@ -61,8 +76,6 @@ describe('runBash', () => {
     const result = await runBash(spec('echo hello')).done
     expect(result.exitCode).toBe(0)
     expect(result.signal).toBeNull()
-    expect(result.timedOut).toBe(false)
-    expect(result.aborted).toBe(false)
     expect(result.stdout.text).toBe('hello\n')
     expect(result.stdout.truncated).toBe(false)
     expect(result.stderr.text).toBe('')
@@ -97,17 +110,22 @@ describe('runBash', () => {
     expect(result.stdout.text.trim()).toMatch(/\/tmp$/)
   })
 
-  it('kills with SIGTERM on timeout', async () => {
+  it('kills the process group with SIGTERM when the signal fires', async () => {
+    // runBash owns no timer: it kills on abort. The executor drives the timeout
+    // by firing this signal via a deadline (see executor.spec.ts); here we
+    // assert the kill itself lands as SIGTERM.
+    const controller = new AbortController()
     const start = Date.now()
-    const result = await runBash(spec('sleep 60', { timeoutMs: 100 })).done
+    const running = runBash(spec('sleep 60', { signal: controller.signal }))
+    setTimeout(() => { controller.abort('deadline') }, 100)
+    const result = await running.done
     expect(Date.now() - start).toBeLessThan(5_000)
-    expect(result.timedOut).toBe(true)
     expect(result.signal).toBe('SIGTERM')
     expect(result.exitCode).toBeNull()
   })
 
   it('escalates to SIGKILL when SIGTERM is trapped', async () => {
-    const running = runBash(spec('trap \'\' TERM; echo ready; sleep 60', { graceMs: 200 }))
+    const running = runBash(spec('trap \'\' TERM; echo ready; while :; do sleep 60 & wait $!; done', { graceMs: 200 }))
     await waitForStdout(running, 'ready\n')
     running.kill()
     const result = await running.done
@@ -119,8 +137,7 @@ describe('runBash', () => {
     // group must take the sleep down with bash.
     const pidFile = join(spillDir, `grandchild-${Date.now()}.pid`)
     const running = runBash(spec(`sleep 60 & echo $! > ${pidFile}; wait`))
-    await new Promise(resolve => setTimeout(resolve, 300))
-    const grandchild = Number(readFileSync(pidFile, 'utf8').trim())
+    const grandchild = await waitForPidFile(pidFile)
     expect(grandchild).toBeGreaterThan(0)
 
     running.kill()
@@ -134,7 +151,6 @@ describe('runBash', () => {
     const running = runBash(spec('sleep 60', { signal: controller.signal }))
     setTimeout(() => { controller.abort('user cancelled') }, 50)
     const result = await running.done
-    expect(result.aborted).toBe(true)
     expect(result.signal).toBe('SIGTERM')
   })
 
@@ -175,51 +191,59 @@ describe('stdin and extra env (set by in-process plugins)', () => {
   })
 
   it('gives fd 0 the exact pre-seam type: /dev/null when no stdin, a pipe when supplied', async () => {
-    // The no-stdin path must stay observationally identical to the pre-seam
-    // `ignore` default: a command that probes stdin's file type sees a char
-    // device (/dev/null). Regressing to an always-open pipe would make fd 0 a
-    // socket (node's spawn pipe is an AF_UNIX socket, not a FIFO), flipping
-    // `test -c /dev/stdin` for every model-driven call. When bytes ARE supplied,
-    // fd 0 is that pipe (a socket), as it must be to carry them.
+    // With no bytes, fd 0 remains the pre-seam `ignore` default (/dev/null, a character device).
+    // Supplied bytes use Node's spawn pipe, which is an AF_UNIX socket rather than a FIFO.
     const none = await runBash(spec('test -c /dev/stdin && echo char || echo other')).done
     expect(none.stdout.text).toBe('char\n')
     const piped = await runBash(spec('test -S /dev/stdin && echo socket || echo other', { stdin: 'x' })).done
     expect(piped.stdout.text).toBe('socket\n')
   })
 
-  it('merges extra env entries onto the scrubbed environment', async () => {
-    const result = await runBash(spec('echo "$DSH_EXTRA_ONE/$DSH_EXTRA_TWO"', {
-      env: { DSH_EXTRA_ONE: 'alpha', DSH_EXTRA_TWO: 'beta' },
+  it('merges ordinary extra env entries onto the scrubbed environment', async () => {
+    const result = await runBash(spec('echo "$EXTRA_ONE/$EXTRA_TWO"', {
+      env: { EXTRA_ONE: 'alpha', EXTRA_TWO: 'beta' },
     })).done
     expect(result.stdout.text).toBe('alpha/beta\n')
   })
 
   it('an explicit extra env entry overrides the model-friendly override and the scrub', async () => {
     // TERM is a model-friendly OVERRIDE (dumb); an explicit extra entry wins.
-    // DSH_OVERRIDE_KEY matches the credential scrub pattern, yet an explicit
+    // EXPLICIT_OVERRIDE_KEY matches the credential scrub pattern, yet an explicit
     // entry is still honored — the scrub only drops AMBIENT process.env creds.
-    const result = await runBash(spec('echo "$TERM/$DSH_OVERRIDE_KEY"', {
-      env: { TERM: 'xterm-256color', DSH_OVERRIDE_KEY: 'explicit-wins' },
+    const result = await runBash(spec('echo "$TERM/$EXPLICIT_OVERRIDE_KEY"', {
+      env: { TERM: 'xterm-256color', EXPLICIT_OVERRIDE_KEY: 'explicit-wins' },
     })).done
     expect(result.stdout.text).toBe('xterm-256color/explicit-wins\n')
   })
 
   it('does not crash or reject when the child ignores a large stdin (EPIPE)', async () => {
-    // The child exits immediately without reading; closing our end of a stdin
-    // pipe still holding ~1MiB triggers EPIPE on the write. The handler must
-    // swallow it: `done` resolves normally with the child's real exit.
+    // The child exits without reading, so closing a stdin pipe holding ~1 MiB triggers EPIPE.
+    // The handler swallows that write error and `done` reports the child's real exit.
     const big = 'x'.repeat(1024 * 1024)
     const result = await runBash(spec('exit 7', { stdin: big })).done
     expect(result.exitCode).toBe(7)
-    expect(result.aborted).toBe(false)
   })
 })
 
 describe('output truncation and spill', () => {
+  it('applies stdout and stderr caps independently', async () => {
+    const result = await runBash(
+      spec('printf "%.0sx" $(seq 1 500); printf "%.0se" $(seq 1 500) >&2', {
+        stdoutMaxBytes: 500,
+        stderrMaxBytes: 100,
+      }),
+      { spillDir },
+    ).done
+    expect(result.stdout.truncated).toBe(false)
+    expect(result.stdout.text).toBe('x'.repeat(500))
+    expect(result.stderr.truncated).toBe(true)
+    expect(result.stderr.text.length).toBeLessThanOrEqual(100)
+  })
+
   it('keeps the tail and spills the full stream to disk', async () => {
     // 200 numbered lines of ~10 bytes; cap at 500 bytes keeps a late tail.
     const result = await runBash(
-      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { maxOutputBytes: 500 }),
+      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
     ).done
     expect(result.stdout.truncated).toBe(true)
@@ -234,7 +258,7 @@ describe('output truncation and spill', () => {
 
   it('does not truncate output exactly at the cap', async () => {
     const result = await runBash(
-      spec('printf "%.0sx" $(seq 1 500)', { maxOutputBytes: 500 }),
+      spec('printf "%.0sx" $(seq 1 500)', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
     ).done
     expect(result.stdout.truncated).toBe(false)
@@ -245,7 +269,7 @@ describe('output truncation and spill', () => {
   it('settles with the tail and no spill path when final spill close fails', async () => {
     failNextClose.value = true
     const result = await runBash(
-      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { maxOutputBytes: 500 }),
+      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
     ).done
     expect(failNextClose.value).toBe(false)
@@ -287,19 +311,11 @@ describe('OutputCollector', () => {
     expect(third.spillPath).toBeDefined()
   })
 
-  it('tracks totalBytes across drops', () => {
-    const collector = new OutputCollector(4, 'test', spillDir)
-    collector.push(Buffer.from('aaaa'))
-    collector.push(Buffer.from('bbbb'))
-    expect(collector.totalBytes).toBe(8)
-    expect(collector.finalize().text).toBe('bbbb')
-  })
-
   it('contains close failures and drops the spill path', () => {
     const collector = new OutputCollector(4, 'closefail', spillDir)
     collector.push(Buffer.from('aaaa'))
     collector.push(Buffer.from('bbbb'))
-    expect(collector.snapshot().spillPath).toBeDefined()
+    expect(collector.readFrom(0).spillPath).toBeDefined()
 
     failNextClose.value = true
     let out: ReturnType<typeof collector.finalize>
@@ -339,22 +355,22 @@ describe('abort edge cases', () => {
       .toThrow(/aborted before spawn: aborted/)
   })
 
-  it('reports an externally self-killed command without the timeout marker', async () => {
+  it('reports the terminating signal of an externally self-killed command', async () => {
+    // runBash reports the raw signal; whether it counts as timeout/cancel is the
+    // executor's classification (a self-kill is neither) — see executor.spec.ts.
     const result = await runBash(spec('kill -TERM $$')).done
     expect(result.signal).toBe('SIGTERM')
-    expect(result.timedOut).toBe(false)
-    expect(result.aborted).toBe(false)
   })
 })
 
-describe('review fixes: env scrubbing and spill hardening', () => {
-  it('scrubs credential-shaped env vars from child processes', async () => {
+describe('environment and spill-file hardening', () => {
+  it('scrubs credential-shaped and ambient DSH env vars from child processes', async () => {
     process.env.DSH_TEST_API_KEY = 'super-secret'
     process.env.DSH_TEST_TOKEN = 'also-secret'
     process.env.DSH_TEST_PLAIN = 'visible'
     try {
       const result = await runBash(spec('echo "[${DSH_TEST_API_KEY:-absent}|${DSH_TEST_TOKEN:-absent}|${DSH_TEST_PLAIN:-absent}]"')).done
-      expect(result.stdout.text.trim()).toBe('[absent|absent|visible]')
+      expect(result.stdout.text.trim()).toBe('[absent|absent|absent]')
     } finally {
       delete process.env.DSH_TEST_API_KEY
       delete process.env.DSH_TEST_TOKEN
@@ -362,9 +378,32 @@ describe('review fixes: env scrubbing and spill hardening', () => {
     }
   })
 
+  it('injects only the current trusted DSH environment after scrubbing ambient values', async () => {
+    process.env.DSH_STALE = 'old-value'
+    try {
+      const result = await runBash(spec('echo "[${DSH_STALE:-absent}|$DSH_SHELL|$DSH_SESSION_ID]"', {
+        dshEnv: { DSH_SHELL: '1', DSH_SESSION_ID: 'current-session' },
+      })).done
+      expect(result.stdout.text.trim()).toBe('[absent|1|current-session]')
+    } finally {
+      delete process.env.DSH_STALE
+    }
+  })
+
+  it('rejects DSH variables on the ordinary env channel', () => {
+    expect(() => runBash(spec('true', { env: { DSH_WRONG_CHANNEL: 'bad' } })))
+      .toThrow(/DSH_WRONG_CHANNEL.*dshEnv/)
+  })
+
+  it('rejects ordinary variables on the managed env channel', () => {
+    const invalid = { PATH: '/wrong-channel' } as unknown as DshEnvironment
+    expect(() => runBash(spec('true', { dshEnv: invalid })))
+      .toThrow(/managed bash env.*PATH.*use env/)
+  })
+
   it('creates spill files with owner-only permissions and random names', async () => {
     const result = await runBash(
-      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { maxOutputBytes: 500 }),
+      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
     ).done
     const path = result.stdout.spillPath!
@@ -375,7 +414,7 @@ describe('review fixes: env scrubbing and spill hardening', () => {
 
   it('defaults spills into a private per-process directory', async () => {
     const result = await runBash(
-      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { maxOutputBytes: 500 }),
+      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
     ).done
     const dir = dirname(result.stdout.spillPath!)
     expect(dir).toMatch(/dsh-bash-/)
@@ -396,10 +435,9 @@ describe('review fixes: env scrubbing and spill hardening', () => {
 
   it('honors AbortSignal on background-style runs (no timeout)', async () => {
     const controller = new AbortController()
-    const running = runBash(spec('sleep 60', { timeoutMs: 0, signal: controller.signal }))
+    const running = runBash(spec('sleep 60', { signal: controller.signal }))
     setTimeout(() => { controller.abort() }, 50)
     const result = await running.done
-    expect(result.aborted).toBe(true)
     expect(result.signal).toBe('SIGTERM')
   })
 })

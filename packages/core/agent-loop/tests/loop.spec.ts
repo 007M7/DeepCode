@@ -168,7 +168,7 @@ describe('agent loop', () => {
   it('resolves {{cwd}} from the agent session workspace (factory create with meta.cwd)', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter, 'Working in {{cwd}}.')
-    const handle = ctx.agents.create({
+    const handle = await ctx.agents.create({
       agentId: AgentId('a-cwd'),
       sessionId: SessionId('s-cwd'),
       meta: { cwd: '/work/space' },
@@ -183,11 +183,7 @@ describe('agent loop', () => {
   })
 
   it('contains a strict-variable render failure: the turn errors, the loop keeps serving turns', async () => {
-    // A persona claiming {{cwd}} on a session with NO cwd is a deployment
-    // authoring error — renderPrompt throws, the turn ends with an error, and
-    // the same agent must then RUN a later turn to completion (not merely
-    // report idle status): a rescue listener supplies the variable and the
-    // follow-up prompt reaches the model.
+    // A missing cwd variable must fail one turn without preventing a later valid turn.
     const adapter = new MockAdapter([textResponse('ok after rescue')])
     const ctx = await harness(adapter, 'In {{cwd}}.')
     const errors: Error[] = []
@@ -241,6 +237,44 @@ describe('agent loop', () => {
     expect(adapter.requests).toHaveLength(1)
     expect(adapter.requests[0]!.model).toBe('mock')
     expect(adapter.requests[0]!.system).toBe('You are an AI agent powered by the DeepSeek Harness SDK.\n\nYou run on mock.')
+  })
+
+  it.each([
+    ['BigInt', { n: 1n }],
+    ['Map', new Map([['key', 'value']])],
+    ['class instance', new (class ResultMeta { x = 1 })()],
+  ])('normalizes non-JSON tool meta (%s) before the durable result commit', async (_kind, meta) => {
+    const adapter = new MockAdapter([
+      toolCallResponse('bad-meta-call', 'bad-meta', {}, 'calling'),
+      textResponse('recovered'),
+    ])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'bad-meta',
+      description: 'returns invalid durable metadata',
+      parameters: {},
+      execute: () => Promise.resolve({ content: [{ type: 'text' as const, text: 'apparent success' }], meta }),
+    }))
+    const agent = ctx.agentLoop.create(AgentId('bad-meta-agent'), { model: 'mock' })
+
+    send(agent, 'use the tool')
+    await waitForIdle(ctx, agent)
+
+    const result = agent.session.events.find(event => event.type === 'tool/result')
+    expect(result?.type).toBe('tool/result')
+    if (result?.type === 'tool/result') {
+      expect(result.data.callId).toBe('bad-meta-call')
+      expect(result.data.isError).toBe(true)
+      expect(result.data.meta).toBeUndefined()
+      expect(result.data.content).toEqual([{
+        type: 'text',
+        text: 'Error: tool result must be losslessly JSON-serializable',
+      }])
+    }
+    // The normalized failure was durably logged and fed back to the model; the
+    // turn continued normally instead of failing after an apparent success.
+    expect(adapter.requests).toHaveLength(2)
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('losslessly JSON-serializable')
   })
 
   it('omits the system field when a system-prompt/assemble veto empties the assembly', async () => {
@@ -347,6 +381,32 @@ describe('agent loop', () => {
     const flat = JSON.stringify(adapter.requests[0]!.messages)
     expect(flat).toContain('file changed: a.ts')
     expect(flat).toContain('<context source=\\"plugin\\">')
+  })
+
+  it('inject() can persist raw structured context without the generic context envelope', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('raw-context'), { model: 'mock' })
+    const text = '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>'
+    const meta = {
+      kind: 'workspace-instructions',
+      version: 1,
+      changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md', digest: 'abc123' }],
+    }
+
+    agent.inject([{ type: 'text', text }], {
+      source: { kind: 'plugin', plugin: 'workspace-context' },
+      envelope: 'raw',
+      meta,
+    })
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const contextEvent = agent.session.events.find(event => event.type === 'context/message')
+    expect(contextEvent?.type === 'context/message' && contextEvent.data).toMatchObject({ envelope: 'raw', meta })
+    const requestText = JSON.stringify(adapter.requests[0]!.messages)
+    expect(requestText).toContain('Additional instructions from: pkg/AGENTS.md')
+    expect(requestText).not.toContain('<context source=')
   })
 
   it('inject() while running appends into the open turn (no extra synthetic turn)', async () => {
@@ -484,9 +544,8 @@ describe('agent loop', () => {
   })
 
   it('agent/pre-step fires BEFORE the step it precedes opens (events land outside the step)', async () => {
-    // A listener appending a surface node in pre-step lands it BEFORE step/start
-    // in the log — proving the seam fires outside the step. The node is still in
-    // the derived request for that step (derive happens after step/start).
+    // The append lands before step/start, yet derive happens afterwards and the
+    // same step's request must include it.
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -519,10 +578,8 @@ describe('agent loop', () => {
   })
 
   it('a throwing agent/pre-step listener ends the turn (error), not the loop', async () => {
-    // The seam fires before step/start, so a throw escapes to runTurn's outer
-    // catch: the not-yet-open step closes as a no-op, the failure surfaces via
-    // agent/error, and the turn ends `error` (recorded on the durable turn/end).
-    // The loop survives and a follow-up prompt still runs.
+    // Before step/start, a pre-step throw reaches the turn catch: no step needs
+    // closing, the turn records error, and the loop remains available.
     const adapter = new MockAdapter([textResponse('second turn ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -589,16 +646,14 @@ describe('agent loop', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect(reasons).toEqual([{ kind: 'max-tokens' }])
-    // and the reason is recorded in the log's turn/end event
+    // Assert the durable row, not only the live listener.
     const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
     expect(turnEnd!.data.reason).toEqual({ kind: 'max-tokens' })
   })
 
   it('a max-tokens step earlier in a turn still surfaces as max-tokens after a later completed step', async () => {
-    // Step 1 is cut off (max-tokens, no tool calls → would stop by default), so
-    // continuation must be FORCED to reach step 2 which finishes normally
-    // (stop). The rule "any max-tokens step surfaces as max-tokens" means the
-    // turn ends max-tokens even though the LAST step completed cleanly.
+    // Step 1 is cut off (max-tokens, no tool calls → would stop by default), so continuation
+    // must be FORCED to reach step 2 which finishes normally (stop).
     const adapter = new MockAdapter([
       maxTokensResponse('first half'),
       textResponse('second half'),
@@ -680,11 +735,8 @@ describe('agent loop', () => {
     expect(agent.session.events.some(e => e.type === 'tool/call')).toBe(false)
     expect(agent.session.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'go' }] }])
     expect(reasons).toEqual([{ kind: 'max-tokens' }])
-    // No-data-loss: a max-tokens step whose only content was a dropped tool call
-    // has EMPTY assistant content, but its usage must still be represented. It
-    // rides on an (empty-content) assistant/message — there is no standalone
-    // usage event — and that empty message is skipped by deriveMessages(), so
-    // the derived history above is NOT corrupted by a spurious assistant turn.
+    // Empty content still needs an assistant/message to carry usage; derivation
+    // skips that host so it does not create a spurious assistant turn.
     const assistantMessage = agent.session.events.find(e => e.type === 'assistant/message')
     expect(assistantMessage?.type === 'assistant/message' && assistantMessage.data).toEqual({
       turn: 1, step: 1, content: [], usage: { inputTokens: 10, outputTokens: 5 },
@@ -692,10 +744,9 @@ describe('agent loop', () => {
   })
 
   it('appends no assistant/message for a max-tokens step with empty content and no usage', async () => {
-    // A max-tokens step truncated to a dropped tool call AND with no usage chunk
-    // has nothing to record: empty content and no accounting → no assistant/message
-    // (the empty-content host exists only to carry usage). The turn still ends
-    // max-tokens.
+    // A max-tokens step truncated to a dropped tool call AND with no usage chunk has nothing to
+    // record: empty content and no accounting → no assistant/message (the empty-content host
+    // exists only to carry usage).
     const callId = CallId('c1')
     const adapter = new MockAdapter([[
       { type: 'block-start', index: 0, blockType: 'tool-call' },
@@ -772,10 +823,10 @@ describe('agent loop', () => {
     ])
   })
 
-  it('stops the turn when a step/end session-event listener failure has recorded an error', async () => {
+  it('contains a step/end observer failure without changing continuation', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', { text: 'x' }),
-      textResponse('should not run'),
+      textResponse('continued after tool call'),
     ])
     const ctx = await harness(adapter)
     ctx.tools.register(defineTool({
@@ -788,9 +839,8 @@ describe('agent loop', () => {
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     let threw = false
-    // A throwing step/end session-event listener is the surviving boundary-listener
-    // failure path (step boundaries have no agent/* mirror): closeStep contains it
-    // and surfaces it as a turn error rather than stranding the turn open.
+    // Post-commit session observers cannot control the loop. The tool call still
+    // drives the second model request, and the turn completes normally.
     ctx.on('session/event', (_session, event) => {
       if (event.type === 'step/end' && !threw) { threw = true; throw new Error('bad step/end listener') }
     })
@@ -798,9 +848,9 @@ describe('agent loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(2)
     const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('completed')
   })
 
   it('chains queued messages into consecutive turns', async () => {
@@ -914,6 +964,21 @@ describe('agent loop', () => {
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)
+  })
+
+  it('attaches config agent cwd to the fresh session header', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, {
+      agents: [{ id: AgentId('config-agent'), model: 'mock', cwd: '/work/project' }],
+    })
+
+    const agent = ctx.agents.get(AgentId('config-agent'))! as ReactLoopAgent
+    expect(agent.session.header.cwd).toBe('/work/project')
   })
 
   it('replays a session log into an identical derived history', async () => {

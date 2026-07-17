@@ -1,33 +1,31 @@
 # dsh-system-prompt
 
-System prompt assembly registry. Plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step, and `renderPrompt(assembly)` is the full system prompt the model sees. The plugin registers the harness-owned openers itself — the static `harness:identity` section and the deployment's `deployment:persona` section — so they exist for every agent regardless of which loop plugin drives it.
+System prompt assembly registry. Plugins contribute ordered sections, tool schemas, and named variables. The loop assembles once per step and renders the result as the complete model prompt. This plugin owns the static harness identity and global deployment persona; an agent-scoped persona shadows the global default.
 
 ## Config
 
 | Key | Default | Meaning |
 |---|---|---|
-| `persona` | `''` | The deployment persona: the ONE deployment-authored prompt fragment, rendered as the order-0 `deployment:persona` section and shared by every agent in the context (subagents included). A template — complete `{{…}}` groups are interpreted strictly against the registered variables (the shipped loop registers `{{model}}`/`{{cwd}}`), with no escape syntax for literal braces yet. Empty ⇒ the section is dropped at render. |
+| `persona` | `''` | The global deployment-persona default: the ONE config-authored prompt fragment, rendered as the order-0 `deployment:persona` section unless an agent-scoped contribution shadows it. A template — complete `{{…}}` groups are interpreted strictly against the registered variables (the shipped loop registers `{{model}}`/`{{cwd}}`), with no escape syntax for literal braces yet. Empty ⇒ the section is dropped at render. |
+| `toolOrder` | — | Explicit model-facing tool order, as a list of `ToolSchema.name`s with one `'<unlisted-tools>'` rest entry (`TOOL_ORDER_REST`): listed tools take their listed position, unlisted tools land at the rest entry in lexicographic name order. Absent ⇒ plain lexicographic name order. Applied to the collected tools BEFORE the `system-prompt/assemble` waterfall — like the sections' `order` sort, it canonicalizes what the registry contributed (registration order is a plugin-load artifact), and a waterfall listener that mutates the list owns the determinism of what it emits. Misconfiguration fails loud: a list without exactly one rest entry, or with duplicates, throws at load; a listed name with no registered tool rejects every `assemble()`; a tool provider returning the reserved rest-entry name also rejects. Under the shipped loop the turn fails before any model request. Why a central list and not per-plugin weights: [Explicit model-facing tool order](../../../docs/rfc/implemented/feature/2026-07-06-explicit-tool-order.md). |
 
 ## Service: `SystemPrompt` (ctx key: `systemPrompt`)
 
 ### Public API
 
-- `ctx.systemPrompt.section(section: PromptSection): () => void` Contribute a section. Duplicate names throw. Disposed with the calling fiber.
-- `ctx.systemPrompt.tools(provider: () => ToolSchema[]): () => void` Contribute tool schemas (evaluated at each assembly). Disposed with the calling fiber.
-- `ctx.systemPrompt.variable(name: string, provider: (context) => string | undefined): () => void` Contribute a prompt variable, referenced from section text as `{{name}}`. Duplicate or unreferenceable names throw; `undefined` means "no value for this assembly". Disposed with the calling fiber.
-- `ctx.systemPrompt.assemble(context?: AssembleContext): Promise<PromptAssembly>` Assemble the prompt for one caller. Runs through the `system-prompt/assemble` waterfall.
+- `ctx.systemPrompt.section(section: PromptSection): () => void` Contribute a section. The layer is the calling context's scope: `agent.ctx` contributes to that agent alone, shadowing a same-named global section there. Duplicate names within one layer and non-finite orders throw. Disposed with the calling fiber.
+- `ctx.systemPrompt.tools(provider: (context: AssembleContext) => ToolProviderResult): () => void` Contribute tool schemas, evaluated at each assembly with that assembly's context. `ToolProviderResult` = `{ schemas, knownNames? }`: `schemas` is the post-restriction visible set; `knownNames` is the pre-restriction universe used by `toolOrder`. A provider must not return a schema named `TOOL_ORDER_REST`. Scoped providers are consulted only for their scope's assemblies. Disposed with the calling fiber.
+- `ctx.systemPrompt.variable(name: string, provider: (context) => string | undefined): () => void` Contribute a prompt variable, referenced from section text as `{{name}}`. Scoped variables shadow a same-named global for that agent. Duplicate-in-layer or unreferenceable names throw; `undefined` means "no value for this assembly". Disposed with the calling fiber.
+- `ctx.systemPrompt.assemble(context?: AssembleContext): Promise<PromptAssembly>` Assemble the prompt for one caller: the global layer merged with `context.scope`'s layer, with tool schemas detached before the transform seam. Runs through the scope-filtered `system-prompt/assemble` waterfall and returns its authoritative result. Rejects when a configured `toolOrder` names a tool outside the providers' `knownNames` universe, or when a provider returns the reserved rest-entry name.
 
-### Events
+### Live events
 
-| Event | Mode | Purpose |
-|---|---|---|
-| `system-prompt/assemble` | waterfall | Mutate/extend the assembly (with the caller's context) before it reaches the model |
-| `system-prompt/change` | emit | A section, tool provider, or variable was registered or unregistered |
+`system-prompt/assemble` is authoritative; listeners that replace entries must preserve any active Code Mode or structured-output protocol. Use [`ToolRegistry.restrict()`](../tools/README.md) when filtering must stay aligned across presentation, lookup, and execution. Registry-change notifications are unfiltered. The generated [event catalog](../../../docs/cordis-catalog/events.md) owns signatures and dispatch contracts.
 
 ### Key types
 
-- `AssembleContext` — what one `assemble()` call is FOR. Declared empty here and merge-extensible; `dsh-agent` declares `agent?: Agent`, so providers project per-agent facts. Providers must tolerate absent fields (a bare `assemble()` carries an empty context).
-- `PromptSection` — `{ name, order, text: string | ((context) => string) }`. Sections are concatenated in ascending `order`. Order bands: `-100` is the harness identity, `0` the deployment persona (both registered by this plugin), tool guidance uses `100–199`; other negative orders also render before the persona.
+- `AssembleContext` — what one `assemble()` call is FOR. Merge-extensible; declares `scope?: ScopeKey` (the layer selector) here, and `dsh-agent` declares `agent?: Agent` (the typed DX field — never set without `scope`; use `assembleContextFor(agent)`). Providers must tolerate absent fields (a bare `assemble()` carries an empty, scope-less context).
+- `PromptSection` — `{ name, order, text }`. Sections are concatenated in ascending `order`. Order bands: `-100` is the harness identity, `0` the deployment persona, tool guidance uses `100–199`.
 - `PromptAssembly` — `{ sections: AssembledSection[], tools: ToolSchema[], variables: Record<string, string | undefined> }`. Section texts arrive resolved but not yet interpolated; `variables` holds every registered variable resolved against the context. Tool schemas are part of the assembly by design: "what the model is told it can do" is one coherent thing, even though adapters transmit schemas as a separate wire field.
 - `renderPrompt(assembly)` — interpolates `{{variable}}` references in each section, drops empty sections, joins with blank lines. STRICT: an unknown reference (`Object.hasOwn` lookup — prototype names like `{{constructor}}` are unknown), a registered-but-valueless reference, a malformed complete `{{…}}` group, or a `{{` that opens no complete group while a `}}` still follows (`{{{model}}}`) throws — fail loud beats shipping a malformed prompt. A lone `{{` with no `}}` anywhere after it passes through verbatim; substituted values are never re-scanned.
 
@@ -38,11 +36,33 @@ Merge-extensible: plugins can declare extra fields on `PromptAssembly` and `Asse
 - Section providers: tool packages own their cross-call guidance (`tool:bash`, `tool:read`, …); this plugin owns `harness:identity` and `deployment:persona`.
 - Variable providers: the agent loop registers `model` and `cwd`; any plugin can register the facts it owns (a future `date`, git state, …).
 - Tool schema providers: `ToolRegistry` registers itself as a tool provider automatically.
-- The `system-prompt/assemble` waterfall: mutate or replace the assembly per caller (dynamic tool filtering, extra variables).
-
-### What is NOT here
-
-- Any deployment-authored prompt text outside config — the persona is this plugin's `persona` config, and every other section comes from the plugin that owns the fact. (The `harness:identity` line is deliberately a code literal: a harness fact, not a deployment choice; the `system-prompt/assemble` waterfall is the escape valve for a deployment that must drop it.)
-- Prompt compaction (belongs on the `agent/pre-step` seam in `dsh-agent`).
+- The [`system-prompt/assemble` waterfall](#live-events): cooperatively mutate or replace the assembly per caller.
 
 Design rationale: [the prompt-variables RFC](../../../docs/rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
+
+## Model Experience
+
+### System prompt
+
+**What the model sees**: Every assembly starts with the harness identity below, then the configured persona and ordered plugin sections after strict variable interpolation. Empty sections disappear; scoped sections and variables can shadow globals for one agent. The final `system-prompt/assemble` waterfall result is authoritative, so an expert listener's changes determine the delivered prompt and tool schemas.
+
+**Token effect**: Identity is a fixed per-request cost. Persona and plugin text are repeated per request and scale with their rendered content.
+
+#### Harness identity
+
+```markdown
+You are an AI agent powered by the DeepSeek Harness SDK.
+```
+
+### Tool schemas
+
+**What the model sees**: For shipped tools, the model receives the per-agent-visible subset of the [generated tool schemas](../../../docs/tool-catalog.md#tool-package-map), ordered by configuration or lexicographically after restrictions and assembly interception. Extensions can contribute additional definitions through the same registry. Sections and schema providers are separate assembly inputs, so a tool restriction does not remove independently registered guidance.
+
+**Token effect**: Schema tokens repeat on every request. Restricting a tool removes its entire schema cost for that agent but not a separate prompt section; reordering changes cache shape but not semantic content.
+
+## Known Limitations and Deferred Work
+
+- **Deployment-authored prompt text is config/composition only** — this plugin owns the global persona default, creator plugins may register agent-scoped shadows, and other sections come from the plugin that owns the fact; there is no end-user prompt-editing API.
+- **No escape syntax for literal `{{…}}` braces** — every complete group is interpolated against registered variables; an escape is deferred until a real prompt needs one.
+- **`toolOrder` misconfiguration surfaces at prompt assembly (the first turn), not at boot** — only shape violations throw at config load.
+- **Sections sharing an `order` value tie-break by registration order** — a plugin-load artifact; determinism relies on the distinct-order band convention, unlike the canonicalized tool order.

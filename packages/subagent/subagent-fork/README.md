@@ -1,23 +1,43 @@
 # @deepseek-ai/dsh-subagent-fork
 
-The in-process **fork** subagent backend: a [`SubagentProvider`](../subagent/README.md) that runs each child as a child [`Agent`](../../core/agent) **seeded with a prefix of the parent's session log** — so the child inherits the parent's conversation context instead of starting fresh. Shares the run driver (`startInProcessRun`) with [`dsh-subagent-spawn`](../subagent-spawn/README.md); the only difference is the seed.
+The fork provider creates an in-process child seeded with the parent's completed conversation turns. It shares all run mechanics with spawn; the session seed is the only behavioral difference.
 
-## The seed boundary (the crux)
+## Seed boundary
 
-At the moment a subagent tool's `execute` runs, the parent's CURRENT turn is open and unbalanced: the log holds the `assistant/message` carrying this spawn's tool-call and the dangling `tool/call` with no `tool/result` yet. Seeding that raw prefix would give the child an open turn that the session constructor and the dev-mode [invariants](../../support/invariants) replay **reject**.
+The parent's current tool-calling turn is still open when a subagent starts: its log contains the assistant tool call but not the matching tool result or `turn/end`. Copying that raw log would give the child an invalid, unbalanced session.
 
-So the fork seeds only the **balanced completed-turn prefix** — the parent's log up to and including its last `turn/end`, excluding the in-flight turn entirely (`completedTurnPrefix`). Because the live log keeps `seq === index`, the slice is contiguous-from-0 and a valid seed. A parent on its very first (not-yet-complete) turn forks an *empty* seed — i.e. effectively a fresh child.
+Fork therefore uses `completedTurnPrefix(parent.session.events)`: the contiguous prefix ending at the last `turn/end`. The child sees all completed parent turns and none of the in-flight turn. If the parent has not completed a turn yet, the seed is empty and the child behaves like a fresh spawn.
 
-The seam this rides on: `CreateAgentOptions.seed` (added on `dsh-agent`, threaded through `AgentLoop.createAgent` → `ctx.sessions.prepare({ seed })`), the same primitive `resume` uses.
+The seed transfers conversation history only. The child still receives a fresh flat registration scope; it does not inherit the parent's tool restrictions or authority.
 
-## Capabilities
+## Start and capabilities
 
-`{ outputSchema: false, depthLimit: true, toolFilter: false }` — identical to spawn (the depth/model/output behavior is the shared driver's).
+`start(request)` passes the completed-turn seed to [`startInProcessRun`](../subagent-inprocess/README.md) and awaits child publication. The shared driver owns cancellation, depth, customization, result reading, and disposal.
+
+Fork advertises `{ outputSchema: true, depthLimit: true, toolFilter: true, persona: true }`, identical to spawn.
 
 ## Config
 
 | Key | Meaning |
 |---|---|
 | `providerName` | Registry name on `ctx.subagents` (default `fork`). |
-
 See [`dsh-subagent-spawn`](../subagent-spawn/README.md) for the run lifecycle, model inheritance, and depth tracking — all shared.
+
+## Model Experience
+
+### Child-agent history and envelope
+
+**What the model sees**: The child receives the parent's balanced completed-turn surface prefix, then the new task content verbatim. A configured persona shadows prompt text in the child's fresh scope; a tool restriction filters its global wire schemas, executable lookup, and Code Mode SDK bindings but not standalone guidance. The parent's tool view and authority are not inherited. An optional structured-output request adds its child-only contract. The parent's current in-flight turn is excluded.
+
+**Token effect**: Forking duplicates retained completed history into separate child requests; the child then accumulates its own tokens independently. Persona changes repeated prompt cost, filtering changes schema or generated SDK cost, and a first-turn fork has no inherited history.
+
+### Parent tool result, indirectly
+
+**What the model sees**: The parent receives only the child's own final output through `dsh-tool-subagent`, not the inherited prefix or intermediate work.
+
+**Token effect**: Parent input grows by one data-dependent final result retained until compaction.
+
+## Known Limitations and Deferred Work
+
+- **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs.
+- **The seed is a one-time snapshot** — the child sees the parent's completed turns as of the fork and nothing the parent logs afterwards; there is no live context sharing.

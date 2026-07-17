@@ -1,18 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
-import SubagentService from '@deepseek-ai/dsh-subagent'
+import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import * as Spawn from '@deepseek-ai/dsh-subagent-spawn'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as fork from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
+
+function start(ctx: Context, provider: string, request: Omit<SubagentStartRequest, 'signal'> & { signal?: AbortSignal }) {
+  return ctx.subagents.start(provider, { signal: request.signal ?? new AbortController().signal, ...request })
+}
 
 /**
  * The two in-process backends coexist on one context: the SAME parent agent
@@ -22,11 +23,7 @@ type Script = ConstructorParameters<typeof MockAdapter>[0]
  */
 async function setup(script: Script) {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(Invariants)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
@@ -62,13 +59,13 @@ describe('multi-subagent coexistence (spawn + fork on one context)', () => {
     const parentPrefixLen = parent.session.events.length
 
     // Delegate to a fresh spawn child.
-    const spawnRun = ctx.subagents.start('spawn', { prompt: [{ type: 'text', text: 'spawn task' }], parent })
+    const spawnRun = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'spawn task' }], parent })
     const spawnResult = await spawnRun.result
     expect(spawnResult.stopReason).toBe('completed')
     expect(text(spawnResult.output)).toBe('spawn child reply')
 
     // Delegate to a fork child (seeded with the parent's turn-1 prefix).
-    const forkRun = ctx.subagents.start('fork', { prompt: [{ type: 'text', text: 'fork task' }], parent })
+    const forkRun = await start(ctx, 'fork', { prompt: [{ type: 'text', text: 'fork task' }], parent })
     const forkResult = await forkRun.result
     expect(forkResult.stopReason).toBe('completed')
     expect(text(forkResult.output)).toBe('fork child reply')
