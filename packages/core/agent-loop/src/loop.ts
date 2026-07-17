@@ -234,10 +234,15 @@ async function runTurn(
       // `allow.content` REPLACES the prompt bytes (a rewrite); absent keeps them.
       const content = decision.content ?? message.content
       session.append('user/message', { content, source: message.source }, { surfaceOp: 'append' })
-      // `allow.additionalContext` is a SEPARATE context/message the next request
-      // also sees. The turn is open, so inject() appends it into THIS turn.
-      if (decision.additionalContext) {
-        agent.inject(decision.additionalContext.content, { source: decision.additionalContext.source })
+      // Every `allow.additionalContexts` entry is a separate context/message the
+      // next request also sees. The turn is open, so inject() appends each one
+      // into THIS turn without flattening provenance, framing, or metadata.
+      for (const context of decision.additionalContexts ?? []) {
+        agent.inject(context.content, {
+          source: context.source,
+          ...context.envelope !== undefined ? { envelope: context.envelope } : {},
+          ...context.meta !== undefined ? { meta: context.meta } : {},
+        })
       }
     }
 
@@ -587,7 +592,7 @@ async function runStep(
       // Persist tool-owned presentation data for replay.
       ...result.meta !== undefined ? { meta: result.meta } : {},
     }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
-    if (result.additionalContext) pendingContext.push(result.additionalContext)
+    pendingContext.push(...result.additionalContexts ?? [])
     // The signal may flip while the tool is awaited.
     /* v8 ignore start -- signal.reason default unreachable: cancel()/disposal always set it */
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
@@ -597,7 +602,11 @@ async function runStep(
 
   // Append buffered context after the complete result batch.
   for (const context of pendingContext) {
-    agent.inject(context.content, { source: context.source })
+    agent.inject(context.content, {
+      source: context.source,
+      ...context.envelope !== undefined ? { envelope: context.envelope } : {},
+      ...context.meta !== undefined ? { meta: context.meta } : {},
+    })
   }
 
   return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }

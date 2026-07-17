@@ -163,10 +163,9 @@ export function apply(ctx: Context, config: Config): void {
     return { content, source: PLUGIN_SOURCE }
   }
 
-  /** Merge hook context while retaining this bridge's plugin-level source. */
-  function concatContext(ours: HookContext, theirs: HookContext | undefined): HookContext {
-    if (!theirs) return ours
-    return { content: [...ours.content, ...theirs.content], source: ours.source }
+  /** Prepend one context without flattening downstream provenance or metadata. */
+  function prependContext(ours: HookContext, theirs: HookContext[] | undefined): HookContext[] {
+    return [ours, ...theirs ?? []]
   }
 
   // SessionStart injects plain stdout when its detached hook resolves; a slow
@@ -196,7 +195,7 @@ export function apply(ctx: Context, config: Config): void {
     return {
       kind: 'allow',
       ...downstream.content !== undefined ? { content: downstream.content } : {},
-      additionalContext: concatContext(ours, downstream.additionalContext),
+      additionalContexts: prependContext(ours, downstream.additionalContexts),
     }
   })
 
@@ -216,19 +215,19 @@ export function apply(ctx: Context, config: Config): void {
     const merged = await runPoint('PostToolUse', exec.name, postToolPayload(exec, result, model), { ...exec.agent ? { agent: exec.agent } : {}, turn, ...exec.signal ? { signal: exec.signal } : {} })
     const context = contextFrom(merged)
     if (merged.decision === 'deny') {
-      return { kind: 'block', feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }], ...context ? { additionalContext: context } : {} }
+      return { kind: 'block', feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }], ...context ? { additionalContexts: [context] } : {} }
     }
     // Context alone is not a veto: DELEGATE, then fold our context onto the
     // downstream decision (a downstream block carries it too).
     const downstream = await next()
     if (!context) return downstream
     if (downstream.kind === 'block') {
-      return { ...downstream, additionalContext: concatContext(context, downstream.additionalContext) }
+      return { ...downstream, additionalContexts: prependContext(context, downstream.additionalContexts) }
     }
     return {
       kind: 'accept',
       ...downstream.content !== undefined ? { content: downstream.content } : {},
-      additionalContext: concatContext(context, downstream.additionalContext),
+      additionalContexts: prependContext(context, downstream.additionalContexts),
     }
   })
 
