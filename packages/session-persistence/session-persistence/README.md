@@ -25,6 +25,8 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 
 `PersistenceCoordinator` owns per-id state, write-behind buffers and serialization, the `session/event` → `session/flush` drain, lazy materialization, crash-tail repair, session adoption, and quiescent disposal. A first-party backend composes one, implements the small `PersistenceBackend` storage hook interface, and delegates its four public service methods. JSONL and SQLite therefore share lifecycle correctness while retaining different storage primitives; see the [coordinator RFC](../../../docs/rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
 
+When a live session emits `session/disposed`, the coordinator waits for its initialization, serializes a final buffer drain, then releases every map entry owned by that exact `Session` object. A failed final drain keeps the pending buffer for backend teardown to retry. Backend teardown stops event admission first, awaits all in-flight session retirements and remaining per-id operations, drains any retained buffers, and only then closes the storage handle.
+
 The side-effect-free `locate` query remains backend-owned because it describes storage topology rather than write orchestration.
 
 The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinator and storage):
