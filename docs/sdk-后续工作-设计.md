@@ -10,7 +10,7 @@
 | 块 | 做什么 | 核心对象 | 结论要点 |
 |---|---|---|---|
 | **#1 headless + skill** | create/config 非交互化，agent 端到端建项目 | `HeadlessPrompter` + `CreationDriver`(NDJSON) | 无 spec 文件、传结构化对象；薄 SKILL.md 入口；beyond-eve |
-| **#2 建插件** | `dsh-sdk create <github\|npm>` 拉插件并接线 | `PluginSource` + `PluginFetcher`(giget/pacote) | 只解压不执行、锁版本、经 `ProjectEditSession` 显式接线 |
+| **#2 建插件** | `dsh-sdk create <github\|npm>` 加依赖并挂载 | PM 原生 `add` + `ProjectEditSession` cordis 挂载 | npm/pnpm 原生依赖（`github:#sha` / `pkg@version`），不用 giget/pacote |
 | **#3 遥测** | 每个 `dsh-sdk` 命令上报 | `TelemetryReporter` / `ConsentResolver` / `SecretRedactor` | 发 cordis.yml+package.json 全文；不发 `.env`、疑似密钥脱敏；关闭 = cordis.yml 有明确 disabled 的遥测条目（甲）|
 | **#4 交互测试** | 覆盖 wizard 各分支、快照 cordis.yml | `WizardHarness` + clack mock 注入 | 注入流为主、真 PTY 仅 1–2 个可选 smoke |
 
@@ -106,23 +106,17 @@ SDK 初版（`packages/sdk/*`）已经落地三个包：
 - **skill**：核心是 headless 内核；agent 传参直接建完，缺必答项就响亮失败让 agent 补答。附一层**薄 SKILL.md**（指向内核、教 agent 驱动），让"通过 skill 创建"字面落地。
 - **比 eve 更进一步**：eve 把 headless 原语（`runHeadless` + 非阻塞 Prompter + NDJSON）造好了，却没接到它的 skill——它的 SKILL.md 只指向半交互 CLI，且 agent 跑 `eve init` 时只打印指引、打回给人。我们把 **skill → headless 内核接通**，才真正做到"headless 为 skill 服务"。
 
-### 4.2 `dsh-sdk create <source>` 建插件（#2）
+### 4.2 `dsh-sdk create <source>` 建插件（#2，简单版）
 
-**目标**：从 github repo 或 npm 包拉一个插件进现有项目并接线；安全第一。
+**目标**：把一个 github repo 或 npm 包当**依赖**加进现有项目并挂载；用包管理器原生能力，**不引 giget/pacote**。
 
-**设计（只解压不执行 + 锁版本 + 显式接线）**：
+**设计（PM 原生依赖 + cordis 挂载）**：
 
-- **`PluginSource`（判别联合）**：`GithubSource`（`owner/repo[/subdir]#ref`）| `NpmSource`（`pkg@version`）。由 spec 字符串解析而来。
-- **`PluginFetcher`（seam）**：把源抓进 temp 目录，**绝不执行被拉代码的生命周期脚本**。
-  - `GigetFetcher`（github/git）：giget；`#ref` 先解析成 commit SHA 再下、记进 lock。
-  - `PacoteFetcher`（npm）：pacote `extract`（只解包不跑 postinstall），带 `integrity` 校验。来源类型限定放在**上游 `resolvePluginSource`**（只产出 `name@version`）作为主保证，不依赖 pacote 的 `allowRegistry`（`@types/pacote` 无此选项，且 registry tarball extract 本就不跑脚本）。
-- **接线（显式可审）**：
-  1. `package.json` 精确锁版本（npm：exact + integrity；github：`github:owner/repo#<sha>`）。
-  2. 经 `ProjectEditSession` 改 `cordis.yml` 挂插件——**给 diff、要确认**再写。
-  3. `install --ignore-scripts`（pnpm v10 默认亦拦依赖 build 脚本）。
-  4. 打印清单（dep spec + 锁的 ref/integrity + cordis.yml diff）。
-- **信任模型**：学 `npm create` 的手感，但把信任反过来——**confirm-before-run，而非 run-on-fetch**。
-- **repo 初始化模式**（从模板仓库整体建项目）同走 giget（优于 degit——degit 的 `degit.json` 会自动跑动作）；建远程新仓可用 `gh repo create --template`。注：eve 不支持 template-repo init，这是我们的自有取舍。
+- **来源**：npm（`pkg@version`）或 github（`github:owner/repo#ref`，推荐锁 commit SHA）。npm/pnpm/yarn 原生支持这两种依赖来源，自己解析包名、把 commit/integrity 钉进 lockfile。
+- **流程**：`dsh-sdk create <source>` → 确认（TTY guard 同 config）→ 用项目的包管理器 `add <source>`（PM 解析名字 / 装依赖 / 写 lockfile）→ 读回新增依赖名 → 经 `ProjectEditSession` 挂一条 cordis 条目引用它 → commit。
+- **不落 `plugins/`**：外部插件是 node_modules 依赖，不是本地生成插件（后者才走 `LocalPluginBlueprint` + 文件生成）。
+- **构建张力（暂缓）**：源码型 github 插件装时要 `prepare` build（pnpm 10.26 默认禁、需 `allowBuilds` 放行）——"预编译-only vs 允许构建"的取舍留到以后；先做能跑的简单版，交给 PM 默认行为。
+- **弃用**：早期设计的 `PluginSource`/`GigetFetcher`/`PacoteFetcher`（抓 tarball 到 temp 再接线）已随 `dsh-plugin-fetch` 包一起撤掉——PM 原生依赖覆盖了它。
 
 ### 4.3 遥测（#3）
 
@@ -185,7 +179,7 @@ SDK 初版（`packages/sdk/*`）已经落地三个包：
 |---|---|---|
 | 地基 | dsh-helper, create-sdk, dsh-scripts | `HeadlessPromptPort`（实现已有 `PromptPort`）+ prefill 补全 + NDJSON + 命令注册/催表扩展点整理 |
 | #1 headless+skill | create-sdk, dsh-scripts, （新）skill 包 | 结构化 spec 入口 `--config-json`/`--config`、薄 SKILL.md |
-| #2 建插件 | （新）fetcher 包, dsh-scripts, dsh-helper | `PluginSource`、`GigetFetcher`/`PacoteFetcher`、`dsh-sdk create <source>` 注册、经 `ProjectEditSession` 接线+diff、新依赖 giget/pacote |
+| #2 建插件 | dsh-scripts, dsh-helper | `dsh-sdk create <source>` 命令、PM `add`、经 `ProjectEditSession` 挂 cordis 条目、无新依赖 |
 | #3 遥测 | （新）telemetry 包, dsh-scripts, dsh-helper | `TelemetryReporter`/`ConsentResolver`/`SecretRedactor`、launcher 接线、催表遥测 feature、内置 endpoint、全局 UUID |
 | #4 测试 | packages/support, （已可注入）create-sdk/dsh-scripts | `WizardHarness`、create/config 的 `test.each` cordis.yml 快照、可选 PTY smoke |
 
