@@ -148,6 +148,25 @@ export abstract class PackageManager {
     await this.runChecked(runner, this.buildCommand(), cwd, 'build')
   }
 
+  /**
+   * Build add-dependency command arguments for one already-normalized source spec.
+   * @param spec - a package-manager-native dependency source (`pkg@version` or `github:owner/repo#ref`).
+   * @returns arguments following the manager executable.
+   */
+  addCommand(spec: string): readonly string[] {
+    return ['add', spec]
+  }
+
+  /**
+   * Add one dependency from a native source spec and fail on non-zero or signalled exit.
+   * @param spec - a package-manager-native dependency source.
+   * @param cwd - project directory.
+   * @param runner - optional subprocess boundary.
+   */
+  async add(spec: string, cwd: string, runner: CommandRunner = new NodeCommandRunner()): Promise<void> {
+    await this.runChecked(runner, this.addCommand(spec), cwd, 'add')
+  }
+
   private async runChecked(runner: CommandRunner, args: readonly string[], cwd: string, operation: string): Promise<void> {
     const result = await runner.run(this.name, args, cwd)
     if (result.signal !== null) {
@@ -183,6 +202,11 @@ export class NpmPackageManager extends PackageManager {
   /** npm live links use file NPM dependencies. */
   override linkSpec(relativePath: string): string {
     return `file:${relativePath}`
+  }
+
+  /** npm adds a dependency through `install <spec>` rather than an `add` verb. */
+  override addCommand(spec: string): readonly string[] {
+    return ['install', spec]
   }
 }
 

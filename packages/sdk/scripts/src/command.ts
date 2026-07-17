@@ -7,6 +7,7 @@
 import { parseDshSdkArgs } from './args.ts'
 import { runProjectBuild } from './build.ts'
 import { runConfigCommand, type ConfigCommandContext } from './config.ts'
+import { runCreatePluginCommand } from './create-plugin.ts'
 import { runSDK } from './runtime.ts'
 import { DSH_SDK_TEMPLATES } from './templates/dsh-sdk-templates.ts'
 
@@ -19,6 +20,7 @@ export interface DshSdkCommandContext extends ConfigCommandContext {
   run?: typeof runSDK
   build?: typeof runProjectBuild
   config?: typeof runConfigCommand
+  createPlugin?: typeof runCreatePluginCommand
 }
 
 /** Run one parsed dsh-sdk command and return its process exit code. */
@@ -40,6 +42,7 @@ export async function runDshSdkCommand(
     const run = context.run ?? runSDK
     const build = context.build ?? runProjectBuild
     const config = context.config ?? runConfigCommand
+    const createPlugin = context.createPlugin ?? runCreatePluginCommand
     switch (args.command) {
       case 'start': await run(args.target, { cwd: context.cwd, argv: args.forwarded }); break
       case 'dev': await run(args.target, { cwd: context.cwd, dev: true, argv: args.forwarded }); break
@@ -49,6 +52,8 @@ export async function runDshSdkCommand(
         if (result.installError) return 1
         break
       }
+      /* v8 ignore next -- Commander requires <source>, so create never dispatches without it */
+      case 'create': await createPlugin(args.source ?? '', context); break
     }
     return 0
   } catch (error) {

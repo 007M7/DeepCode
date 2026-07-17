@@ -31,6 +31,7 @@ import { PluginBuild, ProjectBuild, runProjectBuild } from '../src/build.ts'
 import { runDshSdkCommand, type DshSdkCommandContext } from '../src/command.ts'
 import { runConfigCommand } from '../src/config.ts'
 import { ConfigWorkflow, type ConfigPlan } from '../src/config/config-workflow.ts'
+import { runCreatePluginCommand } from '../src/create-plugin.ts'
 import { initialize, resolve as resolveLocalPlugin } from '../src/local-plugin-loader-hooks.ts'
 
 const temporary: string[] = []
@@ -557,5 +558,64 @@ describe('ConfigWorkflow', () => {
     expect(result.commit?.project.profile.runInterface).toBe('embed')
     expect(result.commit?.project.cordis.entry('tool-ask-user')?.disabled).toBe(true)
     expect(output.read()).toContain('Disable feature: ask-user')
+  })
+})
+
+describe('dsh-sdk create', () => {
+  const writeDependency = (name: string) => async (_m: unknown, spec: string, cwd: string): Promise<void> => {
+    const path = join(cwd, 'package.json')
+    const manifest = JSON.parse(await readFile(path, 'utf8')) as { dependencies?: Record<string, string> }
+    manifest.dependencies = { ...manifest.dependencies, [name]: spec }
+    await writeFile(path, JSON.stringify(manifest, null, 2))
+  }
+
+  it('adds a dependency and mounts it after confirmation', async () => {
+    const project = await committedProject()
+    const context = { ...commandContext(project.root), port: new QueuePort([true]), add: writeDependency('my-ext-plugin') }
+    const result = await runCreatePluginCommand('github:o/r#sha', context)
+    expect(result?.project.cordis.entry('my-ext-plugin')?.name).toBe('my-ext-plugin')
+    expect(context.readStdout()).toContain('Mounted my-ext-plugin')
+  })
+
+  it('derives the cordis id from a scoped package name', async () => {
+    const project = await committedProject()
+    const context = { ...commandContext(project.root), port: new QueuePort([true]), add: writeDependency('@acme/cool-plugin') }
+    const result = await runCreatePluginCommand('@acme/cool-plugin@1.0.0', context)
+    expect(result?.project.cordis.entry('cool-plugin')?.name).toBe('@acme/cool-plugin')
+  })
+
+  it('returns undefined and adds nothing when declined', async () => {
+    const project = await committedProject()
+    let added = false
+    const context = {
+      ...commandContext(project.root),
+      port: new QueuePort([false]),
+      add: async () => { added = true },
+    }
+    await expect(runCreatePluginCommand('pkg@1.0.0', context)).resolves.toBeUndefined()
+    expect(added).toBe(false)
+  })
+
+  it('rejects an empty source, a non-TTY session, and a no-op add', async () => {
+    const project = await committedProject()
+    await expect(runCreatePluginCommand('   ', { ...commandContext(project.root), port: new QueuePort([]) }))
+      .rejects.toThrow('requires a plugin source')
+    const noTty = commandContext(project.root)
+    noTty.stdin.isTTY = false
+    noTty.stdout.isTTY = false
+    await expect(runCreatePluginCommand('pkg@1.0.0', noTty)).rejects.toThrow('interactive TTY')
+    const noOutTty = commandContext(project.root)
+    noOutTty.stdout.isTTY = false
+    await expect(runCreatePluginCommand('pkg@1.0.0', noOutTty)).rejects.toThrow('interactive TTY')
+    await expect(runCreatePluginCommand('pkg@1.0.0', {
+      ...commandContext(project.root), port: new QueuePort([true]), add: async () => {},
+    })).rejects.toThrow('added no new dependency')
+  })
+
+  it('dispatches create through the launcher', async () => {
+    const project = await committedProject()
+    const context = commandContext(project.root)
+    context.createPlugin = async () => undefined
+    await expect(runDshSdkCommand(['create', 'pkg@1.0.0'], context)).resolves.toBe(0)
   })
 })

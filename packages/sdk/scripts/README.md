@@ -8,6 +8,7 @@ The `dsh-sdk` launcher owns SDK project startup and configuration.
 | `dsh-sdk dev [target] [-- args…]` | Register TypeScript and local-workspace source resolution, then use the start path |
 | `dsh-sdk build [args…]` | Invoke the project's installed tsdown with the project arguments |
 | `dsh-sdk config` | Open one interactive edit session, review accumulated changes, commit once, and install once when NPM dependencies changed |
+| `dsh-sdk create <source>` | Add an external Cordis plugin from a native package-manager source (`pkg@version` or `github:owner/repo#ref`): confirm, `<pm> add <source>`, then mount the resolved dependency in `cordis.yml`. No giget/pacote; the package manager resolves and pins the source (github deps build via their own `prepare` under the manager's policy) |
 
 `ProjectBuild(tsdownConfig)` and `PluginBuild(tsdownConfig)` are exported only from `@deepseek-ai/dsh-scripts/dev/tsdown-config`. Development and production read the same `cordis.yml`.
 

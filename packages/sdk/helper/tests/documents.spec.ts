@@ -298,6 +298,11 @@ describe('package manager strategies', () => {
     await npm.install('/tmp', runner)
     await npm.build('/tmp', runner)
     expect(calls).toEqual([['npm', 'install'], ['npm', 'run', 'build']])
+    await npm.add('some-pkg@1.0.0', '/tmp', runner)
+    const pnpm = createPackageManager('pnpm', '10.0.0')
+    await pnpm.add('github:o/r#sha', '/tmp', runner)
+    expect(calls).toContainEqual(['npm', 'install', 'some-pkg@1.0.0'])
+    expect(calls).toContainEqual(['pnpm', 'add', 'github:o/r#sha'])
     const failed: CommandRunner = { run: async () => ({ exitCode: 2, signal: null }) }
     await expect(npm.install('/tmp', failed)).rejects.toThrow('exited with code 2')
     const killed: CommandRunner = { run: async () => ({ exitCode: null, signal: 'SIGTERM' }) }
