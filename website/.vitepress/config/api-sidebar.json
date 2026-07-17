@@ -1,0 +1,122 @@
+{
+  "cordis": [
+    {
+      "text": "Context",
+      "link": "/zh-CN/api/cordis/context"
+    },
+    {
+      "text": "Events",
+      "link": "/zh-CN/api/cordis/events"
+    },
+    {
+      "text": "Fiber",
+      "link": "/zh-CN/api/cordis/fiber"
+    },
+    {
+      "text": "Registry",
+      "link": "/zh-CN/api/cordis/registry"
+    },
+    {
+      "text": "Service",
+      "link": "/zh-CN/api/cordis/service"
+    }
+  ],
+  "harness": [
+    {
+      "text": "ctx.agentLoop",
+      "link": "/zh-CN/api/harness/agent-loop"
+    },
+    {
+      "text": "ctx.agents",
+      "link": "/zh-CN/api/harness/agents"
+    },
+    {
+      "text": "ctx.approval",
+      "link": "/zh-CN/api/harness/approval"
+    },
+    {
+      "text": "ctx.bash",
+      "link": "/zh-CN/api/harness/bash"
+    },
+    {
+      "text": "ctx.bashEnv",
+      "link": "/zh-CN/api/harness/bash-env"
+    },
+    {
+      "text": "ctx.codeRuntime",
+      "link": "/zh-CN/api/harness/code-runtime"
+    },
+    {
+      "text": "ctx.compact",
+      "link": "/zh-CN/api/harness/compact"
+    },
+    {
+      "text": "ctx.fs",
+      "link": "/zh-CN/api/harness/fs"
+    },
+    {
+      "text": "ctx.llm",
+      "link": "/zh-CN/api/harness/llm"
+    },
+    {
+      "text": "ctx.permission",
+      "link": "/zh-CN/api/harness/permission"
+    },
+    {
+      "text": "ctx.sandbox",
+      "link": "/zh-CN/api/harness/sandbox"
+    },
+    {
+      "text": "ctx.sessionPersistence",
+      "link": "/zh-CN/api/harness/session-persistence"
+    },
+    {
+      "text": "ctx.sessionQuery",
+      "link": "/zh-CN/api/harness/session-query"
+    },
+    {
+      "text": "ctx.sessions",
+      "link": "/zh-CN/api/harness/sessions"
+    },
+    {
+      "text": "ctx.skills",
+      "link": "/zh-CN/api/harness/skills"
+    },
+    {
+      "text": "ctx.spillStore",
+      "link": "/zh-CN/api/harness/spill-store"
+    },
+    {
+      "text": "ctx.subagents",
+      "link": "/zh-CN/api/harness/subagents"
+    },
+    {
+      "text": "ctx.systemPrompt",
+      "link": "/zh-CN/api/harness/system-prompt"
+    },
+    {
+      "text": "ctx.tasks",
+      "link": "/zh-CN/api/harness/tasks"
+    },
+    {
+      "text": "ctx.tools",
+      "link": "/zh-CN/api/harness/tools"
+    },
+    {
+      "text": "ctx.userInteraction",
+      "link": "/zh-CN/api/harness/user-interaction"
+    },
+    {
+      "text": "ctx.web",
+      "link": "/zh-CN/api/harness/web"
+    },
+    {
+      "text": "ctx.workflows",
+      "link": "/zh-CN/api/harness/workflows"
+    },
+    {
+      "text": "Events",
+      "link": "/zh-CN/api/harness/events"
+    }
+  ]
+}

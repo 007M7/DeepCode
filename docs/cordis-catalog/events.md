@@ -259,7 +259,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 'session/created'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:47`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:46`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
@@ -269,7 +269,7 @@ Emitted once when an announced session leaves the store, including publication r
 'session/disposed'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:57`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:56`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -281,7 +281,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:69`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:68`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -291,7 +291,7 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:79`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:78`](../../packages/core/session/src/index.ts)
 
 ## `subagent/*`
 
@@ -483,14 +483,14 @@ Source: [`packages/workflow/workflow/src/index.ts:45`](../../packages/workflow/w
 
 The framework events every plugin also sees, beyond the harness vocabulary above. This is pinned vendor source ([vendoring policy](../../vendor/README.md)); it is summarized here so the page is a complete picture of the event bus, without elevating framework internals to the harness tier's prominence.
 
-- `internal/plugin` — A plugin fiber was created. ([`vendor/cordis/src/events.ts:197`](../../vendor/cordis/src/events.ts))
-- `internal/status` — A fiber changed lifecycle state. ([`vendor/cordis/src/events.ts:198`](../../vendor/cordis/src/events.ts))
-- `internal/service` — Interception hook for a service binding (no core producer). ([`vendor/cordis/src/events.ts:199`](../../vendor/cordis/src/events.ts))
-- `internal/update` — Waterfall: a fiber config update is being applied. ([`vendor/cordis/src/events.ts:200`](../../vendor/cordis/src/events.ts))
-- `internal/get` — Waterfall: a service is being read from the store. ([`vendor/cordis/src/events.ts:201`](../../vendor/cordis/src/events.ts))
-- `internal/set` — Waterfall: a service is being written to the store. ([`vendor/cordis/src/events.ts:202`](../../vendor/cordis/src/events.ts))
-- `internal/listener` — A listener was registered. ([`vendor/cordis/src/events.ts:203`](../../vendor/cordis/src/events.ts))
-- `internal/dispatch` — An event is being dispatched to listeners. ([`vendor/cordis/src/events.ts:204`](../../vendor/cordis/src/events.ts))
+- `internal/plugin` — A plugin fiber was created. ([`vendor/cordis/src/events.ts:328`](../../vendor/cordis/src/events.ts))
+- `internal/status` — A fiber changed lifecycle state. ([`vendor/cordis/src/events.ts:330`](../../vendor/cordis/src/events.ts))
+- `internal/service` — Interception hook for a service binding (no core producer). ([`vendor/cordis/src/events.ts:332`](../../vendor/cordis/src/events.ts))
+- `internal/update` — Waterfall: a fiber config update is being applied. ([`vendor/cordis/src/events.ts:334`](../../vendor/cordis/src/events.ts))
+- `internal/get` — Waterfall: a service is being read from the store. ([`vendor/cordis/src/events.ts:336`](../../vendor/cordis/src/events.ts))
+- `internal/set` — Waterfall: a service is being written to the store. ([`vendor/cordis/src/events.ts:338`](../../vendor/cordis/src/events.ts))
+- `internal/listener` — A listener was registered. ([`vendor/cordis/src/events.ts:340`](../../vendor/cordis/src/events.ts))
+- `internal/dispatch` — An event is being dispatched to listeners. ([`vendor/cordis/src/events.ts:342`](../../vendor/cordis/src/events.ts))
 - `hmr/change` — A watched source file changed on disk. ([`vendor/hmr/src/index.ts:20`](../../vendor/hmr/src/index.ts))
 - `hmr/reload` — Plugins are being reloaded after a change. ([`vendor/hmr/src/index.ts:21`](../../vendor/hmr/src/index.ts))
 - `exit` — The process is exiting on a signal. ([`vendor/loader/src/index.ts:23`](../../vendor/loader/src/index.ts))
