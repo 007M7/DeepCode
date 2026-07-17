@@ -349,14 +349,24 @@ describe('agent loop', () => {
     expect(flat).toContain('change of plans')
   })
 
-  it('steering while idle behaves like send (starts a turn)', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
+  it('same-tick idle steering inherits one-send-one-turn FIFO behavior', async () => {
+    const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    agent.steer([{ type: 'text', text: 'hello' }])
-    await waitForIdle(ctx, agent)
-    expect(agent.session.events.some(e => e.type === 'user/message')).toBe(true)
+    const idle = waitForIdle(ctx, agent)
+    agent.steer([{ type: 'text', text: 'first idle steer' }])
+    agent.steer([{ type: 'text', text: 'second idle steer' }])
+    await idle
+
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+    expect(agent.session.events
+      .filter(event => event.type === 'user/message')
+      .map(event => event.data.content)).toEqual([
+      [{ type: 'text', text: 'first idle steer' }],
+      [{ type: 'text', text: 'second idle steer' }],
+    ])
+    expect(adapter.requests).toHaveLength(2)
   })
 
   it('inject() while idle wraps context in a one-shot turn, visible to the next request', async () => {
@@ -891,6 +901,51 @@ describe('agent loop', () => {
     expect(adapter.requests).toHaveLength(2)
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('first answer')
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('second message')
+  })
+
+  it('holds a turn-end listener send behind the closing turn checkpoint', async () => {
+    const adapter = new MockAdapter([textResponse('first answer'), textResponse('second answer')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    const firstFlush = Promise.withResolvers<undefined>()
+    const releaseFirstFlush = Promise.withResolvers<undefined>()
+    let flushes = 0
+    ctx.on('session/flush', async (session) => {
+      if (session !== agent.session) return
+      flushes += 1
+      if (flushes === 1) {
+        firstFlush.resolve(undefined)
+        await releaseFirstFlush.promise
+      }
+    })
+
+    const turns: number[] = []
+    const statuses: string[] = []
+    ctx.on('agent/status', (subject, status) => {
+      if (subject === agent) statuses.push(status)
+    })
+    ctx.on('session/event', (session, event) => {
+      if (session !== agent.session) return
+      if (event.type === 'turn/start') turns.push(event.data.turn)
+      if (event.type === 'turn/end' && event.data.turn === 1) send(agent, 'turn-end listener message')
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'first message')
+    await firstFlush.promise
+
+    expect(turns).toEqual([1])
+    expect(adapter.requests).toHaveLength(1)
+
+    releaseFirstFlush.resolve(undefined)
+    await idle
+
+    expect(turns).toEqual([1, 2])
+    expect(statuses).toEqual(['running', 'idle'])
+    expect(adapter.requests).toHaveLength(2)
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('first answer')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('turn-end listener message')
   })
 
   it('keeps a reentrant agent/queued send as the next independent turn', async () => {

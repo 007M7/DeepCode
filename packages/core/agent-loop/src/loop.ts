@@ -117,6 +117,7 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     }
 
     handle.setStatus('running')
+    if (handle.isDisposed()) break
 
     // A synchronous `running` listener can cancel before `runTurn`; balance the
     // status only when no replacement prompt was queued by that listener.

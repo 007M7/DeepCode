@@ -239,7 +239,13 @@ describe('agent/prompt-submit', () => {
       return { kind: 'allow' as const }
     })
     const errors: Error[] = []
+    const reasons: TurnEndReason[] = []
+    const statuses: string[] = []
     ctx.on('agent/error', (_a, _t, _s, error) => void errors.push(error))
+    ctx.on('agent/status', (subject, status) => { if (subject === agent) statuses.push(status) })
+    ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'turn/end') reasons.push(event.data.reason)
+    })
 
     const idle = waitForIdle(ctx, agent)
     send(agent, 'first')
@@ -251,6 +257,11 @@ describe('agent/prompt-submit', () => {
     const log = events(agent)
     expect(log.filter(e => e.type === 'turn/start')).toHaveLength(2)
     expect(log.filter(e => e.type === 'turn/end')).toHaveLength(2)
+    expect(reasons).toEqual([
+      { kind: 'error', step: 0, message: 'prompt hook broke' },
+      { kind: 'completed' },
+    ])
+    expect(statuses).toEqual(['running', 'idle'])
     expect(adapter.requests).toHaveLength(1)
     expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('second')
   })

@@ -88,6 +88,36 @@ describe('Agent.cancel()', () => {
     expect(agent.status).toBe('idle')
   })
 
+  it('disposal from the running notification drops queued work before turn start', async () => {
+    const adapter = new MockAdapter([textResponse('should not run')])
+    const ctx = await harness(adapter)
+    const handle = await ctx.agents.create({
+      agentId: AgentId('a-dispose-running'),
+      sessionId: SessionId('dispose-running-session'),
+      agentOptions: { model: 'mock' },
+    })
+    const agent = handle.agent as ReactLoopAgent
+
+    const running = Promise.withResolvers<undefined>()
+    let disposalDone: Promise<void> | undefined
+    ctx.on('agent/status', (subject, status) => {
+      if (subject !== agent || status !== 'running') return
+      disposalDone = handle.dispose()
+      running.resolve(undefined)
+    })
+
+    send(agent, 'drop before claim')
+    await running.promise
+    if (disposalDone === undefined) throw new Error('running listener did not start disposal')
+    await disposalDone
+    await agent.done
+
+    expect(agent.status).toBe('disposed')
+    expect(agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
+    expect(userTexts(agent)).toEqual([])
+    expect(adapter.requests).toHaveLength(0)
+  })
+
   it('a whenIdle() waiter registered BEFORE a pre-step cancel resolves (F1 hang guard)', async () => {
     const adapter = new MockAdapter([textResponse('x')])
     const ctx = await harness(adapter)
