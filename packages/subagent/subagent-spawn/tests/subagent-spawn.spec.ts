@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -26,11 +23,7 @@ type Script = ConstructorParameters<typeof MockAdapter>[0]
 async function setup(script: Script) {
   const ctx = new Context()
   const adapter = new MockAdapter(script)
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(Invariants)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
@@ -152,11 +145,8 @@ describe('dsh-subagent-spawn', () => {
   })
 
   it('rejects without publishing when the request signal is already aborted', async () => {
-    // Regression: a signal aborted BEFORE the run starts never fires an `abort`
-    // event, so the listener can't catch it. The driver must check the
-    // already-aborted case up front and settle `aborted` without running the
-    // child — otherwise an already-cancelled request runs to `completed`. The
-    // empty script proves the child's model is never called.
+    // An already-aborted signal emits no future event, so start must check it before listening and
+    // settle aborted without running the child. The empty model script proves no turn occurs.
     const controller = new AbortController()
     controller.abort()
     const { ctx, parent } = await setup([])
@@ -165,10 +155,8 @@ describe('dsh-subagent-spawn', () => {
   })
 
   it('same-tick cancellation rejects start and prevents child publication', async () => {
-    // Regression: cancellation before publication used to set a flag but let the
-    // async factory publish a child anyway, so `started` fulfilled and lifecycle
-    // observers saw an agent for an attempt the caller had already cancelled.
-    // The empty script also proves no model turn can run.
+    // Same-tick cancellation must win before async factory publication: no child may become
+    // visible, `started` must not fulfill, and the empty script proves no model turn occurs.
     const { ctx, parent } = await setup([])
     const beforeAgents = ctx.agents.list().length
     const beforeSessions = ctx.sessions.list().length
@@ -308,11 +296,7 @@ describe('dsh-subagent-spawn', () => {
     // Rebuild the stack by hand so we hold the backend's fiber.
     const ctx = new Context()
     const adapter = new MockAdapter(['hang'])
-    await ctx.plugin(LlmService)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(AgentRegistry)
+    await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(Invariants)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SubagentService)
@@ -341,11 +325,7 @@ describe('dsh-subagent-spawn', () => {
 
   it('a start racing an already-unloading backend cannot begin child creation', async () => {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(AgentRegistry)
+    await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SubagentService)
     const fiber = await ctx.plugin(spawn, { providerName: 'spawn' })

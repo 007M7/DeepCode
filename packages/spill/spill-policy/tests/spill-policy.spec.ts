@@ -228,15 +228,15 @@ describe('composition', () => {
     expect(textOf(result.content)).toContain('Full formatted result stored at')
   })
 
-  it('preserves a downstream accept decision additionalContext when spilling', async () => {
+  it('preserves downstream accept-decision contexts when spilling', async () => {
     const { ctx } = await setup({ maxInlineBytes: 200 })
     const context = { content: [{ type: 'text' as const, text: 'note' }], source: { kind: 'plugin' as const, plugin: 'test' } }
     ctx.on('tools/post-execute', async (_e, _r, _next) =>
-      ({ kind: 'accept', additionalContext: context }))
+      ({ kind: 'accept', additionalContexts: [context] }))
     ctx.tools.register(textTool('big', 'x'.repeat(1000)))
     const result = await ctx.tools.execute(exec('big'))
     expect(textOf(result.content)).toContain('Full formatted result stored at')
-    expect(result.additionalContext).toEqual(context)
+    expect(result.additionalContexts).toEqual([context])
   })
 })
 

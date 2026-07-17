@@ -7,12 +7,17 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 const CONCURRENCY_ENV = 'DSH_PUBLINT_CONCURRENCY'
 
-// publint every harness package. Packages live at packages/<group>/<pkg>
-// (the group dirs — core/llm/bash/… — are pure containers); vendor/ is private
-// upstream code and examples/ are not packages, both out of scope. Derived
-// from the hierarchy so a new package needs no edit here.
+// Discover harness packages at packages/<group>/<pkg>; group containers,
+// examples, and private vendored sources are not package targets.
 const root = resolve(import.meta.dirname, '..')
 const packagesRoot = resolve(root, 'packages')
+
+// Run publint's JS CLI through the current node, not the .bin shim: the
+// extensionless shim isn't spawnable on Windows (CVE-2024-27980) and the .cmd
+// variant needs shell:true, which space-joins args UNESCAPED (DEP0190) and
+// breaks when the repo path contains spaces. The JS entry is identical on every
+// platform (`bin` is `./src/cli.js` per publint's package.json).
+const publintCli = resolve(root, 'node_modules/publint/src/cli.js')
 
 type PublintResult =
   | { path: string; status: 'passed'; stdout: string; stderr: string }
@@ -52,7 +57,7 @@ function outputText(value: unknown): string {
 
 async function runPublint(path: string): Promise<PublintResult> {
   try {
-    const { stdout, stderr } = await execFileAsync('node_modules/.bin/publint', [path], {
+    const { stdout, stderr } = await execFileAsync(process.execPath, [publintCli, path], {
       cwd: root,
       encoding: 'utf8',
       maxBuffer: 10 * 1024 * 1024,

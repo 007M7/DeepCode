@@ -1,27 +1,8 @@
 /**
- * `@deepseek-ai/dsh-hook-protocol` — the shared core of the Claude Code / Codex
- * hook wire protocol. NOT a cordis plugin: it registers nothing and injects
- * nothing. It is a LIBRARY of dialect-neutral primitives the two bridge plugins
- * (`dsh-hooks-claude`, `dsh-hooks-codex`) import to avoid re-implementing the
- * identical halves of the protocol:
- *
- * - {@link matchesMatcher} — the matcher primitive (literal-or-regex by dialect).
- * - {@link runHook} + {@link parseHookOutput} — run a command hook via `ctx.bash`
- *   (stdin payload + env) and decode its exit-code/stdout/stderr into a neutral
- *   {@link HookOutput}.
- * - {@link mergeHookOutputs} — fold multiple matched hooks into one
- *   most-restrictive {@link MergedHookOutcome} (deny > ask > allow).
- * - {@link appendHookInvoked} / {@link appendHookResult} — the log-only `hook/*`
- *   session-event helpers (declaration-merged into `SessionEventMap`);
- *   `appendHookResult` derives the durable `decision`/`stderrSummary` from the
- *   {@link HookOutput} so the shared event's semantics live in one place.
- * - {@link createDetachedRuns} — quiescence tracking for the fire-and-forget
- *   hook points: disposal aborts and drains a bridge's detached runs.
- *
- * Each bridge owns what genuinely DIFFERS: building the per-event stdin payload
- * (CC vs Codex field sets), the dialect's env/substitution, and mapping the
- * neutral outcome onto the harness's seam-specific typed Decisions.
- *
+ * Shared, non-plugin hook protocol library: matching, command execution and
+ * decoding, restrictive outcome merging, durable event helpers, and detached
+ * run quiescence. Claude Code and Codex bridges own their distinct payloads,
+ * environment rules, matcher mode, and typed seam mappings.
  * @module @deepseek-ai/dsh-hook-protocol
  */
 

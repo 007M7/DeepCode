@@ -19,7 +19,7 @@ import Loader from '@cordisjs/plugin-loader'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskId, BashTaskRead, OwnerToken } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import * as toolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 
 const RG_PROBE_COMMAND = 'command -v rg >/dev/null 2>&1'
@@ -36,7 +36,6 @@ class ProbeSuccessBashExecutor extends BashExecutor {
       timeoutMs: request.timeoutMs ?? 60_000,
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       signal: request.signal,
-      owner: request.owner,
       sandboxMode: request.sandboxMode,
     }
   }
@@ -56,28 +55,8 @@ class ProbeSuccessBashExecutor extends BashExecutor {
     })
   }
 
-  override start(): BashTask {
-    throw new Error('load-path guard must not start bash tasks')
-  }
-
-  override get(): BashTask | undefined {
-    return undefined
-  }
-
-  override ownerOf(): OwnerToken | undefined {
-    return undefined
-  }
-
-  override list(): BashTask[] {
-    return []
-  }
-
-  override readOutput(id: BashTaskId): BashTaskRead {
-    throw new Error(`unknown bash task ${id}`)
-  }
-
-  override kill(id: BashTaskId): boolean {
-    throw new Error(`unknown bash task ${id}`)
+  override start(): BashProcess {
+    throw new Error('load-path guard must not start background processes')
   }
 }
 

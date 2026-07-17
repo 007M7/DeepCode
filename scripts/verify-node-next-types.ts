@@ -143,7 +143,11 @@ try {
     .join('\n')
   writeFileSync(resolve(tmp, 'index.ts'), `${imports}\n`)
 
-  execFileSync(resolve(root, 'node_modules/.bin/tsc'), ['-p', resolve(tmp, 'tsconfig.json'), '--pretty', 'false'], {
+  // tsc's JS entry via the current node, not the .bin shim: the extensionless
+  // shim isn't spawnable on Windows (CVE-2024-27980) and the .cmd variant needs
+  // shell:true, which space-joins args UNESCAPED (DEP0190) — a hazard for the
+  // temp tsconfig path. The JS entry behaves identically on every platform.
+  execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', resolve(tmp, 'tsconfig.json'), '--pretty', 'false'], {
     cwd: root,
     stdio: 'pipe',
   })

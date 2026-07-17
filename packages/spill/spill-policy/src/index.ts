@@ -169,6 +169,6 @@ export function apply(ctx: Context, config: Config): void {
       return decision
     }
     const replaced: ContentBlock[] = [{ type: 'text', text: replacedText }]
-    return { kind: 'accept', content: replaced, ...decision.additionalContext ? { additionalContext: decision.additionalContext } : {} }
+    return { kind: 'accept', content: replaced, ...decision.additionalContexts ? { additionalContexts: decision.additionalContexts } : {} }
   })
 }

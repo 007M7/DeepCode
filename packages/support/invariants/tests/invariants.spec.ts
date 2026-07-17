@@ -325,19 +325,17 @@ describe('HMR state rebuild', () => {
   it('rebuilds trace state for a session that exists at (re-)apply time', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    // First registration, mid-turn: a turn is open when the plugin reloads.
     const first = await ctx.plugin(Invariants)
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
     await first.dispose()
 
-    // Re-apply (HMR): the fresh fiber must replay the existing log so the open
-    // step is known — the next chunk must NOT be a false positive.
+    // Re-apply mid-step: the new fiber must reconstruct the open boundaries from the log.
     await ctx.plugin(Invariants)
     expect(() => session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'h' } }))
       .not.toThrow()
-    // And a genuine violation is still caught after the rebuild.
+    // Rebuild must not disable later violations.
     expect(() => session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
       .toThrow(/turn 1 is still open/)
   })
@@ -466,7 +464,7 @@ describe('HMR safety', () => {
   })
 })
 
-describe('surface invariants', () => {
+describe('surface contract under the invariants composition', () => {
   it('accepts well-formed surface metadata', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
@@ -495,7 +493,7 @@ describe('surface invariants', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [] })
-    }).toThrow(InvariantError)
+    }).toThrow(/must not be empty/)
   })
 
   it('rejects duplicate sourceEventSeqs', async () => {
@@ -520,7 +518,8 @@ describe('surface invariants', () => {
   })
 
   it('accepts sourceEventSeqs referencing a valid earlier event', async () => {
-    // Positive test: ref < current seq and ref is in knownSeqs → passes.
+    // Session seqs are contiguous, so every non-negative ref below the current
+    // seq necessarily names an existing earlier event.
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -540,31 +539,6 @@ describe('surface invariants', () => {
     }).toThrow(/must reference earlier/)
   })
 
-  it('rejects sourceEventSeqs referencing unknown seq (gap in event log)', async () => {
-    // The unknown-seq check fires when a ref passes the "earlier" test but is
-    // not in knownSeqs — only possible with a gap in seqs. We create a gap by
-    // directly manipulating the private log array to skip a seq.
-    const { ctx } = await setup()
-    const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('step/start', { turn: 1, step: 1 })
-    // Push a fake event at seq 3 into the internal log, creating a gap at seq 2.
-    // The invariants plugin replays session.events on every append, so it sees
-    // this gap during trace reconstruction.
-    ;(session as unknown as { log: unknown[] }).log.push({
-      type: 'assistant/chunk',
-      seq: 3,
-      time: Date.now(),
-      data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } },
-    })
-    // Now the log has seqs 0, 1, 3 (gap at 2). Append at what session believes
-    // is seq 3 (log.length). Reference seq 2: passes earlier (2 < 3) but not
-    // in knownSeqs ({0, 1, 3} — gap at 2).
-    expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [2] })
-    }).toThrow(/unknown seq 2/)
-  })
-
   it('rejects a replace whose start is positioned after its end on the surface', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
@@ -575,7 +549,7 @@ describe('surface invariants', () => {
     // Reversed range: start seq 3 is at a later surface position than end seq 2.
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 3, end: 2 }, sourceEventSeqs: [2, 3] })
-    }).toThrow(/is after end seq 2 .* on the surface/)
+    }).toThrow(/is after end seq 2/)
   })
 
   it('rejects a replace whose sourceEventSeqs omits a shadowed surface node', async () => {
@@ -612,7 +586,7 @@ describe('surface invariants', () => {
     // seq 1 (step/start) is a real earlier event but never entered the surface.
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 1, end: 2 }, sourceEventSeqs: [1, 2] })
-    }).toThrow(/start seq 1 is not on the surface/)
+    }).toThrow(/start seq 1 not found in surface/)
   })
 
   it('rejects a replace naming an end seq that is not on the surface', async () => {
@@ -624,7 +598,7 @@ describe('surface invariants', () => {
     // start (2) is on the surface but end (99) never entered it.
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 99 }, sourceEventSeqs: [2] })
-    }).toThrow(/end seq 99 is not on the surface/)
+    }).toThrow(/end seq 99 not found in surface/)
   })
 
   it('rejects a replace whose range is reversed in surface position after a prior replace reordered it', async () => {
@@ -641,7 +615,7 @@ describe('surface invariants', () => {
     // reversed positionally (3 is at pos 1, 4 is at pos 0).
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 3, end: 4 }, sourceEventSeqs: [3, 4] }) // seq 5
-    }).toThrow(/is after end seq 4 .* on the surface/)
+    }).toThrow(/is after end seq 4/)
   })
 
   it('accepts a replace whose start seq exceeds its end seq when the surface position order is valid', async () => {
@@ -685,25 +659,6 @@ describe('surface invariants', () => {
     expect(() => ctx.sessions.create(undefined, { seed: badSeed })).toThrow(/must include every shadowed surface node; missing 3/)
   })
 
-  it('rejects sourceEventSeqs on a non-surface event', async () => {
-    const { ctx } = await setup()
-    const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    // Session rejects this at its own acceptance boundary. Emit a hand-built
-    // record to cover the listener's defensive check for alternate producers.
-    const event = { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } }, sourceEventSeqs: [0] }
-    expect(() => { ctx.emit(scopeTarget(session, undefined), 'session/event', session, event as never) })
-      .toThrow(/cannot carry sourceEventSeqs/)
-  })
-
-  it('rejects surfaceOp on a non-surface event', async () => {
-    const { ctx } = await setup()
-    const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const event = { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } }, surfaceOp: 'append' }
-    expect(() => { ctx.emit(scopeTarget(session, undefined), 'session/event', session, event as never) })
-      .toThrow(/cannot carry surfaceOp/)
-  })
 })
 
 describe('request-reconstruction cross-check (llm/stream)', () => {
@@ -803,12 +758,8 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
 
 describe('request cross-check ordering (prepend)', () => {
   it('runs ahead of a short-circuiting llm/stream listener registered before it', async () => {
-    // The replay adapter returns its chunks WITHOUT calling next(), which
-    // would silence a later-registered check — snapshot compositions load
-    // replay before the app bundle that loads invariants. The check prepends,
-    // so it fires ahead of append-registered listeners regardless of load
-    // order. (Prepend orders it against APPENDED listeners only; correctness
-    // rests on the seq-bounded rebuild, not on listener timing.)
+    // Replay short-circuits without next(), so the check prepends ahead of ordinary listeners;
+    // correctness still comes from its sequence-bounded rebuild, not listener timing.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     ctx.on('llm/stream', () => (async function* () {})() as never) // short-circuits, no next()
@@ -848,7 +799,7 @@ describe('scoped-dispatch invariants', () => {
 
   it('accepts a matching carrier and rejects a mismatched one for EVERY agent-subject event', async () => {
     const ctx = await scopedCtx()
-    // Real Session objects: the session-start tracker WeakSet-keys them.
+    // Real Session objects keep the synthetic Agent handles structurally valid.
     const agent = { id: 'a1', session: new Session(SessionId('a1-s')) } as unknown as Agent
     const other = { id: 'a2', session: new Session(SessionId('a2-s')) } as unknown as Agent
     // One dispatch per table row keeps every subject extractor covered: the
@@ -869,12 +820,12 @@ describe('scoped-dispatch invariants', () => {
       ['agent/error', [agent, 1, 0, new Error('x')]],
       ['approval/request', [{ agent, toolName: 'echo' }, () => Promise.resolve('unavailable')]],
       ['tools/pre-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ kind: 'allow' })]],
-      ['tools/execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ callId: 'c', content: [], isError: false })]],
-      ['tools/post-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, { callId: 'c', content: [], isError: false }, () => Promise.resolve({ kind: 'accept' })]],
-      ['tools/result', [{ callId: 'c', name: 't', arguments: {}, agent }, { callId: 'c', content: [], isError: false }]],
+      ['tools/execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ content: [], isError: false })]],
+      ['tools/post-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, { content: [], isError: false }, () => Promise.resolve({ kind: 'accept' })]],
+      ['tools/result', [{ callId: 'c', name: 't', arguments: {}, agent }, { content: [], isError: false }]],
     ]
     for (const [event, args] of rows) {
-      const subject = event.startsWith('tools/') ? agent : agent
+      const subject = agent
       expect(() => { (ctx.emit as (...a: unknown[]) => void)(scopeTarget(agent, subject), event, ...args) },
         `${event} with matching carrier`).not.toThrow()
       expect(() => { (ctx.emit as (...a: unknown[]) => void)(scopeTarget(agent, other), event, ...args) },

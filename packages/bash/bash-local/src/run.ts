@@ -1,23 +1,7 @@
 /**
- * Process plumbing for the local bash executor: spawn, output collection
- * with tail-keep + spill-to-disk truncation, and process-group kill with
- * SIGTERM→SIGKILL escalation.
- *
- * Everything here is deliberately free of Cordis concepts so it can be unit
- * tested in isolation; `LocalBashExecutor` owns lifecycle and configuration.
- *
- * runBash owns NO timing: it kills the process group when its `spec.signal`
- * fires and does not distinguish a timeout from a cancel. The executor fuses
- * timeout + upstream cancellation into that one signal via
- * `@deepseek-ai/dsh-timeout`'s `deadline`, and classifies the outcome from the
- * signal afterward — the timing/classification half is shared, the kill is not.
- *
- * Design notes (surveyed against Claude Code, OpenCode, Codex, and pi — see
- * the package README): spawn-per-call with `detached: true` so the child
- * leads its own process group; kills target the group (`kill(-pid)`) so
- * pipelines and subshells die with the parent. SIGTERM first, SIGKILL after a
- * grace period (OpenCode's escalation; Codex/pi jump straight to SIGKILL).
- *
+ * Process plumbing for the local bash executor: detached process-group spawn,
+ * tail-keep output with spill files, and SIGTERM→SIGKILL escalation. This layer
+ * reacts to an abort signal; the executor owns deadlines and classifies causes.
  * @module dsh-bash-local/run
  */
 
@@ -27,7 +11,8 @@ import { randomBytes } from 'node:crypto'
 import { closeSync, mkdtempSync, openSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CollectedOutput } from '@deepseek-ai/dsh-bash'
+import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
+import type { CollectedOutput, DshEnvironment } from '@deepseek-ai/dsh-bash'
 
 /**
  * Model-friendly environment overrides: disable colors, pagers, and
@@ -50,27 +35,33 @@ export const ENV_OVERRIDES = {
 export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
 /**
- * `process.env` minus credential-shaped vars, plus the model-friendly
- * overrides, plus any caller-supplied `extra` entries.
- *
- * Layering matters: the scrub drops `process.env` credentials, then
- * `ENV_OVERRIDES` forces the model-friendly terminal vars, then `extra` is
- * merged LAST so an explicit caller entry wins even when its name matches the
- * scrub pattern (the scrub is the control that stops the HARNESS's ambient
- * credentials leaking into a spawned command; a caller that explicitly sets a
- * var named a value it already holds, not that ambient secret). `extra` is set
- * by in-process plugins (the hooks bridges), not the model — `dsh-tool-bash`
- * builds its request from named fields only and does not forward model input
- * here (see its README, § "The tool builds its request from named args only").
- * @param extra - caller-supplied entries merged last; an explicit entry wins even against the scrub and the overrides.
+ * Build a child environment from scrubbed ambient values, terminal overrides,
+ * ordinary caller entries, and a managed `DSH_*` snapshot. Ambient managed
+ * names are removed; ordinary and managed entries reject the other channel's
+ * namespace before `dshEnv` merges last.
+ * @param extra - caller entries; `DSH_*` names are rejected.
+ * @param dshEnv - managed entries; non-`DSH_*` names are rejected.
  * @returns the environment to hand to `spawn` for the child process.
  */
-export function childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
+export function childEnv(
+  extra?: Readonly<Record<string, string>>,
+  dshEnv?: DshEnvironment,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (!SENSITIVE_ENV_PATTERN.test(key)) env[key] = value
+    if (!SENSITIVE_ENV_PATTERN.test(key) && !key.startsWith(DSH_ENV_PREFIX)) env[key] = value
   }
-  return { ...env, ...ENV_OVERRIDES, ...extra }
+  for (const key of Object.keys(extra ?? {})) {
+    if (key.startsWith(DSH_ENV_PREFIX)) {
+      throw new Error(`ordinary bash env cannot set reserved variable "${key}"; use dshEnv`)
+    }
+  }
+  for (const key of Object.keys(dshEnv ?? {})) {
+    if (!key.startsWith(DSH_ENV_PREFIX)) {
+      throw new Error(`managed bash env cannot set ordinary variable "${key}"; use env`)
+    }
+  }
+  return { ...env, ...ENV_OVERRIDES, ...extra, ...dshEnv }
 }
 
 /** What to run and under which limits (resolved — no defaults in here). */
@@ -98,12 +89,12 @@ export interface SpawnSpec {
    */
   stdin?: string | undefined
   /**
-   * Extra environment entries, merged onto the scrubbed env AFTER the
-   * credential scrub and the model-friendly overrides (so an explicit entry
-   * wins). Set by in-process plugins; the model-facing tool does not forward
-   * model input here.
+   * Ordinary environment entries merged after the credential scrub and
+   * terminal overrides. `DSH_*` names are rejected and belong in `dshEnv`.
    */
   env?: Record<string, string> | undefined
+  /** Harness-owned entries; non-`DSH_*` names are rejected before spawn. */
+  dshEnv?: DshEnvironment | undefined
 }
 
 /**
@@ -211,27 +202,6 @@ export class OutputCollector {
     writeSync(this.spillFd, chunk)
   }
 
-  // TODO(snapshot-scope): `snapshot()` has one internal caller (`finalize()` at
-  // the bottom of this file) and `totalBytes` is read only by a test. The live
-  // background-poll path goes through `readFrom()`, so inline snapshot() into
-  // finalize() and drop or privatize the totalBytes getter.
-  /**
-   * Read the collected tail without finalizing (the final-result snapshot).
-   * @returns the retained tail text, the truncation flag, and the spill path when one was created.
-   */
-  snapshot(): CollectedOutput {
-    return {
-      text: Buffer.concat(this.chunks).toString('utf8'),
-      truncated: this.dropped,
-      ...this.spillFile !== undefined ? { spillPath: this.spillFile } : {},
-    }
-  }
-
-  /** Total bytes ever pushed (including bytes dropped from memory). */
-  get totalBytes(): number {
-    return this.total
-  }
-
   /**
    * Incremental read in whole-stream byte coordinates: returns everything
    * pushed since `fromByte`. When `fromByte` has already slid out of the
@@ -264,26 +234,24 @@ export class OutputCollector {
       try {
         closeSync(this.spillFd)
       } catch {
-        // close can surface delayed writeback failures (for example EIO/ENOSPC)
-        // after writeSync appeared to succeed. Keep finalize total so runBash's
-        // close handler still resolves, but stop advertising a spill file that
-        // may be missing its tail.
+        // A delayed writeback failure makes the spill unreliable; keep finalize
+        // total but stop advertising that file.
         this.spillFile = undefined
       }
       this.spillFd = undefined
     }
-    return this.snapshot()
+    return {
+      text: Buffer.concat(this.chunks).toString('utf8'),
+      truncated: this.dropped,
+      ...this.spillFile !== undefined ? { spillPath: this.spillFile } : {},
+    }
   }
 }
 
 /**
- * Send `sig` to the process GROUP led by `pid` (requires the child to have
- * been spawned with `detached: true`). NEVER throws: kills race process exit
- * by design (ESRCH), and the other failure modes (EPERM from setuid
- * children, …) fire inside timer callbacks where a throw would crash the
- * host process — a kill that cannot be delivered is reported by the process
- * NOT dying, which callers already handle via escalation/timeouts. No-op for
- * non-positive pids (spawn never started a process).
+ * Send `sig` to a detached process group. Never throws: delivery races process
+ * exit and may run in a timer callback, so failures are contained and a
+ * non-positive pid is a no-op.
  * @param pid - the group leader's pid; non-positive means the spawn failed and the call is a no-op.
  * @param sig - the signal to deliver to the whole group.
  */
@@ -313,24 +281,13 @@ export interface RunningBash {
 }
 
 /**
- * Spawn `bash -c <command>` in its own process group and collect output.
- *
- * Outcome semantics: the returned promise REJECTS only for spawn-level
- * failures (bad cwd → ENOENT, missing binary, pre-aborted signal); every
- * runtime outcome — nonzero exit, timeout kill, abort kill, signal death —
- * RESOLVES with a {@link SpawnOutcome} describing what happened, so callers
- * shape one consistent report for the model.
- *
- * XXX(stateful-shell): per the agent-tool survey there are two proven
- * stateful designs worth revisiting — Claude Code persists ONLY cwd between
- * calls (captures `pwd -P` after each command), and Codex keeps whole PTY
- * exec sessions addressable via session ids + stdin writes. We deliberately
- * spawn a fresh non-login `bash -c` per call for determinism (no rc files,
- * no inherited shell state); revisit when real workflows demand it.
- * @param spec - the fully-resolved run (command, cwd, limits); no defaulting happens here.
- * @param internals - test-only knobs; omitted fields fall back to the private per-process spill dir.
- * @returns the live handle: pid, the two live collectors, the outcome promise, and `kill()`.
+ * Spawn one isolated `bash -c` process group and collect its output.
+ * Runtime exits resolve as {@link SpawnOutcome}; only spawn failures reject.
+ * @param spec - fully resolved command, cwd, limits, and cancellation.
+ * @param internals - test-only process and spill-directory overrides.
+ * @returns live process handle and outcome promise.
  */
+// XXX(stateful-shell): evaluate persistent cwd or PTY sessions when workflows require shell state.
 export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningBash {
   const spillDir = internals.spillDir ?? privateSpillDir()
 
@@ -338,17 +295,8 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
   }
 
-  // stdin is a pipe ONLY when the caller supplied bytes; with none it is `ignore`
-  // (fd 0 → /dev/null) — the exact pre-seam default. This matters: a spawn pipe
-  // and /dev/null are NOT observationally identical (node's pipe is an AF_UNIX
-  // socket, so a command that probes stdin's type — `test -c /dev/stdin`, `stat
-  // /proc/self/fd/0` — sees a char device vs a socket), so the no-stdin path
-  // (every model-driven call) must keep /dev/null rather than regress to a socket.
-  // Two LITERAL `stdio` tuples (not one variable tuple): only a literal lets the
-  // typed `spawn` overload infer non-null stdout/stderr, which the
-  // `ChildProcessByStdio` annotation captures (stdin `Writable | null`; stdout/
-  // stderr the non-null `Readable` the collectors attach to without a cast).
-  const env = childEnv(spec.env)
+  // Keep absent stdin as /dev/null; literal tuples preserve non-null output types.
+  const env = childEnv(spec.env, spec.dshEnv)
   const child: ChildProcessByStdio<Writable | null, Readable, Readable> = spec.stdin !== undefined
     ? spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
     : spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
@@ -360,8 +308,7 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
 
   let graceTimer: NodeJS.Timeout | undefined
 
-  // pid is undefined when the spawn itself fails (bad cwd, missing binary);
-  // the 'error' handler rejects `done` and kills become no-ops via pid -1.
+  // Failed spawns use pid -1 so kill remains a no-op.
   const pid = child.pid ?? -1
 
   const kill = (): void => {
@@ -370,27 +317,11 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     graceTimer = setTimeout(() => { killGroup(pid, 'SIGKILL') }, spec.graceMs)
   }
 
-  // runBash owns no timer: the executor's `run()` fuses timeout+cancel into one
-  // deadline signal (`@deepseek-ai/dsh-timeout`) and passes it here; we only
-  // listen and run the SIGTERM→grace→SIGKILL kill. Whether the abort was a
-  // timeout or an upstream cancel is classified by the executor from that
-  // signal, not tracked here.
+  // The executor owns timeout classification; this layer only reacts to abort.
   const onAbort = (): void => { kill() }
   spec.signal?.addEventListener('abort', onAbort, { once: true })
 
-  // Write stdin and close it, but ONLY when the caller supplied bytes — with no
-  // stdin, fd 0 is `ignore` (/dev/null) and `child.stdin` is null. The error
-  // handler must exist whenever we write: an unhandled 'error' on the stream
-  // would throw and crash the host. We swallow the error rather than reject
-  // `done`, and that is correct for ANY stdin-write error, not just the common
-  // one — the stdin write is BEST-EFFORT, while the command's authoritative
-  // outcome is its exit code + captured output, which the `close` handler reports
-  // regardless of whether the write landed. The expected case is EPIPE (the child
-  // exited without reading, so closing our end of a still-full pipe fails); a rare
-  // non-EPIPE pipe fault means the command ran with incomplete stdin, and it
-  // surfaces that itself through its own exit/output (e.g. a hook that gets
-  // truncated JSON errors out) — rejecting here would instead discard that real
-  // output and turn it into an opaque infrastructure error, which is worse.
+  // Stdin writes are best-effort; process exit and captured output remain authoritative.
   if (child.stdin !== null) {
     child.stdin.on('error', () => { /* stdin write is best-effort; outcome rides on exit/output. */ })
     child.stdin.end(spec.stdin)
@@ -398,8 +329,7 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
 
   const done = new Promise<SpawnOutcome>((resolve, reject) => {
     child.on('error', (error) => {
-      // Spawn-level failure (ENOENT cwd, EACCES, …): no close event with
-      // meaningful output follows; clean up and reject.
+      // No meaningful close outcome follows a spawn failure.
       cleanup()
       reject(error)
     })

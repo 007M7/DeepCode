@@ -22,7 +22,7 @@ Add a **persisted, tool-private presentation channel** so a tool's `execute` can
 type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta?: unknown }
 ```
 
-`meta` is an opaque payload the core never interprets — typed `unknown` at every seam (the tool that produced it owns and narrows its shape). It MUST be JSON-serializable: the registry threads it onto the `tool/result` **session event**, and `Session.append` runtime-validates all event data with the existing `isJsonValue` predicate, so a non-serializable `meta` is rejected at the source. On replay the same `meta` is read back and handed to `presentResult` via a widened `ToolResult` (`{ content, isError, meta? }`). Because the payload lives in the event log, the diff reproduces on session reload / snapshot replay **for free** — the event-sourcing guarantee, not a re-computation. Typing `meta` as `unknown` (rather than a shared serializable-value type) keeps the tools core free of a dependency it would otherwise take just to name the type, and the runtime `isJsonValue` gate — not the static type — is what actually enforces serializability.
+`meta` is tool-owned `unknown` that the core persists without interpretation. `Session.append` rejects non-JSON values, and replay passes the stored payload back to `presentResult`; presentations therefore reproduce without I/O or recomputation. Runtime validation avoids adding a shared serializable-value dependency to the tools core.
 
 This is the general shape ("a tool attaches durable result presentation"), not an fs-specific one — any tool can use it.
 
@@ -31,7 +31,7 @@ This is the general shape ("a tool attaches durable result presentation"), not a
 Per the [capability-seam split](2026-06-13-capability-seams.md), the storage backend returns only **storage facts** and the model-facing tool owns **presentation**:
 
 - `dsh-fs` widens `FsEditOutcome` with `{ before: string; after: string }` and `FsWriteOutcome` with `{ before: string | null; after: string }` (`before: null` ⇒ a create, or an existing-but-undiffable binary/non-UTF-8 file). The local backend already holds both texts at write time; it returns them as raw LF-normalized text, with **no diff/UI concept** entering the seam.
-- `dsh-tool-fs` computes the contextual hunk from before/after and attaches it as `meta: { diffs: FileDiff[] }`. A contextual hunk is computed only when a before-version exists — edit always; write on overwrite; a create has no before, matching `claude-agent-acp`'s empty `structuredPatch` on create. But the completed `tool_call_update` is ALWAYS a `diff` card for a successful mutation: an ACP `tool_call_update.content` REPLACES the call's content, so rendering the model-facing result text would clobber the pending diff. So `write`'s result falls back to an args-derived whole-file diff (`oldText: null`) when it has no contextual hunk (a create, or an overwrite whose content is unchanged), and `edit` — which always changes content — always has a hunk. A failed/aborted/policy-rejected mutation applied nothing, so it carries no `meta` and falls through to the generic error rendering (its message must show).
+- `dsh-tool-fs` stores contextual hunks in `meta: { diffs: FileDiff[] }`. Successful mutations always complete with a diff card because ACP result content replaces the pending card: creates or unchanged overwrites fall back to an args-derived whole-file diff, while edits use applied hunks. Failed mutations carry no diff metadata and render their error normally.
 
 ### 3. The bridge renders a `diff` result card
 
@@ -39,7 +39,7 @@ Per the [capability-seam split](2026-06-13-capability-seams.md), the storage bac
 
 ## Alternatives considered
 
-**Hand-rolling or vendoring the diff algorithm.** Computing hunks-with-context is a solved problem with sharp edge cases (grouping, context coalescing, the trailing-newline marker). Rather than hand-roll it, `dsh-tool-fs` takes a runtime dependency on the npm [`diff`](https://www.npmjs.com/package/diff) package (a `^9.0.0` range, exact-pinned by the lockfile; it ships its own types) and uses its `structuredPatch`. The repo's default is to vendor Cordis-framework source, but that policy is about the *framework*; a leaf tool package taking a small, well-known, self-typed utility dependency is the same shape as `dsh-acp` depending on `@agentclientprotocol/sdk`. Vendoring a diff algorithm would be re-implementing a battle-tested one for no benefit — the [pre-release "foundation over blast radius"](../../../../AGENTS.md) reasoning does not argue for re-deriving standard algorithms. The dependency's output is normalized in one small module (`packages/fs/tool-fs/src/diff.ts`).
+**Hand-rolling or vendoring the diff algorithm.** Contextual hunks have established edge cases, so `dsh-tool-fs` uses the typed [`diff`](https://www.npmjs.com/package/diff) package and normalizes `structuredPatch` output in one module. The repository's vendoring policy applies to its framework source, not every leaf utility.
 
 ## Consequences
 

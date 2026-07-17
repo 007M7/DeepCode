@@ -44,3 +44,47 @@ Raw `rg` stdout is an internal transport detail. Each search requests `stdoutMax
 ## Errors
 
 Search failures carry the package-owned `SearchError` (a `HarnessError` subclass), surfaced as `{ name, code }` on `isError` results: `SEARCH_INVALID_PATTERN` (ripgrep rejected the regex/glob), `SEARCH_FAILED` (runtime `rg` disappearance after registration, inaccessible target, signal kill, malformed `--json` output), `SEARCH_RAW_OUTPUT_OVERFLOW` (raw output over `rawOutputMaxBytes`, or still truncated after the requested stdout capture budget), and `SEARCH_ABORTED` (tool timeout, caller cancellation, or the bash executor's own timeout). ripgrep exit semantics are tool-owned: exit 0 is success with results, exit 1 is a successful empty search (`No files found` / `No matches found`), and only other exits are failures. Model argument mistakes (blank pattern, a list-valued `include`) stay ordinary tool argument errors.
+
+## Model Experience
+
+### System prompt
+
+**What the model sees**: After the load-time `rg` probe succeeds, every request in this plugin's registration scope contains the independently registered glob and grep guidance below. Agent-scoped tool restrictions can hide either schema without removing its prompt section.
+
+**Token effect**: Fixed guidance cost per request while the tools are registered.
+
+#### Glob guidance
+
+```markdown
+Use the glob tool — not shell find or ls — to discover files by path pattern. Results are sorted by modification time and include hidden and ignored files.
+```
+
+#### Grep guidance
+
+```markdown
+Use the grep tool — not shell grep or rg — to search file contents. Use read on a matched file when you need surrounding context.
+```
+
+### Tool schemas
+
+**What the model sees**: The generated [`glob` and `grep` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-fs-search) after the load-time `rg` probe succeeds and while this surface is visible.
+
+**Token effect**: Fixed schema cost on every request where the tools are visible.
+
+### Results and spill notices
+
+**What the model sees**: `glob` returns one path per line; `grep` groups `Line <line>: <preview>` matches beneath each path. Empty searches return `No files found` or `No matches found`. A capped result ends with its omission count plus the spill locator and backend retrieval hint, or says the complete result could not be saved.
+
+**Token effect**: Inline paths and matches are bounded by `globMaxResults`, `grepMaxMatches`, and `grepMaxLineBytes`; the call and retained result remain in history until compaction.
+
+### Tool errors
+
+**What the model sees**: Failures are normalized as `Error: <message>` with structured `SEARCH_INVALID_PATTERN`, `SEARCH_FAILED`, `SEARCH_RAW_OUTPUT_OVERFLOW`, or `SEARCH_ABORTED` metadata for callers.
+
+**Token effect**: Only a failing call adds these retained tokens.
+
+## Known Limitations and Deferred Work
+
+- **Search and file access have no shared-workspace proof** — returned paths are follow-up-readable only when the bash workdir and filesystem root denote the same workspace; the package performs no runtime cross-service validation.
+- **Ripgrep is a deployment dependency** — a missing `rg` executable makes the package register no tools or guidance; an incompatible executable or one that disappears after registration fails calls with `SEARCH_FAILED`. Remote or virtual filesystems need a co-located executor or another search consumer.
+- **The schemas expose one bounded page** — offset pagination, case-mode switches, alternate output modes, and provider-backed discovery remain outside this package; capped complete output requires a spill backend.

@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, type ContentBlock, type GenerateOptions } from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import { CallId, type ContentBlock, type GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { ContinuationDecision } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { Config as ToolConfig, StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
@@ -36,20 +34,16 @@ const SCHEMA: StructuredOutputSchema = {
 }
 
 /**
- * Real loop + scripted mock model + an INLINE fresh-conversation provider over the
- * shared driver. The concrete backend plugins are deliberately NOT loaded —
- * they would devDep-cycle this package (spawn/fork already depend on the
- * driver), and the runtime under test is the driver's; plugin-level structured
- * coverage lives in the spawn/fork specs. The mock model script drives the
- * child's structured_output calls.
+ * Real loop, scripted model, and inline fresh-conversation provider over the shared driver. Loading
+ * spawn/fork here would create a dev-dependency cycle; their specs cover plugin integration while
+ * this fixture isolates driver behavior and scripts the child's `structured_output` calls.
  */
 async function setup(script: Script, options: SetupOptions = {}) {
   const ctx = new Context()
   const adapter = new MockAdapter(script)
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry, { mode: options.toolMode ?? 'native' })
+  await mountAgentLoopTestDependencies(ctx, {
+    tools: { mode: options.toolMode ?? 'native' },
+  })
   if (options.toolMode === 'code' || options.toolMode === 'both') {
     ctx.provide('codeRuntime', {
       language: 'typescript',
@@ -57,7 +51,6 @@ async function setup(script: Script, options: SetupOptions = {}) {
       run: options.codeRun ?? (() => Promise.resolve({ logs: [] })),
     } as never)
   }
-  await ctx.plugin(AgentRegistry)
   await ctx.plugin(Invariants)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
@@ -216,11 +209,9 @@ describe('in-process structured output', () => {
     ])
     ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'stop' }))
     let wrapperInstalled = false
-    // Register before the ready-only start. The child session-start boundary is
-    // after unpublished setup attached structured output but before the loop
-    // can run. The wrapper awaits the
-    // explicit downstream stop above, then overwrites that result with continue.
-    // The later terminal checkpoint still wins.
+    // Register before ready-only start: structured output is attached before session-start and the
+    // loop. The wrapper waits for a downstream stop, rewrites it to continue, and must still lose
+    // to the later terminal checkpoint.
     ctx.on('agent/session-start', (child) => {
       if (child === parent) return
       wrapperInstalled = true
@@ -244,10 +235,8 @@ describe('in-process structured output', () => {
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 9 }),
       textResponse('MUST NOT BE CONSUMED'),
     ])
-    // The downstream ordinary policy says stop. A wrapper registered after
-    // start() delegates to that stop, then queues steering; ordinary folding
-    // would turn the stop back into continue. The terminal checkpoint runs
-    // afterwards and discards that steering.
+    // A downstream policy stops, then a later wrapper delegates and queues steering that ordinary
+    // folding would turn into continue. The terminal checkpoint must discard that steering.
     ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'stop' }))
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     ctx.on('agent/session-start', (child) => {

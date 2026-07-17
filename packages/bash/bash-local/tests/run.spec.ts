@@ -2,8 +2,9 @@ import { mkdtempSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { killGroup, OutputCollector, runBash } from '@deepseek-ai/dsh-bash-local'
-import type { RunningBash } from '@deepseek-ai/dsh-bash-local'
+import type { DshEnvironment } from '@deepseek-ai/dsh-bash'
+import { killGroup, OutputCollector, runBash } from '../src/run.ts'
+import type { RunningBash } from '../src/run.ts'
 
 const { failNextClose } = vi.hoisted(() => ({ failNextClose: { value: false } }))
 vi.mock('node:fs', async (importOriginal) => {
@@ -50,7 +51,7 @@ async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
 async function waitForStdout(running: RunningBash, expected: string, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (running.stdout.snapshot().text.includes(expected)) return
+    if (running.stdout.readFrom(0).text.includes(expected)) return
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   throw new Error(`stdout did not include ${JSON.stringify(expected)} after ${timeoutMs}ms`)
@@ -190,39 +191,34 @@ describe('stdin and extra env (set by in-process plugins)', () => {
   })
 
   it('gives fd 0 the exact pre-seam type: /dev/null when no stdin, a pipe when supplied', async () => {
-    // The no-stdin path must stay observationally identical to the pre-seam
-    // `ignore` default: a command that probes stdin's file type sees a char
-    // device (/dev/null). Regressing to an always-open pipe would make fd 0 a
-    // socket (node's spawn pipe is an AF_UNIX socket, not a FIFO), flipping
-    // `test -c /dev/stdin` for every model-driven call. When bytes ARE supplied,
-    // fd 0 is that pipe (a socket), as it must be to carry them.
+    // With no bytes, fd 0 remains the pre-seam `ignore` default (/dev/null, a character device).
+    // Supplied bytes use Node's spawn pipe, which is an AF_UNIX socket rather than a FIFO.
     const none = await runBash(spec('test -c /dev/stdin && echo char || echo other')).done
     expect(none.stdout.text).toBe('char\n')
     const piped = await runBash(spec('test -S /dev/stdin && echo socket || echo other', { stdin: 'x' })).done
     expect(piped.stdout.text).toBe('socket\n')
   })
 
-  it('merges extra env entries onto the scrubbed environment', async () => {
-    const result = await runBash(spec('echo "$DSH_EXTRA_ONE/$DSH_EXTRA_TWO"', {
-      env: { DSH_EXTRA_ONE: 'alpha', DSH_EXTRA_TWO: 'beta' },
+  it('merges ordinary extra env entries onto the scrubbed environment', async () => {
+    const result = await runBash(spec('echo "$EXTRA_ONE/$EXTRA_TWO"', {
+      env: { EXTRA_ONE: 'alpha', EXTRA_TWO: 'beta' },
     })).done
     expect(result.stdout.text).toBe('alpha/beta\n')
   })
 
   it('an explicit extra env entry overrides the model-friendly override and the scrub', async () => {
     // TERM is a model-friendly OVERRIDE (dumb); an explicit extra entry wins.
-    // DSH_OVERRIDE_KEY matches the credential scrub pattern, yet an explicit
+    // EXPLICIT_OVERRIDE_KEY matches the credential scrub pattern, yet an explicit
     // entry is still honored — the scrub only drops AMBIENT process.env creds.
-    const result = await runBash(spec('echo "$TERM/$DSH_OVERRIDE_KEY"', {
-      env: { TERM: 'xterm-256color', DSH_OVERRIDE_KEY: 'explicit-wins' },
+    const result = await runBash(spec('echo "$TERM/$EXPLICIT_OVERRIDE_KEY"', {
+      env: { TERM: 'xterm-256color', EXPLICIT_OVERRIDE_KEY: 'explicit-wins' },
     })).done
     expect(result.stdout.text).toBe('xterm-256color/explicit-wins\n')
   })
 
   it('does not crash or reject when the child ignores a large stdin (EPIPE)', async () => {
-    // The child exits immediately without reading; closing our end of a stdin
-    // pipe still holding ~1MiB triggers EPIPE on the write. The handler must
-    // swallow it: `done` resolves normally with the child's real exit.
+    // The child exits without reading, so closing a stdin pipe holding ~1 MiB triggers EPIPE.
+    // The handler swallows that write error and `done` reports the child's real exit.
     const big = 'x'.repeat(1024 * 1024)
     const result = await runBash(spec('exit 7', { stdin: big })).done
     expect(result.exitCode).toBe(7)
@@ -315,19 +311,11 @@ describe('OutputCollector', () => {
     expect(third.spillPath).toBeDefined()
   })
 
-  it('tracks totalBytes across drops', () => {
-    const collector = new OutputCollector(4, 'test', spillDir)
-    collector.push(Buffer.from('aaaa'))
-    collector.push(Buffer.from('bbbb'))
-    expect(collector.totalBytes).toBe(8)
-    expect(collector.finalize().text).toBe('bbbb')
-  })
-
   it('contains close failures and drops the spill path', () => {
     const collector = new OutputCollector(4, 'closefail', spillDir)
     collector.push(Buffer.from('aaaa'))
     collector.push(Buffer.from('bbbb'))
-    expect(collector.snapshot().spillPath).toBeDefined()
+    expect(collector.readFrom(0).spillPath).toBeDefined()
 
     failNextClose.value = true
     let out: ReturnType<typeof collector.finalize>
@@ -375,19 +363,42 @@ describe('abort edge cases', () => {
   })
 })
 
-describe('review fixes: env scrubbing and spill hardening', () => {
-  it('scrubs credential-shaped env vars from child processes', async () => {
+describe('environment and spill-file hardening', () => {
+  it('scrubs credential-shaped and ambient DSH env vars from child processes', async () => {
     process.env.DSH_TEST_API_KEY = 'super-secret'
     process.env.DSH_TEST_TOKEN = 'also-secret'
     process.env.DSH_TEST_PLAIN = 'visible'
     try {
       const result = await runBash(spec('echo "[${DSH_TEST_API_KEY:-absent}|${DSH_TEST_TOKEN:-absent}|${DSH_TEST_PLAIN:-absent}]"')).done
-      expect(result.stdout.text.trim()).toBe('[absent|absent|visible]')
+      expect(result.stdout.text.trim()).toBe('[absent|absent|absent]')
     } finally {
       delete process.env.DSH_TEST_API_KEY
       delete process.env.DSH_TEST_TOKEN
       delete process.env.DSH_TEST_PLAIN
     }
+  })
+
+  it('injects only the current trusted DSH environment after scrubbing ambient values', async () => {
+    process.env.DSH_STALE = 'old-value'
+    try {
+      const result = await runBash(spec('echo "[${DSH_STALE:-absent}|$DSH_SHELL|$DSH_SESSION_ID]"', {
+        dshEnv: { DSH_SHELL: '1', DSH_SESSION_ID: 'current-session' },
+      })).done
+      expect(result.stdout.text.trim()).toBe('[absent|1|current-session]')
+    } finally {
+      delete process.env.DSH_STALE
+    }
+  })
+
+  it('rejects DSH variables on the ordinary env channel', () => {
+    expect(() => runBash(spec('true', { env: { DSH_WRONG_CHANNEL: 'bad' } })))
+      .toThrow(/DSH_WRONG_CHANNEL.*dshEnv/)
+  })
+
+  it('rejects ordinary variables on the managed env channel', () => {
+    const invalid = { PATH: '/wrong-channel' } as unknown as DshEnvironment
+    expect(() => runBash(spec('true', { dshEnv: invalid })))
+      .toThrow(/managed bash env.*PATH.*use env/)
   })
 
   it('creates spill files with owner-only permissions and random names', async () => {

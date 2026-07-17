@@ -80,3 +80,12 @@ const footer = formatRetentionNotice(
   ({ kept }) => `Results capped at ${kept}. Narrow the pattern, path, or include to see more.`,
 )
 ```
+
+## Model Experience
+
+Indirectly, through tool consumers that render retained content and omission metadata.
+
+## Known Limitations and Deferred Work
+
+- **Item retention supports `head` only** — tail, head/tail, pagination, grouping, and provider-completeness semantics remain tool-owned.
+- **Text retention is byte-oriented** — line and character windows such as `read` pagination require a separate renderer, and a cut may discard partial UTF-8 boundary bytes to keep returned text valid.

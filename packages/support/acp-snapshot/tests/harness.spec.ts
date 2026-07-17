@@ -38,6 +38,14 @@ async function scenario(behavior: object): Promise<{ dir: string; fixtureFile: s
 const boot: InputStep[] = [{ op: 'initialize' }, { op: 'newSession' }]
 
 describe('runScenario', () => {
+  it('includes agent stderr when the ACP connection closes during startup', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ failOnBoot: true, stderrNote: 'fake agent requested startup failure' })
+    await expect(runScenario(
+      { steps: [{ op: 'initialize' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )).rejects.toThrow(/agent stderr:\nfake agent requested startup failure/)
+  })
+
   it('drives a full turn: initialize (terminal caps), session, prompt, permission stub, harvest', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({
       permissionProbe: true,
@@ -308,11 +316,8 @@ describe('runScenario', () => {
 
   it('rejects the run on a scripted permission kind the agent never offered', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({ permissionProbe: true })
-    // The fake bin offers allow_once/reject_once; scripting allow_always is a
-    // scenario bug. The agent is answered `cancelled` (it must not be able to
-    // absorb the bug as an error-means-denial), and the RUN fails: a callback
-    // throw would only reach the agent as a JSON-RPC error response, letting
-    // a tolerant agent carry on and the scenario pass — or record.
+    // The fake offers only allow_once/reject_once. The harness must reject an impossible click,
+    // not merely send an RPC error that a tolerant agent could absorb.
     await expect(runScenario(
       { steps: [...boot, { op: 'prompt', text: 'impossible click' }], permissionAnswers: [{ kind: 'allow_always' }] },
       { agent: AGENT, mode: 'replay', fixtureFile },

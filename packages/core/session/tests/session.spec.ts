@@ -59,6 +59,28 @@ describe('Session', () => {
     expect(steeringMessage!.content[0]).toMatchObject({ type: 'text', text: '<steering source="user">' })
   })
 
+  it('renders raw context without a generic envelope while preserving structured metadata', () => {
+    const session = new Session(SessionId('s2-raw'))
+    const meta = {
+      kind: 'workspace-instructions',
+      version: 1,
+      changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md', digest: 'abc123' }],
+    }
+    session.append('context/message', {
+      content: [{ type: 'text', text: '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>' }],
+      source: { kind: 'plugin', plugin: 'workspace-context' },
+      envelope: 'raw',
+      meta,
+    }, { surfaceOp: 'append' })
+
+    expect(session.deriveMessages()).toEqual([{
+      role: 'user',
+      content: [{ type: 'text', text: '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>' }],
+    }])
+    const event = session.events[0]
+    expect(event?.type === 'context/message' && event.data.meta).toEqual(meta)
+  })
+
   it('replays identically from a seeded event log', () => {
     const original = new Session(SessionId('s3'))
     original.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -81,9 +103,6 @@ describe('Session', () => {
     const before = structuredClone(session.events)
 
     // A misbehaving consumer tries to mutate the messages it was handed.
-    // Derived messages are frozen shared projections (cloned once off the
-    // log, then deep-frozen): every mutation attempt THROWS in strict mode —
-    // isolation by unrepresentability, not by per-call cloning.
     const messages = session.deriveMessages()
     const userBlock = messages[0]!.content[0]!
     expect(() => { if (userBlock.type === 'text') userBlock.text = 'HACKED' }).toThrow(TypeError)
@@ -132,11 +151,8 @@ describe('Session', () => {
   it('rejects a surface-eligible append with no surfaceOp marker (runtime guard for the union-widening loophole)', () => {
     const session = new Session(SessionId('s5b'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    // The typed overload makes surfaceOp mandatory only when the type argument is
-    // a SPECIFIC SurfaceEventType literal. A caller iterating raw events widens it
-    // to the SessionEventType union, where the conditional rest collapses to
-    // optional — the exact shape `for (const e of log) append(e.type, e.data)`
-    // produces. Reproduce that here and assert the runtime guard rejects it.
+    // A widened SessionEventType bypasses the overload's conditional requirement,
+    // so the runtime guard must still reject the missing surface marker.
     const widenedType = 'user/message' as SessionEventType
     expect(() => session.append(widenedType, { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       .toThrow(/surface-eligible and requires a surfaceOp marker/)
@@ -301,35 +317,52 @@ describe('Session', () => {
       type: 'user/message',
       seq: 0,
       time: 1,
+      data: { content: [{ type: 'text', text: 'source' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    }, {
+      type: 'user/message',
+      seq: 1,
+      time: 2,
       data: { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } },
       surfaceOp,
+      sourceEventSeqs: [0],
     }] as unknown as SessionEvent[]
 
     const session = new Session(SessionId('seed-unstable-metadata'), seed)
-    const event = session.events[0]!
+    const event = session.events[1]!
     if (event.type !== 'user/message') throw new Error('test fixture must remain a user/message')
 
     expect(reads).toBe(1)
     expect(event.surfaceOp).toEqual({ op: 'replace', start: 0, end: 0 })
   })
 
-  it('adds seed context when surface validation throws a non-Error value', () => {
+  it.each([
+    ['an Error', new Error('validator failed'), 'validator failed'],
+    ['a non-Error value', 'validator failed', 'invalid surface metadata'],
+  ] as const)('adds seed context when surface validation throws %s', (_name, failure, expected) => {
     const originalHasOwn = Object.hasOwn
     const hasOwn = vi.spyOn(Object, 'hasOwn').mockImplementation((object: object, property: PropertyKey): boolean => {
-      if ((object as Record<string, unknown>)['op'] === 'replace') throw 'validator failed'
+      if ((object as Record<string, unknown>)['op'] === 'replace') throw failure
       return originalHasOwn(object, property)
     })
     const seed = [{
       type: 'user/message',
       seq: 0,
       time: 1,
+      data: { content: [{ type: 'text', text: 'source' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    }, {
+      type: 'user/message',
+      seq: 1,
+      time: 2,
       data: { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } },
       surfaceOp: { op: 'replace', start: 0, end: 0 },
+      sourceEventSeqs: [0],
     }] as unknown as SessionEvent[]
 
     try {
       expect(() => new Session(SessionId('seed-non-error-metadata-failure'), seed))
-        .toThrow('invalid seed event at index 0: invalid surface metadata')
+        .toThrow(`invalid seed event at index 1: ${expected}`)
     } finally {
       hasOwn.mockRestore()
     }
@@ -415,6 +448,11 @@ describe('Session', () => {
 
   it('reads a nested append-metadata getter once and stores its first JSON value', () => {
     const session = new Session(SessionId('append-unstable-metadata'))
+    const source = session.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'source' }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
     let reads = 0
     const surfaceOp = Object.defineProperty({ op: 'replace', end: 0 }, 'start', {
       enumerable: true,
@@ -427,12 +465,12 @@ describe('Session', () => {
     const event = session.append(
       'user/message',
       { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } },
-      { surfaceOp } as never,
+      { surfaceOp, sourceEventSeqs: [0] } as never,
     )
 
     expect(reads).toBe(1)
     expect(event.surfaceOp).toEqual({ op: 'replace', start: 0, end: 0 })
-    expect(session.events).toEqual([event])
+    expect(session.events).toEqual([source, event])
   })
 
   it('rejects invalid plain surface metadata shapes at append', () => {
@@ -468,7 +506,7 @@ describe('Session', () => {
       'turn/start',
       { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
       { surfaceOp: 'append' },
-    )).toThrow(/not surface-eligible and cannot carry surface metadata/)
+    )).toThrow(/not surface-eligible and cannot carry surfaceOp/)
     expect(() => new Session(SessionId('non-surface-metadata-seed'), [{
       type: 'turn/start',
       seq: 0,
@@ -663,10 +701,8 @@ describe('SessionStore', () => {
   })
 
   it('enter() rejects a stale prepared session whose id is already live (no overwrite)', async () => {
-    // prepare()/enter() are public cross-package primitives that a caller may
-    // separate with arbitrary work. A stale prepared session must NOT overwrite
-    // a live store entry of the same id — its detach disposer would later delete
-    // the REAL session, breaking the store-uniqueness invariant.
+    // A stale prepared object must not replace the live same-id entry; its later
+    // detach would otherwise remove the wrong session.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const stale = ctx.sessions.prepare(SessionId('racy'))

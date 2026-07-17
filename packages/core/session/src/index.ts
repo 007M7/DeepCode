@@ -13,17 +13,17 @@ import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { ContextEnvelope, CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
-import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
+import { SurfaceManager } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
 
 export * from './types.ts'
 export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
 export { interruptedTurnClosers } from './repair.ts'
-export type { SurfaceNode } from './surface.ts'
-export { isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
+export type { SurfaceFoldReplacement, SurfaceFoldResult, SurfaceNode } from './surface.ts'
+export { foldSurface, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { isToolPairingBalanced } from './tool-pairing.ts'
 export { applyHeaderDelta, canonicalHeader, diffHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
@@ -34,68 +34,46 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * A session was created in the store. A synchronous listener throw vetoes
-     * publication and rollback emits the matching `session/disposed` edge;
-     * returned-promise rejection is observed and logged but cannot retroactively
-     * veto this synchronous boundary. A synchronous listener that requests the
-     * advanced detach does not remove the entry immediately: removal and the
-     * paired `session/disposed` edge wait until the creation dispatch unwinds.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the
-     * session's owner scope, captured when the session was ENTERED (an agent's
-     * session is entered through `agent.ctx`, so its events dispatch in that
-     * agent's scope; a bare `sessions.create()` from a plain plugin dispatches
-     * subject-less). A listener registered through `agent.ctx` hears only that
-     * agent's sessions; a plain plugin listener hears every session.
+     * Creation announcement during session publication. A synchronous throw vetoes and rolls
+     * back with a paired disposal; detach requested during dispatch is deferred.
+     * A returned-promise rejection is logged but cannot retroactively veto this
+     * synchronous boundary.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners
+     * receive only sessions entered through that agent's context.
      * @param session - the session just entered and announced.
+     * @dshScopeScan unsupported
      * @mode emit
      */
     'session/created'(this: Scoped<Session>, session: Session): void
     /**
-     * A previously announced session left the store. Emitted exactly once on
-     * normal detach or publication rollback, and never for a prepared/entered
-     * session whose `session/created` announcement did not begin. Listener
-     * failures (including returned-promise rejections) are logged and contained
-     * per listener so teardown always reaches quiescence.
-     * Scope-filtered dispatch uses the same owner carrier captured at entry;
-     * agent-scoped listeners hear only their own session's teardown.
+     * Emitted once when an announced session leaves the store, including
+     * publication rollback, but never for an entry whose creation announcement
+     * did not begin. Listener failures are logged and contained.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the owner scope.
      * @param session - the session that is no longer live in the store.
+     * @dshScopeScan unsupported
      * @mode emit
      */
     'session/disposed'(this: Scoped<Session>, session: Session): void
     /**
-     * An event was appended to a session log (sync, fire-and-forget). This is
-     * the per-append feed a UI or invariant plugin tails. The log push is the
-     * commit point; synchronous throws and returned-promise rejections from
-     * observers are logged and contained per listener, so they cannot make a
-     * committed append appear to fail or starve later listeners. The exact
-     * callback list and Cordis internal-dispatch checks resolve before the push;
-     * callbacks themselves run only after it.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the
-     * session's owner scope, captured when the session was ENTERED (an agent's
-     * session is entered through `agent.ctx`, so its events dispatch in that
-     * agent's scope; a bare `sessions.create()` from a plain plugin dispatches
-     * subject-less). A listener registered through `agent.ctx` hears only that
-     * agent's sessions; a plain plugin listener hears every session.
+     * Post-commit, fire-and-forget append feed. The listener snapshot resolves
+     * before the log push, but callbacks run after it; observer failures are
+     * logged and contained without making the committed append fail.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners
+     * receive only events from sessions entered through that agent's context.
      * @param session - the session whose log grew.
      * @param event - the appended event, exactly as recorded.
+     * @dshScopeScan unsupported
      * @mode emit
      */
     'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
     /**
-     * Awaited durability checkpoint. The agent loop awaits
-     * `ctx.sessions.flush(session)` at every turn end; persistence
-     * plugins (JSONL, SQLite) drain their write-behind buffers here and on
-     * fiber dispose. Awaited (parallel), not a waterfall: every listener runs
-     * and the caller waits for all of them, but none can veto. Dispatch it
-     * through {@link SessionStore.flush} — the store owns the carrier — never
-     * via a raw `ctx.parallel`.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the
-     * session's owner scope, captured when the session was ENTERED (an agent's
-     * session is entered through `agent.ctx`, so its events dispatch in that
-     * agent's scope; a bare `sessions.create()` from a plain plugin dispatches
-     * subject-less). A listener registered through `agent.ctx` hears only that
-     * agent's sessions; a plain plugin listener hears every session.
+     * Awaited parallel durability checkpoint: every listener runs and the
+     * caller awaits all of them, with no waterfall veto. Dispatch through
+     * {@link SessionStore.flush}. Scope-filtered dispatch
+     * (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
      * @param session - the session whose buffered events must reach durable storage.
+     * @dshScopeScan unsupported
      * @mode parallel
      */
     'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
@@ -103,13 +81,9 @@ declare module 'cordis' {
 }
 
 /**
- * Renders a `context/message` or `steering/message` event as a tagged
- * synthetic user-role message (the system-reminder pattern: zero adapter
- * burden, models distinguish it from real user prompts by the envelope).
- *
- * Live-adapter review has validated the tagged-envelope rendering against
- * current DeepSeek behavior; provider-specific mismatches belong in that
- * adapter, not in the canonical session vocabulary.
+ * Render injected context as tagged synthetic user-role content, keeping the
+ * canonical session vocabulary provider-neutral. Adapter-specific exceptions
+ * belong in the adapter.
  */
 function renderTagged(tag: string, content: ContentBlock[], source: MessageSource): ContentBlock[] {
   const open = `<${tag} source=${JSON.stringify(source.kind)}>`
@@ -155,43 +129,6 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
     throw new Error('session header seedLength must be a non-negative safe integer')
   }
   return deepFreeze(record as unknown as SessionHeader)
-}
-
-/** Validate the runtime shape of surface metadata after its JSON snapshot. */
-function assertSurfaceMetadataShape(
-  type: string,
-  surfaceOp: unknown,
-  sourceEventSeqs: unknown,
-): void {
-  const eligible = isSurfaceEligibleType(type)
-  if (!eligible) {
-    if (surfaceOp !== undefined || sourceEventSeqs !== undefined) {
-      throw new Error(`session event "${type}" is not surface-eligible and cannot carry surface metadata`)
-    }
-    return
-  }
-  if (surfaceOp === undefined) {
-    throw new Error(`session event "${type}" is surface-eligible and requires a surfaceOp marker`)
-  }
-  if (surfaceOp !== 'append') {
-    if (surfaceOp === null || typeof surfaceOp !== 'object' || Array.isArray(surfaceOp)) {
-      throw new Error(`session event "${type}" carries an invalid surfaceOp`)
-    }
-    const op = surfaceOp as Record<string, unknown>
-    const keys = Object.keys(op)
-    if (keys.length !== 3 || !Object.hasOwn(op, 'op') || !Object.hasOwn(op, 'start') || !Object.hasOwn(op, 'end')
-      || op['op'] !== 'replace'
-      || typeof op['start'] !== 'number' || !Number.isSafeInteger(op['start']) || op['start'] < 0
-      || typeof op['end'] !== 'number' || !Number.isSafeInteger(op['end']) || op['end'] < 0) {
-      throw new Error(`session event "${type}" carries an invalid replace surfaceOp`)
-    }
-  }
-  if (sourceEventSeqs !== undefined) {
-    if (!Array.isArray(sourceEventSeqs)
-      || sourceEventSeqs.some(seq => typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0)) {
-      throw new Error(`session event "${type}" sourceEventSeqs must contain non-negative safe integers`)
-    }
-  }
 }
 
 /** Validate the fixed event envelope after one-pass JSON materialization. */
@@ -253,6 +190,22 @@ interface SessionEntry {
 const attachments = new WeakMap<Session, SessionEntry>()
 
 /**
+ * Render one context contribution exactly as it will appear in model history.
+ * @param content - content blocks supplied by the context producer.
+ * @param source - attribution used by the canonical context envelope.
+ * @param envelope - canonical tagged framing or caller-owned raw framing.
+ * @returns a detached block list ready for the derived model transcript.
+ */
+export function renderContextContent(
+  content: ContentBlock[],
+  source: MessageSource,
+  envelope: ContextEnvelope = 'context',
+): ContentBlock[] {
+  const cloned = structuredClone(content)
+  return envelope === 'raw' ? cloned : renderTagged('context', cloned, source)
+}
+
+/**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
  *
  * Plain class (not a Service) — create instances via `ctx.sessions.create()`.
@@ -260,13 +213,15 @@ const attachments = new WeakMap<Session, SessionEntry>()
  */
 export class Session {
   private log: SessionEvent[] = []
+  /** Incremental acceptance state, kept separate from the public lazy view. */
+  private readonly surfaceValidator = new SurfaceManager(this.log)
 
   /**
    * Derived surface — a cached linked list of message-producing events.
    * Lazily rebuilt from `surfaceOp` markers in the log; processes only new
    * events (delta) on each access — the log is append-only, so prior events
    * never change.
-   * `append`. Undefined until first accessed (including after fork/seed).
+   * Undefined until first accessed (including after fork/seed).
    */
   private _surface: SurfaceManager | undefined
 
@@ -295,7 +250,7 @@ export class Session {
       // `seq = log.length` contract the whole system relies on). Without this,
       // a bad seed would surface only later as a backend rejection or a silent
       // divergence between the live log and disk.
-      this.log = Array.from(seed, (source, index) => {
+      for (const [index, source] of seed.entries()) {
         // The seed is a persistence/replay boundary: validate and detach the
         // complete event in one lossless-JSON pass.
         const snapshot = snapshotJsonValue(source)
@@ -306,20 +261,16 @@ export class Session {
         if (snapshot.seq !== index) {
           throw new Error(`seed event at index ${index} has seq ${snapshot.seq} (expected ${index}); seed must be contiguous from 0`)
         }
-        // Surface-eligible events MUST carry a surfaceOp marker — the surface is
-        // the sole source of derived history, so a marker-less message event
-        // would load fine yet vanish from deriveMessages(). `append` enforces
-        // this at compile time via its typed overload; a seed arrives as raw
-        // SessionEvent[] (replay/fork/load), bypassing that, so re-check at
-        // runtime here rather than silently resuming with empty history.
-        const structural = snapshot as SessionEvent & { surfaceOp?: unknown; sourceEventSeqs?: unknown }
+        // A seed is accepted incrementally through the same transition as a
+        // live append and a full-log fold. The candidate is planned before it
+        // enters `log`, so a failure cannot partially mutate the surface.
         try {
-          assertSurfaceMetadataShape(snapshot.type, structural.surfaceOp, structural.sourceEventSeqs)
+          this.surfaceValidator.validateNext(snapshot)
         } catch (error: unknown) {
           throw new Error(`invalid seed event at index ${index}: ${error instanceof Error ? error.message : 'invalid surface metadata'}`)
         }
-        return deepFreeze(snapshot)
-      })
+        this.log.push(deepFreeze(snapshot))
+      }
     }
     this.header = snapshotSessionHeader(id, header)
   }
@@ -366,7 +317,10 @@ export class Session {
    * @throws if `data` or surface metadata is not losslessly JSON-serializable
    *   (BigInt, function, symbol, undefined, negative zero, non-finite number,
    *   circular reference, sparse array, or an exotic object such as
-   *   Map/Set/Date/class instance). One recursive pass reads, validates, and
+   *   Map/Set/Date/class instance), or when the candidate violates the
+   *   canonical surface contract (marker shape and eligibility, unique
+   *   earlier provenance, positional replacement validity, and complete
+   *   shadowed-node coverage). One recursive pass reads, validates, and
    *   copies each nested value once, so a stateful getter cannot supply one value
    *   to validation and another to storage. The event log is the durable source
    *   of truth, so a bad event fails at the append site rather than later during
@@ -392,25 +346,21 @@ export class Session {
     if (surfaceMetadataSnapshot === undefined) {
       throw new Error(`session event "${type}" carries non-JSON-serializable surface metadata`)
     }
-    assertSurfaceMetadataShape(
-      type,
-      (surfaceMetadataSnapshot as { surfaceOp?: unknown }).surfaceOp,
-      (surfaceMetadataSnapshot as { sourceEventSeqs?: unknown }).sourceEventSeqs,
-    )
-
     const entry = attachments.get(this)
     if (entry?.appending) {
       throw new Error('session append cannot reenter while another append is being published')
     }
+    const event = deepFreeze({
+      type,
+      seq: this.log.length,
+      time: Date.now(),
+      data: dataSnapshot,
+      ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
+    } as unknown as SessionEvent<T>)
+    this.surfaceValidator.validateNext(event as SessionEvent)
+
     if (entry !== undefined) entry.appending = true
     try {
-      const event = deepFreeze({
-        type,
-        seq: this.log.length,
-        time: Date.now(),
-        data: dataSnapshot,
-        ...surfaceMetadataSnapshot,
-      } as unknown as SessionEvent<T>)
       let callbacks: SessionCallback[] | undefined
       const callbackArgs: unknown[] = [this, event]
       if (entry !== undefined) {
@@ -540,8 +490,8 @@ export class Session {
         }
       }
       case 'context/message': {
-        const { content, source } = event.data
-        return { role: 'user', content: renderTagged('context', content, source) }
+        const { content, source, envelope } = event.data
+        return { role: 'user', content: renderContextContent(content, source, envelope) }
       }
       case 'steering/message': {
         const { content, source } = event.data

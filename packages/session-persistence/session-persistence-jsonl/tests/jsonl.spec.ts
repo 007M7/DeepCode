@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -18,6 +18,19 @@ type MutableSessionHeader = { -readonly [K in keyof SessionHeader]: SessionHeade
 /** Test-only mutable view used to verify that backends detach returned/caller metadata. */
 function mutableHeader(header: SessionHeader): MutableSessionHeader {
   return header
+}
+
+async function expectParallelFlushError(promise: Promise<unknown>, message: RegExp): Promise<void> {
+  try {
+    await promise
+  } catch (error) {
+    expect(error).toBeInstanceOf(AggregateError)
+    const [cause] = (error as AggregateError).errors as unknown[]
+    expect(cause).toBeInstanceOf(Error)
+    expect((cause as Error).message).toMatch(message)
+    return
+  }
+  throw new Error('expected parallel flush to reject')
 }
 
 async function freshRoot(): Promise<string> {
@@ -54,12 +67,8 @@ runPersistenceContract('jsonl', async () => {
   }
 })
 
-// Run the shared coordinator orchestration suite against the real JSONL backend.
-// One temp root is the shared storage scope (two mounted instances over the same
-// root = HMR/reload). `corruptTail` appends a partial, newline-less fragment to
-// the session's .jsonl past the committed region — a never-committed torn tail
-// that drives the coordinator's commitRepair-with-tornMarker branch over real
-// file bytes.
+// Two mounts share this temp root to exercise reload. `corruptTail` appends a partial,
+// newline-less fragment past the committed region so coordinator repair runs on real file bytes.
 runCoordinatorContract('jsonl', async (): Promise<CoordinatorFixture> => {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-jsonl-coord-'))
   return {
@@ -103,6 +112,19 @@ describe('SessionPersistenceJsonl: format helpers', () => {
   it('encodeSegment rejects an empty id', () => {
     expect(() => encodeSegment('')).toThrow(/empty/)
   })
+
+  it('resolves a relative custom root before locating a session', async () => {
+    const absoluteRoot = await freshRoot()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceJsonl, { root: relative(process.cwd(), absoluteRoot) })
+    const m = meta('relative-location', '/work')
+    expect(ctx.sessionPersistence.locate(m)).toEqual({
+      kind: 'jsonl',
+      path: logPath(resolve(absoluteRoot), '/work', m.id),
+    })
+    await fiber.dispose()
+  })
 })
 
 describe('SessionPersistenceJsonl: durability and crash semantics', () => {
@@ -117,8 +139,13 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
 
   it('lazy materialization: create() writes no file until the first append', async () => {
     const m = meta('lazy', '/work')
+    const location = ctx.sessionPersistence.locate(m)
+    expect(location).toEqual({ kind: 'jsonl', path: logPath(root, '/work', m.id) })
+    expect(isAbsolute(location!.path)).toBe(true)
+
     await ctx.sessionPersistence.create(m)
-    // nothing on disk yet
+    // locate() is a pure target-path calculation: neither it nor create()
+    // materializes a file before the first append.
     const dir = sessionDir(root, '/work')
     await expect(stat(logPath(root, '/work', m.id))).rejects.toThrow()
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(m.id)
@@ -128,6 +155,26 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect((await stat(logPath(root, '/work', m.id))).isFile()).toBe(true)
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
     void dir
+  })
+
+  it('keeps the same location on resume and gives a fork its own location', async () => {
+    const parent = meta('location-parent', '/work')
+    const parentLocation = ctx.sessionPersistence.locate(parent)
+    await ctx.sessionPersistence.create(parent)
+    await ctx.sessionPersistence.append(parent.id, oneTurnLog())
+
+    const loaded = await ctx.sessionPersistence.load(parent.id)
+    expect(ctx.sessionPersistence.locate(loaded.meta)).toEqual(parentLocation)
+
+    const child = {
+      ...loaded.meta,
+      id: SessionId('location-child'),
+      parentSession: parent.id,
+      seedLength: loaded.events.length,
+    }
+    const childLocation = ctx.sessionPersistence.locate(child)
+    expect(childLocation?.path).not.toBe(parentLocation?.path)
+    expect(childLocation).toEqual({ kind: 'jsonl', path: logPath(root, '/work', child.id) })
   })
 
   it('round-trip is byte-identical (incl. assistant/chunk verbatim)', async () => {
@@ -347,10 +394,9 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
       JSON.stringify({ type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }), // gap: missing seq 1
     ].join('\n') + '\n'
-    // No committed turn/end, so the gap is a tolerated crash boundary: scanLog
-    // PRESERVES the contiguous prefix (turn/start seq 0) — real interrupted-turn
-    // work, not discarded — and stops at the gap. The orphaned open turn is
-    // closed by loadCore's synthetic turn/end, not here.
+    // No committed turn/end, so the gap is a tolerated crash boundary: scanLog PRESERVES the
+    // contiguous prefix (turn/start seq 0) — real interrupted-turn work, not discarded — and
+    // stops at the gap. `loadCore`, not this scanner, later closes the orphaned turn.
     expect(scanLog(Buffer.from(log)).events.map(e => e.seq)).toEqual([0])
   })
 
@@ -470,9 +516,8 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   })
 
   it('list reads a header line longer than the 8KB read chunk', async () => {
-    // readFirstLine accumulates across reads when the first line exceeds its
-    // buffer. Plant a valid header whose line is > 8192 bytes (a long extra
-    // field is tolerated by the header type guard) and confirm list() reads it.
+    // A tolerated extra field makes this valid header exceed the 8192-byte read buffer, proving
+    // `readFirstLine` accumulates chunks before `list()` parses it.
     const bucket = join(root, '_no-cwd')
     await mkdir(bucket, { recursive: true })
     const bigHeader = JSON.stringify({ type: 'session', version: 0, id: 'big', createdAt: 1, pad: 'x'.repeat(9000) })
@@ -492,16 +537,13 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     for (const s of ctx.sessions.list()) await ctx.parallel('session/flush', s)
     await sessFiberA.dispose()
 
-    // A NEW live Session object reuses id "reuse". The init cache is keyed by
-    // the Session OBJECT, so this gets its OWN onCreated (not A's stale promise)
-    // — which detects the on-disk collision and rejects, rather than silently
-    // appending the new session's events onto A's log under a stale cursor.
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
+    // A new Session object reuses the id. Object-keyed initialization must run independently,
+    // detect the disk collision, and reject instead of appending through session A's stale cursor.
     let b!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
       b = inner.sessions.create(SessionId('reuse'), { meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(b)).rejects.toThrow(/already bound to a different live session|already has a persisted log on disk/)
+    await expect(ctx.sessions.flush(b)).rejects.toThrow(/already bound to a different live session|already has a persisted log on disk/)
   })
 
   it('a NO-CWD live session does NOT cross-cwd-adopt a same-id log from a real cwd bucket (loadLive is scope-exact)', async () => {
@@ -513,22 +555,17 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx.sessionPersistence.append(SessionId('x'), oneTurnLog())
     await ctx.fiber.dispose()
 
-    // Backend 2 over the SAME root. A live no-cwd session reuses id "x". Because
-    // loadLive(id, undefined) is the DEFINITE no-cwd bucket (NOT an all-buckets
-    // scan), case-2 adoption does NOT match the "/w" log — so it would NOT
-    // silently graft the no-cwd events onto the "/w" log with a mismatched cwd
-    // (the bug a non-scope-exact loadLive caused). It falls through to the
-    // new-session path, where createCore's any-cwd collision probe (loadStored)
-    // catches the duplicate id and REJECTS — the id is taken in another bucket.
+    // Backend 2 creates a no-cwd session whose id exists only in `/w`. Exact `loadLive(id,
+    // undefined)` must not adopt across buckets; the any-cwd collision check then rejects instead
+    // of grafting no-cwd events onto a log with mismatched cwd.
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
-    const backend = ctx2.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let b!: Session
     await ctx2.plugin(Object.assign((inner: Context) => {
       b = inner.sessions.create(SessionId('x')) // no cwd
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(b)).rejects.toThrow(/already has a persisted log on disk/)
+    await expect(ctx2.sessions.flush(b)).rejects.toThrow(/already has a persisted log on disk/)
 
     // The "/w" log is untouched — no no-cwd events were grafted onto it, and no
     // `_no-cwd` log for "x" was created.
@@ -545,7 +582,6 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx.sessionPersistence.append(SessionId('divergent'), oneTurnLog())
     await ctx.sessionPersistence.load(SessionId('divergent'))
 
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     // A seed that keeps every seq/type/time but mutates a payload must NOT be
     // accepted as "the same session" — otherwise drain filters those seqs as
     // already persisted and the divergent payload is silently lost.
@@ -556,7 +592,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx.plugin(Object.assign((inner: Context) => {
       bad = inner.sessions.create(SessionId('divergent'), { seed: tampered, meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(bad)).rejects.toThrow(/do not match this live session|already has a persisted log/)
+    await expect(ctx.sessions.flush(bad)).rejects.toThrow(/do not match this live session|already has a persisted log/)
   })
 
   it('a second live session reusing a bound id is rejected', async () => {
@@ -569,12 +605,11 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     for (const s of ctx.sessions.list()) await ctx.parallel('session/flush', s)
     await firstFiber.dispose()
 
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let second!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
       second = inner.sessions.create(SessionId('bound'), { meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(second))
+    await expect(ctx.sessions.flush(second))
       .rejects.toThrow(/already bound to a different live session|already has a persisted log|do not match/)
   })
 
@@ -587,9 +622,8 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   })
 
   it('list surfaces a non-ENOENT root error (ENOTDIR) instead of reporting no sessions', async () => {
-    // A durable backend must NOT collapse a storage fault to "no sessions". Point
-    // the root at a regular FILE: readdir then fails with ENOTDIR, which must
-    // propagate rather than be swallowed as an empty listing.
+    // A durable backend must not collapse a storage fault to "no sessions". Making the root a
+    // regular file forces ENOTDIR from `readdir`, which must propagate.
     const filePath = join(root, 'not-a-dir')
     await writeFile(filePath, 'x')
     const ctx2 = new Context()
@@ -600,22 +634,18 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   })
 
   it('loadLive surfaces a non-ENOENT lookup error (ENOTDIR) instead of reporting absent', async () => {
-    // A non-ENOENT error from the per-id open() must surface, not be collapsed to
-    // "not found" (which would let live-adoption proceed under a false absence
-    // assumption). A live session's onCreated reaches loadLive(id, cwd) →
-    // exists(logPath). Make that cwd's bucket DIRECTORY a regular file: open()ing
-    // `bucket/<id>.jsonl` under it then fails ENOTDIR.
+    // A non-ENOENT per-id open error must surface rather than become "not found" and permit false
+    // live adoption. Making the cwd bucket a regular file forces ENOTDIR for its child log path.
     const cwd = '/x'
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     await writeFile(sessionDir(root, cwd), 'x') // bucket path is now a FILE
-    const backend = ctx2.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let s!: Session
     await ctx2.plugin(Object.assign((inner: Context) => {
       s = inner.sessions.create(SessionId('exists-fault'), { meta: { cwd } })
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(s)).rejects.toThrow(/ENOTDIR/)
+    await expect(ctx2.sessions.flush(s)).rejects.toThrow(/ENOTDIR/)
     await ctx2.fiber.dispose()
   })
 
@@ -686,7 +716,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const backend = ctx2.sessionPersistence as unknown as { materialize: (...args: unknown[]) => Promise<void> }
     const origMat = backend.materialize.bind(backend)
     backend.materialize = () => Promise.reject(new Error('disk full'))
-    await expect(ctx2.parallel('session/flush', session)).rejects.toThrow(/disk full/)
+    await expectParallelFlushError(ctx2.parallel('session/flush', session), /disk full/)
     // The events are STILL buffered (not silently dropped): a retry persists them.
     backend.materialize = origMat
     await ctx2.parallel('session/flush', session)
@@ -723,10 +753,9 @@ describe('SessionPersistenceJsonl: edge cases', () => {
 
   it('Session.append rejects a non-serializable event at the source (never enters the log)', () => {
     const session = ctx.sessions.create(SessionId('reject-bad'))
-    // Serializability is enforced at the source: Session.append throws on a
-    // BigInt-bearing event BEFORE it enters session.events, so the durable log
-    // can never diverge from the live log. The throw surfaces at the caller's
-    // append site, not asynchronously in a backend flush.
+    // Serializability is enforced at the source: Session.append throws on a BigInt-bearing
+    // event before it enters session.events, so the durable log can never diverge from the live
+    // log. The error therefore surfaces synchronously at append, not later during backend flush.
     expect(() => {
       session.append('user/message', { content: [{ type: 'text', text: 'bad' }], source: { kind: 'user' }, bad: 1n } as never, { surfaceOp: 'append' })
     }).toThrow(/non-JSON-serializable/)

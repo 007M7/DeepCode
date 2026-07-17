@@ -9,30 +9,29 @@ import {
   childFixturePaths,
   fixtureContext,
   formatSystemPromptSnapshot,
+  formatToolSchemasSnapshot,
   headerDeltaCount,
   normalizedHeaders,
   normalizedSystemPromptDeltas,
   normalizedSystemPrompts,
+  normalizedToolSchemaDeltas,
+  normalizedToolSchemas,
+  parseToolSchemasSnapshot,
   refreshFixtureReplacements,
+  restorePinnedToolSchemas,
   stabilizeRefreshLog,
+  unknownToolCallIds,
 } from '../src/suite.ts'
 
 /**
- * Unit tests for the suite factory, by running it: two synthetic suites over
- * the scripted fake ACP bin (./fixtures/fake-acp-agent.ts) register REAL
- * describe/it trees at collection time, so every factory path — golden and log
- * compares, the per-suite header pin and its uniformity guard, record-mode
- * fixture write-back, skip semantics, and the fixture guard block — executes
- * as an ordinary green test. The pure helpers get direct cases below.
+ * Unit tests for the suite factory, by running it: two synthetic suites over the scripted fake
+ * ACP bin (./fixtures/fake-acp-agent.ts) register real describe/it trees at collection time,
+ * so every factory path — golden and log compares, the per-suite header pin and its uniformity
+ * guard, record-mode fixture write-back, skip semantics, and the fixture guard block —
+ * executes as an ordinary green test.
  *
- * The replay suite runs against the committed fixtures in ./fixtures/suite.
- * The record suite runs against a TEMP COPY of ./fixtures/record-suite
- * (record mode writes session fixtures back into its snapshots dir; a run must
- * never touch the committed tree). To re-bootstrap the record tree's goldens
- * after changing the fake bin's output, run this spec once with
- * `ACP_SNAPSHOT_SPEC_BOOTSTRAP=1` (points the record suite at the committed
- * tree so vitest creates/updates the goldens and the write-back lands there),
- * then commit the result.
+ * Record tests use a temp copy. To intentionally rebuild their committed fixtures, run this
+ * spec once with `ACP_SNAPSHOT_SPEC_BOOTSTRAP=1`, then review and commit the resulting tree.
  */
 
 const AGENT = {
@@ -44,12 +43,7 @@ const AGENT = {
 const REPLAY_DIR = fileURLToPath(new URL('./fixtures/suite', import.meta.url))
 const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.url))
 
-// The replay suite doubles as the header-CLASS coverage: every scenario names
-// the same explicit class (the record suite exercises the 'default' fallback),
-// and plain-turn boots through a per-scenario configPath override (the same
-// dummy path the agent default carries — the plumbing, not the composition,
-// is what this suite can exercise; the real overlay boot is the acp-agent
-// example's code-mode scenarios).
+// Replay pins explicit header classes; recording covers the default fallback.
 const REPLAY_SCENARIOS: Scenario[] = [
   { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'main' },
   { name: 'plain-turn', hasModelTurn: true, recorded: true, childSessions: 1, headerClass: 'main', configPath: AGENT.configPath },
@@ -82,6 +76,7 @@ afterAll(async () => {
 function staleRefreshFixtures(dir: string): void {
   writeFileSync(join(dir, 'plain-turn', 'stdout.golden.jsonl'), 'stale stdout\n')
   writeFileSync(join(dir, 'pin-turn', 'system-prompt.golden.md'), 'STALE PROMPT\n')
+  writeFileSync(join(dir, 'pin-turn', 'tool-schemas.golden.json'), '{"initial":[{"name":"stale"}],"deltas":[]}\n')
 
   const plainBehaviorFile = join(dir, 'plain-turn', 'behavior.json')
   const plainBehavior = JSON.parse(readFileSync(plainBehaviorFile, 'utf8')) as Record<string, unknown>
@@ -137,6 +132,9 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
       'NEW PROMPT LINE',
       '',
     ].join('\n'))
+    const schemas = readFileSync(join(refreshDir, 'pin-turn', 'tool-schemas.golden.json'), 'utf8')
+    expect(schemas).toContain('"description": "D1"')
+    expect(schemas).not.toContain('"name":"stale"')
   })
 })
 
@@ -247,6 +245,40 @@ describe('normalizedSystemPrompts', () => {
   })
 })
 
+describe('normalizedToolSchemas', () => {
+  it('extracts normalized schema arrays and omits absent or non-array fields', () => {
+    const log = [
+      '{"type":"session","id":"a","createdAt":5,"cwd":"/w"}',
+      '{"type":"request/header","seq":0,"time":9,"data":{"header":{"tools":[{"name":"read","description":"work in /w"}]}}}',
+      '{"type":"request/header","seq":1,"time":9,"data":{"header":{}}}',
+      '{"type":"request/header","seq":2,"time":9,"data":{"header":{"tools":null}}}',
+      '{"type":"request/header","seq":3,"time":9,"data":{"header":null}}',
+      '{"type":"request/header","seq":4,"time":9,"data":{"header":"invalid"}}',
+      '',
+    ].join('\n')
+    expect(normalizedToolSchemas(log, { sessionIds: [], cwd: '/w' })).toEqual([
+      [{ name: 'read', description: 'work in {{cwd}}' }],
+    ])
+  })
+})
+
+describe('normalizedToolSchemaDeltas', () => {
+  it('extracts and normalizes object-valued schema edits', () => {
+    const log = [
+      '{"type":"request/header-delta","data":{"tools":{"added":[{"name":"read","description":"work in /w"}]}}}',
+      '{"type":"request/header-delta","data":{"tools":null}}',
+      '{"type":"request/header-delta","data":{"tools":"invalid"}}',
+      '{"type":"request/header-delta","data":{"tools":[]}}',
+      '{"type":"request/header-delta","data":{"system":{"insert":[]}}}',
+      '{"type":"request/header","data":{"tools":{"added":[]}}}',
+      '',
+    ].join('\n')
+    expect(normalizedToolSchemaDeltas(log, { sessionIds: [], cwd: '/w' })).toEqual([
+      { added: [{ name: 'read', description: 'work in {{cwd}}' }] },
+    ])
+  })
+})
+
 describe('normalizedSystemPromptDeltas', () => {
   it('extracts and normalizes well-formed system edits', () => {
     const log = [
@@ -281,12 +313,66 @@ describe('formatSystemPromptSnapshot', () => {
   })
 })
 
+describe('tool-schema snapshots', () => {
+  const snapshot = {
+    initial: [{ name: 'read', description: 'Read a file.' }],
+    deltas: [{ added: [{ name: 'grep', description: 'Search files.' }] }],
+  }
+
+  it('formats and parses canonical structured JSON', () => {
+    const formatted = formatToolSchemasSnapshot(snapshot.initial, snapshot.deltas)
+    expect(formatted).toBe(`${JSON.stringify(snapshot, null, 2)}\n`)
+    expect(parseToolSchemasSnapshot(formatted)).toEqual(snapshot)
+  })
+
+  it('rejects invalid top-level and field shapes', () => {
+    expect(() => parseToolSchemasSnapshot('null')).toThrow(/must be an object/)
+    expect(() => parseToolSchemasSnapshot('"invalid"')).toThrow(/must be an object/)
+    expect(() => parseToolSchemasSnapshot('[]')).toThrow(/must be an object/)
+    expect(() => parseToolSchemasSnapshot('{"initial":{},"deltas":[]}')).toThrow(/array-valued/)
+    expect(() => parseToolSchemasSnapshot('{"initial":[],"deltas":{}}')).toThrow(/array-valued/)
+  })
+
+  it('restores initial schemas into the pinned header token', () => {
+    expect(restorePinnedToolSchemas({ system: '{{system}}', tools: '{{tools}}' }, snapshot))
+      .toEqual({ system: '{{system}}', tools: snapshot.initial })
+  })
+
+  it('rejects invalid headers and a missing tool token', () => {
+    expect(() => restorePinnedToolSchemas(null, snapshot)).toThrow(/must be an object/)
+    expect(() => restorePinnedToolSchemas('invalid', snapshot)).toThrow(/must be an object/)
+    expect(() => restorePinnedToolSchemas([], snapshot)).toThrow(/must be an object/)
+    expect(() => restorePinnedToolSchemas({ tools: [] }, snapshot)).toThrow(/must equal/)
+  })
+})
+
 describe('headerDeltaCount', () => {
   it('counts request/header-delta events, ignoring blanks and other lines', () => {
     const delta = JSON.stringify({ type: 'request/header-delta', seq: 2, time: 9, data: {} })
     const other = JSON.stringify({ type: 'request/header', seq: 0, time: 9, data: {} })
     expect(headerDeltaCount(`${other}\n\n${delta}\n${delta}\n`)).toBe(2)
     expect(headerDeltaCount(`${other}\n`)).toBe(0)
+  })
+})
+
+describe('unknownToolCallIds', () => {
+  it('returns structured UNKNOWN_TOOL call ids and ignores other results', () => {
+    const log = [
+      '{"type":"tool/result","data":{"callId":"missing","error":{"code":"UNKNOWN_TOOL"}}}',
+      '{"type":"tool/result","data":{"callId":"failed","error":{"code":"EXECUTION_FAILED"}}}',
+      '{"type":"tool/result","data":null}',
+      '{"type":"tool/result","data":"invalid"}',
+      '{"type":"tool/result","data":{"error":null}}',
+      '{"type":"tool/result","data":{"error":"invalid"}}',
+      '{"type":"assistant/message","data":{"error":{"code":"UNKNOWN_TOOL"}}}',
+      '{"type":"tool/result","data":{"error":{"code":"UNKNOWN_TOOL"}}}',
+      '',
+    ].join('\n')
+    expect(unknownToolCallIds(log)).toEqual(['missing', '<missing callId>'])
+  })
+
+  it('returns no failures for ordinary tool results', () => {
+    expect(unknownToolCallIds('{"type":"tool/result","data":{"callId":"ok"}}\n')).toEqual([])
   })
 })
 

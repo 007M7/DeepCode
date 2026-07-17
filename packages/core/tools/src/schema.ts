@@ -1,26 +1,7 @@
-/**
- * Typed tool-parameter schema DSL.
- *
- * Plugin authors write per-property specs with `required: true` as a boolean
- * (the `SchemaSpec` type). A type-level helper (`InferArgs`) maps a SchemaSpec
- * to the TS argument type. At runtime, `schemaSpecToJsonSchema()` converts a
- * SchemaSpec to standard JSON Schema (`type: 'object'`, `properties`,
- * `required` array) for the wire format sent to the model.
- *
- * # Why a custom DSL and not schemastery?
- *
- * Schemastery is a validation/transformation library (StandardSchema v1) used
- * for plugin Config. Tool parameters need JSON Schema specifically (the LLM
- * wire format), not validation. A lightweight DSL focused on JSON Schema
- * generation, with type inference for the tool's `execute` args, gives plugin
- * authors the best DX with the smallest surface area. Schemastery would add
- * unnecessary indirection and wouldn't cleanly produce JSON Schema.
- *
- * @module dsh-tools/schema
- */
+/** Typed tool-parameter DSL with argument inference and JSON Schema output. @module dsh-tools/schema */
 
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ToolDefinition, ToolExecuteReturn, ToolExecution, ToolResult } from './index.ts'
+import type { ToolDefinition, ToolExecuteReturn, ToolRunContext, ToolResult } from './index.ts'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
 
 // ---------------------------------------------------------------------------
@@ -308,7 +289,7 @@ export interface DefineToolOptions<S extends SchemaSpec> {
    * content only) or a `{ content, meta }` object to also attach a tool-private
    * presentation payload (see {@link ToolExecuteReturn}).
    */
-  execute(args: InferArgs<S>, exec: ToolExecution): Promise<ToolExecuteReturn>
+  execute(args: InferArgs<S>, exec: ToolRunContext): Promise<ToolExecuteReturn>
   /**
    * Optional: how to present the PENDING state of one call in a UI (an editor
    * tool-call card, a CLI log line). `args` is the typed, schema-validated
@@ -328,39 +309,13 @@ export interface DefineToolOptions<S extends SchemaSpec> {
 }
 
 /**
- * Define a tool with a typed parameter schema.
- *
- * Use this instead of constructing a raw {@link ToolDefinition} for all
- * first-party tools. The `parameters` use the boolean-required style
- * (`required: true` as a per-property flag), and `execute` receives typed
- * args derived from the schema.
- *
- * ```ts
- * const tool = defineTool({
- *   name: 'read_file',
- *   description: 'Read a file from disk.',
- *   parameters: {
- *     path: { type: 'string', required: true, description: 'Absolute file path' },
- *     offset: { type: 'number' },
- *     limit: { type: 'number', description: 'Max lines to read' },
- *   },
- *   async execute(args) {
- *     // args: { path: string; offset?: number; limit?: number }
- *   },
- * })
- * ```
- *
- * Raw JSON-Schema tool definitions (from MCP servers) are still accepted
- * by `ToolRegistry.register()` directly — `defineTool` is sugar for
- * first-party plugin authors.
- *
+ * Define a first-party tool whose execution and presentation arguments are
+ * inferred from its per-property schema. Raw JSON-Schema definitions remain
+ * valid inputs to {@link ToolRegistry.register}; this helper is authoring sugar.
  * @param options - the tool's name, description, typed parameter schema,
  *   execute body, and optional presenters.
- * @returns a registry-ready {@link ToolDefinition}: its `execute` validates the
- *   raw args first (throwing {@link ToolArgsError} on mismatch, which the
- *   registry turns into an isError result), and its presenters validate softly
- *   (returning undefined on mismatch, since replay may feed them older-schema
- *   args).
+ * @returns a registry-ready definition with strict execution validation and
+ *   soft presenter validation for replay compatibility.
  */
 export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>): ToolDefinition {
   // Object-literal execute methods don't use `this`; the reference is safe.
@@ -378,7 +333,7 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
-    async execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn> {
+    async execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn> {
       // Validate the model-generated args before the typed body runs. On
       // mismatch we throw ToolArgsError; the registry turns it into an
       // isError result so the model can self-correct. After this guard, the

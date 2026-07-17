@@ -32,7 +32,7 @@ claude-code V1's item is `{ content, status, activeForm }`; later (V2) it grew i
 
 ### Single owner — no swarm machinery (YAGNI)
 
-The list belongs to the ONE agent session that called the tool (`exec.agent.session`); a non-agent caller is rejected. There is deliberately no shared/multi-owner scope, no capability seam (interface/impl/consumer), no scope resolver, and no delta protocol. The harness does have subagents, and a shared cross-agent list is conceivable — but building that now means designing for a form the product does not yet have. The whole-list-replace + single-owner shape is what claude-code V1, opencode, and codex all ship; if a shared list is ever needed, the on-log representation would change to per-item deltas (so concurrent writers can't clobber each other) and a scope resolver would choose the target log. That is a future RFC, not speculative scaffolding today.
+Each list belongs to the calling agent session, and non-agent calls are rejected. There is no shared scope, resolver, or delta protocol. Cross-agent lists would require per-item log deltas and explicit scope selection, so they remain a separate future design.
 
 ### Validation: the cheap middle
 

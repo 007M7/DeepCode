@@ -1,19 +1,7 @@
 /**
- * Scripted fake ACP agent bin for `dsh-acp-snapshot`'s unit specs. Speaks
- * newline-delimited JSON-RPC on stdio like the real `dsh-acp-agent` bin, but
- * every behavior — how prompts settle, whether session/new rejects, which
- * session logs get persisted, what filesystem noise to leave — comes from a
- * `behavior.json` sitting NEXT to the `$DSH_SNAPSHOT_FILE` fixture, so a spec
- * scripts a whole subprocess run from data. The specs launch it through the
- * REAL `runScenario` spawn path (tsx loader, temp cwd, env plumbing), so the
- * harness plumbing is exercised for real; only the agent behind the protocol
- * is scripted.
- *
- * The specs (not the golden tier) own this bin: it asserts nothing, echoes
- * observable facts into `session/update` text chunks (env probe, permission
- * outcome, seeded-workspace listing) for the spec to read off `rawStdout`, and
- * exits 0 on stdin EOF after writing the scripted logs — mirroring the real
- * bin's dispose-flush-exit shape.
+ * Scripted ACP agent for snapshot-kit tests. A fixture-adjacent `behavior.json` controls the
+ * subprocess reached through the real harness path; the bin reports observations over ACP and
+ * writes scripted logs before exiting on stdin EOF.
  */
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -36,6 +24,8 @@ interface ScriptedLog {
 
 /** The whole scripted behavior for one run. Every field defaults to the least surprising choice. */
 interface Behavior {
+  /** Exit during startup after writing any configured stderr note. */
+  failOnBoot?: boolean
   /** Reject every `session/new` (exercises the expect-error step without extra dirs). */
   rejectNewSession?: boolean
   /** Reject `session/new` only when `additionalDirectories` is non-empty (the real bridge's rule). */
@@ -74,6 +64,7 @@ const behavior: Behavior = fixtureFile === ''
   : JSON.parse(readFileSync(join(dirname(fixtureFile), 'behavior.json'), 'utf8')) as Behavior
 
 if (behavior.stderrNote !== undefined) process.stderr.write(`${behavior.stderrNote}\n`)
+if (behavior.failOnBoot === true) process.exit(7)
 
 let nextOutboundId = 1000
 let sessionId = ''

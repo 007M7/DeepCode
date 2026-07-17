@@ -167,10 +167,8 @@ describe('ReactLoopAgent', () => {
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
 
-    // Non-serializable injected content makes Session.append throw AFTER
-    // turn/start was recorded. The turn/end must still be appended (finally),
-    // AND the durability checkpoint must still fire — the balanced turn is in
-    // memory and a crash before the next turn/dispose would otherwise lose it.
+    // Invalid injected content throws after turn/start. `finally` must still append turn/end and
+    // flush the balanced in-memory turn so a crash cannot lose it before the next checkpoint.
     expect(() => {
       agent.inject([{ type: 'text', text: 'x', bad: 1n } as never], { source: { kind: 'plugin', plugin: 'p' } })
     }).toThrow(/non-JSON-serializable/)
@@ -252,26 +250,20 @@ describe('ReactLoopAgent', () => {
   })
 
   it('disposer is idempotent (double-stop)', async () => {
-    // Create a bare ReactLoopAgent and start it through the package-internal
-    // test seam. Then call its disposer twice — the second call hits the
-    // early-return branch.
+    // The internal start seam exposes one idle driver's disposer for repeated invocation.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('test'))
     const prepared = prepareReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
     const { agent } = prepared
 
-    // Start the loop to get the disposer; the agent waits for messages
-    // (idle, never-resolving cancel), so it will stay idle.
     prepared.markPublished()
     const dispose = prepared.startDriver()
 
-    // First dispose
     const firstDisposal = dispose()
     expect(agent.status).toBe('disposed')
     await firstDisposal
 
-    // Second dispose — idempotent, no throw
     await expect(dispose()).resolves.toBeUndefined()
     expect(agent.status).toBe('disposed')
   })
@@ -366,10 +358,8 @@ describe('ReactLoopAgent', () => {
   })
 
   it('whenIdle() subscribed while running resolves via done when the agent is then disposed', async () => {
-    // Covers the waiter's disposed arm: whenIdle() queues an internal waiter
-    // while running (not the fast path), then the disposer settles it and chains
-    // `done` (loop exit), not an eager resolve. A bare ReactLoopAgent + direct
-    // internal driver disposer keeps the emit synchronous.
+    // Queue the internal waiter while running, then dispose the bare driver. Its disposed branch
+    // must chain the loop's `done` promise rather than resolve before exit.
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(SessionStore)
@@ -395,11 +385,8 @@ describe('ReactLoopAgent', () => {
   })
 
   it('whenIdle() subscribed while running survives a FIBER dispose (no hung promise)', async () => {
-    // The waiter is internal agent state, NOT an effect-scoped ctx.on listener:
-    // disposing the OWNING fiber runs the agent's listener disposers, which would
-    // have dropped a ctx.on-based waiter before the 'disposed' transition and
-    // hung the promise. With internal waiters, the fiber disposer still settles
-    // it. Regression for the round-3 whenIdle finding.
+    // The waiter is agent-owned state, not an effect-scoped listener that owner disposal would
+    // remove before the disposed transition. Fiber teardown must still settle it.
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     let agent!: ReactLoopAgent
@@ -417,10 +404,8 @@ describe('ReactLoopAgent', () => {
   })
 
   it('whenIdle() on a disposed agent awaits the loop exit (done), not just the status flip', async () => {
-    // The disposer emits agent/status('disposed') BEFORE the driver loop
-    // unwinds, so whenIdle() must chain `done` (true quiescence) on the
-    // disposed path. Dispose a running agent, then assert whenIdle() resolves
-    // only after `done` — i.e. the loop has actually exited.
+    // Disposed status is emitted before the driver unwinds. `whenIdle()` must chain `done` so it
+    // resolves only after true loop exit.
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     let agent!: ReactLoopAgent
