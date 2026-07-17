@@ -75,7 +75,8 @@ describe('Agent.cancel()', () => {
 
     // send() queues synchronously (status still idle, loop microtask not yet
     // resumed). Cancel in that pre-step window: the queued turn must not run.
-    send(agent, 'drop me')
+    send(agent, 'drop me first')
+    send(agent, 'drop me second')
     agent.cancel('pre-step')
 
     // Give the loop a chance to wake and process the cancel.
@@ -106,7 +107,7 @@ describe('Agent.cancel()', () => {
     expect(agent.status).toBe('idle')
   })
 
-  it('cancel() mid-step aborts the in-flight model call; the turn ends aborted', async () => {
+  it('cancel() mid-step aborts the active turn and drops every queued tail item', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -117,10 +118,14 @@ describe('Agent.cancel()', () => {
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')
+    send(agent, 'queued tail')
     agent.cancel('mid-step')
     await waitForIdle(ctx, agent)
 
     expect(reasons).toEqual([{ kind: 'aborted', reason: 'mid-step' }])
+    expect(userTexts(agent)).toEqual(['go'])
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(1)
   })
 
   it('cancel() with no reason defaults to "cancelled" when aborting an in-flight step', async () => {

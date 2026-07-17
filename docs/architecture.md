@@ -55,7 +55,7 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 
 The shipped loop drains work, assembles requests, streams model answers, executes tools, applies continuation policy, and checkpoints state. Every pause is a service call or event available to plugins.
 
-A **session** is one agent's append-only event log. A **turn** drains one queued batch and runs until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension points.
+A **session** is one agent's append-only event log. An ordinary **turn** claims one queued message; an injection turn claims none. A turn ends when the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus its tool executions. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension points.
 
 ### Turn Flow
 
@@ -64,13 +64,13 @@ prepare private session + agent.ctx -> await unpublished setup
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
-  wait for queued messages
+  wait for a queued message
   emit agent/status(running)
   TURN:
     'turn/start'
-    each queued message -> agent/prompt-submit
+    claimed message -> agent/prompt-submit
       allowed prompt -> 'user/message' plus injected context
-    every prompt blocked -> 'turn/end'(rejected)
+      blocked prompt -> 'prompt/blocked' -> 'turn/end'(rejected)
     STEP loop:
       drain steering
       assemble system prompt and tool schemas
@@ -95,7 +95,7 @@ forever:
     checkpoint persistence and notify idle/running status
 ```
 
-The loop renders one prompt assembly per step. Plugins contribute ordered sections, tool schemas, and `{{name}}` variables; unknown or valueless references fail the turn instead of shipping a hole. `dsh-system-prompt` owns the harness identity and default deployment persona; an agent-scoped persona may shadow the default. The loop supplies `model` and `cwd`. See the [prompt-ownership RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
+Each successful `send()` adds one FIFO item. Queued items run as consecutive ordinary turns under one running interval, each after the prior turn's durability checkpoint. Each step has one prompt assembly. Plugins contribute ordered sections, tool schemas, and `{{name}}` variables; unresolved references fail the turn. `dsh-system-prompt` owns the harness identity and default deployment persona; an agent-scoped persona may shadow the default. The loop supplies `model` and `cwd`. See the [prompt-ownership RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
 
 Post-tool context lands after all tool results so tool-call/result adjacency stays stable. Steering drains between steps; ordinary leftover steering after a turn is re-queued as input. A terminal `agent/turn-stop` is the explicit exception: it runs after ordinary continuation and steering folding, then remains authoritative through turn close and flush so steering from those later listeners is discarded rather than becoming another step or turn; ordinary queued prompts are preserved.
 

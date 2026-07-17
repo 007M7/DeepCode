@@ -59,7 +59,7 @@ export interface HookContext {
 /**
  * Prompt interception result. `allow.content` replaces the prompt and
  * `additionalContext` becomes a separate context message. `block` records a
- * durable `prompt/blocked`; an all-blocked batch ends a zero-step rejected turn.
+ * durable `prompt/blocked` and ends that prompt's zero-step turn as rejected.
  */
 export type PromptDecision =
   | { kind: 'allow'; content?: ContentBlock[]; additionalContext?: HookContext }
@@ -90,7 +90,7 @@ export interface Agent {
   readonly ctx: Context
 
   /**
-   * Queue detached, frozen lossless-JSON input; starts a turn when idle.
+   * Queue one detached, frozen lossless-JSON item; if claimed, it is the sole ordinary message in a FIFO-ordered turn.
    * Invalid input throws synchronously before notification or enqueue.
    */
   send(content: ContentBlock[], options?: SendOptions): void
@@ -111,8 +111,8 @@ export interface Agent {
   inject(content: ContentBlock[], options?: SendOptions): void
 
   /**
-   * Clear queued and steering work, including work waiting to start, and abort
-   * the active step. The supplied reason is preserved across pre-step and active
+   * Clear all queued and steering work, including items waiting to start, and
+   * abort the active step. The supplied reason is preserved across pre-step and active
    * cancellation windows, and `whenIdle()` resolves after cancellation reaches
    * quiescence. Idle cancellation is a no-op and does not arm a later cancel.
    */

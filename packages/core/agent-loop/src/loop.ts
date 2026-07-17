@@ -88,7 +88,7 @@ export interface LoopHandle {
 }
 
 /**
- * Drive queued batches as durable turns until disposal. Plugin failures end the
+ * Drive queued messages as independent durable turns until disposal. Plugin failures end the
  * current turn without terminating the driver.
  * @param ctx - the plugin context the loop reaches events (agent/…, session/flush) and services (systemPrompt, llm, tools) through.
  * @param agent - the agent this invocation drives for its whole lifetime (its inbox, session, and options).
@@ -159,12 +159,11 @@ async function runTurn(
 ): Promise<boolean> {
   const { session } = agent
 
-  // Drain before opening the turn, but append only after `turn/start`.
-  const queued = handle.inbox.drainQueued()
-  const first = queued[0]
+  // Claim one queued message before opening its turn, but append it only after `turn/start`.
+  const message = handle.inbox.dequeueQueued()
   /* v8 ignore next 3 -- invariant guard: runLoop only calls runTurn when hasQueued */
-  if (!first) throw new Error('runTurn invariant violated: no queued message at turn start')
-  const trigger: TurnTrigger = { kind: 'message', source: first.source }
+  if (!message) throw new Error('runTurn invariant violated: no queued message at turn start')
+  const trigger: TurnTrigger = { kind: 'message', source: message.source }
 
   let reason: TurnEndReason = { kind: 'completed' }
   let step = 0
@@ -202,51 +201,32 @@ async function runTurn(
     // matter what throws below; the catch + closeTurn guarantee it. A pre-commit
     // veto leaves no turn/start in the log and therefore owes no turn/end.
     session.append('turn/start', { turn, trigger })
-    // Each drained queued message runs the `agent/prompt-submit` waterfall before
-    // it becomes a `user/message` — a hook can rewrite the prompt or block it.
+    // The claimed message runs the `agent/prompt-submit` waterfall before it
+    // becomes a `user/message` — a hook can rewrite the prompt or block it.
     // Recorded INSIDE the turn (after turn/start) so every event is turn-enclosed;
     // turn/end is now owed, so a throwing prompt-submit listener (the waterfall
     // throws) is caught below and the turn still closes.
-    let anyAllowed = false
-    // Seeded with a floor (only observable if the batch were empty, which
-    // runTurn never allows — it is called with ≥1 queued message); each `block`
-    // decision carries a required `reason` and overwrites it, so a fully-blocked
-    // batch always reports the last vetoing reason.
-    let lastBlockReason = 'prompt blocked by hook'
-    for (const message of queued) {
-      const decision = await events.waterfall(
-        'agent/prompt-submit', message.content, message.source,
-        () => Promise.resolve<PromptDecision>({ kind: 'allow' }),
-      )
-      if (decision.kind === 'block') {
-        lastBlockReason = decision.reason
-        // Record the veto durably: `PromptDecision.reason` is the durable record
-        // of why a prompt was blocked, but a fully-blocked batch's `rejected`
-        // turn/end only preserves the LAST reason, and a MIXED batch (this prompt
-        // blocked, another allowed) does not end `rejected` at all — so without
-        // this append a blocked prompt would vanish from the log whenever any
-        // sibling prompt is allowed. `prompt/blocked` sits in the open turn in
-        // place of the `user/message` this prompt would have become.
-        session.append('prompt/blocked', { content: message.content, source: message.source, reason: decision.reason })
-        continue
-      }
-      anyAllowed = true
+    const promptDecision = await events.waterfall(
+      'agent/prompt-submit', message.content, message.source,
+      () => Promise.resolve<PromptDecision>({ kind: 'allow' }),
+    )
+    if (promptDecision.kind === 'block') {
+      session.append('prompt/blocked', { content: message.content, source: message.source, reason: promptDecision.reason })
+      reason = { kind: 'rejected', reason: promptDecision.reason }
+    } else {
       // `allow.content` REPLACES the prompt bytes (a rewrite); absent keeps them.
-      const content = decision.content ?? message.content
+      const content = promptDecision.content ?? message.content
       session.append('user/message', { content, source: message.source }, { surfaceOp: 'append' })
       // `allow.additionalContext` is a SEPARATE context/message the next request
       // also sees. The turn is open, so inject() appends it into THIS turn.
-      if (decision.additionalContext) {
-        agent.inject(decision.additionalContext.content, { source: decision.additionalContext.source })
+      if (promptDecision.additionalContext) {
+        agent.inject(promptDecision.additionalContext.content, { source: promptDecision.additionalContext.source })
       }
     }
 
     while (true) {
-      // A fully blocked batch closes its zero-step turn as rejected.
-      if (!anyAllowed) {
-        reason = { kind: 'rejected', reason: lastBlockReason }
-        break
-      }
+      // A blocked prompt closes its zero-step turn as rejected.
+      if (promptDecision.kind === 'block') break
       step += 1
 
       // Steering from the previous round's continuation listeners joins before

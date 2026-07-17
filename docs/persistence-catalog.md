@@ -169,7 +169,7 @@ Source: [`packages/ui/permission/src/index.ts:33`](../packages/ui/permission/src
 
 #### `prompt/blocked` — log-only
 
-Durable record of a prompt veto and its reason. It is log-only: the blocked prompt never enters the model-visible surface, including in a mixed batch.
+Durable record of a prompt veto and its reason. It is log-only: the blocked prompt never enters the model-visible surface, and its turn runs zero steps.
 
 ```ts persistence-catalog
 'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
@@ -305,7 +305,7 @@ Source: [`packages/core/session/src/types.ts:223`](../packages/core/session/src/
 
 #### `turn/start` — log-only
 
-Opens turn `turn`. `trigger` records what started it — a drained message batch or an idle-time injection. The turn is the durability/replay boundary: every event sits between a `turn/start` and its matching `turn/end` (the turn-enclosure invariant).
+Opens turn `turn`. `trigger` records what started it — one claimed queued message or an idle-time injection. The turn is the durability/replay boundary: every event sits between a `turn/start` and its matching `turn/end` (the turn-enclosure invariant).
 
 ```ts persistence-catalog
 'turn/start': { turn: number; trigger: TurnTrigger }

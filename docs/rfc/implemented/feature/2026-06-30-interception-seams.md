@@ -14,7 +14,7 @@ The canonical surface separates transformable policy, around-dispatch control, a
 
 **Agent events** (`dsh-agent`):
 - `agent/session-start(agent, source)` — emit, once before turn 1, carrying a `SessionStartSource` (`startup` for a fresh/forked create, `resume` for a reloaded persisted session; `clear`/`compact` reserved). A pure notification — it CANNOT block startup (a deliberate gap: a bridge logs/injects, it does not gate startup). A listener seeds context via `agent.inject()`.
-- `agent/prompt-submit(agent, content, source, next) → PromptDecision` — waterfall, fired per drained queued message inside the open turn, before the `user/message` append. `allow` (optionally rewriting the prompt `content` or attaching `additionalContext`) or `block` (dropping the prompt; the loop appends a durable `prompt/blocked` in its place — see the dispatch note below).
+- `agent/prompt-submit(agent, content, source, next) → PromptDecision` — waterfall, fired for the turn's single claimed queued message before the `user/message` append. `allow` optionally rewrites the prompt `content` or attaches `additionalContext`; `block` appends a durable `prompt/blocked` and rejects that zero-step turn.
 
 **`agent/turn-continuation`** receives and returns a `ContinuationDecision`. A `{action:'continue', reason?}` may carry model-facing context recorded as next-step steering in the same turn — the typed twin of the `/goal` step-end-steer pattern.
 
@@ -30,11 +30,11 @@ Every call follows `tools/pre-execute` → guards → `tools/execute` → dispat
 
 Core dispatch and the tool body sit inside normalization boundaries, so tool, listener, malformed-result, non-JSON result, and identity-shape failures resolve as JSON-safe `isError` results rather than escaping the turn. A post-execute listener can therefore inspect a thrown tool, and a final observer sees exactly what the caller receives and the session log can persist.
 
-**`TurnEndReason.rejected`** (`dsh-session`): a turn whose entire prompt batch was blocked by `prompt-submit`.
+**`TurnEndReason.rejected`** (`dsh-session`): a zero-step turn whose claimed prompt was blocked by `prompt-submit`.
 
 ### Three load-bearing loop decisions
 
-1. **Open the turn before prompt policy.** A fully blocked batch becomes a zero-step `rejected` turn, preserving enclosure and giving ACP a durable terminal event. Every veto also records `prompt/blocked` with the original prompt and reason, so mixed batches retain blocked inputs. Allowed `additionalContext` is injected into the open turn.
+1. **Open the turn before prompt policy.** A blocked prompt becomes a zero-step `rejected` turn, preserving enclosure and giving ACP a durable terminal event. The veto records `prompt/blocked` with the original prompt and reason, while allowed `additionalContext` is injected into the open turn. Each ordinary send owns an independent turn under the [one-send-one-turn simplification](../simplification/2026-07-17-one-send-one-turn.md).
 
 2. **Post-tool `additionalContext` is buffered and appended AFTER all `tool/result`s.** `content`/`feedback` shape the result `execute()` returns, but `additionalContext` is a SEPARATE `context/message`, and a single step can carry multiple tool calls. Appending context right after each result would interleave `result(c1) → context → result(c2)` and break tool-call/result adjacency. So `execute()` surfaces `additionalContext` on its `ToolExecutionResult`, and the loop buffers every per-call context for the step and appends them as `context/message`(s) only after every `tool/result` is appended.
 

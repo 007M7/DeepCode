@@ -262,8 +262,9 @@ interface Agent {
   readonly ctx: Context
 
   /**
-   * Queue a user message. Starts a turn when idle; otherwise waits for the next
-   * turn. Content and the resolved source are accepted as one detached,
+   * Queue one user-message FIFO item. Unless cleared before turn start, the
+   * item becomes the sole ordinary message in its turn and waits for every
+   * preceding turn's durability checkpoint. Content and the resolved source are accepted as one detached,
    * deeply-frozen lossless-JSON record before notification or enqueue, so
    * caller or `agent/queued` listener in-place mutation cannot change later
    * log/model input. Throws synchronously when either value is not losslessly
@@ -308,8 +309,8 @@ interface Agent {
    * - drops a turn that is about to start (a `cancel()` landing in the
    *   pre-step window — after a `send()` queued but before the loop flips to
    *   `running`, or after `running` is emitted but before the first step) so
-   *   that queued prompt does not run and cannot be batched into the cancelled
-   *   turn.
+   *   that queued prompt does not run; later accepted items remain independent
+   *   queued turns.
    *
    * After `cancel()`, `whenIdle()` resolves on the post-cancel quiescent state.
    * `cancel()` on an idle agent with nothing queued or running is a safe no-op
@@ -364,7 +365,7 @@ interface HookContext {
 }
 ```
 
-`agent/prompt-submit` returns a `PromptDecision` (allow a drained queued message — optionally rewriting its `content` or attaching `additionalContext` — or block it; a batch whose every prompt is blocked opens a zero-step turn that ends `rejected`):
+`agent/prompt-submit` returns a `PromptDecision` (allow the turn's claimed queued message — optionally rewriting its `content` or attaching `additionalContext` — or record `prompt/blocked` and end that zero-step turn as `rejected`):
 
 ```ts type-equiv
 type PromptDecision =
