@@ -20,8 +20,12 @@ import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
  */
 
 class ReproCompactService extends BasicCompactService {
-  override async summarize(): Promise<{ summary: ContentBlock[]; model: string }> {
-    return { summary: [{ type: 'text', text: 'CHECKPOINT SUMMARY' }], model: 'stub' }
+  override async summarize(): Promise<{ summary: ContentBlock[]; provider: string; model: string }> {
+    return {
+      summary: [{ type: 'text', text: 'CHECKPOINT SUMMARY' }],
+      provider: 'mock',
+      model: 'stub',
+    }
   }
 }
 
@@ -94,7 +98,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
   it('the head checkpoint the loop lands is a balanced cut on both sides', async () => {
     const { ctx } = await harness(8)
     try {
-      const agent = ctx.agentLoop.create(AgentId('repro'), { model: 'mock' })
+      const agent = ctx.agentLoop.create(AgentId('repro'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'do a long multi-step task' }])
       await waitForIdle(ctx, agent)
 

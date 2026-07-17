@@ -10,7 +10,9 @@ export interface BasicCompactConfig {
   thresholdRatio?: number
   /** Recent surface tokens retained verbatim. Defaults to `floor(contextWindow * 0.16)`. */
   retainTokens?: number
-  /** Summary model; `''` resolves the latest routed model, then `AgentOptions.model`. Defaults to `''`. */
+  /** Summary provider; `''` resolves the latest routed pair, then the agent pair. Defaults to `''`. */
+  summarizationProvider?: string
+  /** Summary model; `''` resolves the latest routed pair, then the agent pair. Defaults to `''`. */
   summarizationModel?: string
   /** Provider generation cap for summarization. Defaults to `8192`. */
   maxTokens?: number
@@ -24,6 +26,7 @@ export interface BasicCompactConfig {
 export interface ResolvedConfig {
   readonly thresholdRatio: number
   readonly retainTokens: number
+  readonly summarizationProvider: string
   readonly summarizationModel: string
   readonly maxTokens: number
   readonly compactionRetries: number

@@ -6,7 +6,8 @@
  */
 
 import type { Context } from 'cordis'
-import type { FinishReason, GenerateOptions, LlmCallConfig, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
+import { isDeepStrictEqual } from 'node:util'
 import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
@@ -482,12 +483,12 @@ async function runStep(
   const seedConfig: LlmCallConfig = deepFreeze(structuredClone(transmission.loggedHeader
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- loggedHeader ⟹ a snapshot is in the log
     ? session.requestHeader()!.config
-    : { model: options.model ?? '' }))
+    : { provider: options.provider ?? '', model: options.model ?? '' }))
 
   // Listener replacements are recorded in the request header before dispatch.
   const config = await events.waterfall('agent/request', turn, step, seedConfig, () => Promise.resolve(seedConfig))
-  if (!config.model) {
-    throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
+  if (!config.provider || !config.model) {
+    throw new Error(`agent "${agent.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)
   }
 
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- runTurn composes the prefix before every runStep call
@@ -504,6 +505,7 @@ async function runStep(
 
   // Freeze the logged header plus boundary snapshot; the prefix precedes derived history.
   const request: GenerateOptions = deepFreeze({
+    provider: header.config.provider,
     model: header.config.model,
     messages: [...header.messagePrefix ?? [], ...boundaryMessages],
     ...header.system !== undefined ? { system: header.system } : {},
@@ -531,28 +533,28 @@ async function runStep(
   if (stepError) throw stepError
 
   if (assembler.finish.kind === 'max-tokens') {
-    let message: Message = withoutToolCalls(assembler.message())
+    const assembled = assembler.message()
+    const assembledContent = structuredClone(assembled.content)
+    let message: Message = withoutToolCalls(assembled)
     message = withoutToolCalls(await processStepResult(
-      events, session, turn, step, message, assembler.usage, chunkSeqs,
+      events, session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs,
     ))
-    appendAssistantCompletion(
-      session, turn, step, message.content, assembler.usage, chunkSeqs,
-    )
+    // Preserve usage even when max-token truncation produced no content.
+    recordAssistantMessage(session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs)
     return { hadToolCalls: false, finish: assembler.finish }
   }
 
   // Record the post-waterfall message that tool dispatch uses.
-  let message: Message = assembler.message()
+  const assembled = assembler.message()
+  const assembledContent = structuredClone(assembled.content)
+  let message: Message = assembled
   message = await processStepResult(
-    events, session, turn, step, message, assembler.usage, chunkSeqs,
+    events, session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs,
   )
 
-  // Every successful call records its completion anchor. A present empty
-  // source set means the provider stream was known to contain no chunks;
-  // omission remains the conservative legacy/unrecorded representation.
-  appendAssistantCompletion(
-    session, turn, step, message.content, assembler.usage, chunkSeqs,
-  )
+  // Every successful call records its completion anchor, including explicit
+  // empty chunk provenance for a contentless, usage-less provider response.
+  recordAssistantMessage(session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs)
 
   // Tool execution stays sequential; recheck abort around each normalized result.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
@@ -608,39 +610,73 @@ async function runStep(
   return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
 }
 
-/** Append the single durable completion anchor for one successful provider call. */
-function appendAssistantCompletion(
-  session: Session,
-  turn: number,
-  step: number,
-  content: Message['content'],
-  usage: TokenUsage | undefined,
-  sourceEventSeqs: number[],
-): void {
-  session.append(
-    'assistant/message',
-    { turn, step, content, ...(usage ? { usage } : {}) },
-    { surfaceOp: 'append', sourceEventSeqs },
-  )
-}
-
 /** Preserve successful-call accounting without retaining output that result processing rejected. */
 async function processStepResult(
   events: AgentEventDispatch,
   session: Session,
   turn: number,
   step: number,
+  config: LlmCallConfig,
+  assembledContent: ContentBlock[],
   message: Message,
-  usage: TokenUsage | undefined,
-  sourceEventSeqs: number[],
+  assembler: BlockAssembler,
+  chunkSeqs: number[],
 ): Promise<Message> {
   try {
     return await events.waterfall(
       'agent/step-result', turn, step, message, () => Promise.resolve(message),
     )
   } catch (error: unknown) {
-    appendAssistantCompletion(session, turn, step, [], usage, sourceEventSeqs)
+    recordAssistantMessage(
+      session,
+      turn,
+      step,
+      config,
+      assembledContent,
+      { ...message, content: [] },
+      assembler,
+      chunkSeqs,
+      false,
+    )
     throw error
+  }
+}
+
+/** Record one content-or-usage assistant message with replay-safe provenance. */
+function recordAssistantMessage(
+  session: Session,
+  turn: number,
+  step: number,
+  config: LlmCallConfig,
+  assembledContent: ContentBlock[],
+  message: Message,
+  assembler: BlockAssembler,
+  chunkSeqs: number[],
+  preserveReplayState = true,
+): void {
+  session.append(
+    'assistant/message',
+    {
+      turn,
+      step,
+      content: message.content,
+      provenance: assistantProvenance(
+        config,
+        assembler.replayState,
+        preserveReplayState && isDeepStrictEqual(message.content, assembledContent),
+      ),
+      ...assembler.usage === undefined ? {} : { usage: assembler.usage },
+    },
+    { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
+  )
+}
+
+/** Build durable assistant provenance, dropping replay state after any content rewrite. */
+function assistantProvenance(config: LlmCallConfig, replayState: unknown, contentUnchanged: boolean): NonNullable<Message['provenance']> {
+  return {
+    provider: config.provider,
+    model: config.model,
+    ...contentUnchanged && replayState !== undefined ? { replayState } : {},
   }
 }
 

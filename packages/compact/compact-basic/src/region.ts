@@ -123,7 +123,7 @@ export async function compactSurfaceRegion(
     }
     const shadowedTokenCount = selected.reduce((total, node) => total + node.tokens, 0)
     const text = renderTranscript(session.events, shadowedSeqs)
-    const { summary, model, maxTokens } = await dependencies.summarize(text, agent, signal)
+    const { summary, provider, model, maxTokens } = await dependencies.summarize(text, agent, signal)
 
     const currentMeasurement = dependencies.meter.measure(session)
     if (currentMeasurement.logRevision !== lockedMeasurement.logRevision) {
@@ -145,6 +145,7 @@ export async function compactSurfaceRegion(
       shadowedRange: { start, end },
       shadowedSeqs,
       shadowedTokenCount,
+      provider,
       model,
       ...maxTokens === undefined ? {} : { maxTokens },
     })

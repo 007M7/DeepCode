@@ -10,7 +10,7 @@ describe('Session', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'hi' } })
-    session.append('assistant/message', {
+    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
       turn: 1, step: 1,
       content: [
         { type: 'text', text: 'let me check' },
@@ -85,12 +85,49 @@ describe('Session', () => {
     const original = new Session(SessionId('s3'))
     original.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     original.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    original.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] }, { surfaceOp: 'append' })
+    original.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] }, { surfaceOp: 'append' })
     original.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
     const replayed = new Session(SessionId('s3-replay'), [...original.events])
     expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
     expect(replayed.seq).toBe(original.seq)
+  })
+
+  it('rejects pre-provider request headers and assistant messages on seed/load', () => {
+    const requestHeader = {
+      type: 'request/header', seq: 0, time: 1,
+      data: { header: { config: { model: 'old-model' } }, reason: 'initial' },
+    } as unknown as SessionEvent
+    expect(() => new Session(SessionId('old-header'), [requestHeader]))
+      .toThrow('seed request/header at index 0 lacks provider/model')
+
+    const requestDelta = {
+      type: 'request/header-delta', seq: 0, time: 1,
+      data: { config: { model: 'old-model' } },
+    } as unknown as SessionEvent
+    expect(() => new Session(SessionId('old-delta'), [requestDelta]))
+      .toThrow('seed request/header-delta at index 0 lacks provider/model')
+
+    const assistantMessage = {
+      type: 'assistant/message', seq: 0, time: 1,
+      data: { turn: 1, step: 1, content: [{ type: 'text', text: 'old' }] },
+      surfaceOp: 'append',
+    } as unknown as SessionEvent
+    expect(() => new Session(SessionId('old-assistant'), [assistantMessage]))
+      .toThrow('seed assistant/message at index 0 lacks provider/model provenance')
+
+    const malformedHeader = {
+      type: 'request/header', seq: 0, time: 1,
+      data: { header: 'old-header' },
+    } as unknown as SessionEvent
+    expect(() => new Session(SessionId('malformed-header'), [malformedHeader]))
+      .toThrow('seed request/header at index 0 lacks provider/model')
+
+    const unrelatedPrimitiveData = {
+      type: 'plugin/event', seq: 0, time: 1, data: null,
+    } as unknown as SessionEvent
+    expect(new Session(SessionId('primitive-plugin-data'), [unrelatedPrimitiveData]).events)
+      .toEqual([unrelatedPrimitiveData])
   })
 
   it('isolates the log from mutation through a derived message (append-only contract)', () => {

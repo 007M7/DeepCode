@@ -11,6 +11,7 @@
       - id: stdio-agent
         name: '@deepseek-ai/dsh-stdio-demo'
         config:
+          provider: deepseek
           model: deepseek-v4-flash
           resumeSessionId: !!js process.env.RESUME_SESSION_ID
           persistenceRoot: './.sessions'

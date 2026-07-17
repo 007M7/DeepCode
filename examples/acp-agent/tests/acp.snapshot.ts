@@ -65,6 +65,17 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-read-window', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
   { name: 'fs-policy-reject', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
+  // ACP exposes the adapter catalog as a session-scoped model select. This
+  // scenario pins the default flash request, the switch response, and the
+  // resulting request-header delta to pro.
+  {
+    name: 'model-switching',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    expectedHeaderDeltas: 1,
+    headerClass: 'model-switching',
+  },
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
   // Keyless, authored (like error-finish/cancel): deterministically forcing a
   // LIVE model to repeat one call three times is not a stable recording, so
@@ -144,9 +155,9 @@ const SCENARIOS: Scenario[] = [
     configPath: CODE_MODE_WORKSPACE_CONTEXT_CONFIG,
   },
   { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
-  // The default tree owns the single Permissions select. Snapshot mode starts
-  // in danger-full-access so established fixtures stay runner-independent;
-  // these policy scenarios switch to workspace-write in their input scripts.
+  // The default tree also owns the Permissions select. Snapshot mode starts in
+  // danger-full-access so established fixtures stay runner-independent; these
+  // policy scenarios switch to workspace-write in their input scripts.
   // Real-kernel confinement remains in escalation.e2e.ts and the sandbox
   // packages' e2e suites.
   { name: 'config-options', hasModelTurn: false, recorded: false, headerClass: 'sandbox' },

@@ -6,34 +6,48 @@
 
 The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L75)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L96)
 
-### ctx.llm.registerAdapter(models, adapter)
+### ctx.llm.registerAdapter(providers, adapter)
 
 ```ts website-api
-registerAdapter(models: string[], adapter: LlmAdapter): () => void
+registerAdapter(providers: string[], adapter: LlmAdapter): () => void
 ```
 
-Register an adapter for the given model names. Throws `LlmError` with code `DUPLICATE_ADAPTER` if any model already has an adapter (all-or-nothing). Disposed with the fiber.
+Register an adapter for the given provider routes. Throws `LlmError` with code `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing). Disposed with the fiber.
 
-- `models` — every model name this adapter should serve.
-- `adapter` — the adapter that streams calls for those models.
+- `providers` — every provider route this adapter should serve.
+- `adapter` — the adapter that streams calls for those providers.
 
 **Returns** the disposer that unregisters all of them.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L90)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L111)
 
-### ctx.llm.models()
+### ctx.llm.listProviders()
 
 ```ts website-api
-models(): string[]
+listProviders(): LlmProviderInfo[]
 ```
 
-Model names with a registered adapter.
+Describe provider routes with a registered adapter.
 
-**Returns** the registered names, in registration order.
+**Returns** detached provider metadata in registration order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L111)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L142)
+
+### ctx.llm.listModels(provider)
+
+```ts website-api
+async listModels(provider: string): Promise<LlmModelInfo[]>
+```
+
+Discover models advertised by one registered provider. Catalog membership is advisory and never changes routing or request validation.
+
+- `provider` — registered provider route to inspect.
+
+**Returns** detached model metadata in adapter-preferred order.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L152)
 
 ### ctx.llm.stream(options)
 
@@ -41,10 +55,10 @@ Model names with a registered adapter.
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Stream one model call as raw chunks (token-level deltas). Throws `LlmError` with code `NO_ADAPTER` if no adapter is registered for `options.model`. Dispatches through the `llm/stream` waterfall.
+Stream one model call as raw chunks (token-level deltas). Throws `LlmError` with code `NO_ADAPTER` if no adapter is registered for `options.provider`. Replay state is retained only when the same adapter instance owns its historical provider and the target provider. Dispatches through the `llm/stream` waterfall.
 
-- `options` — the full request; `options.model` selects the adapter.
+- `options` — the full request; `options.provider` selects the adapter.
 
 **Returns** the chunk stream, possibly wrapped by `llm/stream` listeners.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L128)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L210)

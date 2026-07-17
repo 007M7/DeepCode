@@ -135,7 +135,7 @@ describe('dsh-agent-spine-demo bundle', () => {
 
   it('forwards a pre-created agent to the loop and the persona to system-prompt', async () => {
     const ctx = await mount({
-      agents: [{ id: AgentId('main'), model: 'mock' }],
+      agents: [{ id: AgentId('main'), provider: 'mock', model: 'mock' }],
       persona: 'You are main.',
       workspaceContext: false,
     })
@@ -171,7 +171,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentId: AgentId('main'),
         sessionId: SessionId('main-session'),
         meta: { cwd: root },
-        agentOptions: { model: 'mock' },
+        agentOptions: { provider: 'mock', model: 'mock' },
       })
       const agent = handle.agent
 
@@ -202,7 +202,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentId: AgentId('main'),
         sessionId: SessionId('main-disabled-session'),
         meta: { cwd: root },
-        agentOptions: { model: 'mock' },
+        agentOptions: { provider: 'mock', model: 'mock' },
       })
 
       handle.agent.send([{ type: 'text', text: 'hi' }])
@@ -292,7 +292,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentId: AgentId('main'),
         sessionId: SessionId('prefix-order-session'),
         meta: { cwd: root },
-        agentOptions: { model: 'mock' },
+        agentOptions: { provider: 'mock', model: 'mock' },
       })
 
       handle.agent.send([{ type: 'text', text: 'hi' }])

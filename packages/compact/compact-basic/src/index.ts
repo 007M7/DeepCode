@@ -27,9 +27,15 @@ export type {
   ResolvedConfig,
 } from './types.ts'
 
-/** Resolve the latest actual routed model, then the agent's configured fallback. */
-function effectiveModel(agent: Agent): string | undefined {
-  return agent.session.requestHeader()?.config.model ?? agent.options.model
+/** Resolve the latest actual routed provider/model, then the complete agent fallback pair. */
+function effectiveTarget(agent: Agent): { provider: string; model: string } | undefined {
+  const latest = agent.session.requestHeader()?.config
+  if (latest !== undefined) return { provider: latest.provider, model: latest.model }
+  const { provider, model } = agent.options
+  if (provider === undefined || provider.length === 0 || model === undefined || model.length === 0) {
+    return undefined
+  }
+  return { provider, model }
 }
 
 /**
@@ -38,14 +44,14 @@ function effectiveModel(agent: Agent): string | undefined {
  * later request middleware has not run yet.
  */
 function provisionalHeader(
-  model: string,
+  target: { provider: string; model: string },
   session: Session,
   fullSystemPrompt: string,
   sessionPrefix: readonly Message[],
 ): EpochHeader {
   const latest = session.requestHeader()
   return canonicalHeader({
-    config: latest === undefined ? { model } : { ...latest.config, model },
+    config: latest === undefined ? target : { ...latest.config, ...target },
     ...fullSystemPrompt.length === 0 ? {} : { system: fullSystemPrompt },
     ...latest?.tools === undefined ? {} : { tools: latest.tools },
     ...sessionPrefix.length === 0 ? {} : { messagePrefix: [...sessionPrefix] },
@@ -66,6 +72,7 @@ export class BasicCompactService extends CompactService {
   static Config: z<BasicCompactConfig> = z.object({
     thresholdRatio: z.number().default(0.8),
     retainTokens: z.number().step(1),
+    summarizationProvider: z.string().default(''),
     summarizationModel: z.string().default(''),
     maxTokens: z.number().step(1).min(1).default(8192),
     compactionRetries: z.number().step(1).min(0).default(1),
@@ -93,7 +100,7 @@ export class BasicCompactService extends CompactService {
     text: string,
     agent: Agent,
     signal?: AbortSignal,
-  ): Promise<{ summary: ContentBlock[]; model: string; maxTokens?: number }> {
+  ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
     return summarizeWithLlm(this.ctx, this.config, text, agent, signal)
   }
 
@@ -101,7 +108,7 @@ export class BasicCompactService extends CompactService {
    * Check replayed pressure for the provisional pre-step envelope and compact
    * a tool-balanced head until it falls below the service-wide threshold.
    * A genuinely model-less router-first step skips this provisional check.
-   * @param agent - agent whose session and provisional model are measured.
+   * @param agent - agent whose session and provisional provider/model are measured.
    * @param fullSystemPrompt - current assembled system prompt override.
    * @param sessionPrefix - current request-only prefix override.
    * @param signal - live step cancellation signal forwarded to summarization.
@@ -113,10 +120,10 @@ export class BasicCompactService extends CompactService {
     sessionPrefix: readonly Message[],
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
-    const model = effectiveModel(agent)
-    if (model === undefined || model.length === 0) return null
+    const target = effectiveTarget(agent)
+    if (target === undefined) return null
     const meter = this.ctx.tokenMeter
-    const requestHeader = provisionalHeader(model, agent.session, fullSystemPrompt, sessionPrefix)
+    const requestHeader = provisionalHeader(target, agent.session, fullSystemPrompt, sessionPrefix)
     const threshold = Math.floor(meter.contextWindow * this.config.thresholdRatio)
     let measurement = meter.measure(agent.session, requestHeader)
     if (measurement.totalTokens < threshold) return null

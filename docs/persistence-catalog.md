@@ -64,7 +64,7 @@ Source: [`packages/core/session/src/types.ts:253`](../packages/core/session/src/
 Assembled assistant message for one step (derived history uses this). Carries the step's `usage` when the adapter reported token accounting, so the model output and its accounting travel together (there is no separate usage record). `usage` is absent when the adapter reported none.
 
 ```ts persistence-catalog
-'assistant/message': { turn: number; step: number; content: ContentBlock[]; usage?: TokenUsage }
+'assistant/message': { turn: number; step: number; content: ContentBlock[]; provenance: AssistantProvenance; usage?: TokenUsage }
 ```
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
@@ -93,7 +93,7 @@ Marks the end of a compaction — log-only, releases the lock. `error` set if su
 'compact/end': { turn: number; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:38`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:40`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -110,7 +110,7 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
 Provenance record of a completed summarization — log-only, no surfaceOp. The summary content is in `data.summary`; the actual surface replacement is performed by a subsequent `user/message` event that shadows the compacted range.
 
 ```ts persistence-catalog
-'compact/summary': { summary: ContentBlock[]; shadowedRange: { start: number; end: number }; shadowedSeqs: number[]; shadowedTokenCount: number; model: string; maxTokens?: number }
+'compact/summary': { summary: ContentBlock[]; shadowedRange: { start: number; end: number }; shadowedSeqs: number[]; shadowedTokenCount: number; provider: string; model: string; maxTokens?: number }
 ```
 
 Types: [ContentBlock](core-data-structures/core.md)

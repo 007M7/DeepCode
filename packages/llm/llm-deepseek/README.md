@@ -2,7 +2,7 @@
 
 DeepSeek chat-completions adapter for the harness LLM seam: hand-rolled `fetch` + SSE translation from the official wire format (source of truth: the API docs — guides/thinking_mode, guides/tool_calls, api/create-chat-completion) into the `StreamChunk` protocol.
 
-A second, independent implementation of the same seam exists in `@deepseek-ai/dsh-llm-pi-ai` (library-backed). Same Config shape — pick one per context (registering both for the same model names throws by design).
+A second, library-backed implementation of the same seam exists in `@deepseek-ai/dsh-llm-pi-ai`. This package always owns the `deepseek` provider route; mounting a pi-ai profile with `provider: deepseek` in the same context throws `LlmError('DUPLICATE_ADAPTER')` by design.
 
 ## Config
 
@@ -12,12 +12,16 @@ A second, independent implementation of the same seam exists in `@deepseek-ai/ds
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY    # or rely on the env fallback
     baseURL: !!js process.env.DEEPSEEK_BASE_URL  # default: https://api.deepseek.com
-    models: [deepseek-v4-flash, deepseek-v4-pro] # one adapter, registered for each name
     thinking: enabled        # optional; provider default is enabled
     reasoningEffort: high    # optional; high | max — omitted ⇒ not sent
+    models:                  # optional; defaults to V4 Flash and V4 Pro
+      - id: deepseek-v4-flash
+        name: DeepSeek V4 Flash
+      - id: private-reasoner
+        description: Company-hosted reasoning model
 ```
 
-`models` lists every model name this one adapter instance serves: the adapter registers itself for each (the harness model name IS the wire `model` string), so a `generate`/`stream` call routes to it whenever `options.model` is any of them. Registering a second adapter for a name already taken throws `LlmError('DUPLICATE_ADAPTER')` (the LLM service enforces one adapter per model, all-or-nothing).
+The plugin registers the single provider route `deepseek`. A request selects it with `provider: deepseek`; its `model` is passed through as the wire `model` string, so changing DeepSeek models does not require lifecycle-time registration. Omitting `models` advertises `deepseek-v4-flash` and `deepseek-v4-pro`; an explicit list replaces those defaults, while `models: []` advertises none. Catalog entries are exposed through `ctx.llm.listModels('deepseek')` for clients such as ACP editors, but remain advisory: unlisted model ids still pass through unchanged. An omitted entry name defaults to its id. Registering another adapter for `deepseek` throws `LlmError('DUPLICATE_ADAPTER')`.
 
 `reasoningEffort` is **omitted by default** — when unset, the `reasoning_effort` wire field is not sent and the server applies its own default for the model. The only accepted values are `high` and `max` (DeepSeek's official effort levels). It is meaningful only with thinking enabled (the provider default).
 

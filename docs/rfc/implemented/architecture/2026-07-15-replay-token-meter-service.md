@@ -8,7 +8,7 @@ English | [中文](2026-07-15-replay-token-meter-service.zh.md)
 
 Context pressure is useful outside compaction. A compaction backend, an overflow guard, or a future request-policy plugin can all need the same answer: how much of the configured context window does the durable request consume? Keeping that fold inside `dsh-compact-basic` duplicates replay logic, makes measurement unavailable without compaction, and encourages callers to reuse stale accounting.
 
-Provider usage is not a complete answer. It describes one successful call under one exact request envelope, while the current surface can grow, shrink, or be replaced afterward. Sessions also switch models, old logs can lack chunk provenance, and provider fields separate input, cache-read, cache-write, output, and reasoning counts. A useful service therefore combines the latest exact anchor with conservative heuristic repricing and exposes the log revision consumed by each result.
+Provider usage is not a complete answer. It describes one successful call under one exact request envelope, while the current surface can grow, shrink, or be replaced afterward. Sessions also switch providers and models, old logs can lack chunk provenance, and usage fields separate input, cache-read, cache-write, output, and reasoning counts. A useful service therefore combines the latest exact anchor with conservative heuristic repricing and exposes the log revision consumed by each result.
 
 ## Decision
 
@@ -24,7 +24,7 @@ Each session owns one isolated incremental fold. Active folds advance from `sess
 
 `measure(session, requestHeader?)` synchronizes the fold once and returns scalar pressure together with positional per-node prices. `totalTokens` remains request-and-response pressure; `surfaceTokens` is the surface-only heuristic total and equals the sum of `nodes[].tokens`. A `requestHeader` override changes pressure pricing only, while the surface fields always describe the current session. `estimateMessage(message)` applies the fixed heuristic without session state. Each result is one detached, deeply immutable snapshot carrying one `logRevision`. Every measurement clones the current nodes and is therefore O(surface).
 
-Provider usage is reused only when the measured canonical request envelope equals the latest successful-call anchor. Any model, system, prefix, tool, or call-config change causes complete heuristic repricing. Surface changes remain a signed delta from a matching anchor, including negative values after a shrinking replacement. A later successful request replaces the earlier anchor, including across model switches.
+Provider usage is reused only when the measured canonical request envelope equals the latest successful-call anchor. Any provider, model, system, prefix, tool, or call-config change causes complete heuristic repricing. Surface changes remain a signed delta from a matching anchor, including negative values after a shrinking replacement. A later successful request replaces the earlier anchor, including across provider or model switches.
 
 Usage sums the disjoint input, cache-read, cache-write, and output buckets. Reasoning is not added a second time. Every successful model call records an `assistant/message`, including content-less and max-token calls, with its exact earlier chunk seqs. An explicit empty provenance list means a known empty provider stream; absent legacy provenance conservatively treats the durable assistant output as provider output.
 
@@ -34,13 +34,13 @@ Usage sums the disjoint input, cache-read, cache-write, and output buckets. Reas
 
 Automatic compaction uses one unified measurement for each threshold-and-retention decision. The region transaction measures after appending its durable `compact/start` lock and again after asynchronous summarization; any intervening durable append changes `logRevision` and prevents replacement.
 
-Compact policy has service-wide defaults: threshold ratio `0.8`, retained tail `floor(contextWindow × 0.16)`, summarization model `''`, maximum summary output `8192`, one extra compaction attempt, and automatic triggering enabled. Top-level `thresholdRatio` and `retainTokens` override the pressure policy; retention must remain below the resulting threshold. Empty summarization model resolves the latest logged routed model, then `AgentOptions.model`.
+Compact policy has service-wide defaults: threshold ratio `0.8`, retained tail `floor(contextWindow × 0.16)`, empty summarization provider/model, maximum summary output `8192`, one extra compaction attempt, and automatic triggering enabled. Top-level `thresholdRatio` and `retainTokens` override the pressure policy; retention must remain below the resulting threshold. `summarizationProvider` and `summarizationModel` must both be set or both be empty; an empty pair resolves the latest logged request target, then the `AgentOptions` pair.
 
-The pre-step trigger measures a provisional envelope: the current prompt and prefix override logged values, while the latest logged header supplies model, tools, and other call config. A model-less router-only agent skips that provisional check because `agent/request` can route later; any routed model name can use the singleton estimator.
+The pre-step trigger measures a provisional envelope: the current prompt and prefix override logged values, while the latest logged header supplies provider, model, tools, and other call config. A router-only agent without a complete provider/model pair skips that provisional check because `agent/request` can route later; any routed target can use the singleton estimator.
 
 ## Testing
 
-Unit coverage pins service configuration, fixed estimation, envelope invalidation, latest-anchor replacement across model switches, usage and missing-usage paths, seeded append/replace replay, signed deltas, provenance modes, malformed boundaries, unified snapshot detachment and deep immutability, surface-total equality, listener ordering, reload, compact defaults, routing fallback, one-call automatic decisions, retention, convergence, and log-revision rollback. A real Loader/Include YAML fixture loads the exact zero-config token-meter and compact-basic package names in dependency order.
+Unit coverage pins service configuration, fixed estimation, envelope invalidation, latest-anchor replacement across provider/model switches, usage and missing-usage paths, seeded append/replace replay, signed deltas, provenance modes, malformed boundaries, unified snapshot detachment and deep immutability, surface-total equality, listener ordering, reload, compact defaults, routing fallback, one-call automatic decisions, retention, convergence, and log-revision rollback. A real Loader/Include YAML fixture loads the exact zero-config token-meter and compact-basic package names in dependency order.
 
 ## Alternatives considered
 

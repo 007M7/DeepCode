@@ -46,5 +46,5 @@ Indirectly, through consumers such as `dsh-compact-basic`; the service itself ad
 
 - **The fixed heuristic is approximate** — content without reusable provider usage is priced by character count plus structural overhead, not an exact provider tokenizer or request serializer.
 - **Every measurement clones the current surface** — coherent immutable snapshots make reads O(surface), including below-threshold pressure checks.
-- **Provider usage is only reusable for an identical canonical envelope** — prompt, prefix, tools, model, or call-config changes deliberately fall back to full heuristic estimation.
+- **Provider usage is only reusable for an identical canonical envelope** — prompt, prefix, tools, provider, model, or call-config changes deliberately fall back to full heuristic estimation.
 - **Legacy provenance is conservative** — assistant messages without `sourceEventSeqs` cannot distinguish provider output from listener rewrites, so the fold avoids claiming a known empty or exact chunk stream.

@@ -28,8 +28,8 @@ const textContentArb = fc.array(
 // explicit `surfaceOp: 'append'` intent — the marker the real loop passes.
 const messageEventArb: fc.Arbitrary<Appendable> = fc.oneof(
   textContentArb.map((content): Appendable => ({ type: 'user/message', data: { content, source: { kind: 'user' } }, intent: { surfaceOp: 'append' } })),
-  textContentArb.map((content): Appendable => ({ type: 'assistant/message', data: { turn: 1, step: 1, content }, intent: { surfaceOp: 'append' } })),
-  textContentArb.map((content): Appendable => ({ type: 'assistant/message', data: { turn: 1, step: 1, content, usage: { inputTokens: 1, outputTokens: 1 } }, intent: { surfaceOp: 'append' } })),
+  textContentArb.map((content): Appendable => ({ type: 'assistant/message', data: { turn: 1, step: 1, content, provenance: { provider: 'mock', model: 'mock' } }, intent: { surfaceOp: 'append' } })),
+  textContentArb.map((content): Appendable => ({ type: 'assistant/message', data: { turn: 1, step: 1, content, provenance: { provider: 'mock', model: 'mock' }, usage: { inputTokens: 1, outputTokens: 1 } }, intent: { surfaceOp: 'append' } })),
   fc.record({ id: fc.string({ minLength: 1 }), content: textContentArb, isError: fc.boolean() })
     .map((r): Appendable => ({ type: 'tool/result', data: { turn: 1, step: 1, callId: CallId(r.id), content: r.content, isError: r.isError }, intent: { surfaceOp: 'append' } })),
 )

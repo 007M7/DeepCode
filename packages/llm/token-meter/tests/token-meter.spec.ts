@@ -8,7 +8,7 @@ import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { TokenMeasurement, TokenMeterConfig } from '@deepseek-ai/dsh-token-meter'
 
 function header(model: string, extras: Omit<EpochHeader, 'config'> = {}): EpochHeader {
-  return canonicalHeader({ config: { model }, ...extras })
+  return canonicalHeader({ config: { provider: 'mock', model }, ...extras })
 }
 
 function textMessage(text: string, role: Message['role'] = 'user'): Message {
@@ -65,6 +65,10 @@ function appendSuccessfulCall(
     ? { surfaceOp: 'append' as const }
     : { surfaceOp: 'append' as const, sourceEventSeqs: provenance === 'empty' ? [] : sources }
   session.append('assistant/message', {
+    provenance: {
+      provider: value.config.provider,
+      model: value.config.model,
+    },
     turn,
     step,
     content: durableText.length === 0 ? [] : [{ type: 'text', text: durableText }],
@@ -374,7 +378,7 @@ describe('replay anchors and surface folds', () => {
   it('folds valid header deltas into the effective envelope', () => {
     const session = new Session(SessionId('header-delta'))
     appendHeader(session, header('deepseek-v4-flash'))
-    session.append('request/header-delta', { config: { model: 'deepseek-v4-pro' } })
+    session.append('request/header-delta', { config: { provider: 'mock', model: 'deepseek-v4-pro' } })
     const result = meter().measure(session)
     expect(result.baseline.kind).toBe('estimated')
     expect(result.logRevision).toBe(2)
@@ -438,7 +442,7 @@ describe('malformed replay and listener lifecycle', () => {
 
   it('rejects a header delta before any snapshot transactionally', () => {
     const session = new Session(SessionId('bad-delta'))
-    session.append('request/header-delta', { config: { model: 'deepseek-v4-flash' } })
+    session.append('request/header-delta', { config: { provider: 'mock', model: 'deepseek-v4-flash' } })
     expectRepeatedFailure(meter(), session, /no preceding header/)
   })
 
@@ -446,6 +450,7 @@ describe('malformed replay and listener lifecycle', () => {
     const session = new Session(SessionId('bad-step'))
     appendHeader(session, header('deepseek-v4-flash'))
     session.append('assistant/message', {
+      provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
       turn: 1,
       step: 1,
       content: [{ type: 'text', text: 'bad' }],
@@ -468,6 +473,7 @@ describe('malformed replay and listener lifecycle', () => {
     appendHeader(late, header('deepseek-v4-flash'))
     late.append('step/end', { turn: 1, step: 1 })
     late.append('assistant/message', {
+      provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
       turn: 1,
       step: 1,
       content: [],
@@ -522,6 +528,7 @@ describe('malformed replay and listener lifecycle', () => {
       appendHeader(session, header('deepseek-v4-flash'))
       const sourceEventSeqs = testCase.appendSource(session)
       session.append('assistant/message', {
+        provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
         turn: 1,
         step: 1,
         content: [{ type: 'text', text: 'bad' }],
@@ -545,6 +552,7 @@ describe('malformed replay and listener lifecycle', () => {
       seq: duplicate.seq,
       time: 0,
       data: {
+        provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
         turn: 1,
         step: 1,
         content: [],
@@ -563,6 +571,7 @@ describe('malformed replay and listener lifecycle', () => {
       seq: future.seq,
       time: 0,
       data: {
+        provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
         turn: 1,
         step: 1,
         content: [],
@@ -583,6 +592,7 @@ describe('malformed replay and listener lifecycle', () => {
     appendHeader(session, header('deepseek-v4-flash'))
     const head = session.events[0]!.seq
     session.append('assistant/message', {
+      provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
       turn: 1,
       step: 1,
       content: [{ type: 'text', text: 'replacement' }],

@@ -21,7 +21,7 @@ import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 export const name = 'acp-demo'
 
 /**
- * App config: the swappable per-deployment values. `model` configures the
+ * App config: the swappable per-deployment values. `provider` and `model` configure the
  * agent template the ACP bridge creates each session's agent from (NOT a
  * pre-created agent — ACP creates agents at `session/new`); `persona` is the
  * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
@@ -30,6 +30,8 @@ export const name = 'acp-demo'
  * through agent-spine-demo); `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
+  /** Provider route for ACP-created agents. */
+  provider: string
   /** Model name for ACP-created agents (must have a registered adapter). */
   model: string
   /** Deployment persona (the system-prompt plugin's `persona` config). */
@@ -56,6 +58,7 @@ export interface Config {
 // the common fields would make two small app contracts depend on a new facade.
 /* jscpd:ignore-start */
 export const Config: z<Config> = z.object({
+  provider: z.string().required(),
   model: z.string().required(),
   persona: z.string(),
   // The array default is forced to undefined: ABSENT means "lexicographic
@@ -79,11 +82,11 @@ export const Config: z<Config> = z.object({
  * NO agents (its `agents` list defaults to `[]`) and carries the deployment
  * `persona`; the JSONL backend persists under `persistenceRoot`; the ACP
  * bridge owns stdout for JSON-RPC and creates one agent per `session/new`
- * from `model`. No logger, no `hmr` — stdout stays pure.
+ * from the provider/model pair. No logger, no `hmr` — stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(agentCore, agentCore.pickSpineConfig(config))
   ctx.plugin(UserInteractionService)
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
-  ctx.plugin(acp, { model: config.model })
+  ctx.plugin(acp, { provider: config.provider, model: config.model })
 }

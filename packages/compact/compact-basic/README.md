@@ -11,12 +11,12 @@ This backend owns the compaction policy:
 - **Measurement** — the singleton `ctx.tokenMeter` prices the provisional request envelope and current surface at one consumed-log revision. The current prompt and prefix override their logged values; the pre-step boundary reuses logged tools and call config.
 - **Retention** — compact the oldest whole surface units while preserving a recent tail and balanced tool-call/result cuts through the [`dsh-compact` boundary helpers](../compact/README.md#tool-pairing-boundaries). Turn boundaries do not protect old steps inside a runaway turn. An open indivisible tail declines until it closes; a single unit larger than the budget remains out of scope.
 - **Convergence** — retry head-checkpoint compaction up to `compactionRetries`; reject a summary that does not shrink its source, and throw if retries cannot return below threshold.
-- **Summarization** — a direct `llm/stream` call uses the configured model and cap without running the loop-only `agent/request` seam. The input transcript preserves non-text blocks as tagged placeholders; only returned text enters the checkpoint, excluding reasoning and tool calls that would leak private reasoning or create an orphaned call.
+- **Summarization** — a direct `llm/stream` call uses the configured provider/model pair and cap, falling back to the latest logged request target and then the agent target, without running the loop-only `agent/request` seam. The input transcript preserves non-text blocks as tagged placeholders; only returned text enters the checkpoint, excluding reasoning and tool calls that would leak private reasoning or create an orphaned call.
 - **Framing** — the replacement user message marks established checkpoint context with `<compacted-summary>` tags. The raw summary remains on the provenance event, and later automatic cycles merge the prior checkpoint.
 - **Lifecycle** — `compactRegion()` requires its agent to own the exact target session and rejects mismatch before resolution or mutation; a valid call records its start, summary, replacement, and end. The serial `agent/pre-step` listener checks pressure before every step, outside an open step, so a tool-heavy turn remains compactable and the loop derives history once after mutation.
 - **Failure handling** — an unmatched `compact/start` is an inert crash marker because no replacement landed. Recoverable failure records an error end and leaves the surface unchanged.
 
-`summarize()` is the sole subclass hook. A template- or remote-summarizer subclass can override it while pressure, retention, provenance, shrink validation, and shadowed-token accounting stay on `ctx.tokenMeter`. The hook returns the summary blocks together with the call envelope it used (`{ summary, model, maxTokens? }`), which is logged on `compact/summary`.
+`summarize()` is the sole subclass hook. A template- or remote-summarizer subclass can override it while pressure, retention, provenance, shrink validation, and shadowed-token accounting stay on `ctx.tokenMeter`. The hook returns the summary blocks together with the call envelope it used (`{ summary, provider, model, maxTokens? }`), which is logged on `compact/summary`.
 
 ## Config (`BasicCompactConfig`)
 
@@ -26,7 +26,8 @@ Every setting is optional. The pressure and retention policy applies to the toke
 |---|---|---|
 | `thresholdRatio` | no (default `0.8`) | Compact at `floor(contextWindow × ratio)`. |
 | `retainTokens` | no (default `floor(contextWindow × 0.16)`) | Recent surface budget kept verbatim; must be below the threshold. |
-| `summarizationModel` | no (default `''`) | Empty resolves the latest logged routed model, then `AgentOptions.model`. |
+| `summarizationProvider` | no (default `''`) | Set together with `summarizationModel`; an empty pair resolves the latest logged request target, then the `AgentOptions` pair. |
+| `summarizationModel` | no (default `''`) | Set together with `summarizationProvider`; an empty pair resolves the latest logged request target, then the `AgentOptions` pair. |
 | `maxTokens` | no (default `8192`) | Provider generation cap for the summarization call; may include reasoning tokens. |
 | `compactionRetries` | no (default `1`) | Extra attempts after the first when pressure remains above threshold. |
 | `auto` | no (default `true`) | Register the `agent/pre-step` automatic listener. Set `false` for manual-only. |
@@ -115,7 +116,7 @@ Rules:
 
 ## Known Limitations and Deferred Work
 
-- **Pre-step sees a provisional request envelope** — the current prompt and prefix are exact, but routing and tool changes made later in `agent/request` are not logged yet. A router-only agent with no provisional model skips that check.
+- **Pre-step sees a provisional request envelope** — the current prompt and prefix are exact, but routing and tool changes made later in `agent/request` are not logged yet. A router-only agent with no provisional provider/model pair skips that check.
 - **Meter accuracy follows the fixed heuristic** — missing reusable provider usage falls back to character count plus structural overhead rather than exact tokenization.
 - **`compactRegion` requires an open turn** — a manual call on a fully-closed session throws ("no open turn") rather than compacting.
 - **Summarization failure fails closed with full, over-budget history** — including truncation at the summarization `maxTokens`, which hidden reasoning tokens can consume; the auto path logs a warning and proceeds.

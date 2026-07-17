@@ -20,7 +20,7 @@ function createContext(contextWindow = 1_000): Context {
 }
 
 function agent(session: Session, model?: string): Agent {
-  return { session, options: model === undefined ? {} : { model } } as Agent
+  return { session, options: model === undefined ? {} : { provider: model, model } } as Agent
 }
 
 /** Closed two-message turns followed by one open turn for durable compaction events. */
@@ -34,6 +34,7 @@ function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
     }, { surfaceOp: 'append' })
     session.append('step/start', { turn, step: 1 })
     session.append('assistant/message', {
+      provenance: { provider: MODEL, model: MODEL },
       turn,
       step: 1,
       content: [{ type: 'text', text: `${text} assistant ${turn}` }],
@@ -59,6 +60,7 @@ function toolConversation(): Session {
     }, { surfaceOp: 'append' })
     session.append('step/start', { turn, step: 1 })
     session.append('assistant/message', {
+      provenance: { provider: MODEL, model: MODEL },
       turn,
       step: 1,
       content: [
@@ -83,6 +85,7 @@ function toolConversation(): Session {
 
 class TestCompactService extends BasicCompactService {
   summary: ContentBlock[] = [{ type: 'text', text: 'small checkpoint' }]
+  summaryProvider = 'summary-provider'
   summaryModel = 'summary-model'
   error: unknown
   mutateDuringSummary: (() => void) | undefined
@@ -92,11 +95,16 @@ class TestCompactService extends BasicCompactService {
     text: string,
     _agent: Agent,
     signal?: AbortSignal,
-  ): Promise<{ summary: ContentBlock[]; model: string; maxTokens?: number }> {
+  ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
     this.calls.push({ text, signal })
     this.mutateDuringSummary?.()
     if (this.error !== undefined) throw this.error
-    return { summary: this.summary, model: this.summaryModel, maxTokens: 123 }
+    return {
+      summary: this.summary,
+      provider: this.summaryProvider,
+      model: this.summaryModel,
+      maxTokens: 123,
+    }
   }
 }
 
@@ -125,6 +133,7 @@ describe('compact configuration and defaults', () => {
     expect(resolved).toEqual({
       thresholdRatio: 0.8,
       retainTokens: 160,
+      summarizationProvider: '',
       summarizationModel: '',
       maxTokens: 8192,
       compactionRetries: 1,
@@ -158,7 +167,10 @@ describe('compact configuration and defaults', () => {
       [{ maxTokens: 0 }, /maxTokens/],
       [{ compactionRetries: -1 }, /compactionRetries/],
       [{ auto: 'yes' }, /auto must be a boolean/],
+      [{ summarizationProvider: 1 }, /summarizationProvider must be a string/],
       [{ summarizationModel: 1 }, /summarizationModel must be a string/],
+      [{ summarizationProvider: MODEL }, /must both be set or both be empty/],
+      [{ summarizationModel: MODEL }, /must both be set or both be empty/],
       [{ thresholdRatio: 0 }, /number in \(0, 1\]/],
       [{ thresholdRatio: 1.1 }, /number in \(0, 1\]/],
       [{ retainTokens: -1 }, /non-negative integer/],
@@ -232,13 +244,14 @@ describe('pressure measurement and retention', () => {
     }, ctx)
     const session = conversation(4)
     session.append('request/header', {
-      header: { config: { model: 'actual' } },
+      header: { config: { provider: 'actual', model: 'actual' } },
       reason: 'initial',
     })
     const measure = vi.spyOn(ctx.tokenMeter, 'measure')
 
     const result = await compactIfNeeded(compact, session, 'fallback')
     expect(result).not.toBeNull()
+    expect(measure.mock.calls[0]?.[1]?.config.provider).toBe('actual')
     expect(measure.mock.calls[0]?.[1]?.config.model).toBe('actual')
   })
 
@@ -315,6 +328,7 @@ describe('pressure measurement and retention', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('assistant/message', {
+      provenance: { provider: MODEL, model: MODEL },
       turn: 1,
       step: 1,
       content: [{ type: 'tool-call', id: callId, name: 'read', arguments: '{}' }],
@@ -375,6 +389,7 @@ describe('compaction region transaction', () => {
     expect(summary?.data).toMatchObject({
       shadowedSeqs: result.shadowedSeqs,
       shadowedTokenCount: result.shadowedTokenCount,
+      provider: 'summary-provider',
       model: 'summary-model',
       maxTokens: 123,
     })
@@ -526,7 +541,7 @@ describe('compaction region transaction', () => {
     const session = conversation(2)
     compact.mutateDuringSummary = () => {
       session.append('request/header', {
-        header: { config: { model: MODEL } },
+        header: { config: { provider: MODEL, model: MODEL } },
         reason: 'initial',
       })
     }
@@ -621,6 +636,7 @@ describe('default one-shot summarizer', () => {
       { type: 'tool-call', id: CallId('unexpected'), name: 'x', arguments: '{}' },
     ], undefined, MODEL, {
       auto: false,
+      summarizationProvider: MODEL,
       summarizationModel: MODEL,
       maxTokens: 321,
     })
@@ -629,10 +645,12 @@ describe('default one-shot summarizer', () => {
 
     expect(output).toEqual({
       summary: [{ type: 'text', text: 'public summary' }],
+      provider: MODEL,
       model: MODEL,
       maxTokens: 321,
     })
     expect(adapter.lastOptions).toMatchObject({
+      provider: MODEL,
       model: MODEL,
       maxTokens: 321,
       signal: SIGNAL,
@@ -641,25 +659,27 @@ describe('default one-shot summarizer', () => {
     expect(adapter.lastOptions?.system).toContain('## Primary Request and Intent')
   })
 
-  it('resolves latest routed model before AgentOptions.model', async () => {
+  it('resolves the latest routed provider/model before the AgentOptions pair', async () => {
     const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }], undefined, 'routed')
     const session = conversation(1)
     session.append('request/header', {
-      header: { config: { model: 'routed' } },
+      header: { config: { provider: 'routed', model: 'routed' } },
       reason: 'initial',
     })
     const output = await compact.summarize('history', agent(session, 'fallback'))
+    expect(output.provider).toBe('routed')
     expect(output.model).toBe('routed')
+    expect(adapter.lastOptions?.provider).toBe('routed')
     expect(adapter.lastOptions?.model).toBe('routed')
   })
 
-  it('fails clearly when no summarization model can be resolved', async () => {
+  it('fails clearly when no complete summarization target can be resolved', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     void new TokenMeterService(ctx)
     const compact = new BasicCompactService(ctx, { auto: false })
     await expect(compact.summarize('history', agent(new Session(SessionId('model-less')))))
-      .rejects.toThrow(/no model available for summarization/)
+      .rejects.toThrow(/no provider\/model available for summarization/)
   })
 
   it.each([

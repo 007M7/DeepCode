@@ -18,6 +18,7 @@ const DEFAULT_RETAIN_RATIO = 0.16
 const BASIC_COMPACT_CONFIG_KEYS: ReadonlySet<string> = new Set([
   'thresholdRatio',
   'retainTokens',
+  'summarizationProvider',
   'summarizationModel',
   'maxTokens',
   'compactionRetries',
@@ -30,7 +31,7 @@ function validateConfigKeys(config: BasicCompactConfig): void {
     if (!BASIC_COMPACT_CONFIG_KEYS.has(key)) {
       throw new Error(
         `BasicCompactConfig: unknown key "${key}" `
-        + '(allowed: thresholdRatio, retainTokens, summarizationModel, maxTokens, compactionRetries, auto)',
+        + '(allowed: thresholdRatio, retainTokens, summarizationProvider, summarizationModel, maxTokens, compactionRetries, auto)',
       )
     }
   }
@@ -53,6 +54,7 @@ export function resolveConfig(
   const resolved: ResolvedConfig = {
     thresholdRatio,
     retainTokens,
+    summarizationProvider: config.summarizationProvider ?? '',
     summarizationModel: config.summarizationModel ?? '',
     maxTokens: config.maxTokens ?? 8192,
     compactionRetries: config.compactionRetries ?? 1,
@@ -69,8 +71,16 @@ export function resolveConfig(
   }
   assertPositiveInteger('maxTokens', resolved.maxTokens)
   assertNonNegativeInteger('compactionRetries', resolved.compactionRetries)
+  if (typeof resolved.summarizationProvider !== 'string') {
+    throw new Error('BasicCompactConfig: summarizationProvider must be a string')
+  }
   if (typeof resolved.summarizationModel !== 'string') {
     throw new Error('BasicCompactConfig: summarizationModel must be a string')
+  }
+  if ((resolved.summarizationProvider.length === 0) !== (resolved.summarizationModel.length === 0)) {
+    throw new Error(
+      'BasicCompactConfig: summarizationProvider and summarizationModel must both be set or both be empty',
+    )
   }
   if (typeof resolved.auto !== 'boolean') {
     throw new Error('BasicCompactConfig: auto must be a boolean')

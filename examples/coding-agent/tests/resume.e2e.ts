@@ -42,7 +42,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
     const first = (await ctx.agents.create({
       agentId: AgentId('resume-1'),
       sessionId: SESSION_ID,
-      agentOptions: { model: 'deepseek-v4-flash' },
+      agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     })).agent as ReactLoopAgent
     first.send([{ type: 'text', text: `Remember this code for later: ${SECRET}. Just acknowledge it.` }])
     await waitForIdle(ctx, first)
@@ -56,7 +56,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
     const resumed = (await ctx.agents.resume({
       agentId: AgentId('resume-2'),
       resumeSessionId: SESSION_ID,
-      agentOptions: { model: 'deepseek-v4-flash' },
+      agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     })).agent as ReactLoopAgent
     expect(resumed.session.id).toBe(SESSION_ID)
     // The prior user turn is in the rehydrated log before the model is asked.
