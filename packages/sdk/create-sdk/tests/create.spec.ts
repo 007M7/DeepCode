@@ -30,6 +30,7 @@ import {
   type CreateCommandContext,
 } from '../src/command.ts'
 import { CreateWizard } from '../src/create-wizard.ts'
+import { resolveHeadless } from '../src/headless.ts'
 import { scaffoldProject } from '../src/project-scaffolder.ts'
 
 class ScriptedPort implements PromptPort {
@@ -482,6 +483,52 @@ describe('create command composition', () => {
     await expect(createProject(argv('agent', false), context)).rejects.toThrow('interactive TTY')
   })
 
+  it('creates headlessly from --config-json with no TTY', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'create-headless-cmd-'))
+    temporary.push(root)
+    const spec = JSON.stringify({
+      directory: 'agent', description: 'test', provider: 'deepseek', apiKey: 'key',
+      model: 'deepseek-v4-flash', interface: 'embed', pm: 'npm', install: false,
+      features: [{ id: 'persistence', options: ['jsonl'] }],
+    })
+    const context = commandContext(root)
+    context.stdin.isTTY = false
+    context.stdout.isTTY = false
+    const result = await createProject(['--config-json', spec], context)
+    expect(result?.project.root).toBe(join(root, 'agent'))
+  })
+
+  it('emits NDJSON lifecycle events under --json', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'create-headless-json-'))
+    temporary.push(root)
+    const base = {
+      description: 'test', model: 'deepseek-v4-flash', interface: 'embed', pm: 'npm', install: false,
+    }
+    const ok = commandContext(root)
+    ok.stdin.isTTY = false
+    ok.stdout.isTTY = false
+    const okSpec = JSON.stringify({ ...base, directory: 'done-agent', provider: 'deepseek', apiKey: 'key', features: [] })
+    await expect(runCreateCommand(['--config-json', okSpec, '--json'], ok)).resolves.toBe(0)
+    expect(ok.readStdout()).toContain('{"type":"done"}')
+
+    const missing = commandContext(root)
+    missing.stdin.isTTY = false
+    missing.stdout.isTTY = false
+    const missingSpec = JSON.stringify({ ...base, directory: 'miss-agent', provider: 'custom', baseURL: 'https://x', features: [] })
+    await expect(runCreateCommand(['--config-json', missingSpec, '--json'], missing)).resolves.toBe(1)
+    expect(missing.readStdout()).toContain('"type":"action-required"')
+
+    const broken = commandContext(root)
+    broken.stdin.isTTY = false
+    broken.stdout.isTTY = false
+    await expect(runCreateCommand(['--config-json', '{bad', '--json'], broken)).resolves.toBe(1)
+    expect(broken.readStdout()).toContain('"type":"error"')
+
+    const cancelled = commandContext(root, new ScriptedPort([ScriptedPort.cancel]))
+    await expect(runCreateCommand(['--json', ...argv('cancel-agent', false)], cancelled)).resolves.toBe(1)
+    expect(cancelled.readStdout()).toContain('"reason":"cancelled"')
+  })
+
   it('creates through an injected prompt port and delegates optional setup', async () => {
     const root = await mkdtemp(join(tmpdir(), 'create-command-success-'))
     temporary.push(root)
@@ -548,5 +595,60 @@ describe('create command composition', () => {
     expect(invalid.readStderr()).toContain('unknown option')
     const help = commandContext(root)
     await expect(runCreateCommand(['--help'], help)).resolves.toBe(0)
+  })
+})
+
+describe('resolveHeadless', () => {
+  it('returns undefined without a config source', async () => {
+    expect(await resolveHeadless(parseCreateArgs(['agent']))).toBeUndefined()
+  })
+
+  it('maps every inline --config-json field into args plus the feature plan', async () => {
+    const spec = JSON.stringify({
+      directory: 'a', description: 'd', provider: 'custom', baseURL: 'https://x', apiKey: 'k',
+      model: 'm', interface: 'acp', pm: 'pnpm', install: true, linkWorkspace: true,
+      features: [{ id: 'todo', options: ['default'] }],
+    })
+    const resolved = await resolveHeadless(parseCreateArgs(['--config-json', spec]))
+    expect(resolved?.args).toMatchObject({
+      directory: 'a', description: 'd', provider: 'custom', baseURL: 'https://x', apiKey: 'k',
+      model: 'm', runInterface: 'acp', packageManager: 'pnpm', install: true, linkWorkspace: true, help: false,
+    })
+    expect(resolved?.features).toEqual([{ id: 'todo', options: ['default'] }])
+  })
+
+  it('reads --config from a file via the injected reader and omits absent fields', async () => {
+    const resolved = await resolveHeadless(
+      parseCreateArgs(['--config', '/spec.json']),
+      async () => JSON.stringify({ description: 'from-file' }),
+    )
+    expect(resolved?.args.description).toBe('from-file')
+    expect(resolved?.args.directory).toBeUndefined()
+    expect(resolved?.args.linkWorkspace).toBeUndefined()
+    expect(resolved?.features).toBeUndefined()
+  })
+
+  it('reads --config from disk with the default reader', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'create-headless-file-'))
+    temporary.push(dir)
+    const file = join(dir, 'spec.json')
+    await writeFile(file, JSON.stringify({ description: 'on-disk' }))
+    const resolved = await resolveHeadless(parseCreateArgs(['--config', file]))
+    expect(resolved?.args.description).toBe('on-disk')
+  })
+
+  it('fails loud on invalid JSON, a non-object root, or a non-array features field', async () => {
+    await expect(resolveHeadless(parseCreateArgs(['--config-json', '{bad']))).rejects.toThrow('invalid JSON')
+    await expect(resolveHeadless(parseCreateArgs(['--config-json', '[]']))).rejects.toThrow('expected a JSON object')
+    await expect(resolveHeadless(parseCreateArgs(['--config-json', 'null']))).rejects.toThrow('expected a JSON object')
+    await expect(resolveHeadless(parseCreateArgs(['--config-json', '5']))).rejects.toThrow('expected a JSON object')
+    await expect(resolveHeadless(parseCreateArgs(['--config-json', '{"features":1}']))).rejects.toThrow('must be an array')
+  })
+
+  it('accepts a minimal spec, leaving unspecified answers undefined', async () => {
+    const resolved = await resolveHeadless(parseCreateArgs(['--config-json', '{"directory":"x"}']))
+    expect(resolved?.args.directory).toBe('x')
+    expect(resolved?.args.description).toBeUndefined()
+    expect(resolved?.features).toBeUndefined()
   })
 })
