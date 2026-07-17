@@ -22,7 +22,7 @@ pnpm exec tsx scripts/build-exe-for-python-sdk.ts --skip-build    # lib/ artifac
 pnpm exec tsx scripts/build-exe-for-python-sdk.ts --targets=node24-linux-x64,node24-linux-arm64,node24-macos-arm64
 ```
 
-产物落入 `dist-exe/`，并同步进本包的 `sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-<platform>-<arch>`（platform：`linux`/`macos`；arch：`x64`/`arm64`），本地构建完成后 SDK 不需要额外设置就能找到可执行文件。`build-exe-for-python-sdk` CI 工作流（手动触发，或给 PR 打 `build-exe` 标签）会测试同样的二进制，但只保留 4 个发布用 wheel 包。exe 内置哪些插件、载体如何组织，见 [sdk-runtime README](sdk-runtime/README.md)；构建还会顺带刷新仅供开发使用的 `node` 载体（见下文「对着 Node 源码运行」）。
+产物落入 `dist-exe/`，并同步进本包的 `sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-<platform>-<arch>`（platform：`linux`/`macos`；arch：`x64`/`arm64`），本地构建完成后 SDK 不需要额外设置就能找到可执行文件。`build-exe-for-python-sdk` CI 工作流（手动触发，或给 PR 打 `build-exe` 标签）会测试同样的二进制。完整构建三个目标时保留 4 个发布用 wheel 包；手动选择部分目标时保留 SDK wheel 与所选平台的 wheel。exe 内置哪些插件、载体如何组织，见 [sdk-runtime README](sdk-runtime/README.md)；构建还会顺带刷新仅供开发使用的 `node` 载体（见下文「对着 Node 源码运行」）。
 
 ## 用可执行文件验证 SDK
 
@@ -45,8 +45,8 @@ with DeepSeekHarness() as harness:
 
 两种方式，均面向仓库成员：
 
-- **已构建的 `node` 载体**——设置 `DSH_RUNTIME_MODE=node`，SDK 会用系统 Node（>= 22.19）运行 `runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js`。这棵树每次运行构建脚本都会刷新，与 exe 打入 pkg 虚拟文件系统（VFS）的是同一份依赖闭包，因此插件语义一致。它不会被自动选中，也不进入分发物。
-- **未构建的源码（tsx）**——把客户端直接指向 `bin` 的 TypeScript 源码，用于编辑、运行和调试：`launch_args_override=("./node_modules/.bin/tsx", "packages/ui/jsonrpc-agent/src/bin.ts")`，`cwd` 设为仓库根，再通过 `cordis=...` 传入配置（或使用默认配置注入）。[sdk/tests/manual_sdk_agent_smoke.py](sdk/tests/manual_sdk_agent_smoke.py) 是现成范例。
+- **已构建的 `node` 载体**——设置 `DSH_RUNTIME_MODE=node`，SDK 会用系统 Node（>= 22.19）运行 `runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-demo/lib/bin.js`。这棵树每次运行构建脚本都会刷新，与 exe 打入 pkg 虚拟文件系统（VFS）的是同一份依赖闭包，因此插件语义一致。它不会被自动选中，也不进入分发物。
+- **未构建的源码（tsx）**——把客户端直接指向 `bin` 的 TypeScript 源码，用于编辑、运行和调试：`launch_args_override=("./node_modules/.bin/tsx", "packages/examples/jsonrpc-demo/src/bin.ts")`，`cwd` 设为仓库根，再通过 `cordis=...` 传入配置（或使用默认配置注入）。[sdk/tests/manual_sdk_agent_smoke.py](sdk/tests/manual_sdk_agent_smoke.py) 是现成范例。
 
 ## 分发 Python 包
 

@@ -1,12 +1,7 @@
-"""Manual keyless smoke: drive the repo-source jsonrpc-agent bin (node + tsx).
+"""Drive the repo-source JSON-RPC bin through the SDK and a keyless mock SSE server.
 
-Runs the SDK against `packages/ui/jsonrpc-agent/src/bin.ts` executed from the
-repo checkout (requires `pnpm install`; no build, no API key — the model
-endpoint is a local mock SSE server). The bin only boots the supplied
-cordis.yml — the stdio JSON-RPC server itself comes from the config's
-`@deepseek-ai/dsh-jsonrpc` entry — so the runtime package's default cordis.yml
-is passed explicitly. Not collected by pytest; run it directly:
-`python tests/manual_sdk_agent_smoke.py`.
+Requires ``pnpm install`` but no build. This manual test is not collected by
+pytest; run ``python tests/manual_sdk_agent_smoke.py``.
 """
 
 from __future__ import annotations
@@ -49,7 +44,7 @@ class MockCompletionHandler(BaseHTTPRequestHandler):
 
 def run_smoke(repo_root: Path, keep_sessions: bool) -> None:
     session_root = Path(tempfile.mkdtemp(prefix="dsh-sdk-smoke-sessions-"))
-    runtime_entry = repo_root / "packages/ui/jsonrpc-agent/src/bin.ts"
+    runtime_entry = repo_root / "packages/examples/jsonrpc-demo/src/bin.ts"
     server = ThreadingHTTPServer(("127.0.0.1", 0), MockCompletionHandler)
     thread = threading.Thread(target=server.serve_forever, name="mock-openai-compatible-server", daemon=True)
     thread.start()

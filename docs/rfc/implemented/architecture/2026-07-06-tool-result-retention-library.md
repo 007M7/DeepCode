@@ -101,7 +101,7 @@ type TextRetentionStrategy =
 
 `grep` uses `ItemRetainer<FlatGrepMatch>` with `{ kind: 'head', maxItems: grepMaxMatches }` before grouping. The executor parses ripgrep output, maps paths, applies per-line preview truncation, and pushes flat matches. After `finish()`, the tool groups retained matches by file and can save the full match list through the spill seam when the inline result is capped. Grouping is not part of the retainer because the cap is total matches, not files; per-match preview truncation and `incomplete` are also separate from result-level retention.
 
-`bash` can use `TextRetainer` with `tail` or `headTail` and reads to process completion. The bash executor still owns spill files, exit status, signal, timeout, and background-task behavior; the retention helper only replaces ad hoc in-memory head/tail accounting where that behavior is desired. Long-running task ownership remains orthogonal to the [generic long-running tool runtime](../../proposed/architecture/2026-06-20-generic-long-running-tool-runtime.md) proposal.
+`bash` can use `TextRetainer` with `tail` or `headTail` and reads to process completion. The bash executor still owns spill files, exit status, signal, timeout, and background-task behavior; the retention helper only replaces ad hoc in-memory head/tail accounting where that behavior is desired. Long-running task ownership remains orthogonal to the [generic long-running tool runtime](2026-06-20-generic-long-running-tool-runtime.md).
 
 `web_fetch` can use `TextRetainer` with `head` or `headTail`, or keep provider-owned body caps when the provider must read and decode internally. Either way, the fetch result's `truncated` remains a provider/tool fact, and the library only supplies retained text and omission metadata.
 

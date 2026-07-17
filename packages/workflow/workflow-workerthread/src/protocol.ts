@@ -1,18 +1,9 @@
 /**
- * The host⇄worker wire protocol: one string-valued enum of message tags per
- * direction, a payload map giving each tag its parameters (the single source
- * of truth), and the message unions derived from them. Everything in a
- * payload is plain JSON data by construction (the runtime materializes
- * script values before they reach a message; the host projects seam results
- * down to their JSON fields), so the structured-clone hop never meets a
- * value it cannot carry.
- *
- * Both directions are CLOSED (engine-owned): each side switches on `type`
- * and ends with `assertNever` — an unknown message is a protocol bug, never
- * something to skip silently. Senders go through a generic
- * `post(type, payload)` whose payload parameter is looked up from the map,
- * so a tag/payload mismatch is a compile error at the call site.
- *
+ * The host⇄worker wire protocol: one string-valued enum of message tags per direction, a
+ * payload map giving each tag its parameters (the single source of truth), and the message
+ * unions derived from them. Payloads are plain JSON by construction for structured clone. Both
+ * directions are closed engine protocols whose receivers use `assertNever`; generic typed senders
+ * make tag/payload mismatches compile-time errors rather than silently skipped messages.
  * @module @deepseek-ai/dsh-workflow-workerthread/protocol
  */
 

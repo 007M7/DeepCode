@@ -17,7 +17,7 @@ import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
  * The interception seams introduced by the hooks taxonomy: `agent/prompt-submit`,
  * `agent/session-start`, the reshaped `agent/turn-continuation`
  * ({@link ContinuationDecision}), and the `tools/pre-execute` / `tools/post-execute`
- * split with `additionalContext` buffering. These verify the canonical event
+ * split with `additionalContexts` buffering. These verify the canonical event
  * surface a hook bridge (or a native plugin) programs against, WITHOUT any
  * external protocol — a native plugin uses the typed decisions directly.
  */
@@ -91,15 +91,21 @@ describe('agent/prompt-submit', () => {
     expect(JSON.stringify(adapter.requests[0]!.messages)).not.toContain('original')
   })
 
-  it('allow with additionalContext injects a separate context/message into the turn', async () => {
+  it('allow with additionalContexts injects separate context/message events into the turn', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
+    const meta = { kind: 'prompt-context', version: 1 }
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({
         kind: 'allow',
-        additionalContext: { content: [{ type: 'text', text: 'extra ctx' }], source: { kind: 'plugin', plugin: 'test' } },
+        additionalContexts: [{
+          content: [{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }],
+          source: { kind: 'plugin', plugin: 'test' },
+          envelope: 'raw',
+          meta,
+        }],
       }))
 
     send(agent, 'go')
@@ -109,22 +115,18 @@ describe('agent/prompt-submit', () => {
     const userMsg = log.find(e => e.type === 'user/message')
     const ctxMsg = log.find(e => e.type === 'context/message')
     expect(userMsg).toBeDefined()
-    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.content).toEqual([{ type: 'text', text: 'extra ctx' }])
+    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.content).toEqual([{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }])
     expect(ctxMsg?.type === 'context/message' && ctxMsg.data.source).toEqual({ kind: 'plugin', plugin: 'test' })
+    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.envelope).toBe('raw')
+    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.meta).toEqual(meta)
     // both the prompt and the injected context reach the model
     const sent = JSON.stringify(adapter.requests[0]!.messages)
     expect(sent).toContain('extra ctx')
   })
 
-  it('a prompt-submit rewrite + additionalContext is VISIBLE to the agent/pre-step seam (merged ordering)', async () => {
-    // The merge of the interception seams with master's compaction seam pins one
-    // ordering: `agent/prompt-submit` runs (rewriting the prompt and injecting
-    // context) BEFORE the step loop, and `agent/pre-step` fires INSIDE the step
-    // before the single deriveMessages(). So a compaction listener on
-    // `agent/pre-step` must observe the surface AFTER the prompt rewrite/inject —
-    // otherwise it would measure/compact stale history. This cross-test proves
-    // the two seams compose in the right order (each is covered in isolation
-    // elsewhere; this asserts they see each other's effects on the same turn).
+  it('a prompt-submit rewrite + additionalContexts is VISIBLE to the agent/pre-step seam (merged ordering)', async () => {
+    // Prompt rewrites and injected context land before `agent/pre-step`, so a
+    // compaction listener measures the current surface before the single derive.
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -133,7 +135,7 @@ describe('agent/prompt-submit', () => {
       ({
         kind: 'allow',
         content: [{ type: 'text', text: 'REWRITTEN prompt' }],
-        additionalContext: { content: [{ type: 'text', text: 'injected ctx' }], source: { kind: 'plugin', plugin: 'test' } },
+        additionalContexts: [{ content: [{ type: 'text', text: 'injected ctx' }], source: { kind: 'plugin', plugin: 'test' } }],
       }))
 
     // The pre-step seam (where compaction lives) derives the surface it would act
@@ -189,9 +191,8 @@ describe('agent/prompt-submit', () => {
   })
 
   it('a mixed batch records a prompt/blocked for the vetoed prompt while the allowed one runs', async () => {
-    // Two prompts queued into ONE turn: block "secret", allow "safe". The turn is
-    // NOT rejected (a prompt was allowed), so without a durable prompt/blocked the
-    // vetoed prompt and its reason would vanish from the log entirely.
+    // Blocking one prompt in a mixed batch must persist its reason even though
+    // the allowed prompt keeps the turn from ending rejected.
     const adapter = new MockAdapter([textResponse('ran once')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -515,14 +516,13 @@ describe('agent/turn-continuation (ContinuationDecision)', () => {
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
-    // same turn, two steps
+    // The continuation stays in the turn, is logged with provenance before step 2,
+    // and reaches that step's request.
     expect(log.filter(e => e.type === 'turn/start')).toHaveLength(1)
     expect(log.filter(e => e.type === 'step/start')).toHaveLength(2)
-    // the reason was recorded as steering BEFORE step 2, with its plugin source
     const steering = log.find(e => e.type === 'steering/message')
     expect(steering?.type === 'steering/message' && steering.data.content).toEqual([{ type: 'text', text: 'keep going on the goal' }])
     expect(steering?.type === 'steering/message' && steering.data.source).toEqual({ kind: 'plugin', plugin: 'goal' })
-    // and reached the next request
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('keep going on the goal')
   })
 
@@ -546,8 +546,8 @@ describe('agent/turn-continuation (ContinuationDecision)', () => {
   })
 })
 
-describe('tools/post-execute additionalContext buffering across a multi-call step', () => {
-  it('appends each call\'s additionalContext only AFTER all tool/results, preserving adjacency', async () => {
+describe('tool additionalContexts buffering across a step', () => {
+  it('appends each call\'s contexts only AFTER all tool/results, preserving adjacency', async () => {
     // One assistant step with TWO tool calls; the second model response stops.
     const twoCalls = [
       { type: 'block-start' as const, index: 0, blockType: 'tool-call' as const },
@@ -565,9 +565,17 @@ describe('tools/post-execute additionalContext buffering across a multi-call ste
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // Each call attaches additionalContext naming itself.
+    // Each call attaches one context naming itself.
     ctx.on('tools/post-execute', async (exec, _result): Promise<PostToolDecision> =>
-      ({ kind: 'accept', additionalContext: { content: [{ type: 'text', text: `ctx-${exec.callId}` }], source: { kind: 'plugin', plugin: 'p' } } }))
+      ({
+        kind: 'accept',
+        additionalContexts: [{
+          content: [{ type: 'text', text: `ctx-${exec.callId}` }],
+          source: { kind: 'plugin', plugin: 'p' },
+          envelope: 'raw',
+          meta: { callId: exec.callId },
+        }],
+      }))
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -587,6 +595,37 @@ describe('tools/post-execute additionalContext buffering across a multi-call ste
       .flatMap(e => (e.type === 'context/message' ? e.data.content : []))
       .map(b => (b.type === 'text' ? b.text : ''))
     expect(ctxTexts).toEqual(['ctx-c1', 'ctx-c2'])
+    const contextEvents = events(agent).filter(e => e.type === 'context/message')
+    expect(contextEvents.map(e => e.type === 'context/message' && e.data.envelope)).toEqual(['raw', 'raw'])
+    expect(contextEvents.map(e => e.type === 'context/message' && e.data.meta)).toEqual([{ callId: 'c1' }, { callId: 'c2' }])
+  })
+
+  it('appends multiple contexts deferred by one composite tool after its outer result', async () => {
+    const adapter = new MockAdapter([toolCallResponse('c1', 'composite', {}), textResponse('done')])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'composite', description: 'composite', parameters: {},
+      async execute(_args, exec) {
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-a' }], source: { kind: 'plugin', plugin: 'a' }, meta: { order: 1 } })
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-b' }], source: { kind: 'plugin', plugin: 'b' }, envelope: 'raw', meta: { order: 2 } })
+        return [{ type: 'text', text: 'outer result' }]
+      },
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const log = events(agent)
+    const resultIndex = log.findIndex(event => event.type === 'tool/result')
+    const contextEvents = log.filter(event => event.type === 'context/message')
+    expect(resultIndex).toBeGreaterThanOrEqual(0)
+    expect(log.findIndex(event => event === contextEvents[0])).toBeGreaterThan(resultIndex)
+    expect(contextEvents.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+      { kind: 'plugin', plugin: 'a' },
+      { kind: 'plugin', plugin: 'b' },
+    ])
+    expect(contextEvents.map(event => event.type === 'context/message' && event.data.meta)).toEqual([{ order: 1 }, { order: 2 }])
   })
 })
 
@@ -618,11 +657,9 @@ describe('tools/pre-execute gate (native-plugin permission pattern, end-to-end t
 })
 
 describe('worked example: a native hook plugin is just a cordis plugin on the seams', () => {
-  // The whole point of the interception taxonomy: a "native hook" needs no
-  // dsh-hook-protocol, no external command, no hook/* log — it is an ordinary
-  // cordis plugin subscribing to the canonical events and returning typed
-  // decisions. This proves all four seams compose end-to-end through the REAL
-  // loop, with NO hook/* SessionEvents involved (those belong to the bridge lib).
+  // The whole point of the interception taxonomy: a "native hook" needs no dsh-hook-protocol,
+  // no external command, no hook/* log — it is an ordinary cordis plugin subscribing to the
+  // canonical events and returning typed decisions.
   const NativeGuard = {
     name: 'native-guard',
     apply(ctx: Context) {
@@ -648,7 +685,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
       ctx.on('tools/post-execute', async (_exec, _result, next): Promise<PostToolDecision> => {
         const decision = await next()
         if (decision.kind === 'accept') {
-          return { kind: 'accept', additionalContext: { content: [{ type: 'text', text: 'audited' }], source: { kind: 'plugin', plugin: 'native-guard' } } }
+          return { kind: 'accept', additionalContexts: [{ content: [{ type: 'text', text: 'audited' }], source: { kind: 'plugin', plugin: 'native-guard' } }] }
         }
         return decision
       })

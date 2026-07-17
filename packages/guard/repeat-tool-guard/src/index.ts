@@ -1,37 +1,9 @@
 /**
- * Repeat-tool-call guard: advisory loop-breaker for agents stuck re-issuing
- * the same tool call with identical arguments.
- *
- * Not a model-facing tool — it registers no tool, never vetoes or rewrites a
- * call, and adds exactly one behavior: watch each agent's stream of tool calls
- * through the `tools/post-execute` waterfall, count runs of consecutive calls
- * to the same tool with identical canonicalized arguments, and at configured
- * run lengths fold an escalating advisory reminder onto the decision's
- * `additionalContext`. The loop appends that context as a logged
- * `context/message` after the step's tool results, so the reminder is
- * model-visible, source-attributed, and reconstructable from the session log
- * with no new session event. Decision record:
- * docs/rfc/implemented/feature/2026-07-08-repeat-tool-guard.md.
- *
- * ```yaml
- * - id: repeat-tool-guard
- *   name: '@deepseek-ai/dsh-repeat-tool-guard'
- *   config:
- *     thresholds: [3, 5, 8]   # consecutive counts that trigger a reminder
- *     include: []             # tool-name patterns to track; empty = all tools
- *     exclude: [todo_write]   # tool-name patterns transparent to the chain
- * ```
- *
- * Chain state is keyed per {@link AgentId} — the tool registry is a
- * context-level singleton whose waterfalls interleave every agent's calls, so
- * a shared counter would let one agent's repetition trip another's reminder.
- * State is in-memory only: a session resumed from persistence starts with a
- * fresh chain (the guard is a heuristic nudge, not a logged invariant).
- *
- * Plugin export shape: named exports, NO default. The cordis Loader's
- * `unwrapExports` does `exports.default ?? exports`, so a stray default would
- * collapse the module to the bare `apply` (see docs/postmortem/0001).
- *
+ * Advisory repeat-call loop breaker. It never registers, blocks, or rewrites a tool; configured
+ * consecutive canonical calls add source-attributed context after downstream post-policy. The
+ * loop logs that model-visible reminder as reconstructable context. Counters are per agent and
+ * in-memory, so one agent cannot trip another and resumed sessions start fresh. Named exports
+ * preserve loader metadata. See the package README for chain semantics and thresholds.
  * @module @deepseek-ai/dsh-repeat-tool-guard
  */
 
@@ -168,16 +140,11 @@ function validateThresholds(values: number[]): number[] {
 }
 
 /**
- * Concatenate the guard's reminder context with a downstream listener's
- * optional one so folding drops neither. The merged block carries the guard's
- * `source` — a `HookContext` holds one `MessageSource` and the seam cannot
- * represent mixed provenance; the rendered `context/message` only
- * distinguishes by `source.kind`, so a downstream plugin's text is still
- * correctly framed as plugin context.
+ * Prepend the guard's reminder while preserving every downstream context's
+ * source, envelope, and metadata.
  */
-function concatContext(ours: HookContext, theirs: HookContext | undefined): HookContext {
-  if (!theirs) return ours
-  return { content: [...ours.content, ...theirs.content], source: ours.source }
+function prependContext(ours: HookContext, theirs: HookContext[] | undefined): HookContext[] {
+  return [ours, ...theirs ?? []]
 }
 
 /** One agent's consecutive-repeat chain: the last tracked call's identity key and its run length. */
@@ -239,19 +206,19 @@ export function apply(ctx: Context, config: Config): void {
 
   // Observe-and-enrich, never veto: count first (state advances regardless of
   // the downstream outcome), DELEGATE so a later listener can still block or
-  // replace, then fold the reminder onto whatever came back — additionalContext
+  // replace, then fold the reminder onto whatever came back — additionalContexts
   // rides both decision variants, so a blocked call still gets the nudge.
   ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
     const reminder = observe(exec)
     const downstream = await next()
     if (!reminder) return downstream
     if (downstream.kind === 'block') {
-      return { kind: 'block', feedback: downstream.feedback, additionalContext: concatContext(reminder, downstream.additionalContext) }
+      return { kind: 'block', feedback: downstream.feedback, additionalContexts: prependContext(reminder, downstream.additionalContexts) }
     }
     return {
       kind: 'accept',
       ...downstream.content !== undefined ? { content: downstream.content } : {},
-      additionalContext: concatContext(reminder, downstream.additionalContext),
+      additionalContexts: prependContext(reminder, downstream.additionalContexts),
     }
   })
 

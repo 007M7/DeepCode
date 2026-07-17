@@ -1,15 +1,9 @@
 /**
- * Wire protocol between the host runtime and the worker bootstrap. Everything
- * crossing the message port is structured-clone-plain and versionless — both
- * ends ship in this package, always at the same version. The host treats
- * inbound traffic as HOSTILE (the worker runs model code, which can reach
- * `parentPort` via `import('node:worker_threads')` and forge any of these
- * shapes); the worker treats inbound traffic as trusted.
- *
+ * Versionless, structured-clone wire protocol between co-shipped host and worker code. The host
+ * treats inbound traffic as hostile because model code can forge `parentPort` messages; the
+ * worker trusts host replies.
  * @module @deepseek-ai/dsh-code-runtime-worker/src/protocol
  */
-
-import type { CodeLogEntry } from '@deepseek-ai/dsh-code-runtime'
 
 /** What the host hands the worker at spawn, via `workerData`. */
 export interface WorkerBootData {
@@ -24,7 +18,7 @@ export interface WorkerBootData {
 }
 
 /** Worker → host: one bridged binding call. */
-export interface CallMessage {
+interface CallMessage {
   type: 'call'
   /** Worker-issued correlation id; the host answers each id at most once and ignores duplicates. */
   id: number
@@ -36,10 +30,10 @@ export interface CallMessage {
   args: unknown
 }
 
-/** Worker → host: one captured log entry, streamed eagerly so output survives a mid-run termination (timeout, abort, OOM). */
-export interface LogMessage {
+/** Worker → host: captured text, streamed eagerly so output survives a mid-run termination (timeout, abort, OOM). */
+interface LogMessage {
   type: 'log'
-  entry: CodeLogEntry
+  text: string
 }
 
 /**

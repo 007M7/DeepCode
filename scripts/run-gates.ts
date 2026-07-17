@@ -96,8 +96,7 @@ function pnpmScript(id: string, script: string, options: Partial<Gate> = {}): Ga
   return {
     id,
     label: options.label ?? script,
-    command: pnpmBin(),
-    args: ['run', script],
+    ...pnpmInvocation(['run', script]),
     ...options,
   }
 }
@@ -106,14 +105,18 @@ function pnpmExec(id: string, args: string[], options: Partial<Gate> = {}): Gate
   return {
     id,
     label: options.label ?? `pnpm exec ${args.join(' ')}`,
-    command: pnpmBin(),
-    args: ['exec', ...args],
+    ...pnpmInvocation(['exec', ...args]),
     ...options,
   }
 }
 
-function pnpmBin(): string {
-  return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+function pnpmInvocation(args: string[]): Pick<Gate, 'command' | 'args'> {
+  const entrypoint = process.env.npm_execpath
+  if (entrypoint === undefined || entrypoint === '') {
+    throw new Error('run-gates: npm_execpath is unavailable; invoke the runner through a pnpm package script.')
+  }
+  // Windows cannot spawn the pnpm.cmd shim directly; the JavaScript entrypoint keeps every host shell-free.
+  return { command: process.execPath, args: [entrypoint, ...args] }
 }
 
 function nodeOptions(...options: string[]): string {
@@ -153,6 +156,7 @@ function gatesForMode(selected: Mode): Gate[] {
     case 'pre-push':
       return [
         pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
+        pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
         pnpmScript('test', 'test'),
         pnpmScript('duplication', 'duplication'),
         pnpmScript('snapshot', 'test:snapshot'),
@@ -168,6 +172,7 @@ function ciPrimaryGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
+    pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
     pnpmScript('typecheck', 'typecheck'),
     lintGate(),
     pnpmScript('duplication', 'duplication'),
@@ -191,11 +196,17 @@ function ciStaticGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
-    demoSmokeGate(),
+    pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
+    ...staticDemoSmokeGates(),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
   ]
+}
+
+function staticDemoSmokeGates(): Gate[] {
+  // Native Windows session persistence is outside the gates-only support scope.
+  return process.platform === 'win32' ? [] : [demoSmokeGate()]
 }
 
 function ciArtifactGates(): Gate[] {
@@ -273,17 +284,20 @@ function docSyncLeafGates(): Gate[] {
     pnpmScript('config-catalog', 'verify-config-catalog', { label: 'config catalog' }),
     pnpmScript('persistence-catalog', 'verify-persistence-catalog', { label: 'persistence catalog' }),
     pnpmScript('doc-graphs', 'verify-doc-graphs', { label: 'doc graphs' }),
-    pnpmScript('scoped-dispatch', 'verify-scoped-dispatch', { label: 'scoped dispatch' }),
+    pnpmScript('scoped-events', 'verify-scoped-events', { label: 'scoped events' }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap' }),
     pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
     pnpmScript('package-paths', 'verify-package-paths', { label: 'package paths' }),
+    pnpmScript('package-readme-model-experience', 'verify-package-readme-model-experience', { label: 'package README model experience' }),
     pnpmScript('mermaid', 'verify-mermaid'),
     pnpmScript('rfc-classification', 'verify-rfc-classification', { label: 'rfc classification' }),
     pnpmScript('rfc-format', 'verify-rfc-format', { label: 'rfc format' }),
     pnpmScript('type-equivalence', 'verify-type-equiv', { label: 'type equivalence' }),
+    pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt' }),
     pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),
     pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets' }),
+    pnpmScript('package-readme-limitations', 'verify-package-readme-limitations', { label: 'package README limitations' }),
   ]
 }
 
@@ -292,8 +306,7 @@ function demoSmokeGate(options: { needs?: string[] } = {}): Gate {
   return {
     id: 'demo-smoke',
     label: 'demo smoke',
-    command: pnpmBin(),
-    args: ['run', 'demo:echo'],
+    ...pnpmInvocation(['run', 'demo:echo']),
     input: 'echo ci smoke\n',
     ...dependencyOptions,
     verify: async (result) => {
@@ -330,8 +343,8 @@ function builtBinSmokeGate(): Gate {
     'run',
     '--config',
     'vitest.e2e.config.ts',
-    'packages/ui/stdio-agent/tests/built-bin.e2e.ts',
-    'packages/ui/acp-agent/tests/built-bin.e2e.ts',
+    'packages/examples/stdio-demo/tests/built-bin.e2e.ts',
+    'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     // The worker-entry packages' built bundles: the only automated proof
     // that lib/index.js resolves its sibling lib/worker.cjs under plain node
     // (the e2e lane runs unbuilt, so these files self-skip there).

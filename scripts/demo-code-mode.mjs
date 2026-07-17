@@ -1,12 +1,7 @@
 /**
- * Boot the Code Mode demo under the UI named on the command line:
- * `pnpm run demo:code-mode [repl|acp]`, default `repl`. Code Mode is the
- * point — the UI is just the surface it happens to wear: each UI boots its
- * base example through that example's `code-mode.cordis.yml` overlay
- * (include ./cordis.yml, flip `tools.mode` to `code`, insert the
- * worker-thread code runtime). Both need DEEPSEEK_API_KEY (repo-root .env
- * works). Anything else on the command line is a misconfiguration and
- * fails loud with usage.
+ * Boot the REPL or ACP Code Mode overlay, defaulting to REPL. Each overlay
+ * includes its base example, selects Code Mode, and adds the worker runtime.
+ * Both require a DeepSeek API key; unsupported arguments fail with usage.
  */
 import { spawn } from 'node:child_process'
 
@@ -14,8 +9,8 @@ import { spawn } from 'node:child_process'
 // the overlay config (the stdio bin keeps --expose-internals for the cordis
 // Loader's HMR path).
 const UIS = new Map([
-  ['repl', ['--expose-internals', '--import', 'tsx', 'packages/ui/stdio-agent/src/bin.ts', 'examples/coding-agent/code-mode.cordis.yml']],
-  ['acp', ['--import', 'tsx', 'packages/ui/acp-agent/src/bin.ts', '--config', 'examples/acp-agent/code-mode.cordis.yml']],
+  ['repl', ['--expose-internals', '--import', 'tsx', 'packages/examples/stdio-demo/src/bin.ts', 'examples/coding-agent/code-mode.cordis.yml']],
+  ['acp', ['--import', 'tsx', 'packages/examples/acp-demo/src/bin.ts', '--config', 'examples/acp-agent/code-mode.cordis.yml']],
 ])
 
 const ui = process.argv[2] ?? 'repl'

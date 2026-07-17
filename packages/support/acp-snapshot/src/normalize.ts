@@ -1,29 +1,8 @@
 /**
- * Pure normalizers for the ACP snapshot goldens. They replace the
- * non-deterministic values in the two captured surfaces — the stdout JSON-RPC
- * transcript and the persisted session JSONL — with stable tokens, so a golden
- * compare reflects behavior, not run-to-run noise. Kept dependency-free and
- * side-effect-free so they unit-test trivially.
- *
- * Scrubbed: `randomUUID()` session ids → `{{sessionId}}`; the temp `mkdtemp`
- * cwd → `{{cwd}}` (it appears in terminal-card `_meta` and the log header);
- * JSON-RPC request `id` → a stable per-transcript sequence; the log's per-event
- * `time` (epoch ms) and header `createdAt` → 0; a `hook/result` event's
- * `durationMs` (wall-clock hook runtime) → 0. NOT scrubbed: the log's `seq`
- * (deterministic — `seq = log.length`, part of the event-log contract).
- *
- * Separate, composable normalizers keep bulky request-header content out of
- * session fixtures. {@link scrubSystemPrompts} replaces the composed system
- * prompt in EVERY fixture; {@link scrubRequestHeaders} additionally replaces
- * tool schemas and the session prefix outside each suite's header-pinning
- * scenario. They are deliberately NOT folded into
- * {@link normalizeSessionLog}: the suite factory composes the right scrub for
- * each scenario and snapshots the pin's actual prompt as Markdown (see the
- * pinned-header RFC,
- * docs/rfc/implemented/testing/2026-07-06-pin-request-header-content-in-one-scenario.md).
- *
- * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
- *
+ * Pure ACP transcript and session-log normalizers. They scrub session ids, temp cwd, RPC ids,
+ * timestamps, and hook duration while preserving deterministic event sequence numbers.
+ * Request-header scrubbers stay composable so one scenario per header class can pin prompt and
+ * tool-schema sidecars while retaining any model-visible prefix in the session log.
  * @module @deepseek-ai/dsh-acp-snapshot/normalize
  */
 
@@ -81,12 +60,10 @@ function scrubValue(value: unknown, ctx: NormalizeContext): unknown {
 }
 
 /**
- * Normalize a raw stdout transcript (newline-delimited JSON-RPC frames) into a
- * stable golden in the SAME shape as the wire: one compact JSON frame per line
- * (NDJSON), with the JSON-RPC `id` rewritten to a per-transcript sequence
- * (1, 2, 3, …) and all volatile strings scrubbed. Throws if any non-empty line
- * is not valid JSON — that doubles as the stdout-purity check (no logger leaked
- * onto the protocol).
+ * Normalize a raw stdout transcript (newline-delimited JSON-RPC frames) into a stable golden
+ * in the same shape as the wire: one compact JSON frame per line (NDJSON), with the JSON-RPC
+ * `id` rewritten to a per-transcript sequence (1, 2, 3, …) and all volatile strings scrubbed.
+ * Invalid JSON throws, doubling as a protocol-stdout purity check.
  *
  * @param rawStdout The captured stdout bytes, decoded utf8.
  * @param ctx The run's volatile values to scrub.
@@ -159,7 +136,21 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
  * @returns The JSONL with system-prompt content tokenized.
  */
 export function scrubSystemPrompts(rawLog: string): string {
-  return scrubHeaderContent(rawLog, false)
+  return scrubHeaderContent(rawLog, { system: true })
+}
+
+/**
+ * Replace tool schemas in request headers and header deltas with `{{tools}}`
+ * tokens while retaining field presence, tool names, and delta structure.
+ * System prompts and session-prefix messages stay verbatim so pinning fixtures
+ * can move only schema bulk into their dedicated JSON sidecar. Lines without a
+ * tool payload pass through byte-for-byte; the transform is idempotent.
+ *
+ * @param rawLog The raw session `.jsonl` content.
+ * @returns The JSONL with tool-schema content tokenized.
+ */
+export function scrubToolSchemas(rawLog: string): string {
+  return scrubHeaderContent(rawLog, { tools: true })
 }
 
 /**
@@ -174,11 +165,18 @@ export function scrubSystemPrompts(rawLog: string): string {
  * @returns The JSONL with all header bulk tokenized, other lines byte-identical.
  */
 export function scrubRequestHeaders(rawLog: string): string {
-  return scrubHeaderContent(rawLog, true)
+  return scrubHeaderContent(rawLog, { system: true, tools: true, prefix: true })
 }
 
-/** Transform header content, optionally including tool schemas and the session prefix. */
-function scrubHeaderContent(rawLog: string, scrubToolsAndPrefix: boolean): string {
+/** Which independent request-header payloads a scrubber replaces. */
+interface HeaderScrubOptions {
+  system?: boolean
+  tools?: boolean
+  prefix?: boolean
+}
+
+/** Transform the selected request-header payloads. */
+function scrubHeaderContent(rawLog: string, options: HeaderScrubOptions): string {
   const lines = rawLog.split('\n')
   const out = lines.map((line) => {
     if (line.trim().length === 0) return line
@@ -189,9 +187,9 @@ function scrubHeaderContent(rawLog: string, scrubToolsAndPrefix: boolean): strin
       const header = data.header as Record<string, unknown> | null | undefined
       if (header === null || typeof header !== 'object') return line
       let touched = false
-      if ('system' in header) { header.system = SYSTEM; touched = true }
-      if (scrubToolsAndPrefix && 'tools' in header) { header.tools = TOOLS; touched = true }
-      if (scrubToolsAndPrefix && Array.isArray(header.messagePrefix)) {
+      if (options.system === true && 'system' in header) { header.system = SYSTEM; touched = true }
+      if (options.tools === true && 'tools' in header) { header.tools = TOOLS; touched = true }
+      if (options.prefix === true && Array.isArray(header.messagePrefix)) {
         header.messagePrefix = header.messagePrefix.map(() => MESSAGE_PREFIX)
         touched = true
       }
@@ -200,16 +198,16 @@ function scrubHeaderContent(rawLog: string, scrubToolsAndPrefix: boolean): strin
     if (record.type === 'request/header-delta') {
       let touched = false
       const system = data.system as Record<string, unknown> | null | undefined
-      if (system !== null && typeof system === 'object' && Array.isArray(system.insert)) {
+      if (options.system === true && system !== null && typeof system === 'object' && Array.isArray(system.insert)) {
         system.insert = system.insert.map(() => SYSTEM)
         touched = true
       }
       const tools = data.tools as Record<string, unknown> | null | undefined
-      if (scrubToolsAndPrefix && tools !== null && typeof tools === 'object') {
+      if (options.tools === true && tools !== null && typeof tools === 'object') {
         if (Array.isArray(tools.added)) { tools.added = tools.added.map(scrubToolSchema); touched = true }
         if (Array.isArray(tools.changed)) { tools.changed = tools.changed.map(scrubToolSchema); touched = true }
       }
-      if (scrubToolsAndPrefix && Array.isArray(data.messagePrefix)) {
+      if (options.prefix === true && Array.isArray(data.messagePrefix)) {
         data.messagePrefix = data.messagePrefix.map(() => MESSAGE_PREFIX)
         touched = true
       }

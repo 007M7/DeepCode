@@ -1,6 +1,6 @@
 # Filesystem
 
-The filesystem stack is split across four packages: a provider seam ([dsh-fs](../../packages/fs/fs), `ctx.fs`, text IO + atomic mutation primitives whose version guard is optional), a local implementation ([dsh-fs-local](../../packages/fs/fs-local), local disk), a policy plugin ([dsh-fs-policy](../../packages/fs/fs-policy), observed-state + read-before-edit + version-guarded write/edit, contributed through the `fs/*` event gate — NO service), and a consumer ([dsh-tool-fs](../../packages/fs/tool-fs), the model-facing `read`/`write`/`edit` tools, which is also the EXECUTOR — it reads/writes/edits through `ctx.fs` directly and owns read windowing). Filesystem access is an optional capability, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md). A sandboxed, remote, virtual, or project-scoped backend can implement the same `FileSystem` service without changing the policy plugin or the tool schemas.
+The optional filesystem capability has four parts: [dsh-fs](../../packages/fs/fs) owns `ctx.fs` and atomic text operations with optional version guards, [dsh-fs-local](../../packages/fs/fs-local) implements local disk, [dsh-fs-policy](../../packages/fs/fs-policy) adds observed-state and freshness rules through events rather than a service, and [dsh-tool-fs](../../packages/fs/tool-fs) directly executes model-facing read/write/edit calls and renders windows. It is outside the agent-loop spine; alternate backends do not change policy or tool schemas.
 
 The model is **additive, not subtractive**: `ctx.fs` alone is a complete, unconstrained text-storage seam (`write` unconditionally creates-or-overwrites, `edit` unconditionally replaces literal text). `dsh-fs-policy` is a plugin that *adds* policy on top by deciding the `fs/*` waterfalls; removing it leaves the bare provider rather than breaking the tool, because the tool is not method-coupled to the policy. A deployment that loads `dsh-tool-fs` is expected to also load `dsh-fs-policy` so the default behavior is read-before-write/edit.
 
@@ -33,6 +33,16 @@ type FsVersion = Branded<'FsVersion'>
 interface FsInfo {
   version: FsVersion
   type: 'file' | 'directory' | 'other'
+  size?: number
+}
+```
+
+`lstat` is the path-level no-follow metadata primitive. It takes a path instead of an `FsTarget` because `resolve` intentionally follows symlinks to produce stable identity; consumers that need trust-boundary checks can call `lstat` first and reject `symlink` before resolving.
+
+```ts type-equiv
+interface FsPathInfo {
+  version: FsVersion
+  type: 'file' | 'directory' | 'symlink' | 'other'
   size?: number
 }
 ```
@@ -144,4 +154,4 @@ type FsErrorCode =
 
 ## The service and the plugin
 
-`FileSystem` (`ctx.fs`, abstract) owns the provider primitives: `resolve`, `stat`, `readText`, `streamText`, `listDir`, `writeText`, and `editText`. `dsh-fs-policy` registers **no service** — it is a plugin that adds policy through the `fs/*` event gate: it decides the write/edit intent waterfalls (supplying `createIfAbsent`/`replaceIfVersion`/`{ version }` or throwing `FS_NOT_OBSERVED`) and records on `fs/observed`. The executor is `dsh-tool-fs`: it reads/writes/edits through `ctx.fs`, dispatches the waterfalls, and emits the recording event. The generated wiring catalog shows the exact `ctx.fs` signatures on [services.md](../cordis-catalog/services.md#ctxfs--filesystem-abstract-seam).
+`FileSystem` (`ctx.fs`, abstract) owns the provider primitives: `resolve`, `stat`, `lstat`, `readText`, `streamText`, `listDir`, `writeText`, and `editText`. `dsh-fs-policy` registers **no service** — it is a plugin that adds policy through the `fs/*` event gate: it decides the write/edit intent waterfalls (supplying `createIfAbsent`/`replaceIfVersion`/`{ version }` or throwing `FS_NOT_OBSERVED`) and records on `fs/observed`. The executor is `dsh-tool-fs`: it reads/writes/edits through `ctx.fs`, dispatches the waterfalls, and emits the recording event. The generated wiring catalog shows the exact `ctx.fs` signatures on [services.md](../cordis-catalog/services.md#ctxfs--filesystem-abstract-seam).

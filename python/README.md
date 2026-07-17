@@ -22,7 +22,7 @@ pnpm exec tsx scripts/build-exe-for-python-sdk.ts --skip-build    # lib/ artifac
 pnpm exec tsx scripts/build-exe-for-python-sdk.ts --targets=node24-linux-x64,node24-linux-arm64,node24-macos-arm64
 ```
 
-Products land in `dist-exe/` and are synced into this package at `sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-<platform>-<arch>` (platform: `linux`/`macos`; arch: `x64`/`arm64`) — after a local build the SDK finds the executable with no further setup. The `build-exe-for-python-sdk` CI workflow (manual dispatch, or the `build-exe` PR label) exercises the same binaries but retains only the four release wheels. Which plugins the exe bundles and how the carriers are organized: [sdk-runtime README](sdk-runtime/README.md); the build also refreshes the dev-only node carrier (see "against the Node source" below).
+Products land in `dist-exe/` and are synced into this package at `sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-<platform>-<arch>` (platform: `linux`/`macos`; arch: `x64`/`arm64`) — after a local build the SDK finds the executable with no further setup. The `build-exe-for-python-sdk` CI workflow (manual dispatch, or the `build-exe` PR label) exercises the same binaries. A full three-target run retains four release wheels; a subset dispatch retains the SDK wheel and selected platform wheels. Which plugins the exe bundles and how the carriers are organized: [sdk-runtime README](sdk-runtime/README.md); the build also refreshes the dev-only node carrier (see "against the Node source" below).
 
 ## Validating the SDK against the executable
 
@@ -45,8 +45,8 @@ with DeepSeekHarness() as harness:
 
 Two flavors, both for repo members:
 
-- **Built node carrier** — set `DSH_RUNTIME_MODE=node` and the SDK runs `runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js` on the system Node (>= 22.19). The tree is refreshed on every build-script run and is the same dependency closure the exe snapshots, so plugin semantics are identical. Never auto-selected, never distributed.
-- **Unbuilt source (tsx)** — point the client straight at the bin's TypeScript source for edit-run loops and debugging: `launch_args_override=("./node_modules/.bin/tsx", "packages/ui/jsonrpc-agent/src/bin.ts")` with `cwd` at the repo root, plus a config via `cordis=...` (or rely on the default-config injection). [sdk/tests/manual_sdk_agent_smoke.py](sdk/tests/manual_sdk_agent_smoke.py) is the worked example.
+- **Built node carrier** — set `DSH_RUNTIME_MODE=node` and the SDK runs `runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-demo/lib/bin.js` on the system Node (>= 22.19). The tree is refreshed on every build-script run and is the same dependency closure the exe snapshots, so plugin semantics are identical. Never auto-selected, never distributed.
+- **Unbuilt source (tsx)** — point the client straight at the bin's TypeScript source for edit-run loops and debugging: `launch_args_override=("./node_modules/.bin/tsx", "packages/examples/jsonrpc-demo/src/bin.ts")` with `cwd` at the repo root, plus a config via `cordis=...` (or rely on the default-config injection). [sdk/tests/manual_sdk_agent_smoke.py](sdk/tests/manual_sdk_agent_smoke.py) is the worked example.
 
 ## Distributing the Python packages
 

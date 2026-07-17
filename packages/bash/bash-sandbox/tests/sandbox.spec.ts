@@ -1,11 +1,8 @@
 /**
- * SandboxBashExecutor tests: the CONSUMER side of the sandbox seam. A fake
- * `ctx.sandbox` provider (injected as a real cordis service) makes wrapping,
- * policy hand-off, fail-closed propagation, classification, and fact
- * stamping all deterministic without any real runner; the real-provider
- * integration proof lives in `tests/landlock.e2e.ts`. Denials are produced
- * with plain unix permissions (a 0555 directory), which exercises the same
- * stderr signature the classifier keys on.
+ * Consumer-side `SandboxBashExecutor` tests. A fake Cordis sandbox service makes wrapping,
+ * policy hand-off, fail-closed propagation, classification, and fact stamping deterministic;
+ * real-provider integration lives in `tests/landlock.e2e.ts`. A mode-0555 directory supplies
+ * the Unix denial signature used by the classifier without requiring a real sandbox runner.
  */
 
 import { chmodSync, mkdirSync, mkdtempSync } from 'node:fs'
@@ -16,7 +13,8 @@ import { Context } from 'cordis'
 import type { BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
 import { SANDBOX_UNAVAILABLE, SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
-import { classifyDenial, classifyRunnerFailure, SandboxBashExecutor, shellQuote } from '@deepseek-ai/dsh-bash-sandbox'
+import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
+import { classifyDenial, classifyRunnerFailure, shellQuote } from '../src/helpers.ts'
 import type { Config } from '@deepseek-ai/dsh-bash-sandbox'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-sandbox-spec-'))
@@ -135,7 +133,7 @@ describe('danger-full-access', () => {
     const task = bash.start(bash.resolve({ command: 'echo free-bg' }))
     await task.done
     expect(task.sandbox).toBeUndefined()
-    expect(bash.readOutput(task.id).delta).toContain('free-bg')
+    expect(task.readOutput().delta).toContain('free-bg')
     expect(calls).toHaveLength(0)
   })
 })
@@ -187,7 +185,7 @@ describe('per-call sandboxMode override (the escalation mechanism)', () => {
     const task = bash.start(bash.resolve({ command: 'echo bg-free', sandboxMode: 'danger-full-access' }))
     await task.done
     expect(task.sandbox).toBeUndefined()
-    expect(bash.readOutput(task.id).delta).toContain('bg-free')
+    expect(task.readOutput().delta).toContain('bg-free')
     expect(calls).toHaveLength(0)
   })
 })
@@ -246,6 +244,20 @@ describe('result facts', () => {
 })
 
 describe('background sandbox facts', () => {
+  it('stamps facts and releases accounting when background spawn fails', async () => {
+    const { bash } = await setup()
+    const missingWorkdir = join(mkdtempSync(join(tmpdir(), 'dsh-sandbox-missing-cwd-')), 'missing')
+    const task = bash.start(bash.resolve({ command: 'true', workdir: missingWorkdir }))
+
+    await task.done
+
+    expect(task.status).toBe('killed')
+    expect(task.readOutput().delta).toContain('spawn failed:')
+    expect(task.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
+    const accounting = (bash as unknown as { processFacts: Map<unknown, unknown> }).processFacts
+    expect(accounting.size).toBe(0)
+  })
+
   it('stamps a settled denial: nonzero exit + permission stderr under a confined mode', async () => {
     const { bash } = await setup()
     const task = bash.start(bash.resolve({ command: 'echo "x: Permission denied" >&2; exit 1' }))
@@ -276,20 +288,10 @@ describe('background sandbox facts', () => {
     expect(task.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full', runnerFailed: true })
   })
 
-  it('completion listeners already see the stamped facts (stamp precedes notify)', async () => {
-    const { ctx, bash } = await setup({}, argv => ({ argv: [...argv], enforcement: 'partial', denialSignatures: UNIX_SIGNATURES, runnerFailureSignatures: RUNNER_FAILURE }))
-    const seen: unknown[] = []
-    ctx.bash.onTaskDone((task) => { seen.push(task.sandbox) })
-    const task = bash.start(bash.resolve({ command: 'echo "x: Permission denied" >&2; exit 1' }))
-    await task.done
-    expect(seen).toEqual([{ mode: 'read-only', denied: true, enforcement: 'partial' }])
-  })
-
   it('overlapping background tasks keep their OWN wrap facts (per-task, not latest-wrap)', async () => {
-    // The seam returns facts PER WRAP — a legal provider may vary them
-    // between calls. The slow task settles AFTER the quick one started, so a
-    // latest-wrap field would classify its denial against the quick task's
-    // dialect (missing it) and stamp the wrong enforcement.
+    // Facts belong to each wrap and may vary between calls. The slow task settles after the
+    // quick task starts; a shared latest-wrap field would classify and stamp it with the wrong
+    // task's dialect and enforcement.
     const wraps: Array<Pick<ConfinedArgv, 'enforcement' | 'denialSignatures'>> = [
       { enforcement: 'partial', denialSignatures: ['permission denied'] },
       { enforcement: 'full', denialSignatures: ['read-only file system'] },
@@ -312,8 +314,8 @@ describe('background sandbox facts', () => {
     const task = bash.start(bash.resolve({ command: 'echo "Permission denied" >&2; sleep 30' }))
     // Let the stderr land before the kill so the classifier sees the
     // signature and must still refuse it on the null exit code alone.
-    await vi.waitFor(() => { expect(bash.readOutput(task.id).delta).toContain('Permission denied') })
-    bash.kill(task.id)
+    await vi.waitFor(() => { expect(task.readOutput().delta).toContain('Permission denied') })
+    task.kill()
     await task.done
     expect(task.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
   })

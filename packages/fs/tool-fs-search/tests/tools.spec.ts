@@ -16,7 +16,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskId, BashTaskRead, OwnerToken } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
@@ -65,7 +65,6 @@ class FakeBash extends BashExecutor {
       timeoutMs: request.timeoutMs ?? 60_000,
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       signal: request.signal,
-      owner: request.owner,
       sandboxMode: request.sandboxMode,
     }
   }
@@ -73,24 +72,9 @@ class FakeBash extends BashExecutor {
     this.specs.push(spec)
     return Promise.resolve(this.handler(spec))
   }
-  override start(): BashTask {
+  override start(): BashProcess {
     this.startCalls++
     throw new Error('search tools must never start a background task')
-  }
-  override get(): BashTask | undefined {
-    return undefined
-  }
-  override ownerOf(): OwnerToken | undefined {
-    return undefined
-  }
-  override list(): BashTask[] {
-    return []
-  }
-  override readOutput(id: BashTaskId): BashTaskRead {
-    throw new Error(`unknown bash task ${id}`)
-  }
-  override kill(id: BashTaskId): boolean {
-    throw new Error(`unknown bash task ${id}`)
   }
 }
 

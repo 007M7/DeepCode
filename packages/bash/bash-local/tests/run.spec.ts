@@ -2,8 +2,8 @@ import { mkdtempSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { killGroup, OutputCollector, runBash } from '@deepseek-ai/dsh-bash-local'
-import type { RunningBash } from '@deepseek-ai/dsh-bash-local'
+import { killGroup, OutputCollector, runBash } from '../src/run.ts'
+import type { RunningBash } from '../src/run.ts'
 
 const { failNextClose } = vi.hoisted(() => ({ failNextClose: { value: false } }))
 vi.mock('node:fs', async (importOriginal) => {
@@ -50,7 +50,7 @@ async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
 async function waitForStdout(running: RunningBash, expected: string, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (running.stdout.snapshot().text.includes(expected)) return
+    if (running.stdout.readFrom(0).text.includes(expected)) return
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   throw new Error(`stdout did not include ${JSON.stringify(expected)} after ${timeoutMs}ms`)
@@ -190,12 +190,8 @@ describe('stdin and extra env (set by in-process plugins)', () => {
   })
 
   it('gives fd 0 the exact pre-seam type: /dev/null when no stdin, a pipe when supplied', async () => {
-    // The no-stdin path must stay observationally identical to the pre-seam
-    // `ignore` default: a command that probes stdin's file type sees a char
-    // device (/dev/null). Regressing to an always-open pipe would make fd 0 a
-    // socket (node's spawn pipe is an AF_UNIX socket, not a FIFO), flipping
-    // `test -c /dev/stdin` for every model-driven call. When bytes ARE supplied,
-    // fd 0 is that pipe (a socket), as it must be to carry them.
+    // With no bytes, fd 0 remains the pre-seam `ignore` default (/dev/null, a character device).
+    // Supplied bytes use Node's spawn pipe, which is an AF_UNIX socket rather than a FIFO.
     const none = await runBash(spec('test -c /dev/stdin && echo char || echo other')).done
     expect(none.stdout.text).toBe('char\n')
     const piped = await runBash(spec('test -S /dev/stdin && echo socket || echo other', { stdin: 'x' })).done
@@ -220,9 +216,8 @@ describe('stdin and extra env (set by in-process plugins)', () => {
   })
 
   it('does not crash or reject when the child ignores a large stdin (EPIPE)', async () => {
-    // The child exits immediately without reading; closing our end of a stdin
-    // pipe still holding ~1MiB triggers EPIPE on the write. The handler must
-    // swallow it: `done` resolves normally with the child's real exit.
+    // The child exits without reading, so closing a stdin pipe holding ~1 MiB triggers EPIPE.
+    // The handler swallows that write error and `done` reports the child's real exit.
     const big = 'x'.repeat(1024 * 1024)
     const result = await runBash(spec('exit 7', { stdin: big })).done
     expect(result.exitCode).toBe(7)
@@ -315,19 +310,11 @@ describe('OutputCollector', () => {
     expect(third.spillPath).toBeDefined()
   })
 
-  it('tracks totalBytes across drops', () => {
-    const collector = new OutputCollector(4, 'test', spillDir)
-    collector.push(Buffer.from('aaaa'))
-    collector.push(Buffer.from('bbbb'))
-    expect(collector.totalBytes).toBe(8)
-    expect(collector.finalize().text).toBe('bbbb')
-  })
-
   it('contains close failures and drops the spill path', () => {
     const collector = new OutputCollector(4, 'closefail', spillDir)
     collector.push(Buffer.from('aaaa'))
     collector.push(Buffer.from('bbbb'))
-    expect(collector.snapshot().spillPath).toBeDefined()
+    expect(collector.readFrom(0).spillPath).toBeDefined()
 
     failNextClose.value = true
     let out: ReturnType<typeof collector.finalize>
@@ -375,7 +362,7 @@ describe('abort edge cases', () => {
   })
 })
 
-describe('review fixes: env scrubbing and spill hardening', () => {
+describe('environment and spill-file hardening', () => {
   it('scrubs credential-shaped env vars from child processes', async () => {
     process.env.DSH_TEST_API_KEY = 'super-secret'
     process.env.DSH_TEST_TOKEN = 'also-secret'

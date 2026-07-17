@@ -23,12 +23,9 @@ const SURFACE_EVENT_TYPES = new Set<string>([
 ])
 
 /**
- * Whether an event's `type` is surface-eligible (one of the five
- * message-producing {@link SurfaceEventType} values). This is the TYPE check
- * only — it does NOT require `surfaceOp` to be present. Use it to detect a
- * surface-eligible event that is MISSING its mandatory marker (e.g. validating
- * a seed/load log); use {@link isSurfaceEvent} to narrow to a fully-formed
- * {@link SurfaceEvent} with `surfaceOp` present.
+ * Check only whether a type may enter the message surface; it does not require `surfaceOp`. This
+ * detects eligible seed/load events missing their mandatory marker. Use {@link isSurfaceEvent} to
+ * narrow a fully formed event whose marker is present.
  * @param type - the event type string to test.
  * @returns true when the type is one of the five message-producing types.
  */
@@ -196,26 +193,14 @@ export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult 
 export class SurfaceManager {
   /** Incremental state shared with the complete surface fold. */
   private _state = createFoldState()
-  /** The last processed seq. -1 forces a full rebuild on first access. */
+  /** The last processed seq. -1 folds the seeded log on first access. */
   private _lastProcessedSeq = -1
 
   constructor(private log: readonly SessionEvent[]) {}
 
   /**
-   * Reset to unprocessed state. Call after the log has been replaced
-   * wholesale (e.g. after Session seed). Not needed for normal appends —
-   * those are picked up incrementally.
-   */
-  invalidate(): void {
-    this._lastProcessedSeq = -1
-    // A wholesale rebuild is a rewrite: bump the generation so incremental
-    // consumers (the session's derived-message cache) discard their view.
-    this._state = createFoldState(this._state.replaceGeneration + 1)
-  }
-
-  /**
-   * The surface's rewrite generation: bumped by every folded `replace` op and
-   * by {@link invalidate}. A replace is the ONE operation that rewrites the
+   * The surface's rewrite generation, bumped by every folded `replace` op.
+   * A replace is the ONE operation that rewrites the
    * surface non-monotonically, so an incremental consumer of {@link nodes}
    * (the session's derived-message cache) compares this between visits — an
    * unchanged generation guarantees every node it has not seen is a pure tail

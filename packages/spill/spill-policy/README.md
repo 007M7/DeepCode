@@ -31,3 +31,16 @@ This plugin registers **no service** and owns no storage or preview mechanics: p
 ## Scope
 
 The policy sees only the FINAL formatted tool result — not a tool's internal resource. If a provider already truncated (e.g. `web-fetch-local.maxBodyChars`), the spill artifact holds the full formatted result the tool returned, not the full original source. Provider/resource caps stay mandatory and separate. Tool-owned early spill (bash streams, subagent rollouts) is future work — see the [tool output spill RFC](../../../docs/rfc/implemented/architecture/2026-07-08-tool-output-spill-files.md).
+
+## Model Experience
+
+### Oversized plain-text result
+
+**What the model sees**: Results at or below `maxInlineBytes`, `read` results, blocked decisions, and results containing non-text blocks are unchanged. An oversized plain-text result becomes a bounded head/tail preview followed by `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`; storage or ownership failures leave the original result visible.
+
+**Token effect**: A successful replacement is at most `maxInlineBytes` UTF-8 bytes and remains in history until compaction; the full spill text is not resent to the model.
+
+## Known Limitations and Deferred Work
+
+- **Only final plain-text results are spillable** — mixed-content results, blocked feedback, and `read` pass through; provider truncation or tool-owned retention that happened earlier cannot be recovered here.
+- **A notice that cannot fit disables replacement for that call** — a tiny cap or long locator leaves the oversized original inline after the backend has already saved an unreferenced spill.

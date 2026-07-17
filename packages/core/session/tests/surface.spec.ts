@@ -81,14 +81,6 @@ describe('SurfaceManager', () => {
     expect(nodes[1]!.next).toBeNull()
   })
 
-  it('invalidate resets to full rebuild', () => {
-    const s = surfaceSession()
-    expect(s.surface.nodes.length).toBe(2)
-    // After invalidate, the surface should rebuild from scratch on next access.
-    ;(s.surface).invalidate()
-    expect(s.surface.nodes.length).toBe(2) // same result, but rebuilt
-  })
-
   it('empty surface yields empty nodes', () => {
     const s = new Session(SessionId('empty'))
     // Only turn boundaries, no surface nodes.
@@ -123,14 +115,11 @@ describe('SurfaceManager', () => {
 
   it('rebuild with replace operation splices out shadowed nodes', () => {
     const s = surfaceSession()
-    // seq: 0=turn/start, 1=user, 2=assistant, 3=turn/end
-    // Surface nodes: seq 1 (user), seq 2 (assistant).
-    // Replace both with a compaction marker. Both 1 and 2 are valid surface seqs.
+    // Replace surface seqs 1 (user) and 2 (assistant) with the summary.
     s.append('assistant/message',
       { turn: 2, step: 1, content: [{ type: 'text', text: 'summary' }] },
       { surfaceOp: { op: 'replace', start: 1, end: 2 }, sourceEventSeqs: [1, 2] },
     )
-    // Now the surface should have just the compaction node.
     expect(s.surface.nodes.length).toBe(1)
     expect(s.surface.nodes[0]!.seq).toBe(4) // seq of the compaction marker
     expect(s.surface.nodes[0]!.prev).toBeNull()
@@ -389,7 +378,7 @@ describe('surface type guards', () => {
 })
 
 describe('SurfaceManager.replaceGeneration', () => {
-  it('folds the pending log delta on access and counts replaces and invalidations', () => {
+  it('folds the pending log delta on access and counts replaces', () => {
     const s = new Session(SessionId('gen'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('user/message', { content: [{ type: 'text', text: 'one' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -403,10 +392,5 @@ describe('SurfaceManager.replaceGeneration', () => {
       content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
     }, { surfaceOp: { op: 'replace', start: nodes[0]!.seq, end: nodes[1]!.seq }, sourceEventSeqs: [nodes[0]!.seq, nodes[1]!.seq] })
     expect(s.surface.replaceGeneration).toBe(1)
-
-    // invalidate() is a rewrite too: the generation moves forward (and the
-    // refold re-counts the replace), never backwards.
-    s.surface.invalidate()
-    expect(s.surface.replaceGeneration).toBeGreaterThan(1)
   })
 })

@@ -116,11 +116,31 @@ const dshWorkerPackageFiles = [
   'src',
 ] as const
 
+const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
+  '@deepseek-ai/dsh-helper': ['lib/assets'],
+  '@deepseek-ai/dsh-scripts': [
+    'lib/dev/tsdown-config.js',
+    'lib/local-plugin-loader-hooks.js',
+    'lib/assets',
+  ],
+}
+
 function sameStringList(actual: readonly string[] | undefined, expected: readonly string[]): boolean {
   return !!actual && actual.length === expected.length && actual.every((value, index) => value === expected[index])
 }
 
 function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
+  const extras = manifest.name ? packageFileExtras[manifest.name] ?? [] : []
+  if (extras.length > 0) {
+    return [
+      'lib/index.js',
+      ...manifest.bin ? ['lib/bin.js'] : [],
+      ...extras,
+      'lib/types/**/*.d.ts',
+      'lib/types/**/*.d.ts.map',
+      'src',
+    ]
+  }
   if (manifest.bin) return dshBinPackageFiles
   // A declared "./worker" subpath export sanctions the one extra runtime
   // bundle a worker-thread entry needs (and NodeNext/publint then validate
@@ -178,13 +198,8 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
 }
 
 /**
- * Enforce the packages/ hierarchy SHAPE: every package lives at exactly
- * `packages/<group>/<pkg>`. A group dir is a pure container — it holds packages,
- * never sources of its own — so it must NOT carry a package.json, and a package
- * must NOT sit directly at the `packages/` root (the old flat layout) nor nest a
- * level deeper. The group NAMES are open on purpose: a new group may be added
- * without touching this gate, but the depth-2 shape is fixed. This is what keeps
- * a stray flat package or an over-nested one from regressing the hierarchy.
+ * Enforce `packages/<group>/<pkg>`: groups are open-named containers without a
+ * package.json, and packages may be neither flat nor more deeply nested.
  */
 function checkHierarchyShape(): string[] {
   const errors: string[] = []
