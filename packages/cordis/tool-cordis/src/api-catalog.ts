@@ -71,6 +71,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'register(agent: Agent): () => void',
       'enter(agent: Agent): () => void',
       'announce(agent: Agent): void',
+      'reportStartFailure(id: AgentId, error: Error): () => void',
+      'getStartFailure(id: AgentId): Error | undefined',
       'get(id: AgentId): Agent | undefined',
       'list(): Agent[]',
     ],
@@ -316,6 +318,12 @@ export const EVENT_API: readonly EventApiEntry[] = [
     mode: 'emit',
     signature: '\'agent/session-start\'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void',
     summary: 'The session lifecycle began, once before the first turn.',
+  },
+  {
+    name: 'agent/start-failed',
+    mode: 'emit',
+    signature: '\'agent/start-failed\'(agentId: AgentId, error: Error): void',
+    summary: 'Declarative startup failed before an agent could be published.',
   },
   {
     name: 'agent/status',

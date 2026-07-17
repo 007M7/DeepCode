@@ -4,10 +4,11 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import SessionPersistence from '@deepseek-ai/dsh-session-persistence'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
@@ -40,6 +41,72 @@ describe('config-driven session id', () => {
     expect(loopFiber.getEffects().filter(effect => effect.label === 'ctx.plugin()')).toEqual([])
 
     await loopFiber.dispose()
+  })
+
+  it('drops an in-flight declarative resume when its owner is disposed', async () => {
+    const loadStarted = Promise.withResolvers<undefined>()
+    const pendingLoad = Promise.withResolvers<{ meta: SessionHeader; events: SessionEvent[] }>()
+    class DeferredSessionPersistence extends SessionPersistence {
+      create(_meta: SessionHeader): Promise<void> { return Promise.resolve() }
+      append(_id: SessionId, _events: readonly SessionEvent[]): Promise<void> { return Promise.resolve() }
+      load(_id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+        loadStarted.resolve(undefined)
+        return pendingLoad.promise
+      }
+      list(): Promise<SessionHeader[]> { return Promise.resolve([]) }
+    }
+
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    const failures: Error[] = []
+    ctx.on('agent/start-failed', (_id, error) => { failures.push(error) })
+    const loopFiber = await ctx.plugin(AgentLoop, {
+      agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('deferred') }],
+    })
+    await ctx.plugin(DeferredSessionPersistence)
+    await loadStarted.promise
+
+    await loopFiber.dispose()
+    await Promise.resolve()
+    expect(failures).toEqual([])
+    expect(ctx.agents.getStartFailure(AgentId('main'))).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('normalizes a non-Error declarative resume rejection without duplicating an Error prefix', async () => {
+    class RejectingSessionPersistence extends SessionPersistence {
+      create(_meta: SessionHeader): Promise<void> { return Promise.resolve() }
+      append(_id: SessionId, _events: readonly SessionEvent[]): Promise<void> { return Promise.resolve() }
+      load(_id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+        // Third-party backends can reject arbitrary values; this exercises normalization.
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+        return Promise.reject('plain failure')
+      }
+      list(): Promise<SessionHeader[]> { return Promise.resolve([]) }
+    }
+
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    const failures: Error[] = []
+    ctx.on('agent/start-failed', (_id, error) => { failures.push(error) })
+    const loopFiber = await ctx.plugin(AgentLoop, {
+      agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('rejected') }],
+    })
+    await ctx.plugin(RejectingSessionPersistence)
+
+    await vi.waitFor(() => { expect(failures).toHaveLength(1) })
+    expect(failures[0]?.message).toBe('plain failure')
+    expect(failures[0]?.cause).toBe('plain failure')
+    await loopFiber.dispose()
+    await ctx.fiber.dispose()
   })
 
   it('config-driven create uses a fresh ${id}-session-<uuid> per run (restart-safe)', async () => {
@@ -137,7 +204,9 @@ describe('config-driven session id', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentLoop, { agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('does-not-exist') }] })
+    const failures: Array<{ id: string; error: Error }> = []
+    ctx.on('agent/start-failed', (id, error) => { failures.push({ id, error }) })
+    const loopFiber = await ctx.plugin(AgentLoop, { agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('does-not-exist') }] })
     const warn = vi.spyOn((ctx.agentLoop as unknown as { ctx: { logger: { warn: (...a: unknown[]) => void } } }).ctx.logger, 'warn')
       .mockImplementation(() => undefined)
     await ctx.plugin(SessionPersistenceJsonl, { root })
@@ -148,6 +217,13 @@ describe('config-driven session id', () => {
     await new Promise(r => setTimeout(r, 200))
     expect(ctx.agents.get(AgentId('main'))).toBeUndefined()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('config-driven resume of "does-not-exist" failed'))
+    expect(failures).toHaveLength(1)
+    expect(failures[0]?.id).toBe('main')
+    expect(failures[0]?.error.message).toBe('session "does-not-exist" not found')
+    expect(failures[0]?.error.cause).toBeInstanceOf(Error)
+    expect(ctx.agents.getStartFailure(AgentId('main'))).toBe(failures[0]?.error)
+    await loopFiber.dispose()
+    expect(ctx.agents.getStartFailure(AgentId('main'))).toBeUndefined()
     warn.mockRestore()
     await ctx.fiber.dispose()
   })

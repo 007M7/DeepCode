@@ -2,7 +2,7 @@ import { Readable, Writable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -108,6 +108,42 @@ describe('mountStdio readiness', () => {
     expect(out.text()).toBe('')
     ctx.agents.register(makeAgent('main'))
     expect(out.text()).toBe('hi there\n> ')
+    await fiber.dispose()
+  })
+
+  it('prints a matching live startup failure and exits instead of waiting forever', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const { runtime, out, exit } = makeRuntime()
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      mountStdio(inner, CONFIG, runtime)
+    }, { inject: ['agents', 'userInteraction'] }))
+
+    ctx.agents.reportStartFailure(AgentId('other'), new Error('other failed'))
+    expect(out.text()).toBe('')
+    expect(exit).not.toHaveBeenCalled()
+    ctx.agents.reportStartFailure(AgentId('main'), new Error('resume failed'))
+    expect(out.text()).toBe('ui-stdio: agent "main" failed to start: resume failed\n')
+    expect(exit).toHaveBeenCalledWith(1)
+
+    ctx.agents.register(makeAgent('main'))
+    expect(out.text()).toBe('ui-stdio: agent "main" failed to start: resume failed\n')
+    await fiber.dispose()
+  })
+
+  it('prints a retained startup failure for a late-mounted stdio channel', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    ctx.agents.reportStartFailure(AgentId('main'), new Error('already failed'))
+    const { runtime, out, exit } = makeRuntime()
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      mountStdio(inner, CONFIG, runtime)
+    }, { inject: ['agents', 'userInteraction'] }))
+
+    expect(out.text()).toBe('ui-stdio: agent "main" failed to start: already failed\n')
+    expect(exit).toHaveBeenCalledWith(1)
     await fiber.dispose()
   })
 

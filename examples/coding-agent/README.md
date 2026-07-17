@@ -23,7 +23,7 @@ Each run starts a fresh session by default (its event log lands under `./.sessio
 RESUME_SESSION_ID=<prior-session-id> pnpm run demo:repl
 ```
 
-The id is wired through `cordis.yml` (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`); unset, the agent starts a new session. A missing or unreadable id starts no `main` agent, so unset it or choose an existing session id.
+The id is wired through `cordis.yml` (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`); unset, the agent starts a new session. A missing or unreadable id starts no `main` agent and emits `agent/start-failed`; both terminal front doors print the failure and exit nonzero, so unset it or choose an existing session id.
 
 ## Code Mode
 

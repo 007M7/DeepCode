@@ -13,7 +13,7 @@ import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import { AgentId, observeAgentStart } from '@deepseek-ai/dsh-agent'
 import {
   UserInteractionError,
   type AskUserQuestionAnswer,
@@ -363,14 +363,12 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
  */
 export function mountStdio(ctx: Context, config: Config, runtime: StdioRuntime): void {
   const agentId = AgentId(config.agent ?? 'main')
-  if (ctx.agents.get(agentId) !== undefined) {
-    createStdioChat(ctx, config, runtime)
-    return
-  }
-  const dispose = ctx.on('agent/created', (agent) => {
-    if (agent.id !== agentId) return
-    dispose()
-    createStdioChat(ctx, config, runtime)
+  observeAgentStart(ctx, agentId, {
+    onStarted: () => { createStdioChat(ctx, config, runtime) },
+    onFailed: (error) => {
+      runtime.output.write(`ui-stdio: agent "${agentId}" failed to start: ${error.message}\n`)
+      runtime.exit(1)
+    },
   })
 }
 

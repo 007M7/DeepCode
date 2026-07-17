@@ -33,7 +33,7 @@ While the agent is running, editor submissions call `agent.steer()`; otherwise t
     maxToolOutputLines: 12
 ```
 
-Startup fails before mounting when either process stream is not a TTY. Disposal stops loaders, rejects pending questions, drains terminal input, restores terminal state, unregisters event listeners and the user-interaction provider, and never exits a replacement process during HMR.
+Startup fails before mounting when either process stream is not a TTY. While waiting for its configured agent, the front door also observes retained and live `agent/start-failed` notifications; a matching failure is written before fullscreen mode starts and exits with status 1 instead of leaving a blank terminal. Disposal stops loaders, rejects pending questions, drains terminal input, restores terminal state, unregisters event listeners and the user-interaction provider, and never exits a replacement process during HMR.
 
 ## Model Experience
 

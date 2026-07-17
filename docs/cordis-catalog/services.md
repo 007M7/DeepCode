@@ -32,13 +32,15 @@ async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 register(agent: Agent): () => void
 enter(agent: Agent): () => void
 announce(agent: Agent): void
+reportStartFailure(id: AgentId, error: Error): () => void
+getStartFailure(id: AgentId): Error | undefined
 get(id: AgentId): Agent | undefined
 list(): Agent[]
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:133`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:187`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 

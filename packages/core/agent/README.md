@@ -14,6 +14,9 @@ Tracks live agents so UI, hook, and orchestrator plugins can find them without i
 - Advanced factory lifecycle: `enter(agent)` publishes without announcing and returns an entry-bound detach; `announce(agent)` emits creation once. Detach during creation dispatch is deferred. Ordinary plugins use `register()`.
 - `ctx.agents.get(id: AgentId): Agent | undefined`
 - `ctx.agents.list(): Agent[]`
+- `ctx.agents.reportStartFailure(id, error): () => void` announces and retains a declarative startup failure; the disposer clears that exact record without deleting a newer replacement.
+- `ctx.agents.getStartFailure(id: AgentId): Error | undefined` returns a retained declarative startup failure for a configured id that never became live. Successful publication clears it.
+- `observeAgentStart(ctx, id, handlers)` observes publication or declarative startup failure, including the retained-failure race for late-mounted front doors; its listeners belong to `ctx` and the returned disposer cancels the observation.
 
 #### Factory seam (creation)
 
@@ -29,7 +32,7 @@ The loop plugin registers `AgentFactory`, keeping consumers independent of its c
 
 `dsh-agent` declares the live `agent/*` coordination vocabulary so plugins do not depend on the concrete loop. Exact signatures, dispatch modes, scope-filtering rules, and payload contracts live in the generated [Cordis event catalog](../../../docs/cordis-catalog/events.md); the [architecture turn flow](../../../docs/architecture.md#turn-flow) shows their order relative to durable session events.
 
-`agent/created` runs after setup and both registry entries; the following `agent/session-start` is the first supported startup injection point. `agent/disposed` means the exact entry left the registry. The loop quiesces its driver first; directly registered custom agents own any stronger ordering.
+`agent/created` runs after setup and both registry entries; the following `agent/session-start` is the first supported startup injection point. `agent/disposed` means the exact entry left the registry. `agent/start-failed` reports a contained declarative startup failure before publication; programmatic factory calls report failures through rejection. The loop quiesces its driver first; directly registered custom agents own any stronger ordering.
 
 Most interception points are cooperative waterfalls returning seam-specific decisions. `agent/pre-step` is a serial surface-mutation checkpoint, while `agent/turn-stop` is the terminal serial fold: it runs after ordinary continuation and steering folding, and a returned stop remains in force through turn close and flush so later steering cannot create an extra step or turn. Ordinary queued prompts remain intact. The full rationale is in the [agent-scope runtime-design RFC](../../../docs/rfc/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way).
 
@@ -69,7 +72,7 @@ The handle every plugin programs against:
 ## Known Limitations and Deferred Work
 
 - **Inter-agent channels beyond delegation** — shared state, streaming child output, and background/poll semantics remain outside the current synchronous `ctx.subagents` seam.
-- **`agent/session-start` cannot gate startup** — it remains a synchronous, veto-less notification; async composition that must finish before publication belongs in the factory's `setup(agentCtx)` transaction instead.
+- **`agent/session-start` cannot gate startup** — it remains a synchronous, veto-less notification; async composition that must finish before publication belongs in the factory's `setup(agentCtx)` transaction instead. Declarative startup failures are reported separately through `agent/start-failed`.
 - **No public step-only abort** — `cancel()` clears ALL pending work (queued + steering + in-flight); an abort that preserves queued prompts returns only with a named consumer ([stop-surface RFC](../../../docs/rfc/implemented/simplification/2026-06-20-public-agent-stop-surface.md)).
 - **`HookContext` carries exactly one `MessageSource`** — contributions from several plugins merged onto one tool call collapse under one source; mixed provenance is unrepresentable.
 - **`SessionStartSource` reserves `'clear'`/`'compact'` with no emitter yet** — only `'startup'`/`'resume'` occur until the driving subsystems land (`TODO(compaction)`).

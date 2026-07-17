@@ -2,7 +2,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context, Service, symbols } from 'cordis'
 import type { Events } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { AgentId, agentEvents } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentId, agentEvents, observeAgentStart } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentFactory, ContinuationStop, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 
 function stubAgent(rawId: string): Agent {
@@ -83,6 +83,110 @@ describe('AgentRegistry', () => {
       'agent "contained": agent/disposed listener threw: Error: disposed sync',
       'agent "contained": agent/disposed listener rejected: Error: disposed async',
     ])
+  })
+
+  it('retains declarative startup failures, contains listeners, and clears stale records', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const warnings: string[] = []
+    const heard: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    ctx.on('agent/start-failed', () => { throw new Error('start sync') })
+    ctx.on('agent/start-failed', () => Promise.reject(new Error('start async')) as never)
+    ctx.on('agent/start-failed', id => void heard.push(id))
+
+    const firstError = new Error('first failure')
+    const disposeFirst = ctx.agents.reportStartFailure(AgentId('main'), firstError)
+    expect(ctx.agents.getStartFailure(AgentId('main'))).toBe(firstError)
+    await Promise.resolve()
+    expect(heard).toEqual(['main'])
+    expect(warnings).toEqual([
+      'agent "main": agent/start-failed listener threw: Error: start sync',
+      'agent "main": agent/start-failed listener rejected: Error: start async',
+    ])
+    disposeFirst()
+    expect(ctx.agents.getStartFailure(AgentId('main'))).toBeUndefined()
+
+    const disposeSecond = ctx.agents.reportStartFailure(AgentId('main'), new Error('second failure'))
+    const thirdError = new Error('third failure')
+    const disposeThird = ctx.agents.reportStartFailure(AgentId('main'), thirdError)
+    expect(ctx.agents.getStartFailure(AgentId('main'))).toBe(thirdError)
+    disposeSecond()
+    expect(ctx.agents.getStartFailure(AgentId('main'))).toBe(thirdError)
+    disposeThird()
+
+    const disposeOccupiedAgent = ctx.agents.register(stubAgent('occupied'))
+    const occupiedError = new Error('occupied failure')
+    const disposeOccupiedFailure = ctx.agents.reportStartFailure(AgentId('occupied'), occupiedError)
+    expect(() => { ctx.agents.enter(stubAgent('occupied')) }).toThrow(/already registered/)
+    expect(ctx.agents.getStartFailure(AgentId('occupied'))).toBe(occupiedError)
+    disposeOccupiedFailure()
+    disposeOccupiedAgent()
+
+    const disposeCleared = ctx.agents.reportStartFailure(AgentId('main'), new Error('cleared failure'))
+    ctx.agents.register(stubAgent('main'))()
+    expect(ctx.agents.getStartFailure(AgentId('main'))).toBeUndefined()
+    disposeCleared()
+    await ctx.fiber.dispose()
+  })
+
+  it('observes immediate, retained, live, unrelated, and cancelled startup outcomes', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const outcomes: string[] = []
+
+    const existing = stubAgent('existing')
+    const disposeExisting = ctx.agents.register(existing)
+    observeAgentStart(ctx, existing.id, {
+      onStarted: agent => void outcomes.push(`started:${agent.id}`),
+      onFailed: error => void outcomes.push(`failed:${error.message}`),
+    })()
+
+    const retainedError = new Error('retained')
+    const disposeRetained = ctx.agents.reportStartFailure(AgentId('retained'), retainedError)
+    observeAgentStart(ctx, AgentId('retained'), {
+      onStarted: agent => void outcomes.push(`started:${agent.id}`),
+      onFailed: error => void outcomes.push(`failed:${error.message}`),
+    })()
+
+    const stopLiveStart = observeAgentStart(ctx, AgentId('live-start'), {
+      onStarted: agent => void outcomes.push(`started:${agent.id}`),
+      onFailed: error => void outcomes.push(`failed:${error.message}`),
+    })
+    const disposeUnrelatedAgent = ctx.agents.register(stubAgent('unrelated'))
+    const disposeUnrelatedFailure = ctx.agents.reportStartFailure(AgentId('unrelated'), new Error('unrelated'))
+    const disposeLiveAgent = ctx.agents.register(stubAgent('live-start'))
+    stopLiveStart()
+
+    const stopLiveFailure = observeAgentStart(ctx, AgentId('live-failure'), {
+      onStarted: agent => void outcomes.push(`started:${agent.id}`),
+      onFailed: error => void outcomes.push(`failed:${error.message}`),
+    })
+    const disposeLiveFailure = ctx.agents.reportStartFailure(AgentId('live-failure'), new Error('live'))
+    stopLiveFailure()
+
+    const stopCancelled = observeAgentStart(ctx, AgentId('cancelled'), {
+      onStarted: agent => void outcomes.push(`started:${agent.id}`),
+      onFailed: error => void outcomes.push(`failed:${error.message}`),
+    })
+    stopCancelled()
+    const disposeCancelledFailure = ctx.agents.reportStartFailure(AgentId('cancelled'), new Error('cancelled'))
+
+    expect(outcomes).toEqual([
+      'started:existing',
+      'failed:retained',
+      'started:live-start',
+      'failed:live',
+    ])
+
+    disposeCancelledFailure()
+    disposeLiveFailure()
+    disposeLiveAgent()
+    disposeUnrelatedFailure()
+    disposeUnrelatedAgent()
+    disposeRetained()
+    disposeExisting()
+    await ctx.fiber.dispose()
   })
 
   it('separates entry from announcement and stale/idempotent detach cannot remove a replacement', async () => {

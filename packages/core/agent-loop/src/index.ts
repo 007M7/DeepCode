@@ -363,18 +363,29 @@ export class AgentLoop extends Service implements AgentFactory {
         this.create(id, options, cwd === undefined ? {} : { cwd })
         continue
       }
-      ctx.effect(() => {
+      ctx.effect(function* (this: AgentLoop) {
+        let active = true
+        let releaseFailure = (): void => {}
         const fiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
           void this.resumeWith(ctx, childCtx.sessionPersistence, {
             agentId: id,
             resumeSessionId,
             agentOptions: options,
           }).catch((error: unknown) => {
+            if (!active) return
+            const failure = new Error(error instanceof Error ? error.message : String(error), { cause: error })
             ctx.logger.warn(`agent "${id}": config-driven resume of "${resumeSessionId}" failed: ${String(error)}`)
+            releaseFailure = ctx.agents.reportStartFailure(id, failure)
           })
         })
-        return fiber.dispose
-      }, `agentLoop.resume(${id})`)
+        yield fiber.dispose
+        // Yielded last, disposed first: suppress teardown rejection before the
+        // deferred persistence child wakes and clear any retained record.
+        yield () => {
+          active = false
+          releaseFailure()
+        }
+      }.bind(this), `agentLoop.resume(${id})`)
     }
   }
 

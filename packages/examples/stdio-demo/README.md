@@ -15,8 +15,8 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by confirmation tools |
 | `@deepseek-ai/dsh-tool-ask-user` | the model-facing `ask_user_question` tool |
 | `@cordisjs/plugin-logger-console` | readline diagnostics for non-TTY operation; omitted from the fullscreen TUI path |
-| `@deepseek-ai/dsh-stdio` | the line-oriented terminal channel, bound to `main` for pipes and automation |
-| `@deepseek-ai/dsh-tui` | the interactive pi-tui channel, bound to `main` for TTY pairs |
+| `@deepseek-ai/dsh-stdio` | the line-oriented terminal channel, bound to `main` for pipes and automation; matching `agent/start-failed` errors print and exit nonzero |
+| `@deepseek-ai/dsh-tui` | the interactive pi-tui channel, bound to `main` for TTY pairs; matching `agent/start-failed` startup errors are printed before fullscreen mode and exit nonzero |
 
 `@cordisjs/plugin-hmr` (the dev/demo edit-reload loop) is deliberately a **leaf** entry, not baked in here: it is a Loader-only, subprocess-only dev plugin whose constructor needs `node --expose-internals` plus a live `loader`. The `demo:echo` / `demo:repl` leaves load it and pass `--expose-internals`.
 

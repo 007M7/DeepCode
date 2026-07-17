@@ -80,6 +80,60 @@ export interface AgentHandle {
   dispose(): Promise<void>
 }
 
+/** Handlers for observing one configured agent's publication or startup failure. */
+export interface AgentStartHandlers {
+  /**
+   * Handle publication of the requested agent.
+   * @param agent - the live agent that was published.
+   */
+  onStarted: (agent: Agent) => void
+  /**
+   * Handle a retained or live declarative startup failure.
+   * @param error - the contained startup failure.
+   */
+  onFailed: (error: Error) => void
+}
+
+/**
+ * Observe one configured agent until it is published or its declarative startup fails.
+ * Listeners are owned by the supplied context fiber and the returned disposer is
+ * idempotent through Cordis's event-disposer semantics.
+ * @param ctx - the context whose fiber owns the observation listeners.
+ * @param id - the configured agent id to observe.
+ * @param handlers - publication and failure callbacks.
+ * @returns a disposer for the observation listeners.
+ */
+export function observeAgentStart(ctx: Context, id: AgentId, handlers: AgentStartHandlers): () => void {
+  const stop = (): void => {
+    disposeCreated()
+    disposeFailure()
+  }
+  const handleStarted = (agent: Agent): void => {
+    if (agent.id !== id) return
+    stop()
+    handlers.onStarted(agent)
+  }
+  const handleFailed = (failedId: AgentId, error: Error): void => {
+    if (failedId !== id) return
+    stop()
+    handlers.onFailed(error)
+  }
+  const disposeCreated = ctx.on('agent/created', handleStarted)
+  const disposeFailure = ctx.on('agent/start-failed', handleFailed)
+  const agent = ctx.agents.get(id)
+  if (agent !== undefined) {
+    stop()
+    handlers.onStarted(agent)
+  } else {
+    const failure = ctx.agents.getStartFailure(id)
+    if (failure !== undefined) {
+      stop()
+      handlers.onFailed(failure)
+    }
+  }
+  return stop
+}
+
 /**
  * The agent-creation factory the loop implementation provides to the registry
  * via {@link AgentRegistry.setFactory}. Kept on the `dsh-agent` interface so
@@ -136,6 +190,7 @@ export class AgentRegistry extends Service {
   // plus entry.agent identity; this WeakMap mirrors the authoritative id map.
   private entries = new WeakMap<Agent, AgentEntry>()
   private factory: FactorySlot | undefined
+  private startFailures = new Map<AgentId, { error: Error; token: object }>()
 
   constructor(ctx: Context) {
     super(ctx, 'agents')
@@ -224,6 +279,7 @@ export class AgentRegistry extends Service {
     const carrier = scopeTarget(agent, agent)
     // Prepared transactions arbitrate identity at this publication boundary.
     if (this.entries.has(agent) || this.store.has(id)) throw new Error(`agent "${id}" is already registered`)
+    this.startFailures.delete(id)
     const entry: AgentEntry = {
       id,
       agent,
@@ -313,6 +369,45 @@ export class AgentRegistry extends Service {
     } finally {
       entry.announcing = false
       if (entry.detachRequested) this.detachEntered(entry)
+    }
+  }
+
+  /**
+   * Report a contained declarative startup failure and retain it for late UI observers.
+   * @param id - the configured agent id that failed before publication.
+   * @param error - the normalized startup error.
+   * @returns a disposer that clears this exact failure record.
+   */
+  reportStartFailure(id: AgentId, error: Error): () => void {
+    const token = {}
+    this.startFailures.set(id, { error, token })
+    this.emitStartFailed(id, error)
+    return () => {
+      if (this.startFailures.get(id)?.token === token) this.startFailures.delete(id)
+    }
+  }
+
+  /**
+   * Return a retained declarative startup failure for an id that never became live.
+   * @param id - the configured agent id.
+   * @returns the startup error, or undefined when the id has no retained failure.
+   */
+  getStartFailure(id: AgentId): Error | undefined {
+    return this.startFailures.get(id)?.error
+  }
+
+  /** Emit an unscoped startup failure with the same listener containment as agent lifecycle events. */
+  private emitStartFailed(id: AgentId, error: Error): void {
+    const args: unknown[] = ['agent/start-failed', id, error]
+    for (const callback of this.ctx.events.dispatch('emit', args)) {
+      try {
+        const returned: unknown = callback(id, error)
+        void Promise.resolve(returned).catch((listenerError: unknown) => {
+          this.ctx.logger.warn(`agent "${id}": agent/start-failed listener rejected: ${String(listenerError)}`)
+        })
+      } catch (listenerError: unknown) {
+        this.ctx.logger.warn(`agent "${id}": agent/start-failed listener threw: ${String(listenerError)}`)
+      }
     }
   }
 

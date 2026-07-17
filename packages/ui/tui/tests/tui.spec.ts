@@ -910,6 +910,51 @@ describe('terminal mounting', () => {
     await ctx.fiber.dispose()
   })
 
+  it('prints a matching live startup failure and exits instead of waiting forever', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    ctx.provide('tools', { get: () => undefined } as never)
+    const terminal = new FakeTerminal()
+    const exit = vi.fn()
+    mountTui(ctx, { agent: 'main', color: false }, { terminal, exit })
+
+    ctx.agents.reportStartFailure(AgentId('other'), new Error('other failed'))
+    expect(terminal.output).toBe('')
+    expect(exit).not.toHaveBeenCalled()
+    ctx.agents.reportStartFailure(AgentId('main'), new Error('resume failed'))
+    expect(terminal.output).toBe('ui-tui: agent "main" failed to start: resume failed\n')
+    expect(exit).toHaveBeenCalledWith(1)
+
+    const session = ctx.sessions.create(SessionId('must-not-start'))
+    ctx.agents.register({
+      id: AgentId('main'), options: {}, session, status: 'idle', ctx,
+      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+    })
+    await tick()
+    expect(terminal.started).toBe(0)
+    await ctx.fiber.dispose()
+  })
+
+  it('prints a retained startup failure for a late-mounted TUI', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    ctx.provide('tools', { get: () => undefined } as never)
+    ctx.agents.reportStartFailure(AgentId('main'), new Error('already failed'))
+    const terminal = new FakeTerminal()
+    const exit = vi.fn()
+
+    mountTui(ctx, { agent: 'main', color: false }, { terminal, exit })
+
+    expect(terminal.started).toBe(0)
+    expect(terminal.output).toBe('ui-tui: agent "main" failed to start: already failed\n')
+    expect(exit).toHaveBeenCalledWith(1)
+    await ctx.fiber.dispose()
+  })
+
   it('rolls back providers, listeners, and terminal state when startup fails', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

@@ -147,6 +147,15 @@ declare module 'cordis' {
      */
     'agent/disposed'(this: Scoped<Agent>, agent: Agent): void
     /**
+     * Declarative startup failed before an agent could be published. Programmatic
+     * `ctx.agents.create()` / `resume()` calls report failure through rejection;
+     * this event covers the fire-and-forget config path.
+     * @param agentId - the configured id that could not be started.
+     * @param error - the contained startup failure.
+     * @mode emit
+     */
+    'agent/start-failed'(agentId: AgentId, error: Error): void
+    /**
      * Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does
      * not enter `running` synchronously; drive lifecycle from this event.
      * @param agent - the agent whose status flipped.

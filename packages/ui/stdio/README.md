@@ -11,7 +11,7 @@ This package owns the terminal channel only. It injects `agents` and `userIntera
 | `welcome` | `ready.` | Banner printed before the first prompt |
 | `agent` | `main` | Agent id driven by stdin and observed for EOF shutdown |
 
-The plugin seeds display labels from the live agent registry, then tracks `agent/created` and `agent/disposed` so HMR and externally managed agents render consistently. Disposal closes readline and unregisters every listener/provider through Cordis effects.
+The plugin seeds display labels from the live agent registry, then tracks `agent/created` and `agent/disposed` so HMR and externally managed agents render consistently. While waiting for its configured agent, it also observes retained and live `agent/start-failed` notifications; a matching failure is printed and exits with status 1 instead of waiting forever. Disposal closes readline and unregisters every listener/provider through Cordis effects.
 
 ```yaml
 - id: stdio

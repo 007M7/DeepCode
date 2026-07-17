@@ -34,7 +34,7 @@ import {
 } from '@earendil-works/pi-tui'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { AgentId, type Agent, type AgentStatus } from '@deepseek-ai/dsh-agent'
+import { AgentId, observeAgentStart, type Agent, type AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, TodoItem } from '@deepseek-ai/dsh-session'
 import type {
@@ -133,7 +133,7 @@ export interface ResolvedTuiConfig {
 export interface TuiRuntime {
   /** Terminal implementation; production uses pi-tui's `ProcessTerminal`. */
   terminal: Terminal
-  /** Exit hook used by `/exit`, Ctrl+D, or Ctrl+C while idle. */
+  /** Exit hook used by terminal shutdown or a target-agent startup failure. */
   exit(code: number): void
 }
 
@@ -1252,20 +1252,17 @@ export function createTuiChat(
  */
 export function mountTui(ctx: Context, config: Config, runtime: TuiRuntime): void {
   const agentId = AgentId(config.agent ?? 'main')
-  const start = (): void => {
-    ctx.effect(() => {
-      const controller = createTuiChat(ctx, config, runtime)
-      return () => controller.dispose()
-    }, 'ui-tui')
-  }
-  if (ctx.agents.get(agentId) !== undefined) {
-    start()
-    return
-  }
-  const dispose = ctx.on('agent/created', (agent) => {
-    if (agent.id !== agentId) return
-    dispose()
-    start()
+  observeAgentStart(ctx, agentId, {
+    onStarted: () => {
+      ctx.effect(() => {
+        const controller = createTuiChat(ctx, config, runtime)
+        return () => controller.dispose()
+      }, 'ui-tui')
+    },
+    onFailed: (error) => {
+      runtime.terminal.write(`ui-tui: agent "${agentId}" failed to start: ${error.message}\n`)
+      runtime.exit(1)
+    },
   })
 }
 
