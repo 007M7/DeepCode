@@ -110,7 +110,7 @@ describe('session-query exact reads', () => {
     session.append(
       'assistant/message',
       { turn: 1, step: 1, content: [{ type: 'text', text: 'replacement' }] },
-      { surfaceOp: { op: 'replace', start: first.seq, end: first.seq } },
+      { surfaceOp: { op: 'replace', start: first.seq, end: first.seq }, sourceEventSeqs: [first.seq] },
     )
 
     expect((await ctx.sessionQuery.listEvents(session.id)).map(record => record.surface))
@@ -227,11 +227,13 @@ describe('session-query exact reads', () => {
   it('turns malformed surfaces and direct invalid config into typed errors', async () => {
     const ctx = await liveContext()
     const session = ctx.sessions.create(SessionId('bad-surface'))
-    session.append(
-      'assistant/message',
-      { turn: 1, step: 1, content: [] },
-      { surfaceOp: { op: 'replace', start: 9, end: 9 } },
-    )
+    ;(session as unknown as { log: SessionEvent[] }).log.push({
+      type: 'assistant/message',
+      seq: 0,
+      time: 1,
+      data: { turn: 1, step: 1, content: [] },
+      surfaceOp: { op: 'replace', start: 9, end: 9 },
+    })
     await expect(ctx.sessionQuery.listEvents(session.id))
       .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_SURFACE'))
 

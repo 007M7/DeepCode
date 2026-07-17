@@ -158,10 +158,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'sessionQuery',
-    summary: 'Live-preferred logical-corpus and exact-event read service.',
+    summary: 'Live-preferred logical-corpus exact-read and relationship-tracing service.',
     methods: [
       'listSessions(): Promise<SessionRecord[]>',
       'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
+      'async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>',
+      'async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>',
       'async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>',
     ],
   },
@@ -838,6 +840,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionEventSurface = \'current\' | \'shadowed\' | \'log-only\';',
   },
   {
+    name: 'SessionEventTrace',
+    declaration: 'export interface SessionEventTrace {\n    target: SessionEventRecord;\n    replacedBy?: number;\n    replacementChain: number[];\n    replacedEventSeqs: number[];\n    sourceEventSeqs: number[];\n    derivedEventSeqs: number[];\n}',
+  },
+  {
+    name: 'SessionEventTraceRequest',
+    declaration: 'export interface SessionEventTraceRequest {\n    sessionId: SessionId;\n    seq: number;\n}',
+  },
+  {
     name: 'SessionEventType',
     declaration: 'export type SessionEventType = keyof SessionEventMap;',
   },
@@ -856,6 +866,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionId',
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
+  },
+  {
+    name: 'SessionLineageNode',
+    declaration: 'export interface SessionLineageNode {\n    session: SessionRecord;\n    descendants: SessionLineageNode[];\n}',
+  },
+  {
+    name: 'SessionLineageTrace',
+    declaration: 'export type SessionLineageTrace = {\n    target: SessionRecord;\n    ancestors: SessionRecord[];\n    descendants: SessionLineageNode[];\n} & ({\n    complete: true;\n    root: SessionRecord;\n} | {\n    complete: false;\n    unresolvedParentId: SessionId;\n});',
   },
   {
     name: 'SessionRecord',

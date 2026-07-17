@@ -637,7 +637,7 @@ Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:3
 Requires: `sessions`
 
 ```ts config-catalog
-/** Configuration for exact session-query reads. */
+/** Configuration for exact session-query reads and traces. */
 export interface Config {
   /** Maximum accepted raw read context on either side. Defaults to 50. */
   readWindowMax?: number

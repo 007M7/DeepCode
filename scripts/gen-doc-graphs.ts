@@ -107,9 +107,9 @@ const SERVICE_ROLES: ServiceRole[] = [
   {
     key: 'sessionQuery',
     pkg: 'session-query',
-    title: 'Exact session-history reads',
+    title: 'Exact session-history reads and traces',
     mode: 'seam',
-    note: 'Resolves live and optional persisted logs into one logical corpus for exact reads.',
+    note: 'Resolves live and optional persisted logs into one logical corpus for exact reads and relationship traces.',
   },
   {
     key: 'systemPrompt',

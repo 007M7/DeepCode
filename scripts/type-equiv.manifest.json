@@ -51,9 +51,13 @@
     { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventSurface", "source": "packages/session-query/session-query/src/types.ts" },
     { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionRecord", "source": "packages/session-query/session-query/src/types.ts" },
     { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventRecord", "source": "packages/session-query/session-query/src/types.ts" },
+    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionLineageNode", "source": "packages/session-query/session-query/src/types.ts" },
+    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionLineageTrace", "source": "packages/session-query/session-query/src/types.ts" },
     { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionQueryErrorCode", "source": "packages/session-query/session-query/src/config.ts" },
     { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventReadRequest", "source": "packages/session-query/session-query/src/types.ts" },
     { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventWindow", "source": "packages/session-query/session-query/src/types.ts" },
+    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventTraceRequest", "source": "packages/session-query/session-query/src/types.ts" },
+    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventTrace", "source": "packages/session-query/session-query/src/types.ts" },
 
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolDefinition", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "SchemaProp", "source": "packages/core/tools/src/schema.ts" },
