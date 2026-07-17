@@ -293,7 +293,7 @@ Source: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/
 
 #### `turn/end` — log-only
 
-Closes turn `turn` with the TurnEndReason that ended it. The loop fires the awaited `session/flush` checkpoint at every turn end, so the turn boundary is also the durable-commit boundary.
+Closes turn `turn` with the TurnEndReason that ended it. The loop fires the awaited `session/flush` checkpoint at every turn end; the next turn waits for settlement. Success commits the closed turn; rejection is reported live and does not prevent later work.
 
 ```ts persistence-catalog
 'turn/end': { turn: number; reason: TurnEndReason }
