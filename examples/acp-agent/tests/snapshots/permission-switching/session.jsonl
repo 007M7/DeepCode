@@ -107,7 +107,7 @@
 {"type":"user/message","seq":105,"time":1783962244624,"data":{"content":[{"type":"text","text":"Use the bash tool to run exactly: cat out.txt. Then reply with the single word DONE and stop."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"context/message","seq":106,"time":1783962244624,"data":{"content":[{"type":"text","text":"The approval policy changed from \"ask\" to \"never\" (changed by the user)."}],"source":{"kind":"plugin","plugin":"user-approval"}},"surfaceOp":"append"}
 {"type":"step/start","seq":107,"time":1783962244624,"data":{"turn":2,"step":1}}
-{"type":"request/header-delta","seq":108,"time":1783962244624,"data":{"system":{"keepStart":11,"keepEnd":2,"insert":["{{system}}","{{system}}"]}}}
+{"type":"request/header","seq":108,"time":1784000791271,"data":{"header":{"config":{"provider":"deepseek","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"change"}}
 {"type":"assistant/chunk","seq":109,"time":1783860671025,"data":{"turn":2,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
 {"type":"assistant/chunk","seq":110,"time":1783860671026,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
 {"type":"assistant/chunk","seq":111,"time":1783860671026,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" user"}}}

@@ -143,7 +143,7 @@ export interface TodoItem {
 
 /**
  * Logged request state outside derived history: call config, system prompt,
- * tools, and session prefix. Header snapshots and deltas reconstruct it;
+ * tools, and prefix. The latest full `request/header` snapshot reconstructs it;
  * canonical empty optional fields are absent.
  */
 export interface EpochHeader {
@@ -167,43 +167,9 @@ export interface EpochHeader {
  * Why a `request/header` snapshot was appended: `'initial'` — the log's first
  * header (a new conversation); `'resume'` — a loop instance's first request
  * over a log that already has header events (process restart, fork seed);
- * `'fallback'` — a mid-run change the delta encoding could not round-trip
- * (e.g. a pure tool reordering), recorded whole instead.
+ * `'change'` — a later request used a different header.
  */
-export type RequestHeaderReason = 'initial' | 'resume' | 'fallback'
-
-/**
- * Line-level edit of the system prompt: keep the first `keepStart` and last
- * `keepEnd` lines of the previous text, with `insert` replacing everything
- * between. Computed as a common-prefix/common-suffix trim — deterministic,
- * library-free, degenerating to a full replacement when nothing is shared.
- * Absence is encoded as zero lines (the canonical form has no empty-string
- * system), so a transition to or from "no system prompt" round-trips.
- */
-export interface SystemDelta {
-  /** Lines kept from the start of the previous system prompt. */
-  keepStart: number
-  /** Lines kept from the end of the previous system prompt. */
-  keepEnd: number
-  /** Lines replacing everything between the kept edges. */
-  insert: string[]
-}
-
-/**
- * Tool-set edit keyed by tool name (names are unique — the registry rejects
- * duplicates): `removed` names drop, `changed` schemas replace their
- * predecessor in place, `added` schemas append at the end. A change this
- * encoding cannot express (a pure reordering) fails the writer's round-trip
- * guard and is recorded as a `'fallback'` snapshot instead.
- */
-export interface ToolsDelta {
-  /** Schemas appended to the end of the tool list. */
-  added: ToolSchema[]
-  /** Names of schemas dropped from the tool list. */
-  removed: string[]
-  /** Schemas replacing the same-named predecessor in place. */
-  changed: ToolSchema[]
-}
+export type RequestHeaderReason = 'initial' | 'resume' | 'change'
 
 /**
  * The merge-extensible, append-only source of truth for an agent interaction.
@@ -276,22 +242,13 @@ export interface SessionEventMap {
   'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string }; meta?: unknown }
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
-  /**
-   * Whole-list snapshot; the latest write wins on replay. It is log-only UI
-   * state and never enters derived model history.
-   */
+  /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
-   * Full {@link EpochHeader} for the next request, appended inside its step
-   * before dispatch. It is log-only and anchors subsequent deltas.
+   * Full header for the next request, appended inside its step before dispatch.
+   * It is log-only; the latest snapshot reconstructs the request header.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
-  /**
-   * Log-only amendment to the folded {@link EpochHeader}. System and tools use
-   * their delta codecs; config and prefix replace whole, with an empty prefix
-   * encoding removal. Writers verify round-trip equality or log a fallback snapshot.
-   */
-  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 }
 
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
@@ -299,7 +256,7 @@ export type SessionEventType = keyof SessionEventMap
 
 /**
  * The subset of {@link SessionEventType} values whose events produce LLM
- * messages and are eligible to appear on the surface linked list. Only these
+ * messages and are eligible to appear on the ordered surface. Only these
  * event types may carry {@link SurfaceOp} and {@link SessionEvent.sourceEventSeqs}.
  */
 export type SurfaceEventType =
@@ -310,7 +267,7 @@ export type SurfaceEventType =
   | 'steering/message'
 
 /**
- * A {@link SessionEvent} that is **on** the surface linked list — its
+ * A {@link SessionEvent} that is **on** the ordered surface — its
  * `surfaceOp` is guaranteed present (mandatory), narrowed from a
  * surface-eligible {@link SessionEvent} by checking both `type` and
  * `surfaceOp` at runtime.
@@ -321,7 +278,7 @@ export type SurfaceEventType =
 export type SurfaceEvent = SessionEvent<SurfaceEventType> & { surfaceOp: SurfaceOp }
 
 /**
- * How a session event entered the surface linked list. Only valid on
+ * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
  * - `'append'`: added to the tail — normal path for user/assistant/tool/context

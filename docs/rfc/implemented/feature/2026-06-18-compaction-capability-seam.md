@@ -6,7 +6,7 @@ Status: implemented
 
 A long-running agent conversation grows without bound. As the event log accumulates turns, the derived message history eventually approaches the model's context window — the model then truncates mid-response (`max-tokens`) or degrades. **Compaction** is the mitigation: replace a run of older history with a concise summary, keeping recent context intact.
 
-The [session surface](../../implemented/architecture/2026-06-18-session-surface.md) was built as the foundation for exactly this — a linked list over the event log with a `surfaceOp: { op: 'replace', start, end }` operation purpose-built to shadow a range of nodes and insert a replacement, with `sourceEventSeqs` recording provenance so the decision replays deterministically. What remained was the plugin that *decides what to compact and produces the summary*.
+The [session surface](../../implemented/architecture/2026-06-18-session-surface.md) was built as the foundation for exactly this — an ordered projection over the event log with a `surfaceOp: { op: 'replace', start, end }` operation purpose-built to shadow a range of entries and insert a replacement, with `sourceEventSeqs` recording provenance so the decision replays deterministically. What remained was the plugin that *decides what to compact and produces the summary*.
 
 Two forces shape the design. First, compaction is **swappable**: token counting can be a char/4 heuristic or a real tokenizer, and summarization can be a model call, a template, or a remote service — these vary independently of *when* and *which range* to compact. Second, `SurfaceEventType` is closed to five event types (`user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`); only those may carry `surfaceOp`. A bespoke `compaction/*` event therefore **cannot** itself appear on the surface — the compiler rejects `surfaceOp` on it and the invariants plugin rejects it at runtime.
 
@@ -56,7 +56,7 @@ Auto-compaction fires before **every** step, not once per turn. This is **load-b
 
 A runaway turn thus compacts exactly like any other history: its early *closed* steps get summarized while its recent steps stay verbatim. When the only compactable content left is an un-splittable open tail step (its tool-calls have no results yet), compaction declines (`null`) and retries once that step closes.
 
-**Single-unit overflow is out of scope, by design.** If a single retained unit — one closed step, or a large free node such as a pasted `user/message` — *alone* exceeds the budget, compaction cannot help and the next model call may go out over-budget. Bounding an individual unit's size is a separate concern (output truncation), handled elsewhere; compaction makes no promise about it, and the harness without such a mechanism can still break on a single oversized unit. This is named honestly rather than papered over.
+**Single-unit overflow is out of scope, by design.** If a single retained unit — one closed step, or a large free entry such as a pasted `user/message` — *alone* exceeds the budget, compaction cannot help and the next model call may go out over-budget. Bounding an individual unit's size is a separate concern (output truncation), handled elsewhere; compaction makes no promise about it, and the harness without such a mechanism can still break on a single oversized unit. This is named honestly rather than papered over.
 
 ### Head-anchoring: one auto checkpoint, always at the head
 
@@ -68,7 +68,7 @@ Auto-compaction always starts at the surface head, merging the prior checkpoint 
 
 ### Surface replacement: `compact/*` events are log-only; one `user/message` carries the summary
 
-Because `SurfaceEventType` is closed, the summary cannot ride on a `compact/*` event. The backend instead appends a **single `user/message`** with `surfaceOp: { op: 'replace', start, end }` whose `content` is the (framed) summary and whose `sourceEventSeqs` covers the shadowed nodes *and* the bookkeeping events. The `compact/*` events are pure log records (lock + provenance). The surface mutation sits **inside** the lock — `compact/end` is the last event appended:
+Because `SurfaceEventType` is closed, the summary cannot ride on a `compact/*` event. The backend instead appends a **single `user/message`** with `surfaceOp: { op: 'replace', start, end }` whose `content` is the (framed) summary and whose `sourceEventSeqs` covers the shadowed entries *and* the bookkeeping events. The `compact/*` events are pure log records (lock + provenance). The surface mutation sits **inside** the lock — `compact/end` is the last event appended:
 
 ```
 compact/start    → log-only. Acquires the lock.
@@ -79,7 +79,7 @@ user/message     → surfaceOp { op:'replace', start, end }. THE surface mutatio
 compact/end      → log-only. Releases the lock (carries `error` on a recoverable failure).
 ```
 
-`deriveMessages()` then yields `[summary_as_user_message, ...retained_nodes]`. Reusing `user/message` is honest rather than a workaround: a summary genuinely *is* user-role context.
+`deriveMessages()` then yields `[summary_as_user_message, ...retained_entries]`. Reusing `user/message` is honest rather than a workaround: a summary genuinely *is* user-role context.
 
 ### Checkpoint framing + incremental merge (backend-private)
 
@@ -113,8 +113,8 @@ Two failure paths, both documented:
 - **New packages**: `packages/compact/compact` (interface) and a sibling `compact-basic` (backend) under `packages/compact/`, wired into the root tsconfigs. The consumer tier is deferred.
 - **New loop seam**: `agent/pre-step` (`@mode serial`) declared in `dsh-agent` and emitted by `dsh-agent-loop` after system assembly and before `step/start`. This is a documented change to the loop — `docs/architecture.md` records it and the generated cordis catalog carries its signature.
 - **`SessionEventMap`** gains `compact/start` / `compact/summary` / `compact/end` by declaration merging (merge-extensible); `SurfaceEventType` is **not** touched. These are session events, not cordis `Events`, so the event-taxonomy gate needs no entry.
-- **`dsh-compact`** owns `toolPairingBalancedBefore(session, node)` and `toolPairingBalancedAfter(session, node)`, the cached surface-edge checks that `compactRegion` and `compactIfNeeded` use to avoid splitting a tool-call/result pair. The cache validates current membership by seq and answers both edges from one per-cut balance sequence instead of trusting a caller-retained `node.next`; stale or missing seqs and orphan results reject. `dsh-session` continues to own the surface `replace` operation, positional nodes, and rewrite generation.
-- **`dsh-invariants`** drops its `surface replace: start must be <= end` assertion: a head-anchored compaction lands a high-seq replacement node at an older range's *position*, so `start > end` numerically is normal and valid (the range is positional, validated by the surface's `indexOf` checks that remain). The turn-enclosure invariant is reused unchanged.
+- **`dsh-compact`** owns `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)`, the cached surface-edge checks that `compactRegion` and `compactIfNeeded` use to avoid splitting a tool-call/result pair. The cache validates current membership by seq and answers both edges from one per-cut balance sequence; stale or missing seqs and orphan results reject. `dsh-session` continues to own the surface `replace` operation, ordered event sequences, and rewrite generation.
+- **`dsh-invariants`** drops its `surface replace: start must be <= end` assertion: a head-anchored compaction lands a high-seq replacement entry at an older range's *position*, so `start > end` numerically is normal and valid (the range is positional, validated by the surface's `indexOf` checks that remain). The turn-enclosure invariant is reused unchanged.
 - **Wiring**: `dsh-compact-basic` is loaded in `examples/coding-agent`'s `cordis.yml`, so the seam ships in the real demo (it was previously loaded nowhere).
 
 ## Testing

@@ -346,7 +346,7 @@ export function apply(ctx: Context): void {
   //   the boundary (an `agent/request`-window inject) is legitimately absent
   //   from this request, and a current-surface comparison would false-fire.
   // - header: every non-content field must equal the fold of the log's
-  //   `request/header*` events — the loop logs the header event BEFORE
+  //   `request/header` events — the loop logs the header event BEFORE
   //   dispatch, so the fold already covers this request.
   //
   // Registered with `prepend: true` so a short-circuiting llm/stream listener

@@ -118,6 +118,20 @@ function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly Sessio
     })
 }
 
+/** Reject events from an obsolete v0 vocabulary that this build cannot replay. */
+function assertSupportedEvents(events: readonly SessionEvent[], id: SessionId): void {
+  const legacyType: string = 'request/header-delta'
+  const legacy = events.find(event => event.type === legacyType)
+  if (legacy !== undefined) {
+    throw new Error(`session "${id}" contains unsupported legacy request/header-delta event at seq ${legacy.seq}`)
+  }
+  const fallback = events.find(event => event.type === 'request/header'
+    && (event.data as { reason?: string }).reason === 'fallback')
+  if (fallback !== undefined) {
+    throw new Error(`session "${id}" contains unsupported legacy request/header reason "fallback" at seq ${fallback.seq}`)
+  }
+}
+
 /**
  * Owns the backend-agnostic session write-path orchestration. A backend
  * constructs one (`new PersistenceCoordinator(ctx, this)`), implements
@@ -207,6 +221,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   }
 
   private async appendCore(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
+    // Every append route converges here: the public service, live write-behind
+    // drains, and HMR seed/suffix adoption. Keep vocabulary rejection at that
+    // shared boundary so a stale JavaScript plugin cannot persist an event that
+    // this same backend will refuse to load.
+    assertSupportedEvents(events, id)
     if (events.length === 0) return
     let state = this.states.get(id)
     if (state === undefined) state = await this.adopt(id) // calls loadCore, not load
@@ -241,6 +260,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     const { meta, events, tornMarker } = stored
     this.assertVersion(meta)
+    assertSupportedEvents(events, id)
 
     // Preserve complete interrupted events and synthesize only missing closers.
     const closers = interruptedTurnClosers(events)
@@ -509,6 +529,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private async adoptLivePrefix(session: Session, seed: readonly SessionEvent[], stored: StoredPrefix<TornMarker>): Promise<void> {
     const { meta, events, tornMarker } = stored
     this.assertVersion(meta)
+    assertSupportedEvents(events, session.header.id)
     if (!seedCoversPrefix(seed, events)) {
       throw new Error(`session "${session.header.id}" already has a persisted log on disk that does not match this live session (id collision)`)
     }

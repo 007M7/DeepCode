@@ -54,4 +54,4 @@ interface CompactionResult {
 
 Auto-compaction runs at serial `agent/pre-step`, before the step and request derivation, so it can replace surface nodes while keeping trace events outside the step. Region boundaries preserve tool-call/result pairing but do not preserve whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compact-basic` owns the retention and failure details.
 
-The seam exports `toolPairingBalancedBefore(session, node)` and `toolPairingBalancedAfter(session, node)` for those edge checks. Both validate current surface membership, reject stale or missing seqs and orphan results, and ignore a caller-retained `node.next`; the [package contract](../../packages/compact/compact/README.md#tool-pairing-boundaries) owns their cache semantics.
+The seam exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for those edge checks. Both validate current surface membership and reject missing seqs and orphan results; the [package contract](../../packages/compact/compact/README.md#tool-pairing-boundaries) owns their cache semantics.

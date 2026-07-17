@@ -1,4 +1,4 @@
-# RFC: Session surface — a linked list over the event log for LLM message derivation
+# RFC: Session surface — an ordered projection over the event log
 
 Status: implemented
 
@@ -8,7 +8,7 @@ The event log is authoritative, but history manipulation had no durable shared m
 
 ## Decision
 
-Add a **surface** — a derived, cached linked list of "surface nodes" (the subset of events that produce LLM messages) — maintained by `surfaceOp` markers in the event log.
+Add a **surface** — a derived, cached order of event sequences (the subset of events that produce LLM messages) — maintained by `surfaceOp` markers in the event log.
 
 ### Two new top-level fields on `SessionEvent`
 
@@ -25,13 +25,13 @@ export type SurfaceOp =
   | { op: 'replace'; start: number; end: number }  // shadow [start, end] inclusive
 ```
 
-1. **Append** — add a new node to the tail. Used by `user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`. The loop passes `surfaceOp: 'append'` on all such appends, and `sourceEventSeqs` where applicable (e.g., `assistant/message` records its `assistant/chunk` sources; `tool/result` records its `tool/call` source).
+1. **Append** — add the new event seq to the tail. Used by `user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`. The loop passes `surfaceOp: 'append'` on all such appends, and `sourceEventSeqs` where applicable (e.g., `assistant/message` records its `assistant/chunk` sources; `tool/result` records its `tool/call` source).
 
-2. **Replace** — remove nodes from `start` through `end` (both inclusive) and insert a new node in their place. Both `start` and `end` must be valid surface node seqs in the current surface; `start === end` replaces a single node. The node's `sourceEventSeqs` must contain every shadowed surface node. The shadowed events remain in the log but are no longer on the surface.
+2. **Replace** — remove entries from `start` through `end` (both inclusive) and insert the new event seq in their place. Both `start` and `end` must be present in the current surface; `start === end` replaces one entry. The event's `sourceEventSeqs` must contain every shadowed surface seq. The shadowed events remain in the log but are no longer on the surface.
 
 ### SurfaceManager: delta-based, not full rebuild
 
-A `SurfaceManager` class (private to `Session`) maintains the cached linked list. It tracks `_lastProcessedSeq` and processes only the **delta** (new events since the last access) rather than rescanning the entire log. Because the log is append-only, prior events never change; a seeded log is simply the initial delta folded on first access.
+A `SurfaceManager` class (private to `Session`) maintains one ordered `number[]` of event seqs. It tracks `_lastProcessedSeq` and processes only the new events since the last access rather than rescanning the entire log. Because the log is append-only, prior events never change; a seeded log is simply the initial suffix folded on first access. Replace locates its inclusive endpoints by array position and splices the replacement seq into that range; no link objects or seq-to-node map duplicate the order.
 
 Delta processing is O(1) when no new events and O(new events) when new events arrive.
 
@@ -54,16 +54,17 @@ Every surface-eligible event must carry `surfaceOp` or it would disappear from d
 ## Alternatives considered
 
 - **Per-plugin `agent/request` wrapping** (the pre-surface pattern for history manipulation) — listener-ordering fragility, no durable record of what was changed, and every new manipulation forces another change to core `deriveMessages()`.
-- **Half-open `[start, endExclusive)` replace ranges** — rejected: the surface is a doubly-linked list whose ends are naturally named by node seqs, and single-node replacement (`start === end`) reads naturally with inclusive semantics.
+- **Half-open `[start, endExclusive)` replace ranges** — rejected: endpoints are named by surface event seqs, and single-entry replacement (`start === end`) reads naturally with inclusive semantics.
+- **Linked node objects plus a seq map** — rejected: production did not read predecessor links, the only successor use was the next array position, and replacement already required linear `indexOf` lookup. A single seq array preserves the same asymptotic behavior with one representation to validate.
 - **Full rebuild behind a dirty flag** instead of delta processing — O(N²) over a session's lifetime: every single-event append would rescan all prior events.
 
 ## Consequences
 
-- **`packages/core/session`**: New `surface.ts` (`SurfaceManager`), new types (`SurfaceOp`, `SurfaceIntent`), new fields on `SessionEvent`, modified `append()` (third required `SurfaceIntent` param), refactored `deriveMessages()` (walks the surface as the sole derivation path), surface-aware `repair.ts`. The seed constructor rejects a surface-eligible seed event missing its `surfaceOp` marker (see § Invariants).
+- **`packages/core/session`**: `surface.ts` (`SurfaceManager`) maintains one ordered seq array; `SurfaceOp`/`SurfaceIntent` and the top-level session-event fields record how entries join it. `append()` requires a `SurfaceIntent` for surface events, `deriveMessages()` walks the surface as the sole derivation path, and `repair.ts` emits surface-aware closers. The seed constructor rejects a surface-eligible seed event missing its `surfaceOp` marker (see § Invariants).
 - **`packages/core/agent-loop`**: All surface-capable appends pass surface opts. Chunk seqs are collected for `assistant/message` provenance; `tool/call` seqs are captured for `tool/result` provenance.
 - **`packages/session-persistence/session-persistence-sqlite`**: Two new nullable TEXT columns (`source_event_seqs`, `surface_op`) on the `events` table; `SCHEMA_VERSION` bumped (bump-and-reject, no migration).
 - **`packages/support/invariants`**: Surface-related validation rules.
 - **`packages/session-persistence/session-persistence-jsonl`**: No changes required.
 - **`packages/session-persistence/session-persistence`**: Abstract interface unchanged.
 
-The surface is the foundation for future history manipulation. A compaction or tool-result-prune plugin appends one of the existing message-producing event types (a `user/message` carrying the summary, say) with `surfaceOp: { op: 'replace', start, end }` and `sourceEventSeqs` covering the shadowed nodes — the new node takes the range's place on the surface while the plugin's own trace events (e.g. `compaction/start`, `compaction/end`) stay off it. Replay preserves the decision deterministically.
+The surface is the foundation for future history manipulation. A compaction or tool-result-prune plugin appends one of the existing message-producing event types (a `user/message` carrying the summary, say) with `surfaceOp: { op: 'replace', start, end }` and `sourceEventSeqs` covering the shadowed entries — the new event takes the range's place on the surface while the plugin's own trace events (e.g. `compaction/start`, `compaction/end`) stay off it. Replay preserves the decision deterministically.

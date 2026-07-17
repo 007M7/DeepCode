@@ -248,8 +248,8 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
     const svc = createTestService()
     const session = toolTurnSession(1)
     const nodes = session.surface.nodes // [user, asst(tool-call), result]
-    const userSeq = nodes[0]!.seq
-    const resultSeq = nodes[2]!.seq
+    const userSeq = nodes[0]!
+    const resultSeq = nodes[2]!
     // start = the tool/result: its issuing assistant precedes it IN THE SAME STEP,
     // so starting here would orphan that assistant's tool-call. end is fine (user).
     await expect(compactRegion(svc, session, resultSeq, resultSeq, 'm'))
@@ -261,8 +261,8 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
     const svc = createTestService()
     const session = toolTurnSession(1)
     const nodes = session.surface.nodes
-    const userSeq = nodes[0]!.seq
-    const asstSeq = nodes[1]!.seq
+    const userSeq = nodes[0]!
+    const asstSeq = nodes[1]!
     // end = the assistant/message: its tool/result follows IN THE SAME STEP, so
     // ending here would strand that result. start is fine (the pre-step user).
     await expect(compactRegion(svc, session, userSeq, asstSeq, 'm'))
@@ -280,8 +280,8 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
       content: [{ type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' }],
     }, { surfaceOp: 'append' })
     const nodes = s.surface.nodes // [user, asst]
-    const userSeq = nodes[0]!.seq
-    const asstSeq = nodes[1]!.seq
+    const userSeq = nodes[0]!
+    const asstSeq = nodes[1]!
     await expect(compactRegion(svc, s, userSeq, asstSeq, 'm'))
       .rejects.toThrow(/end seq .* is not a balanced boundary/)
   })
@@ -290,8 +290,8 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
     const svc = createTestService()
     const session = toolTurnSession(2)
     const nodes = session.surface.nodes // [user1, asst1, res1, user2, asst2, res2]
-    const startSeq = nodes[0]!.seq // pre-step user1 (free boundary)
-    const endSeq = nodes[2]!.seq   // res1 = last node of turn 1's closed step
+    const startSeq = nodes[0]! // pre-step user1 (free boundary)
+    const endSeq = nodes[2]!   // res1 = last node of turn 1's closed step
     const result = await compactRegion(svc, session, startSeq, endSeq, 'm')
     expect(result.shadowedRange).toEqual({ start: startSeq, end: endSeq })
     expectNoOrphanToolResults(session.deriveMessages())
@@ -301,7 +301,7 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
     const svc = createTestService()
     const session = toolTurnSession(1)
     const nodes = session.surface.nodes
-    const userSeq = nodes[0]!.seq // pre-step user: free boundary both ways
+    const userSeq = nodes[0]! // pre-step user: free boundary both ways
     const result = await compactRegion(svc, session, userSeq, userSeq, 'm')
     expect(result.shadowedRange).toEqual({ start: userSeq, end: userSeq })
   })
@@ -316,7 +316,7 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
     s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     s.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
     const nodes = s.surface.nodes
-    const ctxSeq = nodes[0]!.seq
+    const ctxSeq = nodes[0]!
     const result = await compactRegion(svc, s, ctxSeq, ctxSeq, 'm')
     expect(result.shadowedRange).toEqual({ start: ctxSeq, end: ctxSeq })
   })
@@ -375,8 +375,8 @@ describe('BasicCompactService.compactRegion', () => {
     const nodes = session.surface.nodes
     expect(nodes.length).toBe(6)
 
-    const firstSeq = nodes[0]!.seq
-    const secondSeq = nodes[1]!.seq
+    const firstSeq = nodes[0]!
+    const secondSeq = nodes[1]!
     const result = await compactRegion(svc, session, firstSeq, secondSeq, 'test-model')
 
     expect(result.shadowedSeqs).toEqual([firstSeq, secondSeq])
@@ -416,7 +416,7 @@ describe('BasicCompactService.compactRegion', () => {
     // Surface now has: summary user/message + retained 4 nodes = 5 nodes.
     const newNodes = session.surface.nodes
     expect(newNodes.length).toBe(5)
-    expect(newNodes[0]!.seq).toBe(userMsg.seq)
+    expect(newNodes[0]!).toBe(userMsg.seq)
 
     // deriveMessages() produces the framed summary as a user-role message:
     // a checkpoint preamble + tag-wrapped summary blocks.
@@ -441,7 +441,7 @@ describe('BasicCompactService.compactRegion', () => {
     const svc = createTestService()
     const session = multiTurnSession(2, 1)
     const nodes = session.surface.nodes
-    await expect(compactRegion(svc, session, nodes[1]!.seq, nodes[0]!.seq, 'm'))
+    await expect(compactRegion(svc, session, nodes[1]!, nodes[0]!, 'm'))
       .rejects.toThrow(/is after end seq .* on the surface/)
   })
 
@@ -450,7 +450,7 @@ describe('BasicCompactService.compactRegion', () => {
     const session = multiTurnSession(2, 1)
     const nodes = session.surface.nodes
     session.append('compact/start', { turn: 2 })
-    await expect(compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'm'))
+    await expect(compactRegion(svc, session, nodes[0]!, nodes[1]!, 'm'))
       .rejects.toThrow(/compaction already in progress/)
   })
 
@@ -460,7 +460,7 @@ describe('BasicCompactService.compactRegion', () => {
     const session = multiTurnSession(2, 1)
     const nodes = session.surface.nodes
 
-    await expect(compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'm'))
+    await expect(compactRegion(svc, session, nodes[0]!, nodes[1]!, 'm'))
       .rejects.toThrow('model unavailable')
 
     const endEvent = session.events.findLast(e => e.type === 'compact/end')
@@ -483,7 +483,7 @@ describe('BasicCompactService.compactRegion', () => {
     const session = multiTurnSession(1, 2)
     const nodes = session.surface.nodes
 
-    await compactRegion(svc, session, nodes[0]!.seq, nodes[nodes.length - 1]!.seq, 'm')
+    await compactRegion(svc, session, nodes[0]!, nodes[nodes.length - 1]!, 'm')
 
     expect(svc.summarizeCalls.length).toBe(1)
     const { text, model } = svc.summarizeCalls[0]!
@@ -498,7 +498,7 @@ describe('BasicCompactService.compactRegion', () => {
     const session = multiTurnSession(3, 1)
     const nodes = session.surface.nodes
 
-    const result = await compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'm')
+    const result = await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'm')
 
     // Provenance (compact/summary) carries the RAW, unframed summary.
     expect(result.summary).toEqual([{ type: 'text', text: 'STRUCTURED SUMMARY' }])
@@ -518,8 +518,8 @@ describe('BasicCompactService.compactRegion', () => {
     const session = sessionWithTools()
     const nodes = session.surface.nodes
 
-    const firstSeq = nodes[0]!.seq
-    const lastSeq = nodes[nodes.length - 1]!.seq
+    const firstSeq = nodes[0]!
+    const lastSeq = nodes[nodes.length - 1]!
     await compactRegion(svc, session, firstSeq, lastSeq, 'm')
 
     expect(svc.summarizeCalls.length).toBe(1)
@@ -590,7 +590,7 @@ describe('BasicCompactService.compactIfNeeded', () => {
     expect(result).not.toBeNull()
     const nodes = session.surface.nodes
     expect(result!.shadowedSeqs.length).toBeGreaterThan(0)
-    expect(result!.shadowedSeqs).not.toContain(nodes[nodes.length - 1]!.seq)
+    expect(result!.shadowedSeqs).not.toContain(nodes[nodes.length - 1]!)
   })
 
   it('returns null when the whole surface fits the retain budget (over threshold by role/system overhead)', async () => {
@@ -631,7 +631,7 @@ describe('BasicCompactService.compactIfNeeded', () => {
     // The most-recent step's tool result is retained verbatim (still on surface).
     const lastResultSeq = s.events.findLast(e => e.type === 'tool/result')!.seq
     expect(result!.shadowedSeqs).not.toContain(lastResultSeq)
-    expect(s.surface.nodes.some(n => n.seq === lastResultSeq)).toBe(true)
+    expect(s.surface.nodes).toContain(lastResultSeq)
     // No orphaned tool-result survives (whole-step boundaries respected).
     expectNoOrphanToolResults(s.deriveMessages())
   })
@@ -650,7 +650,7 @@ describe('BasicCompactService.compactIfNeeded', () => {
     const first = await compactIfNeeded(svc, s, '', 'm', SIGNAL)
     expect(first).not.toBeNull()
     // The summary node now heads the surface with a fresh high seq.
-    const summaryHeadSeq = s.surface.nodes[0]!.seq
+    const summaryHeadSeq = s.surface.nodes[0]!
     const turn5StartSeq = s.events.filter(e => e.type === 'turn/start').at(-1)!.seq
     expect(summaryHeadSeq).toBeGreaterThan(turn5StartSeq)
 
@@ -718,7 +718,7 @@ describe('BasicCompactService replay equivalence', () => {
     const session = multiTurnSession(3, 1)
     const nodes = session.surface.nodes
 
-    await compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'm')
+    await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'm')
     const derived = session.deriveMessages()
 
     const replayed = new Session(SessionId('replay'), [...session.events])
@@ -734,7 +734,7 @@ describe('BasicCompactService blocking (compaction in progress)', () => {
     const nodes = session.surface.nodes
     // Whole step (user → assistant) is a step-aligned region, so the call reaches
     // the in-progress check rather than being rejected for splitting a step.
-    await expect(compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'm'))
+    await expect(compactRegion(svc, session, nodes[0]!, nodes[1]!, 'm'))
       .rejects.toThrow(/compaction already in progress/)
   })
 
@@ -744,7 +744,7 @@ describe('BasicCompactService blocking (compaction in progress)', () => {
     const nodes = session.surface.nodes
     session.append('compact/start', { turn: 1 })
     session.append('compact/end', { turn: 1 })
-    const result = await compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'm')
+    const result = await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'm')
     expect(result).toBeDefined()
   })
 
@@ -765,7 +765,7 @@ describe('BasicCompactService blocking (compaction in progress)', () => {
     const nodes = s.surface.nodes
 
     // The stale start is before the turn/end, so it is NOT seen as in-progress.
-    const result = await compactRegion(svc, s, nodes[0]!.seq, nodes[1]!.seq, 'm')
+    const result = await compactRegion(svc, s, nodes[0]!, nodes[1]!, 'm')
     expect(result).toBeDefined()
   })
 })
@@ -1080,7 +1080,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     const before = [...session.surface.nodes]
     const nodes = session.surface.nodes
 
-    await expect(compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'test-model'))
+    await expect(compactRegion(svc, session, nodes[0]!, nodes[1]!, 'test-model'))
       .rejects.toMatchObject({ code: 'MAX_TOKENS' })
 
     // No replacement landed — the surface is byte-identical, and the lock was
@@ -1097,7 +1097,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     const session = multiTurnSession(2, 1)
     const nodes = session.surface.nodes
 
-    const result = await compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'test-model')
+    const result = await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'test-model')
     expect(result.summary).toEqual([{ type: 'text', text: 'CONDENSED' }])
     // The raw summary is wrapped in the checkpoint framing on the surface.
     expect(session.deriveMessages()[0]!.content).toContainEqual({ type: 'text', text: 'CONDENSED' })
@@ -1109,7 +1109,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     const nodes = session.surface.nodes
     svc.mockSummary = Array.from({ length: 20 }, (_, index) => ({ type: 'text', text: `large ${index}` }))
 
-    await expect(compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'm'))
+    await expect(compactRegion(svc, session, nodes[0]!, nodes[1]!, 'm'))
       .rejects.toThrow(/summary is not smaller than the shadowed content/)
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(false)
   })
@@ -1128,7 +1128,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     const before = [...session.surface.nodes]
     const nodes = session.surface.nodes
 
-    await expect(compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'm'))
+    await expect(compactRegion(svc, session, nodes[0]!, nodes[1]!, 'm'))
       .rejects.toThrow(/summary is not smaller than the shadowed content/)
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(false)
     expect(session.surface.nodes).toEqual(before)
@@ -1287,7 +1287,7 @@ describe('BasicCompactService transcript rendering (delegated to dsh-compact)', 
     s.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
 
     const nodes = s.surface.nodes
-    await compactRegion(svc, s, nodes[0]!.seq, nodes[nodes.length - 1]!.seq, 'm')
+    await compactRegion(svc, s, nodes[0]!, nodes[nodes.length - 1]!, 'm')
 
     const { text } = svc.summarizeCalls[0]!
     expect(text).toContain('[Context: project context here]')
@@ -1316,7 +1316,7 @@ describe('BasicCompactService transcript rendering (delegated to dsh-compact)', 
     s.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
 
     const nodes = s.surface.nodes
-    await compactRegion(svc, s, nodes[0]!.seq, nodes[nodes.length - 1]!.seq, 'm')
+    await compactRegion(svc, s, nodes[0]!, nodes[nodes.length - 1]!, 'm')
     expect(svc.summarizeCalls[0]!.text).toContain('Tool error (call c9): boom failure')
   })
 })
@@ -1350,7 +1350,7 @@ describe('BasicCompactService edge cases', () => {
     s.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
 
     const nodes = s.surface.nodes
-    await compactRegion(svc, s, nodes[0]!.seq, nodes[nodes.length - 1]!.seq, 'm')
+    await compactRegion(svc, s, nodes[0]!, nodes[nodes.length - 1]!, 'm')
     const { text } = svc.summarizeCalls[0]!
     expect(text).toContain('[tool-result: [chart]]') // nested tool-result with content
     expect(text).toContain('[custom-widget]') // unknown block placeholder
@@ -1398,7 +1398,7 @@ describe('BasicCompactService edge cases', () => {
     s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const nodes = s.surface.nodes
 
-    await expect(compactRegion(svc, s, nodes[0]!.seq, nodes[1]!.seq, 'm'))
+    await expect(compactRegion(svc, s, nodes[0]!, nodes[1]!, 'm'))
       .rejects.toThrow(/no open turn/)
     // The lock was never acquired — no compact/start landed.
     expect(s.events.some(e => e.type === 'compact/start')).toBe(false)
@@ -1413,7 +1413,7 @@ describe('BasicCompactService edge cases', () => {
     s.append('user/message', { content: [{ type: 'text', text: 'orphan' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const nodes = s.surface.nodes
 
-    await expect(compactRegion(svc, s, nodes[0]!.seq, nodes[0]!.seq, 'm'))
+    await expect(compactRegion(svc, s, nodes[0]!, nodes[0]!, 'm'))
       .rejects.toThrow(/no open turn/)
     expect(s.events.some(e => e.type === 'compact/start')).toBe(false)
   })
@@ -1430,7 +1430,7 @@ describe('BasicCompactService edge cases', () => {
     const svc = createTestService()
     const session = multiTurnSession(1, 1)
     const nodes = session.surface.nodes
-    await expect(compactRegion(svc, session, nodes[0]!.seq, 9999, 'm'))
+    await expect(compactRegion(svc, session, nodes[0]!, 9999, 'm'))
       .rejects.toThrow(/end seq 9999 not found in surface/)
   })
 
@@ -1442,7 +1442,7 @@ describe('BasicCompactService edge cases', () => {
     const nodes = session.surface.nodes
 
     // Whole step (user → assistant): a step-aligned region that reaches summarize.
-    await expect(compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'm')).rejects.toBe('plain string failure')
+    await expect(compactRegion(svc, session, nodes[0]!, nodes[1]!, 'm')).rejects.toBe('plain string failure')
     const endEvent = session.events.findLast(e => e.type === 'compact/end')!
     expect(endEvent.data).toMatchObject({ error: 'plain string failure' })
   })
@@ -1502,7 +1502,11 @@ describe('BasicCompactService edge cases', () => {
     s.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
 
     const nodes = s.surface.nodes
-    await compactRegion(svc, s, nodes[0]!.seq, nodes[nodes.length - 1]!.seq, 'm')
+    await compactRegion(svc, s, nodes[0]!, nodes[nodes.length - 1]!, 'm')
+    // Every empty-content message (user text, empty reasoning, empty-content
+    // tool/result, empty context, empty steering) extracted to nothing and was
+    // skipped — the only surviving line is the assistant's tool-call (which a
+    // balanced surface requires to answer the tool/result).
     expect(svc.summarizeCalls[0]!.text).toBe('Assistant: [tool-call: bash({})]')
   })
 
@@ -1536,7 +1540,7 @@ describe('BasicCompactService edge cases', () => {
     s.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
 
     const nodes = s.surface.nodes
-    await compactRegion(svc, s, nodes[0]!.seq, nodes[nodes.length - 1]!.seq, 'm')
+    await compactRegion(svc, s, nodes[0]!, nodes[nodes.length - 1]!, 'm')
     const { text } = svc.summarizeCalls[0]!
     // Every non-text block surfaces as a placeholder rather than being dropped.
     expect(text).toContain('User: [chart]')
@@ -1550,28 +1554,25 @@ describe('BasicCompactService edge cases', () => {
 
 describe('BasicCompactService positional range (surface seqs are not monotonic after a replace)', () => {
   it('compacts a second region after the first replace lands a high-seq summary at the head position', async () => {
-    // Replacement makes surface seqs non-monotonic. The next region is a
-    // positional span even when startSeq > endSeq.
+    // Replacement can make surface seqs non-monotonic; ranges remain positional.
     const svc = createTestService({ auto: false })
     const session = multiTurnSession(4, 1)
 
-    // A replacement puts its high-seq summary at the surface head.
     const nodes0 = session.surface.nodes
-    const first = await compactRegion(svc, session, nodes0[0]!.seq, nodes0[1]!.seq, 'm')
+    const first = await compactRegion(svc, session, nodes0[0]!, nodes0[1]!, 'm')
 
     const nodes1 = session.surface.nodes
-    expect(nodes1[0]!.seq).toBeGreaterThanOrEqual(first.summarySeq)
-    expect(nodes1[0]!.seq).toBeGreaterThan(nodes1[1]!.seq)
+    expect(nodes1[0]!).toBeGreaterThanOrEqual(first.summarySeq)
+    expect(nodes1[0]!).toBeGreaterThan(nodes1[1]!)
 
-    const startSeq = nodes1[0]!.seq
-    const endSeq = nodes1[2]!.seq
+    const startSeq = nodes1[0]!
+    const endSeq = nodes1[2]!
     expect(startSeq).toBeGreaterThan(endSeq)
     const second = await compactRegion(svc, session, startSeq, endSeq, 'm')
 
-    // Selection follows surface positions, not sequence-number order.
-    expect(second.shadowedSeqs).toEqual([nodes1[0]!.seq, nodes1[1]!.seq, nodes1[2]!.seq])
+    expect(second.shadowedSeqs).toEqual([nodes1[0]!, nodes1[1]!, nodes1[2]!])
     const finalNodes = session.surface.nodes
-    expect(finalNodes[0]!.seq).toBeGreaterThanOrEqual(second.summarySeq)
+    expect(finalNodes[0]!).toBeGreaterThanOrEqual(second.summarySeq)
     expect(session.deriveMessages().length).toBe(finalNodes.length)
   })
 
@@ -1579,15 +1580,13 @@ describe('BasicCompactService positional range (surface seqs are not monotonic a
     const svc = createTestService({ auto: false })
     const session = multiTurnSession(3, 1)
 
-    // Put a high-seq summary at the head; log order would place retained older nodes first.
     const n0 = session.surface.nodes
-    await compactRegion(svc, session, n0[0]!.seq, n0[1]!.seq, 'm')
+    await compactRegion(svc, session, n0[0]!, n0[1]!, 'm')
 
     const n1 = session.surface.nodes
     svc.summarizeCalls = []
-    await compactRegion(svc, session, n1[0]!.seq, n1[2]!.seq, 'm')
+    await compactRegion(svc, session, n1[0]!, n1[2]!, 'm')
 
-    // Extraction must match surface and `deriveMessages()` order.
     const { text } = svc.summarizeCalls[0]!
     const checkpointIdx = text.indexOf('compacted-summary')
     const olderIdx = text.indexOf('turn 2 user')
@@ -1614,7 +1613,7 @@ describe('BasicCompactService llm inject (real plugin-load path)', () => {
     const svc = ctx.compact as BasicCompactService
     const session = multiTurnSession(2, 1)
     const nodes = session.surface.nodes
-    const result = await compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'test-model')
+    const result = await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'test-model')
     expect(result.summary).toEqual([{ type: 'text', text: 'CONDENSED' }])
 
     // Tear the fiber down so this test owns no leaked registration; the
@@ -1662,9 +1661,9 @@ describe('BasicCompactService under the real invariants plugin', () => {
 
     const nodes = session.surface.nodes
     // No invariant throws here: compact/* + the replacement are all in turn 3.
-    const result = await compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'test-model')
+    const result = await compactRegion(svc, session, nodes[0]!, nodes[1]!, 'test-model')
     expect(result.shadowedSeqs.length).toBe(2)
-    expect(session.surface.nodes[0]!.seq).toBeGreaterThan(session.surface.nodes[1]!.seq)
+    expect(session.surface.nodes[0]!).toBeGreaterThan(session.surface.nodes[1]!)
   })
 
   it('accepts a second compaction over the non-monotonic surface left by the first', async () => {
@@ -1675,14 +1674,14 @@ describe('BasicCompactService under the real invariants plugin', () => {
     session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } })
 
     const n0 = session.surface.nodes
-    await compactRegion(svc, session, n0[0]!.seq, n0[1]!.seq, 'test-model')
+    await compactRegion(svc, session, n0[0]!, n0[1]!, 'test-model')
 
     // Surface head now carries a higher seq than the older retained nodes. A
     // second compaction spanning [head … a later closed-step end] must pass the
     // invariants' positional replace check even though startSeq > endSeq.
     const n1 = session.surface.nodes
-    expect(n1[0]!.seq).toBeGreaterThan(n1[2]!.seq)
-    const second = await compactRegion(svc, session, n1[0]!.seq, n1[2]!.seq, 'test-model')
-    expect(second.shadowedSeqs).toEqual([n1[0]!.seq, n1[1]!.seq, n1[2]!.seq])
+    expect(n1[0]!).toBeGreaterThan(n1[2]!)
+    const second = await compactRegion(svc, session, n1[0]!, n1[2]!, 'test-model')
+    expect(second.shadowedSeqs).toEqual([n1[0]!, n1[1]!, n1[2]!])
   })
 })

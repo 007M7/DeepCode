@@ -36,7 +36,7 @@ The session's current target is added to the displayed options when its adapter 
 
 Agent setup installs scoped `system-prompt/assemble` and `agent/request` listeners. Prompt assembly snapshots the selected pair once per step, overwrites the assembled `provider` and `model` variables after downstream prompt listeners, and the request listener applies that same snapshot after downstream request listeners. A selection during asynchronous assembly therefore starts on the next step rather than splitting prompt text from routing. Other call-config fields remain untouched.
 
-The request header remains the durable source of truth. When a selected target is actually used, the existing `request/header` or `request/header-delta` event records it. `session/load` initializes the ACP selection from the folded last request header before falling back to bridge config. A selection that is never used by a request is intentionally in-memory only because it never became model-visible state.
+The request header remains the durable source of truth. When a selected target is actually used, the existing full `request/header` snapshot records it. `session/load` initializes the ACP selection from the folded last request header before falling back to bridge config. A selection that is never used by a request is intentionally in-memory only because it never became model-visible state.
 
 ACP's experimental `providers/*` capability is not used. That draft surface configures provider base URLs, protocols, and headers, including secrets; it does not enumerate models and would give the UI authority to rewrite deployment-owned adapter configuration.
 

@@ -1,19 +1,13 @@
 /**
- * Surface layer on top of the session event log: a derived, cached linked list
- * of events that produce LLM messages. Rebuilt deterministically from
- * `surfaceOp` markers in the log — the log is the source of truth; the surface
- * is a view.
+ * Surface layer on top of the session event log: an ordered view of events
+ * that produce LLM messages. The append-only log remains the source of truth.
  *
  * @module @deepseek-ai/dsh-session/surface
  */
 
 import type { SessionEvent, SurfaceEvent, SurfaceEventType, SurfaceOp } from './types.ts'
 
-/**
- * The set of event type strings that are eligible for the surface linked list.
- * Mirrors the {@link SurfaceEventType} union; kept as a runtime set so the
- * type guard can check membership without a chain of string comparisons.
- */
+/** Runtime counterpart of the message-producing event union. */
 const SURFACE_EVENT_TYPES = new Set<string>([
   'user/message',
   'assistant/message',
@@ -23,39 +17,22 @@ const SURFACE_EVENT_TYPES = new Set<string>([
 ])
 
 /**
- * Check only whether a type may enter the message surface; it does not require `surfaceOp`. This
- * detects eligible seed/load events missing their mandatory marker. Use {@link isSurfaceEvent} to
- * narrow a fully formed event whose marker is present.
- * @param type - the event type string to test.
- * @returns true when the type is one of the five message-producing types.
+ * Whether an event type can join the model-visible surface.
+ * @param type - event type to test.
+ * @returns true for one of the five message-producing event types.
  */
 export function isSurfaceEligibleType(type: string): boolean {
   return SURFACE_EVENT_TYPES.has(type)
 }
 
 /**
- * Narrow a {@link SessionEvent} to {@link SurfaceEvent}: checks that the
- * event's `type` is surface-eligible AND that `surfaceOp` is present.
- * The narrowed type has mandatory {@link SurfaceOp}.
- * @param event - the event to narrow.
- * @returns true when the event is surface-eligible and carries its `surfaceOp` marker.
+ * Narrow an event to a surface-eligible event carrying its required marker.
+ * @param event - event to test.
+ * @returns true when both the type and marker identify a surface event.
  */
 export function isSurfaceEvent(event: SessionEvent): event is SurfaceEvent {
   if (!SURFACE_EVENT_TYPES.has(event.type)) return false
-  // surfaceOp is optional on SessionEvent (even for surface-eligible types)
-  // but mandatory on SurfaceEvent — this check is the narrowing gate.
-  if ((event as SessionEvent<SurfaceEventType>).surfaceOp === undefined) return false
-  return true
-}
-
-/** One node in the surface linked list. */
-export interface SurfaceNode {
-  /** The event seq of this surface node. */
-  seq: number
-  /** The previous surface node's seq, or null if this is the head. */
-  prev: number | null
-  /** The next surface node's seq, or null if this is the tail. */
-  next: number | null
+  return (event as SessionEvent<SurfaceEventType>).surfaceOp !== undefined
 }
 
 /** One replacement operation observed while folding a session surface. */
@@ -66,22 +43,21 @@ export interface SurfaceFoldReplacement {
   start: number
   /** Declared inclusive end seq of the replaced surface range. */
   end: number
-  /** Actual surface nodes removed by the operation, in surface order. */
+  /** Actual surface entries removed by the operation, in surface order. */
   shadowedSeqs: number[]
 }
 
 /** Complete result of replaying the surface operations in a session log. */
 export interface SurfaceFoldResult {
-  /** Current surface nodes in linked-list order. */
-  nodes: SurfaceNode[]
+  /** Current surface event sequences in model-visible order. */
+  nodes: number[]
   /** Replacement operations in event order. */
   replacements: SurfaceFoldReplacement[]
 }
 
-/** Mutable state shared by the incremental manager and the full-log fold. */
+/** Mutable state shared by complete and incremental folds. */
 interface SurfaceFoldState {
-  nodes: SurfaceNode[]
-  nodeBySeq: Map<number, SurfaceNode>
+  nodes: number[]
   replaceGeneration: number
 }
 
@@ -98,12 +74,8 @@ type SurfacePlan =
   | SurfaceReplacePlan
 
 /** Create an empty surface fold state. */
-function createFoldState(replaceGeneration = 0): SurfaceFoldState {
-  return {
-    nodes: [],
-    nodeBySeq: new Map(),
-    replaceGeneration,
-  }
+function createFoldState(): SurfaceFoldState {
+  return { nodes: [], replaceGeneration: 0 }
 }
 
 /** Whether a runtime value is a non-negative safe event sequence. */
@@ -189,23 +161,21 @@ function replacementRange(
   state: SurfaceFoldState,
   op: Extract<SurfaceOp, { op: 'replace' }>,
 ): Pick<SurfaceReplacePlan, 'startIdx' | 'endIdx' | 'shadowedSeqs'> {
-  const startNode = state.nodeBySeq.get(op.start)
-  if (!startNode) {
+  const startIdx = state.nodes.indexOf(op.start)
+  if (startIdx === -1) {
     throw new Error(`surface replace: start seq ${op.start} not found in surface`)
   }
-  const endNode = state.nodeBySeq.get(op.end)
-  if (!endNode) {
+  const endIdx = state.nodes.indexOf(op.end)
+  if (endIdx === -1) {
     throw new Error(`surface replace: end seq ${op.end} not found in surface`)
   }
-  const startIdx = state.nodes.indexOf(startNode)
-  const endIdx = state.nodes.indexOf(endNode)
   if (startIdx > endIdx) {
     throw new Error(`surface replace: start seq ${op.start} (index ${startIdx}) is after end seq ${op.end} (index ${endIdx})`)
   }
   return {
     startIdx,
     endIdx,
-    shadowedSeqs: state.nodes.slice(startIdx, endIdx + 1).map(node => node.seq),
+    shadowedSeqs: state.nodes.slice(startIdx, endIdx + 1),
   }
 }
 
@@ -235,27 +205,6 @@ function planSurfaceEvent(
   }
 }
 
-/** Apply one already-validated positional replacement. */
-function replaceSurface(state: SurfaceFoldState, plan: SurfaceReplacePlan): void {
-  const { startIdx, endIdx } = plan
-
-  const removed = state.nodes.splice(startIdx, endIdx - startIdx + 1)
-  for (const node of removed) state.nodeBySeq.delete(node.seq)
-
-  const prevNode = startIdx > 0 ? state.nodes[startIdx - 1] : undefined
-  const nextNode = startIdx < state.nodes.length ? state.nodes[startIdx] : undefined
-  const newNode: SurfaceNode = {
-    seq: plan.seq,
-    prev: prevNode?.seq ?? null,
-    next: nextNode?.seq ?? null,
-  }
-  if (prevNode) prevNode.next = plan.seq
-  if (nextNode) nextNode.prev = plan.seq
-  state.nodes.splice(startIdx, 0, newNode)
-  state.nodeBySeq.set(plan.seq, newNode)
-  state.replaceGeneration += 1
-}
-
 /** Apply one event and return replacement metadata only when one occurred. */
 function applySurfaceEvent(
   state: SurfaceFoldState,
@@ -264,13 +213,10 @@ function applySurfaceEvent(
 ): SurfaceFoldReplacement | undefined {
   const plan = planSurfaceEvent(state, event, expectedSeq)
   if (plan?.kind === 'append') {
-    const tail = state.nodes.at(-1)
-    const node: SurfaceNode = { seq: plan.seq, prev: tail?.seq ?? null, next: null }
-    if (tail) tail.next = plan.seq
-    state.nodes.push(node)
-    state.nodeBySeq.set(plan.seq, node)
+    state.nodes.push(plan.seq)
   } else if (plan?.kind === 'replace') {
-    replaceSurface(state, plan)
+    state.nodes.splice(plan.startIdx, plan.endIdx - plan.startIdx + 1, plan.seq)
+    state.replaceGeneration += 1
   }
   if (plan?.kind !== 'replace') return
   return {
@@ -283,16 +229,9 @@ function applySurfaceEvent(
 
 /**
  * Replay a complete session log through the canonical surface fold.
- *
- * The returned arrays and nodes are detached snapshots. The incremental
- * {@link SurfaceManager} uses the same transition functions, so query read
- * models cannot disagree with `deriveMessages()` about replacement ranges.
  * @param events - session events in contiguous seq order.
- * @returns the current surface and every positional replacement.
- * @throws when any event violates the unified surface contract: metadata must
- * be well shaped and type-eligible, event seqs must be contiguous, provenance
- * must name unique earlier events, and a positional replacement must name and
- * cite its complete range.
+ * @returns detached current sequences and replacement history.
+ * @throws when an event violates surface metadata, provenance, or range rules.
  */
 export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult {
   const state = createFoldState()
@@ -301,68 +240,44 @@ export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult 
     const replacement = applySurfaceEvent(state, event, index)
     if (replacement !== undefined) replacements.push(replacement)
   }
-  return {
-    nodes: state.nodes.map(node => ({ ...node })),
-    replacements,
-  }
+  return { nodes: [...state.nodes], replacements }
 }
 
-/**
- * Maintains a cached linked list of surface nodes and validates each candidate
- * before it enters the event log. Because the log is append-only, it processes
- * only committed deltas and plans the candidate without mutation rather than
- * rescanning the whole log.
- */
+/** Incremental ordered surface view and append-boundary validator. */
 export class SurfaceManager {
-  /** Incremental state shared with the complete surface fold. */
+  /** Shared transition state; replacement history is not retained. */
   private _state = createFoldState()
-  /** The last processed seq. -1 folds the seeded log on first access. */
+  /** Last processed seq; -1 folds a seeded log on first access. */
   private _lastProcessedSeq = -1
 
   constructor(private log: readonly SessionEvent[]) {}
 
   /**
-   * Validate one candidate as the next log event without applying it. The
-   * committed log is folded first, then the candidate's complete surface and
-   * provenance transition is planned atomically; a failure leaves the current
-   * surface unchanged.
-   * @param event - candidate event that has not entered `log` yet.
+   * Validate the next candidate without mutating the committed surface.
+   * @param event - candidate event that has not entered the log yet.
    */
   validateNext(event: SessionEvent): void {
     if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
     planSurfaceEvent(this._state, event, this.log.length)
   }
 
-  /**
-   * The surface's rewrite generation, bumped by every folded `replace` op.
-   * A replace is the ONE operation that rewrites the
-   * surface non-monotonically, so an incremental consumer of {@link nodes}
-   * (the session's derived-message cache) compares this between visits — an
-   * unchanged generation guarantees every node it has not seen is a pure tail
-   * append; a changed one means its view must rebuild. Monotonic: it never
-   * moves backwards, so comparisons cannot be fooled by a re-fold.
-   */
+  /** Monotonic count of folded positional replacements. */
   get replaceGeneration(): number {
     if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
     return this._state.replaceGeneration
   }
 
-  /** The surface nodes in linked-list order (head to tail). */
-  get nodes(): readonly SurfaceNode[] {
+  /** Surface event sequences in model-visible order. */
+  get nodes(): readonly number[] {
     if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
     return this._state.nodes
   }
 
-  /**
-   * Process events from `_lastProcessedSeq + 1` through the end of the log,
-   * folding new surface markers into the existing linked list.
-   */
+  /** Fold events appended since the previous access. */
   private _processDelta(): void {
     for (let i = this._lastProcessedSeq + 1; i < this.log.length; i++) {
-      // Index is bounded by i < this.log.length — never undefined.
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const event = this.log[i]!
-      applySurfaceEvent(this._state, event, i)
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded by the loop condition
+      applySurfaceEvent(this._state, this.log[i]!, i)
       this._lastProcessedSeq = i
     }
   }

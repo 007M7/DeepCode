@@ -119,8 +119,7 @@ describe('time-context through a real cordis.yml and stdio process', () => {
     )
     expect(contextText[1]).toMatch(/Time sampled while preparing turn 2, step 1:/)
 
-    const headers = events.filter(event => event.type === 'request/header'
-      || event.type === 'request/header-delta')
+    const headers = events.filter(event => event.type === 'request/header')
     expect(JSON.stringify(headers)).not.toContain('Time sampled while preparing')
   }, TEST_TIMEOUT_MS)
 })

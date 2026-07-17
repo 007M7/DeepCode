@@ -25,9 +25,9 @@ Both methods are **abstract** — the backend owns the entire strategy (token es
 
 ## Tool-pairing boundaries
 
-The interface exports `toolPairingBalancedBefore(session, node)` and `toolPairingBalancedAfter(session, node)` for snapping and validating compaction edges. A safe edge has no unanswered assistant tool call crossing it. Each helper identifies the node by seq alone and answers from balances cached per cut in current surface order, so a stale caller-held `node.next` cannot choose the cut.
+The interface exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for snapping and validating compaction edges. A safe edge has no unanswered assistant tool call crossing it. Each helper validates that the event sequence is in the current surface and answers from balances cached per cut in surface order.
 
-The private per-session cache is keyed by `session.surface.replaceGeneration` and the processed surface-node count. An unchanged generation extends the fold with unseen tail nodes only; a log-only append with no new surface node does no event reads, while a replacement generation rebuilds current membership and balances. Missing event seqs and a `tool/result` without a preceding open call reject as corrupt surface state.
+The private per-session cache is keyed by `session.surface.replaceGeneration` and the processed surface-entry count. An unchanged generation extends the fold with unseen tail entries only; a log-only append with no new surface entry does no event reads, while a replacement generation rebuilds current membership and balances. Missing event seqs and a `tool/result` without a preceding open call reject as corrupt surface state.
 
 ## Surface contract
 

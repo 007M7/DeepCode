@@ -44,7 +44,6 @@
     { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceEventType", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceOp", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceIntent", "source": "packages/core/session/src/types.ts" },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceNode", "source": "packages/core/session/src/surface.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceFoldReplacement", "source": "packages/core/session/src/surface.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceFoldResult", "source": "packages/core/session/src/surface.ts" },
 

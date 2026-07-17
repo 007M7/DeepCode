@@ -37,7 +37,7 @@ Source: [`packages/ui/user-approval/src/index.ts:56`](../packages/ui/user-approv
 
 #### `approval/policy` — log-only
 
-The session's approval policy was switched — log-only, durable, replayable, never in the model transcript (the model learns the policy from the prompt section and the narrator's notices). The LAST such event is the session's override (effectiveApprovalPolicy); who asked for it is derivable from position (an event after the log's last `request/header*` was a runtime switch by the user).
+The session's approval policy was switched — log-only, durable, replayable, never in the model transcript (the model learns the policy from the prompt section and the narrator's notices). The LAST such event is the session's override (effectiveApprovalPolicy); who asked for it is derivable from position (an event after the log's last `request/header` was a runtime switch by the user).
 
 ```ts persistence-catalog
 'approval/policy': { policy: ApprovalPolicy }
@@ -57,7 +57,7 @@ Raw stream chunk — token-level replay fidelity.
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:253`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:219`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -69,7 +69,7 @@ Assembled assistant message for one step (derived history uses this). Carries th
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:260`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
 
 ### `bash/*`
 
@@ -129,7 +129,7 @@ In-session context injection (file-change notices, subdir AGENTS.md, skill conte
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:246`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:212`](../packages/core/session/src/types.ts)
 
 ### `hook/*`
 
@@ -177,29 +177,19 @@ Durable record of a prompt veto and its reason. It is log-only: the blocked prom
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/types.ts)
 
 ### `request/*`
 
 #### `request/header` — log-only
 
-Full EpochHeader for the next request, appended inside its step before dispatch. It is log-only and anchors subsequent deltas.
+Full header for the next request, appended inside its step before dispatch. It is log-only; the latest snapshot reconstructs the request header.
 
 ```ts persistence-catalog
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:288`](../packages/core/session/src/types.ts)
-
-#### `request/header-delta` — log-only
-
-Log-only amendment to the folded EpochHeader. System and tools use their delta codecs; config and prefix replace whole, with an empty prefix encoding removal. Writers verify round-trip equality or log a fallback snapshot.
-
-```ts persistence-catalog
-'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
-```
-
-Source: [`packages/core/session/src/types.ts:294`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/types.ts)
 
 ### `steering/*`
 
@@ -213,7 +203,7 @@ Steering content injected between steps of a running turn.
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:278`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:244`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -225,7 +215,7 @@ Closes step `step` of turn `turn`.
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:231`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:197`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -235,13 +225,13 @@ Opens step `step` of turn `turn` — one model call plus the tool executions it 
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:229`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:195`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
 #### `todo/write` — log-only
 
-Whole-list snapshot; the latest write wins on replay. It is log-only UI state and never enters derived model history.
+Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history.
 
 ```ts persistence-catalog
 'todo/write': { todos: TodoItem[] }
@@ -249,7 +239,7 @@ Whole-list snapshot; the latest write wins on replay. It is log-only UI state an
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:283`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:246`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -263,7 +253,7 @@ The model requested one tool invocation: `name` with the raw `arguments` JSON st
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:266`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:232`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -287,7 +277,7 @@ A completed tool call's model-facing result, plus an optional tool-private `meta
 
 Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:242`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -301,7 +291,7 @@ Closes turn `turn` with the TurnEndReason that ended it. The loop fires the awai
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:227`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -313,7 +303,7 @@ Opens turn `turn`. `trigger` records what started it — a drained message batch
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:221`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:187`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -327,4 +317,4 @@ A user-visible prompt (queued message drained at turn start).
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:233`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:199`](../packages/core/session/src/types.ts)

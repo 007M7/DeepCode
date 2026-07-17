@@ -78,7 +78,7 @@ describe('foldSurface provenance', () => {
 })
 
 describe('SurfaceManager', () => {
-  it('shares exact nodes and nested replacement ranges with foldSurface', () => {
+  it('shares ordered entries and nested replacement ranges with foldSurface', () => {
     const s = new Session(SessionId('shared-fold'))
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -91,9 +91,10 @@ describe('SurfaceManager', () => {
       { seq: 2, start: 0, end: 0, shadowedSeqs: [0] },
       { seq: 3, start: 2, end: 1, shadowedSeqs: [2, 1] },
     ])
-    folded.nodes[0]!.next = 99
+    folded.nodes[0] = 99
     folded.replacements[0]!.shadowedSeqs.push(99)
-    expect(s.surface.nodes).toEqual([{ seq: 3, prev: null, next: null }])
+    expect(s.surface.nodes).toEqual([3])
+    expect(foldSurface(s.events).nodes).toEqual([3])
     expect(foldSurface(s.events).replacements[0]!.shadowedSeqs).toEqual([0])
   })
 
@@ -102,7 +103,7 @@ describe('SurfaceManager', () => {
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'b' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] })
 
-    expect(s.surface.nodes).toEqual([{ seq: 1, prev: null, next: null }])
+    expect(s.surface.nodes).toEqual([1])
     const manager = s.surface as unknown as { _state: object }
     expect(Object.hasOwn(manager._state, 'replacements')).toBe(false)
     expect(foldSurface(s.events).replacements).toEqual([
@@ -133,7 +134,7 @@ describe('SurfaceManager', () => {
 
     expect(s.events).toHaveLength(1)
     s.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    expect(s.surface.nodes.map(node => node.seq)).toEqual([0, 1])
+    expect(s.surface.nodes).toEqual([0, 1])
   })
 
   it('foldSurface rejects a surface-eligible event without its mandatory marker', () => {
@@ -161,18 +162,12 @@ describe('SurfaceManager', () => {
       .toThrow(/not surface-eligible and cannot carry surfaceOp/)
   })
 
-  it('rebuilds a linked list from surfaceOp: append markers', () => {
+  it('folds an ordered sequence list from surfaceOp: append markers', () => {
     const s = surfaceSession()
     const nodes = s.surface.nodes
     // Only the user/message and assistant/message carry surfaceOp: 'append'.
     // The turn boundaries do not have surface markers.
-    expect(nodes.length).toBe(2)
-    expect(nodes[0]!.seq).toBe(1) // user/message (turn/start is seq 0)
-    expect(nodes[0]!.prev).toBeNull()
-    expect(nodes[0]!.next).toBe(2) // assistant/message (seq 2)
-    expect(nodes[1]!.seq).toBe(2)
-    expect(nodes[1]!.prev).toBe(1)
-    expect(nodes[1]!.next).toBeNull()
+    expect(nodes).toEqual([1, 2])
   })
 
   it('empty surface yields empty nodes', () => {
@@ -193,9 +188,7 @@ describe('SurfaceManager', () => {
     // Append another surface node
     s.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false }, { surfaceOp: 'append' })
     expect(s.surface.nodes.length).toBe(3)
-    expect(s.surface.nodes[2]!.seq).toBe(4) // seq 4: after turn/end at seq 3
-    expect(s.surface.nodes[2]!.prev).toBe(2)
-    expect(s.surface.nodes[1]!.next).toBe(4)
+    expect(s.surface.nodes[2]!).toBe(4) // seq 4: after turn/end at seq 3
   })
 
   it('replays identically from a seeded log with surface markers', () => {
@@ -203,21 +196,17 @@ describe('SurfaceManager', () => {
     original.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false }, { surfaceOp: 'append' })
     const replayed = new Session(SessionId('replay'), [...original.events])
     // Surface rebuilds from the seeded log's markers.
-    expect(replayed.surface.nodes.map(n => n.seq)).toEqual([1, 2, 4])
+    expect(replayed.surface.nodes).toEqual([1, 2, 4])
     expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
   })
 
   it('rebuild with replace operation splices out shadowed nodes', () => {
     const s = surfaceSession()
-    // Replace surface seqs 1 (user) and 2 (assistant) with the summary.
     s.append('assistant/message',
       { provenance: { provider: 'mock', model: 'mock' }, turn: 2, step: 1, content: [{ type: 'text', text: 'summary' }] },
       { surfaceOp: { op: 'replace', start: 1, end: 2 }, sourceEventSeqs: [1, 2] },
     )
-    expect(s.surface.nodes.length).toBe(1)
-    expect(s.surface.nodes[0]!.seq).toBe(4) // seq of the compaction marker
-    expect(s.surface.nodes[0]!.prev).toBeNull()
-    expect(s.surface.nodes[0]!.next).toBeNull()
+    expect(s.surface.nodes).toEqual([4])
   })
 
   it('replace with both ends at real nodes splices only the range', () => {
@@ -230,12 +219,7 @@ describe('SurfaceManager', () => {
       { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'summary' }] },
       { surfaceOp: { op: 'replace', start: 0, end: 1 }, sourceEventSeqs: [0, 1] },
     ) // seq 3
-    expect(s.surface.nodes.map(n => n.seq)).toEqual([3, 2])
-    // Links: 3 ↔ 2
-    expect(s.surface.nodes[0]!.prev).toBeNull()
-    expect(s.surface.nodes[0]!.next).toBe(2)
-    expect(s.surface.nodes[1]!.prev).toBe(3)
-    expect(s.surface.nodes[1]!.next).toBeNull()
+    expect(s.surface.nodes).toEqual([3, 2])
   })
 
   it('single-node replacement (start === end)', () => {
@@ -247,9 +231,7 @@ describe('SurfaceManager', () => {
       { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'x' }] },
       { surfaceOp: { op: 'replace', start: 1, end: 1 }, sourceEventSeqs: [1] },
     ) // seq 2
-    expect(s.surface.nodes.map(n => n.seq)).toEqual([0, 2])
-    expect(s.surface.nodes[0]!.next).toBe(2)
-    expect(s.surface.nodes[1]!.prev).toBe(0)
+    expect(s.surface.nodes).toEqual([0, 2])
   })
 
   it('throws when replace start is not found', () => {
@@ -293,7 +275,7 @@ describe('SurfaceManager', () => {
     expect(logged.sourceEventSeqs).toEqual([0])
   })
 
-  it('replace starting at non-head position links to previous node correctly', () => {
+  it('replace starting at non-head position preserves surrounding order', () => {
     const s = new Session(SessionId('mid-replace'))
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 0
     s.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 1
@@ -303,14 +285,7 @@ describe('SurfaceManager', () => {
       { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'x' }] },
       { surfaceOp: { op: 'replace', start: 1, end: 1 }, sourceEventSeqs: [1] },
     ) // seq 3
-    expect(s.surface.nodes.map(n => n.seq)).toEqual([0, 3, 2])
-    // Links: 0 → 3 → 2
-    expect(s.surface.nodes[0]!.prev).toBeNull()
-    expect(s.surface.nodes[0]!.next).toBe(3)
-    expect(s.surface.nodes[1]!.prev).toBe(0)
-    expect(s.surface.nodes[1]!.next).toBe(2)
-    expect(s.surface.nodes[2]!.prev).toBe(3)
-    expect(s.surface.nodes[2]!.next).toBeNull()
+    expect(s.surface.nodes).toEqual([0, 3, 2])
   })
 
   it('surfaceOp replace object is snapshot so caller mutation is isolated', () => {
@@ -484,7 +459,7 @@ describe('SurfaceManager.replaceGeneration', () => {
     const nodes = s.surface.nodes
     s.append('context/message', {
       content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
-    }, { surfaceOp: { op: 'replace', start: nodes[0]!.seq, end: nodes[1]!.seq }, sourceEventSeqs: [nodes[0]!.seq, nodes[1]!.seq] })
+    }, { surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! }, sourceEventSeqs: [nodes[0]!, nodes[1]!] })
     expect(s.surface.replaceGeneration).toBe(1)
   })
 })

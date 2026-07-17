@@ -79,25 +79,14 @@ interface SessionEventMap {
    * Full snapshot of the {@link EpochHeader} the NEXT request is built under,
    * with the {@link RequestHeaderReason} it was recorded whole. Appended by
    * the loop inside the step, before dispatch, on a loop instance's first
-   * request-building step (`'initial'`/`'resume'`) or when a delta failed its
-   * round-trip guard (`'fallback'`); always records what the request actually
-   * used, post-`agent/request`. Anchors the header fold: reconstruction reads
-   * the latest snapshot and applies the deltas after it. NOT a
+   * request-building step (`'initial'`/`'resume'`) or when a later request's
+   * header changes (`'change'`); always records what the request actually
+   * used, post-`agent/request`. Reconstruction reads the latest snapshot. NOT a
    * {@link SurfaceEventType}: it produces no LLM message — it is the request
    * envelope, logged so every request is a pure function of the session log
    * (the reconstructability RFC).
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
-  /**
-   * Amendment to the folded {@link EpochHeader}: system line-trim, name-keyed
-   * tools delta, whole replacement config, or whole replacement session
-   * prefix (an EMPTY array encodes the transition to "none"). The
-   * writer verifies `applyHeaderDelta(previous, delta)` reproduces the new
-   * header exactly and falls back to a `'fallback'` `request/header` snapshot
-   * when it cannot, so a logged delta ALWAYS round-trips. NOT a
-   * {@link SurfaceEventType}.
-   */
-  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 }
 ```
 
@@ -112,9 +101,9 @@ export interface TodoItem {
 }
 ```
 
-### The request header events: `request/header` and `request/header-delta`
+### The request header event: `request/header`
 
-The request envelope — the `EpochHeader` (call config + rendered system prompt + assembled tool schemas + the session prefix) — is logged session state, so every conversation request is a pure function of the log (the reconstructability RFC). A `request/header` snapshot (reason `'initial' | 'resume' | 'fallback'`) anchors the fold at conversation birth, process boundaries, and delta-encoding fallbacks; `request/header-delta` events amend it mid-run. `foldRequestHeader(events)` reconstructs the header any request was built under; the writer round-trip-verifies every delta before logging it, so a well-formed log always folds. Neither is a `SurfaceEventType` — they produce no LLM message.
+The request envelope — the `EpochHeader` (call config + rendered system prompt + assembled tool schemas + the session prefix) — is logged session state, so every conversation request is a pure function of the log (the reconstructability RFC). A full `request/header` snapshot with reason `'initial'` or `'resume'` records each loop-instance boundary; a later changed request records another full snapshot with reason `'change'`. `foldRequestHeader(events)` reconstructs the header by selecting the latest snapshot. The event is not a `SurfaceEventType`: it produces no LLM message.
 
 ```ts type-equiv
 export interface EpochHeader {
@@ -135,7 +124,7 @@ export interface EpochHeader {
 }
 ```
 
-Canonical form: an empty system prompt, an empty tool list, and an empty session prefix are ABSENT fields, matching how requests are built. `messagePrefix` is the durable record of the `agent/session-prefix` waterfall's product (the request is `messagePrefix + derived history`); composed once per loop instance and anchored by that instance's snapshot, so the loop never produces a prefix delta in practice — the delta arm (whole-array replacement, an empty array encoding the transition back to absence) exists for codec totality. The other delta payloads (`SystemDelta` — a common-prefix/suffix line trim; `ToolsDelta` — name-keyed added/removed/changed) live beside the events in [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts).
+Canonical form: an empty system prompt, an empty tool list, and an empty session prefix are absent fields, matching how requests are built. `messagePrefix` is the durable record of the `agent/session-prefix` waterfall's product (the request is `messagePrefix + derived history`); it is composed once per loop instance and included in every full snapshot that instance records. Legacy v0 logs containing the removed `request/header-delta` event or its full-snapshot `fallback` reason are rejected at seed, append, and persistence-load boundaries rather than replayed incompletely.
 
 ## `SessionEvent<T>` — one log entry
 
@@ -167,7 +156,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ## Surface types
 
-The five message-producing types (`SurfaceEventType` — `user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`) carry surface metadata declaring how they join the derived surface linked list. See the [session surface RFC](../rfc/implemented/architecture/2026-06-18-session-surface.md).
+The five message-producing types (`SurfaceEventType` — `user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`) carry surface metadata declaring how they join the ordered derived surface. See the [session surface RFC](../rfc/implemented/architecture/2026-06-18-session-surface.md).
 
 ### `SurfaceEventType` — the message-producing subset of event types
 
@@ -188,7 +177,7 @@ export type SurfaceOp =
   | { op: 'replace'; start: number; end: number }
 ```
 
-`'append'` is the normal tail-append path. `replace` shadows surface nodes from `start` through `end` inclusive (both must be valid surface node seqs; `start === end` replaces a single node) and inserts the new node in their place.
+`'append'` is the normal tail-append path. `replace` shadows surface entries from `start` through `end` inclusive (both must be valid surface seqs; `start === end` replaces a single entry) and inserts the new event in their place.
 
 ### `SurfaceIntent` — the parameter to `session.append()`
 
@@ -201,21 +190,9 @@ export interface SurfaceIntent {
 
 Required for `SurfaceEventType` events — every message-producing event must declare how it joins the surface, the sole source of derived history. Non-surface types reject it at compile time.
 
-### `SurfaceNode` — a node in the surface linked list
-
-```ts type-equiv
-export interface SurfaceNode {
-  seq: number
-  prev: number | null
-  next: number | null
-}
-```
-
-`SurfaceNode` is positional state, not durable identity. A replacement can remove a caller-retained node or make a copied `next` stale; consumers that cross a surface mutation validate membership and answer positional queries from `Session.surface.nodes`. `SurfaceManager.replaceGeneration` increments for each replacement so incremental consumers can distinguish pure tail growth from a rewrite.
-
 ### `SurfaceFoldReplacement` and `SurfaceFoldResult` — a complete surface replay
 
-`foldSurface(events)` returns detached current nodes together with the actual node seqs shadowed by each declared replacement range. `SurfaceManager` uses the same transition functions for its incremental cache.
+`foldSurface(events)` returns detached current event sequences together with the actual sequences shadowed by each declared replacement range. `SurfaceManager` uses the same transitions for its incremental cache without retaining replacement history. Its `replaceGeneration` increments for each replacement so incremental consumers can distinguish pure tail growth from a rewrite.
 
 ```ts type-equiv
 export interface SurfaceFoldReplacement {
@@ -228,7 +205,7 @@ export interface SurfaceFoldReplacement {
 
 ```ts type-equiv
 export interface SurfaceFoldResult {
-  nodes: SurfaceNode[]
+  nodes: number[]
   replacements: SurfaceFoldReplacement[]
 }
 ```

@@ -1,9 +1,8 @@
 /**
- * recordRequestHeader unit tests: exactly one of four things per request —
+ * recordRequestHeader unit tests: exactly one of three things per request —
  * an 'initial' snapshot (log has no header yet), a 'resume' snapshot (fresh
- * loop instance over a log that has one), nothing (header unchanged), a
- * round-tripping delta, or a 'fallback' snapshot when the delta encoding
- * cannot express the change (pure tool reordering).
+ * loop instance over a log that has one), nothing (header unchanged), or a
+ * full 'change' snapshot.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -23,7 +22,7 @@ function openSession(id: string): Session {
 }
 
 function headerEvents(session: Session): SessionEvent[] {
-  return session.events.filter(e => e.type === 'request/header' || e.type === 'request/header-delta')
+  return session.events.filter(e => e.type === 'request/header')
 }
 
 describe('recordRequestHeader', () => {
@@ -53,8 +52,8 @@ describe('recordRequestHeader', () => {
     expect(events[1]?.type === 'request/header' && events[1].data.reason).toBe('resume')
   })
 
-  it('logs a round-tripping delta for a mid-run change, and the fold reproduces the header', () => {
-    const session = openSession('rl-delta')
+  it("logs a full 'change' snapshot for a mid-run change, and the fold reproduces the header", () => {
+    const session = openSession('rl-change')
     const state = createTransmissionLog()
     const first = canonicalHeader({ config: { provider: 'mock', model: 'm' }, system: 'a\nb', tools: [tool('t')] })
     recordRequestHeader(session, state, first)
@@ -63,12 +62,12 @@ describe('recordRequestHeader', () => {
     recordRequestHeader(session, state, second)
     const events = headerEvents(session)
     expect(events).toHaveLength(2)
-    expect(events[1]?.type).toBe('request/header-delta')
+    expect(events[1]?.type === 'request/header' && events[1].data.reason).toBe('change')
     expect(session.requestHeader()).toEqual(second)
   })
 
-  it("records a change the delta cannot express (pure reordering) as a 'fallback' snapshot", () => {
-    const session = openSession('rl-fallback')
+  it("records a pure tool reordering as a 'change' snapshot", () => {
+    const session = openSession('rl-reorder')
     const state = createTransmissionLog()
     const first = canonicalHeader({ config: { provider: 'mock', model: 'm' }, tools: [tool('a'), tool('b')] })
     recordRequestHeader(session, state, first)
@@ -77,9 +76,7 @@ describe('recordRequestHeader', () => {
     recordRequestHeader(session, state, reordered)
     const events = headerEvents(session)
     expect(events).toHaveLength(2)
-    expect(events[1]?.type === 'request/header' && events[1].data.reason).toBe('fallback')
-    // The fold still lands on the exact header — deltas are an encoding
-    // optimization, never a correctness dependency.
+    expect(events[1]?.type === 'request/header' && events[1].data.reason).toBe('change')
     expect(session.requestHeader()).toEqual(reordered)
   })
 })

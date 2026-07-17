@@ -138,7 +138,7 @@ function visibleInstructionChanges(
   agent: Agent,
   pending: Map<string, PendingInstructionChange>,
 ): Map<string, WorkspaceInstructionChange> {
-  const visibleSeqs = new Set(agent.session.surface.nodes.map(node => node.seq))
+  const visibleSeqs = new Set(agent.session.surface.nodes)
   const visible = new Map<string, WorkspaceInstructionChange>()
   for (const [seq, event] of agent.session.events.entries()) {
     if (event.type !== 'context/message' || !isWorkspaceContextSource(event.data.source)) continue

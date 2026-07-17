@@ -609,7 +609,7 @@ describe('surface contract under the invariants composition', () => {
     session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 2
     session.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 3
     // Replace node 2 (position 0) with seq 4 — surface is now [4, 3], so seq 4
-    // precedes seq 3 in linked-list order even though 4 > 3 numerically.
+    // precedes seq 3 in surface order even though 4 > 3 numerically.
     session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 's' }] }, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] }) // seq 4
     // A replace with start=3, end=4 passes the seq check (3 <= 4) but is
     // reversed positionally (3 is at pos 1, 4 is at pos 0).
@@ -700,7 +700,7 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
   it('expects the folded header\'s session prefix ahead of the derivation (prefix + derived)', async () => {
     const { ctx, session, boundary } = await requestSetup()
     const prefix = { role: 'user' as const, content: [{ type: 'text' as const, text: '<system-reminder>catalog</system-reminder>' }] }
-    session.append('request/header-delta', { messagePrefix: [prefix] })
+    session.append('request/header', { header: { config: { provider: 'mock', model: 'm' }, messagePrefix: [prefix] }, reason: 'change' })
     // The prefixed request matches the fold…
     const prefixed = Object.freeze({ model: 'm', messages: Object.freeze([prefix, ...boundary]), sessionId: session.id })
     expect(() => { dispatch(ctx, prefixed) }).not.toThrow()

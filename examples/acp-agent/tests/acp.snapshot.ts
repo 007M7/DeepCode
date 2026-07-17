@@ -67,13 +67,13 @@ const SCENARIOS: Scenario[] = [
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
   // ACP exposes the adapter catalog as a session-scoped model select. This
   // scenario pins the default flash request, the switch response, and the
-  // resulting request-header delta to pro.
+  // resulting changed request-header snapshot for pro.
   {
     name: 'model-switching',
     hasModelTurn: true,
     recorded: true,
     pinsHeader: true,
-    expectedHeaderDeltas: 1,
+    expectedHeaderChanges: 1,
     headerClass: 'model-switching',
   },
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
@@ -161,7 +161,7 @@ const SCENARIOS: Scenario[] = [
   // Real-kernel confinement remains in escalation.e2e.ts and the sandbox
   // packages' e2e suites.
   { name: 'config-options', hasModelTurn: false, recorded: false, headerClass: 'sandbox' },
-  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'sandbox' },
+  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'sandbox' },
   { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
   { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
 ]

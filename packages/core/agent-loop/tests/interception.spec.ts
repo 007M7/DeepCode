@@ -375,8 +375,8 @@ describe('agent/session-prefix', () => {
       expect(request.messages[0]).toEqual(reminder)
     }
     // The anchoring snapshot is the prefix's durable record — and the ONLY
-    // header event: reuse means no request/header-delta ever.
-    const headerEvents = events(agent).filter(e => e.type === 'request/header' || e.type === 'request/header-delta')
+    // header event: reuse means no changed snapshot ever.
+    const headerEvents = events(agent).filter(e => e.type === 'request/header')
     expect(headerEvents).toHaveLength(1)
     expect(headerEvents[0]?.type === 'request/header' && headerEvents[0].data.header.messagePrefix).toEqual([reminder])
     // Never session history: the derivation starts at the real user prompt.
@@ -492,7 +492,7 @@ describe('agent/session-prefix', () => {
     // cached prefix is a deep-frozen clone, so step 2's request is unchanged.
     held.content = [{ type: 'text', text: 'v2' }]
     expect(adapter.requests[1]!.messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'v1' }] })
-    expect(events(agent).filter(e => e.type === 'request/header-delta')).toHaveLength(0)
+    expect(events(agent).filter(e => e.type === 'request/header')).toHaveLength(1)
   })
 })
 

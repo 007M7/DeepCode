@@ -343,8 +343,8 @@ export class BasicCompactService extends CompactService {
   ): Promise<CompactionResult> {
     // Resolve by surface position: a newer replacement seq may occupy an older slot.
     const nodes = session.surface.nodes
-    const startIdx = nodes.findIndex(n => n.seq === start)
-    const endIdx = nodes.findIndex(n => n.seq === end)
+    const startIdx = nodes.indexOf(start)
+    const endIdx = nodes.indexOf(end)
     if (startIdx === -1) throw new Error(`compactRegion: start seq ${start} not found in surface`)
     if (endIdx === -1) throw new Error(`compactRegion: end seq ${end} not found in surface`)
     if (startIdx > endIdx) {
@@ -353,13 +353,13 @@ export class BasicCompactService extends CompactService {
 
     // Both range edges must preserve assistant tool-call/result pairing.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const startNode = nodes[startIdx]!
-    if (!toolPairingBalancedBefore(session, startNode)) {
+    const startSeq = nodes[startIdx]!
+    if (!toolPairingBalancedBefore(session, startSeq)) {
       throw new Error(`compactRegion: start seq ${start} is not a balanced boundary (would split a step's tool-call/result pair)`)
     }
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const endNode = nodes[endIdx]!
-    if (!toolPairingBalancedAfter(session, endNode)) {
+    const endSeq = nodes[endIdx]!
+    if (!toolPairingBalancedAfter(session, endSeq)) {
       throw new Error(`compactRegion: end seq ${end} is not a balanced boundary (would split a step, or the step is still open)`)
     }
 
@@ -375,7 +375,7 @@ export class BasicCompactService extends CompactService {
     }
     // Slice the ordered surface nodes [startIdx, endIdx] inclusive — the
     // shadowed range is positional, so this is the set the replace op covers.
-    const shadowedSeqs = nodes.slice(startIdx, endIdx + 1).map(n => n.seq)
+    const shadowedSeqs = nodes.slice(startIdx, endIdx + 1)
 
     // --- Acquire lock ---
     const startEvent = session.append('compact/start', { turn: openTurn })
@@ -498,9 +498,9 @@ export class BasicCompactService extends CompactService {
     let keepFromIdx = nodes.length // nothing retained yet
     for (let i = nodes.length - 1; i >= 0; i--) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const node = nodes[i]!
-      const event = events[node.seq]
-      /* v8 ignore next -- node.seq is a surface-node seq, always a valid log index by construction */
+      const seq = nodes[i]!
+      const event = events[seq]
+      /* v8 ignore next -- seq is a surface event sequence, always a valid log index by construction */
       if (event) accumulated += this.estimateEventTokens(event)
       keepFromIdx = i
       if (accumulated >= retainBudget) break
@@ -509,10 +509,8 @@ export class BasicCompactService extends CompactService {
     // The whole surface fits the retain budget — nothing to compact.
     if (keepFromIdx === 0) return null
 
-    // Round the cutoff to a tool-pairing boundary: if the cut before `nodes[keepFromIdx]` is
-    // unbalanced (an unanswered tool-call sits before it — i.e. it is mid-step), extend the
-    // retained side head-ward until the cut is balanced, so the compacted range ends without
-    // splitting an assistant↔result pair.
+    // Round the cutoff head-ward to a tool-pairing boundary; decline when no
+    // safe compactable prefix exists.
     while (keepFromIdx > 0) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       if (toolPairingBalancedBefore(session, nodes[keepFromIdx]!)) break
@@ -522,9 +520,9 @@ export class BasicCompactService extends CompactService {
 
     // The compacted range is [head … keepFromIdx - 1], anchored at the head.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const firstSeq = nodes[0]!.seq
+    const firstSeq = nodes[0]!
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const cutoffSeq = nodes[keepFromIdx - 1]!.seq
+    const cutoffSeq = nodes[keepFromIdx - 1]!
     return { start: firstSeq, end: cutoffSeq }
   }
 

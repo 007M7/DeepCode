@@ -1,6 +1,6 @@
 # dsh-session
 
-Event-sourced session log and in-memory store. A `Session` is the append-only source of truth for an agent's whole interaction history — the LLM message history is *derived* from it. A **surface** layer (a linked list of message-producing events) is maintained on top of the raw log for efficient derivation and compaction.
+Event-sourced session log and in-memory store. A `Session` is the append-only source of truth for an agent's whole interaction history — the LLM message history is *derived* from it. A **surface** layer (an ordered projection of message-producing events) is maintained on top of the raw log for efficient derivation and compaction.
 
 ## Service: `SessionStore` (ctx key: `sessions`)
 
@@ -33,7 +33,7 @@ The store pairs announced creation with disposal, publishes post-commit append n
 Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
 - `session.append(type, data, opts?)` snapshots and freezes durable data and surface metadata, validates marker shape, provenance, and complete replacement coverage, commits synchronously, then notifies observers with independent failure containment. Reentrant attached-session appends reject, and runtime checks cover widened unions and loaded logs.
-- `session.deriveMessages()` incrementally projects each new surface node once and returns a fresh array over shared frozen messages. Assistant projections preserve provider/model provenance and adapter-private replay state. A surface rewrite rebuilds the projection; there is no raw-log fallback.
+- `session.deriveMessages()` incrementally projects each new surface entry once and returns a fresh array over shared frozen messages. Assistant projections preserve provider/model provenance and adapter-private replay state. A surface rewrite rebuilds the projection; there is no raw-log fallback.
 - `session.deriveEventMessage(event)` is the canonical per-event projection used by reconstruction and invariants.
 - `session.surface` lazily folds only new `surfaceOp` markers; `replaceGeneration` changes on every rewrite.
 - `session.events` is a cached frozen snapshot invalidated by append; accepted events remain deeply frozen.
@@ -46,15 +46,14 @@ Durable values need one accepted representation, not a check followed by a secon
 
 ### Surface types
 
-- `SurfaceOp` — how a surface node entered the linked list: `'append'` (normal tail append) or `{ op: 'replace', start, end }` (replace nodes from `start` through `end` inclusive — both must be valid surface node seqs; `start === end` replaces a single node). Used by compaction to shadow old nodes without deleting them.
+- `SurfaceOp` — how an event entered the ordered surface: `'append'` (normal tail append) or `{ op: 'replace', start, end }` (replace entries from `start` through `end` inclusive — both must be valid surface seqs; `start === end` replaces one entry). Used by compaction to shadow old events without deleting them.
 - `SurfaceIntent` — `{ surfaceOp: SurfaceOp; sourceEventSeqs?: number[] }`, the required third parameter to `session.append()` for surface-eligible types.
-- `SurfaceNode` — `{ seq: number; prev: number | null; next: number | null }`, one node in the surface linked list.
-- `foldSurface(events)` — replay the one canonical surface contract into detached current nodes and actual replacement ranges. The same pass rejects non-contiguous event seqs, misplaced or malformed metadata, empty or duplicate provenance, non-earlier sources, invalid positional ranges, and replacements that fail to cite every shadowed surface node; `SurfaceManager` shares the atomic transition while retaining its incremental cache.
-- `isSurfaceEvent(event)` / `isSurfaceEligibleType(type)` — the first narrows a `SessionEvent` to a fully-formed surface node (type is surface-eligible AND `surfaceOp` present); the second is the type-only check (is this one of the five `SurfaceEventType` values?), used to detect a surface-eligible event MISSING its marker — e.g. when validating a seed/load log.
+- `foldSurface(events)` — replay the canonical surface contract into detached current event sequences and actual replacement ranges. The same pass rejects non-contiguous seqs, misplaced or malformed metadata, empty or duplicate provenance, non-earlier sources, invalid positional ranges, and replacements that fail to cite every shadowed surface entry; `SurfaceManager` shares the atomic transition while retaining only its incremental sequence cache.
+- `isSurfaceEvent(event)` / `isSurfaceEligibleType(type)` — the first narrows a `SessionEvent` to a fully formed surface event; the second detects a surface-eligible event missing its marker when validating a seed or loaded log.
 
 ### Request-header reconstruction (`request-header.ts`)
 
-`request/header` and `request/header-delta` make the non-history request envelope reconstructable from the log. `foldRequestHeader()` reconstructs the active header, `diffHeader()` encodes changes, and `applyHeaderDelta()` replays them; unsupported deltas fall back to a full snapshot. `messagePrefix` remains separate from derived history. See the [reconstructable-requests RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
+`request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. `messagePrefix` remains separate from derived history. See the [reconstructable-requests RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
 `context/message` defaults to the canonical tagged context projection. A producer may set `envelope: 'raw'` when its `content` already contains the complete model-facing frame, and may attach JSON `meta` for replayable plugin state; metadata remains durable but is excluded from `deriveMessages()`.
 
@@ -68,7 +67,7 @@ Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types
 
 Every `SessionEvent` carries two optional top-level fields (structural metadata):
 
-- `sourceEventSeqs?: number[]` — seq numbers of provenance sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed nodes behind a compaction replace node).
+- `sourceEventSeqs?: number[]` — seq numbers of provenance sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed entries behind a compaction replacement entry).
 - `surfaceOp?: SurfaceOp` — how this event entered the surface. Absent for non-surface events (boundaries, chunks, usage, errors).
 
 ### Metadata types (`types.ts`)
@@ -79,15 +78,15 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 
 - Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`, `session.header`) is what such a backend stores beside the log.
 - Replay/fork: `create(id, { seed })` validates and freezes a contiguous current-format log and rebuilds its surface; request headers require provider/model and assistant messages require provider/model provenance. `fork(source, boundary?, childSessionId?)` selects a completed-turn prefix and records lineage.
-- Compaction: the `dsh-compact-basic` plugin appends a `user/message` with `surfaceOp: { op: 'replace', start, end }` to shadow old surface nodes behind a summary checkpoint. Tool-pairing boundary policy and its cache belong to the [`dsh-compact` seam](../../compact/compact/README.md), while this package owns surface membership, positional links, and `replaceGeneration`.
+- Compaction: the `dsh-compact-basic` plugin appends a `user/message` with `surfaceOp: { op: 'replace', start, end }` to shadow old surface entries behind a summary checkpoint. Tool-pairing boundary policy and its cache belong to the [`dsh-compact` seam](../../compact/compact/README.md), while this package owns ordered surface membership and `replaceGeneration`.
 
 ## Model Experience
 
 ### Derived message history
 
-**What the model sees**: The model receives projections of `user/message`, `assistant/message`, and `tool/result` surface nodes verbatim. A `context/message` is a user-role message containing exactly `<context source="<source-kind>">`, its content blocks, and `</context>`; `steering/message` uses the identical `<steering source="<source-kind>">` / `</steering>` wrapper. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
+**What the model sees**: The model receives projections of `user/message`, `assistant/message`, and `tool/result` surface entries verbatim. A `context/message` is a user-role message containing exactly `<context source="<source-kind>">`, its content blocks, and `</context>`; `steering/message` uses the identical `<steering source="<source-kind>">` / `</steering>` wrapper. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
 
-**Token effect**: Appended surface nodes are resent on later steps. A `replace` surface operation removes the shadowed nodes from future inputs without deleting their raw log records.
+**Token effect**: Appended surface entries are resent on later steps. A `replace` surface operation removes the shadowed entries from future inputs without deleting their raw log records.
 
 ### Crash-repair result
 
