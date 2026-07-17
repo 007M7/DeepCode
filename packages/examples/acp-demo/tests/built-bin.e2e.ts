@@ -30,9 +30,9 @@ const acpBin = join(repoRoot, 'packages/examples/acp-demo/lib/bin.js')
 const dshPackages = [
   'examples/agent-spine-demo', 'core/agent', 'core/session', 'core/system-prompt',
   'core/tools', 'core/agent-loop', 'llm/llm', 'llm/llm-deepseek', 'bash/bash',
-  'bash/bash-local', 'bash/tool-bash', 'support/invariants', 'ui/app-boot',
+  'bash/bash-local', 'bash/tool-bash', 'context/workspace-context', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
-  'session-persistence/session-persistence-jsonl', 'ui/acp', 'examples/acp-demo',
+  'session-persistence/session-persistence-jsonl', 'ui/acp', 'examples/acp-demo', 'util/paths',
 ]
 const vendorPackages = [
   'cordis', 'loader', 'include', 'timer', 'hmr', 'logger-console',
@@ -86,6 +86,7 @@ async function makeConsumer(): Promise<string> {
     '  config:',
     '    model: deepseek-v4-flash',
     '    persona: \'test agent\'',
+    '    workspaceContext: false',
     '',
   ].join('\n'))
   return dir

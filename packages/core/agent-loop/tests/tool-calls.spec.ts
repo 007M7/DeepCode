@@ -3,7 +3,7 @@
  * `ctx.tools.executionMode`, the rolling pool for parallel groups, model-order
  * `tool/result` commit despite out-of-order settlement, registry-change
  * reclassification, interleaved `tool/call` audit records, ordered
- * `tools/pre-execute`/`tools/post-execute`, model-ordered `additionalContext`,
+ * `tools/pre-execute`/`tools/post-execute`, model-ordered `additionalContexts`,
  * and abort behavior.
  *
  * Tools are mocked and deterministic — no real API, no snapshot here (the
@@ -383,7 +383,7 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
 
 })
 
-describe('tool-call scheduler: ordered middleware and additionalContext', () => {
+describe('tool-call scheduler: ordered middleware and additional contexts', () => {
   it('tools/pre-execute and tools/post-execute observe model call order', async () => {
     const adapter = new MockAdapter([
       multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }, { id: 'c2', name: 'p', args: { id: '2' } }, { id: 'c3', name: 'p', args: { id: '3' } }]),
@@ -409,7 +409,7 @@ describe('tool-call scheduler: ordered middleware and additionalContext', () => 
     expect(post).toEqual([CallId('c1'), CallId('c2'), CallId('c3')].map(String))
   })
 
-  it('injects additionalContext in model call order, not settlement order', async () => {
+  it('injects additional contexts in model call order, not settlement order', async () => {
     const adapter = new MockAdapter([
       multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }, { id: 'c2', name: 'p', args: { id: '2' } }]),
       textResponse('done'),
@@ -418,7 +418,7 @@ describe('tool-call scheduler: ordered middleware and additionalContext', () => 
     const gated = gatedParallelTool('p')
     ctx.tools.register(gated.tool)
     ctx.on('tools/post-execute', async (exec, _result): Promise<PostToolDecision> =>
-      ({ kind: 'accept', additionalContext: { content: [{ type: 'text', text: `ctx-${exec.callId}` }], source: { kind: 'plugin', plugin: 'p' } } }))
+      ({ kind: 'accept', additionalContexts: [{ content: [{ type: 'text', text: `ctx-${exec.callId}` }], source: { kind: 'plugin', plugin: 'p' } }] }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     agent.send([{ type: 'text', text: 'go' }])
@@ -527,7 +527,7 @@ describe('tool-call scheduler: abort handling', () => {
       .toEqual([CallId('c1')])
   })
 
-  it('stops replenishing after abort, commits started results, and drops buffered additionalContext', async () => {
+  it('stops replenishing after abort, commits started results, and drops buffered additional contexts', async () => {
     const adapter = new MockAdapter([
       multiCall([1, 2, 3, 4].map(n => ({ id: `c${n}`, name: 'p', args: { id: String(n) } }))),
       textResponse('should never be requested'),
@@ -537,7 +537,7 @@ describe('tool-call scheduler: abort handling', () => {
     ctx.tools.register(gated.tool)
     ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => ({
       ...await next(),
-      additionalContext: { content: [{ type: 'text', text: `ctx-${exec.callId}` }], source: { kind: 'plugin', plugin: 'p' } },
+      additionalContexts: [{ content: [{ type: 'text', text: `ctx-${exec.callId}` }], source: { kind: 'plugin', plugin: 'p' } }],
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 

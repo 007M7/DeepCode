@@ -122,7 +122,7 @@ export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta
 
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
-  execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
+  execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
    * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
@@ -230,15 +230,30 @@ export interface ToolExecution extends ToolExecutionInput {
 }
 
 /**
+ * Runtime context handed to a tool implementation after the registry has
+ * accepted a {@link ToolExecution}. A composite tool uses
+ * {@link deferContext} to ferry context produced by nested dispatches back to
+ * the outer result; the loop appends it only after the outer `tool/result`.
+ */
+export interface ToolRunContext extends ToolExecution {
+  /**
+   * Defer one nested-dispatch context until this tool's final result reaches
+   * the agent loop. Contexts retain their individual source, envelope, and
+   * metadata and are emitted in call order.
+   */
+  deferContext(context: HookContext): void
+}
+
+/**
  * Internal result of the scheduler-owned `tools/pre-execute` stage. Exported
  * only so `dsh-agent-loop` can split ordered middleware from concurrent
  * dispatch without exposing named staged service methods on `ctx.tools`.
  * @internal
  */
 export type ScheduledToolPreparation =
-  | { kind: 'dispatch'; exec: ToolExecution }
-  | { kind: 'post-result'; exec: ToolExecution; result: ToolExecutionResult }
-  | { kind: 'final-result'; exec: ToolExecution; result: ToolExecutionResult }
+  | { kind: 'dispatch'; exec: ToolRunContext }
+  | { kind: 'post-result'; exec: ToolRunContext; result: ToolExecutionResult }
+  | { kind: 'final-result'; exec: ToolRunContext; result: ToolExecutionResult }
 
 /**
  * Internal result of the scheduler-owned `tools/execute` stage. A normal tool
@@ -262,11 +277,11 @@ export interface ToolRegistryScheduler {
   /** Materialize input, run the ordered pre-execute/guard gate, and decide what stage follows. */
   prepare(exec: ToolExecutionInput): Promise<ScheduledToolPreparation>
   /** Run only the around-dispatch/body stage. */
-  dispatch(exec: ToolExecution): Promise<ScheduledToolDispatch>
+  dispatch(exec: ToolRunContext): Promise<ScheduledToolDispatch>
   /** Run ordered post-execute finalization, then materialize and notify the final outcome. */
-  finalize(exec: ToolExecution, result: ToolExecutionResult): Promise<ToolExecutionResult>
+  finalize(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult>
   /** Materialize and notify a final outcome that must bypass post-execute. */
-  finish(exec: ToolExecution, result: ToolExecutionResult): ToolExecutionResult
+  finish(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult
 }
 
 /**
@@ -309,7 +324,7 @@ export interface ToolExecutionResult {
    * Model-facing context for the next request, separate from this tool result.
    * The loop buffers it until all step results are logged, preserving pairing.
    */
-  additionalContext?: HookContext
+  additionalContexts?: HookContext[]
   /**
    * The tool-private presentation payload from a successful `execute` (the object
    * return form). Threaded onto the `tool/result` session event and back into
@@ -335,8 +350,8 @@ export type PreToolDecision =
  * request, or block by turning corrective feedback into an error result.
  */
 export type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; additionalContext?: HookContext }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'accept'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: HookContext[] }
 
 /**
  * Best-effort human-readable message from an arbitrary thrown value: Error
@@ -444,6 +459,8 @@ export class ToolRegistry extends Service {
     finish: (exec, result) => this.finishScheduledExecution(exec, result),
   }
 
+  /** Context deferred by a running tool body, keyed by its scheduler-owned execution. */
+  private deferredContexts = new WeakMap<ToolRunContext, HookContext[]>()
   private global = new Map<string, ToolDefinition>()
   private scoped = new Map<ScopeKey, Map<string, ToolDefinition>>()
   /** Compiled restriction filters, per scope (see {@link restrict}). */
@@ -799,7 +816,8 @@ export class ToolRegistry extends Service {
   }
 
   /** Materialize caller input into the immutable identity object used by the pipeline. */
-  private createExecution(exec: ToolExecutionInput): ScheduledToolPreparation | { kind: 'ready'; exec: ToolExecution } {
+  private createExecution(exec: ToolExecutionInput): ScheduledToolPreparation | { kind: 'ready'; exec: ToolRunContext } {
+    const deferredContexts: HookContext[] = []
     const token = createExecutionToken()
     const callId = exec.callId
     const name = exec.name
@@ -813,15 +831,20 @@ export class ToolRegistry extends Service {
       ...agent !== undefined ? { agent } : {},
       ...parent !== undefined ? { parent } : {},
       ...signal !== undefined ? { signal } : {},
+      deferContext(context: HookContext): void {
+        deferredContexts.push(context)
+      },
     }
     try {
       const detached = snapshotJsonValue(exec.arguments)
       if (detached === undefined) {
         throw new TypeError('tool execution arguments must be losslessly JSON-serializable')
       }
-      return { kind: 'ready', exec: { ...base, arguments: deepFreeze(detached) } }
+      const execution: ToolRunContext = { ...base, arguments: deepFreeze(detached) }
+      this.deferredContexts.set(execution, deferredContexts)
+      return { kind: 'ready', exec: execution }
     } catch (error: unknown) {
-      const execution: ToolExecution = { ...base, arguments: undefined }
+      const execution: ToolRunContext = { ...base, arguments: undefined }
       return { kind: 'final-result', exec: execution, result: toolErrorResult(error) }
     }
   }
@@ -878,7 +901,7 @@ export class ToolRegistry extends Service {
    * @returns whether the result still needs post-execute.
    * @internal
    */
-  private async dispatchScheduledExecution(exec: ToolExecution): Promise<ScheduledToolDispatch> {
+  private async dispatchScheduledExecution(exec: ToolRunContext): Promise<ScheduledToolDispatch> {
     try {
       const carrier = scopeTarget(this, exec.agent)
       const result = await this.ctx.waterfall(
@@ -896,7 +919,19 @@ export class ToolRegistry extends Service {
           }
         },
       )
-      return { kind: 'post-result', result }
+      const deferredContexts = this.deferredContexts.get(exec)
+      /* v8 ignore next -- dispatch only receives executions minted by this registry's prepare stage */
+      if (deferredContexts === undefined) throw new Error('tool registry scheduler invariant violated: unprepared execution')
+      const resultWithDeferredContexts: ToolExecutionResult = deferredContexts.length === 0
+        ? result
+        : {
+          ...result,
+          additionalContexts: [
+            ...deferredContexts,
+            ...result.additionalContexts ?? [],
+          ],
+        }
+      return { kind: 'post-result', result: resultWithDeferredContexts }
     } catch (error: unknown) {
       return { kind: 'final-result', result: toolErrorResult(error) }
     }
@@ -909,7 +944,7 @@ export class ToolRegistry extends Service {
    * @returns the materialized final result.
    * @internal
    */
-  private async finalizeScheduledExecution(exec: ToolExecution, result: ToolExecutionResult): Promise<ToolExecutionResult> {
+  private async finalizeScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
     try {
       return this.finishScheduledExecution(exec, await this.postExecute(exec, result))
     } catch (error: unknown) {
@@ -924,7 +959,7 @@ export class ToolRegistry extends Service {
    * @returns the materialized final result.
    * @internal
    */
-  private finishScheduledExecution(exec: ToolExecution, result: ToolExecutionResult): ToolExecutionResult {
+  private finishScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
     let finalResult: ToolExecutionResult
     try {
       finalResult = this.materializeFinalResult(result)
@@ -994,8 +1029,11 @@ export class ToolRegistry extends Service {
    * Run the `tools/post-execute` waterfall over a dispatched `result` and apply
    * its {@link PostToolDecision}: `accept` keeps the call successful (replacing
    * `content` when given), `block` turns it into an `isError` whose content is
-   * the corrective `feedback`. Either decision may attach `additionalContext`,
-   * which is ferried on the returned result for the loop's per-step buffer.
+   * the corrective `feedback`. Either decision may attach `additionalContexts`,
+   * which are ferried on the returned result for the loop's per-step buffer.
+   * Context deferred by the tool body survives an accepted result but is
+   * discarded when the outer call is blocked; a block exposes only context the
+   * blocking decision explicitly supplied.
    * Runs inside `execute`'s outer try/catch (a throwing listener → isError).
    */
   private async postExecute(exec: ToolExecution, result: ToolExecutionResult): Promise<ToolExecutionResult> {
@@ -1003,19 +1041,24 @@ export class ToolRegistry extends Service {
       scopeTarget(this, exec.agent), 'tools/post-execute', exec, result,
       () => Promise.resolve<PostToolDecision>({ kind: 'accept' }),
     )
-    const additionalContext = decision.additionalContext
+    const decisionContexts = decision.additionalContexts ?? []
     if (decision.kind === 'block') {
       return {
         content: decision.feedback,
         isError: true,
-        ...additionalContext ? { additionalContext } : {},
+        ...decisionContexts.length > 0 ? { additionalContexts: decisionContexts } : {},
       }
     }
-    // Accept: replace content if supplied and preserve the dispatched outcome.
+    // Accept: replace content if supplied, preserve the dispatched outcome, and
+    // append decision contexts after contexts deferred by the tool body.
+    const additionalContexts = [
+      ...result.additionalContexts ?? [],
+      ...decisionContexts,
+    ]
     return {
       ...result,
       ...decision.content ? { content: decision.content } : {},
-      ...additionalContext ? { additionalContext } : {},
+      ...additionalContexts.length > 0 ? { additionalContexts } : {},
     }
   }
 

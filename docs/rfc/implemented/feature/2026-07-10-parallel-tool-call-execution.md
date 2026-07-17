@@ -42,7 +42,7 @@ Every group uses a rolling pool bounded by `maxParallelToolCalls`: the loop star
 
 Only dispatch and the tool body overlap. `tools/pre-execute` and `tools/post-execute` run in model order because middleware may maintain ordering-sensitive state. `tools/execute` wrappers run around concurrent dispatches and therefore must be reentrant across distinct executions.
 
-Each started call appends `tool/call` immediately before its pre-execute gate. Completed dispatches occupy model-order slots, and a commit cursor appends `tool/result` and collects `additionalContext` only when the next slot is ready. Live surfaces may show several pending calls, but results and post-tool context remain model-ordered.
+Each started call appends `tool/call` immediately before its pre-execute gate. Completed dispatches occupy model-order slots, and a commit cursor appends `tool/result` and collects `additionalContexts` only when the next slot is ready. Live surfaces may show several pending calls, but results and post-tool context remain model-ordered.
 
 An abort before a group starts records no calls from that group. An abort during a group stops replenishment, waits for already-started calls, commits their results in order, drops their buffered additional context, and then ends the step through the existing abort path. Calls that never start have no audit event.
 

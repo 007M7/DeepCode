@@ -8,33 +8,202 @@
  * @module @deepseek-ai/dsh-tool-bash
  */
 
-import type { Context } from 'cordis'
+import { Service, type Context } from 'cordis'
 import z from 'schemastery'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { effectiveSandboxMode } from '@deepseek-ai/dsh-bash'
+import { DSH_ENV_PREFIX, effectiveSandboxMode } from '@deepseek-ai/dsh-bash'
+import type { DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
+import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-home'
 import { processOutcome } from './background.ts'
 import { parseExitStatus, renderProcessRead, renderResult } from './render.ts'
+
+declare module 'cordis' {
+  interface Context {
+    bashEnv: BashEnvRegistry
+  }
+}
 
 export const name = 'tool-bash'
 export const inject = ['tools', 'bash', 'systemPrompt']
 
-/** Configures whether the model may background commands. */
+/** Configuration for the bash tool and its managed child environment. */
 export interface Config {
   /** Expose `run_in_background` (default true); disabled calls are also rejected. */
   enableRunInBackground?: boolean
+  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.dsh`. */
+  dshHome?: string
 }
 
+/** Runtime configuration schema for the bash tool plugin. */
 export const Config: z<Config> = z.object({
   enableRunInBackground: z.boolean().default(true),
+  dshHome: z.string(),
 })
+
+/** Model-visible metadata for one managed `DSH_*` environment variable. */
+export interface BashEnvVariable {
+  /** Concise description of the environment fact represented by the variable. */
+  description: string
+}
+
+/**
+ * A plugin contribution to the managed environment of each model bash call.
+ * Declared keys make ownership conflicts detectable before the first command;
+ * `resolve` computes only the values available for the current execution.
+ */
+export interface BashEnvContributor {
+  /** Stable contributor name used in diagnostics and duplicate detection. */
+  name: string
+  /** Complete set of `DSH_*` keys this contributor may return. */
+  variables: Readonly<Record<DshEnvironmentKey, BashEnvVariable>>
+  /**
+   * Resolve this contributor's available values for one tool execution.
+   * @param execution - the bash tool execution and its optional calling agent.
+   * @returns a partial map containing only keys declared in {@link variables}.
+   */
+  resolve(execution: ToolExecution): Readonly<Partial<Record<DshEnvironmentKey, string>>>
+}
+
+/** An enumerable declaration returned by {@link BashEnvRegistry.list}. */
+export interface BashEnvVariableInfo extends BashEnvVariable {
+  /** Contributor that owns the variable. */
+  contributor: string
+  /** Declared `DSH_*` environment variable name. */
+  key: DshEnvironmentKey
+}
+
+const DSH_SHELL_KEY = `${DSH_ENV_PREFIX}SHELL` as const
+const DSH_SESSION_ID_KEY = `${DSH_ENV_PREFIX}SESSION_ID` as const
+const DSH_SESSION_JSONL_KEY = `${DSH_ENV_PREFIX}SESSION_JSONL` as const
+const RESERVED_BASH_ENV_KEYS = new Set<DshEnvironmentKey>([
+  DSH_HOME_ENV,
+  DSH_SHELL_KEY,
+  DSH_SESSION_ID_KEY,
+])
+const BASH_ENV_KEY_SUFFIX = /^[A-Z][A-Z0-9_]*$/
+
+/**
+ * Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables.
+ * The namespace is rebuilt for every model bash call: ambient `DSH_*` values
+ * are discarded by the executor, then the registry's current snapshot is
+ * injected. Built-in shell facts remain owned by the registry itself while
+ * plugins can register additional, enumerable facts with effect-scoped
+ * disposal.
+ */
+export class BashEnvRegistry extends Service {
+  private readonly contributors = new Map<string, BashEnvContributor>()
+  private readonly keyOwners = new Map<DshEnvironmentKey, string>()
+  private readonly dshHome: string
+
+  /**
+   * Create and install the `ctx.bashEnv` service.
+   * @param ctx - Cordis context that owns the service and registrations.
+   * @param config - home-directory configuration for the built-in variables.
+   */
+  constructor(ctx: Context, config: Config = {}) {
+    super(ctx, 'bashEnv')
+    this.dshHome = resolveDshHome(config.dshHome)
+  }
+
+  /**
+   * Register one environment contributor. Names and keys are unique; built-in
+   * keys are reserved. Registration is disposed with the calling plugin fiber.
+   * @param contributor - declared key ownership and per-execution resolver.
+   * @returns the disposer that unregisters the contribution.
+   */
+  register(contributor: BashEnvContributor): () => void {
+    const dispose = this.ctx.effect(function* (this: BashEnvRegistry) {
+      if (contributor.name.trim().length === 0) {
+        throw new Error('bash env contributor name must be non-empty')
+      }
+      if (this.contributors.has(contributor.name)) {
+        throw new Error(`bash env contributor "${contributor.name}" is already registered`)
+      }
+
+      const variables = Object.entries(contributor.variables) as [DshEnvironmentKey, BashEnvVariable][]
+      for (const [key, variable] of variables) {
+        if (!key.startsWith(DSH_ENV_PREFIX)
+          || !BASH_ENV_KEY_SUFFIX.test(key.slice(DSH_ENV_PREFIX.length))) {
+          throw new Error(`bash env contributor "${contributor.name}" declared invalid key "${key}"`)
+        }
+        if (RESERVED_BASH_ENV_KEYS.has(key)) {
+          throw new Error(`bash env contributor "${contributor.name}" cannot own reserved key "${key}"`)
+        }
+        if (variable.description.trim().length === 0) {
+          throw new Error(`bash env contributor "${contributor.name}" must describe "${key}"`)
+        }
+        const owner = this.keyOwners.get(key)
+        if (owner !== undefined) {
+          throw new Error(`bash env key "${key}" is already owned by contributor "${owner}"; contributor "${contributor.name}" cannot also own it`)
+        }
+      }
+
+      this.contributors.set(contributor.name, contributor)
+      for (const [key] of variables) this.keyOwners.set(key, contributor.name)
+      yield () => {
+        this.contributors.delete(contributor.name)
+        for (const [key] of variables) this.keyOwners.delete(key)
+      }
+    }.bind(this), 'bashEnv.register()')
+    return () => void dispose()
+  }
+
+  /**
+   * Build the trusted `DSH_*` snapshot for one bash tool execution.
+   * @param execution - the current tool execution.
+   * @returns an immutable environment overlay containing built-ins and current contributions.
+   */
+  collect(execution: ToolExecution): DshEnvironment {
+    const values: Record<DshEnvironmentKey, string> = {
+      [DSH_HOME_ENV]: this.dshHome,
+      [DSH_SHELL_KEY]: '1',
+    }
+    if (execution.agent !== undefined) {
+      values[DSH_SESSION_ID_KEY] = execution.agent.session.header.id
+    }
+
+    for (const contributor of [...this.contributors.values()].sort((left, right) => left.name.localeCompare(right.name))) {
+      const resolved = contributor.resolve(execution)
+      for (const [rawKey, value] of Object.entries(resolved)) {
+        const key = rawKey as DshEnvironmentKey
+        if (!Object.hasOwn(contributor.variables, key)) {
+          throw new Error(`bash env contributor "${contributor.name}" returned undeclared key "${key}"`)
+        }
+        if (typeof value !== 'string') {
+          throw new Error(`bash env contributor "${contributor.name}" returned a non-string value for "${key}"`)
+        }
+        values[key] = value
+      }
+    }
+
+    return Object.freeze(Object.fromEntries(Object.entries(values).sort(([left], [right]) => left.localeCompare(right))))
+  }
+
+  // TODO(bash-env-list-builtins): Include registry-owned built-ins before diagnostics,
+  // prompt, or UI code treats list() as an exhaustive environment catalog.
+  /**
+   * Enumerate plugin-contributed variables without executing their resolvers.
+   * @returns declarations sorted by environment variable name.
+   */
+  list(): BashEnvVariableInfo[] {
+    return [...this.contributors.values()]
+      .flatMap(contributor => Object.entries(contributor.variables).map(([key, variable]) => ({
+        contributor: contributor.name,
+        description: variable.description,
+        key: key as DshEnvironmentKey,
+      })))
+      .sort((left, right) => left.key.localeCompare(right.key))
+  }
+}
 
 /** Parsed tool args; execute validates value constraints absent from SchemaSpec. */
 interface BashToolArgs {
@@ -82,6 +251,7 @@ function bashDescription(backgroundEnabled: boolean, escalationModes: readonly S
   const base = 'Execute a bash command (`bash -c`) and return its stdout/stderr. '
     + 'Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — '
     + 'pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. '
+    + `Current harness environment facts are exposed through managed \`$${DSH_ENV_PREFIX}*\` variables; inspect them when needed. `
     + 'Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. '
     + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
     + background
@@ -153,7 +323,22 @@ function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent 
   return modelWorkdir
 }
 
-export function apply(ctx: Context, config: Config): void {
+export function apply(ctx: Context, config: Config = {}): void {
+  const bashEnv = new BashEnvRegistry(ctx, config)
+  bashEnv.register({
+    name: 'session-persistence',
+    variables: {
+      [DSH_SESSION_JSONL_KEY]: {
+        description: 'Absolute target path of the current session JSONL when the active persistence backend provides one.',
+      },
+    },
+    resolve(execution) {
+      const agent = execution.agent
+      if (agent === undefined) return {}
+      const location = ctx.get('sessionPersistence')?.locate(agent.session.header)
+      return location?.kind === 'jsonl' ? { [DSH_SESSION_JSONL_KEY]: location.path } : {}
+    },
+  })
   const backgroundEnabled = config.enableRunInBackground ?? true
   const defaultMode = ctx.bash.sandboxMode
   const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
@@ -235,10 +420,12 @@ export function apply(ctx: Context, config: Config): void {
         ? await approveEscalation(args.sandbox_permissions, args.justification, exec)
         : sessionOverride(exec)
       const workdir = resolveWorkdir(args.workdir, exec)
+      const dshEnv = bashEnv.collect(exec)
       const request = {
         command: args.command,
         ...workdir !== undefined ? { workdir } : {},
         ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
+        dshEnv,
         ...sandboxMode !== undefined ? { sandboxMode } : {},
       }
       if (args.run_in_background === true) {

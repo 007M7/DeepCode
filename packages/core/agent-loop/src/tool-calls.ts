@@ -11,7 +11,7 @@
  * The session log stays the source of truth and is reconstructable regardless
  * of dispatch timing: each STARTED call appends its own `tool/call` before its
  * body runs, `tool/result` events are appended in MODEL order (slot-buffered
- * behind a commit cursor), and buffered `additionalContext` is injected in model
+ * behind a commit cursor), and buffered `additionalContexts` are injected in model
  * call order after every result. A `tool/call`'s log position may interleave
  * with a sibling's `tool/result` as the pool replenishes; that is safe because
  * `tool/call` is log-only and derived history pairs the assistant message's
@@ -24,7 +24,7 @@ import type { Context } from 'cordis'
 import { assertNever, type ToolCallBlock } from '@deepseek-ai/dsh-llm'
 import type { HookContext } from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { TOOL_REGISTRY_SCHEDULER, type ToolExecution, type ToolExecutionInput, type ToolExecutionMode, type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import { TOOL_REGISTRY_SCHEDULER, type ToolExecutionInput, type ToolExecutionMode, type ToolExecutionResult, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { ReactLoopAgent } from './agent.ts'
 
 /** One tool call after argument parsing, ready to schedule. */
@@ -38,7 +38,7 @@ interface PlannedCall {
 /** A settled call's slot, filled in model order before ordered finalization. */
 interface Slot {
   /** The registry-minted execution object, carrying this call's token. */
-  exec: ToolExecution
+  exec: ToolRunContext
   /** The raw dispatch/pre result. */
   result: ToolExecutionResult
   /** Whether the result still needs ordered `tools/post-execute` finalization. */
@@ -49,7 +49,7 @@ interface Slot {
  * Execute one assistant step's tool calls, honoring per-call concurrency safety.
  *
  * Appends `tool/call` (per started call) and `tool/result` (in model order) to
- * the session, and returns the ordered `additionalContext` buffer for the loop
+ * the session, and returns the ordered `additionalContexts` buffer for the loop
  * to inject after the batch. On abort it drains only already-started calls to
  * results, drops buffered context, and throws the abort error so `runTurn` owns
  * the turn-end reason.
@@ -62,7 +62,7 @@ interface Slot {
  * @param toolCalls - the assistant message's `tool-call` blocks, in model order.
  * @param signal - the step's abort signal (shared by every call).
  * @param maxParallel - the already-validated cap snapshot for parallel groups.
- * @returns the per-step `additionalContext` buffer in model call order.
+ * @returns the per-step `additionalContexts` buffer in model call order.
  */
 export async function executeToolCalls(
   ctx: Context,
@@ -121,7 +121,7 @@ function parseArguments(raw: string): unknown {
  * it against the live registry. An exclusive result stops replenishment, drains
  * the current run, and remains for the caller's next singleton group. Settled
  * dispatches land in model-order slots; a commit cursor appends `tool/result`
- * (and collects `additionalContext`) only while the next slot is ready, so the
+ * (and collects `additionalContexts`) only while the next slot is ready, so the
  * log stays model-ordered regardless of completion order.
  *
  * Abort: an already-aborted signal starts nothing and throws before any
@@ -152,7 +152,7 @@ async function runGroup(
   let aborted: boolean = signal.aborted
 
   // Advance the commit cursor over contiguous settled slots: run post-execute in
-  // model order, append each tool/result, and collect its additionalContext.
+  // model order, append each tool/result, and collect its additionalContexts.
   const commitReady = async (): Promise<void> => {
     while (committed < group.length) {
       const slot = slots[committed]
@@ -164,7 +164,7 @@ async function runGroup(
       // committed < group.length, so call and its callSeq (set at start) exist.
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded index
       appendToolResult(session, turn, step, call!.block, result, callSeqs[committed]!)
-      if (result.additionalContext) pendingContext.push(result.additionalContext)
+      pendingContext.push(...result.additionalContexts ?? [])
       committed++
     }
   }
