@@ -271,9 +271,10 @@ interface Agent {
   readonly ctx: Context
 
   /**
-   * Queue one user-message FIFO item. Unless cleared before turn start, the
-   * item becomes the sole ordinary message in its turn and waits for every
-   * preceding turn's durability checkpoint. Content and the resolved source are accepted as one detached,
+   * Queue one user-message FIFO item. If claimed, the item becomes the sole
+   * ordinary message in its turn after every preceding turn's checkpoint
+   * settles. Broad cancellation, disposal, or a pre-start failure can drop it
+   * without a turn. Content and the resolved source are accepted as one detached,
    * deeply-frozen lossless-JSON record before notification or enqueue, so
    * caller or `agent/queued` listener in-place mutation cannot change later
    * log/model input. Throws synchronously when either value is not losslessly

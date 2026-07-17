@@ -8,7 +8,7 @@ English | [中文](2026-07-17-one-send-one-turn.zh.md)
 
 An ordinary `Agent.send()` payload is one complete caller message. Opportunistically draining every waiting payload into one turn would make adjacent calls share a boundary according to driver timing: calls from one synchronous stack, neighboring microtasks, event listeners, and model callbacks could be grouped differently even though callers used the same API.
 
-A turn owns prompt admission, `turn/start`, `turn/end`, and the durability checkpoint. Combining messages would let a later message join an earlier message's model request instead of observing the earlier turn's committed result, while mixed allowed and blocked prompts would require lifecycle states no caller explicitly requested.
+A turn owns prompt admission, `turn/start`, `turn/end`, and the durability checkpoint. Combining messages would let a later message join an earlier message's model request instead of observing the earlier turn's closed result in the same session log, while mixed allowed and blocked prompts would require lifecycle states no caller explicitly requested.
 
 `steer()` already expresses joining the active turn, while `inject()` records model-facing context without acting as an ordinary message. Implicit batching would make `send()` overlap both explicit operations instead of preserving a single meaning.
 
@@ -18,11 +18,11 @@ Each successful `send()` synchronously validates agent state, snapshots and free
 
 Prompt admission decides one message. An allowed prompt becomes that turn's `user/message`; a blocked prompt appends one durable `prompt/blocked` and ends that one-message turn as `rejected`. There are no mixed-batch or all-blocked-batch branches.
 
-Running `steer()` appends to the active turn's steering FIFO. Idle `steer()` delegates to `send()` and therefore creates an independent ordinary turn. `inject()` retains its turn-enclosure and flush behavior. `cancel()`, `status`, and `whenIdle()` remain whole-agent operations rather than per-message controls.
+Running `steer()` appends to the active turn's steering FIFO. Idle `steer()` delegates to `send()` and therefore creates an independent ordinary queue item. `inject()` retains its turn-enclosure and flush behavior. `cancel()`, `status`, and `whenIdle()` remain whole-agent operations rather than per-message controls.
 
 ## Alternatives considered
 
-**Keep opportunistic batching for throughput.** Combining queued prompts can reduce model calls when producers outpace the driver, but it makes turn boundaries depend on scheduling and prevents a later message from reliably observing the preceding turn's durable result. Explicit lifecycle semantics are worth the additional model calls; any future batching feature needs an explicit caller-visible contract justified by measurements.
+**Keep opportunistic batching for throughput.** Combining queued prompts can reduce model calls when producers outpace the driver, but it makes turn boundaries depend on scheduling and lets a later message run before the preceding turn closes and its checkpoint settles. Explicit lifecycle semantics are worth the additional model calls; any future batching feature needs an explicit caller-visible contract justified by measurements.
 
 ## Verification
 
@@ -33,6 +33,6 @@ Running `steer()` appends to the active turn's steering FIFO. Idle `steer()` del
 
 ## Consequences
 
-Ordinary turn boundaries are deterministic, and a claimed FIFO successor observes the preceding turn's committed session result. Several queued items can still run under one global `running` interval, and broad cancellation can discard the entire unstarted tail, so status and quiescence remain agent-wide observations rather than per-message results.
+Ordinary turn boundaries are deterministic, and a claimed FIFO successor observes the preceding turn's closed session result after its checkpoint settles; settlement does not mean a failed flush became durable. Several queued items can still run under one global `running` interval, and broad cancellation can discard the entire unstarted tail, so status and quiescence remain agent-wide observations rather than per-message results.
 
 Workloads that relied on coincidental batching make more model requests, incur more checkpoints, and may take longer to drain; FIFO queues may grow under sustained producers. Throughput optimization can return only through an explicit measured contract.
