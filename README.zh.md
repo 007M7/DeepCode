@@ -11,7 +11,7 @@
 ```sh
 pnpm install
 pnpm run test          # vitest
-pnpm run demo:repl     # REPL agent demo (needs DEEPSEEK_API_KEY)
+pnpm run demo:repl     # interactive pi-tui coding agent (needs DEEPSEEK_API_KEY)
 pnpm run demo:acp      # ACP server agent demo (needs DEEPSEEK_API_KEY)
 ```
 

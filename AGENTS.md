@@ -26,7 +26,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP/stdio/JSON-RPC bridges; boot, approval, interaction plugins
+  ui/          ACP/stdio/TUI/JSON-RPC bridges; boot, approval, interaction plugins
   examples/    demo bundles (agent-spine + stdio/ACP/JSON-RPC bins) leaves load
   support/     dev/test infrastructure packages
   util/        zero-dependency utilities

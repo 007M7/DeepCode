@@ -109,7 +109,7 @@ echo 演示不需要 API 凭证：
 pnpm run demo:echo
 ```
 
-REPL agent 演示使用真实的 DeepSeek 适配器，需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
+coding-agent 演示在交互终端中使用 pi-tui，对管道输入回退到 readline，并需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
 
 ```sh
 pnpm run demo:repl

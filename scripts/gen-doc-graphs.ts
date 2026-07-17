@@ -407,7 +407,7 @@ const APP_EXAMPLES = [
     title: 'Coding Agent App Composition',
     label: 'examples/coding-agent',
     config: 'examples/coding-agent/cordis.yml',
-    summary: 'The coding REPL demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.',
+    summary: 'The coding-agent demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.',
   },
   {
     id: 'cordis',
@@ -435,7 +435,7 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
   if (pluginName === '@deepseek-ai/dsh-stdio-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'stdio')}["readline UI<br/>console logger<br/>pre-created main agent"]`)
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'stdio')}["dsh-tui (TTY) / dsh-stdio (pipes)<br/>pre-created main agent"]`)
   } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]`)
   }

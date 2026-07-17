@@ -700,7 +700,7 @@ Source: [`packages/ui/stdio/src/index.ts:30`](../packages/ui/stdio/src/index.ts)
  * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * fresh sessions use `process.cwd()` as their workspace cwd; resumed sessions
  * keep their persisted cwd. `persistenceRoot` is the JSONL backend's directory;
- * `welcome` is the UI banner.
+ * `welcome` is the UI banner and `ui` configures terminal mode/presentation.
  */
 export interface Config {
   /** Model name for the `main` agent (must have a registered adapter). */
@@ -713,8 +713,10 @@ export interface Config {
   tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
-  /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
+  /** Terminal banner printed once on start. Defaults to `'ready.'`. */
   welcome?: string
+  /** Terminal front-door selection and pi-tui presentation settings. */
+  ui?: UiConfig
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
@@ -728,11 +730,22 @@ export interface Config {
    */
   resumeSessionId?: string
 }
+
+/** App-level terminal selection with nested TUI presentation settings. */
+export interface UiConfig {
+  /** Select a concrete front door or infer it from the process streams. */
+  mode?: TerminalMode
+  /** Settings forwarded only when the pi-tui front door is selected. */
+  tui?: uiTui.TuiConfig
+}
+
+/** Terminal front door selected by the app bundle. */
+export type TerminalMode = 'auto' | 'readline' | 'tui'
 ```
 
-Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
+Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`uiTui`](../packages/ui/tui/src/index.ts)
 
-Source: [`packages/examples/stdio-demo/src/index.ts:36`](../packages/examples/stdio-demo/src/index.ts)
+Source: [`packages/examples/stdio-demo/src/index.ts:73`](../packages/examples/stdio-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-acp`
 
@@ -1074,6 +1087,42 @@ export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
 Source: [`packages/core/tools/src/index.ts:307`](../packages/core/tools/src/index.ts)
+
+## `@deepseek-ai/dsh-tui`
+
+Requires: `agents` · `userInteraction` · `tools`
+
+```ts config-catalog
+/** Serializable plugin configuration. */
+export interface Config extends TuiConfig {
+  /** Header subtitle. Defaults to `ready.`. */
+  welcome?: string
+  /** Agent id driven by this terminal. Defaults to `main`. */
+  agent?: string
+}
+
+/** Presentation settings for the pi-tui terminal mode. */
+export interface TuiConfig {
+  /** Render model reasoning blocks. */
+  showReasoning?: boolean
+  /** Maximum tool-output lines shown before the card is collapsed. */
+  maxToolOutputLines?: number
+  /** Maximum options visible at once in a user-question dialog. */
+  maxQuestionOptions?: number
+  /** User-question dialog width in terminal columns. */
+  questionDialogWidth?: number
+  /** User-question dialog maximum height in terminal rows. */
+  questionDialogMaxHeight?: number
+  /** Show the terminal's hardware cursor at the pi editor's IME marker. */
+  showHardwareCursor?: boolean
+  /** Apply the built-in ANSI color palette. */
+  color?: boolean
+  /** Terminal window title while the UI is mounted. */
+  title?: string
+}
+```
+
+Source: [`packages/ui/tui/src/index.ts:100`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 

@@ -10,8 +10,8 @@ import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as stdioAgent from '../src/index.ts'
 
 /**
- * Unit coverage for app composition and config forwarding: console logger, pre-created main agent,
- * agent-core spine, JSONL backend, and readline UI. HMR is a Loader-only leaf concern covered by the
+ * Unit coverage for app composition and config forwarding: pre-created main agent, agent-core spine,
+ * JSONL backend, and adaptive terminal UI. HMR is a Loader-only leaf concern covered by the
  * keyless echo smoke; this tier pins the export shape because an inject-less app could otherwise
  * survive namespace collapse while silently losing its schema.
  */
@@ -65,6 +65,47 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe('dsh-stdio-demo app', () => {
+  it('selects readline for pipes and dsh-tui for interactive terminal pairs', () => {
+    expect(stdioAgent.resolveTerminalMode(undefined, false)).toBe('readline')
+    expect(stdioAgent.resolveTerminalMode(undefined, true)).toBe('tui')
+    expect(stdioAgent.resolveTerminalMode({ mode: 'readline' }, true)).toBe('readline')
+    expect(stdioAgent.resolveTerminalMode({ mode: 'tui' }, true)).toBe('tui')
+    expect(() => stdioAgent.resolveTerminalMode({ mode: 'tui' }, false)).toThrow('requires both stdin and stdout')
+  })
+
+  it('composes only the selected terminal package and keeps TUI settings in dsh-tui', () => {
+    const calls: Array<{ name: string; config: unknown }> = []
+    const ctx = {
+      plugin(plugin: { name?: string }, config?: unknown) {
+        calls.push({ name: plugin.name ?? '', config })
+      },
+    } as unknown as Context
+
+    stdioAgent.composeTerminalApp(ctx, {
+      model: 'mock',
+      welcome: 'TUI ready',
+      ui: { mode: 'tui', tui: { color: false, maxToolOutputLines: 3 } },
+    }, true)
+    expect(calls.map(call => call.name)).toContain('ui-tui')
+    expect(calls.map(call => call.name)).not.toContain('ui-stdio')
+    expect(calls.map(call => call.name)).not.toContain('ConsoleExporter')
+    expect(calls.find(call => call.name === 'ui-tui')?.config).toMatchObject({
+      agent: 'main', welcome: 'TUI ready', color: false, maxToolOutputLines: 3,
+    })
+
+    calls.length = 0
+    stdioAgent.composeTerminalApp(ctx, { model: 'mock', ui: { mode: 'tui' } }, true)
+    expect(calls.find(call => call.name === 'ui-tui')?.config).toMatchObject({
+      agent: 'main', welcome: 'ready.',
+    })
+
+    calls.length = 0
+    stdioAgent.composeTerminalApp(ctx, { model: 'mock', ui: { mode: 'readline' } }, false)
+    expect(calls.map(call => call.name)).toContain('ui-stdio')
+    expect(calls.map(call => call.name)).toContain('ConsoleExporter')
+    expect(calls.map(call => call.name)).not.toContain('ui-tui')
+  })
+
   it('composes the spine + front-door cluster and pre-creates the main agent', async () => {
     const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-demo-spec', skills: await isolatedSkillsConfig() })
     // The spine services (brought up by the agent-core bundle) are all present.

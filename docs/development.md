@@ -109,7 +109,7 @@ The echo demo does not need API credentials:
 pnpm run demo:echo
 ```
 
-The REPL agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
+The coding-agent demo uses pi-tui interactively, falls back to readline for pipes, and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
 pnpm run demo:repl

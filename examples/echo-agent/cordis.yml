@@ -22,7 +22,7 @@
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
 
-# The app pre-creates `main` on the mock model and supplies logging, persistence, and readline UI.
+# The app pre-creates `main` on the mock model and supplies persistence plus TTY-selected `dsh-tui`/`dsh-stdio` front doors.
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-demo'
   config:

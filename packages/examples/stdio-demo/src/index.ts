@@ -1,8 +1,9 @@
 /**
  * The stdio chat app: the default agent spine ({@link @deepseek-ai/dsh-agent-spine-demo}) plus the
- * coupled front-door cluster a terminal chat needs — a console logger, the independently
- * packaged readline UI, JSONL session persistence, the user-interaction seam with its
- * `ask_user_question` tool, and a pre-created `main` agent the UI drives.
+ * coupled front-door cluster a terminal chat needs — the independently packaged
+ * pi-tui and readline front doors, JSONL session persistence, the user-interaction
+ * seam with its `ask_user_question` tool, and a pre-created `main` agent the UI
+ * drives. Interactive terminals use `dsh-tui`; pipes use `dsh-stdio` plus logging.
  * Swappable adapters, executors, optional tools, and HMR stay in the leaf. This
  * Loader plugin intentionally exposes named exports only; a default export
  * would hide its `Config` schema (see docs/postmortem/0001).
@@ -20,8 +21,44 @@ import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as uiStdio from '@deepseek-ai/dsh-stdio'
+import * as uiTui from '@deepseek-ai/dsh-tui'
 
 export const name = 'stdio-demo'
+
+/** Terminal front door selected by the app bundle. */
+export type TerminalMode = 'auto' | 'readline' | 'tui'
+
+/** App-level terminal selection with nested TUI presentation settings. */
+export interface UiConfig {
+  /** Select a concrete front door or infer it from the process streams. */
+  mode?: TerminalMode
+  /** Settings forwarded only when the pi-tui front door is selected. */
+  tui?: uiTui.TuiConfig
+}
+
+const terminalModeSchema = z.union(['auto', 'readline', 'tui'] as const).default('auto')
+
+/** Schemastery schema for the app-level terminal selection. */
+export const UiConfigSchema: z<UiConfig> = z.object({
+  mode: terminalModeSchema,
+  tui: uiTui.TuiConfigSchema,
+})
+
+/**
+ * Resolve the app's terminal front door.
+ *
+ * @param config - App-level terminal selection.
+ * @param isTTY - Whether both process streams are interactive TTYs.
+ * @returns The concrete UI package to mount.
+ */
+export function resolveTerminalMode(config: UiConfig | undefined, isTTY: boolean): Exclude<TerminalMode, 'auto'> {
+  const mode = config?.mode ?? 'auto'
+  if (mode === 'auto') return isTTY ? 'tui' : 'readline'
+  if (mode === 'tui' && !isTTY) {
+    throw new Error('stdio-demo: TUI mode requires both stdin and stdout to be TTYs; use mode "readline" for pipes')
+  }
+  return mode
+}
 
 /**
  * App config: the swappable per-demo values, each routed to where the app wires
@@ -31,7 +68,7 @@ export const name = 'stdio-demo'
  * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * fresh sessions use `process.cwd()` as their workspace cwd; resumed sessions
  * keep their persisted cwd. `persistenceRoot` is the JSONL backend's directory;
- * `welcome` is the UI banner.
+ * `welcome` is the UI banner and `ui` configures terminal mode/presentation.
  */
 export interface Config {
   /** Model name for the `main` agent (must have a registered adapter). */
@@ -44,8 +81,10 @@ export interface Config {
   tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
-  /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
+  /** Terminal banner printed once on start. Defaults to `'ready.'`. */
   welcome?: string
+  /** Terminal front-door selection and pi-tui presentation settings. */
+  ui?: UiConfig
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
@@ -72,6 +111,7 @@ export const Config: z<Config> = z.object({
   // apply() fallbacks through named constants while retaining both boundaries.
   persistenceRoot: z.string().default('./.sessions'),
   welcome: z.string().default('ready.'),
+  ui: UiConfigSchema,
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: agentCore.ToolTasksConfigSchema,
@@ -79,14 +119,18 @@ export const Config: z<Config> = z.object({
 })
 
 /**
- * Compose the spine with the stdio front door. The console logger comes first
- * (infra), then the agent-spine-demo bundle pre-creating the `main` agent from this
- * app's `model`/`resumeSessionId` with the deployment `persona`, then the JSONL
- * backend, then the readline UI bound to `main`. The `hmr` dev-reload plugin is
- * a leaf concern (see the module doc), so it is not mounted here.
+ * Compose the spine with one terminal front door. Interactive TTY pairs mount
+ * `dsh-tui` without a console exporter; pipes mount the readline `dsh-stdio`
+ * channel with the console logger. The `hmr` dev-reload plugin remains a leaf
+ * concern.
+ *
+ * @param ctx - Context receiving the app's child plugins.
+ * @param config - App configuration routed to the spine and front door.
+ * @param isTTY - Whether both terminal streams are interactive TTYs.
  */
-export function apply(ctx: Context, config: Config): void {
-  ctx.plugin(ConsoleExporter)
+export function composeTerminalApp(ctx: Context, config: Config, isTTY: boolean): void {
+  const mode = resolveTerminalMode(config.ui, isTTY)
+  if (mode === 'readline') ctx.plugin(ConsoleExporter)
   ctx.plugin(agentCore, {
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
@@ -104,5 +148,21 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(UserInteractionService)
   ctx.plugin(toolAskUser)
-  ctx.plugin(uiStdio, { welcome: config.welcome ?? 'ready.', agent: 'main' })
+  if (mode === 'tui') {
+    ctx.plugin(uiTui, {
+      ...config.ui?.tui,
+      welcome: config.welcome ?? 'ready.',
+      agent: 'main',
+    })
+  } else {
+    ctx.plugin(uiStdio, { welcome: config.welcome ?? 'ready.', agent: 'main' })
+  }
 }
+
+/** Compose the configured terminal front door with the agent app. */
+/* v8 ignore start -- production stream capability wiring; composeTerminalApp is unit-covered,
+   and the coding-agent PTY smoke covers the interactive process path */
+export function apply(ctx: Context, config: Config): void {
+  composeTerminalApp(ctx, config, process.stdin.isTTY && process.stdout.isTTY)
+}
+/* v8 ignore stop */
