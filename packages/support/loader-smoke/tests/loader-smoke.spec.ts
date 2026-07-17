@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
@@ -33,8 +34,8 @@ describe('runLoaderSmoke', () => {
       marker: 'present',
       input: 'one\ntwo\n',
     })
-    expect(canonicalTempPath(output.dshHome)).toBe(`${canonicalTempPath(output.cwd)}/.dsh`)
-    expect(canonicalTempPath(output.agentsHome)).toBe(`${canonicalTempPath(output.cwd)}/.agents`)
+    expect(canonicalTempPath(output.dshHome)).toBe(canonicalTempPath(join(output.cwd, '.dsh')))
+    expect(canonicalTempPath(output.agentsHome)).toBe(canonicalTempPath(join(output.cwd, '.agents')))
     expect(result.stderr).toContain('fixture stderr')
     expect(existsSync(output.cwd)).toBe(false)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
