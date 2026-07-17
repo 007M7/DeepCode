@@ -1,5 +1,9 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { CallId, ContentBlock, LlmCallConfig, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from './json.ts'
+
+/** Canonical context-tag framing, or caller-owned framing rendered verbatim. */
+export type ContextEnvelope = 'context' | 'raw'
 
 /** Identifies one session in the store (and its persistence artifacts). */
 export type SessionId = Branded<'SessionId'>
@@ -139,11 +143,11 @@ export interface TodoItem {
 
 /**
  * Logged request state outside derived history: call config, system prompt,
- * tools, and session prefix. Header snapshots and deltas reconstruct it;
+ * tools, and prefix. The latest full `request/header` snapshot reconstructs it;
  * canonical empty optional fields are absent.
  */
 export interface EpochHeader {
-  /** The conversation's call configuration (model + sampling scalars). */
+  /** The conversation's call configuration (provider, model, and sampling scalars). */
   config: LlmCallConfig
   /** Rendered system prompt text; absent for a system-less request. */
   system?: string
@@ -163,43 +167,9 @@ export interface EpochHeader {
  * Why a `request/header` snapshot was appended: `'initial'` — the log's first
  * header (a new conversation); `'resume'` — a loop instance's first request
  * over a log that already has header events (process restart, fork seed);
- * `'fallback'` — a mid-run change the delta encoding could not round-trip
- * (e.g. a pure tool reordering), recorded whole instead.
+ * `'change'` — a later request used a different header.
  */
-export type RequestHeaderReason = 'initial' | 'resume' | 'fallback'
-
-/**
- * Line-level edit of the system prompt: keep the first `keepStart` and last
- * `keepEnd` lines of the previous text, with `insert` replacing everything
- * between. Computed as a common-prefix/common-suffix trim — deterministic,
- * library-free, degenerating to a full replacement when nothing is shared.
- * Absence is encoded as zero lines (the canonical form has no empty-string
- * system), so a transition to or from "no system prompt" round-trips.
- */
-export interface SystemDelta {
-  /** Lines kept from the start of the previous system prompt. */
-  keepStart: number
-  /** Lines kept from the end of the previous system prompt. */
-  keepEnd: number
-  /** Lines replacing everything between the kept edges. */
-  insert: string[]
-}
-
-/**
- * Tool-set edit keyed by tool name (names are unique — the registry rejects
- * duplicates): `removed` names drop, `changed` schemas replace their
- * predecessor in place, `added` schemas append at the end. A change this
- * encoding cannot express (a pure reordering) fails the writer's round-trip
- * guard and is recorded as a `'fallback'` snapshot instead.
- */
-export interface ToolsDelta {
-  /** Schemas appended to the end of the tool list. */
-  added: ToolSchema[]
-  /** Names of schemas dropped from the tool list. */
-  removed: string[]
-  /** Schemas replacing the same-named predecessor in place. */
-  changed: ToolSchema[]
-}
+export type RequestHeaderReason = 'initial' | 'resume' | 'change'
 
 /**
  * The merge-extensible, append-only source of truth for an agent interaction.
@@ -235,9 +205,16 @@ export interface SessionEventMap {
   /**
    * In-session context injection (file-change notices, subdir AGENTS.md,
    * skill content, cron notifications, …). Rendered into the derived history
-   * as tagged synthetic context — NOT a user prompt.
+   * as synthetic context — NOT a user prompt. `envelope: 'raw'` lets a caller
+   * own the complete model-facing frame; `meta` is durable JSON state omitted
+   * from the model projection.
    */
-  'context/message': { content: ContentBlock[]; source: MessageSource }
+  'context/message': {
+    content: ContentBlock[]
+    source: MessageSource
+    envelope?: ContextEnvelope
+    meta?: JsonValue
+  }
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**
@@ -246,7 +223,7 @@ export interface SessionEventMap {
    * the model output and its accounting travel together (there is no separate
    * usage record). `usage` is absent when the adapter reported none.
    */
-  'assistant/message': { turn: number; step: number; content: ContentBlock[]; usage?: TokenUsage }
+  'assistant/message': { turn: number; step: number; content: ContentBlock[]; provenance: AssistantProvenance; usage?: TokenUsage }
   /**
    * The model requested one tool invocation: `name` with the raw `arguments`
    * JSON string exactly as the model produced it (unparsed). `callId` pairs the
@@ -265,22 +242,13 @@ export interface SessionEventMap {
   'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string }; meta?: unknown }
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
-  /**
-   * Whole-list snapshot; the latest write wins on replay. It is log-only UI
-   * state and never enters derived model history.
-   */
+  /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
-   * Full {@link EpochHeader} for the next request, appended inside its step
-   * before dispatch. It is log-only and anchors subsequent deltas.
+   * Full header for the next request, appended inside its step before dispatch.
+   * It is log-only; the latest snapshot reconstructs the request header.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
-  /**
-   * Log-only amendment to the folded {@link EpochHeader}. System and tools use
-   * their delta codecs; config and prefix replace whole, with an empty prefix
-   * encoding removal. Writers verify round-trip equality or log a fallback snapshot.
-   */
-  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 }
 
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
@@ -288,7 +256,7 @@ export type SessionEventType = keyof SessionEventMap
 
 /**
  * The subset of {@link SessionEventType} values whose events produce LLM
- * messages and are eligible to appear on the surface linked list. Only these
+ * messages and are eligible to appear on the ordered surface. Only these
  * event types may carry {@link SurfaceOp} and {@link SessionEvent.sourceEventSeqs}.
  */
 export type SurfaceEventType =
@@ -299,7 +267,7 @@ export type SurfaceEventType =
   | 'steering/message'
 
 /**
- * A {@link SessionEvent} that is **on** the surface linked list — its
+ * A {@link SessionEvent} that is **on** the ordered surface — its
  * `surfaceOp` is guaranteed present (mandatory), narrowed from a
  * surface-eligible {@link SessionEvent} by checking both `type` and
  * `surfaceOp` at runtime.
@@ -310,7 +278,7 @@ export type SurfaceEventType =
 export type SurfaceEvent = SessionEvent<SurfaceEventType> & { surfaceOp: SurfaceOp }
 
 /**
- * How a session event entered the surface linked list. Only valid on
+ * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
  * - `'append'`: added to the tail — normal path for user/assistant/tool/context
@@ -331,6 +299,12 @@ export type SurfaceOp =
  */
 export interface SurfaceIntent {
   surfaceOp: SurfaceOp
+  /**
+   * Complete known provenance source set. `assistant/message` may use a
+   * present empty array for a known empty provider stream; omission means its
+   * provenance was not recorded. Other surface events require a non-empty set
+   * when this field is present.
+   */
   sourceEventSeqs?: number[]
 }
 
@@ -359,7 +333,9 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /**
      * Seq numbers of events that are provenance sources of this event
      * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
-     * or the surface nodes shadowed by a compaction replace node).
+     * or the surface nodes shadowed by a compaction replace node). An
+     * `assistant/message` may carry a present empty array for a known empty
+     * provider stream; omission means unrecorded provenance.
      */
     sourceEventSeqs?: number[]
     /** How this event entered the surface; absent for non-surface events. */

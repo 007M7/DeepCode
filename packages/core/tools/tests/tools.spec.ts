@@ -348,7 +348,7 @@ describe('ToolRegistry', () => {
     expect(result.content[0]).toMatchObject({ text: 'output rejected: try again' })
   })
 
-  it('a block decision can ALSO attach additionalContext', async () => {
+  it('a block decision can ALSO attach additionalContexts', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
 
@@ -356,24 +356,95 @@ describe('ToolRegistry', () => {
       ({
         kind: 'block',
         feedback: [{ type: 'text', text: 'rejected' }],
-        additionalContext: { content: [{ type: 'text', text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' } },
+        additionalContexts: [{ content: [{ type: 'text', text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' } }],
       }))
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'rejected' })
-    expect(result.additionalContext).toMatchObject({ content: [{ text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' } })
+    expect(result.additionalContexts).toMatchObject([{ content: [{ text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' } }])
   })
 
-  it('a post-execute additionalContext rides on the result for the loop to buffer', async () => {
+  it('post-execute additionalContexts ride on the result for the loop to buffer', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
 
     ctx.on('tools/post-execute', async (_exec, _result, _next): Promise<PostToolDecision> =>
-      ({ kind: 'accept', additionalContext: { content: [{ type: 'text', text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } } }))
+      ({ kind: 'accept', additionalContexts: [{ content: [{ type: 'text', text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } }] }))
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
-    expect(result.additionalContext).toMatchObject({ content: [{ text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } })
+    expect(result.additionalContexts).toMatchObject([{ content: [{ text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } }])
+  })
+
+  it('preserves tool-deferred, execute-wrapper, and post-execute contexts in order', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'composite',
+      description: 'composite',
+      parameters: {},
+      async execute(_args, exec) {
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-1' }], source: { kind: 'plugin', plugin: 'nested-1' }, meta: { n: 1 } })
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-2' }], source: { kind: 'plugin', plugin: 'nested-2' }, envelope: 'raw' })
+        return [{ type: 'text', text: 'done' }]
+      },
+    }))
+    ctx.on('tools/execute', async (_exec, next) => {
+      const result = await next()
+      return {
+        ...result,
+        additionalContexts: [
+          ...result.additionalContexts ?? [],
+          { content: [{ type: 'text', text: 'wrapper' }], source: { kind: 'plugin', plugin: 'wrapper' } },
+        ],
+      }
+    })
+    ctx.on('tools/post-execute', async (_exec, _result, next): Promise<PostToolDecision> => {
+      const downstream = await next()
+      return {
+        ...downstream,
+        additionalContexts: [
+          { content: [{ type: 'text', text: 'post' }], source: { kind: 'plugin', plugin: 'post' } },
+          ...downstream.additionalContexts ?? [],
+        ],
+      }
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('composite'), name: 'composite', arguments: {} })
+
+    expect(result.additionalContexts?.map(context => context.source)).toEqual([
+      { kind: 'plugin', plugin: 'nested-1' },
+      { kind: 'plugin', plugin: 'nested-2' },
+      { kind: 'plugin', plugin: 'wrapper' },
+      { kind: 'plugin', plugin: 'post' },
+    ])
+    expect(result.additionalContexts?.[0]?.meta).toEqual({ n: 1 })
+    expect(result.additionalContexts?.[1]?.envelope).toBe('raw')
+  })
+
+  it('keeps deferred contexts when a composite tool throws, but drops them when the outer call is blocked', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'failing-composite',
+      description: 'failing composite',
+      parameters: {},
+      async execute(_args, exec) {
+        exec.deferContext({ content: [{ type: 'text', text: 'nested' }], source: { kind: 'plugin', plugin: 'nested' } })
+        throw new Error('outer failure')
+      },
+    }))
+
+    const failed = await ctx.tools.execute({ callId: CallId('failed'), name: 'failing-composite', arguments: {} })
+    expect(failed.isError).toBe(true)
+    expect(failed.additionalContexts?.map(context => context.source)).toEqual([{ kind: 'plugin', plugin: 'nested' }])
+
+    ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
+      kind: 'block',
+      feedback: [{ type: 'text', text: 'blocked' }],
+      additionalContexts: [{ content: [{ type: 'text', text: 'block-only' }], source: { kind: 'plugin', plugin: 'blocker' } }],
+    }))
+    const blocked = await ctx.tools.execute({ callId: CallId('blocked'), name: 'failing-composite', arguments: {} })
+    expect(blocked.isError).toBe(true)
+    expect(blocked.additionalContexts?.map(context => context.source)).toEqual([{ kind: 'plugin', plugin: 'blocker' }])
   })
 
   it('composes pre + post waterfalls around dispatch (sandbox-wrap pattern)', async () => {
@@ -532,25 +603,25 @@ describe('ToolRegistry', () => {
     expect(result.content[0]).toMatchObject({ text: 'short-circuited' })
   })
 
-  it('preserves additionalContext supplied by an around-dispatch result', async () => {
+  it('preserves additionalContexts supplied by an around-dispatch result', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
     ctx.on('tools/execute', async () => ({
       content: [{ type: 'text', text: 'short-circuited with context' }],
       isError: false,
-      additionalContext: {
+      additionalContexts: [{
         content: [{ type: 'text', text: 'from around dispatch' }],
         source: { kind: 'plugin', plugin: 'test' },
-      },
+      }],
     }))
 
     const result = await ctx.tools.execute({
       callId: CallId('around-context'), name: 'echo', arguments: {},
     })
-    expect(result.additionalContext).toEqual({
+    expect(result.additionalContexts).toEqual([{
       content: [{ type: 'text', text: 'from around dispatch' }],
       source: { kind: 'plugin', plugin: 'test' },
-    })
+    }])
   })
 
   it('returns an isError result when a tools/execute listener throws', async () => {
