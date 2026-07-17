@@ -53,6 +53,16 @@ function expectCode(code: SessionQueryErrorCode): Error {
   return expect.objectContaining({ code }) as Error
 }
 
+function replaceCursorOffset(
+  cursor: ReturnType<typeof SessionSearchCursor>,
+  offset: number,
+): ReturnType<typeof SessionSearchCursor> {
+  const payload = JSON.parse(
+    Buffer.from(cursor, 'base64url').toString('utf8'),
+  ) as Record<string, unknown>
+  return SessionSearchCursor(Buffer.from(JSON.stringify({ ...payload, offset }), 'utf8').toString('base64url'))
+}
+
 class TestPersistence extends SessionPersistence {
   static entries = new Map<SessionIdType, { meta: SessionHeader; events: SessionEvent[] }>()
   static revisions = new Map<SessionIdType, number>()
@@ -276,6 +286,14 @@ describe('SQLite session search', () => {
     expect(sessionPage.nextCursor).toEqual(expect.any(String))
     if (eventPage.nextCursor === undefined || sessionPage.nextCursor === undefined) throw new Error('expected cursors')
 
+    const unsafeOffsetCursor = replaceCursorOffset(eventPage.nextCursor, 1e100)
+    await expect(ctx.sessionSearch.searchEvents({
+      sessionId: target.id,
+      query: 'needle',
+      limit: 1,
+      cursor: unsafeOffsetCursor,
+    })).rejects.toThrow(expectCode('SESSION_QUERY_INVALID_CURSOR'))
+
     const eventKeys = eventPage.items.map(item => `${item.sessionId}:${item.seq}`)
     let eventCursor: ReturnType<typeof SessionSearchCursor> | undefined = eventPage.nextCursor
     while (eventCursor !== undefined) {
@@ -398,6 +416,34 @@ describe('SQLite session search', () => {
       expect(() => new SessionSearchSqlite(direct, config as never))
         .toThrow(expectCode('SESSION_QUERY_INVALID_CONFIG'))
     }
+  })
+
+  it('rejects aggregate filter bindings above SQLite\'s portable variable limit', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('binding-limit'), { seed: messageEvents('needle') })
+    // Each clause is below the ceiling; combined with its sibling and fixed
+    // query bindings, the complete statement is not portable.
+    const halfPortableLimit = 16_383
+    const ids = Array.from(
+      { length: halfPortableLimit },
+      (_, index) => SessionId(`binding-${index}`),
+    )
+    const types = Array.from({ length: halfPortableLimit }, () => 'user/message' as const)
+    const surfaces = Array.from({ length: halfPortableLimit }, () => 'current' as const)
+
+    await expect(ctx.sessionSearch.searchSessions({
+      query: 'needle',
+      sessionFilters: [{ kind: 'id', values: ids }],
+      eventFilters: [{ kind: 'type', values: types }],
+    })).rejects.toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+    await expect(ctx.sessionSearch.searchEvents({
+      sessionId: session.id,
+      query: 'needle',
+      filters: [
+        { kind: 'type', values: types },
+        { kind: 'surface', values: surfaces },
+      ],
+    })).rejects.toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
   })
 })
 

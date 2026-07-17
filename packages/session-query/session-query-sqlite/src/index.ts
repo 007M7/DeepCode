@@ -559,6 +559,14 @@ export class SessionSearchSqlite extends SessionSearchService {
     const sessionWhere = buildSessionWhere(request.sessionFilters)
     const eventWhere = buildEventWhere(request.eventFilters)
     const where = [sessionWhere.sql, eventWhere.sql].filter(Boolean).join(' AND ')
+    const bindings = [
+      ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
+      ...sessionWhere.params,
+      ...eventWhere.params,
+      request.limit + 1,
+      offset,
+    ]
+    assertPortableBindingCount(bindings)
     return this._requireDb().prepare(`
       ${selected.sql},
       filtered AS (
@@ -575,13 +583,7 @@ export class SessionSearchSqlite extends SessionSearchService {
       WHERE event_rank = 1
       ORDER BY match_count DESC, document_length ASC, time DESC, session_id ASC, seq DESC
       LIMIT ? OFFSET ?
-    `).all(
-      ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
-      ...sessionWhere.params,
-      ...eventWhere.params,
-      request.limit + 1,
-      offset,
-    ) as unknown as SearchRow[]
+    `).all(...bindings) as unknown as SearchRow[]
   }
 
   private _queryEvents(
@@ -592,19 +594,21 @@ export class SessionSearchSqlite extends SessionSearchService {
     const selected = selectedDocumentsSql()
     const eventWhere = buildEventWhere(request.filters)
     const where = ['session_id = ?', eventWhere.sql].filter(Boolean).join(' AND ')
+    const bindings = [
+      ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
+      request.sessionId,
+      ...eventWhere.params,
+      request.limit + 1,
+      offset,
+    ]
+    assertPortableBindingCount(bindings)
     return this._requireDb().prepare(`
       ${selected.sql}
       SELECT * FROM matched
       WHERE ${where}
       ORDER BY match_count DESC, document_length ASC, time DESC, seq DESC
       LIMIT ? OFFSET ?
-    `).all(
-      ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
-      request.sessionId,
-      ...eventWhere.params,
-      request.limit + 1,
-      offset,
-    ) as unknown as SearchRow[]
+    `).all(...bindings) as unknown as SearchRow[]
   }
 
   private _targetGeneration(sessionId: SessionId, persistenceBinding: PersistenceBinding): string {
@@ -728,6 +732,19 @@ function selectedDocumentsParams(query: string, persistenceVisible: boolean): Ar
   ]
 }
 
+// SQLite builds may raise this ceiling; supported modern versions share 32,766
+// as the portable host-parameter limit.
+const SQLITE_PORTABLE_VARIABLE_LIMIT = 32_766
+
+function assertPortableBindingCount(bindings: readonly (string | number)[]): void {
+  if (bindings.length > SQLITE_PORTABLE_VARIABLE_LIMIT) {
+    throw new SessionQueryError(
+      `session-search request requires ${bindings.length} SQLite bindings; reduce filters to stay within the portable ${SQLITE_PORTABLE_VARIABLE_LIMIT}-variable limit`,
+      'SESSION_QUERY_INVALID_FILTER',
+    )
+  }
+}
+
 function observeLive(session: Session): ObservedSession {
   return observeSession(session.header, session.events)
 }
@@ -834,7 +851,7 @@ function decodeCursor(
     || decoded.instance !== instance
     || decoded.scope !== scope
     || decoded.fingerprint !== fingerprint
-    || !Number.isInteger(decoded.offset)
+    || !Number.isSafeInteger(decoded.offset)
     || decoded.offset === undefined
     || decoded.offset < 0
   ) {
