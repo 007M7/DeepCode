@@ -50,6 +50,8 @@ export interface Config {
   tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
@@ -61,7 +63,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/acp-demo/src/index.ts:31`](../packages/examples/acp-demo/src/index.ts)
+Source: [`packages/examples/acp-demo/src/index.ts:32`](../packages/examples/acp-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -95,14 +97,13 @@ Source: [`packages/core/agent-loop/src/index.ts:322`](../packages/core/agent-loo
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
  * order), the `tools` object to the tool registry (its presentation `mode`),
- * and `toolBash`/`toolTasks` to the two model-facing tool plugins this bundle
- * owns. Producer opt-in stays producer-local: `toolBash` configures bash only;
- * future background-capable tools remain independently composed plugins.
- * Every field is optional INPUT here because each owner's schema
- * supplies the default (`[]` / `''` / absent — lexicographic / `native`); the
- * schema is the INTERSECTION of the owners' own schemas (the registry's
- * nested under its `tools` key), so validation and defaulting can never
- * drift from them.
+ * `skills` to the skill registry/local provider/tool consumer,
+ * `workspaceContext` to the workspace-context loader, and
+ * `toolBash`/`toolTasks` to the model-facing tool plugins this bundle owns.
+ * Owner schemas supply defaults for optional input; workspace context instead
+ * requires an explicit byte budget or `false` because it changes model-visible
+ * input. Producer opt-in stays producer-local: `toolBash` configures bash only;
+ * independently composed producers keep their own config.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
@@ -113,6 +114,8 @@ export interface Config {
   toolOrder?: SystemPromptConfig['toolOrder']
   /** The tool registry's config — its presentation `mode` (see dsh-tools' `Config`). */
   tools?: ToolsConfig
+  /** Workspace-context loader controls with an explicit byte budget; set `false` for hermetic prompts. */
+  workspaceContext: workspaceContext.Config | false
   /** Skill registry, local provider, and model-facing consumer config. */
   skills?: SkillConfig
   /** Model-facing bash tool config, including this producer's background opt-in. */
@@ -132,7 +135,7 @@ export interface SkillConfig {
 }
 ```
 
-Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts)
+Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
 
 Source: [`packages/examples/agent-spine-demo/src/index.ts:55`](../packages/examples/agent-spine-demo/src/index.ts)
 
@@ -270,7 +273,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/fs-local/src/index.ts:35`](../packages/fs/fs-local/src/index.ts)
+Source: [`packages/fs/fs-local/src/index.ts:38`](../packages/fs/fs-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -727,12 +730,14 @@ export interface Config {
    * (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`).
    */
   resumeSessionId?: string
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
 }
 ```
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/stdio-demo/src/index.ts:36`](../packages/examples/stdio-demo/src/index.ts)
+Source: [`packages/examples/stdio-demo/src/index.ts:37`](../packages/examples/stdio-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-acp`
 
@@ -1073,7 +1078,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:307`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:322`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 
@@ -1245,6 +1250,26 @@ export interface Config {
 
 Source: [`packages/workflow/workflow-workerthread/src/index.ts:32`](../packages/workflow/workflow-workerthread/src/index.ts)
 
+## `@deepseek-ai/dsh-workspace-context`
+
+```ts config-catalog
+/** User-facing workspace instruction loader configuration. */
+export interface Config {
+  /** Harness home containing the fixed user-global `AGENTS.md`; defaults to `$DSH_HOME` or `~/.dsh`. */
+  dshHome?: string
+  /** Directory entries that identify the project root while walking upward from the session cwd. */
+  projectRootMarkers?: string[]
+  /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
+  maxBytes: number
+  /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
+  maxSourceBytes?: number
+  /** Ordered same-directory project candidates; the first existing regular file wins in each scope. */
+  instructionFileCandidates?: string[]
+}
+```
+
+Source: [`packages/context/workspace-context/src/config.ts:16`](../packages/context/workspace-context/src/config.ts)
+
 ## Loadable plugins with no config
 
 These load from a `cordis.yml` entry with no `config:` block; they declare no config surface.
@@ -1285,6 +1310,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
 - `@deepseek-ai/dsh-jsonrpc-demo` ([`packages/examples/jsonrpc-demo/src/index.ts`](../packages/examples/jsonrpc-demo/src/index.ts))
 - `@deepseek-ai/dsh-loader-smoke` ([`packages/support/loader-smoke/src/index.ts`](../packages/support/loader-smoke/src/index.ts))
+- `@deepseek-ai/dsh-paths` ([`packages/util/paths/src/index.ts`](../packages/util/paths/src/index.ts))
 - `@deepseek-ai/dsh-scope` ([`packages/core/scope/src/index.ts`](../packages/core/scope/src/index.ts))
 - `@deepseek-ai/dsh-scripts` ([`packages/sdk/scripts/src/index.ts`](../packages/sdk/scripts/src/index.ts))
 - `@deepseek-ai/dsh-subagent-inprocess` ([`packages/subagent/subagent-inprocess/src/index.ts`](../packages/subagent/subagent-inprocess/src/index.ts))

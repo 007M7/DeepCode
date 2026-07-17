@@ -14,6 +14,8 @@
           model: deepseek-v4-flash
           resumeSessionId: !!js process.env.RESUME_SESSION_ID
           persistenceRoot: './.sessions'
+          workspaceContext:
+            maxBytes: 65536
           tools:
             mode: code
           welcome: 'code-mode agent ready. Give it a multi-tool task.'

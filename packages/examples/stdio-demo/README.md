@@ -19,7 +19,7 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 
 `@cordisjs/plugin-hmr` (the dev/demo edit-reload loop) is deliberately a **leaf** entry, NOT baked in here: it is a Loader-only, subprocess-only dev plugin — its constructor throws without `node --expose-internals` + a live `loader`, and the in-process test tier cannot even import it (so a package whose `apply` statically pulled it in could never carry the per-file coverage gate). Unlike the console logger, a stray `hmr` is not a stdout-purity footgun, so leaving it at the leaf costs no safety. The `demo:echo` / `demo:repl` leaves load it and pass `--expose-internals`.
 
-The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapter (`llm-deepseek` for the real model, or the mock `mock-llm` for a demo) and a bash executor (`bash-local`) — `hmr`, plus this app's [`Config`](#config). The whole plugin tree a run loads is therefore: this app's cluster, the spine inside `agent-core`, `hmr`, and the two leaf backends.
+The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapter (`llm-deepseek` for the real model, or the mock `mock-llm` for a demo) and a bash executor (`bash-local`) — `hmr`, plus this app's [`Config`](#config). The whole plugin tree a run loads is therefore: this app's cluster, the spine inside `agent-spine-demo`, `hmr`, and the two leaf backends.
 
 ## Config
 

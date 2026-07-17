@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
@@ -7,6 +7,9 @@ import Loader from '@cordisjs/plugin-loader'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
 import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { CallId, type Message } from '@deepseek-ai/dsh-llm'
 
 declare module '@deepseek-ai/dsh-tasks' {
@@ -34,7 +37,7 @@ async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
  * Loader-path guard (export shape, `unwrapExports`) is the app packages' keyless
  * bin smokes; here we assert the composition + config forwarding.
  */
-async function mount(config?: agentCore.Config, withBash = false): Promise<Context> {
+async function mount(config: agentCore.Config, withBash = false): Promise<Context> {
   const oldDshHome = process.env.DSH_HOME
   const oldAgentsHome = process.env.DSH_AGENTS_HOME
   process.env.DSH_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-home-'))
@@ -82,9 +85,24 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+function waitForMainIdle(ctx: Context): Promise<void> {
+  return new Promise((resolve) => {
+    const dispose = ctx.on('agent/status', (agent, status) => {
+      if (agent.id === 'main' && status === 'idle') {
+        dispose()
+        resolve()
+      }
+    })
+  })
+}
+
+function messageText(message: Message | undefined): string {
+  return message?.content.map(block => block.type === 'text' ? block.text : '').join('\n') ?? ''
+}
+
 describe('dsh-agent-spine-demo bundle', () => {
   it('brings up the full default spine', async () => {
-    const ctx = await mount()
+    const ctx = await mount({ workspaceContext: false })
     // One service from each layer of the spine proves the children loaded.
     expect(ctx.get('timer')).toBeDefined()
     expect(ctx.get('llm')).toBeDefined()
@@ -99,7 +117,7 @@ describe('dsh-agent-spine-demo bundle', () => {
   })
 
   it('includes the skill registry, local provider, and skill tool without builtin skills', async () => {
-    const ctx = await mount()
+    const ctx = await mount({ workspaceContext: false })
 
     expect(ctx.skills).toBeDefined()
     expect(ctx.tools.schemas().map(tool => tool.name)).toContain('skill')
@@ -109,7 +127,7 @@ describe('dsh-agent-spine-demo bundle', () => {
   })
 
   it('defaults the agents list to empty (no pre-created agents)', async () => {
-    const ctx = await mount()
+    const ctx = await mount({ workspaceContext: false })
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeUndefined()
     await ctx.fiber.dispose()
   })
@@ -118,6 +136,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     const ctx = await mount({
       agents: [{ id: AgentId('main'), model: 'mock' }],
       persona: 'You are main.',
+      workspaceContext: false,
     })
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
     const assembly = await ctx.get('systemPrompt')!.assemble()
@@ -129,13 +148,71 @@ describe('dsh-agent-spine-demo bundle', () => {
     // ctx.plugin validates + defaults the bundle config first; a direct apply
     // skips the schema, so the forwarding `?? []` / `?? ''` are what fire.
     const ctx = new Context()
-    agentCore.apply(ctx, {})
+    agentCore.apply(ctx, { workspaceContext: false })
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('agents')?.list()).toHaveLength(0)
     const assembly = await ctx.get('systemPrompt')!.assemble()
     expect(assembly.sections.find(s => s.name === 'deployment:persona')?.text).toBe('')
     await ctx.fiber.dispose()
+  })
+
+  it('loads workspace instructions into requests through the bundled spine', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-workspace-context-'))
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await writeFile(join(root, 'AGENTS.md'), 'bundled project rule')
+      const adapter = new MockAdapter([textResponse('ok')])
+      const ctx = await mount({ workspaceContext: { maxBytes: 65536 } })
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
+      ctx.llm.registerAdapter(['mock'], adapter)
+      const handle = await ctx.agents.create({
+        agentId: AgentId('main'),
+        sessionId: SessionId('main-session'),
+        meta: { cwd: root },
+        agentOptions: { model: 'mock' },
+      })
+      const agent = handle.agent
+
+      agent.send([{ type: 'text', text: 'hi' }])
+      await waitForMainIdle(ctx)
+
+      const sentText = adapter.requests[0]?.messages.map(messageText).join('\n')
+      expect(sentText).toContain('hi')
+      expect(sentText).toContain('bundled project rule')
+      expect(adapter.requests[0]?.system).toContain('You are an AI agent powered by the DeepSeek Harness SDK.')
+      expect(adapter.requests[0]?.system).not.toContain('bundled project rule')
+      await handle.dispose()
+      await ctx.fiber.dispose()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('forwards workspace-context config to the bundled loader', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-workspace-context-disabled-'))
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await writeFile(join(root, 'AGENTS.md'), 'must not be injected')
+      const adapter = new MockAdapter([textResponse('ok')])
+      const ctx = await mount({ workspaceContext: { maxBytes: 0 } })
+      ctx.llm.registerAdapter(['mock'], adapter)
+      const handle = await ctx.agents.create({
+        agentId: AgentId('main'),
+        sessionId: SessionId('main-disabled-session'),
+        meta: { cwd: root },
+        agentOptions: { model: 'mock' },
+      })
+
+      handle.agent.send([{ type: 'text', text: 'hi' }])
+      await waitForMainIdle(ctx)
+
+      expect(adapter.requests[0]?.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
+      await handle.dispose()
+      await ctx.fiber.dispose()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it('forwards skill config to the registry, local provider, and model-facing consumer', async () => {
@@ -146,6 +223,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     await writeFile(join(custom, 'custom-skill.md'), '---\nname: custom-skill\ndescription: Custom skill\n---\n\nCustom body.\n')
     const ctx = await mount({
       agents: [],
+      workspaceContext: false,
       skills: {
         registry: { collectCacheMaxEntries: 4 },
         local: {
@@ -161,8 +239,43 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('places workspace instructions before the skill catalog in the session prefix', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-prefix-order-'))
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await writeFile(join(root, 'AGENTS.md'), 'workspace rule before skills')
+      const adapter = new MockAdapter([textResponse('ok')])
+      const ctx = await mount({ workspaceContext: { maxBytes: 65536 } })
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
+      ctx.llm.registerAdapter(['mock'], adapter)
+      ctx.skills.register({
+        name: 'prefix-order-skill',
+        description: 'Skill catalog after workspace rules',
+        source: 'runtime',
+        content: 'body',
+      })
+      const handle = await ctx.agents.create({
+        agentId: AgentId('main'),
+        sessionId: SessionId('prefix-order-session'),
+        meta: { cwd: root },
+        agentOptions: { model: 'mock' },
+      })
+
+      handle.agent.send([{ type: 'text', text: 'hi' }])
+      await waitForMainIdle(ctx)
+
+      expect(messageText(adapter.requests[0]?.messages[0])).toContain('workspace rule before skills')
+      expect(messageText(adapter.requests[0]?.messages[1])).toContain('prefix-order-skill')
+      await handle.dispose()
+      await ctx.fiber.dispose()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('forwards its bundled tool configs to tool-bash and tool-tasks', async () => {
     const ctx = await mount({
+      workspaceContext: false,
       toolBash: { enableRunInBackground: false },
       toolTasks: { waitTimeoutMs: 7, maxWaitTimeoutMs: 11 },
     }, true)
@@ -188,10 +301,34 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('picks shared spine config without leaking front-door fields', () => {
+    const appConfig = {
+      model: 'front-door-only',
+      persona: 'You are merged.',
+      toolOrder: ['zulu'],
+      tools: { mode: 'native' as const },
+      workspaceContext: false as const,
+      skills: {},
+      toolBash: { enableRunInBackground: false },
+      toolTasks: { waitTimeoutMs: 7, maxWaitTimeoutMs: 11 },
+    }
+
+    expect(agentCore.pickSpineConfig(appConfig)).toEqual({
+      persona: appConfig.persona,
+      toolOrder: appConfig.toolOrder,
+      tools: appConfig.tools,
+      workspaceContext: false,
+      skills: {},
+      toolBash: appConfig.toolBash,
+      toolTasks: appConfig.toolTasks,
+    })
+    expect(agentCore.pickSpineConfig({ workspaceContext: false })).toEqual({ workspaceContext: false })
+  })
+
   it('uses the default skill config when apply is called directly without skills', async () => {
     await withIsolatedSkillHomes(async () => {
       const ctx = new Context()
-      agentCore.apply(ctx, { agents: [] })
+      agentCore.apply(ctx, { agents: [], workspaceContext: false })
       await new Promise(resolve => setTimeout(resolve, 50))
       expect(ctx.skills).toBeDefined()
       expect(await ctx.skills.list()).toEqual([])
@@ -200,7 +337,7 @@ describe('dsh-agent-spine-demo bundle', () => {
   })
 
   it('forwards toolOrder to the system-prompt assembly', async () => {
-    const ctx = await mount({ toolOrder: ['zulu', TOOL_ORDER_REST] })
+    const ctx = await mount({ toolOrder: ['zulu', TOOL_ORDER_REST], workspaceContext: false })
     // The bundle's own bash tools pend on the absent `ctx.bash` executor in
     // this providerless mount, so register two plain tools to order.
     for (const name of ['alpha', 'zulu']) {
@@ -213,6 +350,16 @@ describe('dsh-agent-spine-demo bundle', () => {
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()
     expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'skill', 'task_kill', 'task_list', 'task_output'])
+    await ctx.fiber.dispose()
+  })
+
+  it('supports direct apply with workspace instructions disabled and no forwarded agents', async () => {
+    const ctx = new Context()
+    agentCore.apply(ctx, { workspaceContext: false })
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect(ctx.get('agents')?.list()).toEqual([])
+    expect(ctx.get('systemPrompt')).toBeDefined()
     await ctx.fiber.dispose()
   })
 
