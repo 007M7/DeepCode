@@ -6,22 +6,22 @@
 
 Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L78)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L80)
 
 ### ctx.fs.resolve(path, opts?)
 
 ```ts website-api
-abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>
+abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>
 ```
 
 Resolve a model/plugin-supplied path into a stable FsTarget. May perform I/O (a remote/sandboxed backend may need a round-trip to map a path to a stable identity), hence async even though the local backend only normalizes + realpaths.
 
 - `path` — the path to resolve; relative paths resolve against `opts.cwd`.
-- `opts` — `cwd` overrides the backend's default base for relative paths.
+- `opts` — optional cwd override and cancellation signal.
 
 **Returns** the stable target; the same file yields the same `targetKey`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L92)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L94)
 
 ### ctx.fs.stat(target, signal?)
 
@@ -36,7 +36,24 @@ Return target metadata, or `undefined` when the target does not exist.
 
 **Returns** metadata only, never content; undefined for an absent target.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L100)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L102)
+
+### ctx.fs.lstat(path, opts?, signal?)
+
+```ts website-api
+abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>
+```
+
+Return path metadata without following the final path component when it is a symbolic link. This is intentionally path-shaped, not target-shaped: resolve follows symlinks to produce the stable identity used by normal reads/writes, while `lstat` lets a consumer reject the path itself before that follow happens.
+`opts.cwd` follows resolve's cwd rules. `undefined` means the path is absent.
+
+- `path` — the path to inspect; relative paths resolve against `opts.cwd`.
+- `opts` — `cwd` overrides the backend's default base for relative paths.
+- `signal` — aborts the metadata round-trip.
+
+**Returns** metadata only, never content; undefined for an absent path.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L118)
 
 ### ctx.fs.readText(target, signal?)
 
@@ -51,7 +68,7 @@ Read the whole regular text file as a single decoded string.
 
 **Returns** the full decoded UTF-8 content.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L108)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L126)
 
 ### ctx.fs.streamText(target, signal?)
 
@@ -66,7 +83,7 @@ Stream the whole regular text file as decoded text chunks (same text semantics a
 
 **Returns** the chunk iterable, decoded and validated like `readText`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L119)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L137)
 
 ### ctx.fs.listDir(target, signal?)
 
@@ -81,7 +98,7 @@ List direct children of a directory in stable name order. Returns resolved child
 
 **Returns** one entry per direct child, in stable name order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L128)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L146)
 
 ### ctx.fs.writeText(target, content, expected?, signal?)
 
@@ -98,7 +115,7 @@ Atomically create or replace UTF-8 text. `expected` guards intent and staleness;
 
 **Returns** the outcome, including the version the write produced.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L139)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L157)
 
 ### ctx.fs.editText(target, edit, expected?, signal?)
 
@@ -115,4 +132,4 @@ Atomically edit literal text. When supplied, the version guard is checked before
 
 **Returns** the outcome, including the version the edit produced.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L151)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L169)

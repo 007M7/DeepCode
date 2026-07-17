@@ -15,7 +15,7 @@ import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
 import type { ContextEnvelope, CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
-import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
+import { SurfaceManager } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
 
 export * from './types.ts'
@@ -131,43 +131,6 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
   return deepFreeze(record as unknown as SessionHeader)
 }
 
-/** Validate the runtime shape of surface metadata after its JSON snapshot. */
-function assertSurfaceMetadataShape(
-  type: string,
-  surfaceOp: unknown,
-  sourceEventSeqs: unknown,
-): void {
-  const eligible = isSurfaceEligibleType(type)
-  if (!eligible) {
-    if (surfaceOp !== undefined || sourceEventSeqs !== undefined) {
-      throw new Error(`session event "${type}" is not surface-eligible and cannot carry surface metadata`)
-    }
-    return
-  }
-  if (surfaceOp === undefined) {
-    throw new Error(`session event "${type}" is surface-eligible and requires a surfaceOp marker`)
-  }
-  if (surfaceOp !== 'append') {
-    if (surfaceOp === null || typeof surfaceOp !== 'object' || Array.isArray(surfaceOp)) {
-      throw new Error(`session event "${type}" carries an invalid surfaceOp`)
-    }
-    const op = surfaceOp as Record<string, unknown>
-    const keys = Object.keys(op)
-    if (keys.length !== 3 || !Object.hasOwn(op, 'op') || !Object.hasOwn(op, 'start') || !Object.hasOwn(op, 'end')
-      || op['op'] !== 'replace'
-      || typeof op['start'] !== 'number' || !Number.isSafeInteger(op['start']) || op['start'] < 0
-      || typeof op['end'] !== 'number' || !Number.isSafeInteger(op['end']) || op['end'] < 0) {
-      throw new Error(`session event "${type}" carries an invalid replace surfaceOp`)
-    }
-  }
-  if (sourceEventSeqs !== undefined) {
-    if (!Array.isArray(sourceEventSeqs)
-      || sourceEventSeqs.some(seq => typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0)) {
-      throw new Error(`session event "${type}" sourceEventSeqs must contain non-negative safe integers`)
-    }
-  }
-}
-
 /** Validate the fixed event envelope after one-pass JSON materialization. */
 function assertSessionEventEnvelope(value: Record<string, unknown>, index: number): asserts value is SessionEvent {
   const event = value
@@ -250,13 +213,15 @@ export function renderContextContent(
  */
 export class Session {
   private log: SessionEvent[] = []
+  /** Incremental acceptance state, kept separate from the public lazy view. */
+  private readonly surfaceValidator = new SurfaceManager(this.log)
 
   /**
    * Derived surface — a cached linked list of message-producing events.
    * Lazily rebuilt from `surfaceOp` markers in the log; processes only new
    * events (delta) on each access — the log is append-only, so prior events
    * never change.
-   * `append`. Undefined until first accessed (including after fork/seed).
+   * Undefined until first accessed (including after fork/seed).
    */
   private _surface: SurfaceManager | undefined
 
@@ -285,7 +250,7 @@ export class Session {
       // `seq = log.length` contract the whole system relies on). Without this,
       // a bad seed would surface only later as a backend rejection or a silent
       // divergence between the live log and disk.
-      this.log = Array.from(seed, (source, index) => {
+      for (const [index, source] of seed.entries()) {
         // The seed is a persistence/replay boundary: validate and detach the
         // complete event in one lossless-JSON pass.
         const snapshot = snapshotJsonValue(source)
@@ -296,20 +261,16 @@ export class Session {
         if (snapshot.seq !== index) {
           throw new Error(`seed event at index ${index} has seq ${snapshot.seq} (expected ${index}); seed must be contiguous from 0`)
         }
-        // Surface-eligible events MUST carry a surfaceOp marker — the surface is
-        // the sole source of derived history, so a marker-less message event
-        // would load fine yet vanish from deriveMessages(). `append` enforces
-        // this at compile time via its typed overload; a seed arrives as raw
-        // SessionEvent[] (replay/fork/load), bypassing that, so re-check at
-        // runtime here rather than silently resuming with empty history.
-        const structural = snapshot as SessionEvent & { surfaceOp?: unknown; sourceEventSeqs?: unknown }
+        // A seed is accepted incrementally through the same transition as a
+        // live append and a full-log fold. The candidate is planned before it
+        // enters `log`, so a failure cannot partially mutate the surface.
         try {
-          assertSurfaceMetadataShape(snapshot.type, structural.surfaceOp, structural.sourceEventSeqs)
+          this.surfaceValidator.validateNext(snapshot)
         } catch (error: unknown) {
           throw new Error(`invalid seed event at index ${index}: ${error instanceof Error ? error.message : 'invalid surface metadata'}`)
         }
-        return deepFreeze(snapshot)
-      })
+        this.log.push(deepFreeze(snapshot))
+      }
     }
     this.header = snapshotSessionHeader(id, header)
   }
@@ -356,7 +317,10 @@ export class Session {
    * @throws if `data` or surface metadata is not losslessly JSON-serializable
    *   (BigInt, function, symbol, undefined, negative zero, non-finite number,
    *   circular reference, sparse array, or an exotic object such as
-   *   Map/Set/Date/class instance). One recursive pass reads, validates, and
+   *   Map/Set/Date/class instance), or when the candidate violates the
+   *   canonical surface contract (marker shape and eligibility, unique
+   *   earlier provenance, positional replacement validity, and complete
+   *   shadowed-node coverage). One recursive pass reads, validates, and
    *   copies each nested value once, so a stateful getter cannot supply one value
    *   to validation and another to storage. The event log is the durable source
    *   of truth, so a bad event fails at the append site rather than later during
@@ -382,25 +346,21 @@ export class Session {
     if (surfaceMetadataSnapshot === undefined) {
       throw new Error(`session event "${type}" carries non-JSON-serializable surface metadata`)
     }
-    assertSurfaceMetadataShape(
-      type,
-      (surfaceMetadataSnapshot as { surfaceOp?: unknown }).surfaceOp,
-      (surfaceMetadataSnapshot as { sourceEventSeqs?: unknown }).sourceEventSeqs,
-    )
-
     const entry = attachments.get(this)
     if (entry?.appending) {
       throw new Error('session append cannot reenter while another append is being published')
     }
+    const event = deepFreeze({
+      type,
+      seq: this.log.length,
+      time: Date.now(),
+      data: dataSnapshot,
+      ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
+    } as unknown as SessionEvent<T>)
+    this.surfaceValidator.validateNext(event as SessionEvent)
+
     if (entry !== undefined) entry.appending = true
     try {
-      const event = deepFreeze({
-        type,
-        seq: this.log.length,
-        time: Date.now(),
-        data: dataSnapshot,
-        ...surfaceMetadataSnapshot,
-      } as unknown as SessionEvent<T>)
       let callbacks: SessionCallback[] | undefined
       const callbackArgs: unknown[] = [this, event]
       if (entry !== undefined) {

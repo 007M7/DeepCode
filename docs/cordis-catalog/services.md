@@ -71,7 +71,21 @@ abstract start(spec: BashExecSpec): BashProcess
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:46`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:49`](../../packages/bash/bash/src/index.ts)
+
+## `ctx.bashEnv` — `BashEnvRegistry`
+
+Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables. The namespace is rebuilt for every model bash call: ambient `DSH_*` values are discarded by the executor, then the registry's current snapshot is injected. Built-in shell facts remain owned by the registry itself while plugins can register additional, enumerable facts with effect-scoped disposal.
+
+```ts cordis-catalog
+register(contributor: BashEnvContributor): () => void
+collect(execution: ToolExecution): DshEnvironment
+list(): BashEnvVariableInfo[]
+```
+
+Types: [ToolExecution](../core-data-structures/tools.md)
+
+Source: [`packages/bash/tool-bash/src/index.ts:102`](../../packages/bash/tool-bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
@@ -163,6 +177,7 @@ Source: [`packages/sandbox/sandbox/src/index.ts:111`](../../packages/sandbox/san
 Durable append-only session storage. Implementations preserve contiguous, losslessly JSON-serializable events; append resolves only after durability, and load balances a complete interrupted tail without rewriting committed events.
 
 ```ts cordis-catalog
+abstract locate(meta: SessionHeader): SessionLocation | undefined
 abstract create(meta: SessionHeader): Promise<void>
 abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
@@ -171,19 +186,21 @@ abstract list(): Promise<SessionHeader[]>
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:30`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:42`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService`
 
-Live-preferred logical-corpus and exact-event read service.
+Live-preferred logical-corpus exact-read and relationship-tracing service.
 
 ```ts cordis-catalog
 listSessions(): Promise<SessionRecord[]>
 async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>
+async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>
+async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 ```
 
-Source: [`packages/session-query/session-query/src/index.ts:35`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:38`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
@@ -202,7 +219,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:580`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:540`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -216,6 +233,22 @@ async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefiniti
 ```
 
 Source: [`packages/skill/skill/src/index.ts:141`](../../packages/skill/skill/src/index.ts)
+
+## `ctx.spillStore` — `SpillStore` (abstract seam)
+
+Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+
+Semantics every implementation must honor:
+
+- saveText persists the FULL `content` verbatim and returns an opaque locator, exact byte length, and model-facing retrieval guidance.
+- Storage is scoped by the request's SaveTextSpill.owner session; the backend chooses a private (not world-readable) location and a collision-free name derived from — never equal to — the caller's `suggestedName`.
+- `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).
+
+```ts cordis-catalog
+abstract saveText(input: SaveTextSpill): Promise<SpillRef>
+```
+
+Source: [`packages/spill/spill/src/index.ts:45`](../../packages/spill/spill/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 

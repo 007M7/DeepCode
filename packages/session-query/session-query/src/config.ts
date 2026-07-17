@@ -5,16 +5,17 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 /** Default maximum `before`/`after` raw-event window. */
 export const SESSION_QUERY_READ_WINDOW_MAX = 50
 
-/** Configuration for exact session-query reads. */
+/** Configuration for exact session-query reads and traces. */
 export interface Config {
   /** Maximum accepted raw read context on either side. Defaults to 50. */
   readWindowMax?: number
 }
 
-/** Stable machine-routable failure taxonomy for exact session reads. */
+/** Stable machine-routable failure taxonomy for exact session reads and traces. */
 export type SessionQueryErrorCode =
   | 'SESSION_QUERY_EVENT_NOT_FOUND'
   | 'SESSION_QUERY_INVALID_CONFIG'
+  | 'SESSION_QUERY_INVALID_LINEAGE'
   | 'SESSION_QUERY_INVALID_SURFACE'
   | 'SESSION_QUERY_INVALID_WINDOW'
   | 'SESSION_QUERY_PERSISTENCE_FAILED'

@@ -6,7 +6,21 @@
 
 Durable append-only session storage. Implementations preserve contiguous, losslessly JSON-serializable events; append resolves only after durability, and load balances a complete interrupted tail without rewriting committed events.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L30)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L42)
+
+### ctx.sessionPersistence.locate(meta)
+
+```ts website-api
+abstract locate(meta: SessionHeader): SessionLocation | undefined
+```
+
+Resolve this backend's independent local artifact for a session without reading, creating, flushing, or otherwise materializing it. Backends such as SQLite that do not own one artifact per session return `undefined`.
+
+- `meta` — the immutable session header whose artifact is requested.
+
+**Returns** the backend-specific absolute location, when one exists.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L54)
 
 ### ctx.sessionPersistence.create(meta)
 
@@ -18,7 +32,7 @@ Register a new session's metadata. A backend MAY defer the physical write until 
 
 - `meta` — the immutable header (id, version, cwd, lineage) to record.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L42)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L63)
 
 ### ctx.sessionPersistence.append(id, events)
 
@@ -31,7 +45,7 @@ Durably persist a batch of events (called from the write-behind drain at the `se
 - `id` — the session the batch belongs to.
 - `events` — the contiguous batch to persist, in seq order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L53)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L74)
 
 ### ctx.sessionPersistence.load(id)
 
@@ -45,7 +59,7 @@ Load a header and balanced contiguous log. A complete interrupted final turn is 
 
 **Returns** the header and a log ending on a balanced `turn/end`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L63)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L84)
 
 ### ctx.sessionPersistence.list()
 
@@ -57,4 +71,4 @@ Lightweight listing from metadata, without a full-log parse.
 
 **Returns** one header per materialized session.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L69)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-persistence/session-persistence/src/index.ts#L90)

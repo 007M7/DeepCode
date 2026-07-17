@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-time-context
 
-Opt-in dynamic system-prompt context with the current zoned time and elapsed time since the latest model-visible message before the turn. `dsh-agent-spine-demo` and shipped examples do not mount it. Decision record: [the time-context RFC](../../../docs/rfc/implemented/feature/2026-07-14-time-context-plugin.md).
+Opt-in durable context with the current zoned time and elapsed time sampled during model-request preparation. `dsh-agent-spine-demo` and shipped examples do not mount it. Decision record: [the durable time-context RFC](../../../docs/rfc/implemented/feature/2026-07-16-durable-per-step-time-context.md).
 
 ## Config
 
@@ -8,36 +8,51 @@ Opt-in dynamic system-prompt context with the current zoned time and elapsed tim
 - id: time-context
   name: '@deepseek-ai/dsh-time-context'
   config:
-    timeZone: Asia/Shanghai   # optional IANA override; omit for the process zone
-    refreshIntervalMs: 60000  # default; 0 refreshes on every step
+    timeZone: Asia/Shanghai  # optional IANA override; omit for the process zone
+    refreshIntervalMs: 60000 # optional; omit or set to 0 for every eligible attempt
 ```
 
-When `timeZone` is omitted, the plugin resolves the Node process's system zone once at plugin load. Node honors `TZ`; without that override, the host or container supplies the zone. An explicit `timeZone` must be an IANA identifier and is validated at plugin load. `refreshIntervalMs` must be a non-negative safe integer. Every turn's first request refreshes; later steps reuse the reading until its age reaches the interval. `0` refreshes every step. Refresh occurs only during request assembly and creates no timer work.
+When `timeZone` is omitted, the plugin resolves the Node process's system zone once at plugin load. Node honors `TZ`; without that override, the host or container supplies the zone. An explicit `timeZone` must be an IANA identifier and is validated at plugin load.
 
-## Message baseline
+`refreshIntervalMs` must be a non-negative safe integer. Omission or `0` appends on every pre-step attempt whose signal is not already aborted. A positive value appends only when the session has no earlier time-context injection, wall time moved backward, or at least that many milliseconds have elapsed since the latest injection.
 
-The duration starts at the latest user, assistant, tool-result, context, or steering message before the current `turn/start`. Every refresh in the turn retains that baseline, so the current prompt does not collapse the interval to approximately zero. The first turn reports that no earlier message exists. The durable clock source is session-event append time, not client send time.
+## Timing semantics
 
-The loop records the dynamic section in `request/header` / `request/header-delta`. Requests therefore remain reconstructable, carry one timing block, and retain no earlier readings in conversation history.
+The plugin prepends an `agent/pre-step` listener. When an injection is due, it appends one `context/message` through `agent.inject()` before `step/start` and ordinary automatic compaction, with source `{ kind: 'plugin', plugin: 'time-context' }`. A suppressed attempt appends nothing.
+
+Positive-interval scheduling scans the raw durable session events for the latest `context/message` with that source, including a reading shadowed by compaction. The schedule therefore applies across turns and resumed processes without process-local cache state. It reduces append frequency and history growth but never removes an existing reading, and sessions schedule independently.
+
+Step 1 measures from the latest preceding model-visible message, including the prompt that opened the turn. Later steps measure from the preceding time-context event in the same turn. Both baselines use durable session-event timestamps; backward wall-clock movement clamps elapsed time to zero. A missing first-step baseline, or a later step with no earlier same-turn reading because interval suppression skipped it, reports `unavailable`.
+
+A time reading records a request-preparation attempt, not a committed step or transmitted request. Because the listener runs first, its append may remain when a later pre-step listener cancels or fails the attempt; the log is append-only and the plugin performs no rollback.
+
+The time reading stays in derived conversation history until a later compaction shadows it. Request headers and header deltas contain no time-context state. Request reconstruction uses the complete durable surface prefix at each `step/start`, so transmitted requests need not map one-to-one to readings: a failed preparation can leave an extra reading, while interval suppression can let a request reuse existing history without adding one.
 
 ## Model Experience
 
-### Temporal system prompt
+### Preparation-time temporal context
 
-**What the model sees**: Every request in an active turn includes the two lines below. `<timestamp>` is an ISO-shaped local timestamp with numeric offset and IANA zone; `<duration-or-unavailable>` is compact whole-second units or the first-turn fallback.
+**What the model sees**: On each preparation attempt that injects, one source-tagged context message containing the two lines below. `<timestamp>` is an ISO-shaped local timestamp with numeric offset and IANA zone; durations use compact whole-second units. Positive intervals can leave an attempted step without a new reading.
 
-**Token effect**: Fixed two-line cost per request. A refresh replaces the request-header section; prior readings do not accumulate.
+**Token effect**: Each injected two-line message accumulates until compaction shadows it. A positive interval reduces additions; omission or `0` adds one for every eligible preparation attempt.
 
-#### Temporal context section
+#### First step
 
 ```markdown
-Current time: <timestamp>
-Time since previous message: <duration-or-unavailable>.
+Time sampled while preparing turn <turn>, step 1: <timestamp>
+Elapsed since the preceding model-visible message: <duration-or-unavailable>.
+```
+
+#### Later steps
+
+```markdown
+Time sampled while preparing turn <turn>, step <step>: <timestamp>
+Elapsed since the preceding step context: <duration-or-unavailable>.
 ```
 
 ## Known Limitations and Deferred Work
 
-- **Request-bound refresh only** — no clock update is emitted while the agent is waiting inside a model call or tool; the next assembled step refreshes once the configured interval has elapsed.
-- **Whole-second display** — timestamps and durations omit sub-second precision even when `refreshIntervalMs` is below 1,000.
-- **Session-event baseline** — elapsed time starts from the durable append timestamp, not a client transport's original send timestamp.
+- **Whole-second display** — timestamps and durations omit sub-second precision even though durable event times retain milliseconds.
+- **Session-event baseline** — elapsed time starts from durable append timestamps, not a client transport's original send timestamp.
 - **Process-local default zone** — omission uses the Node process's `TZ`, host, or container zone captured at plugin load, not a remote user's zone; configure an explicit IANA zone when those differ.
+- **History cost between compactions** — omission or `0` retains one reading for every eligible preparation attempt, including attempts later cancelled or failed; a positive interval reduces but does not eliminate this cost.

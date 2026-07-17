@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { type SessionEvent } from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import { CallId } from '@deepseek-ai/dsh-llm'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as RepeatToolGuard from '@deepseek-ai/dsh-repeat-tool-guard'
 import type { Config } from '@deepseek-ai/dsh-repeat-tool-guard'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -21,11 +21,7 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
 /** Boot the core spine + the guard; the caller registers adapters and extra listeners. */
 async function harness(config: Config = {}): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(RepeatToolGuard, config)
   ctx.tools.register(defineTool({ name: 'probe', description: 'p', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
@@ -363,11 +359,7 @@ describe('fold onto the downstream decision', () => {
 describe('config validation fails loud', () => {
   async function spine(): Promise<Context> {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(AgentRegistry)
+    await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
     return ctx
   }

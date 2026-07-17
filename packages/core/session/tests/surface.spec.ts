@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
-import { Session, SessionId, foldSurface, isSurfaceEligibleType, isSurfaceEvent } from '@deepseek-ai/dsh-session'
+import {
+  Session,
+  SessionId,
+  foldSurface,
+  isSurfaceEligibleType,
+  isSurfaceEvent,
+} from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
 
 /** Build a minimal session with turn boundaries and a single user message. */
@@ -12,6 +18,64 @@ function surfaceSession(): Session {
   s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   return s
 }
+
+function provenanceEvent(seq: number, sourceEventSeqs: unknown): SessionEvent {
+  return {
+    type: 'user/message',
+    seq,
+    time: seq,
+    data: { content: [], source: { kind: 'user' } },
+    surfaceOp: 'append',
+    ...sourceEventSeqs === undefined ? {} : { sourceEventSeqs },
+  } as unknown as SessionEvent
+}
+
+describe('foldSurface provenance', () => {
+  it('accepts absent or valid provenance and complete replacement coverage', () => {
+    const events = [
+      provenanceEvent(0, undefined),
+      provenanceEvent(1, undefined),
+      {
+        ...provenanceEvent(2, [0, 1]),
+        surfaceOp: { op: 'replace', start: 0, end: 1 },
+      },
+    ] as SessionEvent[]
+    expect(() => foldSurface(events)).not.toThrow()
+  })
+
+  it('rejects provenance on a non-surface event', () => {
+    const event = {
+      type: 'turn/start',
+      seq: 0,
+      time: 1,
+      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      sourceEventSeqs: [0],
+    } as unknown as SessionEvent
+    expect(() => foldSurface([event])).toThrow(/cannot carry sourceEventSeqs/)
+  })
+
+  it.each([
+    ['a non-array', [{ ...provenanceEvent(0, undefined), sourceEventSeqs: 'invalid' }], /must be an array/],
+    ['an empty array', [provenanceEvent(0, [])], /must not be empty/],
+    ['duplicates', [provenanceEvent(0, undefined), provenanceEvent(1, [0, 0])], /must not contain duplicates/],
+    ['a sparse array', [provenanceEvent(0, Array<number>(1))], /densely contain/],
+    ['a non-number', [{ ...provenanceEvent(0, undefined), sourceEventSeqs: ['0'] }], /non-negative safe integers/],
+    ['a fractional number', [provenanceEvent(0, [0.5])], /non-negative safe integers/],
+    ['a negative number', [provenanceEvent(0, [-1])], /non-negative safe integers/],
+    ['a self reference', [provenanceEvent(0, [0])], /must reference earlier events/],
+    ['a non-contiguous event seq', [provenanceEvent(0, undefined), provenanceEvent(2, [1])], /seq 2 is not contiguous; expected 1/],
+    ['incomplete replacement coverage', [
+      provenanceEvent(0, undefined),
+      provenanceEvent(1, undefined),
+      { ...provenanceEvent(2, [0]), surfaceOp: { op: 'replace', start: 0, end: 1 } },
+    ], /missing 1/],
+  ] as const)(
+    'rejects %s',
+    (_name, events, expected) => {
+      expect(() => foldSurface(events as unknown as SessionEvent[])).toThrow(expected)
+    },
+  )
+})
 
 describe('SurfaceManager', () => {
   it('shares exact nodes and nested replacement ranges with foldSurface', () => {
@@ -36,7 +100,7 @@ describe('SurfaceManager', () => {
   it('does not retain fold-only replacement history in incremental state', () => {
     const s = new Session(SessionId('incremental-state'))
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'b' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 } })
+    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'b' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] })
 
     expect(s.surface.nodes).toEqual([{ seq: 1, prev: null, next: null }])
     const manager = s.surface as unknown as { _state: object }
@@ -47,12 +111,29 @@ describe('SurfaceManager', () => {
   })
 
   it('foldSurface reports the same invalid replacement failures as the incremental manager', () => {
-    const s = new Session(SessionId('shared-fold-invalid'))
-    s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 42, end: 0 }, sourceEventSeqs: [0] })
+    const events = [
+      provenanceEvent(0, undefined),
+      { ...provenanceEvent(1, [0]), surfaceOp: { op: 'replace', start: 42, end: 0 } },
+    ] as SessionEvent[]
 
-    expect(() => foldSurface(s.events)).toThrow(/start seq 42 not found/)
-    expect(() => s.surface.nodes).toThrow(/start seq 42 not found/)
+    expect(() => foldSurface(events)).toThrow(/start seq 42 not found/)
+    expect(() => new Session(SessionId('shared-fold-invalid'), events))
+      .toThrow(/start seq 42 not found/)
+  })
+
+  it('leaves incremental state unchanged when candidate validation fails', () => {
+    const s = new Session(SessionId('atomic-validation'))
+    s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+
+    expect(() => s.append(
+      'assistant/message',
+      { turn: 1, step: 1, content: [{ type: 'text', text: 'invalid' }] },
+      { surfaceOp: { op: 'replace', start: 0, end: 0 } },
+    )).toThrow(/missing 0/)
+
+    expect(s.events).toHaveLength(1)
+    s.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    expect(s.surface.nodes.map(node => node.seq)).toEqual([0, 1])
   })
 
   it('foldSurface rejects a surface-eligible event without its mandatory marker', () => {
@@ -64,7 +145,20 @@ describe('SurfaceManager', () => {
     }
 
     expect(() => foldSurface([malformed]))
-      .toThrow(/surface event "user\/message" \(seq 0\) carries no surfaceOp marker/)
+      .toThrow(/surface-eligible and requires a surfaceOp marker/)
+  })
+
+  it('foldSurface rejects surfaceOp on a non-surface event', () => {
+    const malformed = {
+      type: 'turn/start',
+      seq: 0,
+      time: 1,
+      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      surfaceOp: 'append',
+    } as unknown as SessionEvent
+
+    expect(() => foldSurface([malformed]))
+      .toThrow(/not surface-eligible and cannot carry surfaceOp/)
   })
 
   it('rebuilds a linked list from surfaceOp: append markers', () => {
@@ -161,21 +255,19 @@ describe('SurfaceManager', () => {
   it('throws when replace start is not found', () => {
     const s = new Session(SessionId('bad-start'))
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 0
-    s.append('assistant/message',
+    expect(() => s.append('assistant/message',
       { turn: 1, step: 1, content: [{ type: 'text', text: 'y' }] },
-      { surfaceOp: { op: 'replace', start: 5, end: 0 }, sourceEventSeqs: [5, 0] },
-    )
-    expect(() => s.surface.nodes).toThrow(/surface replace: start seq 5 not found/)
+      { surfaceOp: { op: 'replace', start: 5, end: 0 }, sourceEventSeqs: [0] },
+    )).toThrow(/surface replace: start seq 5 not found/)
   })
 
   it('throws when replace end is not found', () => {
     const s = new Session(SessionId('bad-end'))
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 0
-    s.append('assistant/message',
+    expect(() => s.append('assistant/message',
       { turn: 1, step: 1, content: [{ type: 'text', text: 'y' }] },
       { surfaceOp: { op: 'replace', start: 0, end: 99 }, sourceEventSeqs: [0] },
-    )
-    expect(() => s.surface.nodes).toThrow(/surface replace: end seq 99 not found/)
+    )).toThrow(/surface replace: end seq 99 not found/)
   })
 
   it('throws when start is after end', () => {
@@ -183,22 +275,22 @@ describe('SurfaceManager', () => {
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 0
     s.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 1
     // start=1, end=0 would be reversed order.
-    s.append('assistant/message',
+    expect(() => s.append('assistant/message',
       { turn: 1, step: 1, content: [{ type: 'text', text: 'y' }] },
       { surfaceOp: { op: 'replace', start: 1, end: 0 }, sourceEventSeqs: [1, 0] },
-    )
-    expect(() => s.surface.nodes).toThrow(/start seq 1.*after end seq 0/)
+    )).toThrow(/start seq 1.*after end seq 0/)
   })
 
   it('sourceEventSeqs is snapshot so caller mutation does not affect logged event', () => {
     const s = new Session(SessionId('immutable'))
-    const sources = [10, 20]
+    s.append('user/message', { content: [{ type: 'text', text: 'source' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    const sources = [0]
     s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'h' }] }, { surfaceOp: 'append', sourceEventSeqs: sources })
     // Mutate caller's array after append.
-    sources.push(30)
+    sources.push(1)
     sources[0] = 99
-    const logged = s.events[0]! as SurfaceEvent
-    expect(logged.sourceEventSeqs).toEqual([10, 20])
+    const logged = s.events[1]! as SurfaceEvent
+    expect(logged.sourceEventSeqs).toEqual([0])
   })
 
   it('replace starting at non-head position links to previous node correctly', () => {
@@ -280,15 +372,17 @@ describe('deriveMessages with surface', () => {
 describe('Session.append surface opts', () => {
   it('records sourceEventSeqs and surfaceOp on the event', () => {
     const s = new Session(SessionId('opts'))
+    s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    s.append('step/start', { turn: 1, step: 1 })
     const event = s.append('assistant/message',
       { turn: 1, step: 1, content: [{ type: 'text', text: 'h' }] },
-      { surfaceOp: 'append', sourceEventSeqs: [3, 5, 7] },
+      { surfaceOp: 'append', sourceEventSeqs: [0, 1] },
     )
-    expect(event.sourceEventSeqs).toEqual([3, 5, 7])
+    expect(event.sourceEventSeqs).toEqual([0, 1])
     expect(event.surfaceOp).toBe('append')
     // The logged event matches the returned event.
-    expect((s.events[0]! as SurfaceEvent).sourceEventSeqs).toEqual([3, 5, 7])
-    expect((s.events[0]! as SurfaceEvent).surfaceOp).toBe('append')
+    expect((s.events[2]! as SurfaceEvent).sourceEventSeqs).toEqual([0, 1])
+    expect((s.events[2]! as SurfaceEvent).surfaceOp).toBe('append')
   })
 
   it('deriveMessages skips a surface node that derives to null (empty assistant/message)', () => {

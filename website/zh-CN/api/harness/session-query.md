@@ -4,9 +4,9 @@
 
 `SessionQueryService` — provided by `@deepseek-ai/dsh-session-query`.
 
-Live-preferred logical-corpus and exact-event read service.
+Live-preferred logical-corpus exact-read and relationship-tracing service.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-query/session-query/src/index.ts#L35)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-query/session-query/src/index.ts#L38)
 
 ### ctx.sessionQuery.listSessions()
 
@@ -18,7 +18,7 @@ List the complete logical corpus using live-preferred records.
 
 **Returns** deterministic newest-first cloned session records.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-query/session-query/src/index.ts#L60)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-query/session-query/src/index.ts#L63)
 
 ### ctx.sessionQuery.listEvents(sessionId)
 
@@ -32,7 +32,35 @@ List lightweight raw-log event records for one logical session.
 
 **Returns** event records in ascending seq order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-query/session-query/src/index.ts#L69)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-query/session-query/src/index.ts#L72)
+
+### ctx.sessionQuery.traceSession(sessionId)
+
+```ts website-api
+async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>
+```
+
+Trace known ancestry and descendants from one corpus observation.
+
+- `sessionId` — logical session id to trace.
+
+**Returns** a complete lineage or an explicit unresolved parent boundary.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-query/session-query/src/index.ts#L83)
+
+### ctx.sessionQuery.traceEvent(request)
+
+```ts website-api
+async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>
+```
+
+Trace one event's direct positional and provenance relationships.
+
+- `request` — target session id and event seq.
+
+**Returns** direct links plus the target's positional replacement chain.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-query/session-query/src/index.ts#L94)
 
 ### ctx.sessionQuery.readEvent(request)
 
@@ -46,4 +74,4 @@ Read one full event plus a bounded raw-log context window.
 
 **Returns** cloned target and neighboring events.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-query/session-query/src/index.ts#L79)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/session-query/session-query/src/index.ts#L104)

@@ -39,6 +39,10 @@
       "link": "/zh-CN/api/harness/bash"
     },
     {
+      "text": "ctx.bashEnv",
+      "link": "/zh-CN/api/harness/bash-env"
+    },
+    {
       "text": "ctx.codeRuntime",
       "link": "/zh-CN/api/harness/code-runtime"
     },
@@ -77,6 +81,10 @@
     {
       "text": "ctx.skills",
       "link": "/zh-CN/api/harness/skills"
+    },
+    {
+      "text": "ctx.spillStore",
+      "link": "/zh-CN/api/harness/spill-store"
     },
     {
       "text": "ctx.subagents",

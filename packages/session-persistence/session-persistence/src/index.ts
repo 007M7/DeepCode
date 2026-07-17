@@ -22,6 +22,18 @@ declare module 'cordis' {
 }
 
 /**
+ * A backend-resolved, per-session local artifact location. The path is an
+ * absolute target path and can name an artifact that has not materialized yet.
+ * Consumers must treat it as a location hint, never as an authorization token.
+ */
+export interface SessionLocation {
+  /** Backend-specific artifact kind, for example `jsonl`. */
+  readonly kind: string
+  /** Absolute path to this session's backend-owned artifact. */
+  readonly path: string
+}
+
+/**
  * Durable append-only session storage. Implementations preserve contiguous,
  * losslessly JSON-serializable events; {@link append} resolves only after
  * durability, and {@link load} balances a complete interrupted tail without
@@ -31,6 +43,15 @@ export abstract class SessionPersistence extends Service {
   constructor(ctx: Context) {
     super(ctx, 'sessionPersistence')
   }
+
+  /**
+   * Resolve this backend's independent local artifact for a session without
+   * reading, creating, flushing, or otherwise materializing it. Backends such
+   * as SQLite that do not own one artifact per session return `undefined`.
+   * @param meta - the immutable session header whose artifact is requested.
+   * @returns the backend-specific absolute location, when one exists.
+   */
+  abstract locate(meta: SessionHeader): SessionLocation | undefined
 
   /**
    * Register a new session's metadata. A backend MAY defer the physical write

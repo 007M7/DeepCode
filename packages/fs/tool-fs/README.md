@@ -100,6 +100,6 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 ## Known Limitations and Deferred Work
 
-- **No directory-listing, glob, grep, or search tools ship** — a deferral of [the tool-schemas RFC](../../../docs/rfc/implemented/feature/2026-06-17-filesystem-tool-schemas.md); `ctx.fs.listDir` serves provider code such as skill discovery but still has no model-facing consumer, so models fall back to `bash`.
+- **No model-facing directory listing ships** — `ctx.fs.listDir` serves provider code such as skill discovery, while the sibling [`dsh-tool-fs-search`](../tool-fs-search/) package supplies bash-backed `glob` and `grep` rather than extending the filesystem seam.
 - **`read` handles UTF-8 text files only** — binary-safe reads and PDF/image/multimodal content are deferred; a directory target is `FS_NOT_REGULAR_FILE`.
 - **No timeout surface** — `read`/`write`/`edit` take no timeout argument and declare no `timeout-policy` budget; cancellation rides `exec.signal` only (the deliberate [fs-family stance](../README.md)).

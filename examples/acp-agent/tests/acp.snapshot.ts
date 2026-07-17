@@ -53,6 +53,7 @@ const SCENARIOS: Scenario[] = [
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  { name: 'bash-spill', hasModelTurn: true, recorded: false, headerClass: 'fs', configPath: FS_CONFIG },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
