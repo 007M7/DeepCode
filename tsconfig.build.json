@@ -99,6 +99,7 @@
     { "path": "./packages/sdk/helper" },
     { "path": "./packages/sdk/scripts" },
     { "path": "./packages/sdk/create-sdk" },
-    { "path": "./packages/sdk/plugin-fetch" }
+    { "path": "./packages/sdk/plugin-fetch" },
+    { "path": "./packages/sdk/telemetry" }
   ]
 }
