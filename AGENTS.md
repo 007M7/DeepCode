@@ -10,8 +10,9 @@ DeepSeek Harness SDK is a plugin-based agent harness on vendored Cordis: **every
 
 ```
 vendor/      Vendored Cordis source — manifest + sync procedure in vendor/README.md
-packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai/dsh-<pkg>
+packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   core/        product API spine: session, system-prompt, tools, agent, agent-loop
+  prompt/      workspace instructions
   llm/         LLM seam + the DeepSeek adapters (hand-rolled + pi-ai design twin)
   bash/        bash executor seam + local impl + model-facing bash tools
   fs/          filesystem seam + local impl + policy gate + read/write/edit tools
@@ -59,6 +60,10 @@ pnpm run demo:repl      # real REPL coding agent (needs DEEPSEEK_API_KEY)
 pnpm run demo:cordis    # self-referential demo: the agent modifies its own runtime (needs key)
 pnpm run demo:acp       # ACP server agent (needs DEEPSEEK_API_KEY)
 ```
+
+### Host sandbox failures
+
+When required `gh`, `pnpm`, build, test, or generator commands fail because the agent sandbox blocks credentials, network, IPC, file watching, or nested `sandbox-exec`, retry unchanged with the narrowest host escalation before diagnosing authentication or project failure. Require sandbox evidence; never bypass genuine test failures or the product sandbox under test.
 
 ### Run the CI gates locally before marking a PR ready
 

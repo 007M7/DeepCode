@@ -38,6 +38,14 @@ async function scenario(behavior: object): Promise<{ dir: string; fixtureFile: s
 const boot: InputStep[] = [{ op: 'initialize' }, { op: 'newSession' }]
 
 describe('runScenario', () => {
+  it('includes agent stderr when the ACP connection closes during startup', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ failOnBoot: true, stderrNote: 'fake agent requested startup failure' })
+    await expect(runScenario(
+      { steps: [{ op: 'initialize' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )).rejects.toThrow(/agent stderr:\nfake agent requested startup failure/)
+  })
+
   it('drives a full turn: initialize (terminal caps), session, prompt, permission stub, harvest', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({
       permissionProbe: true,

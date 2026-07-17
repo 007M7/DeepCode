@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -26,11 +23,7 @@ type Script = ConstructorParameters<typeof MockAdapter>[0]
 async function setup(script: Script) {
   const ctx = new Context()
   const adapter = new MockAdapter(script)
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(Invariants)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
@@ -303,11 +296,7 @@ describe('dsh-subagent-spawn', () => {
     // Rebuild the stack by hand so we hold the backend's fiber.
     const ctx = new Context()
     const adapter = new MockAdapter(['hang'])
-    await ctx.plugin(LlmService)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(AgentRegistry)
+    await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(Invariants)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SubagentService)
@@ -336,11 +325,7 @@ describe('dsh-subagent-spawn', () => {
 
   it('a start racing an already-unloading backend cannot begin child creation', async () => {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(AgentRegistry)
+    await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SubagentService)
     const fiber = await ctx.plugin(spawn, { providerName: 'spawn' })

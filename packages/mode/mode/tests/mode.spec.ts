@@ -722,7 +722,13 @@ class FakeSandboxExecutor extends BashExecutor {
   }
 
   resolve(request: BashExecRequest): BashExecSpec {
-    return { command: request.command, workdir: '/w', timeoutMs: 1000, sandboxMode: request.sandboxMode }
+    return {
+      command: request.command,
+      workdir: '/w',
+      timeoutMs: 1000,
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 1000,
+      sandboxMode: request.sandboxMode,
+    }
   }
 
   run(_spec: BashExecSpec): Promise<BashRunResult> {

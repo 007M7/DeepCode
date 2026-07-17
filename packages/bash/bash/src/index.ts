@@ -11,6 +11,7 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import { effectiveSandboxMode } from './session-mode.ts'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from './types.ts'
 
+export { DSH_ENV_PREFIX } from './types.ts'
 export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
 export type {
   BashExecRequest,
@@ -21,6 +22,8 @@ export type {
   BashRunResult,
   BashSandboxInfo,
   CollectedOutput,
+  DshEnvironment,
+  DshEnvironmentKey,
 } from './types.ts'
 
 declare module 'cordis' {

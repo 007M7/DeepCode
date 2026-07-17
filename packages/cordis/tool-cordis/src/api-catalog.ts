@@ -93,6 +93,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'bashEnv',
+    summary: 'Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables.',
+    methods: [
+      'register(contributor: BashEnvContributor): () => void',
+      'collect(execution: ToolExecution): DshEnvironment',
+      'list(): BashEnvVariableInfo[]',
+    ],
+  },
+  {
     key: 'codeRuntime',
     summary: 'Registers one `ctx.codeRuntime` implementation.',
     methods: [
@@ -111,8 +120,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'fs',
     summary: 'Abstract filesystem provider.',
     methods: [
-      'abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>',
+      'abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>',
       'abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>',
+      'abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>',
       'abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>',
       'abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>',
       'abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>',
@@ -159,6 +169,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'sessionPersistence',
     summary: 'Durable append-only session storage.',
     methods: [
+      'abstract locate(meta: SessionHeader): SessionLocation | undefined',
       'abstract create(meta: SessionHeader): Promise<void>',
       'abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>',
       'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
@@ -167,10 +178,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'sessionQuery',
-    summary: 'Live-preferred logical-corpus and exact-event read service.',
+    summary: 'Live-preferred logical-corpus exact-read and relationship-tracing service.',
     methods: [
       'listSessions(): Promise<SessionRecord[]>',
       'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
+      'async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>',
+      'async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>',
       'async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>',
     ],
   },
@@ -196,6 +209,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'register(skill: SkillRegistration): () => void',
       'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
       'async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>',
+    ],
+  },
+  {
+    key: 'spillStore',
+    summary: 'Abstract spill storage service.',
+    methods: [
+      'abstract saveText(input: SaveTextSpill): Promise<SpillRef>',
     ],
   },
   {
@@ -519,7 +539,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: AgentId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: SendOptions): void;\n    cancel(reason?: string): void;\n    whenIdle(): Promise<void>;\n}',
+    declaration: 'export interface Agent {\n    readonly id: AgentId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: InjectOptions): void;\n    cancel(reason?: string): void;\n    whenIdle(): Promise<void>;\n}',
   },
   {
     name: 'AgentFactory',
@@ -582,12 +602,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AssembledSection {\n    name: string;\n    text: string;\n}',
   },
   {
+    name: 'BashEnvContributor',
+    declaration: 'export interface BashEnvContributor {\n    name: string;\n    variables: Readonly<Record<DshEnvironmentKey, BashEnvVariable>>;\n    resolve(execution: ToolExecution): Readonly<Partial<Record<DshEnvironmentKey, string>>>;\n}',
+  },
+  {
+    name: 'BashEnvVariable',
+    declaration: 'export interface BashEnvVariable {\n    description: string;\n}',
+  },
+  {
+    name: 'BashEnvVariableInfo',
+    declaration: 'export interface BashEnvVariableInfo extends BashEnvVariable {\n    contributor: string;\n    key: DshEnvironmentKey;\n}',
+  },
+  {
     name: 'BashExecRequest',
-    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
   },
   {
     name: 'BashExecSpec',
-    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    stdoutMaxBytes: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
   },
   {
     name: 'BashProcess',
@@ -666,6 +698,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ContentBlockType = keyof ContentBlockMap;',
   },
   {
+    name: 'ContextEnvelope',
+    declaration: 'export type ContextEnvelope = \'context\' | \'raw\';',
+  },
+  {
     name: 'CreateAgentOptions',
     declaration: 'export interface CreateAgentOptions {\n    readonly agentId: AgentId;\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
@@ -680,6 +716,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DiffResultView',
     declaration: 'export interface DiffResultView {\n    card: \'diff\';\n    title?: string;\n    diffs: FileDiff[];\n}',
+  },
+  {
+    name: 'DshEnvironment',
+    declaration: 'export type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>;',
+  },
+  {
+    name: 'DshEnvironmentKey',
+    declaration: 'export type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`;',
   },
   {
     name: 'FileDiff',
@@ -712,6 +756,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'FsInfo',
     declaration: 'export interface FsInfo {\n    version: FsVersion;\n    type: \'file\' | \'directory\' | \'other\';\n    size?: number;\n}',
+  },
+  {
+    name: 'FsPathInfo',
+    declaration: 'export interface FsPathInfo {\n    version: FsVersion;\n    type: \'file\' | \'directory\' | \'symlink\' | \'other\';\n    size?: number;\n}',
   },
   {
     name: 'FsTarget',
@@ -747,7 +795,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'HookContext',
-    declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n}',
+    declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n    envelope?: ContextEnvelope;\n    meta?: JsonValue;\n}',
+  },
+  {
+    name: 'InjectOptions',
+    declaration: 'export interface InjectOptions extends SendOptions {\n    envelope?: ContextEnvelope;\n    meta?: JsonValue;\n}',
+  },
+  {
+    name: 'JsonValue',
+    declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
     name: 'Message',
@@ -798,6 +854,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SandboxPolicy {\n    mode: ConfinedSandboxMode;\n    workspaceRoot: string;\n}',
   },
   {
+    name: 'SaveTextSpill',
+    declaration: 'export interface SaveTextSpill {\n    owner: SpillOwner;\n    source: SpillSource;\n    suggestedName: string;\n    content: string;\n}',
+  },
+  {
     name: 'ScopeKey',
     declaration: 'export type ScopeKey = object;',
   },
@@ -811,7 +871,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': {\n        turn: number;\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: E /* …truncated — full shape in source */',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        envelope?: ContextEnvelope;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': {\n        turn: number;\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'todo/write\': {\n        todos /* …truncated — full shape in source */',
   },
   {
     name: 'SessionEventReadRequest',
@@ -824,6 +884,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionEventSurface',
     declaration: 'export type SessionEventSurface = \'current\' | \'shadowed\' | \'log-only\';',
+  },
+  {
+    name: 'SessionEventTrace',
+    declaration: 'export interface SessionEventTrace {\n    target: SessionEventRecord;\n    replacedBy?: number;\n    replacementChain: number[];\n    replacedEventSeqs: number[];\n    sourceEventSeqs: number[];\n    derivedEventSeqs: number[];\n}',
+  },
+  {
+    name: 'SessionEventTraceRequest',
+    declaration: 'export interface SessionEventTraceRequest {\n    sessionId: SessionId;\n    seq: number;\n}',
   },
   {
     name: 'SessionEventType',
@@ -844,6 +912,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionId',
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
+  },
+  {
+    name: 'SessionLineageNode',
+    declaration: 'export interface SessionLineageNode {\n    session: SessionRecord;\n    descendants: SessionLineageNode[];\n}',
+  },
+  {
+    name: 'SessionLineageTrace',
+    declaration: 'export type SessionLineageTrace = {\n    target: SessionRecord;\n    ancestors: SessionRecord[];\n    descendants: SessionLineageNode[];\n} & ({\n    complete: true;\n    root: SessionRecord;\n} | {\n    complete: false;\n    unresolvedParentId: SessionId;\n});',
+  },
+  {
+    name: 'SessionLocation',
+    declaration: 'export interface SessionLocation {\n    readonly kind: string;\n    readonly path: string;\n}',
   },
   {
     name: 'SessionRecord',
@@ -880,6 +960,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SkillSummary',
     declaration: 'export interface SkillSummary {\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly disableModelInvocation?: boolean;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
+  },
+  {
+    name: 'SpillLocator',
+    declaration: 'export type SpillLocator = Branded<\'SpillLocator\'>;',
+  },
+  {
+    name: 'SpillOwner',
+    declaration: 'export interface SpillOwner {\n    sessionId: SessionId;\n}',
+  },
+  {
+    name: 'SpillRef',
+    declaration: 'export interface SpillRef {\n    locator: SpillLocator;\n    bytes: number;\n    retrievalHint: string;\n}',
+  },
+  {
+    name: 'SpillSource',
+    declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: CallId;\n    label: string;\n}',
   },
   {
     name: 'StreamChunk',
@@ -986,10 +1082,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TerminalResultView {\n    card: \'terminal\';\n    title?: string;\n    output?: string;\n    exitCode?: number;\n    signal?: string;\n}',
   },
   {
-    name: 'TodoItem',
-    declaration: 'export interface TodoItem {\n    content: string;\n    status: \'pending\' | \'in_progress\' | \'completed\';\n}',
-  },
-  {
     name: 'TokenUsage',
     declaration: 'export interface TokenUsage {\n    inputTokens: number;\n    outputTokens: number;\n    cacheReadTokens?: number;\n    cacheWriteTokens?: number;\n    reasoningTokens?: number;\n}',
   },
@@ -1007,7 +1099,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>;\n    timeoutMs?: number;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>;\n    timeoutMs?: number;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolErrorInfo',
@@ -1027,7 +1119,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionResult',
-    declaration: 'export interface ToolExecutionResult {\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContext?: HookContext;\n    meta?: unknown;\n}',
+    declaration: 'export interface ToolExecutionResult {\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContexts?: HookContext[];\n    meta?: unknown;\n}',
   },
   {
     name: 'ToolExecutionToken',
@@ -1056,6 +1148,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolResultView',
     declaration: 'export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView;',
+  },
+  {
+    name: 'ToolRunContext',
+    declaration: 'export interface ToolRunContext extends ToolExecution {\n    deferContext(context: HookContext): void;\n}',
   },
   {
     name: 'ToolSchema',

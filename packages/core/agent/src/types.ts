@@ -22,7 +22,7 @@ export type AgentId = Branded<'AgentId'>
 export function AgentId(id: string): AgentId {
   return id as AgentId
 }
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { ContextEnvelope, JsonValue, Session } from '@deepseek-ai/dsh-session'
 
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
@@ -42,6 +42,14 @@ export interface SendOptions {
   source?: MessageSource
 }
 
+/** Options specific to durable synthetic context injection. */
+export interface InjectOptions extends SendOptions {
+  /** Keep the canonical context tag, or send caller-owned framing verbatim. */
+  envelope?: ContextEnvelope
+  /** Opaque JSON state retained in the session event but hidden from the model. */
+  meta?: JsonValue
+}
+
 /**
  * An agent's lifecycle state, emitted on every transition as `agent/status`:
  * `idle` (parked, waiting for queued work), `running` (a turn is in progress),
@@ -54,21 +62,25 @@ export type AgentStatus = 'idle' | 'running' | 'disposed'
 export interface HookContext {
   content: ContentBlock[]
   source: MessageSource
+  /** Keep the canonical context tag, or use caller-owned framing verbatim. */
+  envelope?: ContextEnvelope
+  /** Opaque JSON state retained in the session event but hidden from the model. */
+  meta?: JsonValue
 }
 
 /**
- * Prompt interception result. `allow.content` replaces the prompt and
- * `additionalContext` becomes a separate context message. `block` records a
+ * Prompt interception result. `allow.content` replaces the prompt and each
+ * `additionalContexts` entry becomes a separate context message. `block` records a
  * durable `prompt/blocked`; an all-blocked batch ends a zero-step rejected turn.
  */
 export type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
   | { kind: 'block'; reason: string }
 
 /** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */
 export type ContinuationDecision =
   | { action: 'stop' }
-  | { action: 'continue'; reason?: HookContext }
+  | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
 
 /**
  * The terminal subset of {@link ContinuationDecision}. A listener on
@@ -108,7 +120,7 @@ export interface Agent {
    * turn joins it at the current log position. Disposal awaits idle checkpoints;
    * flush failures are reported through `agent/error`, not thrown to the caller.
    */
-  inject(content: ContentBlock[], options?: SendOptions): void
+  inject(content: ContentBlock[], options?: InjectOptions): void
 
   /**
    * Clear queued and steering work, including work waiting to start, and abort

@@ -192,6 +192,9 @@ export interface RunOptions {
 export async function runScenario(input: InputScript, opts: RunOptions): Promise<RunResult> {
   const cwd = await mkdtemp(join(tmpdir(), 'acp-snap-cwd-'))
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
+  // Fixed path length: spill-policy budgets the preview against the REAL path
+  // before stdout normalization, so tmpdir() length differences churn goldens.
+  const spillRoot = '/tmp/dsh-acp-snapshot-spill'
   // Everything past the temp-dir creation runs under a try/finally that always
   // removes both dirs — so a failure in workspace seeding, spawn, or any step
   // never leaks them (the "e2e tests own their resources" rule).
@@ -211,6 +214,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       DSH_SNAPSHOT: opts.mode,
       DSH_SNAPSHOT_FILE: opts.fixtureFile,
       DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
+      DSH_SNAPSHOT_SPILL_ROOT: spillRoot,
       DSH_HOME: join(cwd, '.dsh'),
       DSH_AGENTS_HOME: join(cwd, '.agents'),
       ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
@@ -318,6 +322,10 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // Harvest EVERY persisted log (parent + any subagent children) while the
     // temp dirs still exist, ordered primary-first.
     sessionLogs = await harvestSessionLogs(sessionsRoot)
+  } catch (error: unknown) {
+    const stderr = stderrChunks.join('')
+    if (stderr === '') throw error
+    throw new Error(`snapshot-harness: scenario failed: ${String(error)}\nagent stderr:\n${stderr}`, { cause: error })
   } finally {
     // Failure-safe teardown: kill a still-running child and drop the temp dirs
     // even if seeding/spawn/a step/harvest threw, so a flaky run never leaks a
@@ -328,6 +336,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     }
     await rm(cwd, { recursive: true, force: true })
     await rm(sessionsRoot, { recursive: true, force: true })
+    await rm(spillRoot, { recursive: true, force: true })
   }
 
   return {

@@ -153,6 +153,12 @@ describe('scanRows', () => {
 })
 
 describe('SessionPersistenceSqlite: durability and crash semantics', () => {
+  it('has no independent per-session log location', async () => {
+    const { ctx, dispose } = await backend()
+    expect(ctx.sessionPersistence.locate(meta('sqlite-location'))).toBeUndefined()
+    await dispose()
+  })
+
   it('an interrupted turn (rows after the last turn/end) is PRESERVED and closed during load', async () => {
     const path = await freshDbPath()
     const m = meta('crash')

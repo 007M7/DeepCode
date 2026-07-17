@@ -140,16 +140,11 @@ function validateThresholds(values: number[]): number[] {
 }
 
 /**
- * Concatenate the guard's reminder context with a downstream listener's
- * optional one so folding drops neither. The merged block carries the guard's
- * `source` — a `HookContext` holds one `MessageSource` and the seam cannot
- * represent mixed provenance; the rendered `context/message` only
- * distinguishes by `source.kind`, so a downstream plugin's text is still
- * correctly framed as plugin context.
+ * Prepend the guard's reminder while preserving every downstream context's
+ * source, envelope, and metadata.
  */
-function concatContext(ours: HookContext, theirs: HookContext | undefined): HookContext {
-  if (!theirs) return ours
-  return { content: [...ours.content, ...theirs.content], source: ours.source }
+function prependContext(ours: HookContext, theirs: HookContext[] | undefined): HookContext[] {
+  return [ours, ...theirs ?? []]
 }
 
 /** One agent's consecutive-repeat chain: the last tracked call's identity key and its run length. */
@@ -211,19 +206,19 @@ export function apply(ctx: Context, config: Config): void {
 
   // Observe-and-enrich, never veto: count first (state advances regardless of
   // the downstream outcome), DELEGATE so a later listener can still block or
-  // replace, then fold the reminder onto whatever came back — additionalContext
+  // replace, then fold the reminder onto whatever came back — additionalContexts
   // rides both decision variants, so a blocked call still gets the nudge.
   ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
     const reminder = observe(exec)
     const downstream = await next()
     if (!reminder) return downstream
     if (downstream.kind === 'block') {
-      return { kind: 'block', feedback: downstream.feedback, additionalContext: concatContext(reminder, downstream.additionalContext) }
+      return { kind: 'block', feedback: downstream.feedback, additionalContexts: prependContext(reminder, downstream.additionalContexts) }
     }
     return {
       kind: 'accept',
       ...downstream.content !== undefined ? { content: downstream.content } : {},
-      additionalContext: concatContext(reminder, downstream.additionalContext),
+      additionalContexts: prependContext(reminder, downstream.additionalContexts),
     }
   })
 
