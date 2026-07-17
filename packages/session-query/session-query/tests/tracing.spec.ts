@@ -101,7 +101,7 @@ function appendTraceEvents(session: Session): void {
   )
   session.append(
     'assistant/message',
-    { turn: 1, step: 1, content: [{ type: 'text', text: 'summary one' }] },
+    { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'summary one' }] },
     { surfaceOp: { op: 'replace', start: 1, end: 1 }, sourceEventSeqs: [1, 0] },
   )
   session.append(
@@ -111,7 +111,7 @@ function appendTraceEvents(session: Session): void {
   )
   session.append(
     'assistant/message',
-    { turn: 1, step: 2, content: [{ type: 'text', text: 'summary two' }] },
+    { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 2, content: [{ type: 'text', text: 'summary two' }] },
     { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [0, 2] },
   )
 }
@@ -338,7 +338,7 @@ describe('session event tracing', () => {
       type: 'assistant/message',
       seq: 1,
       time: 2,
-      data: { turn: 1, step: 1, content: [] },
+      data: { turn: 1, step: 1, content: [], provenance: { provider: 'mock', model: 'mock' } },
       surfaceOp: { op: 'replace', start: 9, end: 9 },
       sourceEventSeqs: [],
     }]

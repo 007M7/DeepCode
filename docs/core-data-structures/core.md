@@ -104,12 +104,29 @@ interface ContentBlockMap {
 
 The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBlock` (thinking, distinct from visible text), `ToolCallBlock` (`id: CallId`, `name`, raw-JSON `arguments`), `ToolResultBlock` (`toolCallId`, nested `content: ContentBlock[]`, `isError?`). `ContentBlock = ContentBlockMap[ContentBlockType]`. The core set is limited to blocks every shipping path honors — multimodal content (images, audio, …) has no core block type; a feature that needs one adds it via the merge-extensible map together with the adapter/UI/compaction support that honors it.
 
-A `Message` is a role plus blocks:
+A `Message` is a role plus blocks. Loop-derived assistant messages carry their durable provider/model identity and optional adapter-private replay metadata:
+
+```ts type-equiv
+interface AssistantProvenance {
+  /** Provider route that produced the message. */
+  provider: string
+  /** Provider model id that produced the message. */
+  model: string
+  /**
+   * Lossless-JSON adapter state needed to replay the provider response.
+   * `LlmService` exposes it to a target adapter only when that adapter instance
+   * currently owns both this historical provider and the target provider.
+   */
+  replayState?: unknown
+}
+```
 
 ```ts type-equiv
 interface Message {
   role: 'system' | 'user' | 'assistant'
   content: ContentBlock[]
+  /** Present only on assistant messages produced by a routed adapter. */
+  provenance?: AssistantProvenance
 }
 ```
 
@@ -134,8 +151,34 @@ One model call is a fully-assembled `GenerateOptions`. The adapter answers with 
 
 Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
+Provider and model discovery uses small provider-neutral descriptors. A model catalog is advisory: routing still keys on a registered provider, and an adapter may accept unlisted model ids.
+
+```ts type-equiv
+interface LlmProviderInfo {
+  /** Provider route key used by {@link GenerateOptions.provider}. */
+  id: string
+  /** Human-readable provider name for selectors and diagnostics. */
+  name: string
+}
+```
+
+```ts type-equiv
+interface LlmModelInfo {
+  /** Provider route that owns this model entry. */
+  provider: string
+  /** Model id passed to {@link GenerateOptions.model}. */
+  id: string
+  /** Human-readable model name for selectors. */
+  name: string
+  /** Optional user-facing distinction from otherwise similar models. */
+  description?: string
+}
+```
+
 ```ts type-equiv
 interface GenerateOptions {
+  /** Registered provider route selecting the adapter instance. */
+  provider: string
   model: string
   /**
    * Ordered conversation messages, exactly as the provider sees them (after
@@ -194,7 +237,9 @@ The model-facing `ToolSchema` is the wire shape; the registered `ToolDefinition`
 
 ### The request envelope: `LlmCallConfig` and the logged header
 
-Requests are built by the loop, not shaped per call: the non-history half of a request — the `EpochHeader`: this call configuration plus the rendered system prompt, the tool schemas in the authoritative returned assembly order (initially canonicalized by dsh-system-prompt's `toolOrder` config, or lexicographically when unset), and the session prefix — is logged as full `request/header` snapshots ([session.md](session.md#the-request-header-event-requestheader)), so every conversation request is a pure function of the session log ([reconstructability RFC](../rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)). The `agent/request` waterfall receives a frozen `LlmCallConfig` seed and a listener returns a replacement to switch model or sampling; the `agent/session-prefix` waterfall — fired once per loop instance — composes the request-only messages fronting the derived history (recorded as the header's `messagePrefix`) — the loop logs whatever the request actually uses. Loop-built requests arrive at `llm/stream` deep-frozen; mutation throws.
+The loop builds each request from logged state. `EpochHeader` records call config, rendered prompt, authoritative returned tool order (configured by `toolOrder`, or lexicographic when unset), and session prefix through full `request/header` snapshots. Together with derived history, this makes the request reconstructable from the session log. See [session.md](session.md#the-request-header-event-requestheader) and the [reconstructability RFC](../rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
+
+`agent/request` receives a frozen call-config seed and may return a replacement to switch provider, model, or sampling. `agent/session-prefix` composes request-only prefix messages once per loop instance, and the header records the exact result used. Requests reaching `llm/stream` are deep-frozen, so mutation throws.
 
 On the wire, a loop-built request reads in this order: the `system` slot (the rendered prompt assembly) → `messagePrefix` (the frozen session prefix) → the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps. The prefix never enters the derived history; its durable record is the header events, and the dev invariant recomputes exactly this equation against every loop-built request.
 
@@ -202,6 +247,7 @@ FIXME(call-config-shape): revisit the exact definition of this type — which fi
 
 ```ts type-equiv
 interface LlmCallConfig {
+  provider: string
   model: string
   temperature?: number
   maxTokens?: number
@@ -357,7 +403,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`, and `AgentId` is branded. `AgentOptions` is merge-extensible and currently includes `model?`. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
+`AgentStatus` is `'idle' | 'running' | 'disposed'`, and `AgentId` is branded. `AgentOptions` is merge-extensible and currently includes `provider?` and `model?`; dispatch requires both after `agent/request`. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
 
 The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
 

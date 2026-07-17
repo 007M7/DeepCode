@@ -14,7 +14,7 @@ function surfaceSession(): Session {
   const s = new Session(SessionId('ss'))
   s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
   s.append('user/message', { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-  s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'hi' }] }, { surfaceOp: 'append' })
+  s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'hi' }] }, { surfaceOp: 'append' })
   s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   return s
 }
@@ -82,8 +82,8 @@ describe('SurfaceManager', () => {
     const s = new Session(SessionId('shared-fold'))
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'summary' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] })
-    s.append('assistant/message', { turn: 1, step: 2, content: [{ type: 'text', text: 'summary 2' }] }, { surfaceOp: { op: 'replace', start: 2, end: 1 }, sourceEventSeqs: [2, 1] })
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'summary' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] })
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 2, content: [{ type: 'text', text: 'summary 2' }] }, { surfaceOp: { op: 'replace', start: 2, end: 1 }, sourceEventSeqs: [2, 1] })
 
     const folded = foldSurface(s.events)
     expect(folded.nodes).toEqual(s.surface.nodes)
@@ -101,7 +101,7 @@ describe('SurfaceManager', () => {
   it('does not retain fold-only replacement history in incremental state', () => {
     const s = new Session(SessionId('incremental-state'))
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'b' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] })
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'b' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] })
 
     expect(s.surface.nodes).toEqual([1])
     const manager = s.surface as unknown as { _state: object }
@@ -128,7 +128,7 @@ describe('SurfaceManager', () => {
 
     expect(() => s.append(
       'assistant/message',
-      { turn: 1, step: 1, content: [{ type: 'text', text: 'invalid' }] },
+      { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'invalid' }] },
       { surfaceOp: { op: 'replace', start: 0, end: 0 } },
     )).toThrow(/missing 0/)
 
@@ -203,7 +203,7 @@ describe('SurfaceManager', () => {
   it('rebuild with replace operation splices out shadowed nodes', () => {
     const s = surfaceSession()
     s.append('assistant/message',
-      { turn: 2, step: 1, content: [{ type: 'text', text: 'summary' }] },
+      { provenance: { provider: 'mock', model: 'mock' }, turn: 2, step: 1, content: [{ type: 'text', text: 'summary' }] },
       { surfaceOp: { op: 'replace', start: 1, end: 2 }, sourceEventSeqs: [1, 2] },
     )
     expect(s.surface.nodes).toEqual([4])
@@ -216,7 +216,7 @@ describe('SurfaceManager', () => {
     s.append('user/message', { content: [{ type: 'text', text: 'c' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 2
     // Replace seq 0 through 1 inclusive: shadow a and b, keep c.
     s.append('assistant/message',
-      { turn: 1, step: 1, content: [{ type: 'text', text: 'summary' }] },
+      { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'summary' }] },
       { surfaceOp: { op: 'replace', start: 0, end: 1 }, sourceEventSeqs: [0, 1] },
     ) // seq 3
     expect(s.surface.nodes).toEqual([3, 2])
@@ -228,7 +228,7 @@ describe('SurfaceManager', () => {
     s.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 1
     // Replace only seq 1 (single node).
     s.append('assistant/message',
-      { turn: 1, step: 1, content: [{ type: 'text', text: 'x' }] },
+      { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'x' }] },
       { surfaceOp: { op: 'replace', start: 1, end: 1 }, sourceEventSeqs: [1] },
     ) // seq 2
     expect(s.surface.nodes).toEqual([0, 2])
@@ -238,7 +238,7 @@ describe('SurfaceManager', () => {
     const s = new Session(SessionId('bad-start'))
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 0
     expect(() => s.append('assistant/message',
-      { turn: 1, step: 1, content: [{ type: 'text', text: 'y' }] },
+      { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'y' }] },
       { surfaceOp: { op: 'replace', start: 5, end: 0 }, sourceEventSeqs: [0] },
     )).toThrow(/surface replace: start seq 5 not found/)
   })
@@ -247,7 +247,7 @@ describe('SurfaceManager', () => {
     const s = new Session(SessionId('bad-end'))
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 0
     expect(() => s.append('assistant/message',
-      { turn: 1, step: 1, content: [{ type: 'text', text: 'y' }] },
+      { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'y' }] },
       { surfaceOp: { op: 'replace', start: 0, end: 99 }, sourceEventSeqs: [0] },
     )).toThrow(/surface replace: end seq 99 not found/)
   })
@@ -258,7 +258,7 @@ describe('SurfaceManager', () => {
     s.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 1
     // start=1, end=0 would be reversed order.
     expect(() => s.append('assistant/message',
-      { turn: 1, step: 1, content: [{ type: 'text', text: 'y' }] },
+      { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'y' }] },
       { surfaceOp: { op: 'replace', start: 1, end: 0 }, sourceEventSeqs: [1, 0] },
     )).toThrow(/start seq 1.*after end seq 0/)
   })
@@ -267,7 +267,7 @@ describe('SurfaceManager', () => {
     const s = new Session(SessionId('immutable'))
     s.append('user/message', { content: [{ type: 'text', text: 'source' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const sources = [0]
-    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'h' }] }, { surfaceOp: 'append', sourceEventSeqs: sources })
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'h' }] }, { surfaceOp: 'append', sourceEventSeqs: sources })
     // Mutate caller's array after append.
     sources.push(1)
     sources[0] = 99
@@ -282,7 +282,7 @@ describe('SurfaceManager', () => {
     s.append('user/message', { content: [{ type: 'text', text: 'c' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 2
     // Replace the middle node (seq 1) only, keeping seq 0 and seq 2.
     s.append('assistant/message',
-      { turn: 1, step: 1, content: [{ type: 'text', text: 'x' }] },
+      { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'x' }] },
       { surfaceOp: { op: 'replace', start: 1, end: 1 }, sourceEventSeqs: [1] },
     ) // seq 3
     expect(s.surface.nodes).toEqual([0, 3, 2])
@@ -292,7 +292,7 @@ describe('SurfaceManager', () => {
     const s = new Session(SessionId('immutable-op'))
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const op = { op: 'replace' as const, start: 0, end: 0 }
-    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 's' }] }, { surfaceOp: op, sourceEventSeqs: [0] })
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 's' }] }, { surfaceOp: op, sourceEventSeqs: [0] })
     // Mutate caller's object after append.
     op.start = 99
     const logged = s.events[1]! as SurfaceEvent
@@ -317,7 +317,7 @@ describe('deriveMessages with surface', () => {
     s.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'h' } })
     s.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text: 'i' } })
     s.append('user/message', { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'hi' }] }, { surfaceOp: 'append' })
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'hi' }] }, { surfaceOp: 'append' })
     s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // Chunks and boundaries are NOT in the surface, so only 2 messages.
     expect(s.deriveMessages()).toHaveLength(2)
@@ -326,7 +326,7 @@ describe('deriveMessages with surface', () => {
   it('deriveMessages via surface respects replace (shadowed nodes are excluded)', () => {
     const s = new Session(SessionId('compacted'))
     s.append('user/message', { content: [{ type: 'text', text: 'original' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'compacted' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] })
+    s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'compacted' }] }, { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] })
     // Only the compaction node is visible.
     const messages = s.deriveMessages()
     expect(messages).toHaveLength(1)
@@ -350,7 +350,7 @@ describe('Session.append surface opts', () => {
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
     const event = s.append('assistant/message',
-      { turn: 1, step: 1, content: [{ type: 'text', text: 'h' }] },
+      { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'h' }] },
       { surfaceOp: 'append', sourceEventSeqs: [0, 1] },
     )
     expect(event.sourceEventSeqs).toEqual([0, 1])
@@ -367,7 +367,7 @@ describe('Session.append surface opts', () => {
     const seed: SessionEvent[] = [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
       { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
-      { type: 'assistant/message', seq: 2, time: 3, data: { turn: 1, step: 1, content: [] }, surfaceOp: 'append' },
+      { type: 'assistant/message', seq: 2, time: 3, data: { turn: 1, step: 1, content: [], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append' },
       { type: 'step/end', seq: 3, time: 4, data: { turn: 1, step: 1 } },
       { type: 'turn/end', seq: 4, time: 5, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
@@ -385,7 +385,7 @@ describe('Session.append surface opts', () => {
 
   it('surfaceOp primitives are not cloned (they are immutable)', () => {
     const s = new Session(SessionId('prim'))
-    const event = s.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append' })
+    const event = s.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append' })
     // The string 'append' is a primitive — identity-preserving is fine.
     expect(event.surfaceOp).toBe('append')
   })

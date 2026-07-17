@@ -1,152 +1,17 @@
 /**
- * Bidirectional mapping between the harness vocabulary and pi-ai's:
- * Convert harness requests to pi-ai context and pi-ai assistant events to harness stream chunks.
- * pi-ai parses tool arguments while the harness preserves raw JSON, so conversion parses inbound
- * arguments and re-stringifies outbound values while the adapter restores provider payloads.
- * In-stream pi-ai errors become harness error/aborted finishes, and its reasoning tokens remain
- * folded into output usage because it reports no separate count.
- * @module dsh-llm-pi-ai/convert
+ * pi-ai assistant event translation into the Harness streaming protocol.
+ *
+ * pi-ai tool-call arguments are parsed objects while the Harness keeps their
+ * raw JSON representation. pi-ai also reports failures as terminal stream
+ * events, which this module maps into Harness finish chunks.
+ *
+ * @module dsh-llm-pi-ai/stream
  */
 
 import { CallId, LlmError } from '@deepseek-ai/dsh-llm'
-import type { FinishReason, GenerateOptions, Message, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
-import type {
-  AssistantMessage,
-  AssistantMessageEvent,
-  Context as PiContext,
-  Message as PiMessage,
-  Tool as PiTool,
-  Usage as PiUsage,
-} from '@earendil-works/pi-ai'
-
-/** Join the text blocks of a harness message. */
-function flattenText(message: Message): string {
-  return message.content
-    .filter(block => block.type === 'text')
-    .map(block => block.text)
-    .join('')
-}
-
-/** Parse tool-call argument JSON; tolerate model malformations with {}. */
-function parseArguments(raw: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>
-    }
-  } catch {
-    // fall through
-  }
-  return {}
-}
-
-/**
- * Convert harness history to a pi-ai Context. Tool results need the tool
- * NAME (pi-ai's `toolName`), which the harness doesn't carry on the result
- * block — it is recovered from the preceding assistant tool-call with the
- * same id.
- * @param options - the harness request; `options.system` maps to pi-ai's single `systemPrompt` slot.
- * @returns the pi-ai context; `tools` is omitted entirely when the request declares none.
- */
-export function toPiContext(options: GenerateOptions): PiContext {
-  const toolNames = new Map<CallId, string>()
-  const messages: PiMessage[] = []
-
-  for (const message of options.messages) {
-    if (message.role === 'system') {
-      // pi-ai has a single systemPrompt slot; in-history system messages are
-      // folded into user messages to preserve order (rare in practice — the
-      // harness sends the system prompt via options.system).
-      messages.push({ role: 'user', content: flattenText(message), timestamp: 0 })
-      continue
-    }
-    if (message.role === 'assistant') {
-      const content: AssistantMessage['content'] = []
-      for (const block of message.content) {
-        switch (block.type) {
-          case 'text':
-            content.push({ type: 'text', text: block.text })
-            break
-          case 'reasoning':
-            // Without this wire-field name, pi-ai replays an empty `reasoning_content`, violating
-            // DeepSeek's thinking-mode passback rule on tool-call turns.
-            content.push({ type: 'thinking', thinking: block.text, thinkingSignature: 'reasoning_content' })
-            break
-          case 'tool-call':
-            toolNames.set(block.id, block.name)
-            content.push({
-              type: 'toolCall',
-              id: block.id,
-              name: block.name,
-              arguments: parseArguments(block.arguments),
-            })
-            break
-          default:
-            // plugin-added block types: not representable here.
-            break
-        }
-      }
-      messages.push({
-        role: 'assistant',
-        content,
-        api: 'openai-completions',
-        provider: 'deepseek',
-        model: options.model,
-        usage: emptyPiUsage(),
-        stopReason: content.some(piece => piece.type === 'toolCall') ? 'toolUse' : 'stop',
-        timestamp: 0,
-      })
-      continue
-    }
-    // user role: text + tool results (each result becomes its own message).
-    const text = flattenText(message)
-    const results = message.content.filter(block => block.type === 'tool-result')
-    if (text.length > 0 || results.length === 0) {
-      messages.push({ role: 'user', content: text, timestamp: 0 })
-    }
-    for (const result of results) {
-      messages.push({
-        role: 'toolResult',
-        toolCallId: result.toolCallId,
-        toolName: toolNames.get(result.toolCallId) ?? 'unknown',
-        content: [{
-          type: 'text',
-          text: result.content
-            .filter(block => block.type === 'text')
-            .map(block => block.text)
-            .join('') || '(no output)',
-        }],
-        isError: result.isError ?? false,
-        timestamp: 0,
-      })
-    }
-  }
-
-  const tools: PiTool[] | undefined = options.tools?.map(tool => ({
-    name: tool.name,
-    description: tool.description,
-    // ToolSchema.parameters is a JSON Schema object; pi-ai's TSchema
-    // (TypeBox) is structurally JSON Schema, so it assigns directly.
-    parameters: tool.parameters,
-  }))
-
-  return {
-    ...options.system !== undefined ? { systemPrompt: options.system } : {},
-    messages,
-    ...tools !== undefined && tools.length > 0 ? { tools } : {},
-  }
-}
-
-function emptyPiUsage(): PiUsage {
-  return {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: 0,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-  }
-}
+import type { FinishReason, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { AssistantMessage, AssistantMessageEvent, Usage as PiUsage } from '@earendil-works/pi-ai'
+import { toPiReplayState } from './replay.ts'
 
 /**
  * Map pi-ai usage (reasoning folded into output by pi-ai).
@@ -259,7 +124,7 @@ export async function* toStreamChunks(events: AsyncIterable<AssistantMessageEven
         break
       case 'done':
         yield { type: 'usage', usage: mapUsage(event.message.usage) }
-        yield { type: 'finish', reason: mapStopReason(event.message) }
+        yield { type: 'finish', reason: mapStopReason(event.message), replayState: toPiReplayState(event.message) }
         return
       case 'error':
         // In-stream error delivery (pi-ai's style) → error finish chunk

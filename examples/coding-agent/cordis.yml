@@ -11,16 +11,12 @@
   config:
     root: ['.']
 
-# The DeepSeek adapter. Swap to '@deepseek-ai/dsh-llm-pi-ai' for the pi-ai-backed
-# twin (same config shape; `reasoning: high` replaces thinking/reasoningEffort).
+# The native DeepSeek adapter.
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
-    models:
-      - deepseek-v4-pro
-      - deepseek-v4-flash
 
 # Local executor for the app bundle's bash tool.
 - id: bash
@@ -32,6 +28,7 @@
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-demo'
   config:
+    provider: deepseek
     model: deepseek-v4-flash
     # Set RESUME_SESSION_ID to continue a prior persisted session (the ids live
     # under ./.sessions); unset starts a fresh session each run.
@@ -56,6 +53,7 @@
     contextWindow: 128000
     thresholdRatio: 0.8
     retainTokens: 20480
+    summarizationProvider: ''
     summarizationModel: ''
     maxTokens: 8192
     compactionRetries: 1

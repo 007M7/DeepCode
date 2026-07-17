@@ -37,13 +37,14 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
         contextWindow: 2000,
         thresholdRatio: 0.5,
         retainTokens: 400,
+        summarizationProvider: '',
         summarizationModel: '',
         maxTokens: 1024,
         compactionRetries: 1,
       },
       persistenceRoot: join(workdir, '.sessions'),
     })
-    const agent = ctx.agentLoop.create(AgentId('e2e-compaction'), { model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(AgentId('e2e-compaction'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',

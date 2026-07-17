@@ -66,7 +66,7 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
 
 describe('dsh-stdio-demo app', () => {
   it('composes the spine + front-door cluster and pre-creates the main agent', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-demo-spec', skills: await isolatedSkillsConfig(), workspaceContext: false })
+    const ctx = await mount({ provider: 'mock', model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-demo-spec', skills: await isolatedSkillsConfig(), workspaceContext: false })
     // The spine services (brought up by the agent-spine-demo bundle) are all present.
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
@@ -87,7 +87,7 @@ describe('dsh-stdio-demo app', () => {
     // schema-bypassing direct-mount caller.
     const ctx = new Context()
     // No persona: covers the omitted-persona forwarding branch too.
-    stdioAgent.apply(ctx, { model: 'mock', skills: await isolatedSkillsConfig(), workspaceContext: false })
+    stdioAgent.apply(ctx, { provider: 'mock', model: 'mock', skills: await isolatedSkillsConfig(), workspaceContext: false })
     await new Promise(resolve => setTimeout(resolve, 80))
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
@@ -96,6 +96,7 @@ describe('dsh-stdio-demo app', () => {
 
   it('forwards explicit project-instruction controls to the bundled spine', async () => {
     const ctx = await mount({
+      provider: 'mock',
       model: 'mock',
       persona: 'hi',
       persistenceRoot: '/tmp/dsh-stdio-demo-spec-workspace-context',
@@ -108,7 +109,7 @@ describe('dsh-stdio-demo app', () => {
   it('uses default skill config when apply is called directly without skills', async () => {
     await withIsolatedSkillHomes(async () => {
       const ctx = new Context()
-      stdioAgent.apply(ctx, { model: 'mock', workspaceContext: false })
+      stdioAgent.apply(ctx, { provider: 'mock', model: 'mock', workspaceContext: false })
       await new Promise(resolve => setTimeout(resolve, 80))
       expect(ctx.skills).toBeDefined()
       expect(await ctx.skills.list()).toEqual([])
@@ -121,6 +122,7 @@ describe('dsh-stdio-demo app', () => {
     // session the resume is contained + logged, so no `main` agent registers —
     // the branch that maps resumeSessionId through is what this covers.
     const ctx = await mount({
+      provider: 'mock',
       model: 'mock',
       persona: 'hi',
       persistenceRoot: '/tmp/dsh-stdio-demo-spec-resume',
@@ -134,7 +136,7 @@ describe('dsh-stdio-demo app', () => {
 
   it('forwards skill config and dshHome into agent-spine-demo', async () => {
     const skills = await isolatedSkillsConfig(6)
-    const ctx = await mount({ model: 'mock', persona: 'hi', dshHome: skills.local!.dshHome!, skills, workspaceContext: false })
+    const ctx = await mount({ provider: 'mock', model: 'mock', persona: 'hi', dshHome: skills.local!.dshHome!, skills, workspaceContext: false })
     ctx.skills.register({ name: 'stdio-skill', description: 'Stdio skill', source: 'runtime', content: 'body' })
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `stdio-skill`: Std...')
     await ctx.fiber.dispose()
@@ -142,6 +144,7 @@ describe('dsh-stdio-demo app', () => {
 
   it('forwards bundled tool config into agent-core', async () => {
     const ctx = await mount({
+      provider: 'mock',
       model: 'mock',
       workspaceContext: false,
       toolBash: { enableRunInBackground: false },
@@ -161,6 +164,7 @@ describe('dsh-stdio-demo app', () => {
 
   it('forwards toolOrder through agent-spine-demo to the system-prompt assembly', async () => {
     const ctx = await mount({
+      provider: 'mock',
       model: 'mock',
       toolOrder: ['zulu', TOOL_ORDER_REST],
       persistenceRoot: '/tmp/dsh-stdio-demo-spec-tool-order',

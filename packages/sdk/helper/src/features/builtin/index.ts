@@ -23,6 +23,7 @@ const compactPreset = {
   contextWindow: 128_000,
   thresholdRatio: 0.8,
   retainTokens: 20_480,
+  summarizationProvider: '',
   summarizationModel: '',
   maxTokens: 8_192,
   compactionRetries: 1,

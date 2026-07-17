@@ -127,7 +127,7 @@ Durability is a plugin concern. Persistence backends buffer synchronous `session
 
 Messages contain typed blocks (`text`, `reasoning`, `tool-call`, `tool-result`) derived from merge-extensible `ContentBlockMap`; the same pattern types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New block types coordinate adapters, UI bridges, compaction pricing, and persistence as one repo-wide contract.
 
-Streaming is a raw chunk protocol (`block-start` through `finish`) with `BlockAssembler` as the shared chunk-to-block assembler. The loop logs raw chunks while assembling them for dispatch. `LlmAdapter` is the provider seam: subclass, implement `stream()`, and register with `ctx.llm.registerAdapter(models, adapter)`. StreamChunk conventions live in [llm-streaming.md](core-data-structures/llm-streaming.md).
+Streaming uses raw chunks (`block-start` through `finish`) and `BlockAssembler`. The loop logs and assembles chunks, storing provider/model provenance plus replay state. An `LlmAdapter` implements `stream()`, registers provider routes, and may expose selector metadata; it resolves and validates model ids. Replay state reaches targets only when both routes map to one adapter instance, which owns validation and conversion. The contract lives in [llm-streaming.md](core-data-structures/llm-streaming.md).
 
 ## Extension And Composition
 

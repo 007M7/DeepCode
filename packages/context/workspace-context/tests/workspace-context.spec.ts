@@ -1591,7 +1591,7 @@ describe('dynamic nested workspace context injection', () => {
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       await ctx.plugin(AgentLoop, { agents: [] })
       ctx.llm.registerAdapter(['mock'], adapter)
-      const agent = ctx.agentLoop.create(AgentId('workspace-context-abort'), { model: 'mock' }, { cwd: root })
+      const agent = ctx.agentLoop.create(AgentId('workspace-context-abort'), { provider: 'mock', model: 'mock' }, { cwd: root })
       ctx.tools.register(defineTool({
         name: 'abort_step',
         description: 'Abort the current test step.',
