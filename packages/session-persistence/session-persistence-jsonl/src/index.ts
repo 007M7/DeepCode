@@ -399,6 +399,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
+  /* v8 ignore start -- native Windows coverage exercises this repair; POSIX open reports ENOTDIR before this point. */
   private async assertLogParentAllowsAbsence(path: string): Promise<void> {
     try {
       const parent = dirname(path)
@@ -413,6 +414,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       throw error
     }
   }
+  /* v8 ignore stop */
 }
 
 export default SessionPersistenceJsonl
