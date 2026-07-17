@@ -133,7 +133,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolCordis)
     },
     note:
-      'Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; the request-header ToolsDelta logs those tool-set changes.',
+      'Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs',

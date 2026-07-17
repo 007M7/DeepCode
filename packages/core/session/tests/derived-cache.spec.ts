@@ -40,7 +40,7 @@ describe('derived-message cache', () => {
     const nodes = session.surface.nodes
     session.append('context/message', {
       content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
-    }, { surfaceOp: { op: 'replace', start: nodes[0]!.seq, end: nodes[1]!.seq }, sourceEventSeqs: [nodes[0]!.seq, nodes[1]!.seq] })
+    }, { surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! }, sourceEventSeqs: [nodes[0]!, nodes[1]!] })
 
     expect(session.deriveMessages()).toHaveLength(1)
     expect(session.deriveMessages()).toEqual(scratch(session))

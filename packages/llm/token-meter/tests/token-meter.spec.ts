@@ -375,10 +375,13 @@ describe('replay anchors and surface folds', () => {
     }).baseline.kind).toBe('estimated')
   })
 
-  it('folds valid header deltas into the effective envelope', () => {
-    const session = new Session(SessionId('header-delta'))
+  it('folds the latest full header snapshot into the effective envelope', () => {
+    const session = new Session(SessionId('header-snapshot'))
     appendHeader(session, header('deepseek-v4-flash'))
-    session.append('request/header-delta', { config: { provider: 'mock', model: 'deepseek-v4-pro' } })
+    session.append('request/header', {
+      header: header('deepseek-v4-pro'),
+      reason: 'change',
+    })
     const result = meter().measure(session)
     expect(result.baseline.kind).toBe('estimated')
     expect(result.logRevision).toBe(2)
@@ -401,7 +404,7 @@ describe('replay anchors and surface folds', () => {
     expect(before.surfaceDeltaTokens).toBeGreaterThan(0)
     expectSurfaceTotal(before)
 
-    const first = seeded.surface.nodes[0]!.seq
+    const first = seeded.surface.nodes[0]!
     seeded.append('user/message', {
       content: [{ type: 'text', text: 'replacement' }],
       source: { kind: 'plugin', plugin: 'test' },
@@ -439,12 +442,6 @@ describe('malformed replay and listener lifecycle', () => {
     expect(() => service.measure(session)).toThrow(pattern)
     expect(() => service.measure(session)).toThrow(pattern)
   }
-
-  it('rejects a header delta before any snapshot transactionally', () => {
-    const session = new Session(SessionId('bad-delta'))
-    session.append('request/header-delta', { config: { provider: 'mock', model: 'deepseek-v4-flash' } })
-    expectRepeatedFailure(meter(), session, /no preceding header/)
-  })
 
   it('rejects an assistant without its step boundary transactionally', () => {
     const session = new Session(SessionId('bad-step'))

@@ -1,14 +1,7 @@
-/**
- * Request-header utility tests: canonical form, the system line-diff
- * (prefix/suffix trim), the name-keyed tools delta, config replacement, the
- * round-trip contract (including the reorder case the encoding cannot
- * express), and the log fold. These pin the reconstruction algebra: for every
- * logged delta, apply(prev, delta) === next, and folding a log prefix yields
- * the header its next request was built under.
- */
+/** Request-header canonicalization, equality, snapshot folding, and format rejection. */
 
 import { describe, expect, it } from 'vitest'
-import { Session, SessionId, applyHeaderDelta, canonicalHeader, diffHeader, foldRequestHeader, headerEquals } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, canonicalHeader, foldRequestHeader, headerEquals } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 
@@ -22,165 +15,77 @@ function msg(text: string): Message {
   return { role: 'user', content: [{ type: 'text', text }] }
 }
 
-/** Round-trip helper: diff must reproduce `next` from `prev` exactly. */
-function roundTrip(prev: EpochHeader, next: EpochHeader): ReturnType<typeof diffHeader> {
-  const delta = diffHeader(prev, next)
-  if (delta !== undefined) {
-    expect(applyHeaderDelta(prev, delta)).toEqual(canonicalHeader(next))
-  }
-  return delta
-}
-
 describe('canonicalHeader', () => {
-  it('normalizes empty system and empty tools to absent fields', () => {
-    expect(canonicalHeader({ config: CONFIG, system: '', tools: [] })).toEqual({ config: CONFIG })
-    const full = canonicalHeader({ config: CONFIG, system: 's', tools: [tool('a')] })
-    expect(full.system).toBe('s')
-    expect(full.tools).toHaveLength(1)
+  it('normalizes empty optional fields to absence and preserves populated fields', () => {
+    expect(canonicalHeader({ config: CONFIG, system: '', tools: [], messagePrefix: [] })).toEqual({ config: CONFIG })
+    const full = canonicalHeader({ config: CONFIG, system: 's', tools: [tool('a')], messagePrefix: [msg('p')] })
+    expect(full).toEqual({ config: CONFIG, system: 's', tools: [tool('a')], messagePrefix: [msg('p')] })
   })
 })
 
-describe('diffHeader / applyHeaderDelta', () => {
-  it('returns undefined for equal headers', () => {
-    const header = canonicalHeader({ config: CONFIG, system: 'a\nb', tools: [tool('t')] })
-    expect(diffHeader(header, header)).toBeUndefined()
+describe('headerEquals', () => {
+  const base = canonicalHeader({ config: CONFIG, system: 's', tools: [tool('a')], messagePrefix: [msg('p')] })
+
+  it('compares every canonical field and preserves tool order', () => {
+    expect(headerEquals(base, structuredClone(base))).toBe(true)
+    expect(headerEquals(base, { ...base, config: { provider: 'mock', model: 'other' } })).toBe(false)
+    expect(headerEquals(base, { ...base, system: 'other' })).toBe(false)
+    expect(headerEquals(base, { ...base, messagePrefix: [msg('other')] })).toBe(false)
+    expect(headerEquals(base, { ...base, tools: [] })).toBe(false)
+    expect(headerEquals(base, { ...base, tools: [tool('a', 'changed')] })).toBe(false)
+    expect(headerEquals({ config: CONFIG, tools: [tool('a'), tool('b')] }, { config: CONFIG, tools: [tool('b'), tool('a')] })).toBe(false)
   })
 
-  it('encodes a mid-prompt line change as a prefix/suffix trim', () => {
-    const prev = canonicalHeader({ config: CONFIG, system: 'keep1\nold\nkeep2\nkeep3' })
-    const next = canonicalHeader({ config: CONFIG, system: 'keep1\nnew A\nnew B\nkeep2\nkeep3' })
-    const delta = roundTrip(prev, next)
-    expect(delta?.system).toEqual({ keepStart: 1, keepEnd: 2, insert: ['new A', 'new B'] })
-    expect(delta?.tools).toBeUndefined()
-    expect(delta?.config).toBeUndefined()
-  })
-
-  it('degenerates to a full replacement when nothing is shared, and round-trips absence transitions', () => {
-    const none = canonicalHeader({ config: CONFIG })
-    const some = canonicalHeader({ config: CONFIG, system: 'x\ny' })
-    const gained = roundTrip(none, some)
-    expect(gained?.system).toEqual({ keepStart: 0, keepEnd: 0, insert: ['x', 'y'] })
-    const lost = roundTrip(some, none)
-    expect(lost?.system).toEqual({ keepStart: 0, keepEnd: 0, insert: [] })
-  })
-
-  it('does not double-count overlapping prefix and suffix (repeated lines)', () => {
-    const prev = canonicalHeader({ config: CONFIG, system: 'a\na' })
-    const next = canonicalHeader({ config: CONFIG, system: 'a\na\na' })
-    roundTrip(prev, next)
-  })
-
-  it('encodes tool addition, removal, and in-place schema change by name', () => {
-    const prev = canonicalHeader({ config: CONFIG, tools: [tool('keep'), tool('drop'), tool('edit', 'before')] })
-    const next = canonicalHeader({ config: CONFIG, tools: [tool('keep'), tool('edit', 'after'), tool('new')] })
-    const delta = roundTrip(prev, next)
-    expect(delta?.tools?.added.map(t => t.name)).toEqual(['new'])
-    expect(delta?.tools?.removed).toEqual(['drop'])
-    expect(delta?.tools?.changed.map(t => t.name)).toEqual(['edit'])
-  })
-
-  it('round-trips a tool set gained from a tool-less header and lost back to one', () => {
-    const none = canonicalHeader({ config: CONFIG })
-    const some = canonicalHeader({ config: CONFIG, tools: [tool('t')] })
-    const gained = roundTrip(none, some)
-    expect(gained?.tools?.added.map(t => t.name)).toEqual(['t'])
-    const lost = roundTrip(some, none)
-    expect(lost?.tools?.removed).toEqual(['t'])
-  })
-
-  it('cannot express a pure reordering — the writer detects it via the round-trip check', () => {
-    const prev = canonicalHeader({ config: CONFIG, tools: [tool('a'), tool('b')] })
-    const next = canonicalHeader({ config: CONFIG, tools: [tool('b'), tool('a')] })
-    const delta = diffHeader(prev, next)
-    // A delta IS produced (the lists differ)…
-    expect(delta).toBeDefined()
-    // …but applying it cannot reproduce the new order — exactly the case the
-    // writer's guard turns into a 'fallback' snapshot.
-    expect(applyHeaderDelta(prev, delta!)).not.toEqual(next)
-  })
-
-  it('replaces the config whole and leaves untouched parts alone', () => {
-    const prev = canonicalHeader({ config: { provider: 'mock', model: 'm' }, system: 's', tools: [tool('t')] })
-    const next = canonicalHeader({ config: { provider: 'mock', model: 'm2', temperature: 0.1 }, system: 's', tools: [tool('t')] })
-    const delta = roundTrip(prev, next)
-    expect(delta).toEqual({ config: { provider: 'mock', model: 'm2', temperature: 0.1 } })
-  })
-})
-
-describe('the session prefix (messagePrefix)', () => {
-  it('canonicalHeader normalizes an empty prefix to an absent field', () => {
-    expect(canonicalHeader({ config: CONFIG, messagePrefix: [] })).toEqual({ config: CONFIG })
-    const full = canonicalHeader({ config: CONFIG, messagePrefix: [msg('p')] })
-    expect(full.messagePrefix).toEqual([msg('p')])
-  })
-
-  it('headerEquals treats absence and empty as one representation, content differences as unequal', () => {
-    expect(headerEquals(canonicalHeader({ config: CONFIG }), { config: CONFIG, messagePrefix: [] })).toBe(true)
-    expect(headerEquals({ config: CONFIG, messagePrefix: [msg('a')] }, { config: CONFIG, messagePrefix: [msg('b')] })).toBe(false)
-    expect(headerEquals({ config: CONFIG, messagePrefix: [msg('a')] }, { config: CONFIG })).toBe(false)
-  })
-
-  it('replaces a changed prefix whole and leaves untouched parts alone', () => {
-    const prev = canonicalHeader({ config: CONFIG, system: 'keep', messagePrefix: [msg('old')] })
-    const next = canonicalHeader({ config: CONFIG, system: 'keep', messagePrefix: [msg('new'), msg('more')] })
-    const delta = roundTrip(prev, next)
-    expect(delta).toEqual({ messagePrefix: [msg('new'), msg('more')] })
-  })
-
-  it('round-trips a prefix gained from a bare header and lost back to one (empty array encodes absence)', () => {
-    const none = canonicalHeader({ config: CONFIG })
-    const some = canonicalHeader({ config: CONFIG, messagePrefix: [msg('p')] })
-    const gained = roundTrip(none, some)
-    expect(gained).toEqual({ messagePrefix: [msg('p')] })
-    const lost = roundTrip(some, none)
-    expect(lost).toEqual({ messagePrefix: [] })
-  })
-
-  it('folds prefix deltas over the log like any other header amendment', () => {
-    const session = new Session(SessionId('fold-prefix'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const first = canonicalHeader({ config: CONFIG, messagePrefix: [msg('catalog v1')] })
-    session.append('request/header', { header: first, reason: 'initial' })
-    const second = canonicalHeader({ config: CONFIG, messagePrefix: [msg('catalog v2')] })
-    session.append('request/header-delta', diffHeader(first, second)!)
-    expect(foldRequestHeader(session.events)).toEqual(second)
-    session.append('request/header-delta', diffHeader(second, canonicalHeader({ config: CONFIG }))!)
-    expect(foldRequestHeader(session.events)).toEqual({ config: CONFIG })
+  it('treats absent and empty prefix/tool arrays as equivalent canonical absence', () => {
+    expect(headerEquals({ config: CONFIG }, { config: CONFIG, tools: [], messagePrefix: [] })).toBe(true)
   })
 })
 
 describe('foldRequestHeader', () => {
-  function headerEvents(session: Session): readonly SessionEvent[] {
-    return session.events
-  }
-
-  it('returns undefined on a log with no header events', () => {
-    const session = new Session(SessionId('fold-none'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    expect(foldRequestHeader(headerEvents(session))).toBeUndefined()
+  it('returns the supplied baseline when no snapshot follows', () => {
+    const from: EpochHeader = { config: CONFIG, system: 'baseline' }
+    const unrelated: SessionEvent[] = [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    ]
+    expect(foldRequestHeader(unrelated)).toBeUndefined()
+    expect(foldRequestHeader(unrelated, from)).toBe(from)
   })
 
-  it('folds snapshot then deltas into the header in force, skipping unrelated events', () => {
+  it('takes the latest full snapshot and skips unrelated events', () => {
     const session = new Session(SessionId('fold'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const first = canonicalHeader({ config: { provider: 'mock', model: 'm' }, system: 'a\nb', tools: [tool('t')] })
-    session.append('request/header', { header: first, reason: 'initial' })
+    session.append('request/header', { header: { config: CONFIG, system: 'first' }, reason: 'initial' })
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('request/header', { header: { config: { provider: 'mock', model: 'other' }, tools: [] }, reason: 'change' })
+    expect(foldRequestHeader(session.events)).toEqual({ config: { provider: 'mock', model: 'other' } })
+  })
+})
 
-    const second = canonicalHeader({ config: { provider: 'mock', model: 'm' }, system: 'a\nc', tools: [tool('t')] })
-    session.append('request/header-delta', diffHeader(first, second)!)
-    expect(foldRequestHeader(headerEvents(session))).toEqual(second)
+describe('legacy request-header format', () => {
+  it('rejects request/header-delta in seeds and untyped appends', () => {
+    const legacy = [{
+      type: 'request/header-delta', seq: 0, time: 1, data: { config: CONFIG },
+    }] as unknown as SessionEvent[]
+    expect(() => new Session(SessionId('legacy'), legacy)).toThrow(/unsupported legacy request\/header-delta/)
 
-    // A later snapshot replaces the state wholesale (the 'resume'/'fallback' anchor).
-    const third = canonicalHeader({ config: { provider: 'mock', model: 'other' } })
-    session.append('request/header', { header: third, reason: 'resume' })
-    expect(foldRequestHeader(headerEvents(session))).toEqual(third)
+    const session = new Session(SessionId('legacy-append-delta'))
+    const appendLegacy = session.append.bind(session) as (type: string, data: unknown) => SessionEvent
+    expect(() => appendLegacy('request/header-delta', { config: CONFIG }))
+      .toThrow(/unsupported legacy request\/header-delta/)
+    expect(session.events).toHaveLength(0)
   })
 
-  it('throws on a delta before any snapshot (corrupt log)', () => {
-    const session = new Session(SessionId('fold-corrupt'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('request/header-delta', { config: { provider: 'mock', model: 'x' } })
-    expect(() => foldRequestHeader(headerEvents(session))).toThrow(/before any request\/header snapshot/)
+  it('rejects the removed fallback reason in seeds and untyped appends', () => {
+    const legacy = [{
+      type: 'request/header', seq: 0, time: 1, data: { header: { config: CONFIG }, reason: 'fallback' },
+    }] as unknown as SessionEvent[]
+    expect(() => new Session(SessionId('legacy-seed-reason'), legacy))
+      .toThrow('unsupported legacy request/header reason "fallback"')
+
+    const session = new Session(SessionId('legacy-append-reason'))
+    const appendLegacy = session.append.bind(session) as (type: string, data: unknown) => SessionEvent
+    expect(() => appendLegacy('request/header', { header: { config: CONFIG }, reason: 'fallback' }))
+      .toThrow('unsupported legacy request/header reason "fallback"')
+    expect(session.events).toHaveLength(0)
   })
 })

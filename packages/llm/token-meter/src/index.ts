@@ -9,7 +9,7 @@ import z from 'schemastery'
 import { BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { EpochHeader, Session, SessionEvent, SurfaceEvent } from '@deepseek-ai/dsh-session'
-import { applyHeaderDelta, canonicalHeader, headerEquals, isSurfaceEvent } from '@deepseek-ai/dsh-session'
+import { canonicalHeader, headerEquals, isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type {
   TokenMeasurement,
   TokenMeasurementBaseline,
@@ -219,12 +219,6 @@ export class TokenMeterService extends Service {
     switch (event.type) {
       case 'request/header':
         nextHeader = canonicalHeader(event.data.header)
-        break
-      case 'request/header-delta':
-        if (state.header === undefined) {
-          throw new Error(`token meter: request/header-delta at seq ${event.seq} has no preceding header`)
-        }
-        nextHeader = applyHeaderDelta(state.header, event.data)
         break
       case 'step/start':
         if (state.stepStart !== undefined) {

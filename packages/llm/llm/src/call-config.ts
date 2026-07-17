@@ -1,8 +1,8 @@
 /**
- * Conversation call configuration and freeze utilities. Model and sampling
- * values, including provider routing, are request-header state that can affect cache reuse; request
- * waterfalls replace them and the loop logs changes instead of allowing
- * silent per-call drift.
+ * Conversation call configuration and freeze utilities. Provider routing,
+ * model, and sampling values are request-header state that can affect cache
+ * reuse; request waterfalls replace them and the loop logs changed snapshots
+ * instead of allowing silent per-call drift.
  * @module dsh-llm/call-config
  */
 
@@ -22,7 +22,7 @@ export interface LlmCallConfig {
 /**
  * Field-wise equality over {@link LlmCallConfig} — the comparison a caller
  * runs to decide whether a proposed configuration is a real change (worth a
- * logged header delta) or the held one restated.
+ * logged header snapshot) or the held one restated.
  * @param a - one configuration.
  * @param b - the other.
  * @returns whether every field (including the `stop` list, element-wise) matches.

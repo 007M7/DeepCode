@@ -359,8 +359,8 @@ describe('compaction region transaction', () => {
 
     await expect(compact.compactRegion(
       target,
-      nodes[0]!.seq,
-      nodes[1]!.seq,
+      nodes[0]!,
+      nodes[1]!,
       agent(owner),
     )).rejects.toThrow('compactRegion: agent.session must be the exact target session')
 
@@ -375,13 +375,13 @@ describe('compaction region transaction', () => {
     const before = session.surface.nodes
     const result = await compact.compactRegion(
       session,
-      before[0]!.seq,
-      before[3]!.seq,
+      before[0]!,
+      before[3]!,
       agent(session, MODEL),
       SIGNAL,
     )
 
-    expect(result.shadowedSeqs).toEqual(before.slice(0, 4).map(node => node.seq))
+    expect(result.shadowedSeqs).toEqual(before.slice(0, 4))
     expect(result.shadowedTokenCount).toBeGreaterThan(0)
     expect(compact.calls[0]).toMatchObject({ signal: SIGNAL })
     expect(compact.calls[0]?.text).toContain('fixture user 1')
@@ -411,8 +411,8 @@ describe('compaction region transaction', () => {
     const nodes = session.surface.nodes
     await expect(compact.compactRegion(
       session,
-      startOverride ?? nodes[0]!.seq,
-      endOverride ?? nodes[1]!.seq,
+      startOverride ?? nodes[0]!,
+      endOverride ?? nodes[1]!,
       agent(session, MODEL),
     )).rejects.toThrow(pattern)
   })
@@ -423,8 +423,8 @@ describe('compaction region transaction', () => {
     const nodes = plain.surface.nodes
     await expect(compact.compactRegion(
       plain,
-      nodes[2]!.seq,
-      nodes[1]!.seq,
+      nodes[2]!,
+      nodes[1]!,
       agent(plain, MODEL),
     )).rejects.toThrow(/is after end/)
 
@@ -432,14 +432,14 @@ describe('compaction region transaction', () => {
     const toolNodes = tools.surface.nodes
     await expect(compact.compactRegion(
       tools,
-      toolNodes[2]!.seq,
-      toolNodes[4]!.seq,
+      toolNodes[2]!,
+      toolNodes[4]!,
       agent(tools, MODEL),
     )).rejects.toThrow(/start seq .* not a balanced boundary/)
     await expect(compact.compactRegion(
       tools,
-      toolNodes[0]!.seq,
-      toolNodes[1]!.seq,
+      toolNodes[0]!,
+      toolNodes[1]!,
       agent(tools, MODEL),
     )).rejects.toThrow(/end seq .* not a balanced boundary/)
   })
@@ -451,8 +451,8 @@ describe('compaction region transaction', () => {
     const nodes = closed.surface.nodes
     await expect(compact.compactRegion(
       closed,
-      nodes[0]!.seq,
-      nodes[1]!.seq,
+      nodes[0]!,
+      nodes[1]!,
       agent(closed, MODEL),
     )).rejects.toThrow(/no open turn/)
 
@@ -461,8 +461,8 @@ describe('compaction region transaction', () => {
     const lockedNodes = locked.surface.nodes
     await expect(compact.compactRegion(
       locked,
-      lockedNodes[0]!.seq,
-      lockedNodes[1]!.seq,
+      lockedNodes[0]!,
+      lockedNodes[1]!,
       agent(locked, MODEL),
     )).rejects.toThrow(/already in progress/)
   })
@@ -478,8 +478,8 @@ describe('compaction region transaction', () => {
 
     await expect(compact.compactRegion(
       session,
-      node.seq,
-      node.seq,
+      node,
+      node,
       agent(session, MODEL),
     )).rejects.toThrow(/no open turn/)
   })
@@ -498,8 +498,8 @@ describe('compaction region transaction', () => {
 
     await expect(compact.compactRegion(
       session,
-      nodes[0]!.seq,
-      nodes[2]!.seq,
+      nodes[0]!,
+      nodes[2]!,
       agent(session, MODEL),
     )).rejects.toThrow(/selected surface changed/)
   })
@@ -512,8 +512,8 @@ describe('compaction region transaction', () => {
 
     await expect(compact.compactRegion(
       session,
-      before[0]!.seq,
-      before[2]!.seq,
+      before[0]!,
+      before[2]!,
       agent(session, MODEL),
     )).rejects.toThrow('summary unavailable')
     expect(session.surface.nodes).toEqual(before)
@@ -528,8 +528,8 @@ describe('compaction region transaction', () => {
     const nodes = session.surface.nodes
     await expect(compact.compactRegion(
       session,
-      nodes[0]!.seq,
-      nodes[2]!.seq,
+      nodes[0]!,
+      nodes[2]!,
       agent(session, MODEL),
     )).rejects.toBe('plain failure')
     expect(session.events.findLast(event => event.type === 'compact/end')?.data)
@@ -549,8 +549,8 @@ describe('compaction region transaction', () => {
 
     await expect(compact.compactRegion(
       session,
-      nodes[0]!.seq,
-      nodes[2]!.seq,
+      nodes[0]!,
+      nodes[2]!,
       agent(session, MODEL),
     )).rejects.toThrow(/session log changed/)
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(false)
@@ -567,8 +567,8 @@ describe('compaction region transaction', () => {
 
     await expect(compact.compactRegion(
       session,
-      nodes[0]!.seq,
-      nodes[2]!.seq,
+      nodes[0]!,
+      nodes[2]!,
       agent(session, MODEL),
     )).rejects.toThrow(/summary is not smaller/)
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(false)
@@ -580,10 +580,10 @@ describe('compaction region transaction', () => {
     const nodes = session.surface.nodes
     await expect(compact.compactRegion(
       session,
-      nodes[0]!.seq,
-      nodes[1]!.seq,
+      nodes[0]!,
+      nodes[1]!,
       agent(session),
-    )).resolves.toMatchObject({ shadowedSeqs: [nodes[0]!.seq, nodes[1]!.seq] })
+    )).resolves.toMatchObject({ shadowedSeqs: [nodes[0]!, nodes[1]!] })
   })
 })
 

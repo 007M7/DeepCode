@@ -26,7 +26,7 @@ Step 1 measures from the latest preceding model-visible message, including the p
 
 A time reading records a request-preparation attempt, not a committed step or transmitted request. Because the listener runs first, its append may remain when a later pre-step listener cancels or fails the attempt; the log is append-only and the plugin performs no rollback.
 
-The time reading stays in derived conversation history until a later compaction shadows it. Request headers and header deltas contain no time-context state. Request reconstruction uses the complete durable surface prefix at each `step/start`, so transmitted requests need not map one-to-one to readings: a failed preparation can leave an extra reading, while interval suppression can let a request reuse existing history without adding one.
+The time reading stays in derived conversation history until a later compaction shadows it. Request headers contain no time-context state. Request reconstruction uses the complete durable surface prefix at each `step/start`, so transmitted requests need not map one-to-one to readings: a failed preparation can leave an extra reading, while interval suppression can let a request reuse existing history without adding one.
 
 ## Model Experience
 

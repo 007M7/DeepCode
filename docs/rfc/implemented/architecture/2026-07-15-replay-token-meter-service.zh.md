@@ -20,7 +20,7 @@ Status: implemented
 
 ### 逐会话回放折叠
 
-每个会话都有一个隔离的增量折叠。活跃折叠通过 `session/event` 前进；每次读取都会追到持久日志尾部，因此监听器顺序、种子会话与服务重载不会改变答案。折叠跟踪规范请求头及其增量、步骤边界、表层追加与替换、assistant usage，以及 assistant 分片来源。下一个畸形事件会以事务方式失败并保持未读，不会让状态只修改一半。
+每个会话都有一个隔离的增量折叠。活跃折叠通过 `session/event` 前进；每次读取都会追到持久日志尾部，因此监听器顺序、种子会话与服务重载不会改变答案。折叠跟踪规范的完整请求头快照、步骤边界、表层追加与替换、assistant usage，以及 assistant 分片来源。下一个畸形事件会以事务方式失败并保持未读，不会让状态只修改一半。
 
 `measure(session, requestHeader?)` 只同步一次折叠，并在返回标量压力的同时给出逐位置节点价格。`totalTokens` 仍表示请求与响应压力；`surfaceTokens` 是仅针对表层的启发式总量，并等于 `nodes[].tokens` 之和。`requestHeader` 覆盖只改变压力定价，表层字段始终描述当前会话。`estimateMessage(message)` 不依赖会话状态，直接应用固定启发式规则。每个结果都是一个分离且深度不可变的快照，只携带一个 `logRevision`。每次计量都会复制当前节点，因此成本为 O(surface)。
 

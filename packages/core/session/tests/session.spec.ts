@@ -101,13 +101,6 @@ describe('Session', () => {
     expect(() => new Session(SessionId('old-header'), [requestHeader]))
       .toThrow('seed request/header at index 0 lacks provider/model')
 
-    const requestDelta = {
-      type: 'request/header-delta', seq: 0, time: 1,
-      data: { config: { model: 'old-model' } },
-    } as unknown as SessionEvent
-    expect(() => new Session(SessionId('old-delta'), [requestDelta]))
-      .toThrow('seed request/header-delta at index 0 lacks provider/model')
-
     const assistantMessage = {
       type: 'assistant/message', seq: 0, time: 1,
       data: { turn: 1, step: 1, content: [{ type: 'text', text: 'old' }] },
@@ -1244,8 +1237,8 @@ describe('todo/write event', () => {
     session.append('todo/write', { todos: [{ content: 'a task', status: 'pending' }] })
     // The todo event must not add a message to the derived history…
     expect(session.deriveMessages()).toHaveLength(before)
-    // …and must not appear on the surface linked list.
-    expect(session.surface.nodes.some(node => node.seq === session.seq - 1)).toBe(false)
+    // …and must not appear on the ordered surface.
+    expect(session.surface.nodes).not.toContain(session.seq - 1)
   })
 
   it('round-trips through a seeded replay identically (durable, no surfaceOp needed)', () => {
