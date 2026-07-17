@@ -3,7 +3,8 @@
  * turn and step nesting, scoped dispatch, status transitions, and request
  * reconstruction. The plugin has no environment guard and is active wherever
  * mounted, including the default `dsh-agent-spine-demo` bundle; custom compositions
- * may omit it. Sessions still own event snapshots and freezing.
+ * may omit it. Sessions own immutable, surface-valid event storage; this plugin
+ * checks only relationships that event acceptance cannot express.
  * @module @deepseek-ai/dsh-invariants
  */
 
@@ -13,7 +14,7 @@ import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { CallId, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { scopedSubjectResolverFor } from './scoped-events.generated.ts'
 
 export const name = 'invariants'
@@ -48,15 +49,6 @@ interface SessionTrace {
    * `step/end` — a result must arrive in the same step as its call.
    */
   pendingCalls: Set<CallId>
-  /** Every seq seen so far — validates `sourceEventSeqs` references. */
-  knownSeqs: Set<number>
-  /**
-   * The seqs currently on the surface linked list, in linked-list order
-   * (head to tail). A replace reorders this relative to seq order (the new
-   * node takes the replaced range's position), so range validation is
-   * positional, not by seq comparison.
-   */
-  surface: number[]
 }
 
 /** One accepted event's deferred mutation of a live session trace. */
@@ -68,12 +60,6 @@ interface SessionTraceTransition {
     | { kind: 'none' }
     | { kind: 'add' | 'delete'; callId: CallId }
     | { kind: 'clear' }
-  /** The event's mutation of the derived surface order. */
-  surface:
-    | { kind: 'none' | 'append' }
-    | { kind: 'replace'; start: number; count: number }
-  /** The committed event sequence to add to the known-sequence set. */
-  seq: number
 }
 
 /** Assert that a step-scoped event names the currently open turn and step. */
@@ -97,73 +83,6 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
   let nextTurn = trace.nextTurn
   let nextStep = trace.nextStep
   let pendingCalls: SessionTraceTransition['pendingCalls'] = { kind: 'none' }
-  let surface: SessionTraceTransition['surface'] = { kind: 'none' }
-
-  // --- Surface invariants ---
-  // Surface metadata (sourceEventSeqs, surfaceOp) is only valid on
-  // surface-eligible event types. The compiler enforces this at append()
-  // call sites; this runtime check catches casts and persisted data.
-  const SURFACE_TYPES = new Set<string>(['user/message', 'assistant/message', 'tool/result', 'context/message', 'steering/message'])
-  // Cast to surface-eligible event type so we can access surfaceOp and
-  // sourceEventSeqs (optional on SessionEvent, mandatory on SurfaceEvent).
-  // SurfaceEvent's mandatory surfaceOp is too strict here — we need to
-  // CHECK whether surface metadata is present, not assume it.
-  const se = event as SessionEvent<SurfaceEventType>
-  if (!SURFACE_TYPES.has(event.type)) {
-    if (se.sourceEventSeqs !== undefined) {
-      throw new InvariantError(`${event.type} cannot carry sourceEventSeqs (non-surface event)`)
-    }
-    if (se.surfaceOp !== undefined) {
-      throw new InvariantError(`${event.type} cannot carry surfaceOp (non-surface event)`)
-    }
-  }
-  if (se.sourceEventSeqs !== undefined) {
-    if (se.sourceEventSeqs.length === 0) {
-      throw new InvariantError('sourceEventSeqs must not be empty when present')
-    }
-    const unique = new Set(se.sourceEventSeqs)
-    if (unique.size !== se.sourceEventSeqs.length) {
-      throw new InvariantError('sourceEventSeqs must not contain duplicates')
-    }
-    for (const ref of se.sourceEventSeqs) {
-      if (ref >= event.seq) {
-        throw new InvariantError(`sourceEventSeqs must reference earlier events: ${ref} >= current seq ${event.seq}`)
-      }
-      if (!trace.knownSeqs.has(ref)) {
-        throw new InvariantError(`sourceEventSeqs references unknown seq ${ref}`)
-      }
-    }
-  }
-  // Fold this event into the tracked surface linked list, validating the
-  // replace contract as we go. `append` adds a tail node; `replace` shadows a
-  // positional range — every shadowed node must appear in sourceEventSeqs.
-  if (se.surfaceOp !== undefined) {
-    if (se.surfaceOp === 'append') {
-      surface = { kind: 'append' }
-    } else {
-      const { start, end } = se.surfaceOp
-      const startIdx = trace.surface.indexOf(start)
-      if (startIdx === -1) {
-        throw new InvariantError(`surface replace: start seq ${start} is not on the surface`)
-      }
-      const endIdx = trace.surface.indexOf(end)
-      if (endIdx === -1) {
-        throw new InvariantError(`surface replace: end seq ${end} is not on the surface`)
-      }
-      if (startIdx > endIdx) {
-        throw new InvariantError(`surface replace: start seq ${start} (pos ${startIdx}) is after end seq ${end} (pos ${endIdx}) on the surface`)
-      }
-      // Every node the replace shadows (surface positions [startIdx, endIdx]
-      // inclusive) must appear in sourceEventSeqs — the provenance contract.
-      const shadowed = trace.surface.slice(startIdx, endIdx + 1)
-      const recorded = new Set(se.sourceEventSeqs ?? [])
-      const missing = shadowed.filter(seq => !recorded.has(seq))
-      if (missing.length > 0) {
-        throw new InvariantError(`surface replace: sourceEventSeqs must include every shadowed surface node; missing ${missing.join(', ')}`)
-      }
-      surface = { kind: 'replace', start: startIdx, count: shadowed.length }
-    }
-  }
 
   // Boundary/step-scoped events have explicit cases; every OTHER event type —
   // including plugin-added (merge-extensible) SessionEventMap keys — is caught
@@ -263,8 +182,6 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
   return {
     scalars: { lastSeq: event.seq, openTurn, openStep, nextTurn, nextStep },
     pendingCalls,
-    surface,
-    seq: event.seq,
   }
 }
 
@@ -287,20 +204,6 @@ function applyTransition(trace: SessionTrace, transition: SessionTraceTransition
     default:
       assertNever(transition.pendingCalls, 'session trace pending-call transition')
   }
-  switch (transition.surface.kind) {
-    case 'none':
-      break
-    case 'append':
-      trace.surface.push(transition.seq)
-      break
-    case 'replace':
-      trace.surface.splice(transition.surface.start, transition.surface.count, transition.seq)
-      break
-    /* v8 ignore next -- validateEvent produces this closed transition union */
-    default:
-      assertNever(transition.surface, 'session trace surface transition')
-  }
-  trace.knownSeqs.add(transition.seq)
 }
 
 /** Validate and apply one event while rebuilding an already-committed log. */
@@ -345,8 +248,6 @@ export function apply(ctx: Context): void {
     nextTurn: 1,
     nextStep: 1,
     pendingCalls: new Set(),
-    knownSeqs: new Set(),
-    surface: [],
   })
 
   /** Build (or rebuild) a session's trace by replaying its whole log. */

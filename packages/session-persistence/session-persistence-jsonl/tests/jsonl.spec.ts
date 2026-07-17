@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -112,6 +112,19 @@ describe('SessionPersistenceJsonl: format helpers', () => {
   it('encodeSegment rejects an empty id', () => {
     expect(() => encodeSegment('')).toThrow(/empty/)
   })
+
+  it('resolves a relative custom root before locating a session', async () => {
+    const absoluteRoot = await freshRoot()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceJsonl, { root: relative(process.cwd(), absoluteRoot) })
+    const m = meta('relative-location', '/work')
+    expect(ctx.sessionPersistence.locate(m)).toEqual({
+      kind: 'jsonl',
+      path: logPath(resolve(absoluteRoot), '/work', m.id),
+    })
+    await fiber.dispose()
+  })
 })
 
 describe('SessionPersistenceJsonl: durability and crash semantics', () => {
@@ -126,8 +139,13 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
 
   it('lazy materialization: create() writes no file until the first append', async () => {
     const m = meta('lazy', '/work')
+    const location = ctx.sessionPersistence.locate(m)
+    expect(location).toEqual({ kind: 'jsonl', path: logPath(root, '/work', m.id) })
+    expect(isAbsolute(location!.path)).toBe(true)
+
     await ctx.sessionPersistence.create(m)
-    // nothing on disk yet
+    // locate() is a pure target-path calculation: neither it nor create()
+    // materializes a file before the first append.
     const dir = sessionDir(root, '/work')
     await expect(stat(logPath(root, '/work', m.id))).rejects.toThrow()
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(m.id)
@@ -137,6 +155,26 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect((await stat(logPath(root, '/work', m.id))).isFile()).toBe(true)
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
     void dir
+  })
+
+  it('keeps the same location on resume and gives a fork its own location', async () => {
+    const parent = meta('location-parent', '/work')
+    const parentLocation = ctx.sessionPersistence.locate(parent)
+    await ctx.sessionPersistence.create(parent)
+    await ctx.sessionPersistence.append(parent.id, oneTurnLog())
+
+    const loaded = await ctx.sessionPersistence.load(parent.id)
+    expect(ctx.sessionPersistence.locate(loaded.meta)).toEqual(parentLocation)
+
+    const child = {
+      ...loaded.meta,
+      id: SessionId('location-child'),
+      parentSession: parent.id,
+      seedLength: loaded.events.length,
+    }
+    const childLocation = ctx.sessionPersistence.locate(child)
+    expect(childLocation?.path).not.toBe(parentLocation?.path)
+    expect(childLocation).toEqual({ kind: 'jsonl', path: logPath(root, '/work', child.id) })
   })
 
   it('round-trip is byte-identical (incl. assistant/chunk verbatim)', async () => {

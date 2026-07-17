@@ -3,6 +3,8 @@
  * compares normalized stdout; comparable session fixtures are both replay input and expected
  * output. Record mode refreshes reproducible model scenarios from the live API, while refresh
  * mode replays committed scripts and rewrites derived artifacts without a key.
+ * Replay scenarios run concurrently because each subprocess owns unique temp cwd and persistence
+ * roots and only reads committed fixtures. Record and refresh scenarios stay serial while writing.
  *
  * Exactly one scenario per header-composition class pins the system prompt and tool schemas in
  * dedicated sidecars. Every live header is checked against that pin, so session-dependent
@@ -461,7 +463,7 @@ export function stabilizeRefreshLog(fresh: string, existing: string, replacement
 }
 
 /**
- * Register the suite: one `describe` per scenario (the golden/log compares and
+ * Register the suite: one test per scenario (the golden/log compares and
  * the header-uniformity guard) plus the fixture guard block (no orphan
  * scenario dirs, required files present, exactly one pin per header class,
  * pinning fixtures well-formed, every JSONL prompt-scrubbed, non-pinning
@@ -477,6 +479,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
   const RECORDING = mode === 'record'
   const REFRESHING = mode === 'refresh'
   const childMode: 'replay' | 'record' = RECORDING ? 'record' : 'replay'
+  const scenarioSuite = mode === 'replay' ? describe.concurrent : describe
 
   /** The class a scenario's header composition belongs to (see {@link Scenario.headerClass}). */
   const classOf = (scenario: Scenario): string => scenario.headerClass ?? 'default'
@@ -496,11 +499,11 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
     }
   }
 
-  for (const scenario of scenarios) {
-    describe(`snapshot: ${scenario.name}`, () => {
+  scenarioSuite('snapshot scenarios', () => {
+    for (const scenario of scenarios) {
       // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the `authored` ones
       // (sidecar-driven errors/cancel) are never re-recorded.
-      it.skipIf(RECORDING && !scenario.recorded)('matches the goldens', async () => {
+      it.skipIf(RECORDING && !scenario.recorded)(`snapshot: ${scenario.name} matches the goldens`, async ({ expect }) => {
         const dir = join(snapshotsDir, scenario.name)
         const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
         const overrideFile = join(dir, 'replay.override.json')
@@ -658,8 +661,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           }
         }
       })
-    })
-  }
+    }
+  })
 
   describe('snapshot fixtures', () => {
     it('every scenario directory is registered (no orphans)', async () => {

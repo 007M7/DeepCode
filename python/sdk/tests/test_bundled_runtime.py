@@ -22,6 +22,8 @@ _CORDIS_YML = """\
   name: '@deepseek-ai/dsh-jsonrpc'
 - id: agent-core
   name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    workspaceContext: false
 - id: sessions
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:

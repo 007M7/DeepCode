@@ -59,7 +59,7 @@ async function mountPlugin(
   options: { writeDelayMs?: number; failFlush?: boolean } = {},
 ): Promise<ApplyHarness> {
   const ctx = new Context()
-  await ctx.plugin(agentCore)
+  await ctx.plugin(agentCore, { workspaceContext: false })
   await ctx.plugin(SessionPersistenceJsonl, { root: storageDir })
   await new Promise(resolve => setTimeout(resolve, 50))
 

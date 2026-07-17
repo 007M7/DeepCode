@@ -44,6 +44,7 @@ const CORDIS_YML = `
     provider: deepseek
     model: deepseek-v4-flash
     persona: 'You are a test agent.'
+    workspaceContext: false
 `
 
 interface Spawned {

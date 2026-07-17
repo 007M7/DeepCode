@@ -4,7 +4,7 @@ Runtime event-contract assertions intended for development diagnostics. This pur
 
 The plugin has no environment guard: it is active wherever it is registered. The default [`dsh-agent-spine-demo`](../../examples/agent-spine-demo/README.md) bundle mounts it unconditionally; a custom composition can omit it when the runtime cost is undesirable. It doubles as executable documentation of the event taxonomy — the assertions *are* the contract.
 
-Session itself owns immutable log storage in every composition: it takes one lossless JSON snapshot of each accepted event, deep-freezes that record, and exposes the log through immutable array snapshots. The invariants plugin checks the cross-record and cross-seam rules that storage immutability cannot express.
+Session itself owns immutable, surface-valid log storage in every composition: it takes one lossless JSON snapshot of each candidate, validates the complete surface transition, deep-freezes the accepted record, and exposes the log through immutable array snapshots. The invariants plugin checks the remaining cross-record and cross-seam rules that Session does not own.
 
 Session-log assertions run during Cordis `internal/dispatch`, while `Session.append()` is resolving the `session/event` callback snapshot but before it pushes the candidate into the log. A valid transition is staged by exact event identity and applied to the live trace only when that same committed event reaches the plugin's contained post-commit listener. A later internal dispatch check can therefore veto without advancing either the log or the invariant trace, while ordinary `session/event` observer failures remain observe-only.
 
