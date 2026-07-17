@@ -61,7 +61,7 @@ async function setup(script: Script, options: SetupOptions = {}) {
     start: (request: SubagentStartRequest) => startInProcessRun(request, {}),
   })
   ctx.llm.registerAdapter(['mock'], adapter)
-  const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+  const parent = ctx.agentLoop.create(AgentId('parent'), { provider: 'mock', model: 'mock' })
   return { ctx, parent, adapter, disposeProvider }
 }
 

@@ -370,7 +370,7 @@ describe('real agent-loop request history', () => {
       if (mode === 'throws') throw new Error('later pre-step failure')
       subject.cancel('later pre-step cancellation')
     })
-    const agent = ctx.agentLoop.create(AgentId(`late-${mode}`), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId(`late-${mode}`), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'start' }])
     await agent.whenIdle()
@@ -396,7 +396,7 @@ describe('real agent-loop request history', () => {
         return [{ type: 'text' as const, text: 'advanced' }]
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('loop'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('loop'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'start' }])
     await agent.whenIdle()

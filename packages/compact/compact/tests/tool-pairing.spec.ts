@@ -34,6 +34,7 @@ function closedToolStep(): Session {
     turn: 1,
     step: 1,
     content: [{ type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' }],
+    provenance: { provider: 'mock', model: 'mock' },
   }, SURFACE)
   session.append('tool/result', {
     turn: 1,
@@ -60,6 +61,7 @@ describe('tool-pairing boundaries', () => {
       turn: 1,
       step: 1,
       content: [{ type: 'tool-call', id: CallId('open'), name: 'bash', arguments: '{}' }],
+      provenance: { provider: 'mock', model: 'mock' },
     }, SURFACE)
     expect(toolPairingBalancedAfter(open, open.surface.nodes[0]!)).toBe(false)
   })
@@ -73,6 +75,7 @@ describe('tool-pairing boundaries', () => {
         { type: 'tool-call', id: CallId('c1'), name: 'one', arguments: '{}' },
         { type: 'tool-call', id: CallId('c2'), name: 'two', arguments: '{}' },
       ],
+      provenance: { provider: 'mock', model: 'mock' },
     }, SURFACE)
     session.append('tool/result', {
       turn: 1, step: 1, callId: CallId('c1'), content: [], isError: false,
@@ -91,6 +94,7 @@ describe('tool-pairing boundaries', () => {
       turn: 1,
       step: 1,
       content: [{ type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' }],
+      provenance: { provider: 'mock', model: 'mock' },
     }, SURFACE)
     midStep.append('context/message', {
       content: [{ type: 'text', text: 'background update' }],
@@ -165,7 +169,12 @@ describe('tool-pairing cache refresh', () => {
       },
       {
         type: 'assistant/message', seq: 1, time: 1,
-        data: { turn: 1, step: 1, content: [{ type: 'tool-call', id: CallId('c1'), name: 'one', arguments: '{}' }] },
+        data: {
+          turn: 1,
+          step: 1,
+          content: [{ type: 'tool-call', id: CallId('c1'), name: 'one', arguments: '{}' }],
+          provenance: { provider: 'mock', model: 'mock' },
+        },
         surfaceOp: 'append',
       },
       {
@@ -230,7 +239,12 @@ describe('tool-pairing cache refresh', () => {
     events.push(
       {
         type: 'assistant/message', seq: 5, time: 5,
-        data: { turn: 2, step: 1, content: [{ type: 'tool-call', id: CallId('c2'), name: 'two', arguments: '{}' }] },
+        data: {
+          turn: 2,
+          step: 1,
+          content: [{ type: 'tool-call', id: CallId('c2'), name: 'two', arguments: '{}' }],
+          provenance: { provider: 'mock', model: 'mock' },
+        },
         surfaceOp: 'append',
       },
       {

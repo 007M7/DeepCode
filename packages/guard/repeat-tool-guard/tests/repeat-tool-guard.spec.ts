@@ -53,7 +53,7 @@ describe('threshold escalation', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -74,7 +74,7 @@ describe('threshold escalation', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -96,7 +96,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -120,7 +120,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -138,7 +138,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -159,7 +159,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -175,7 +175,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -191,7 +191,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -211,8 +211,8 @@ describe('chain semantics', () => {
       toolCallResponse('b3', 'probe', { q: 1 }),
       textResponse('done'),
     ]))
-    const agentA = ctx.agentLoop.create(AgentId('a'), { model: 'mock-a' })
-    const agentB = ctx.agentLoop.create(AgentId('b'), { model: 'mock-b' })
+    const agentA = ctx.agentLoop.create(AgentId('a'), { provider: 'mock-a', model: 'model-a' })
+    const agentB = ctx.agentLoop.create(AgentId('b'), { provider: 'mock-b', model: 'model-b' })
     agentA.send([{ type: 'text', text: 'go' }])
     agentB.send([{ type: 'text', text: 'go' }])
     await Promise.all([waitForIdle(ctx, agentA), waitForIdle(ctx, agentB)])
@@ -231,7 +231,7 @@ describe('chain semantics', () => {
       textResponse('turn two done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     agent.send([{ type: 'text', text: 'again' }])
@@ -252,14 +252,14 @@ describe('chain semantics', () => {
     // (the loop.spec pattern): a child plugin fiber owns `first`.
     let first!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      first = inner.agentLoop.create(AgentId('reused'), { model: 'mock' })
+      first = inner.agentLoop.create(AgentId('reused'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
     first.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, first)
     await fiber.dispose()
     await first.done
 
-    const second = ctx.agentLoop.create(AgentId('reused'), { model: 'mock' })
+    const second = ctx.agentLoop.create(AgentId('reused'), { provider: 'mock', model: 'mock' })
     second.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, second)
 
@@ -275,7 +275,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -291,7 +291,7 @@ describe('chain semantics', () => {
       toolCallResponse('c1', 'probe', { q: 1 }), // if the direct call had counted, this would be #2
       textResponse('done'),
     ]))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -313,7 +313,7 @@ describe('fold onto the downstream decision', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -344,7 +344,7 @@ describe('fold onto the downstream decision', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 

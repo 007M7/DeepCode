@@ -30,7 +30,7 @@ async function setup(script: Script) {
   await ctx.plugin(spawn, { providerName: 'spawn' })
   await ctx.plugin(WorkerWorkflowEngine, {})
   ctx.llm.registerAdapter(['mock'], adapter)
-  const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+  const parent = ctx.agentLoop.create(AgentId('parent'), { provider: 'mock', model: 'mock' })
   return { ctx, parent, adapter }
 }
 

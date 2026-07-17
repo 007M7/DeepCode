@@ -83,22 +83,25 @@ export interface Config {
 
 ### 配置错误要响亮
 
-如果配置引用了不存在的东西（比如一个不存在的模型名），应该尽早报错，而不是静默跳过：
+如果配置引用了不存在的东西（比如一个未注册的 LLM 提供方路由），应该尽早报错，而不是静默跳过：
 
 ```ts
 import type { Context } from 'cordis'
 import type {} from '@deepseek-ai/dsh-llm'
 
 export interface Config {
+  provider: string
   model: string
 }
 
 export function apply(ctx: Context, config: Config) {
-  if (!ctx.llm.models().includes(config.model)) {
-    throw new Error(`Model "${config.model}" is not registered by any LLM adapter`)
+  if (!ctx.llm.listProviders().some(provider => provider.id === config.provider)) {
+    throw new Error(`LLM provider "${config.provider}" is not registered`)
   }
 }
 ```
+
+模型目录只用于发现；适配器可能接受目录之外的模型 ID，因此不能把 `listModels()` 当作请求白名单。
 
 ## 配合 HMR
 

@@ -24,7 +24,9 @@ export interface BasicCompactConfig {
   thresholdRatio: number
   /** Number of tokens of recent context to retain during compaction. */
   retainTokens: number
-  /** Model to use for summarization (`''` — uses the agent's model). */
+  /** Provider to use for summarization (`''` with an empty model inherits the conversation target). */
+  summarizationProvider: string
+  /** Model to use for summarization (`''` with an empty provider inherits the conversation target). */
   summarizationModel: string
   /** Provider generation cap for the summarization call. */
   maxTokens: number
@@ -62,6 +64,12 @@ export function resolveConfig(config: BasicCompactConfig): ResolvedConfig {
   assertPositiveFinite('charsPerToken', resolved.charsPerToken)
   if (typeof resolved.summarizationModel !== 'string') {
     throw new Error('BasicCompactConfig: summarizationModel must be a string.')
+  }
+  if (typeof resolved.summarizationProvider !== 'string') {
+    throw new Error('BasicCompactConfig: summarizationProvider must be a string.')
+  }
+  if ((resolved.summarizationProvider.length === 0) !== (resolved.summarizationModel.length === 0)) {
+    throw new Error('BasicCompactConfig: summarizationProvider and summarizationModel must both be empty or both be set.')
   }
   if (typeof resolved.auto !== 'boolean') {
     throw new Error('BasicCompactConfig: auto must be a boolean.')

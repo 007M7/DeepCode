@@ -36,12 +36,12 @@ const CORDIS_YML = `
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
-    models: [deepseek-v4-flash]
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
 - id: acp-agent
   name: '@deepseek-ai/dsh-acp-demo'
   config:
+    provider: deepseek
     model: deepseek-v4-flash
     persona: 'You are a test agent.'
     workspaceContext: false

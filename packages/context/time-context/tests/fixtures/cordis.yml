@@ -11,6 +11,7 @@
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-demo'
   config:
+    provider: mock
     model: mock-echo
     persona: 'Test the time-context plugin.'
     welcome: 'time-context e2e ready.'

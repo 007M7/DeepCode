@@ -90,6 +90,7 @@ async function makeConsumer(
     '- id: stdio-agent',
     '  name: \'@deepseek-ai/dsh-stdio-demo\'',
     '  config:',
+    '    provider: mock',
     '    model: mock-echo',
     '    persona: \'demo\'',
     '    workspaceContext: false',

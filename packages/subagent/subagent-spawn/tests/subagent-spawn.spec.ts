@@ -29,7 +29,7 @@ async function setup(script: Script) {
   await ctx.plugin(SubagentService)
   await ctx.plugin(spawn, { providerName: 'spawn' })
   ctx.llm.registerAdapter(['mock'], adapter)
-  const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+  const parent = ctx.agentLoop.create(AgentId('parent'), { provider: 'mock', model: 'mock' })
   return { ctx, parent, adapter }
 }
 
@@ -228,7 +228,7 @@ describe('dsh-subagent-spawn', () => {
       agentId: AgentId('cwd-parent'),
       sessionId: SessionId('cwd-parent-session'),
       meta: { cwd: '/tmp/parent-workspace' },
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
     })
     const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'p' }], parent: parentHandle.agent })
     await run.result
@@ -250,7 +250,7 @@ describe('dsh-subagent-spawn', () => {
     const run = await start(ctx, 'spawn', {
       prompt: [{ type: 'text', text: 'p' }],
       parent: parentHandle.agent,
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
     })
     const result = await run.result
     expect(result.stopReason).toBe('completed')
@@ -302,7 +302,7 @@ describe('dsh-subagent-spawn', () => {
     await ctx.plugin(SubagentService)
     const fiber = await ctx.plugin(spawn, { providerName: 'spawn' })
     ctx.llm.registerAdapter(['mock'], adapter)
-    const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+    const parent = ctx.agentLoop.create(AgentId('parent'), { provider: 'mock', model: 'mock' })
     const controller = new AbortController()
     const run = await start(ctx, 'spawn', {
       prompt: [{ type: 'text', text: 'q' }],
@@ -329,7 +329,7 @@ describe('dsh-subagent-spawn', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SubagentService)
     const fiber = await ctx.plugin(spawn, { providerName: 'spawn' })
-    const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+    const parent = ctx.agentLoop.create(AgentId('parent'), { provider: 'mock', model: 'mock' })
     const parentEffects = parent.ctx.fiber.getEffects().length
     const published: string[] = []
     ctx.on('session/created', () => void published.push('session/created'))
@@ -424,7 +424,7 @@ describe('dsh-subagent-spawn', () => {
     const parentHandle = await ctx.agents.create({
       agentId: AgentId('doomed-parent'),
       sessionId: SessionId('doomed-s'),
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
     })
     await parentHandle.dispose()
     const before = ctx.agents.list().length
@@ -447,7 +447,7 @@ describe('dsh-subagent-spawn', () => {
     const parentHandle = await ctx.agents.create({
       agentId: AgentId('setup-race-parent'),
       sessionId: SessionId('setup-race-parent-session'),
-      agentOptions: { model: 'mock' },
+      agentOptions: { provider: 'mock', model: 'mock' },
     })
     const published: string[] = []
     ctx.on('session/created', () => void published.push('session/created'))

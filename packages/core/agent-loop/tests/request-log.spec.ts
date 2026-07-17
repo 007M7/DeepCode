@@ -30,7 +30,7 @@ describe('recordRequestHeader', () => {
   it("anchors a new conversation with an 'initial' snapshot, then logs nothing while unchanged", () => {
     const session = openSession('rl-initial')
     const state = createTransmissionLog()
-    const header = canonicalHeader({ config: { model: 'm' }, system: 's', tools: [tool('t')] })
+    const header = canonicalHeader({ config: { provider: 'mock', model: 'm' }, system: 's', tools: [tool('t')] })
 
     recordRequestHeader(session, state, header)
     const [first] = headerEvents(session)
@@ -42,7 +42,7 @@ describe('recordRequestHeader', () => {
 
   it("anchors a fresh loop instance over an anchored log with a 'resume' snapshot, even unchanged", () => {
     const session = openSession('rl-resume')
-    const header = canonicalHeader({ config: { model: 'm' }, system: 's' })
+    const header = canonicalHeader({ config: { provider: 'mock', model: 'm' }, system: 's' })
     recordRequestHeader(session, createTransmissionLog(), header)
 
     // A second instance (process restart / fork): the boundary itself is a
@@ -56,10 +56,10 @@ describe('recordRequestHeader', () => {
   it('logs a round-tripping delta for a mid-run change, and the fold reproduces the header', () => {
     const session = openSession('rl-delta')
     const state = createTransmissionLog()
-    const first = canonicalHeader({ config: { model: 'm' }, system: 'a\nb', tools: [tool('t')] })
+    const first = canonicalHeader({ config: { provider: 'mock', model: 'm' }, system: 'a\nb', tools: [tool('t')] })
     recordRequestHeader(session, state, first)
 
-    const second = canonicalHeader({ config: { model: 'm' }, system: 'a\nc', tools: [tool('t'), tool('u')] })
+    const second = canonicalHeader({ config: { provider: 'mock', model: 'm' }, system: 'a\nc', tools: [tool('t'), tool('u')] })
     recordRequestHeader(session, state, second)
     const events = headerEvents(session)
     expect(events).toHaveLength(2)
@@ -70,10 +70,10 @@ describe('recordRequestHeader', () => {
   it("records a change the delta cannot express (pure reordering) as a 'fallback' snapshot", () => {
     const session = openSession('rl-fallback')
     const state = createTransmissionLog()
-    const first = canonicalHeader({ config: { model: 'm' }, tools: [tool('a'), tool('b')] })
+    const first = canonicalHeader({ config: { provider: 'mock', model: 'm' }, tools: [tool('a'), tool('b')] })
     recordRequestHeader(session, state, first)
 
-    const reordered = canonicalHeader({ config: { model: 'm' }, tools: [tool('b'), tool('a')] })
+    const reordered = canonicalHeader({ config: { provider: 'mock', model: 'm' }, tools: [tool('b'), tool('a')] })
     recordRequestHeader(session, state, reordered)
     const events = headerEvents(session)
     expect(events).toHaveLength(2)

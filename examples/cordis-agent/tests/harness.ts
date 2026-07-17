@@ -23,7 +23,7 @@ export async function cordisHarness(): Promise<Context> {
     systemPrompt: { persona: PERSONA },
   })
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(LlmDeepSeek, { models: ['deepseek-v4-flash'] })
+  await ctx.plugin(LlmDeepSeek)
   await ctx.plugin(ToolCordis)
   return ctx
 }

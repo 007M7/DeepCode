@@ -33,6 +33,7 @@
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-demo'
   config:
+    provider: mock
     model: mock-echo
     persona: 'You are echo-agent, a demo agent.'
     welcome: 'echo-agent ready. Type a message ("echo <text>" triggers the tool).'

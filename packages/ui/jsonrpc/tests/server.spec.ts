@@ -107,6 +107,7 @@ describe('HarnessSdkServer', () => {
 
       const init = await server.handleRequest('initialize', {
         cwd: storageDir,
+        provider: 'deepseek',
         model: 'dsagent-model',
       }) as { serverInfo: { name: string } }
       expect(init.serverInfo.name).toBe('deepseek-harness-sdk-runtime')
@@ -138,7 +139,7 @@ describe('HarnessSdkServer', () => {
         agentId: AgentId('orphan-agent'),
         sessionId: SessionId('orphan-session'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'dsagent-model' },
+        agentOptions: { provider: 'deepseek', model: 'dsagent-model' },
       })
       orphanHandle.agent.send([{ type: 'text', text: 'outside the sdk session map' }])
       await orphanHandle.agent.whenIdle()
@@ -241,7 +242,7 @@ describe('HarnessSdkServer', () => {
     try {
       const server = new HarnessSdkServer(ctx, new FakeTransport())
 
-      await server.initialize({ cwd: storageDir, model: 'plain-model' })
+      await server.initialize({ cwd: storageDir, provider: 'deepseek', model: 'plain-model' })
       await server.prompt({
         sessionId: 'plain',
         contentBlocks: [{ type: 'text', text: 'hello' }],
@@ -266,13 +267,13 @@ describe('HarnessSdkServer', () => {
         agentId: AgentId('parent-agent'),
         sessionId: SessionId('main'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { provider: 'deepseek', model: 'deepseek' },
       })
       const handle = await ctx.agents.create({
         agentId: AgentId('child-agent'),
         sessionId: SessionId('child-session'),
         meta: { cwd: storageDir, parentSession: SessionId('main') },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { provider: 'deepseek', model: 'deepseek' },
       })
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'spawn',
@@ -314,19 +315,19 @@ describe('HarnessSdkServer', () => {
         agentId: AgentId('fallback-parent-agent'),
         sessionId: SessionId('fallback-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { provider: 'deepseek', model: 'deepseek' },
       })
       handle = await ctx.agents.create({
         agentId: AgentId('fallback-child-agent'),
         sessionId: SessionId('fallback-child-session'),
         meta: { cwd: storageDir, parentSession: SessionId('fallback-parent') },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { provider: 'deepseek', model: 'deepseek' },
       })
       failedHandle = await ctx.agents.create({
         agentId: AgentId('failed-child-agent'),
         sessionId: SessionId('failed-child-session'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { provider: 'deepseek', model: 'deepseek' },
       })
       const transport = new FakeTransport()
       const server = new HarnessSdkServer(ctx, transport)
@@ -385,20 +386,20 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('does not re-register an LLM adapter that already exists', async () => {
+  it('does not re-register an LLM adapter whose provider already has an owner', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-existing-llm-'))
     const ctx = await makeHarness(storageDir)
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
-    await ctx.plugin(LlmDeepSeek, { models: ['preinstalled-model'] })
+    await ctx.plugin(LlmDeepSeek)
     try {
       const server = new HarnessSdkServer(ctx, new FakeTransport())
-      const inspect = server as unknown as { hasAdapterFor(model: string): boolean }
+      const inspect = server as unknown as { hasAdapterFor(provider: string): boolean }
 
-      expect(inspect.hasAdapterFor('preinstalled-model')).toBe(true)
-      expect(inspect.hasAdapterFor('missing-model')).toBe(false)
-      await server.initialize({ cwd: storageDir, model: 'preinstalled-model' })
+      expect(inspect.hasAdapterFor('deepseek')).toBe(true)
+      expect(inspect.hasAdapterFor('missing-provider')).toBe(false)
+      await server.initialize({ cwd: storageDir, provider: 'deepseek', model: 'preinstalled-model' })
 
-      expect(ctx.get('llm')?.models().filter(model => model === 'preinstalled-model')).toEqual(['preinstalled-model'])
+      expect(ctx.get('llm')?.listProviders().filter(provider => provider.id === 'deepseek')).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
       await server.shutdown()
     } finally {
       await ctx.fiber.dispose()
@@ -406,17 +407,18 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('registers a missing model when an LLM service already exists', async () => {
+  it('rejects a missing non-DeepSeek provider when an LLM service already exists', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-new-llm-'))
     const ctx = await makeHarness(storageDir)
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
-    await ctx.plugin(LlmDeepSeek, { models: ['other-model'] })
+    await ctx.plugin(LlmDeepSeek)
     try {
       const server = new HarnessSdkServer(ctx, new FakeTransport())
 
-      await server.initialize({ cwd: storageDir, model: 'new-model' })
+      await expect(server.initialize({ cwd: storageDir, provider: 'private', model: 'new-model' }))
+        .rejects.toThrow('no adapter registered for provider "private"')
 
-      expect(ctx.get('llm')?.models()).toEqual(expect.arrayContaining(['other-model', 'new-model']))
+      expect(ctx.get('llm')?.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
       await server.shutdown()
     } finally {
       await ctx.fiber.dispose()
@@ -517,15 +519,15 @@ describe('HarnessSdkServer', () => {
     const ctx = {
       on: vi.fn(() => () => undefined),
       agents: { create, get: () => undefined },
-      get: () => ({ models: () => ['model'] }),
+      get: () => ({ listProviders: () => [{ id: 'mock', name: 'Mock' }] }),
     } as unknown as Context
     const server = new HarnessSdkServer(ctx, new FakeTransport()) as unknown as {
-      initialize(params: { cwd: string; model: string }): Promise<unknown>
+      initialize(params: { cwd: string; provider: string; model: string }): Promise<unknown>
       getOrCreateSession(sessionId: string): Promise<unknown>
       shutdown(): Promise<Record<string, never>>
     }
 
-    await server.initialize({ cwd: '.', model: 'model' })
+    await server.initialize({ cwd: '.', provider: 'mock', model: 'model' })
     await server.getOrCreateSession('relative')
 
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ meta: { cwd: process.cwd() } }))
