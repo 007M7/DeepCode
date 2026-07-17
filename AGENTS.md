@@ -35,6 +35,7 @@ python/      Python SDK and bundled runtime (see python/README.md)
 examples/    Runnable cordis.yml leaves over packages/examples bundles (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
 scripts/     repo gates and generators
+website/     VitePress docs site (zh-CN); api/ pages generated from source
 ```
 
 Package groups: [packages/README.md](packages/README.md).
@@ -54,6 +55,7 @@ pnpm run duplication    # cross-file TypeScript clone detection
 pnpm run build          # tsc emits lib/types, tsdown bundles runtime
 pnpm run hygiene        # knip + publint + workspace constraints + NodeNext consumer check
 pnpm run doc-sync       # all documentation gates; see the doc-sync script in package.json
+pnpm run website:build  # VitePress build (doubles as the site's dead-link check)
 pnpm run demo:echo      # mock-model REPL, no key needed
 pnpm run demo:repl      # real REPL coding agent (needs DEEPSEEK_API_KEY)
 pnpm run demo:cordis    # self-referential demo: the agent modifies its own runtime (needs key)
@@ -76,6 +78,7 @@ pnpm run duplication
 pnpm run test:coverage
 pnpm run test:snapshot
 pnpm run doc-sync
+pnpm run website:build
 pnpm run verify-module-graph
 pnpm run build
 pnpm run hygiene

@@ -126,7 +126,8 @@ function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly Sessio
  *
  * All per-id operations are serialized (a per-id promise chain) so concurrent
  * flushes / a flush racing a load never interleave storage writes. The
- * constructor installs the write-path listeners and the dispose effect.
+ * constructor installs the write-path listeners, per-session retirement, and
+ * the backend dispose effect.
  *
  * @typeParam TornMarker - the backend's opaque torn-tail repair token.
  */
@@ -146,6 +147,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * observation boundary; callers do not inspect this bookkeeping directly.
    */
   private inits = new Map<Session, Promise<void>>()
+  /** Final drains started by fire-and-forget session disposal notifications. */
+  private retirements = new Set<Promise<void>>()
 
   constructor(private ctx: Context, private backend: PersistenceBackend<TornMarker>) {
     this.installWritePath()
@@ -267,7 +270,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const next = prior.then(op, op)
     // Keep the chain alive but swallow this op's rejection for the NEXT waiter
     // (the caller still sees the real rejection via `next`).
-    this.chains.set(id, next.then(() => undefined, () => undefined))
+    const tail = next.then(() => undefined, () => undefined)
+    this.chains.set(id, tail)
+    // Settled tails carry no serialization value. Delete only the exact tail
+    // installed above: a later operation may already have replaced it.
+    void tail.then(() => {
+      if (this.chains.get(id) === tail) this.chains.delete(id)
+    })
     return next
   }
 
@@ -293,27 +302,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private installWritePath(): void {
     const ctx = this.ctx
 
-    // Capture the header on creation; persist a fork's seed once. Record the init
-    // promise so flush/dispose can await it (onCreated is async).
-    ctx.on('session/created', (session) => { void this.initFor(session) })
-
-    // Session emits an owned frozen event. Keep a persistence-owned copy anyway
-    // so the write-behind queue owns exactly the record it will flush rather than
-    // retaining a product-layer record by identity. Serializability is guaranteed
-    // at the source, so structuredClone is safe.
-    ctx.on('session/event', (session, event) => {
-      let buffer = this.buffers.get(session)
-      if (!buffer) this.buffers.set(session, buffer = [])
-      buffer.push(structuredClone(event))
-    })
-
-    // Drain to the backend at the durability checkpoint.
-    ctx.on('session/flush', session => this.flush(session))
-
-    // Dispose must reach quiescence: await every init + final drain BEFORE
-    // returning, then close the backend's own resources (AFTER the drain), so no
-    // write lands after teardown and a close failure never MASKS a drain error.
+    // Register the disposer BEFORE the listeners. Cordis tears effects down in
+    // reverse registration order, so event admission closes before this final
+    // drain reaches quiescence and closes the backend.
     ctx.effect(() => async () => {
+      await this.awaitRetirements()
+
       let disposeError: unknown
       try {
         const errors = [
@@ -341,9 +335,61 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       }
     }, `${this.backend.name} write path`)
 
+    // Capture the header on creation; persist a fork's seed once. Record the init
+    // promise so flush/dispose can await it (onCreated is async).
+    ctx.on('session/created', (session) => { void this.initFor(session) })
+
+    // Session emits an owned frozen event. Keep a persistence-owned copy anyway
+    // so the write-behind queue owns exactly the record it will flush rather than
+    // retaining a product-layer record by identity. Serializability is guaranteed
+    // at the source, so structuredClone is safe.
+    ctx.on('session/event', (session, event) => {
+      let buffer = this.buffers.get(session)
+      if (!buffer) this.buffers.set(session, buffer = [])
+      buffer.push(structuredClone(event))
+    })
+
+    // Drain to the backend at the durability checkpoint.
+    ctx.on('session/flush', session => this.flush(session))
+
+    // Session disposal is observe-only, so the coordinator observes the
+    // detached task itself and backend teardown awaits quiescence.
+    ctx.on('session/disposed', (session) => { this.retire(session) })
+
     // HMR: a hot reload does not replay session/created, so seed existing live
     // sessions (mirrors dsh-invariants).
     for (const session of ctx.sessions.list()) void this.initFor(session)
+  }
+
+  /** Start, observe, and track one disposed session's final drain. */
+  private retire(session: Session): void {
+    const task = this.retireCore(session)
+    this.retirements.add(task)
+    const settled = (): void => { this.retirements.delete(task) }
+    void task.then(settled, (error: unknown) => {
+      settled()
+      this.ctx.logger.warn(`${this.backend.name}: session "${session.id}" retirement failed: ${String(error)}`)
+    })
+  }
+
+  /** Drain and release state owned by one exact disposed Session lifecycle. */
+  private async retireCore(session: Session): Promise<void> {
+    await this.inits.get(session)
+
+    const id = session.header.id
+    await this.serialize(id, async () => {
+      await this.drain(session)
+      this.buffers.delete(session)
+      this.inits.delete(session)
+      if (this.states.get(id)?.owner === session) this.states.delete(id)
+    })
+  }
+
+  /** Await every retirement admitted before listener teardown. */
+  private async awaitRetirements(): Promise<void> {
+    while (this.retirements.size > 0) {
+      await Promise.allSettled([...this.retirements])
+    }
   }
 
   /** Start (once) the async init for a session and remember its promise. */
