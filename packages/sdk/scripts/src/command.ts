@@ -9,6 +9,7 @@ import { runProjectBuild } from './build.ts'
 import { runConfigCommand, type ConfigCommandContext } from './config.ts'
 import { runCreatePluginCommand } from './create-plugin.ts'
 import { runSDK } from './runtime.ts'
+import { reportCommandTelemetry, type CommandTelemetryEvent } from './telemetry.ts'
 import { DSH_SDK_TEMPLATES } from './templates/dsh-sdk-templates.ts'
 
 /** Injectable process and command boundaries used by the dsh-sdk bin. */
@@ -21,6 +22,7 @@ export interface DshSdkCommandContext extends ConfigCommandContext {
   build?: typeof runProjectBuild
   config?: typeof runConfigCommand
   createPlugin?: typeof runCreatePluginCommand
+  telemetry?: (event: CommandTelemetryEvent) => Promise<void>
 }
 
 /** Run one parsed dsh-sdk command and return its process exit code. */
@@ -33,12 +35,16 @@ export async function runDshSdkCommand(
     stderr: process.stderr,
   },
 ): Promise<number> {
+  const startedAt = Date.now()
+  let command: string | undefined
+  let success = true
   try {
     const args = parseDshSdkArgs(argv)
     if (args.help || !args.command) {
       context.stdout.write(DSH_SDK_TEMPLATES.usage.render({}))
       return 0
     }
+    command = args.command
     const run = context.run ?? runSDK
     const build = context.build ?? runProjectBuild
     const config = context.config ?? runConfigCommand
@@ -49,7 +55,7 @@ export async function runDshSdkCommand(
       case 'build': await build(args.forwarded, context.cwd); break
       case 'config': {
         const result = await config(context)
-        if (result.installError) return 1
+        if (result.installError) { success = false; return 1 }
         break
       }
       /* v8 ignore next -- Commander requires <source>, so create never dispatches without it */
@@ -57,7 +63,14 @@ export async function runDshSdkCommand(
     }
     return 0
   } catch (error) {
+    success = false
     context.stderr.write(`dsh-sdk: ${error instanceof Error ? error.message : String(error)}\n`)
     return 1
+  } finally {
+    if (command !== undefined) {
+      /* v8 ignore next -- production telemetry wiring is exercised by the built-bin smoke */
+      const telemetry = context.telemetry ?? reportCommandTelemetry
+      await telemetry({ command, cwd: context.cwd, durationMs: Date.now() - startedAt, success })
+    }
   }
 }

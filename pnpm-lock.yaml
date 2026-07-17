@@ -1228,6 +1228,9 @@ importers:
       '@deepseek-ai/dsh-helper':
         specifier: workspace:^
         version: link:../helper
+      '@deepseek-ai/dsh-telemetry':
+        specifier: workspace:^
+        version: link:../telemetry
       commander:
         specifier: ^15.0.0
         version: 15.0.0

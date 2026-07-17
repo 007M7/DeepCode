@@ -32,6 +32,7 @@ import { runDshSdkCommand, type DshSdkCommandContext } from '../src/command.ts'
 import { runConfigCommand } from '../src/config.ts'
 import { ConfigWorkflow, type ConfigPlan } from '../src/config/config-workflow.ts'
 import { runCreatePluginCommand } from '../src/create-plugin.ts'
+import { reportCommandTelemetry, type CommandTelemetryEvent } from '../src/telemetry.ts'
 import { initialize, resolve as resolveLocalPlugin } from '../src/local-plugin-loader-hooks.ts'
 
 const temporary: string[] = []
@@ -617,5 +618,51 @@ describe('dsh-sdk create', () => {
     const context = commandContext(project.root)
     context.createPlugin = async () => undefined
     await expect(runDshSdkCommand(['create', 'pkg@1.0.0'], context)).resolves.toBe(0)
+  })
+})
+
+describe('command telemetry', () => {
+  it('reports when consent allows and skips when denied or faulting', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-telemetry-'))
+    temporary.push(dir)
+    const sent: unknown[] = []
+    const reporter = { report: () => { sent.push(1) }, flush: async () => {} }
+    await reportCommandTelemetry(
+      { command: 'build', cwd: dir, durationMs: 5, success: true },
+      { resolve: async () => ({ allowed: true, reason: 'absent' }), reporter },
+    )
+    expect(sent).toHaveLength(1)
+    await reportCommandTelemetry(
+      { command: 'build', cwd: dir, durationMs: 5, success: true },
+      { resolve: async () => ({ allowed: false, reason: 'disabled' }), reporter },
+    )
+    expect(sent).toHaveLength(1)
+    await expect(reportCommandTelemetry(
+      { command: 'build', cwd: dir, durationMs: 5, success: true },
+      { resolve: async () => { throw new Error('boom') }, reporter },
+    )).resolves.toBeUndefined()
+    expect(sent).toHaveLength(1)
+  })
+
+  it('emits a telemetry event carrying each command outcome', async () => {
+    const project = await committedProject()
+    const events: CommandTelemetryEvent[] = []
+    const context = commandContext(project.root)
+    context.telemetry = async (event) => { events.push(event) }
+    context.build = async () => {}
+    await expect(runDshSdkCommand(['build'], context)).resolves.toBe(0)
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ command: 'build', cwd: project.root, success: true })
+
+    await runDshSdkCommand([], context)
+    expect(events).toHaveLength(1)
+
+    context.build = async () => { throw new Error('boom') }
+    await expect(runDshSdkCommand(['build'], context)).resolves.toBe(1)
+    expect(events[1]).toMatchObject({ command: 'build', success: false })
+
+    context.config = async () => ({ installError: new Error('offline') })
+    await expect(runDshSdkCommand(['config'], context)).resolves.toBe(1)
+    expect(events.at(-1)).toMatchObject({ command: 'config', success: false })
   })
 })
