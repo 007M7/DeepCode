@@ -132,8 +132,9 @@ describe('dsh-stdio-demo app', () => {
     await ctx.fiber.dispose()
   })
 
-  it('forwards skill config into agent-spine-demo', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6), workspaceContext: false })
+  it('forwards skill config and dshHome into agent-spine-demo', async () => {
+    const skills = await isolatedSkillsConfig(6)
+    const ctx = await mount({ model: 'mock', persona: 'hi', dshHome: skills.local!.dshHome!, skills, workspaceContext: false })
     ctx.skills.register({ name: 'stdio-skill', description: 'Stdio skill', source: 'runtime', content: 'body' })
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `stdio-skill`: Std...')
     await ctx.fiber.dispose()

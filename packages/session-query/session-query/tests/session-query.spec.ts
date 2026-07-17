@@ -34,6 +34,10 @@ class TestPersistence extends SessionPersistence {
     this.afterList = undefined
   }
 
+  locate(_meta: SessionHeader): undefined {
+    return undefined
+  }
+
   create(meta: SessionHeader): Promise<void> {
     TestPersistence.entries.set(meta.id, { meta: structuredClone(meta), events: [] })
     return Promise.resolve()

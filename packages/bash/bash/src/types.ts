@@ -6,6 +6,15 @@
 
 import type { SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 
+/** Namespace prefix reserved for DeepSeek Harness-managed child environment facts. */
+export const DSH_ENV_PREFIX = 'DSH_' as const
+
+/** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
+export type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`
+
+/** Trusted DeepSeek Harness variables for one bash execution. */
+export type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>
+
 /**
  * Sandbox facts for one run, present iff a sandboxing executor handled it.
  * Facts are reported independently of process exit status so callers can
@@ -52,15 +61,20 @@ export interface BashExecRequest {
    */
   stdin?: string | undefined
   /**
-   * Extra environment entries for the command, merged AFTER the
-   * implementation's credential scrub (so an explicit entry here is honored even
-   * when its name matches the scrub pattern — the caller named a value it holds,
-   * not the harness's ambient secret). Set by in-process plugins (the hooks
-   * bridges set `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing
-   * bash tool does not expose it as a parameter (a model that needs an env var
-   * uses shell syntax like `FOO=bar cmd`).
+   * Ordinary environment entries for the command, merged after the credential
+   * scrub. `DSH_*` is reserved for {@link dshEnv} and implementations reject it
+   * here. Set by in-process plugins (the hooks bridges set
+   * `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing bash tool
+   * does not expose it as a parameter.
    */
   env?: Record<string, string> | undefined
+  /**
+   * Harness-owned `DSH_*` variables for this execution. Executors discard
+   * ambient `DSH_*` entries before merging this snapshot, so an unavailable
+   * current fact cannot inherit a stale value from the harness process, and
+   * reject non-`DSH_*` names supplied through this managed channel.
+   */
+  dshEnv?: DshEnvironment | undefined
   /** Explicit per-call sandbox mode override. */
   sandboxMode?: SandboxMode | undefined
 }
@@ -84,10 +98,14 @@ export interface BashExecSpec {
   /** Bytes to write to stdin before closing it; absent means no stdin. */
   stdin?: string | undefined
   /**
-   * Extra environment entries, merged after credential scrubbing so explicit
-   * values win; absent means no extra entries.
+   * Ordinary environment entries carried through from
+   * {@link BashExecRequest.env}. `DSH_*` remains reserved for {@link dshEnv}.
+   * OPTIONAL on the spec for the same reason as `stdin`: absent means no
+   * ordinary extra environment.
    */
   env?: Record<string, string> | undefined
+  /** Managed `DSH_*` snapshot; implementations reject ordinary names. */
+  dshEnv?: DshEnvironment | undefined
   /** Resolved sandbox mode; ignored by executors that do not confine. */
   sandboxMode: SandboxMode | undefined
 }

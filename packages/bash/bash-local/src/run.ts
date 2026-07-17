@@ -11,7 +11,8 @@ import { randomBytes } from 'node:crypto'
 import { closeSync, mkdtempSync, openSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CollectedOutput } from '@deepseek-ai/dsh-bash'
+import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
+import type { CollectedOutput, DshEnvironment } from '@deepseek-ai/dsh-bash'
 
 /**
  * Model-friendly environment overrides: disable colors, pagers, and
@@ -34,18 +35,33 @@ export const ENV_OVERRIDES = {
 export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
 /**
- * Build a child environment by scrubbing credential-shaped ambient variables,
- * applying model-friendly overrides, then merging trusted caller entries last.
- *
- * @param extra - caller-supplied entries merged last; an explicit entry wins even against the scrub and the overrides.
+ * Build a child environment from scrubbed ambient values, terminal overrides,
+ * ordinary caller entries, and a managed `DSH_*` snapshot. Ambient managed
+ * names are removed; ordinary and managed entries reject the other channel's
+ * namespace before `dshEnv` merges last.
+ * @param extra - caller entries; `DSH_*` names are rejected.
+ * @param dshEnv - managed entries; non-`DSH_*` names are rejected.
  * @returns the environment to hand to `spawn` for the child process.
  */
-export function childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
+export function childEnv(
+  extra?: Readonly<Record<string, string>>,
+  dshEnv?: DshEnvironment,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (!SENSITIVE_ENV_PATTERN.test(key)) env[key] = value
+    if (!SENSITIVE_ENV_PATTERN.test(key) && !key.startsWith(DSH_ENV_PREFIX)) env[key] = value
   }
-  return { ...env, ...ENV_OVERRIDES, ...extra }
+  for (const key of Object.keys(extra ?? {})) {
+    if (key.startsWith(DSH_ENV_PREFIX)) {
+      throw new Error(`ordinary bash env cannot set reserved variable "${key}"; use dshEnv`)
+    }
+  }
+  for (const key of Object.keys(dshEnv ?? {})) {
+    if (!key.startsWith(DSH_ENV_PREFIX)) {
+      throw new Error(`managed bash env cannot set ordinary variable "${key}"; use env`)
+    }
+  }
+  return { ...env, ...ENV_OVERRIDES, ...extra, ...dshEnv }
 }
 
 /** What to run and under which limits (resolved — no defaults in here). */
@@ -73,12 +89,12 @@ export interface SpawnSpec {
    */
   stdin?: string | undefined
   /**
-   * Extra environment entries, merged onto the scrubbed env AFTER the
-   * credential scrub and the model-friendly overrides (so an explicit entry
-   * wins). Set by in-process plugins; the model-facing tool does not forward
-   * model input here.
+   * Ordinary environment entries merged after the credential scrub and
+   * terminal overrides. `DSH_*` names are rejected and belong in `dshEnv`.
    */
   env?: Record<string, string> | undefined
+  /** Harness-owned entries; non-`DSH_*` names are rejected before spawn. */
+  dshEnv?: DshEnvironment | undefined
 }
 
 /**
@@ -280,7 +296,7 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
   }
 
   // Keep absent stdin as /dev/null; literal tuples preserve non-null output types.
-  const env = childEnv(spec.env)
+  const env = childEnv(spec.env, spec.dshEnv)
   const child: ChildProcessByStdio<Writable | null, Readable, Readable> = spec.stdin !== undefined
     ? spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
     : spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })

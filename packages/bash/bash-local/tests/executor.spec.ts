@@ -127,21 +127,28 @@ describe('LocalBashExecutor.run', () => {
     await expect(bash.run(bash.resolve({ command: 'true', workdir: '/nonexistent-dsh' }))).rejects.toThrow(/ENOENT/)
   })
 
-  it('resolve() carries stdin/env onto the spec, and run() threads them to the command', async () => {
+  it('resolve() carries stdin/env/dshEnv onto the spec, and run() threads them to the command', async () => {
     const { bash } = await setup()
-    const spec = bash.resolve({ command: 'cat; echo "[$DSH_SEAM_VAR]"', stdin: 'piped\n', env: { DSH_SEAM_VAR: 'env-ok' } })
-    // resolve() keeps the stdin/env fields verbatim (optional, no default).
+    const spec = bash.resolve({
+      command: 'cat; echo "[$SEAM_VAR][$DSH_SEAM_VAR]"',
+      stdin: 'piped\n',
+      env: { SEAM_VAR: 'env-ok' },
+      dshEnv: { DSH_SEAM_VAR: 'dsh-ok' },
+    })
+    // resolve() keeps the optional input/environment fields verbatim.
     expect(spec.stdin).toBe('piped\n')
-    expect(spec.env).toEqual({ DSH_SEAM_VAR: 'env-ok' })
+    expect(spec.env).toEqual({ SEAM_VAR: 'env-ok' })
+    expect(spec.dshEnv).toEqual({ DSH_SEAM_VAR: 'dsh-ok' })
     const result = await bash.run(spec)
-    expect(result.stdout.text).toBe('piped\n[env-ok]\n')
+    expect(result.stdout.text).toBe('piped\n[env-ok][dsh-ok]\n')
   })
 
-  it('resolve() omits stdin/env when the request supplies neither', async () => {
+  it('resolve() omits stdin/env/dshEnv when the request supplies none', async () => {
     const { bash } = await setup()
     const spec = bash.resolve({ command: 'true' })
     expect('stdin' in spec).toBe(false)
     expect('env' in spec).toBe(false)
+    expect('dshEnv' in spec).toBe(false)
   })
 })
 
@@ -160,11 +167,12 @@ describe('LocalBashExecutor.start (background process handles)', () => {
   it('threads stdin and extra env into a background process', async () => {
     const { bash } = await setup()
     const proc = bash.start(bash.resolve({
-      command: 'cat; echo "[$DSH_BG_VAR]"',
+      command: 'cat; echo "[$BG_VAR][$DSH_BG_VAR]"',
       stdin: 'bg-stdin\n',
-      env: { DSH_BG_VAR: 'bg-env' },
+      env: { BG_VAR: 'bg-env' },
+      dshEnv: { DSH_BG_VAR: 'bg-dsh-env' },
     }))
-    const output = await readUntil(proc, '[bg-env]')
+    const output = await readUntil(proc, '[bg-env][bg-dsh-env]')
     expect(output).toContain('bg-stdin')
     await proc.done
     expect(proc.exitCode).toBe(0)

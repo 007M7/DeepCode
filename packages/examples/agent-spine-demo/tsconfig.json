@@ -51,6 +51,9 @@
       "path": "../../support/invariants"
     },
     {
+      "path": "../../util/home"
+    },
+    {
       "path": "../../bash/tool-bash"
     },
     {

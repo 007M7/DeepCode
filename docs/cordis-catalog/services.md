@@ -71,7 +71,21 @@ abstract start(spec: BashExecSpec): BashProcess
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:46`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:49`](../../packages/bash/bash/src/index.ts)
+
+## `ctx.bashEnv` — `BashEnvRegistry`
+
+Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables. The namespace is rebuilt for every model bash call: ambient `DSH_*` values are discarded by the executor, then the registry's current snapshot is injected. Built-in shell facts remain owned by the registry itself while plugins can register additional, enumerable facts with effect-scoped disposal.
+
+```ts cordis-catalog
+register(contributor: BashEnvContributor): () => void
+collect(execution: ToolExecution): DshEnvironment
+list(): BashEnvVariableInfo[]
+```
+
+Types: [ToolExecution](../core-data-structures/tools.md)
+
+Source: [`packages/bash/tool-bash/src/index.ts:102`](../../packages/bash/tool-bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
@@ -163,6 +177,7 @@ Source: [`packages/sandbox/sandbox/src/index.ts:111`](../../packages/sandbox/san
 Durable append-only session storage. Implementations preserve contiguous, losslessly JSON-serializable events; append resolves only after durability, and load balances a complete interrupted tail without rewriting committed events.
 
 ```ts cordis-catalog
+abstract locate(meta: SessionHeader): SessionLocation | undefined
 abstract create(meta: SessionHeader): Promise<void>
 abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
@@ -171,7 +186,7 @@ abstract list(): Promise<SessionHeader[]>
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:30`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:42`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService`
 

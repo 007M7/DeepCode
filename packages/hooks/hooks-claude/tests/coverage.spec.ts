@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { type SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
@@ -27,11 +28,12 @@ function hooks(d: string, h: unknown): string {
   writeFileSync(join(d, 'hooks.json'), JSON.stringify({ hooks: h })); return join(d, 'hooks.json')
 }
 
-type HarnessOpts = { pluginRoot?: string; projectDir?: string; stderrSummaryMaxChars?: number }
+type HarnessOpts = { pluginRoot?: string; projectDir?: string; stderrSummaryMaxChars?: number; sessionRoot?: string }
 async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOpts = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
+  if (opts.sessionRoot !== undefined) await ctx.plugin(SessionPersistenceJsonl, { root: opts.sessionRoot })
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
@@ -56,6 +58,28 @@ async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10):
 }
 
 describe('hooks-claude coverage — config option arms + substitution + skip warning', () => {
+  it('uses the persistence locator for transcript_path and an empty string without one', async () => {
+    async function capture(sessionRoot?: string): Promise<{ payload: { transcript_path: string }; expected: string | undefined }> {
+      const d = dir()
+      const cap = join(d, 'payload')
+      const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'capture.sh', `#!/usr/bin/env bash\ncat > "${cap}"\n`) }] }] })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+      const ctx = await harness(path, adapter, { ...sessionRoot !== undefined ? { sessionRoot } : {} })
+      ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+      const agent = ctx.agentLoop.create(AgentId('transcript'), { model: 'mock' })
+      agent.send([{ type: 'text', text: 'go' }])
+      await waitForIdle(ctx, agent)
+      return {
+        payload: JSON.parse(readFileSync(cap, 'utf8')) as { transcript_path: string },
+        expected: ctx.get('sessionPersistence')?.locate(agent.session.header)?.path,
+      }
+    }
+
+    const located = await capture(dir())
+    expect(located.payload.transcript_path).toBe(located.expected)
+    expect((await capture()).payload.transcript_path).toBe('')
+  }, 15_000) // Two real agent/hook subprocess loops need loaded pre-push runner headroom.
+
   it('honors pluginRoot + projectDir substitution and warns on a skipped non-command hook', async () => {
     const d = dir()
     // ${CLAUDE_PLUGIN_ROOT} resolves to d; the script writes its own cwd-independent marker.
