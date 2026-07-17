@@ -211,6 +211,8 @@ export interface SurfaceNode {
 }
 ```
 
+`SurfaceNode` is positional state, not durable identity. A replacement can remove a caller-retained node or make a copied `next` stale; consumers that cross a surface mutation validate membership and answer positional queries from `Session.surface.nodes`. `SurfaceManager.replaceGeneration` increments for each replacement so incremental consumers can distinguish pure tail growth from a rewrite.
+
 ### `SurfaceFoldReplacement` and `SurfaceFoldResult` — a complete surface replay
 
 `foldSurface(events)` returns detached current nodes together with the actual node seqs shadowed by each declared replacement range. `SurfaceManager` uses the same transition functions for its incremental cache.
