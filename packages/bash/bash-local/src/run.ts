@@ -8,7 +8,7 @@
 import { type ChildProcessByStdio, spawn } from 'node:child_process'
 import type { Readable, Writable } from 'node:stream'
 import { randomBytes } from 'node:crypto'
-import { closeSync, mkdtempSync, openSync, writeSync } from 'node:fs'
+import { closeSync, mkdtempSync, openSync, unlinkSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { CollectedOutput } from '@deepseek-ai/dsh-bash'
@@ -54,7 +54,9 @@ export interface SpawnSpec {
   cwd: string
   /** Per-stream in-memory cap; overflow spills to disk (tail kept in memory). */
   maxOutputBytes: number
-  /** Grace period between the SIGTERM and the SIGKILL escalation on a kill. */
+  /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
+  maxSpillBytes: number
+  /** Grace period for kill escalation and for inherited pipes after shell exit. */
   graceMs: number
   /**
    * Abort signal — kills the process group when it fires. The executor owns
@@ -101,6 +103,9 @@ export interface RunInternals {
 /** Default SIGTERM→SIGKILL grace period (the `graceMs` config; matches OpenCode's 3s). */
 export const DEFAULT_GRACE_MS = 3_000
 
+/** Default per-stream spill cap (the `maxSpillBytes` config). */
+export const DEFAULT_MAX_SPILL_BYTES = 64 * 1024 * 1024
+
 let spillCounter = 0
 let defaultSpillDir: string | undefined
 
@@ -115,9 +120,9 @@ function privateSpillDir(): string {
 }
 
 /**
- * Collects one stream with a bounded in-memory tail. The FULL stream is
- * always recoverable: on first overflow a spill file is created and every
- * chunk (including those already collected) is appended there.
+ * Collects one stream with a bounded in-memory tail. On first overflow a
+ * spill file is created and every chunk (including those already collected)
+ * is appended there while the full stream remains within `maxSpillBytes`.
  *
  * Tail-keep rationale (pi/OpenCode): errors and final results cluster at the
  * end of command output; the spill file covers the head.
@@ -128,11 +133,13 @@ export class OutputCollector {
   private dropped = false
   private spillFd: number | undefined
   private spillFile: string | undefined
+  private spillDisabled = false
   /** Total bytes ever pushed (not just retained). */
   private total = 0
 
   constructor(
     private readonly maxBytes: number,
+    private readonly maxSpillBytes: number,
     private readonly label: string,
     private readonly spillDir: string,
   ) {}
@@ -148,7 +155,7 @@ export class OutputCollector {
   push(chunk: Buffer): void {
     this.total += chunk.length
     const overflows = this.bytes + chunk.length > this.maxBytes
-    if (overflows || this.spillFd !== undefined) this.spillAll(chunk)
+    if (!this.spillDisabled && (overflows || this.spillFd !== undefined)) this.spillAll(chunk)
     this.chunks.push(chunk)
     this.bytes += chunk.length
     while (this.bytes > this.maxBytes && this.chunks.length > 1) {
@@ -170,6 +177,10 @@ export class OutputCollector {
 
   /** Open the spill file lazily and append `chunk` (and any prior chunks once). */
   private spillAll(chunk: Buffer): void {
+    if (this.total > this.maxSpillBytes) {
+      this.discardSpill()
+      return
+    }
     if (this.spillFd === undefined) {
       // Random suffix + O_EXCL + no-follow-equivalent ('wx' fails on any
       // existing path, symlink or not) + owner-only mode: defeats spill-path
@@ -182,6 +193,30 @@ export class OutputCollector {
       for (const prior of this.chunks) writeSync(this.spillFd, prior)
     }
     writeSync(this.spillFd, chunk)
+  }
+
+  /** Stop spilling and remove the file once it can no longer hold the complete stream. */
+  private discardSpill(): void {
+    const fd = this.spillFd
+    const file = this.spillFile
+    this.spillFd = undefined
+    this.spillFile = undefined
+    this.spillDisabled = true
+    if (fd !== undefined) {
+      try {
+        closeSync(fd)
+      } catch {
+        // Retain the descriptor so finalize can retry the failed close.
+        this.spillFd = fd
+      }
+    }
+    if (file !== undefined) {
+      try {
+        unlinkSync(file)
+      } catch {
+        // A failed unlink leaves at most maxSpillBytes behind, never an unbounded file.
+      }
+    }
   }
 
   /**
@@ -283,8 +318,8 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     ? spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
     : spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
 
-  const stdout = new OutputCollector(spec.maxOutputBytes, 'stdout', spillDir)
-  const stderr = new OutputCollector(spec.maxOutputBytes, 'stderr', spillDir)
+  const stdout = new OutputCollector(spec.maxOutputBytes, spec.maxSpillBytes, 'stdout', spillDir)
+  const stderr = new OutputCollector(spec.maxOutputBytes, spec.maxSpillBytes, 'stderr', spillDir)
   child.stdout.on('data', (chunk: Buffer) => { stdout.push(chunk) })
   child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk) })
 
@@ -310,12 +345,13 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
   }
 
   const done = new Promise<SpawnOutcome>((resolve, reject) => {
-    child.on('error', (error) => {
-      // No meaningful close outcome follows a spawn failure.
-      cleanup()
-      reject(error)
-    })
-    child.on('close', (exitCode, signal) => {
+    let settled = false
+    let pipeDrainTimer: NodeJS.Timeout | undefined
+    const settle = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
+      if (settled) return
+      settled = true
+      child.stdout.destroy()
+      child.stderr.destroy()
       cleanup()
       resolve({
         exitCode,
@@ -323,9 +359,20 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
         stdout: stdout.finalize(),
         stderr: stderr.finalize(),
       })
+    }
+    child.on('error', (error) => {
+      // No meaningful close outcome follows a spawn failure.
+      settled = true
+      cleanup()
+      reject(error)
     })
+    child.on('exit', (exitCode, signal) => {
+      pipeDrainTimer = setTimeout(() => { settle(exitCode, signal) }, spec.graceMs)
+    })
+    child.on('close', settle)
     function cleanup(): void {
       if (graceTimer !== undefined) clearTimeout(graceTimer)
+      if (pipeDrainTimer !== undefined) clearTimeout(pipeDrainTimer)
       spec.signal?.removeEventListener('abort', onAbort)
     }
   })
