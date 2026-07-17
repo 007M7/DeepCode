@@ -192,7 +192,7 @@ Required for `SurfaceEventType` events — every message-producing event must de
 
 ### `SurfaceFoldReplacement` and `SurfaceFoldResult` — a complete surface replay
 
-`foldSurface(events)` returns detached current event sequences together with the actual sequences shadowed by each declared replacement range. `SurfaceManager` uses the same transitions for its incremental cache without retaining replacement history.
+`foldSurface(events)` returns detached current event sequences together with the actual sequences shadowed by each declared replacement range. `SurfaceManager` uses the same transitions for its incremental cache without retaining replacement history. Its `replaceGeneration` increments for each replacement so incremental consumers can distinguish pure tail growth from a rewrite.
 
 ```ts type-equiv
 export interface SurfaceFoldReplacement {

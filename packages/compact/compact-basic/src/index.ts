@@ -7,12 +7,11 @@
  */
 
 import { Context } from 'cordis'
-import { CompactService, renderTranscript } from '@deepseek-ai/dsh-compact'
+import { CompactService, renderTranscript, toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { isToolPairingBalanced } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { BasicCompactConfig, ResolvedConfig } from './types.ts'
 import { resolveConfig } from './types.ts'
@@ -348,14 +347,14 @@ export class BasicCompactService extends CompactService {
     }
 
     // Both range edges must preserve assistant tool-call/result pairing.
-    const events = session.events
-    if (!isToolPairingBalanced(nodes, events, start)) {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const startSeq = nodes[startIdx]!
+    if (!toolPairingBalancedBefore(session, startSeq)) {
       throw new Error(`compactRegion: start seq ${start} is not a balanced boundary (would split a step's tool-call/result pair)`)
     }
-    // The cut after `end` is named by `end`'s surface successor, or `null` when
-    // `end` is the tail.
-    const afterEnd = nodes[endIdx + 1] ?? null
-    if (!isToolPairingBalanced(nodes, events, afterEnd)) {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const endSeq = nodes[endIdx]!
+    if (!toolPairingBalancedAfter(session, endSeq)) {
       throw new Error(`compactRegion: end seq ${end} is not a balanced boundary (would split a step, or the step is still open)`)
     }
 
@@ -508,7 +507,7 @@ export class BasicCompactService extends CompactService {
     // safe compactable prefix exists.
     while (keepFromIdx > 0) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      if (isToolPairingBalanced(nodes, events, nodes[keepFromIdx]!)) break
+      if (toolPairingBalancedBefore(session, nodes[keepFromIdx]!)) break
       keepFromIdx -= 1
     }
     if (keepFromIdx === 0) return null

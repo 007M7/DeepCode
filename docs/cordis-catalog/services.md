@@ -110,7 +110,7 @@ abstract compactRegion( session: Session, start: number, end: number, agent: Com
 
 Types: [Message](../core-data-structures/core.md)
 
-Source: [`packages/compact/compact/src/index.ts:36`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:37`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
@@ -219,7 +219,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:557`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:556`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
