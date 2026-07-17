@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { existsSync } from 'node:fs'
-import { chmod, mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -379,19 +379,12 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     await fiber.dispose()
   })
 
-  it('surfaces database pre-creation errors other than an existing file', async () => {
-    if (process.platform === 'win32') return
+  it('surfaces database pre-creation errors independently of process privileges', async () => {
     const path = await freshDbPath()
-    const blocked = join(dirname(path), 'blocked')
-    await mkdir(blocked, { mode: 0o500 })
-    const b = await backend(join(blocked, 'sessions.db'))
+    const b = await backend(`${path}\0`)
 
-    try {
-      await expect(b.ctx.sessionPersistence.list()).rejects.toMatchObject({ code: 'EACCES' })
-      await b.dispose()
-    } finally {
-      await chmod(blocked, 0o700)
-    }
+    await expect(b.ctx.sessionPersistence.list()).rejects.toMatchObject({ code: 'ERR_INVALID_ARG_VALUE' })
+    await b.dispose()
   })
 
   it('append rolls back and rethrows when an event INSERT fails inside the transaction', async () => {
