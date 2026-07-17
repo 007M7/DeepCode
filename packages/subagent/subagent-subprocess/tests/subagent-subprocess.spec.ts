@@ -258,8 +258,9 @@ describe('createIsolatedConfigDir', () => {
       expect(dir.path.startsWith(join(tmpdir(), 'dsh-subagent-subprocess-test-'))).toBe(true)
       const st = await stat(dir.path)
       expect(st.isDirectory()).toBe(true)
-      // Private (0700) per the defensive-patterns temp-dir rule.
-      expect(st.mode & 0o777).toBe(0o700)
+      // Windows reports synthetic POSIX mode bits; privacy comes from the
+      // inherited directory ACL rather than chmod-compatible mode bits.
+      if (process.platform !== 'win32') expect(st.mode & 0o777).toBe(0o700)
     } finally {
       await dir.remove()
     }

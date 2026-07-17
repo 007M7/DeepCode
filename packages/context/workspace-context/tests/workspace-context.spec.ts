@@ -2403,7 +2403,7 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('skips unreadable nested instruction files without attaching empty context', async () => {
+  it.skipIf(process.platform === 'win32')('skips unreadable nested instruction files without attaching empty context', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {

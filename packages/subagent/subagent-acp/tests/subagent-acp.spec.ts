@@ -263,7 +263,7 @@ describe('dsh-subagent-acp', () => {
     }
   })
 
-  it('escalates to SIGTERM for a child that ignores EOF but is not SIGTERM-trapping', async () => {
+  it.skipIf(process.platform === 'win32')('escalates to SIGTERM for a child that ignores EOF but is not SIGTERM-trapping', async () => {
     // A child that keeps its loop alive past stdin EOF (so the graceful window
     // times out) but exits cooperatively on SIGTERM must die on the SIGTERM tier
     // — dispose returns there, never reaching the SIGKILL tier. The child touches

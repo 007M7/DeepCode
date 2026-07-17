@@ -84,7 +84,7 @@ describe('saveTextFile', () => {
     expect(saved.path.includes('/..')).toBe(false)
   })
 
-  it('creates the session dir with owner-only permissions', async () => {
+  it.skipIf(process.platform === 'win32')('creates the session dir with owner-only permissions', async () => {
     const saved = await saveTextFile({ root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' })
     // 0o700 dir, 0o600 file (masked by umask, but the owner bits must hold).
     expect(statSync(dirname(saved.path)).mode & 0o700).toBe(0o700)
