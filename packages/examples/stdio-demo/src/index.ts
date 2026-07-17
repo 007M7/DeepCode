@@ -16,6 +16,7 @@ import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
+import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
@@ -58,6 +59,8 @@ export interface Config {
    * (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`).
    */
   resumeSessionId?: string
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
 }
 
 export const Config: z<Config> = z.object({
@@ -76,6 +79,7 @@ export const Config: z<Config> = z.object({
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: agentCore.ToolTasksConfigSchema,
   resumeSessionId: z.string(),
+  workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
 
 /**
@@ -88,18 +92,13 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(ConsoleExporter)
   ctx.plugin(agentCore, {
-    ...config.persona !== undefined ? { persona: config.persona } : {},
-    ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
-    ...config.tools !== undefined ? { tools: config.tools } : {},
+    ...agentCore.pickSpineConfig(config),
     agents: [{
       id: AgentId('main'),
       model: config.model,
       cwd: process.cwd(),
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
     }],
-    ...config.skills !== undefined ? { skills: config.skills } : {},
-    ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
-    ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
   })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(UserInteractionService)

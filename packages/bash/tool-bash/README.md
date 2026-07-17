@@ -34,7 +34,7 @@ The tool owns its `presentCall`/`presentResult` render intent. A foreground call
 
 ## The tool builds its request from named args only
 
-The `BashExecRequest` seam carries optional `stdin` and `env`, used by trusted in-process plugins. This tool does **not** expose or forward them: it builds requests from named command/workdir/timeout/signal/sandbox fields only. This is not a trust boundary; the local executor's ambient credential scrub is the security control.
+The `BashExecRequest` seam carries optional `stdoutMaxBytes`, `stdin`, and `env`, used by trusted in-process plugins. This tool does **not** expose or forward them: it builds requests from named command/workdir/timeout/signal/sandbox fields only. This is not a trust boundary; the local executor's ambient credential scrub is the security control.
 
 ## Permissions and escalation
 

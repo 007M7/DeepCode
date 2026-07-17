@@ -56,6 +56,8 @@ Durable values need one accepted representation, not a check followed by a secon
 
 `request/header` and `request/header-delta` make the non-history request envelope reconstructable from the log. `foldRequestHeader()` reconstructs the active header, `diffHeader()` encodes changes, and `applyHeaderDelta()` replays them; unsupported deltas fall back to a full snapshot. `messagePrefix` remains separate from derived history. See the [reconstructable-requests RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
+`context/message` defaults to the canonical tagged context projection. A producer may set `envelope: 'raw'` when its `content` already contains the complete model-facing frame, and may attach JSON `meta` for replayable plugin state; metadata remains durable but is excluded from `deriveMessages()`.
+
 ### Session event vocabulary (`types.ts`)
 
 The append-only log's event types, enumerated member by member — payloads, surface badges, provenance — in the generated [persistence log event catalog](../../../docs/persistence-catalog.md). Token usage rides on `assistant/message.usage`; an operational error's step is on `turn/end.reason` for `kind: 'error'`.
