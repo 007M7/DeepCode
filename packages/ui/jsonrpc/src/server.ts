@@ -59,6 +59,12 @@ interface SubagentRecord {
   parentSessionId: string | undefined
 }
 
+/** Deployment-specific status mapping for SDK turn and subagent outcomes. */
+export interface HarnessSdkServerOptions {
+  /** Report max-token termination as an accepted result instead of an infrastructure error. */
+  maxTokensAsSuccess?: boolean
+}
+
 /**
  * SDK server over one booted harness context and transport peer. Construction
  * subscribes to session, agent, and subagent lifecycle events until shutdown;
@@ -78,6 +84,7 @@ export class HarnessSdkServer {
   constructor(
     private readonly ctx: Context,
     private readonly transport: JsonRpcTransportPeer,
+    private readonly options: HarnessSdkServerOptions = {},
   ) {
     this.disposers.push(ctx.on('session/event', (session, event) => {
       if (event.type === 'turn/end') {
@@ -116,7 +123,7 @@ export class HarnessSdkServer {
         agentId: String(info.id),
         ...(parentSessionId === undefined ? {} : { parentSessionId }),
         childSessionId,
-        status: info.stopReason === 'completed' ? 'ok' : 'error',
+        status: this.successStatus(info.stopReason),
         stopReason: info.stopReason,
         ...(info.lastAssistantMessage === undefined ? {} : { lastAssistantMessage: info.lastAssistantMessage }),
       })
@@ -253,7 +260,12 @@ export class HarnessSdkServer {
 
   private finishedStatus(reason: TurnEndReason | undefined): 'ok' | 'error' {
     if (!reason) return 'error'
-    return reason.kind === 'completed' ? 'ok' : 'error'
+    return this.successStatus(reason.kind)
+  }
+
+  private successStatus(reason: string): 'ok' | 'error' {
+    if (reason === 'completed') return 'ok'
+    return reason === 'max-tokens' && this.options.maxTokensAsSuccess === true ? 'ok' : 'error'
   }
 
   private hasAdapterFor(model: string): boolean {

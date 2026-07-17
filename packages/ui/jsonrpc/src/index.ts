@@ -22,8 +22,10 @@ export const name = 'jsonrpc'
 // Only the agent factory is required; initialize reads the optional LLM seam with ctx.get().
 export const inject = ['agents']
 
-/** Runtime-only test seams; no field is configurable from `cordis.yml`. */
+/** JSON-RPC deployment config plus runtime-only test seams. */
 export interface JsonRpcConfig {
+  /** Report max-token turn/subagent termination as a successful SDK result. */
+  maxTokensAsSuccess?: boolean
   /** Transport input override; production uses `process.stdin`. */
   input?: Readable
   /** Transport output override; production uses `process.stdout`. */
@@ -32,7 +34,9 @@ export interface JsonRpcConfig {
   exit?: (code: number) => void
 }
 
-export const Config: Schema<JsonRpcConfig> = Schema.object({})
+export const Config: Schema<JsonRpcConfig> = Schema.object({
+  maxTokensAsSuccess: Schema.boolean().default(false),
+})
 
 /**
  * Serve SDK requests over the configured streams. Effect disposal shuts down
@@ -51,7 +55,9 @@ export function apply(ctx: Context, config: JsonRpcConfig): void {
   const exit = config.exit ?? ((code: number): void => { process.exit(code) })
 
   const transport = new JsonRpcLineTransport(input, output)
-  const server = new HarnessSdkServer(ctx, transport)
+  const server = new HarnessSdkServer(ctx, transport, {
+    maxTokensAsSuccess: config.maxTokensAsSuccess ?? false,
+  })
 
   // Share one exit task and attempt flush and disposal independently before exiting.
   let exitTask: Promise<void> | undefined

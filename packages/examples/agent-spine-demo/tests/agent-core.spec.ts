@@ -301,6 +301,21 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('can omit skills and model-facing task controls for a foreground-only deployment', async () => {
+    const ctx = await mount({
+      workspaceContext: false,
+      skills: { enabled: false },
+      toolBash: { enableRunInBackground: false },
+      toolTasks: false,
+    }, true)
+
+    expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['bash'])
+    expect(ctx.get('skills')).toBeUndefined()
+    expect(ctx.get('tasks')).toBeDefined()
+
+    await ctx.fiber.dispose()
+  })
+
   it('picks shared spine config without leaking front-door fields', () => {
     const appConfig = {
       model: 'front-door-only',
@@ -308,9 +323,9 @@ describe('dsh-agent-spine-demo bundle', () => {
       toolOrder: ['zulu'],
       tools: { mode: 'native' as const },
       workspaceContext: false as const,
-      skills: {},
+      skills: { enabled: false },
       toolBash: { enableRunInBackground: false },
-      toolTasks: { waitTimeoutMs: 7, maxWaitTimeoutMs: 11 },
+      toolTasks: false as const,
     }
 
     expect(agentCore.pickSpineConfig(appConfig)).toEqual({
@@ -318,7 +333,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       toolOrder: appConfig.toolOrder,
       tools: appConfig.tools,
       workspaceContext: false,
-      skills: {},
+      skills: appConfig.skills,
       toolBash: appConfig.toolBash,
       toolTasks: appConfig.toolTasks,
     })

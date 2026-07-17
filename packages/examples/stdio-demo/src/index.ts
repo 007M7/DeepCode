@@ -51,7 +51,7 @@ export interface Config {
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
   toolBash?: NonNullable<agentCore.Config['toolBash']>
-  /** Generic background-task control-tool config forwarded through agent-core. */
+  /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /**
    * If set, the `main` agent RESUMES this persisted session id instead of
@@ -77,7 +77,7 @@ export const Config: z<Config> = z.object({
   welcome: z.string().default('ready.'),
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
-  toolTasks: agentCore.ToolTasksConfigSchema,
+  toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
   resumeSessionId: z.string(),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
