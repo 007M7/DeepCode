@@ -11,7 +11,7 @@ import * as acpAgent from '../src/index.ts'
 
 /**
  * In-process unit coverage for the @deepseek-ai/dsh-acp-demo composition:
- * mounting it brings up the agent-core spine + JSONL persistence + the ACP
+ * mounting it brings up the agent-spine-demo spine + JSONL persistence + the ACP
  * bridge in one `ctx.plugin`. Unlike the stdio app, this one loads NO
  * Loader-only plugin (no hmr), so it mounts in a plain Context.
  *
@@ -70,7 +70,7 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
 
 describe('dsh-acp-demo composition', () => {
   it('brings up the spine + persistence + the ACP bridge', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-acp-demo-test', skills: await isolatedSkillsConfig() })
+    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-acp-demo-test', skills: await isolatedSkillsConfig(), workspaceContext: false })
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
@@ -89,16 +89,28 @@ describe('dsh-acp-demo composition', () => {
     // persistenceRoot, so the runtime fallback is the one that fires.
     const ctx = new Context()
     // No persona: covers the omitted-persona forwarding branch too.
-    acpAgent.apply(ctx, { model: 'mock', skills: await isolatedSkillsConfig() })
+    acpAgent.apply(ctx, { model: 'mock', skills: await isolatedSkillsConfig(), workspaceContext: false })
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(ctx.get('sessionPersistence')).toBeDefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards explicit project-instruction controls to the bundled spine', async () => {
+    const ctx = await mount({
+      model: 'mock',
+      persona: 'hi',
+      persistenceRoot: '/tmp/dsh-acp-demo-workspace-context',
+      workspaceContext: false,
+    })
+    expect(ctx.get('agents')).toBeDefined()
+    expect(ctx.get('agentLoop')).toBeDefined()
     await ctx.fiber.dispose()
   })
 
   it('uses default skill config when apply is called directly without skills', async () => {
     await withIsolatedSkillHomes(async () => {
       const ctx = new Context()
-      acpAgent.apply(ctx, { model: 'mock' })
+      acpAgent.apply(ctx, { model: 'mock', workspaceContext: false })
       await new Promise(resolve => setTimeout(resolve, 50))
       expect(ctx.skills).toBeDefined()
       expect(await ctx.skills.list()).toEqual([])
@@ -106,8 +118,8 @@ describe('dsh-acp-demo composition', () => {
     })
   })
 
-  it('forwards skill config into agent-core', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6) })
+  it('forwards skill config into agent-spine-demo', async () => {
+    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6), workspaceContext: false })
     ctx.skills.register({ name: 'acp-skill', description: 'ACP skill', source: 'runtime', content: 'body' })
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `acp-skill`: ACP...')
     await ctx.fiber.dispose()
@@ -116,6 +128,7 @@ describe('dsh-acp-demo composition', () => {
   it('forwards bundled tool config into agent-core', async () => {
     const ctx = await mount({
       model: 'mock',
+      workspaceContext: false,
       toolBash: { enableRunInBackground: false },
       toolTasks: { waitTimeoutMs: 7, maxWaitTimeoutMs: 11 },
       skills: await isolatedSkillsConfig(),
@@ -131,11 +144,12 @@ describe('dsh-acp-demo composition', () => {
     expect(acpAgent.Config).toBeDefined()
   })
 
-  it('forwards toolOrder through agent-core to the system-prompt assembly', async () => {
+  it('forwards toolOrder through agent-spine-demo to the system-prompt assembly', async () => {
     const ctx = await mount({
       model: 'mock',
       toolOrder: ['zulu', TOOL_ORDER_REST],
       persistenceRoot: '/tmp/dsh-acp-demo-test-tool-order',
+      workspaceContext: false,
     })
     // The bundle's own bash tools pend on the absent `ctx.bash` executor in
     // this providerless mount, so register two plain tools to order.

@@ -1,5 +1,9 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { CallId, ContentBlock, LlmCallConfig, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from './json.ts'
+
+/** Canonical context-tag framing, or caller-owned framing rendered verbatim. */
+export type ContextEnvelope = 'context' | 'raw'
 
 /** Identifies one session in the store (and its persistence artifacts). */
 export type SessionId = Branded<'SessionId'>
@@ -235,9 +239,16 @@ export interface SessionEventMap {
   /**
    * In-session context injection (file-change notices, subdir AGENTS.md,
    * skill content, cron notifications, …). Rendered into the derived history
-   * as tagged synthetic context — NOT a user prompt.
+   * as synthetic context — NOT a user prompt. `envelope: 'raw'` lets a caller
+   * own the complete model-facing frame; `meta` is durable JSON state omitted
+   * from the model projection.
    */
-  'context/message': { content: ContentBlock[]; source: MessageSource }
+  'context/message': {
+    content: ContentBlock[]
+    source: MessageSource
+    envelope?: ContextEnvelope
+    meta?: JsonValue
+  }
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**

@@ -110,8 +110,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'fs',
     summary: 'Abstract filesystem provider.',
     methods: [
-      'abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>',
+      'abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>',
       'abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>',
+      'abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>',
       'abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>',
       'abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>',
       'abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>',
@@ -503,7 +504,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: AgentId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: SendOptions): void;\n    cancel(reason?: string): void;\n    whenIdle(): Promise<void>;\n}',
+    declaration: 'export interface Agent {\n    readonly id: AgentId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: InjectOptions): void;\n    cancel(reason?: string): void;\n    whenIdle(): Promise<void>;\n}',
   },
   {
     name: 'AgentFactory',
@@ -650,6 +651,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ContentBlockType = keyof ContentBlockMap;',
   },
   {
+    name: 'ContextEnvelope',
+    declaration: 'export type ContextEnvelope = \'context\' | \'raw\';',
+  },
+  {
     name: 'CreateAgentOptions',
     declaration: 'export interface CreateAgentOptions {\n    readonly agentId: AgentId;\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
@@ -698,6 +703,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface FsInfo {\n    version: FsVersion;\n    type: \'file\' | \'directory\' | \'other\';\n    size?: number;\n}',
   },
   {
+    name: 'FsPathInfo',
+    declaration: 'export interface FsPathInfo {\n    version: FsVersion;\n    type: \'file\' | \'directory\' | \'symlink\' | \'other\';\n    size?: number;\n}',
+  },
+  {
     name: 'FsTarget',
     declaration: 'export interface FsTarget {\n    targetKey: FsTargetKey;\n    displayPath: string;\n}',
   },
@@ -731,7 +740,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'HookContext',
-    declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n}',
+    declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n    envelope?: ContextEnvelope;\n    meta?: JsonValue;\n}',
+  },
+  {
+    name: 'InjectOptions',
+    declaration: 'export interface InjectOptions extends SendOptions {\n    envelope?: ContextEnvelope;\n    meta?: JsonValue;\n}',
+  },
+  {
+    name: 'JsonValue',
+    declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
     name: 'Message',
@@ -795,7 +812,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': {\n        turn: number;\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: E /* …truncated — full shape in source */',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        envelope?: ContextEnvelope;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': {\n        turn: number;\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'todo/write\': {\n        todos /* …truncated — full shape in source */',
   },
   {
     name: 'SessionEventReadRequest',
@@ -970,10 +987,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TerminalResultView {\n    card: \'terminal\';\n    title?: string;\n    output?: string;\n    exitCode?: number;\n    signal?: string;\n}',
   },
   {
-    name: 'TodoItem',
-    declaration: 'export interface TodoItem {\n    content: string;\n    status: \'pending\' | \'in_progress\' | \'completed\';\n}',
-  },
-  {
     name: 'TokenUsage',
     declaration: 'export interface TokenUsage {\n    inputTokens: number;\n    outputTokens: number;\n    cacheReadTokens?: number;\n    cacheWriteTokens?: number;\n    reasoningTokens?: number;\n}',
   },
@@ -991,7 +1004,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>;\n    timeoutMs?: number;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>;\n    timeoutMs?: number;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolErrorInfo',
@@ -1011,7 +1024,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionResult',
-    declaration: 'export interface ToolExecutionResult {\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContext?: HookContext;\n    meta?: unknown;\n}',
+    declaration: 'export interface ToolExecutionResult {\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContexts?: HookContext[];\n    meta?: unknown;\n}',
   },
   {
     name: 'ToolExecutionToken',
@@ -1040,6 +1053,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolResultView',
     declaration: 'export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView;',
+  },
+  {
+    name: 'ToolRunContext',
+    declaration: 'export interface ToolRunContext extends ToolExecution {\n    deferContext(context: HookContext): void;\n}',
   },
   {
     name: 'ToolSchema',

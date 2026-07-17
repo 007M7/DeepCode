@@ -17,7 +17,7 @@ import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
  * The interception seams introduced by the hooks taxonomy: `agent/prompt-submit`,
  * `agent/session-start`, the reshaped `agent/turn-continuation`
  * ({@link ContinuationDecision}), and the `tools/pre-execute` / `tools/post-execute`
- * split with `additionalContext` buffering. These verify the canonical event
+ * split with `additionalContexts` buffering. These verify the canonical event
  * surface a hook bridge (or a native plugin) programs against, WITHOUT any
  * external protocol — a native plugin uses the typed decisions directly.
  */
@@ -91,15 +91,21 @@ describe('agent/prompt-submit', () => {
     expect(JSON.stringify(adapter.requests[0]!.messages)).not.toContain('original')
   })
 
-  it('allow with additionalContext injects a separate context/message into the turn', async () => {
+  it('allow with additionalContexts injects separate context/message events into the turn', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
+    const meta = { kind: 'prompt-context', version: 1 }
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({
         kind: 'allow',
-        additionalContext: { content: [{ type: 'text', text: 'extra ctx' }], source: { kind: 'plugin', plugin: 'test' } },
+        additionalContexts: [{
+          content: [{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }],
+          source: { kind: 'plugin', plugin: 'test' },
+          envelope: 'raw',
+          meta,
+        }],
       }))
 
     send(agent, 'go')
@@ -109,14 +115,16 @@ describe('agent/prompt-submit', () => {
     const userMsg = log.find(e => e.type === 'user/message')
     const ctxMsg = log.find(e => e.type === 'context/message')
     expect(userMsg).toBeDefined()
-    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.content).toEqual([{ type: 'text', text: 'extra ctx' }])
+    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.content).toEqual([{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }])
     expect(ctxMsg?.type === 'context/message' && ctxMsg.data.source).toEqual({ kind: 'plugin', plugin: 'test' })
+    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.envelope).toBe('raw')
+    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.meta).toEqual(meta)
     // both the prompt and the injected context reach the model
     const sent = JSON.stringify(adapter.requests[0]!.messages)
     expect(sent).toContain('extra ctx')
   })
 
-  it('a prompt-submit rewrite + additionalContext is VISIBLE to the agent/pre-step seam (merged ordering)', async () => {
+  it('a prompt-submit rewrite + additionalContexts is VISIBLE to the agent/pre-step seam (merged ordering)', async () => {
     // Prompt rewrites and injected context land before `agent/pre-step`, so a
     // compaction listener measures the current surface before the single derive.
     const adapter = new MockAdapter([textResponse('ok')])
@@ -127,7 +135,7 @@ describe('agent/prompt-submit', () => {
       ({
         kind: 'allow',
         content: [{ type: 'text', text: 'REWRITTEN prompt' }],
-        additionalContext: { content: [{ type: 'text', text: 'injected ctx' }], source: { kind: 'plugin', plugin: 'test' } },
+        additionalContexts: [{ content: [{ type: 'text', text: 'injected ctx' }], source: { kind: 'plugin', plugin: 'test' } }],
       }))
 
     // The pre-step seam (where compaction lives) derives the surface it would act
@@ -538,8 +546,8 @@ describe('agent/turn-continuation (ContinuationDecision)', () => {
   })
 })
 
-describe('tools/post-execute additionalContext buffering across a multi-call step', () => {
-  it('appends each call\'s additionalContext only AFTER all tool/results, preserving adjacency', async () => {
+describe('tool additionalContexts buffering across a step', () => {
+  it('appends each call\'s contexts only AFTER all tool/results, preserving adjacency', async () => {
     // One assistant step with TWO tool calls; the second model response stops.
     const twoCalls = [
       { type: 'block-start' as const, index: 0, blockType: 'tool-call' as const },
@@ -557,9 +565,17 @@ describe('tools/post-execute additionalContext buffering across a multi-call ste
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // Each call attaches additionalContext naming itself.
+    // Each call attaches one context naming itself.
     ctx.on('tools/post-execute', async (exec, _result): Promise<PostToolDecision> =>
-      ({ kind: 'accept', additionalContext: { content: [{ type: 'text', text: `ctx-${exec.callId}` }], source: { kind: 'plugin', plugin: 'p' } } }))
+      ({
+        kind: 'accept',
+        additionalContexts: [{
+          content: [{ type: 'text', text: `ctx-${exec.callId}` }],
+          source: { kind: 'plugin', plugin: 'p' },
+          envelope: 'raw',
+          meta: { callId: exec.callId },
+        }],
+      }))
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -579,6 +595,37 @@ describe('tools/post-execute additionalContext buffering across a multi-call ste
       .flatMap(e => (e.type === 'context/message' ? e.data.content : []))
       .map(b => (b.type === 'text' ? b.text : ''))
     expect(ctxTexts).toEqual(['ctx-c1', 'ctx-c2'])
+    const contextEvents = events(agent).filter(e => e.type === 'context/message')
+    expect(contextEvents.map(e => e.type === 'context/message' && e.data.envelope)).toEqual(['raw', 'raw'])
+    expect(contextEvents.map(e => e.type === 'context/message' && e.data.meta)).toEqual([{ callId: 'c1' }, { callId: 'c2' }])
+  })
+
+  it('appends multiple contexts deferred by one composite tool after its outer result', async () => {
+    const adapter = new MockAdapter([toolCallResponse('c1', 'composite', {}), textResponse('done')])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'composite', description: 'composite', parameters: {},
+      async execute(_args, exec) {
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-a' }], source: { kind: 'plugin', plugin: 'a' }, meta: { order: 1 } })
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-b' }], source: { kind: 'plugin', plugin: 'b' }, envelope: 'raw', meta: { order: 2 } })
+        return [{ type: 'text', text: 'outer result' }]
+      },
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const log = events(agent)
+    const resultIndex = log.findIndex(event => event.type === 'tool/result')
+    const contextEvents = log.filter(event => event.type === 'context/message')
+    expect(resultIndex).toBeGreaterThanOrEqual(0)
+    expect(log.findIndex(event => event === contextEvents[0])).toBeGreaterThan(resultIndex)
+    expect(contextEvents.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+      { kind: 'plugin', plugin: 'a' },
+      { kind: 'plugin', plugin: 'b' },
+    ])
+    expect(contextEvents.map(event => event.type === 'context/message' && event.data.meta)).toEqual([{ order: 1 }, { order: 2 }])
   })
 })
 
@@ -638,7 +685,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
       ctx.on('tools/post-execute', async (_exec, _result, next): Promise<PostToolDecision> => {
         const decision = await next()
         if (decision.kind === 'accept') {
-          return { kind: 'accept', additionalContext: { content: [{ type: 'text', text: 'audited' }], source: { kind: 'plugin', plugin: 'native-guard' } } }
+          return { kind: 'accept', additionalContexts: [{ content: [{ type: 'text', text: 'audited' }], source: { kind: 'plugin', plugin: 'native-guard' } }] }
         }
         return decision
       })

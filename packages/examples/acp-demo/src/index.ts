@@ -13,6 +13,7 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
+import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -39,6 +40,8 @@ export interface Config {
   tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
@@ -61,6 +64,7 @@ export const Config: z<Config> = z.object({
   // TODO(single-default-literal): share this schema default and the defensive
   // apply() fallback through one named constant while retaining both boundaries.
   persistenceRoot: z.string().default('./.sessions'),
+  workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: agentCore.ToolTasksConfigSchema,
@@ -75,14 +79,7 @@ export const Config: z<Config> = z.object({
  * from `model`. No logger, no `hmr` — stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
-  ctx.plugin(agentCore, {
-    ...config.persona !== undefined ? { persona: config.persona } : {},
-    ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
-    ...config.tools !== undefined ? { tools: config.tools } : {},
-    ...config.skills !== undefined ? { skills: config.skills } : {},
-    ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
-    ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
-  })
+  ctx.plugin(agentCore, agentCore.pickSpineConfig(config))
   ctx.plugin(UserInteractionService)
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(acp, { model: config.model })

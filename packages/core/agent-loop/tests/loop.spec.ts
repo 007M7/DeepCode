@@ -383,6 +383,32 @@ describe('agent loop', () => {
     expect(flat).toContain('<context source=\\"plugin\\">')
   })
 
+  it('inject() can persist raw structured context without the generic context envelope', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('raw-context'), { model: 'mock' })
+    const text = '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>'
+    const meta = {
+      kind: 'workspace-instructions',
+      version: 1,
+      changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md', digest: 'abc123' }],
+    }
+
+    agent.inject([{ type: 'text', text }], {
+      source: { kind: 'plugin', plugin: 'workspace-context' },
+      envelope: 'raw',
+      meta,
+    })
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const contextEvent = agent.session.events.find(event => event.type === 'context/message')
+    expect(contextEvent?.type === 'context/message' && contextEvent.data).toMatchObject({ envelope: 'raw', meta })
+    const requestText = JSON.stringify(adapter.requests[0]!.messages)
+    expect(requestText).toContain('Additional instructions from: pkg/AGENTS.md')
+    expect(requestText).not.toContain('<context source=')
+  })
+
   it('inject() while running appends into the open turn (no extra synthetic turn)', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'noticer', {}, 'calling'),
