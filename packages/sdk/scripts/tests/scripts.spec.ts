@@ -5,6 +5,7 @@ import { PassThrough, Writable } from 'node:stream'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import {
+  HeadlessPromptPort,
   LocalPluginBlueprint,
   NpmPackageManager,
   SdkProject,
@@ -29,7 +30,7 @@ import { parseDshSdkArgs, parseSdkBootArgs } from '../src/args.ts'
 import { PluginBuild, ProjectBuild, runProjectBuild } from '../src/build.ts'
 import { runDshSdkCommand, type DshSdkCommandContext } from '../src/command.ts'
 import { runConfigCommand } from '../src/config.ts'
-import { ConfigWorkflow } from '../src/config/config-workflow.ts'
+import { ConfigWorkflow, type ConfigPlan } from '../src/config/config-workflow.ts'
 import { initialize, resolve as resolveLocalPlugin } from '../src/local-plugin-loader-hooks.ts'
 
 const temporary: string[] = []
@@ -397,6 +398,28 @@ describe('ConfigWorkflow', () => {
     const result = await workflow.run(project, registry)
     expect(result.commit?.project.cordis.entry('tool-todo')?.disabled).toBe(true)
     expect(output.read()).toContain('Disable feature: todo')
+  })
+
+  it('reconciles a headless plan without prompting and preserves custom plugins', async () => {
+    const project = await committedProject([], [new LocalPluginBlueprint('plugin', 'plugin')])
+    const registry = createBuiltinRegistry(project.profile)
+    const output = outputBuffer()
+    let installs = 0
+    const plan: ConfigPlan = {
+      features: [
+        { id: featureId('bash'), options: ['local'] },
+        { id: featureId('persistence'), options: ['jsonl'] },
+        { id: featureId('todo'), options: ['default'] },
+        { id: featureId('web'), options: ['exa'], secrets: { apiKey: 'exa-key' } },
+      ],
+    }
+    const result = await new ConfigWorkflow(
+      new HeadlessPromptPort(), output.stream, async () => { installs += 1 },
+    ).run(project, registry, plan)
+    expect(result.commit?.project.cordis.entry('tool-todo')).toBeDefined()
+    // the unlisted custom local plugin keeps its enabled state (not nuked by the plan)
+    expect(result.commit?.project.cordis.entry('plugin')?.disabled).toBeFalsy()
+    expect(installs).toBe(1)
   })
 
   it('installs once after NPM dependency changes and keeps committed files on install failure', async () => {

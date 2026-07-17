@@ -5,9 +5,11 @@ import { PassThrough, Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  HeadlessPromptPort,
   LocalPluginBlueprint,
   featureId,
   NpmPackageManager,
+  type FeatureSelection,
   type NestedMultiSelectValue,
   type PromptPort,
 } from '@deepseek-ai/dsh-helper'
@@ -231,6 +233,54 @@ describe('CreateWizard and scaffolder', () => {
       options: ['exa'], secrets: { apiKey: 'exa-key' },
     })
     expect(resolved.request.features.find(item => item.id === 'hmr')).toMatchObject({ options: ['default'] })
+  })
+
+  it('runs headlessly from a feature plan without reaching the terminal', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'create-headless-'))
+    temporary.push(cwd)
+    const features: FeatureSelection[] = [
+      { id: featureId('persistence'), options: ['sqlite'], values: { region: 'us' } },
+      { id: featureId('web'), options: ['exa'], secrets: { apiKey: 'exa-key' } },
+    ]
+    const resolved = await new CreateWizard({
+      args: parseCreateArgs([
+        'my-agent', '--description=demo', '--provider=deepseek', '--api-key=deepseek-key',
+        '--model=deepseek-v4-flash', '--interface=stdio', '--pm=npm', '--no-install',
+      ]),
+      port: new HeadlessPromptPort(),
+      cwd,
+      releaseVersion: '0.0.1',
+      versionProbe: async () => '10.0.0',
+      features,
+    }).run()
+    expect(resolved.install).toBe(false)
+    expect(resolved.request.localPlugins).toEqual([])
+    expect(resolved.request.features.find(item => item.id === 'web')).toMatchObject({
+      options: ['exa'], secrets: { apiKey: 'exa-key' },
+    })
+    expect(resolved.request.features.find(item => item.id === 'persistence')).toMatchObject({ options: ['sqlite'] })
+    expect(resolved.request.features.find(item => item.id === 'provider')).toMatchObject({
+      secrets: { apiKey: 'deepseek-key' },
+    })
+  })
+
+  it('rejects a non-string feature value in a headless plan', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'create-headless-bad-'))
+    temporary.push(cwd)
+    const features = [
+      { id: featureId('persistence'), options: ['sqlite'], values: { bad: 1 } },
+    ] as unknown as FeatureSelection[]
+    await expect(new CreateWizard({
+      args: parseCreateArgs([
+        'my-agent', '--description=demo', '--provider=deepseek', '--api-key=k',
+        '--model=m', '--interface=stdio', '--pm=npm', '--no-install',
+      ]),
+      port: new HeadlessPromptPort(),
+      cwd,
+      releaseVersion: '0.0.1',
+      versionProbe: async () => '10.0.0',
+      features,
+    }).run()).rejects.toThrow('must be a string')
   })
 
   it('writes the project once and refuses every existing target', async () => {
