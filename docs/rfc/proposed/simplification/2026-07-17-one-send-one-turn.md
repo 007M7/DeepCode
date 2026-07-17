@@ -16,7 +16,7 @@ A shared turn also shares prompt admission, `turn/start`, `turn/end`, and the du
 
 The inbox will dequeue at most one ordinary message for each turn start. A successful `send()` will remain synchronous: it validates agent state, snapshots and freezes content, appends one FIFO item, and publishes `agent/queued`. If two items are both claimed, the second turn will start only after the first turn ends and its durability checkpoint completes; an item discarded before turn start will not create an empty turn.
 
-Prompt admission will decide one message. An allowed prompt will become that turn's `user/message`; a blocked prompt will end that turn as `rejected`. The mixed-batch and all-blocked-batch branches will disappear.
+Prompt admission will decide one message. An allowed prompt will become that turn's `user/message`; a blocked prompt will append one durable `prompt/blocked` and end that one-message turn as `rejected`. The mixed-batch and all-blocked-batch branches will disappear.
 
 Running `steer()` will continue to append to the active turn's steering FIFO. Idle `steer()` will continue to delegate to `send()` and therefore create an independent ordinary turn. `inject()` will retain its turn-enclosure and flush behavior. `cancel()`, `status`, and `whenIdle()` will remain whole-agent operations rather than per-message controls.
 
@@ -28,7 +28,7 @@ Running `steer()` will continue to append to the active turn's steering FIFO. Id
 
 - Two adjacent successful sends remain distinct FIFO items and, when both are claimed, produce two turns separated by the first turn's durability checkpoint.
 - Dequeue timing and reentrant sends from queued listeners, session listeners, and model callbacks do not change the one-message turn boundary.
-- Prompt veto, cancellation, disposal, and turn-start failure cannot merge messages or leave the agent permanently running.
+- Prompt veto appends one durable `prompt/blocked` for its `rejected` turn; cancellation, disposal, and `turn/start` failure cannot merge messages or leave the agent permanently `running`.
 - Running and idle `steer()`, `inject()`, whole-agent status, and `whenIdle()` retain their documented meanings.
 
 ## Risks
