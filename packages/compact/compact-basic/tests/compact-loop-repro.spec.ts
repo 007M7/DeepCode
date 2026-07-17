@@ -9,6 +9,7 @@ import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
+import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
 
 /**
@@ -18,15 +19,13 @@ import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
  * surface-position semantics rather than raw-log scanning.
  */
 
-const TOKENS_PER_BLOCK = 10
-
 class ReproCompactService extends BasicCompactService {
-  override estimateContentTokens(blocks: readonly ContentBlock[]): number {
-    return blocks.length * TOKENS_PER_BLOCK
-  }
-
   override async summarize(): Promise<{ summary: ContentBlock[]; provider: string; model: string }> {
-    return { summary: [{ type: 'text', text: 'CHECKPOINT SUMMARY' }], provider: 'mock', model: 'stub' }
+    return {
+      summary: [{ type: 'text', text: 'CHECKPOINT SUMMARY' }],
+      provider: 'mock',
+      model: 'stub',
+    }
   }
 }
 
@@ -61,6 +60,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(Invariants)
   await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(TokenMeterService, { contextWindow: 400 })
   ctx.llm.registerAdapter(['mock'], new StepwiseToolAdapter(toolSteps))
   ctx.tools.register(defineTool({
     name: 'work',
@@ -70,14 +70,12 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
       return [{ type: 'text', text: 'work result' }]
     },
   }))
-  // Tiny window so a couple of tool steps cross the threshold and compaction
-  // fires within the runaway turn.
+  // Small window so several tool steps cross the threshold and compaction
+  // fires within the runaway turn after enough history can shrink.
   const compact = new ReproCompactService(ctx, {
     auto: true,
-    contextWindow: 64,
     thresholdRatio: 0.5,
-    retainTokens: 20,
-    summarizationProvider: '',
+    retainTokens: 50,
     summarizationModel: '',
     maxTokens: 8192,
     compactionRetries: 1,

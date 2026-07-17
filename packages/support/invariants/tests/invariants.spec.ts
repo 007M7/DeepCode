@@ -487,13 +487,17 @@ describe('surface contract under the invariants composition', () => {
     // no throw — well-formed replace op
   })
 
-  it('rejects empty sourceEventSeqs', async () => {
+  it('accepts known-empty assistant provenance and rejects empty provenance elsewhere', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
     expect(() => {
       session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [] })
-    }).toThrow(/must not be empty/)
+    }).not.toThrow()
+    expect(() => {
+      session.append('user/message', { content: [], source: { kind: 'user' } }, { surfaceOp: 'append', sourceEventSeqs: [] })
+    }).toThrow(/must not be empty except on assistant\/message/)
   })
 
   it('rejects duplicate sourceEventSeqs', async () => {

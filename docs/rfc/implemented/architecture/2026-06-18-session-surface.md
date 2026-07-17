@@ -14,7 +14,7 @@ Add a **surface** — a derived, cached order of event sequences (the subset of 
 
 Every `SessionEvent` gains two optional fields (structural metadata, like `seq`/`time`):
 
-- **`sourceEventSeqs?: number[]`** — seq numbers of events that are provenance sources (e.g., the `assistant/chunk` seqs that built an `assistant/message`, or the surface nodes shadowed by a compaction marker). Provenance is a core design principle; without it, the replace-range operation cannot be validated on replay.
+- **`sourceEventSeqs?: number[]`** — seq numbers of events that are provenance sources (e.g., the `assistant/chunk` seqs that built an `assistant/message`, or the surface nodes shadowed by a compaction marker). A present `[]` is valid only on `assistant/message` and records a known empty provider stream; omission there means legacy or otherwise unrecorded provenance. Other surface events require a non-empty list when the field is present. Provenance is a core design principle; without it, the replace-range operation cannot be validated on replay.
 - **`surfaceOp?: SurfaceOp`** — how this event entered the surface. Absent for non-surface events.
 
 ### SurfaceOp: two operations
@@ -25,7 +25,7 @@ export type SurfaceOp =
   | { op: 'replace'; start: number; end: number }  // shadow [start, end] inclusive
 ```
 
-1. **Append** — add the new event seq to the tail. Used by `user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`. The loop passes `surfaceOp: 'append'` on all such appends, and `sourceEventSeqs` where applicable (e.g., `assistant/message` records its `assistant/chunk` sources; `tool/result` records its `tool/call` source).
+1. **Append** — add the new event seq to the tail. Used by `user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`. The loop passes `surfaceOp: 'append'` on all such appends and records `sourceEventSeqs` where applicable: every successful `assistant/message` records its complete `assistant/chunk` source set, including `[]`, while `tool/result` records its `tool/call` source.
 
 2. **Replace** — remove entries from `start` through `end` (both inclusive) and insert the new event seq in their place. Both `start` and `end` must be present in the current surface; `start === end` replaces one entry. The event's `sourceEventSeqs` must contain every shadowed surface seq. The shadowed events remain in the log but are no longer on the surface.
 
@@ -47,7 +47,7 @@ The `repair.ts` module synthesizes `tool/result` closers for orphaned tool calls
 
 ### Invariants
 
-The dev-mode invariants plugin validates: `sourceEventSeqs` references (non-empty, no duplicates, references earlier events, references known seqs) and `surfaceOp` (replace `start ≤ end`, both endpoints are on the tracked surface, the range is non-reversed in surface position, and `sourceEventSeqs` includes every node the range shadows).
+The dev-mode invariants plugin validates: `sourceEventSeqs` references (only `assistant/message` may use an empty list; otherwise no duplicates, references earlier events, and references known seqs) and `surfaceOp` (replace `start ≤ end`, both endpoints are on the tracked surface, the range is non-reversed in surface position, and `sourceEventSeqs` includes every node the range shadows).
 
 Every surface-eligible event must carry `surfaceOp` or it would disappear from derived history. Typed `append` overloads enforce this for literal event types; runtime checks in `append` and the seed constructor cover widened unions and loaded logs. Invalid seeds are rejected rather than upgraded under the pre-release format policy.
 

@@ -67,7 +67,7 @@ Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types
 
 Every `SessionEvent` carries two optional top-level fields (structural metadata):
 
-- `sourceEventSeqs?: number[]` — seq numbers of provenance sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed entries behind a compaction replacement entry).
+- `sourceEventSeqs?: number[]` — seq numbers of provenance sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed entries behind a compaction replacement entry). On `assistant/message`, a present `[]` records a known empty provider stream, while omission means legacy or otherwise unrecorded provenance; other surface events require a non-empty list when this field is present.
 - `surfaceOp?: SurfaceOp` — how this event entered the surface. Absent for non-surface events (boundaries, chunks, usage, errors).
 
 ### Metadata types (`types.ts`)

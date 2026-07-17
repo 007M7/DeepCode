@@ -99,6 +99,10 @@
       "link": "/zh-CN/api/harness/tasks"
     },
     {
+      "text": "ctx.tokenMeter",
+      "link": "/zh-CN/api/harness/token-meter"
+    },
+    {
       "text": "ctx.tools",
       "link": "/zh-CN/api/harness/tools"
     },

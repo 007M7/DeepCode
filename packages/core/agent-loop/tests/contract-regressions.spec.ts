@@ -8,7 +8,7 @@ import AgentRegistry, { AgentId, type ContinuationDecision } from '@deepseek-ai/
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { prepareReactLoopAgent } from '../src/agent.ts'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
-import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+import { maxTokensResponse, MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 /** Regression tests for agent-loop boundary, identity, and lifecycle contracts. */
 
@@ -129,6 +129,73 @@ describe('session log records what agent/step-result actually produced', () => {
     const recorded = agent.session.events.find(event => event.type === 'assistant/message')
     expect(recorded?.type === 'assistant/message' && recorded.data.content).toEqual([{ type: 'text', text: 'mutated' }])
     expect(recorded?.type === 'assistant/message' && recorded.data.provenance.replayState).toBeUndefined()
+  })
+})
+
+describe('successful provider completion survives agent/step-result failure', () => {
+  async function expectContentlessCompletionAnchor(
+    response: StreamChunk[],
+    id: string,
+    providerText: string,
+  ): Promise<void> {
+    const adapter = new MockAdapter([response])
+    const ctx = await harness(adapter)
+    await ctx.plugin(Invariants)
+    const agent = ctx.agentLoop.create(AgentId(id), { provider: 'mock', model: 'mock' })
+    const failure = new Error(`${id} result processing failed`)
+    const reported: Error[] = []
+
+    ctx.on('agent/step-result', async () => {
+      throw failure
+    })
+    ctx.on('agent/error', (subject, _turn, _step, error) => {
+      if (subject === agent) reported.push(error)
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const events = [...agent.session.events]
+    const chunks = events.filter(event => event.type === 'assistant/chunk')
+    const completions = events.filter(event => event.type === 'assistant/message')
+    expect(completions).toHaveLength(1)
+    expect(completions[0]?.type === 'assistant/message' && completions[0].data).toEqual({
+      turn: 1,
+      step: 1,
+      content: [],
+      provenance: { provider: 'mock', model: 'mock' },
+      usage: { inputTokens: 10, outputTokens: providerText.length },
+    })
+    expect(completions[0]?.sourceEventSeqs).toEqual(chunks.map(event => event.seq))
+    expect(agent.session.deriveMessages()).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'go' }] },
+    ])
+    expect(reported).toHaveLength(1)
+    expect(reported[0]).toBe(failure)
+    const turnEnd = events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({
+      kind: 'error',
+      step: 1,
+      message: failure.message,
+    })
+  }
+
+  it('records one content-less anchor when ordinary stop result processing rejects', async () => {
+    const providerText = 'ordinary provider output'
+    await expectContentlessCompletionAnchor(
+      textResponse(providerText),
+      'a-step-result-stop-failure',
+      providerText,
+    )
+  })
+
+  it('records one content-less anchor when max-token result processing rejects', async () => {
+    const providerText = 'truncated provider output'
+    await expectContentlessCompletionAnchor(
+      maxTokensResponse(providerText),
+      'a-step-result-max-token-failure',
+      providerText,
+    )
   })
 })
 
@@ -1116,9 +1183,10 @@ describe('tool result call identity', () => {
   })
 })
 
-describe('surface: assistant/message omits sourceEventSeqs when no chunks streamed', () => {
-  it('a step-result listener injecting content over an empty stream appends with surfaceOp but no sourceEventSeqs', async () => {
-    // Injected result content with no chunks must omit empty sourceEventSeqs.
+describe('surface: assistant/message records exact empty provenance when no chunks streamed', () => {
+  it('a step-result listener injecting content over an empty stream records sourceEventSeqs []', async () => {
+    // The explicit empty source set distinguishes a known empty provider
+    // stream from legacy events whose provenance was not recorded.
     const adapter = new MockAdapter([[]])
     const ctx = await harness(adapter)
     await ctx.plugin(Invariants)
@@ -1135,7 +1203,7 @@ describe('surface: assistant/message omits sourceEventSeqs when no chunks stream
     const recorded = agent.session.events.find(e => e.type === 'assistant/message')!
     expect(recorded.type).toBe('assistant/message')
     expect(recorded.surfaceOp).toBe('append')
-    expect(recorded.sourceEventSeqs).toBeUndefined()
+    expect(recorded.sourceEventSeqs).toEqual([])
     // The injected content reaches derived history.
     expect(JSON.stringify(agent.session.deriveMessages())).toContain('injected')
   })

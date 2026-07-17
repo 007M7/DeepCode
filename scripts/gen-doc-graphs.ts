@@ -88,6 +88,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Adapters register provider implementations; the loop and compaction call the provider-neutral stream service.',
   },
   {
+    key: 'tokenMeter',
+    pkg: 'token-meter',
+    title: 'Replay token measurement',
+    mode: 'core',
+    consumers: ['compact-basic'],
+    note: 'Owns isolated per-session replay folds; pressure consumers share immutable revisioned measurements.',
+  },
+  {
     key: 'sessions',
     pkg: 'session',
     title: 'In-memory session store',
@@ -849,6 +857,8 @@ function renderLifecycle(): string {
     `  Driver->>Persistence: ${mermaidCode('session/flush')} parallel checkpoint`,
     `  Driver-->>SDK: ${mermaidCode('agent/status')} idle`,
     '```',
+    '',
+    'The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.',
     '',
     'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.',
     '',

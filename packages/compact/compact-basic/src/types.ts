@@ -1,102 +1,34 @@
 /**
- * Configuration vocabulary for the basic compaction backend.
- *
- * Every tunable lives here, in the implementation — the abstract contract
- * (`@deepseek-ai/dsh-compact`) carries no config, because thresholds and
- * retention policy are HOW decisions a different backend would make
- * differently.
+ * Configuration vocabulary for the replay-aware basic compaction backend.
  *
  * @module @deepseek-ai/dsh-compact-basic/types
  */
 
-/**
- * Backend configuration. Every knob is REQUIRED except `auto` and
- * `charsPerToken`: there is no concrete data yet to justify default
- * thresholds/budgets, so a consumer must state each value explicitly rather
- * than inherit a guessed default. `auto` alone defaults to `true`
- * (auto-compaction is the intended posture), and `charsPerToken` defaults to
- * the English-text heuristic its estimator was calibrated on.
- */
+/** Basic compaction configuration; every common field has a deployment default. */
 export interface BasicCompactConfig {
-  /** Context window size in tokens. */
-  contextWindow: number
-  /** Compact when estimated token usage exceeds this fraction of context window. */
-  thresholdRatio: number
-  /** Number of tokens of recent context to retain during compaction. */
-  retainTokens: number
-  /** Provider to use for summarization (`''` with an empty model inherits the conversation target). */
-  summarizationProvider: string
-  /** Model to use for summarization (`''` with an empty provider inherits the conversation target). */
-  summarizationModel: string
-  /** Provider generation cap for the summarization call. */
-  maxTokens: number
-  /** Extra compaction attempts when the first compacted surface is still over threshold. */
-  compactionRetries: number
-  /** Enable automatic compaction on the `agent/pre-step` seam (default true). */
+  /** Compact at this fraction of the token meter's context window. Defaults to `0.8`. */
+  thresholdRatio?: number
+  /** Recent surface tokens retained verbatim. Defaults to `floor(contextWindow * 0.16)`. */
+  retainTokens?: number
+  /** Summary provider; `''` resolves the latest routed pair, then the agent pair. Defaults to `''`. */
+  summarizationProvider?: string
+  /** Summary model; `''` resolves the latest routed pair, then the agent pair. Defaults to `''`. */
+  summarizationModel?: string
+  /** Provider generation cap for summarization. Defaults to `8192`. */
+  maxTokens?: number
+  /** Extra attempts after the first compaction when pressure remains above threshold. Defaults to `1`. */
+  compactionRetries?: number
+  /** Enable the automatic `agent/pre-step` pressure listener. Defaults to `true`. */
   auto?: boolean
-  /**
-   * Text density for the token estimator: estimated tokens = chars /
-   * `charsPerToken`. Defaults to 4 (typical English text). A CJK-heavy
-   * deployment should set ~1-2 — CJK runs at roughly 1-2 chars per token, so
-   * the default UNDERestimates several-fold and compaction fires far too late.
-   * May be fractional.
-   */
-  charsPerToken?: number
 }
 
-/** Resolved config with `auto` and `charsPerToken` defaulted. */
-export type ResolvedConfig = Required<BasicCompactConfig>
-
-/**
- * Default `auto`/`charsPerToken` when unset and reject nonsensical numeric knobs.
- *
- * @param config - the raw, unresolved backend config.
- * @returns the validated config with `auto` and `charsPerToken` defaulted.
- */
-export function resolveConfig(config: BasicCompactConfig): ResolvedConfig {
-  const resolved: ResolvedConfig = { auto: true, charsPerToken: 4, ...config }
-
-  assertPositiveInteger('contextWindow', resolved.contextWindow)
-  assertRatio('thresholdRatio', resolved.thresholdRatio)
-  assertNonNegativeInteger('retainTokens', resolved.retainTokens)
-  assertPositiveInteger('maxTokens', resolved.maxTokens)
-  assertNonNegativeInteger('compactionRetries', resolved.compactionRetries)
-  assertPositiveFinite('charsPerToken', resolved.charsPerToken)
-  if (typeof resolved.summarizationModel !== 'string') {
-    throw new Error('BasicCompactConfig: summarizationModel must be a string.')
-  }
-  if (typeof resolved.summarizationProvider !== 'string') {
-    throw new Error('BasicCompactConfig: summarizationProvider must be a string.')
-  }
-  if ((resolved.summarizationProvider.length === 0) !== (resolved.summarizationModel.length === 0)) {
-    throw new Error('BasicCompactConfig: summarizationProvider and summarizationModel must both be empty or both be set.')
-  }
-  if (typeof resolved.auto !== 'boolean') {
-    throw new Error('BasicCompactConfig: auto must be a boolean.')
-  }
-  return resolved
-}
-
-function assertPositiveInteger(name: string, value: number): void {
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`BasicCompactConfig: ${name} (${value}) must be a positive integer.`)
-  }
-}
-
-function assertNonNegativeInteger(name: string, value: number): void {
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`BasicCompactConfig: ${name} (${value}) must be a non-negative integer.`)
-  }
-}
-
-function assertPositiveFinite(name: string, value: number): void {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    throw new Error(`BasicCompactConfig: ${name} (${value}) must be a positive finite number.`)
-  }
-}
-
-function assertRatio(name: string, value: number): void {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > 1) {
-    throw new Error(`BasicCompactConfig: ${name} (${value}) must be a number in (0, 1].`)
-  }
+/** Validated and detached compaction configuration. */
+export interface ResolvedConfig {
+  readonly thresholdRatio: number
+  readonly retainTokens: number
+  readonly summarizationProvider: string
+  readonly summarizationModel: string
+  readonly maxTokens: number
+  readonly compactionRetries: number
+  readonly auto: boolean
 }

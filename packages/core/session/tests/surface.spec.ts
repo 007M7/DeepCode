@@ -54,6 +54,23 @@ describe('foldSurface provenance', () => {
     expect(() => foldSurface([event])).toThrow(/cannot carry sourceEventSeqs/)
   })
 
+  it('accepts explicit empty provenance on an assistant message', () => {
+    const event = {
+      type: 'assistant/message',
+      seq: 0,
+      time: 0,
+      data: {
+        provenance: { provider: 'mock', model: 'mock' },
+        turn: 1,
+        step: 1,
+        content: [],
+      },
+      surfaceOp: 'append',
+      sourceEventSeqs: [],
+    } as SessionEvent
+    expect(() => foldSurface([event])).not.toThrow()
+  })
+
   it.each([
     ['a non-array', [{ ...provenanceEvent(0, undefined), sourceEventSeqs: 'invalid' }], /must be an array/],
     ['an empty array', [provenanceEvent(0, [])], /must not be empty/],

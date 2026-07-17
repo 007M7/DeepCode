@@ -743,10 +743,9 @@ describe('agent loop', () => {
     })
   })
 
-  it('appends no assistant/message for a max-tokens step with empty content and no usage', async () => {
-    // A max-tokens step truncated to a dropped tool call AND with no usage chunk has nothing to
-    // record: empty content and no accounting → no assistant/message (the empty-content host
-    // exists only to carry usage).
+  it('appends an empty completion anchor for a max-tokens step with no usage', async () => {
+    // The truncated tool call is dropped from durable content, while the
+    // successful provider call still needs an exact replay anchor.
     const callId = CallId('c1')
     const adapter = new MockAdapter([[
       { type: 'block-start', index: 0, blockType: 'tool-call' },
@@ -770,14 +769,20 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     expect(reasons).toEqual([{ kind: 'max-tokens' }])
-    expect(agent.session.events.some(e => e.type === 'assistant/message')).toBe(false)
+    const assistant = agent.session.events.find(e => e.type === 'assistant/message')!
+    expect(assistant.type === 'assistant/message' && assistant.data).toEqual({
+      turn: 1,
+      step: 1,
+      content: [],
+      provenance: { provider: 'mock', model: 'mock' },
+    })
+    expect(assistant.sourceEventSeqs?.length).toBeGreaterThan(0)
     expect(agent.session.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'go' }] }])
   })
 
-  it('appends no assistant/message for a normal stop finish with empty content and no usage', async () => {
-    // A clean `stop` finish that streamed nothing assembled (no blocks) and
-    // carried no usage chunk has nothing to record: the content-or-usage guard
-    // on the normal step path suppresses a pure trace-only empty assistant/message.
+  it('appends an empty completion anchor for a normal stop with no usage', async () => {
+    // A clean content-less call stays absent from derived messages but remains
+    // a durable successful-call boundary for replay consumers.
     const adapter = new MockAdapter([[{ type: 'finish', reason: { kind: 'stop' } }]])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
@@ -789,7 +794,14 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     expect(reasons).toEqual([{ kind: 'completed' }])
-    expect(agent.session.events.some(e => e.type === 'assistant/message')).toBe(false)
+    const assistant = agent.session.events.find(e => e.type === 'assistant/message')!
+    expect(assistant.type === 'assistant/message' && assistant.data).toEqual({
+      turn: 1,
+      step: 1,
+      content: [],
+      provenance: { provider: 'mock', model: 'mock' },
+    })
+    expect(assistant.sourceEventSeqs?.length).toBe(1)
     expect(agent.session.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'go' }] }])
   })
 

@@ -101,7 +101,7 @@ Source: [`packages/code-runtime/code-runtime/src/index.ts:30`](../../packages/co
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
-Abstract compaction service. Implementations own token estimation, retention, and summarization, but a successful run must replace the selected surface span with one summary node and prevent concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
+Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
 
 ```ts cordis-catalog
 abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>
@@ -110,7 +110,7 @@ abstract compactRegion( session: Session, start: number, end: number, agent: Com
 
 Types: [Message](../core-data-structures/core.md)
 
-Source: [`packages/compact/compact/src/index.ts:37`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:38`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
@@ -295,6 +295,19 @@ attachSurface(name: string): () => void
 Types: [Agent](../core-data-structures/core.md)
 
 Source: [`packages/tasks/tasks/src/index.ts:76`](../../packages/tasks/tasks/src/index.ts)
+
+## `ctx.tokenMeter` — `TokenMeterService`
+
+Replay owner for one service-wide estimator and isolated per-session folds.
+
+```ts cordis-catalog
+measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
+estimateMessage(message: Message): number
+```
+
+Types: [Message](../core-data-structures/core.md)
+
+Source: [`packages/llm/token-meter/src/index.ts:106`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

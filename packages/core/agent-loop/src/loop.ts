@@ -536,7 +536,9 @@ async function runStep(
     const assembled = assembler.message()
     const assembledContent = structuredClone(assembled.content)
     let message: Message = withoutToolCalls(assembled)
-    message = withoutToolCalls(await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message)))
+    message = withoutToolCalls(await processStepResult(
+      events, session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs,
+    ))
     // Preserve usage even when max-token truncation produced no content.
     recordAssistantMessage(session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs)
     return { hadToolCalls: false, finish: assembler.finish }
@@ -546,9 +548,12 @@ async function runStep(
   const assembled = assembler.message()
   const assembledContent = structuredClone(assembled.content)
   let message: Message = assembled
-  message = await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message))
+  message = await processStepResult(
+    events, session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs,
+  )
 
-  // Empty messages exist only to carry usage; the helper also omits empty chunk provenance.
+  // Every successful call records its completion anchor, including explicit
+  // empty chunk provenance for a contentless, usage-less provider response.
   recordAssistantMessage(session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs)
 
   // Tool execution stays sequential; recheck abort around each normalized result.
@@ -605,6 +610,38 @@ async function runStep(
   return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
 }
 
+/** Preserve successful-call accounting without retaining output that result processing rejected. */
+async function processStepResult(
+  events: AgentEventDispatch,
+  session: Session,
+  turn: number,
+  step: number,
+  config: LlmCallConfig,
+  assembledContent: ContentBlock[],
+  message: Message,
+  assembler: BlockAssembler,
+  chunkSeqs: number[],
+): Promise<Message> {
+  try {
+    return await events.waterfall(
+      'agent/step-result', turn, step, message, () => Promise.resolve(message),
+    )
+  } catch (error: unknown) {
+    recordAssistantMessage(
+      session,
+      turn,
+      step,
+      config,
+      assembledContent,
+      { ...message, content: [] },
+      assembler,
+      chunkSeqs,
+      false,
+    )
+    throw error
+  }
+}
+
 /** Record one content-or-usage assistant message with replay-safe provenance. */
 function recordAssistantMessage(
   session: Session,
@@ -615,8 +652,8 @@ function recordAssistantMessage(
   message: Message,
   assembler: BlockAssembler,
   chunkSeqs: number[],
+  preserveReplayState = true,
 ): void {
-  if (message.content.length === 0 && assembler.usage === undefined) return
   session.append(
     'assistant/message',
     {
@@ -626,11 +663,11 @@ function recordAssistantMessage(
       provenance: assistantProvenance(
         config,
         assembler.replayState,
-        isDeepStrictEqual(message.content, assembledContent),
+        preserveReplayState && isDeepStrictEqual(message.content, assembledContent),
       ),
       ...assembler.usage === undefined ? {} : { usage: assembler.usage },
     },
-    { surfaceOp: 'append', ...chunkSeqs.length > 0 ? { sourceEventSeqs: chunkSeqs } : {} },
+    { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
   )
 }
 

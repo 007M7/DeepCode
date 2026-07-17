@@ -233,46 +233,29 @@ Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:21`](../package
 
 ## `@deepseek-ai/dsh-compact-basic`
 
-Requires: `llm`
+Requires: `llm` · `tokenMeter`
 
 ```ts config-catalog
-/**
- * Backend configuration. Every knob is REQUIRED except `auto` and
- * `charsPerToken`: there is no concrete data yet to justify default
- * thresholds/budgets, so a consumer must state each value explicitly rather
- * than inherit a guessed default. `auto` alone defaults to `true`
- * (auto-compaction is the intended posture), and `charsPerToken` defaults to
- * the English-text heuristic its estimator was calibrated on.
- */
+/** Basic compaction configuration; every common field has a deployment default. */
 export interface BasicCompactConfig {
-  /** Context window size in tokens. */
-  contextWindow: number
-  /** Compact when estimated token usage exceeds this fraction of context window. */
-  thresholdRatio: number
-  /** Number of tokens of recent context to retain during compaction. */
-  retainTokens: number
-  /** Provider to use for summarization (`''` with an empty model inherits the conversation target). */
-  summarizationProvider: string
-  /** Model to use for summarization (`''` with an empty provider inherits the conversation target). */
-  summarizationModel: string
-  /** Provider generation cap for the summarization call. */
-  maxTokens: number
-  /** Extra compaction attempts when the first compacted surface is still over threshold. */
-  compactionRetries: number
-  /** Enable automatic compaction on the `agent/pre-step` seam (default true). */
+  /** Compact at this fraction of the token meter's context window. Defaults to `0.8`. */
+  thresholdRatio?: number
+  /** Recent surface tokens retained verbatim. Defaults to `floor(contextWindow * 0.16)`. */
+  retainTokens?: number
+  /** Summary provider; `''` resolves the latest routed pair, then the agent pair. Defaults to `''`. */
+  summarizationProvider?: string
+  /** Summary model; `''` resolves the latest routed pair, then the agent pair. Defaults to `''`. */
+  summarizationModel?: string
+  /** Provider generation cap for summarization. Defaults to `8192`. */
+  maxTokens?: number
+  /** Extra attempts after the first compaction when pressure remains above threshold. Defaults to `1`. */
+  compactionRetries?: number
+  /** Enable the automatic `agent/pre-step` pressure listener. Defaults to `true`. */
   auto?: boolean
-  /**
-   * Text density for the token estimator: estimated tokens = chars /
-   * `charsPerToken`. Defaults to 4 (typical English text). A CJK-heavy
-   * deployment should set ~1-2 — CJK runs at roughly 1-2 chars per token, so
-   * the default UNDERestimates several-fold and compaction fires far too late.
-   * May be fractional.
-   */
-  charsPerToken?: number
 }
 ```
 
-Source: [`packages/compact/compact-basic/src/types.ts:20`](../packages/compact/compact-basic/src/types.ts)
+Source: [`packages/compact/compact-basic/src/types.ts:8`](../packages/compact/compact-basic/src/types.ts)
 
 ## `@deepseek-ai/dsh-fs-local`
 
@@ -979,6 +962,18 @@ export interface Config {
 ```
 
 Source: [`packages/context/time-context/src/index.ts:20`](../packages/context/time-context/src/index.ts)
+
+## `@deepseek-ai/dsh-token-meter`
+
+```ts config-catalog
+/** Token-meter plugin configuration. */
+export interface TokenMeterConfig {
+  /** Service-wide context-window capacity in tokens. Defaults to `128000`. */
+  contextWindow?: number
+}
+```
+
+Source: [`packages/llm/token-meter/src/types.ts:10`](../packages/llm/token-meter/src/types.ts)
 
 ## `@deepseek-ai/dsh-tool-bash`
 

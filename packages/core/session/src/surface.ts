@@ -132,8 +132,8 @@ function assertProvenance(
     if (!Array.isArray(raw)) {
       throw new Error(`sourceEventSeqs on event at seq ${event.seq} must be an array when present`)
     }
-    if (raw.length === 0) {
-      throw new Error('sourceEventSeqs must not be empty when present')
+    if (raw.length === 0 && event.type !== 'assistant/message') {
+      throw new Error('sourceEventSeqs must not be empty except on assistant/message')
     }
     let nonEarlierSource: number | undefined
     for (const source of raw) {
