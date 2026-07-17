@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
@@ -348,6 +348,52 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
+  it('creates a new database and WAL sidecars owner-only without changing an existing directory mode', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    const dir = dirname(path)
+    await chmod(dir, 0o755)
+
+    const b = await backend(path)
+    await b.ctx.sessionPersistence.list()
+
+    expect((await stat(dir)).mode & 0o777).toBe(0o755)
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-wal`)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-shm`)).mode & 0o777).toBe(0o600)
+    await b.dispose()
+  })
+
+  it('preserves the mode of an existing database file', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    await writeFile(path, '', { mode: 0o644 })
+    await chmod(path, 0o644)
+
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path, journalMode: 'delete' })
+    await ctx.sessionPersistence.list()
+
+    expect((await stat(path)).mode & 0o777).toBe(0o644)
+    await fiber.dispose()
+  })
+
+  it('surfaces database pre-creation errors other than an existing file', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    const blocked = join(dirname(path), 'blocked')
+    await mkdir(blocked, { mode: 0o500 })
+    const b = await backend(join(blocked, 'sessions.db'))
+
+    try {
+      await expect(b.ctx.sessionPersistence.list()).rejects.toMatchObject({ code: 'EACCES' })
+      await b.dispose()
+    } finally {
+      await chmod(blocked, 0o700)
+    }
+  })
+
   it('append rolls back and rethrows when an event INSERT fails inside the transaction', async () => {
     const path = await freshDbPath()
     const m = meta('rollback-insert')

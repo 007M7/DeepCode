@@ -8,7 +8,7 @@
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   SessionPersistence, PersistenceCoordinator,
@@ -34,12 +34,22 @@ function surfaceBindings(event: SessionEvent): [string | null, string | null] {
   ]
 }
 
+/** Create a missing database owner-only while preserving an existing file's mode. */
+async function createDatabaseFile(path: string): Promise<void> {
+  try {
+    const handle = await open(path, 'wx', 0o600)
+    await handle.close()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  }
+}
+
 /** Plugin configuration. */
 export interface Config {
   /**
    * Filesystem path to the SQLite database file. The special value `:memory:`
-   * opens an in-process database (tests); a file path is created (with parent
-   * dirs) on construction.
+   * opens an in-process database (tests). Missing directories and the database
+   * are created with owner-only permissions; existing path modes are preserved.
    */
   path: string
   /**
@@ -87,6 +97,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     if (path !== ':memory:') {
       const abs = resolve(path)
       await mkdir(dirname(abs), { recursive: true, mode: 0o700 })
+      await createDatabaseFile(abs)
       this.db = openDatabase(abs, journalMode)
     } else {
       this.db = openDatabase(path, journalMode)

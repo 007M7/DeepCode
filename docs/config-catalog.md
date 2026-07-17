@@ -603,8 +603,8 @@ Requires: `sessions`
 export interface Config {
   /**
    * Filesystem path to the SQLite database file. The special value `:memory:`
-   * opens an in-process database (tests); a file path is created (with parent
-   * dirs) on construction.
+   * opens an in-process database (tests). Missing directories and the database
+   * are created with owner-only permissions; existing path modes are preserved.
    */
   path: string
   /**
@@ -627,7 +627,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:38`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:48`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-query`
 
