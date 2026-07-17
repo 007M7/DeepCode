@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { type SessionEvent } from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import { CallId } from '@deepseek-ai/dsh-llm'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as RepeatToolGuard from '@deepseek-ai/dsh-repeat-tool-guard'
 import type { Config } from '@deepseek-ai/dsh-repeat-tool-guard'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -21,11 +21,7 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
 /** Boot the core spine + the guard; the caller registers adapters and extra listeners. */
 async function harness(config: Config = {}): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(RepeatToolGuard, config)
   ctx.tools.register(defineTool({ name: 'probe', description: 'p', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
@@ -309,7 +305,7 @@ describe('fold onto the downstream decision', () => {
     ctx.on('tools/post-execute', async () => ({
       kind: 'block' as const,
       feedback: [{ type: 'text' as const, text: 'nope' }],
-      additionalContext: { content: [{ type: 'text' as const, text: 'downstream-ctx' }], source: { kind: 'plugin' as const, plugin: 'test' } },
+      additionalContexts: [{ content: [{ type: 'text' as const, text: 'downstream-ctx' }], source: { kind: 'plugin' as const, plugin: 'test' } }],
     }))
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'probe', { q: 1 }),
@@ -322,14 +318,14 @@ describe('fold onto the downstream decision', () => {
     await waitForIdle(ctx, agent)
 
     const found = reminders(agent)
-    expect(found).toHaveLength(2)
+    expect(found).toHaveLength(3)
     // Call 1: below threshold — the downstream context passes through untouched.
     expect(found[0]!.text).toBe('downstream-ctx')
     expect(found[0]!.source).toEqual({ kind: 'plugin', plugin: 'test' })
-    // Call 2: reminder folded in front, single merged context, the guard's source.
+    // Call 2: reminder and downstream context retain separate provenance.
     expect(found[1]!.text).toContain('repeating the exact same tool call')
-    expect(found[1]!.text).toContain('|downstream-ctx')
     expect(found[1]!.source).toEqual(GUARD_SOURCE)
+    expect(found[2]).toEqual({ text: 'downstream-ctx', source: { kind: 'plugin', plugin: 'test' } })
     // The block's feedback reached the tool result unchanged.
     const results = [...agent.session.events].filter((e): e is SessionEvent<'tool/result'> => e.type === 'tool/result')
     expect(results.every(r => r.data.isError)).toBe(true)
@@ -363,11 +359,7 @@ describe('fold onto the downstream decision', () => {
 describe('config validation fails loud', () => {
   async function spine(): Promise<Context> {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(AgentRegistry)
+    await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
     return ctx
   }

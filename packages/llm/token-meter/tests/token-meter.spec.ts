@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, canonicalHeader } from '@deepseek-ai/dsh-session'
-import type { EpochHeader } from '@deepseek-ai/dsh-session'
+import type { EpochHeader, SessionEvent } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { TokenMeasurement, TokenMeterConfig } from '@deepseek-ai/dsh-token-meter'
 
@@ -17,6 +17,12 @@ function textMessage(text: string, role: Message['role'] = 'user'): Message {
 
 function appendHeader(session: Session, value: EpochHeader): void {
   session.append('request/header', { header: value, reason: 'initial' })
+}
+
+/** Inject malformed persisted history after the live append boundary for defensive replay tests. */
+function appendUnchecked(session: Session, event: SessionEvent): void {
+  const log = (session as unknown as { log: SessionEvent[] }).log
+  log.push(event)
 }
 
 interface SuccessfulCallOptions {
@@ -534,23 +540,37 @@ describe('malformed replay and listener lifecycle', () => {
       step: 1,
       chunk: { type: 'finish', reason: { kind: 'stop' } },
     }).seq
-    duplicate.append('assistant/message', {
-      turn: 1,
-      step: 1,
-      content: [],
-      usage: { inputTokens: 1, outputTokens: 0 },
-    }, { surfaceOp: 'append', sourceEventSeqs: [source, source] })
+    appendUnchecked(duplicate, {
+      type: 'assistant/message',
+      seq: duplicate.seq,
+      time: 0,
+      data: {
+        turn: 1,
+        step: 1,
+        content: [],
+        usage: { inputTokens: 1, outputTokens: 0 },
+      },
+      surfaceOp: 'append',
+      sourceEventSeqs: [source, source],
+    })
     expect(() => meter().measure(duplicate)).toThrow(/repeats source seq/)
 
     const future = new Session(SessionId('future-source'))
     future.append('step/start', { turn: 1, step: 1 })
     appendHeader(future, header('deepseek-v4-flash'))
-    future.append('assistant/message', {
-      turn: 1,
-      step: 1,
-      content: [],
-      usage: { inputTokens: 1, outputTokens: 0 },
-    }, { surfaceOp: 'append', sourceEventSeqs: [99] })
+    appendUnchecked(future, {
+      type: 'assistant/message',
+      seq: future.seq,
+      time: 0,
+      data: {
+        turn: 1,
+        step: 1,
+        content: [],
+        usage: { inputTokens: 1, outputTokens: 0 },
+      },
+      surfaceOp: 'append',
+      sourceEventSeqs: [99],
+    })
     expect(() => meter().measure(future)).toThrow(/is not earlier/)
   })
 
@@ -576,14 +596,21 @@ describe('malformed replay and listener lifecycle', () => {
 
   it('rejects corrupt replacement ranges without advancing the replay cursor', () => {
     const session = new Session(SessionId('bad-replace'))
-    session.append('user/message', {
+    const head = session.append('user/message', {
       content: [{ type: 'text', text: 'head' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
-    session.append('user/message', {
-      content: [{ type: 'text', text: 'bad' }],
-      source: { kind: 'user' },
-    }, { surfaceOp: { op: 'replace', start: 99, end: 99 }, sourceEventSeqs: [0] })
+    }, { surfaceOp: 'append' }).seq
+    appendUnchecked(session, {
+      type: 'user/message',
+      seq: session.seq,
+      time: 0,
+      data: {
+        content: [{ type: 'text', text: 'bad' }],
+        source: { kind: 'user' },
+      },
+      surfaceOp: { op: 'replace', start: 99, end: 99 },
+      sourceEventSeqs: [head],
+    })
     expectRepeatedFailure(meter(), session, /invalid current range/)
   })
 

@@ -17,6 +17,7 @@ import z from 'schemastery'
 import type Schema from 'schemastery'
 import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
+import { resolveDshHome } from '@deepseek-ai/dsh-home'
 import {
   isSkillName,
   type SkillCandidate,
@@ -92,7 +93,7 @@ export class LocalSkillProvider implements SkillProvider {
   private readonly customSkillDirs: string[]
 
   constructor(private readonly ctx: Context, config: Config = {}) {
-    this.dshHome = resolve(config.dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh'))
+    this.dshHome = resolveDshHome(config.dshHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
   }

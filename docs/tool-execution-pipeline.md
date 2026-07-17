@@ -20,7 +20,7 @@ flowchart TD
   owned["Tool-owned session events<br/><code>todo/write</code>, <code>fs/observed</code>, <code>hook/invoked</code>, <code>hook/result</code>, <code>tool/code-dispatch</code>"]
   post["<code>tools/post-execute</code> waterfall<br/>accept, block, replace, add context"]
   final["<code>tools/result</code> synchronous notification<br/>frozen authoritative outcome"]
-  context["Buffered additionalContext<br/>context/message after all tool results"]
+  context["Buffered additionalContexts<br/>context/message after all tool results"]
   toolResult["Session event: <code>tool/result</code><br/>single model-facing outcome"]
   allResults["All calls in the step settled<br/>and tool/result events recorded"]
   presentResult["UI completed card<br/>presentResult(args, result)"]
@@ -48,6 +48,6 @@ flowchart TD
   allResults --> context
 ```
 
-Filesystem read-before-edit checks stay below `tool-fs` on `fs/*` events. Generic pre/post waterfalls host hooks and approval policy; `ctx.approval` resolves asks before monotonic guards, and owner policy that must not be reordered remains a registered guard. Around-dispatch concerns such as timeouts wrap `tools/execute`, while `tools/result` observes the immutable outcome after transforms, lossless-JSON validation, and outer error normalization. This lets hooks span tool families without coupling the tools to one policy service. Code Mode sends both the reserved `run_code` transport and its serialized sub-calls through the pipeline; sub-calls carry the parent token, log `tool/code-dispatch`, surface denials as binding rejections, and omit `additionalContext` to preserve call/result adjacency.
+Filesystem read-before-edit checks stay below `tool-fs` on `fs/*` events. Generic pre/post waterfalls host hooks and approval policy; `ctx.approval` resolves asks before monotonic guards, and owner policy that must not be reordered remains a registered guard. Around-dispatch concerns such as timeouts wrap `tools/execute`, while `tools/result` observes the immutable outcome after transforms, lossless-JSON validation, and outer error normalization. This lets hooks span tool families without coupling the tools to one policy service. Code Mode sends both the reserved `run_code` transport and its serialized sub-calls through the pipeline; sub-calls carry the parent token, log `tool/code-dispatch`, surface denials as binding rejections, and omit `additionalContexts` to preserve call/result adjacency.
 
 Maintenance mode: curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs.

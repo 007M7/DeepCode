@@ -1,7 +1,8 @@
 /**
  * JSONL durable session-persistence backend. It stores a header and contiguous
  * events in one append-only file per session, and delegates orchestration to
- * {@link PersistenceCoordinator}.
+ * {@link PersistenceCoordinator}. Its side-effect-free locator returns the
+ * absolute per-session log target before materialization.
  * @module @deepseek-ai/dsh-session-persistence-jsonl
  */
 
@@ -12,7 +13,7 @@ import { dirname, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
   SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type StoredPrefix,
+  type PersistenceBackend, type SessionLocation, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -67,6 +68,11 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   // extracting these trivial forwards would add an inheritance seam.
   /* jscpd:ignore-start */
   // --- SessionPersistence service surface (delegated to the coordinator) ---
+
+  /** Resolve the absolute target path without touching the filesystem. */
+  locate(meta: SessionHeader): SessionLocation {
+    return { kind: 'jsonl', path: logPath(this.root, meta.cwd, meta.id) }
+  }
 
   create(meta: SessionHeader): Promise<void> {
     return this.coordinator.create(meta)
