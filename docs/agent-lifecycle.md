@@ -34,8 +34,8 @@ sequenceDiagram
   Session-->>SDK: <code>session/event</code> <code>assistant/chunk</code>*
   Driver->>Hooks: <code>agent/step-result</code> waterfall
   Driver->>Session: <code>assistant/message</code>
-  Driver->>Tools: group calls by executionMode
-  loop bounded rolling pool until group drains
+  Driver->>Tools: classify next call by executionMode
+  loop bounded rolling pool with reclassification before replenishing
     opt capacity available for an unstarted call
       Driver->>Session: <code>tool/call</code> pending audit
       Driver->>Tools: ordered pre / pooled dispatch

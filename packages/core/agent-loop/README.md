@@ -53,7 +53,7 @@ The driver owns one agent for its lifetime. It records turn, step, request, stre
 
 Plugin failure ends the current turn, not the loop. Cancellation clears pending work and aborts the current step without leaking to the next prompt. Terminal continuation stops remain authoritative through turn close and durability flush.
 
-Within a step, consecutive parallel-safe calls form a rolling-pool group; exclusive calls are ordering barriers. Only dispatch/body overlaps. Pre/post policy, durable results, and additional context remain in model order. Abort stops replenishment, drains started calls, drops their buffered context, and ends the turn through the normal abort path.
+Within a step, consecutive parallel-safe calls form a rolling-pool group; exclusive calls are ordering barriers. The scheduler reclassifies pending calls after each barrier and before replenishing the pool, so a live tool-registry change applies before the next call starts. Only dispatch/body overlaps. Pre/post policy, durable results, and additional context remain in model order. Abort stops replenishment, drains started calls, drops their buffered context, and ends the turn through the normal abort path.
 
 ### What belongs to plugins
 

@@ -24,7 +24,7 @@ A tagged mode, rather than a public boolean scheduler API, leaves room for a fut
 
 ## Scheduling and ordering
 
-The loop waits for the complete assistant message, parses every call once, creates a distinct `ToolExecution` for each call, and scans them in model order. Consecutive parallel calls form one group; every exclusive call forms a singleton group and an ordering barrier. Groups execute sequentially.
+The loop waits for the complete assistant message, parses every call once, creates a distinct `ToolExecution` for each call, and scans them in model order. Consecutive parallel calls form one group; every exclusive call forms a singleton group and an ordering barrier. Groups execute sequentially. Classification is lazy: the scheduler resolves the next call after each barrier and reclassifies every later call before replenishing a parallel pool. If a registry mutation makes that call exclusive, the current pool drains before the call starts as the next barrier.
 
 For example:
 
@@ -64,7 +64,7 @@ Filesystem read relies on a narrow recorder exception: its synchronous observati
 
 ## Verification
 
-Unit coverage pins fail-closed classification, typed argument validation, grouping, barriers, the rolling cap, distinct execution objects, middleware order, ordered results and context, and abort draining. First-party tests pin each parallel declaration.
+Unit coverage pins fail-closed classification, typed argument validation, grouping, barriers, live reclassification after registry replacement, the rolling cap, distinct execution objects, middleware order, ordered results and context, and abort draining. First-party tests pin each parallel declaration.
 
 Snapshot coverage pins the visible multi-call transcript: pending calls may overlap while completed results remain model-ordered. Code Mode coverage pins its serial boundary. No provider-backed e2e is required because scheduling is deterministic loop behavior.
 
@@ -98,4 +98,4 @@ Ordered commits may hold a fast result behind a slow earlier sibling. This prese
 
 Concurrent external calls can compete for quota or process capacity. Providers own their capacity controls; the loop cap only limits calls from one agent step.
 
-Tool registration is a scheduling boundary. The scheduler currently plans all groups before dispatch, so an earlier registry mutation can make a later classification stale. Binding dispatch to the classified definition or reclassifying after exclusive barriers remains a named correctness gap.
+Tool registration is a scheduling boundary. Registry mutations affect not-yet-started calls because the scheduler reclassifies after each barrier and before every pool replenishment. Already-started calls retain the scheduling decision under which they entered the pool.

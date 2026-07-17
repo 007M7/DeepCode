@@ -1,9 +1,10 @@
 /**
- * The per-step tool-call scheduler (`tool-calls.ts`): grouping by
+ * The per-step tool-call scheduler (`tool-calls.ts`): live classification by
  * `ctx.tools.executionMode`, the rolling pool for parallel groups, model-order
- * `tool/result` commit despite out-of-order settlement, interleaved `tool/call`
- * audit records, ordered `tools/pre-execute`/`tools/post-execute`,
- * model-ordered `additionalContext`, and abort behavior.
+ * `tool/result` commit despite out-of-order settlement, registry-change
+ * reclassification, interleaved `tool/call` audit records, ordered
+ * `tools/pre-execute`/`tools/post-execute`, model-ordered `additionalContext`,
+ * and abort behavior.
  *
  * Tools are mocked and deterministic — no real API, no snapshot here (the
  * transcript-facing live-order behavior is pinned by the ACP snapshot goldens).
@@ -63,15 +64,15 @@ function multiCall(calls: { id: string; name: string; args: object }[]): StreamC
   return chunks
 }
 
-/** A parallel-safe tool whose calls block until the test releases them by callId. */
-function gatedParallelTool(name: string) {
+/** A tool whose calls block until the test releases them by callId. */
+function gatedTool(name: string, parallel: boolean) {
   const gates = new Map<string, () => void>()
   const started: string[] = []
   const tool = defineTool({
     name,
     description: `gated ${name}`,
     parameters: { id: { type: 'string', required: true } },
-    isConcurrencySafe: () => true,
+    ...parallel ? { isConcurrencySafe: () => true } : {},
     async execute(args) {
       started.push(args.id)
       await new Promise<void>((resolve) => { gates.set(args.id, resolve) })
@@ -85,6 +86,16 @@ function gatedParallelTool(name: string) {
     release(id: string) { gates.get(id)?.(); gates.delete(id) },
     pending() { return [...gates.keys()] },
   }
+}
+
+/** A parallel-safe gated tool. */
+function gatedParallelTool(name: string) {
+  return gatedTool(name, true)
+}
+
+/** An exclusive gated tool. */
+function gatedExclusiveTool(name: string) {
+  return gatedTool(name, false)
 }
 
 /** Poll until `predicate` holds, letting microtasks/timers drain between checks. */
@@ -141,6 +152,81 @@ describe('tool-call scheduler: grouping and barriers', () => {
 
     // The write ran strictly between the two reads (barrier ordering).
     expect(order).toEqual(['r-start-A1', 'r-end-A1', 'w-A2', 'r-start-A3', 'r-end-A3'])
+  })
+
+  it('reclassifies pending calls after an exclusive barrier replaces their tool', async () => {
+    const adapter = new MockAdapter([
+      multiCall([
+        { id: 'c1', name: 'replace', args: { id: '0' } },
+        { id: 'c2', name: 'x', args: { id: '1' } },
+        { id: 'c3', name: 'x', args: { id: '2' } },
+      ]),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    const replacement = gatedExclusiveTool('x')
+    const disposeSafe = ctx.tools.register(defineTool({
+      name: 'x',
+      description: 'initially safe',
+      parameters: { id: { type: 'string', required: true } },
+      isConcurrencySafe: () => true,
+      async execute(args) { return [{ type: 'text', text: `old-${args.id}` }] },
+    }))
+    ctx.tools.register(defineTool({
+      name: 'replace',
+      description: 'replace x',
+      parameters: { id: { type: 'string', required: true } },
+      async execute() {
+        disposeSafe()
+        ctx.tools.register(replacement.tool)
+        return [{ type: 'text', text: 'replaced' }]
+      },
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    agent.send([{ type: 'text', text: 'go' }])
+    await until(() => replacement.started.length === 1)
+    await new Promise(r => setTimeout(r, 5))
+    expect(replacement.started).toEqual(['1'])
+    replacement.release('1')
+    await until(() => replacement.started.length === 2)
+    expect(replacement.started).toEqual(['1', '2'])
+    replacement.release('2')
+    await waitForIdle(ctx, agent)
+  })
+
+  it('stops replenishing when a result observer makes the next call exclusive', async () => {
+    const adapter = new MockAdapter([
+      multiCall([
+        { id: 'c1', name: 'x', args: { id: '1' } },
+        { id: 'c2', name: 'x', args: { id: '2' } },
+        { id: 'c3', name: 'x', args: { id: '3' } },
+      ]),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter, 2)
+    const initial = gatedParallelTool('x')
+    const replacement = gatedExclusiveTool('x')
+    const disposeInitial = ctx.tools.register(initial.tool)
+    ctx.on('tools/result', (exec) => {
+      if (exec.callId !== CallId('c1')) return
+      disposeInitial()
+      ctx.tools.register(replacement.tool)
+    })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    agent.send([{ type: 'text', text: 'go' }])
+    await until(() => initial.started.length === 2)
+    initial.release('1')
+    await until(() => events(agent).some(event =>
+      event.type === 'tool/result' && event.data.callId === CallId('c1')))
+    await new Promise(r => setTimeout(r, 5))
+    expect(replacement.started).toEqual([])
+    initial.release('2')
+    await until(() => replacement.started.length === 1)
+    expect(replacement.started).toEqual(['3'])
+    replacement.release('3')
+    await waitForIdle(ctx, agent)
   })
 })
 

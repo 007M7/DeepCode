@@ -1,11 +1,12 @@
 /**
  * The agent loop's per-step tool-call scheduler. `runStep` (loop.ts) hands it
  * the assistant message's `tool-call` blocks; this module parses each call's
- * arguments once, classifies it via `ctx.tools.executionMode`, partitions the
- * calls into ordered groups (one exclusive call, or a run of consecutive
- * parallel-safe calls), and runs every group through the same rolling pool
- * bounded by the agent-loop's `maxParallelToolCalls` config — an exclusive
- * group is a pool of one.
+ * arguments once, classifies pending calls via `ctx.tools.executionMode`, and
+ * runs ordered groups through a rolling pool bounded by the agent-loop's
+ * `maxParallelToolCalls` config. Exclusive calls are singleton barriers. A
+ * parallel group reclassifies each later call before it starts, so registry
+ * changes during an earlier barrier or ordered result commit take effect before
+ * the pool replenishes.
  *
  * The session log stays the source of truth and is reconstructable regardless
  * of dispatch timing: each STARTED call appends its own `tool/call` before its
@@ -23,7 +24,7 @@ import type { Context } from 'cordis'
 import { assertNever, type ToolCallBlock } from '@deepseek-ai/dsh-llm'
 import type { HookContext } from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { TOOL_REGISTRY_SCHEDULER, type ToolExecution, type ToolExecutionInput, type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import { TOOL_REGISTRY_SCHEDULER, type ToolExecution, type ToolExecutionInput, type ToolExecutionMode, type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ReactLoopAgent } from './agent.ts'
 
 /** One tool call after argument parsing, ready to schedule. */
@@ -89,19 +90,17 @@ export async function executeToolCalls(
     },
   }))
 
-  // Partition into ordered groups: an exclusive call is its own group (a
-  // barrier), a run of consecutive parallel-safe calls is one group. Grouping
-  // uses executionMode so an exclusive tool between two reads splits them into
-  // separate ordered groups (no read/write race inside one assistant step).
-  const groups = groupByMode(ctx, planned)
-
-  // Every group runs through the same rolling pool: an exclusive call is a
-  // singleton group (pool of one, a barrier), a parallel-safe run is one group
-  // bounded by the cap. `groupByMode` already classified each call, so the loop
-  // does not re-query `executionMode` here.
   const pendingContext: HookContext[] = []
-  for (const group of groups) {
-    await runGroup(ctx, session, turn, step, group, signal, maxParallel, pendingContext)
+  let next = 0
+  while (next < planned.length) {
+    // Classify the next group only after the previous one has fully committed.
+    // A registry mutation in an exclusive call or result observer therefore
+    // changes how every not-yet-started call is scheduled.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded by the loop condition
+    const first = planned[next]!
+    const mode = ctx.tools.executionMode(first.exec).kind
+    const group = mode === 'parallel' ? planned.slice(next) : [first]
+    next += await runGroup(ctx, session, turn, step, group, mode, signal, maxParallel, pendingContext)
   }
   return pendingContext
 }
@@ -116,40 +115,14 @@ function parseArguments(raw: string): unknown {
 }
 
 /**
- * Group planned calls into ordered runs: each exclusive call is a singleton
- * group; consecutive parallel-safe calls coalesce into one group. `executionMode`
- * is the sole classification point — the caller runs every group through the
- * rolling pool without re-querying it. The read is pure and cheap.
- */
-function groupByMode(ctx: Context, planned: PlannedCall[]): PlannedCall[][] {
-  const groups: PlannedCall[][] = []
-  let run: PlannedCall[] = []
-  const flush = (): void => {
-    if (run.length > 0) {
-      groups.push(run)
-      run = []
-    }
-  }
-  for (const call of planned) {
-    if (ctx.tools.executionMode(call.exec).kind === 'parallel') {
-      run.push(call)
-    } else {
-      flush()
-      groups.push([call])
-    }
-  }
-  flush()
-  return groups
-}
-
-/**
  * The rolling-pool path for one ordered group. A singleton exclusive group runs
- * as a pool of one (a barrier); a parallel-safe run starts calls in model order
- * up to `maxParallel`, and whenever one settles starts the next unstarted call
- * until the group is exhausted. Settled dispatches land in model-order slots; a
- * commit cursor appends `tool/result` (and collects `additionalContext`) only
- * while the next slot is ready, so the log stays model-ordered regardless of
- * completion order.
+ * as a pool of one (a barrier). A parallel-safe run starts calls in model order
+ * up to `maxParallel`; before each later call starts, the scheduler reclassifies
+ * it against the live registry. An exclusive result stops replenishment, drains
+ * the current run, and remains for the caller's next singleton group. Settled
+ * dispatches land in model-order slots; a commit cursor appends `tool/result`
+ * (and collects `additionalContext`) only while the next slot is ready, so the
+ * log stays model-ordered regardless of completion order.
  *
  * Abort: an already-aborted signal starts nothing and throws before any
  * `tool/call`. An abort mid-group stops replenishment, awaits only the started
@@ -161,10 +134,11 @@ async function runGroup(
   turn: number,
   step: number,
   group: PlannedCall[],
+  mode: ToolExecutionMode['kind'],
   signal: AbortSignal,
   maxParallel: number,
   pendingContext: HookContext[],
-): Promise<void> {
+): Promise<number> {
   /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
   if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
   const slots: (Slot | undefined)[] = group.map(() => undefined)
@@ -227,6 +201,13 @@ async function runGroup(
 
   const fillPool = async (): Promise<void> => {
     while (!aborted && nextToStart < group.length && inFlight.size < maxParallel) {
+      // The caller classified the first item immediately before entering this
+      // group. Re-read every later item after ordered commits so a live registry
+      // change can turn it into the next barrier.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded by the loop condition
+      const nextCall = group[nextToStart]!
+      if (nextToStart > 0 && mode === 'parallel'
+        && ctx.tools.executionMode(nextCall.exec).kind !== 'parallel') break
       await startCall(nextToStart)
       nextToStart++
       await commitReady()
@@ -259,10 +240,11 @@ async function runGroup(
     /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
     throw new Error(String(signal.reason ?? 'aborted'))
   }
-  // A defensive check the started count matches what we committed — a parallel
-  // group with no abort commits every started slot, and started === group.length.
-  /* v8 ignore next -- unreachable: a non-aborted group starts and commits all calls */
+  // A defensive check that every started call committed before this group
+  // returns; a reclassified barrier may leave the rest of `group` unstarted.
+  /* v8 ignore next -- unreachable: a non-aborted group commits every started call */
   if (committed !== started) throw new Error('tool-call scheduler: uncommitted settled calls')
+  return started
 }
 
 /** Append the `tool/call` audit event for one started call; returns its seq (the tool/result's provenance). */
