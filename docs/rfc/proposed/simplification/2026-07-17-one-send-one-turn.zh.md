@@ -1,0 +1,36 @@
+# RFC: 让每次普通 send 独占一个轮次
+
+Status: proposed
+
+[English](2026-07-17-one-send-one-turn.md) | 中文
+
+## 问题
+
+`Agent.send()` 会为一条普通消息创建快照，并将其追加到 FIFO，但 agent loop（智能体循环）会把所有等待中的普通消息一起取出并放入同一个轮次。相邻 send 是否共享轮次取决于 driver 何时恰好出队：即使调用方使用相同 API，来自同一个同步调用栈、相邻微任务、事件 listener 和模型 callback 的调用也可能产生不同分组。
+
+共享轮次也会共享 prompt admission、`turn/start`、`turn/end` 和持久性检查点。因此，后一条消息可能加入前一条消息的模型请求，而不能观察前一轮次已经提交的结果。allowed 与 blocked prompt 混合批次的分支引入了调用方从未显式请求的生命周期状态。
+
+`steer()` 已经用于表达加入当前 active turn，`inject()` 则记录面向模型的上下文而不充当普通消息。隐式批处理让 `send()` 与这两种显式操作产生语义重叠，无法保持单一含义。
+
+## 提案
+
+Inbox 在每次轮次开始时最多取出一条普通消息。成功的 `send()` 仍为同步调用：它会校验 agent 状态、创建并冻结内容快照、追加一个 FIFO item，然后发布 `agent/queued`。如果两个 item 都被认领，第二个轮次只能在第一个轮次结束且其持久性检查点完成后开始；在轮次开始前被丢弃的 item 不会创建空轮次。
+
+Prompt admission 将只处理一条消息。allowed prompt 会成为该轮次的 `user/message`；blocked prompt 会让该轮次以 `rejected` 结束。mixed-batch 和 all-blocked-batch 分支将被删除。
+
+运行中的 `steer()` 仍会追加到 active turn 的 steering FIFO。空闲时的 `steer()` 仍会委托给 `send()`，因此会创建一个独立的普通轮次。`inject()` 保持现有的轮次封闭与 flush 行为。`cancel()`、`status` 和 `whenIdle()` 仍是面向整个 agent 的操作，不变成逐消息控制。
+
+## 曾考虑的替代方案
+
+**为吞吐量保留机会式批处理。** 当 producer 速度快于 driver 时，合并排队的 prompt 可以减少模型调用，但会让轮次边界取决于调度，并使后一条消息无法可靠观察前一轮次的持久化结果。额外模型调用的代价低于显式生命周期语义的价值；未来若根据测量结果重新引入批处理，必须提供调用方可见的显式契约。
+
+## 验收标准
+
+- 相邻两次成功 send 始终是两个独立 FIFO item；如果两者都被认领，则形成两个轮次，并由第一个轮次的持久性检查点隔开。
+- 出队时机，以及 queued listener、session listener 和模型 callback 中的重入 send，都不能改变一条消息对应一个轮次的边界。
+- Prompt veto、取消、dispose 和 turn-start failure 不能合并消息，也不能让 agent 永久停留在 running 状态。
+- 运行中与空闲时的 `steer()`、`inject()`、面向整个 agent 的 status 和 `whenIdle()` 保持文档中的含义。
+
+## 风险
+
+依赖偶然批处理的工作负载会产生更多模型请求，队列清空时间也可能延长。持续 producer 还可能让 FIFO 队列增长。本提案接受这些成本，因为公共 `send()` 边界会变得确定；只有建立显式且经过测量的契约后，才能重新引入吞吐量优化。
