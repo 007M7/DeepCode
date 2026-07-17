@@ -50,6 +50,11 @@ const GITHUB = 'https://github.com/deepseek-harness/deepseek-harness/blob/master
 /** Signature-fence info string (skipped by doc-typecheck, highlighted as ts). */
 const FENCE = 'ts website-api'
 
+/** Return sorted repository-relative glob matches with stable URL separators. */
+function repoGlob(pattern: string): string[] {
+  return globSync(pattern, { cwd: root }).map(rel => rel.replaceAll('\\', '/')).sort()
+}
+
 /** One rendered member: a method/property plus its parsed JSDoc. */
 interface MemberDoc {
   /** Display name, e.g. `on` or `agent/pre-step`. */
@@ -439,7 +444,7 @@ interface HarnessService {
 /** Walk every harness `declare module 'cordis'` Context merge → services. */
 function collectHarnessServices(violations: string[]): HarnessService[] {
   const services: HarnessService[] = []
-  for (const rel of globSync('packages/*/*/src/index.ts', { cwd: root }).sort()) {
+  for (const rel of repoGlob('packages/*/*/src/index.ts')) {
     const { sf, text } = load(rel)
     if (!text.includes('interface Context')) continue
     const body = cordisModuleBody(sf)
@@ -483,7 +488,7 @@ interface HarnessEvent {
 /** Walk every harness `interface Events` merge → events. */
 function collectHarnessEvents(violations: string[]): HarnessEvent[] {
   const events: HarnessEvent[] = []
-  for (const rel of globSync('packages/*/*/src/*.ts', { cwd: root }).sort()) {
+  for (const rel of repoGlob('packages/*/*/src/*.ts')) {
     const { sf, text } = load(rel)
     if (!text.includes('interface Events')) continue
     const body = cordisModuleBody(sf)
@@ -675,7 +680,7 @@ function main(): void {
   const expected = new Set([...files.keys()])
   // Orphans live in the generated subdirs only; the hand-written api/index.md
   // is one level up and never matches this glob.
-  const onDisk = globSync(`${PAGES_DIR}/{cordis,harness}/*.md`, { cwd: root }).sort()
+  const onDisk = repoGlob(`${PAGES_DIR}/{cordis,harness}/*.md`)
   const orphans = onDisk.filter(rel => !expected.has(rel))
 
   if (check) {
