@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -16,17 +20,24 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
  * (tool/call + tool/result session events, the generic `ctx.tasks` runtime,
  * agent.inject completion notices).
  */
-async function harness(adapter: MockAdapter) {
+async function harness(adapter: MockAdapter, sessionRoot?: string, dshHome?: string) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
+  if (sessionRoot !== undefined) await ctx.plugin(SessionPersistenceJsonl, { root: sessionRoot })
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(TaskService)
   await ctx.plugin(ToolTasks)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-  await ctx.plugin(ToolBash)
+  await ctx.plugin(ToolBash, dshHome === undefined ? {} : { dshHome })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
+
+const dirs: string[] = []
+afterEach(() => {
+  vi.unstubAllEnvs()
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
 
 function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   return new Promise((resolve) => {
@@ -75,6 +86,39 @@ async function pollUntil(predicate: () => boolean, timeoutMs = 5_000): Promise<v
 }
 
 describe('bash tool through the agent loop', () => {
+  it('first-turn bash receives session identity before the lazy JSONL file materializes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-bash-session-env-'))
+    dirs.push(root)
+    const dshHome = join(root, 'dsh-home')
+    vi.stubEnv('DSH_STALE_PARENT', 'stale')
+    const adapter = new MockAdapter([
+      toolCallResponse('call-1', 'bash', {
+        command: 'printf \'%s\\n%s\\n%s\\n%s\\n%s\\n\' "$DSH_HOME" "$DSH_SHELL" "$DSH_SESSION_ID" "$DSH_SESSION_JSONL" "${DSH_STALE_PARENT-unset}"; if [ -e "$DSH_SESSION_JSONL" ]; then printf \'present\\n\'; else printf \'absent\\n\'; fi',
+        description: 'inspect session environment',
+      }),
+      textResponse('Session environment inspected.'),
+    ])
+    const ctx = await harness(adapter, root, dshHome)
+    const handle = await ctx.agents.create({
+      agentId: AgentId('session-env'),
+      sessionId: SessionId('session-env-id'),
+      agentOptions: { model: 'mock' },
+    })
+    const agent = handle.agent as ReactLoopAgent
+    const location = ctx.sessionPersistence.locate(agent.session.header)
+    expect(location?.kind).toBe('jsonl')
+
+    agent.send([{ type: 'text', text: 'inspect the current session' }])
+    await waitForIdle(ctx, agent)
+
+    const result = findEvent(events(agent), 'tool/result')
+    expect(resultText(result)).toBe(`${dshHome}\n1\nsession-env-id\n${location?.path}\nunset\nabsent\n`)
+    expect(existsSync(location!.path)).toBe(true)
+    const header = JSON.parse(readFileSync(location!.path, 'utf8').split('\n')[0]!) as { type: string; id: string }
+    expect(header).toMatchObject({ type: 'session', id: 'session-env-id' })
+    await handle.dispose()
+  })
+
   it('foreground: model calls bash, sees the result, replies', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('call-1', 'bash', { command: 'echo integration-ok', description: 'test command' }, 'Running it.'),

@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import type { DshEnvironment } from '@deepseek-ai/dsh-bash'
 import { killGroup, OutputCollector, runBash } from '../src/run.ts'
 import type { RunningBash } from '../src/run.ts'
 
@@ -198,19 +199,19 @@ describe('stdin and extra env (set by in-process plugins)', () => {
     expect(piped.stdout.text).toBe('socket\n')
   })
 
-  it('merges extra env entries onto the scrubbed environment', async () => {
-    const result = await runBash(spec('echo "$DSH_EXTRA_ONE/$DSH_EXTRA_TWO"', {
-      env: { DSH_EXTRA_ONE: 'alpha', DSH_EXTRA_TWO: 'beta' },
+  it('merges ordinary extra env entries onto the scrubbed environment', async () => {
+    const result = await runBash(spec('echo "$EXTRA_ONE/$EXTRA_TWO"', {
+      env: { EXTRA_ONE: 'alpha', EXTRA_TWO: 'beta' },
     })).done
     expect(result.stdout.text).toBe('alpha/beta\n')
   })
 
   it('an explicit extra env entry overrides the model-friendly override and the scrub', async () => {
     // TERM is a model-friendly OVERRIDE (dumb); an explicit extra entry wins.
-    // DSH_OVERRIDE_KEY matches the credential scrub pattern, yet an explicit
+    // EXPLICIT_OVERRIDE_KEY matches the credential scrub pattern, yet an explicit
     // entry is still honored — the scrub only drops AMBIENT process.env creds.
-    const result = await runBash(spec('echo "$TERM/$DSH_OVERRIDE_KEY"', {
-      env: { TERM: 'xterm-256color', DSH_OVERRIDE_KEY: 'explicit-wins' },
+    const result = await runBash(spec('echo "$TERM/$EXPLICIT_OVERRIDE_KEY"', {
+      env: { TERM: 'xterm-256color', EXPLICIT_OVERRIDE_KEY: 'explicit-wins' },
     })).done
     expect(result.stdout.text).toBe('xterm-256color/explicit-wins\n')
   })
@@ -363,18 +364,41 @@ describe('abort edge cases', () => {
 })
 
 describe('environment and spill-file hardening', () => {
-  it('scrubs credential-shaped env vars from child processes', async () => {
+  it('scrubs credential-shaped and ambient DSH env vars from child processes', async () => {
     process.env.DSH_TEST_API_KEY = 'super-secret'
     process.env.DSH_TEST_TOKEN = 'also-secret'
     process.env.DSH_TEST_PLAIN = 'visible'
     try {
       const result = await runBash(spec('echo "[${DSH_TEST_API_KEY:-absent}|${DSH_TEST_TOKEN:-absent}|${DSH_TEST_PLAIN:-absent}]"')).done
-      expect(result.stdout.text.trim()).toBe('[absent|absent|visible]')
+      expect(result.stdout.text.trim()).toBe('[absent|absent|absent]')
     } finally {
       delete process.env.DSH_TEST_API_KEY
       delete process.env.DSH_TEST_TOKEN
       delete process.env.DSH_TEST_PLAIN
     }
+  })
+
+  it('injects only the current trusted DSH environment after scrubbing ambient values', async () => {
+    process.env.DSH_STALE = 'old-value'
+    try {
+      const result = await runBash(spec('echo "[${DSH_STALE:-absent}|$DSH_SHELL|$DSH_SESSION_ID]"', {
+        dshEnv: { DSH_SHELL: '1', DSH_SESSION_ID: 'current-session' },
+      })).done
+      expect(result.stdout.text.trim()).toBe('[absent|1|current-session]')
+    } finally {
+      delete process.env.DSH_STALE
+    }
+  })
+
+  it('rejects DSH variables on the ordinary env channel', () => {
+    expect(() => runBash(spec('true', { env: { DSH_WRONG_CHANNEL: 'bad' } })))
+      .toThrow(/DSH_WRONG_CHANNEL.*dshEnv/)
+  })
+
+  it('rejects ordinary variables on the managed env channel', () => {
+    const invalid = { PATH: '/wrong-channel' } as unknown as DshEnvironment
+    expect(() => runBash(spec('true', { dshEnv: invalid })))
+      .toThrow(/managed bash env.*PATH.*use env/)
   })
 
   it('creates spill files with owner-only permissions and random names', async () => {

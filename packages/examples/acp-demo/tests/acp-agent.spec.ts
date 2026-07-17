@@ -118,8 +118,9 @@ describe('dsh-acp-demo composition', () => {
     })
   })
 
-  it('forwards skill config into agent-spine-demo', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6), workspaceContext: false })
+  it('forwards skill config and dshHome into agent-spine-demo', async () => {
+    const skills = await isolatedSkillsConfig(6)
+    const ctx = await mount({ model: 'mock', persona: 'hi', dshHome: skills.local!.dshHome!, skills, workspaceContext: false })
     ctx.skills.register({ name: 'acp-skill', description: 'ACP skill', source: 'runtime', content: 'body' })
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `acp-skill`: ACP...')
     await ctx.fiber.dispose()

@@ -47,6 +47,7 @@
 
     { "doc": "docs/core-data-structures/persistence.md", "symbol": "SessionHeader", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/persistence.md", "symbol": "CreateSessionOptions", "source": "packages/core/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/persistence.md", "symbol": "SessionLocation", "source": "packages/session-persistence/session-persistence/src/index.ts" },
 
     { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventSurface", "source": "packages/session-query/session-query/src/types.ts" },
     { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionRecord", "source": "packages/session-query/session-query/src/types.ts" },
@@ -90,6 +91,8 @@
     { "doc": "docs/core-data-structures/approval.md", "symbol": "ApprovalPolicy", "source": "packages/ui/user-approval/src/index.ts" },
     { "doc": "docs/core-data-structures/approval.md", "symbol": "ApprovalRequest", "source": "packages/ui/user-approval/src/index.ts" },
 
+    { "doc": "docs/core-data-structures/bash.md", "symbol": "DshEnvironmentKey", "source": "packages/bash/bash/src/types.ts" },
+    { "doc": "docs/core-data-structures/bash.md", "symbol": "DshEnvironment", "source": "packages/bash/bash/src/types.ts" },
     { "doc": "docs/core-data-structures/bash.md", "symbol": "BashExecRequest", "source": "packages/bash/bash/src/types.ts" },
     { "doc": "docs/core-data-structures/bash.md", "symbol": "BashExecSpec", "source": "packages/bash/bash/src/types.ts" },
     { "doc": "docs/core-data-structures/bash.md", "symbol": "BashRunResult", "source": "packages/bash/bash/src/types.ts" },

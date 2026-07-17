@@ -101,7 +101,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Durable session persistence seam',
     mode: 'seam',
     implementations: ['session-persistence-jsonl', 'session-persistence-sqlite'],
-    consumers: ['agent-loop', 'acp', 'session-query'],
+    consumers: ['agent-loop', 'tool-bash', 'hooks-claude', 'hooks-codex', 'acp', 'session-query'],
     note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
   },
   {
@@ -169,6 +169,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['bash-local', 'bash-sandbox'],
     consumers: ['tool-bash', 'hooks-claude', 'hooks-codex'],
     note: 'The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors replace bash-local without touching them.',
+  },
+  {
+    key: 'bashEnv',
+    pkg: 'tool-bash',
+    title: 'Managed bash environment registry',
+    mode: 'core',
+    note: 'Plugins declare effect-scoped DSH_* facts; tool-bash collects one trusted snapshot per execution and the executor rebuilds the namespace.',
   },
   {
     key: 'sandbox',

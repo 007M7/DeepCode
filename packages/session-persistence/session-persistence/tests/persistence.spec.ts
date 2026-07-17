@@ -41,6 +41,10 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
 
   // --- service surface (delegated to the coordinator) ---
 
+  locate(_meta: SessionHeader): undefined {
+    return undefined
+  }
+
   create(m: SessionHeader): Promise<void> {
     return this.coordinator.create(m)
   }

@@ -11,6 +11,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { CallId, type Message } from '@deepseek-ai/dsh-llm'
+import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 
 declare module '@deepseek-ai/dsh-tasks' {
   interface TaskKindMap {
@@ -239,6 +240,39 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('shares top-level dshHome between local skills and the managed bash environment', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-agent-core-shared-home-'))
+    const agentsHome = await mkdtemp(join(tmpdir(), 'dsh-agent-core-shared-agents-'))
+    await mkdir(join(home, 'skills'), { recursive: true })
+    await writeFile(join(home, 'skills', 'shared-skill.md'), '---\nname: shared-skill\ndescription: Shared home skill\n---\n\nShared body.\n')
+
+    const ctx = await mount({
+      dshHome: home,
+      workspaceContext: false,
+      skills: { local: { agentsHome } },
+    }, true)
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['shared-skill'])
+    const execution: ToolExecution = {
+      token: Symbol('agent-core-dsh-home-test') as ToolExecution['token'],
+      callId: CallId('agent-core-dsh-home'),
+      name: 'bash',
+      arguments: { command: 'true' },
+    }
+    expect(ctx.bashEnv.collect(execution)).toMatchObject({ DSH_HOME: home, DSH_SHELL: '1' })
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects conflicting global and nested DSH home directories', () => {
+    expect(() => {
+      agentCore.apply(new Context(), {
+        dshHome: '/global-dsh-home',
+        workspaceContext: false,
+        skills: { local: { dshHome: '/nested-dsh-home' } },
+      })
+    }).toThrow(/must resolve to the same directory/)
+  })
+
   it('places workspace instructions before the skill catalog in the session prefix', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-prefix-order-'))
     try {
@@ -307,6 +341,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       persona: 'You are merged.',
       toolOrder: ['zulu'],
       tools: { mode: 'native' as const },
+      dshHome: '/tmp/dsh-home',
       workspaceContext: false as const,
       skills: {},
       toolBash: { enableRunInBackground: false },
@@ -317,6 +352,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       persona: appConfig.persona,
       toolOrder: appConfig.toolOrder,
       tools: appConfig.tools,
+      dshHome: appConfig.dshHome,
       workspaceContext: false,
       skills: {},
       toolBash: appConfig.toolBash,

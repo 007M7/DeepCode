@@ -100,10 +100,14 @@ export class LocalBashExecutor extends BashExecutor {
       timeoutMs,
       stdoutMaxBytes,
       ...request.signal ? { signal: request.signal } : {},
-      // Explicit environment values are merged after credential scrubbing in run.ts.
+      // Carry stdin/ordinary env/trusted dshEnv through verbatim — optional,
+      // no config default. run.ts owns the scrub and merge order.
       ...request.stdin !== undefined ? { stdin: request.stdin } : {},
       ...request.env !== undefined ? { env: request.env } : {},
-      // Local execution carries this override for sandboxing subclasses.
+      ...request.dshEnv !== undefined ? { dshEnv: request.dshEnv } : {},
+      // Carry a sandbox-mode override through verbatim: this executor never
+      // confines, so the field is inert here (the seam contract) — a
+      // sandboxing subclass overrides resolve() to stamp its default instead.
       sandboxMode: request.sandboxMode,
     }
   }
@@ -120,6 +124,7 @@ export class LocalBashExecutor extends BashExecutor {
       signal: d.signal,
       stdin: spec.stdin,
       env: spec.env,
+      dshEnv: spec.dshEnv,
     }, this.internals).done
     // Only this executor's timeout reason counts as timedOut; outer deadlines count as aborts.
     const timedOut = timeoutOf(d.signal, 'BASH_TIMEOUT') !== undefined
@@ -138,6 +143,7 @@ export class LocalBashExecutor extends BashExecutor {
       signal: spec.signal,
       stdin: spec.stdin,
       env: spec.env,
+      dshEnv: spec.dshEnv,
     }, this.internals)
 
     let stdoutOffset = 0
