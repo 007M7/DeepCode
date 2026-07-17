@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_DSH_HOME_DISPLAY,
@@ -28,7 +28,7 @@ describe('dsh path helpers', () => {
     const envHome = join(homedir(), 'env-dsh')
 
     expect(resolveDshHome(undefined, { DSH_HOME: '~/env-dsh' })).toBe(envHome)
-    expect(resolveDshHome('/tmp/explicit-dsh', { DSH_HOME: '~/env-dsh' })).toBe('/tmp/explicit-dsh')
+    expect(resolveDshHome('/tmp/explicit-dsh', { DSH_HOME: '~/env-dsh' })).toBe(resolve('/tmp/explicit-dsh'))
     expect(resolveDshHome(undefined, {})).toBe(defaultDshHome())
   })
 })

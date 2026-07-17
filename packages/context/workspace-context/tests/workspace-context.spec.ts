@@ -1,5 +1,5 @@
 import { chmod, mkdtemp, mkdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
@@ -61,7 +61,7 @@ class RecordingFileSystem extends FileSystem {
   override async resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget> {
     if (opts?.signal !== undefined) this.signals.push(opts.signal)
     opts?.signal?.throwIfAborted()
-    const absolute = join(opts?.cwd ?? '/', path)
+    const absolute = resolve(opts?.cwd ?? '/', path)
     return { targetKey: FsTargetKey(absolute), displayPath: absolute }
   }
 
@@ -277,8 +277,8 @@ describe('workspace context instruction discovery', () => {
       expect(files.map(file => file.displayPath)).toEqual([
         '$DSH_HOME/AGENTS.md',
         'AGENTS.md',
-        'packages/CLAUDE.md',
-        'packages/app/AGENTS.md',
+        join('packages', 'CLAUDE.md'),
+        join('packages', 'app', 'AGENTS.md'),
       ])
       expect(files.map(file => file.absolutePath)).not.toContain(join(root, 'CLAUDE.md'))
     } finally {
@@ -336,7 +336,7 @@ describe('workspace context instruction discovery', () => {
     }
   })
 
-  it('skips a file that becomes unreadable after discovery without failing the request', async () => {
+  it.skipIf(process.platform === 'win32')('skips a file that becomes unreadable after discovery without failing the request', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -932,7 +932,7 @@ describe('workspace context request injection', () => {
       await composeBaselinePrefix(ctx, agent)
 
       expect(derivedText(agent)).toContain('omitted AGENTS.md')
-      expect(derivedText(agent)).toContain('Instructions from: pkg/AGENTS.md\n\npackage rule')
+      expect(derivedText(agent)).toContain(`Instructions from: ${join('pkg', 'AGENTS.md')}\n\npackage rule`)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1398,7 +1398,7 @@ describe('workspace context request injection', () => {
       await composeBaselinePrefix(ctx, agent)
 
       expect(derivedText(agent)).toContain('Instructions from: AGENTS.md\n\nroot schema default rule')
-      expect(derivedText(agent)).toContain('Instructions from: child/AGENTS.md\n\nchild schema default rule')
+      expect(derivedText(agent)).toContain(`Instructions from: ${join('child', 'AGENTS.md')}\n\nchild schema default rule`)
       await ctx.fiber.dispose()
     } finally {
       await rm(root, { recursive: true, force: true })
@@ -1700,7 +1700,7 @@ describe('dynamic nested workspace context injection', () => {
         changes: [{
           action: 'set',
           scope: 'pkg',
-          path: 'pkg/AGENTS.md',
+          path: join('pkg', 'AGENTS.md'),
         }],
       })
       const meta = workspaceContextOf(result)?.meta
@@ -1714,7 +1714,7 @@ describe('dynamic nested workspace context injection', () => {
       const text = blocksText(workspaceContextOf(result)?.content)
       expect(text).toBe([
         '<system-reminder>',
-        'Additional instructions from: pkg/AGENTS.md',
+        `Additional instructions from: ${join('pkg', 'AGENTS.md')}`,
         '',
         'These instructions apply to work under `pkg`. Use them as guidance when relevant; more specific instructions take precedence. They do not override system, developer, or direct user instructions.',
         '',
@@ -1752,7 +1752,7 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       const text = blocksText(workspaceContextOf(result)?.content)
-      expect(text).toContain('Additional instructions from: pkg/CLAUDE.local.md')
+      expect(text).toContain(`Additional instructions from: ${join('pkg', 'CLAUDE.local.md')}`)
       expect(text).toContain('local package rule')
       expect(text).not.toContain('native package rule')
     } finally {
@@ -1922,11 +1922,11 @@ describe('dynamic nested workspace context injection', () => {
 
       expect(workspaceContextOf(changed)?.meta).toMatchObject({
         kind: 'workspace-instructions',
-        changes: [{ action: 'replace', scope: 'pkg', path: 'pkg/AGENTS.md' }],
+        changes: [{ action: 'replace', scope: 'pkg', path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(changed)?.content)).toBe([
         '<system-reminder>',
-        'Updated instructions from: pkg/AGENTS.md',
+        `Updated instructions from: ${join('pkg', 'AGENTS.md')}`,
         '',
         'This file changed after it was loaded. Use the following content instead of the previously loaded instructions from this file.',
         '',
@@ -1966,11 +1966,11 @@ describe('dynamic nested workspace context injection', () => {
 
       expect(workspaceContextOf(changed)?.meta).toMatchObject({
         changes: [{
-          action: 'replace', scope: 'pkg', path: 'pkg/CLAUDE.md', previousPath: 'pkg/AGENTS.md',
+          action: 'replace', scope: 'pkg', path: join('pkg', 'CLAUDE.md'), previousPath: join('pkg', 'AGENTS.md'),
         }],
       })
-      expect(blocksText(workspaceContextOf(changed)?.content)).toContain('Updated instructions from: pkg/CLAUDE.md')
-      expect(blocksText(workspaceContextOf(changed)?.content)).toContain('The instructions previously loaded from `pkg/AGENTS.md` no longer apply. Use the following content for `pkg` instead.')
+      expect(blocksText(workspaceContextOf(changed)?.content)).toContain(`Updated instructions from: ${join('pkg', 'CLAUDE.md')}`)
+      expect(blocksText(workspaceContextOf(changed)?.content)).toContain(`The instructions previously loaded from \`${join('pkg', 'AGENTS.md')}\` no longer apply. Use the following content for \`pkg\` instead.`)
       expect(blocksText(workspaceContextOf(changed)?.content)).toContain('fallback package rule')
       expect(unchanged.additionalContexts).toBeUndefined()
     } finally {
@@ -2002,11 +2002,11 @@ describe('dynamic nested workspace context injection', () => {
       expect(workspaceContextOf(removed)?.meta).toEqual({
         kind: 'workspace-instructions',
         version: 1,
-        changes: [{ action: 'remove', scope: 'pkg', path: 'pkg/AGENTS.md' }],
+        changes: [{ action: 'remove', scope: 'pkg', path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(removed)?.content)).toBe([
         '<system-reminder>',
-        'Instructions removed: pkg/AGENTS.md',
+        `Instructions removed: ${join('pkg', 'AGENTS.md')}`,
         '',
         'The previously loaded instructions from this file no longer apply.',
         '</system-reminder>',
@@ -2044,9 +2044,9 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       expect(workspaceContextOf(restored)?.meta).toMatchObject({
-        changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md' }],
+        changes: [{ action: 'set', scope: 'pkg', path: join('pkg', 'AGENTS.md') }],
       })
-      expect(blocksText(workspaceContextOf(restored)?.content)).toContain('Additional instructions from: pkg/AGENTS.md')
+      expect(blocksText(workspaceContextOf(restored)?.content)).toContain(`Additional instructions from: ${join('pkg', 'AGENTS.md')}`)
       expect(blocksText(workspaceContextOf(restored)?.content)).toContain('restored package rule')
     } finally {
       await rm(root, { recursive: true, force: true })
@@ -2146,7 +2146,7 @@ describe('dynamic nested workspace context injection', () => {
 
       const update = resumed.session.events.findLast(event => event.type === 'context/message')
       expect(update?.type === 'context/message' && update.data.meta).toMatchObject({
-        changes: [{ action: 'replace', scope: 'pkg', path: 'pkg/AGENTS.md' }],
+        changes: [{ action: 'replace', scope: 'pkg', path: join('pkg', 'AGENTS.md') }],
       })
       expect(update?.type === 'context/message' && blocksText(update.data.content)).toContain('new nested rule after resume')
     } finally {
@@ -2267,8 +2267,8 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       const firstText = blocksText(workspaceContextOf(first)?.content)
-      expect(firstText).toContain('omitted pkg/AGENTS.md')
-      expect(firstText).not.toContain('## pkg/AGENTS.md')
+      expect(firstText).toContain(`omitted ${join('pkg', 'AGENTS.md')}`)
+      expect(firstText).not.toContain(`## ${join('pkg', 'AGENTS.md')}`)
       expect(firstText).toContain('subtree rule')
       expect(blocksText(workspaceContextOf(second)?.content)).toContain('parent rule')
     } finally {
@@ -2462,7 +2462,7 @@ describe('dynamic nested workspace context injection', () => {
       expect(workspaceContextOf(result)?.envelope).toBe('raw')
       expect(workspaceContextOf(result)?.meta).toMatchObject({
         kind: 'workspace-instructions',
-        changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md' }],
+        changes: [{ action: 'set', scope: 'pkg', path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(result)?.content)).toContain('nested package rule')
       expect(blocksText(workspaceContextOf(result)?.content)).not.toContain('downstream context')
