@@ -8,7 +8,6 @@
 import { homedir } from 'node:os'
 import { relative, resolve, sep } from 'node:path'
 import {
-  Box,
   CombinedAutocompleteProvider,
   Container,
   Editor,
@@ -172,39 +171,39 @@ interface Palette {
   italic: (text: string) => string
   underline: (text: string) => string
   strike: (text: string) => string
-  userBg: (text: string) => string
-  pendingBg: (text: string) => string
-  successBg: (text: string) => string
-  errorBg: (text: string) => string
-  selectedBg: (text: string) => string
+  /** Reverse video for the active selection; swaps the theme's own fg/bg so it reads on any scheme. */
+  selected: (text: string) => string
 }
 
 function ansi(open: string, close: string, enabled: boolean): (text: string) => string {
   return enabled ? text => `\x1b[${open}m${text}\x1b[${close}m` : text => text
 }
 
+/**
+ * Theme-agnostic palette built from the standard 16-color ANSI set plus SGR
+ * attributes, which every terminal remaps to its active color scheme. Body
+ * `text` stays the terminal's default foreground so it reads on light and dark
+ * backgrounds alike; grouping uses foreground-only gutter bars and reverse
+ * video rather than fixed background fills.
+ */
 function createPalette(enabled: boolean): Palette {
   return {
-    accent: ansi('38;5;39', '39', enabled),
-    accent2: ansi('38;5;141', '39', enabled),
-    text: ansi('38;5;252', '39', enabled),
-    muted: ansi('38;5;245', '39', enabled),
-    dim: ansi('38;5;240', '39', enabled),
-    success: ansi('38;5;78', '39', enabled),
-    warning: ansi('38;5;221', '39', enabled),
-    error: ansi('38;5;203', '39', enabled),
-    code: ansi('38;5;215', '39', enabled),
-    added: ansi('38;5;78', '39', enabled),
-    removed: ansi('38;5;203', '39', enabled),
+    accent: ansi('94', '39', enabled),
+    accent2: ansi('95', '39', enabled),
+    text: text => text,
+    muted: ansi('90', '39', enabled),
+    dim: ansi('2', '22', enabled),
+    success: ansi('32', '39', enabled),
+    warning: ansi('33', '39', enabled),
+    error: ansi('31', '39', enabled),
+    code: ansi('36', '39', enabled),
+    added: ansi('32', '39', enabled),
+    removed: ansi('31', '39', enabled),
     bold: ansi('1', '22', enabled),
     italic: ansi('3', '23', enabled),
     underline: ansi('4', '24', enabled),
     strike: ansi('9', '29', enabled),
-    userBg: ansi('48;5;236', '49', enabled),
-    pendingBg: ansi('48;5;235', '49', enabled),
-    successBg: ansi('48;5;22', '49', enabled),
-    errorBg: ansi('48;5;52', '49', enabled),
-    selectedBg: ansi('48;5;24', '49', enabled),
+    selected: ansi('7', '27', enabled),
   }
 }
 
@@ -296,9 +295,41 @@ class HeaderComponent implements Component {
   }
 }
 
-class UserMessageComponent extends Box {
+/**
+ * Groups children behind a colored left-gutter bar (`▌`). Foreground-only, so
+ * it renders legibly on any terminal background — unlike a filled block whose
+ * body text would collide with the theme's default foreground.
+ */
+class GutterBox implements Component {
+  protected readonly children: Component[] = []
+
+  constructor(private readonly barFn: (text: string) => string, private readonly paddingY = 1) {}
+
+  addChild(child: Component): void {
+    this.children.push(child)
+  }
+
+  invalidate(): void {
+    for (const child of this.children) child.invalidate()
+  }
+
+  render(width: number): string[] {
+    const inner = Math.max(1, width - 2)
+    const body: string[] = []
+    for (const child of this.children) for (const line of child.render(inner)) body.push(line)
+    // Every caller adds a non-empty title/label child, so an all-empty box is unreachable;
+    // the guard preserves Box semantics (render nothing) rather than emitting stray gutter bars.
+    /* v8 ignore next */
+    if (body.length === 0) return []
+    const bar = this.barFn('▌')
+    const pad = Array.from({ length: this.paddingY }, () => '')
+    return [...pad, ...body, ...pad].map(line => `${bar} ${line}`)
+  }
+}
+
+class UserMessageComponent extends GutterBox {
   constructor(text: string, palette: Palette, mdTheme: MarkdownTheme, label = 'You') {
-    super(1, 1, value => palette.userBg(value))
+    super(value => palette.accent(value))
     this.addChild(new Text(palette.bold(palette.accent(label)), 0, 0))
     this.addChild(new Markdown(text, 0, 0, mdTheme, { color: value => palette.text(value) }, {
       preserveOrderedListMarkers: true,
@@ -465,10 +496,10 @@ class ToolCardComponent implements Component {
     const visibleBody = this.expanded || body.length <= this.maxOutputLines
       ? body
       : [...body.slice(0, this.maxOutputLines), this.palette.dim(`… ${body.length - this.maxOutputLines} more lines (Ctrl+O to expand)`)]
-    const box = new Box(1, visibleBody.length > 0 ? 1 : 0, (value) => {
-      if (this.result === undefined) return this.palette.pendingBg(value)
-      return isError ? this.palette.errorBg(value) : this.palette.successBg(value)
-    })
+    const barFn = this.result === undefined
+      ? this.palette.warning
+      : isError ? this.palette.error : this.palette.success
+    const box = new GutterBox(barFn, visibleBody.length > 0 ? 1 : 0)
     box.addChild(new Text(this.palette.bold(title), 0, 0))
     if (visibleBody.length > 0) box.addChild(new Text(visibleBody.join('\n'), 0, 0))
     return box.render(width)
@@ -700,7 +731,7 @@ class QuestionDialog implements Component, Focusable {
           : index === this.selectedIndex ? this.palette.accent('●') : this.palette.dim('○')
         const description = option.description ? this.palette.muted(` — ${option.description}`) : ''
         const line = `${cursor} ${mark} ${option.label}${description}`
-        push(index === this.selectedIndex ? this.palette.selectedBg(line) : line)
+        push(index === this.selectedIndex ? this.palette.selected(line) : line)
       }
       if (options.length > this.maxVisible) push(this.palette.dim(`${this.selectedIndex + 1}/${options.length}`))
       push(this.palette.dim(this.question.multiSelect

@@ -20,7 +20,7 @@ While the agent is running, editor submissions call `agent.steer()`; otherwise t
 | `questionDialogWidth` | `72` | Question-overlay width in columns |
 | `questionDialogMaxHeight` | `20` | Question-overlay maximum rows |
 | `showHardwareCursor` | `false` | Show the hardware cursor at pi-tui's IME marker |
-| `color` | `true` | Apply the built-in ANSI palette |
+| `color` | `true` | Apply the built-in ANSI palette (see [Color](#color)) |
 | `title` | `DeepSeek Harness` | Terminal window title |
 
 ```yaml
@@ -34,6 +34,10 @@ While the agent is running, editor submissions call `agent.steer()`; otherwise t
 ```
 
 Startup fails before mounting when either process stream is not a TTY. While waiting for its configured agent, the front door also observes retained and live `agent/start-failed` notifications; a matching failure is written before fullscreen mode starts and exits with status 1 instead of leaving a blank terminal. Disposal stops loaders, rejects pending questions, drains terminal input, restores terminal state, unregisters event listeners and the user-interaction provider, and never exits a replacement process during HMR.
+
+## Color
+
+The palette uses the standard 16-color ANSI foregrounds and SGR attributes, which every terminal remaps to its active color scheme, so it stays readable on light and dark backgrounds alike. Body text keeps the terminal's default foreground rather than a fixed shade. Grouped regions (user prompts, tool cards) use a colored left-gutter bar instead of a filled background block, and the question overlay's active row uses reverse video; both are foreground-only, so they never collide with the terminal background. Set `color: false` to strip all styling.
 
 ## Model Experience
 
