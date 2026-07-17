@@ -1,5 +1,5 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { CallId, ContentBlock, LlmCallConfig, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from './json.ts'
 
 /** Canonical context-tag framing, or caller-owned framing rendered verbatim. */
@@ -147,7 +147,7 @@ export interface TodoItem {
  * canonical empty optional fields are absent.
  */
 export interface EpochHeader {
-  /** The conversation's call configuration (model + sampling scalars). */
+  /** The conversation's call configuration (provider, model, and sampling scalars). */
   config: LlmCallConfig
   /** Rendered system prompt text; absent for a system-less request. */
   system?: string
@@ -257,7 +257,7 @@ export interface SessionEventMap {
    * the model output and its accounting travel together (there is no separate
    * usage record). `usage` is absent when the adapter reported none.
    */
-  'assistant/message': { turn: number; step: number; content: ContentBlock[]; usage?: TokenUsage }
+  'assistant/message': { turn: number; step: number; content: ContentBlock[]; provenance: AssistantProvenance; usage?: TokenUsage }
   /**
    * The model requested one tool invocation: `name` with the raw `arguments`
    * JSON string exactly as the model produced it (unparsed). `callId` pairs the

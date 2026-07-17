@@ -143,6 +143,33 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
     || !Object.hasOwn(event, 'data')) {
     throw new Error(`seed event at index ${index} has an invalid event envelope`)
   }
+  assertCurrentLlmShape(event, index)
+}
+
+/** Reject pre-provider request headers and assistant messages at the seed/load boundary. */
+function assertCurrentLlmShape(event: Record<string, unknown>, index: number): void {
+  const data = event['data']
+  if (typeof data !== 'object' || data === null) return
+  const record = data as Record<string, unknown>
+  if (event['type'] === 'request/header') {
+    const header = record['header']
+    const config = typeof header === 'object' && header !== null ? (header as Record<string, unknown>)['config'] : undefined
+    if (!hasProviderModel(config)) throw new Error(`seed request/header at index ${index} lacks provider/model`)
+  }
+  if (event['type'] === 'request/header-delta' && record['config'] !== undefined && !hasProviderModel(record['config'])) {
+    throw new Error(`seed request/header-delta at index ${index} lacks provider/model`)
+  }
+  if (event['type'] === 'assistant/message' && !hasProviderModel(record['provenance'])) {
+    throw new Error(`seed assistant/message at index ${index} lacks provider/model provenance`)
+  }
+}
+
+/** Whether an unknown value carries the current provider/model pair. */
+function hasProviderModel(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const pair = value as Record<string, unknown>
+  return typeof pair['provider'] === 'string' && pair['provider'].length > 0
+    && typeof pair['model'] === 'string' && pair['model'].length > 0
 }
 
 type SessionCallback = (...args: unknown[]) => unknown
@@ -479,7 +506,7 @@ export class Session {
         // max-tokens step's usage and must not inject a content-less assistant
         // turn into the provider transcript.
         if (event.data.content.length === 0) return null
-        return { role: 'assistant', content: event.data.content }
+        return { role: 'assistant', content: event.data.content, provenance: event.data.provenance }
       }
       case 'tool/result': {
         const { callId, content, isError } = event.data

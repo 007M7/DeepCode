@@ -184,7 +184,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
       { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
       { type: 'assistant/chunk', seq: 2, time: 3, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'he' } } },
       { type: 'assistant/chunk', seq: 3, time: 4, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'llo' } } },
-      { type: 'assistant/message', seq: 4, time: 5, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] }, surfaceOp: 'append', sourceEventSeqs: [2, 3] },
+      { type: 'assistant/message', seq: 4, time: 5, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append', sourceEventSeqs: [2, 3] },
       { type: 'step/end', seq: 5, time: 6, data: { turn: 1, step: 1 } },
       { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, reason: { kind: 'completed' } } },
     ]

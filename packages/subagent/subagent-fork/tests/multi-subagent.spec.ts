@@ -30,7 +30,7 @@ async function setup(script: Script) {
   await ctx.plugin(Spawn, { providerName: 'spawn' })
   await ctx.plugin(fork, { providerName: 'fork' })
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
-  const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+  const parent = ctx.agentLoop.create(AgentId('parent'), { provider: 'mock', model: 'mock' })
   return { ctx, parent }
 }
 

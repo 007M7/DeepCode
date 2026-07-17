@@ -32,6 +32,7 @@ interface Config {
   maxParallelToolCalls?: number // shared by every agent; default 10; 1 is serial
   agents: Array<{
     id: string                 // required
+    provider?: string
     model?: string
     resumeSessionId?: string   // load this persisted session instead of creating one
     cwd?: string               // optional workspace cwd for the fresh session
@@ -39,7 +40,7 @@ interface Config {
 }
 ```
 
-Configured agents start automatically. `cwd` applies only to fresh sessions; `resumeSessionId` retains persisted metadata. `maxParallelToolCalls` bounds every agent's rolling pool for parallel-safe calls and defaults to `10`. They use the deployment persona, which programmatic setup can shadow per agent. This plugin supplies the per-agent `model` and `cwd` prompt variables; harness identity and deployment persona belong to `dsh-system-prompt`.
+Configured agents start automatically. A model call requires both `provider` and `model`; `agent/request` may supply a missing pair before dispatch. `maxParallelToolCalls` bounds every agent's rolling pool for parallel-safe calls and defaults to `10`. `cwd` applies only to fresh sessions, while `resumeSessionId` retains persisted metadata. Configured agents use the deployment persona, and programmatic setup can shadow it per agent. This plugin supplies the per-agent `provider`, `model`, and `cwd` prompt variables; harness identity and deployment persona belong to `dsh-system-prompt`.
 
 ### Exported concrete class
 

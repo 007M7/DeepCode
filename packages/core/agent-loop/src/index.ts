@@ -359,6 +359,7 @@ export class AgentLoop extends Service implements AgentFactory {
     maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS),
     agents: z.array(z.object({
       id: z.string().required(),
+      provider: z.string(),
       model: z.string(),
       cwd: z.string(),
       resumeSessionId: z.string(),
@@ -378,6 +379,7 @@ export class AgentLoop extends Service implements AgentFactory {
     this.runtime = { ctx }
     ctx.effect(() => () => this.ownership.dispose(), 'agentLoop.transactions()')
     ctx.effect(() => ctx.agents.setFactory(this), 'agentLoop.setFactory()')
+    ctx.systemPrompt.variable('provider', context => context.agent?.options.provider)
     ctx.systemPrompt.variable('model', context => context.agent?.options.model)
     ctx.systemPrompt.variable('cwd', context => context.agent?.session.header.cwd)
 

@@ -113,7 +113,7 @@ describe('session-query exact reads', () => {
     })
     session.append(
       'assistant/message',
-      { turn: 1, step: 1, content: [{ type: 'text', text: 'replacement' }] },
+      { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'replacement' }] },
       { surfaceOp: { op: 'replace', start: first.seq, end: first.seq }, sourceEventSeqs: [first.seq] },
     )
 
@@ -235,7 +235,7 @@ describe('session-query exact reads', () => {
       type: 'assistant/message',
       seq: 0,
       time: 1,
-      data: { turn: 1, step: 1, content: [] },
+      data: { turn: 1, step: 1, content: [], provenance: { provider: 'mock', model: 'mock' } },
       surfaceOp: { op: 'replace', start: 9, end: 9 },
     })
     await expect(ctx.sessionQuery.listEvents(session.id))

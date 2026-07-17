@@ -57,7 +57,7 @@ describe('todo_write tool through the agent loop', () => {
       textResponse('Plan recorded.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-todo'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('it-todo'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'plan a two-step task' }])
     await waitForIdle(ctx, agent)
@@ -85,7 +85,7 @@ describe('todo_write tool through the agent loop', () => {
       textResponse('Done planning.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-todo-2'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('it-todo-2'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'plan then update' }])
     await waitForIdle(ctx, agent)

@@ -227,21 +227,26 @@ export class BasicCompactService extends CompactService {
   /**
    * Summarize through a direct one-shot `ctx.llm.stream()` call, not an agent
    * step or `agent/request` dispatch. Failure finishes and truncated summaries
-   * reject; the signal is forwarded and only text reaches the checkpoint.
+   * reject; the signal is forwarded, only text reaches the checkpoint, and the
+   * returned envelope identifies the provider/model actually used.
    *
    * @param text - plain-text rendering of the conversation region to condense.
-   * @param agent - supplies the fallback model and the session id stamped on
-   *   the call; throws when neither it nor the config names a model.
+   * @param agent - supplies the request-header/creation fallback target and the
+   *   session id stamped on the call; throws when no complete target exists.
    * @param signal - optional abort signal, forwarded into the model call.
    * @returns the text-only summary blocks plus the call envelope used
-   *   (`model`, and `maxTokens` when the summarizer has a cap).
+   *   (`provider`, `model`, and `maxTokens` when the summarizer has a cap).
    */
   async summarize(
     text: string, agent: Agent, signal?: AbortSignal,
-  ): Promise<{ summary: ContentBlock[]; model: string; maxTokens?: number }> {
+  ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
     const assembler = new BlockAssembler()
+    const logged = agent.session.requestHeader()?.config
+    const provider = this.config.summarizationProvider || logged?.provider || agent.options.provider || ''
+    const model = this.config.summarizationModel || logged?.model || agent.options.model || ''
     const options: GenerateOptions = {
-      model: this.config.summarizationModel || agent.options.model || '',
+      provider,
+      model,
       messages: [{
         role: 'user',
         content: [{ type: 'text', text: `Summarize this conversation history:\n\n${text}\n\nSummary:` }],
@@ -253,8 +258,8 @@ export class BasicCompactService extends CompactService {
     // exactOptionalPropertyTypes: only set `signal` when present — assigning
     // `undefined` to an optional `signal?: AbortSignal` is a type error.
     if (signal) options.signal = signal
-    if (!options.model) {
-      throw new Error('no model available for summarization: set BasicCompactConfig.summarizationModel or AgentOptions.model')
+    if (!options.provider || !options.model) {
+      throw new Error('no provider/model available for summarization: set both summarization fields or provide a logged/agent target')
     }
     for await (const chunk of this.ctx.llm.stream(options)) {
       assembler.push(chunk)
@@ -271,7 +276,7 @@ export class BasicCompactService extends CompactService {
     // config.maxTokens is required and validated positive, so this backend's
     // envelope always carries the cap; the return type's optionality exists
     // for overriding subclasses whose summarizer has none.
-    return { summary, model: options.model, maxTokens: this.config.maxTokens }
+    return { summary, provider: options.provider, model: options.model, maxTokens: this.config.maxTokens }
   }
 
   // ---- Core API (implements the abstract contract) ----
@@ -378,7 +383,7 @@ export class BasicCompactService extends CompactService {
     try {
       // --- Extract text and summarize ---
       const text = renderTranscript(session.events, shadowedSeqs)
-      const { summary, model, maxTokens } = await this.summarize(text, agent, signal)
+      const { summary, provider, model, maxTokens } = await this.summarize(text, agent, signal)
 
       // Estimate token count of the shadowed content for provenance.
       let shadowedTokenCount = 0
@@ -400,6 +405,7 @@ export class BasicCompactService extends CompactService {
         shadowedRange: { start, end },
         shadowedSeqs,
         shadowedTokenCount,
+        provider,
         model,
         ...maxTokens !== undefined ? { maxTokens } : {},
       })
