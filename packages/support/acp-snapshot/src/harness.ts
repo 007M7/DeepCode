@@ -151,6 +151,15 @@ export interface RunOptions {
 }
 
 /**
+ * Return a fixed-length spill root across POSIX and Windows after Windows adds its drive prefix.
+ * @param platform - the host platform, injectable for unit coverage.
+ * @returns the root-relative snapshot spill directory.
+ */
+export function snapshotSpillRoot(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? '/t/dsh-acp-snapshot-spill' : '/tmp/dsh-acp-snapshot-spill'
+}
+
+/**
  * Run a scenario end-to-end against a freshly-spawned subprocess. Owns the
  * child and its temp dirs; always tears them down. Returns the captured stdout
  * and (record mode) the harvested session-log path.
@@ -164,7 +173,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
   // Fixed path length: spill-policy budgets the preview against the REAL path
   // before stdout normalization, so tmpdir() length differences churn goldens.
-  const spillRoot = '/tmp/dsh-acp-snapshot-spill'
+  const spillRoot = snapshotSpillRoot()
   // Everything past the temp-dir creation runs under a try/finally that always
   // removes both dirs — so a failure in workspace seeding, spawn, or any step
   // never leaks them (the "e2e tests own their resources" rule).

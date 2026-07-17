@@ -18,6 +18,7 @@ import {
   refreshFixtureReplacements,
   restorePinnedToolSchemas,
   stabilizeRefreshLog,
+  stdoutGoldenVariants,
   unknownToolCallIds,
 } from '../src/suite.ts'
 
@@ -186,6 +187,31 @@ describe('childFixturePaths', () => {
 
   it('yields nothing for a single-session scenario', () => {
     expect(childFixturePaths('/snap/s', 0)).toEqual([])
+  })
+})
+
+describe('stdoutGoldenVariants', () => {
+  const scenario: Scenario = {
+    name: 'windows-native',
+    hasModelTurn: true,
+    recorded: true,
+    pinsNativeWindowsStdout: true,
+  }
+
+  it('adds the native sidecar after the shared golden on Windows', () => {
+    expect(stdoutGoldenVariants(scenario, 'win32')).toEqual([
+      { file: 'stdout.golden.jsonl', cwdPathMode: 'canonical' },
+      { file: 'stdout.golden.windows.jsonl', cwdPathMode: 'native' },
+    ])
+  })
+
+  it('keeps only the shared golden on other platforms or without the declaration', () => {
+    expect(stdoutGoldenVariants(scenario, 'linux')).toEqual([
+      { file: 'stdout.golden.jsonl', cwdPathMode: 'canonical' },
+    ])
+    expect(stdoutGoldenVariants({ ...scenario, pinsNativeWindowsStdout: false }, 'win32')).toEqual([
+      { file: 'stdout.golden.jsonl', cwdPathMode: 'canonical' },
+    ])
   })
 })
 

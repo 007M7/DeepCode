@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
-import { runScenario, type AgentUnderTest, type InputStep } from '../src/harness.ts'
+import { runScenario, snapshotSpillRoot, type AgentUnderTest, type InputStep } from '../src/harness.ts'
 
 /**
  * Unit tests for the subprocess harness, driven through the REAL spawn path
@@ -38,6 +38,11 @@ async function scenario(behavior: object): Promise<{ dir: string; fixtureFile: s
 }
 
 const boot: InputStep[] = [{ op: 'initialize' }, { op: 'newSession' }]
+
+it('keeps the resolved snapshot spill root length stable across platforms', () => {
+  expect(snapshotSpillRoot('linux')).toBe('/tmp/dsh-acp-snapshot-spill')
+  expect(snapshotSpillRoot('win32')).toBe('/t/dsh-acp-snapshot-spill')
+})
 
 describe('runScenario', () => {
   it('includes agent stderr when the ACP connection closes during startup', { timeout: 20_000 }, async () => {

@@ -21,6 +21,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { type AgentUnderTest, type HarvestedLog, type InputScript, runScenario } from './harness.ts'
 import {
+  type CwdPathMode,
   type NormalizeContext,
   normalizeSessionLog,
   normalizeStdout,
@@ -34,6 +35,9 @@ const SYSTEM_PROMPT_SNAPSHOT = 'system-prompt.golden.md'
 
 /** The structured tool-schema snapshot beside each header-pinning fixture. */
 const TOOL_SCHEMAS_SNAPSHOT = 'tool-schemas.golden.json'
+
+/** The optional full Windows-native stdout transcript. */
+const WINDOWS_STDOUT_SNAPSHOT = 'stdout.golden.windows.jsonl'
 
 /** Stable session-log token standing in for the sidecar's initial schemas. */
 const TOOLS_TOKEN = '{{tools}}'
@@ -108,6 +112,35 @@ export interface Scenario {
    * {@link headerClass}.
    */
   configPath?: string
+  /**
+   * Whether Windows additionally compares stdout with native separators against
+   * `stdout.golden.windows.jsonl`. The shared canonical stdout golden is still
+   * compared on every platform, and the fixture guard requires this sidecar
+   * exactly when the option is set.
+   */
+  pinsNativeWindowsStdout?: boolean
+}
+
+/** One stdout golden selected for a platform run. */
+interface StdoutGoldenVariant {
+  file: string
+  cwdPathMode: CwdPathMode
+}
+
+/**
+ * Select the shared stdout golden plus any platform-native assertion declared by a scenario.
+ *
+ * @param scenario The scenario whose stdout contract is being selected.
+ * @param platform The running Node platform, injectable for unit coverage.
+ * @returns The ordered golden variants: shared canonical first, then optional Windows native.
+ */
+export function stdoutGoldenVariants(
+  scenario: Scenario,
+  platform: NodeJS.Platform = process.platform,
+): StdoutGoldenVariant[] {
+  const canonical: StdoutGoldenVariant = { file: 'stdout.golden.jsonl', cwdPathMode: 'canonical' }
+  if (platform !== 'win32' || scenario.pinsNativeWindowsStdout !== true) return [canonical]
+  return [canonical, { file: WINDOWS_STDOUT_SNAPSHOT, cwdPathMode: 'native' }]
 }
 
 /** One suite's inputs: the agent to boot, where its fixtures live, and its scenario table. */
@@ -530,11 +563,13 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           }
         }
 
-        const stdout = normalizeStdout(result.rawStdout, ctx)
-        if (REFRESHING) {
-          await writeFile(join(dir, 'stdout.golden.jsonl'), stdout)
+        for (const golden of stdoutGoldenVariants(scenario)) {
+          const stdout = normalizeStdout(result.rawStdout, ctx, { cwdPathMode: golden.cwdPathMode })
+          if (REFRESHING) {
+            await writeFile(join(dir, golden.file), stdout)
+          }
+          await expect(stdout, `${golden.file} mismatch`).toMatchFileSnapshot(join(dir, golden.file))
         }
-        await expect(stdout).toMatchFileSnapshot(join(dir, 'stdout.golden.jsonl'))
 
         // A model turn always produces a log worth comparing; a hook scenario can
         // produce one without a model turn (a `rejected` turn carrying `hook/*`).
@@ -621,10 +656,14 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
 
     it('every registered scenario has its required fixture files', () => {
       // Every scenario has an input script and an stdout golden.
-      for (const { name, overridden, childSessions, pinsHeader } of scenarios) {
+      for (const { name, overridden, childSessions, pinsHeader, pinsNativeWindowsStdout } of scenarios) {
         const dir = join(snapshotsDir, name)
         expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
         expect(existsSync(join(dir, 'stdout.golden.jsonl')), `${name}/stdout.golden.jsonl`).toBe(true)
+        expect(
+          existsSync(join(dir, WINDOWS_STDOUT_SNAPSHOT)),
+          `${name}/${WINDOWS_STDOUT_SNAPSHOT} presence must match \`pinsNativeWindowsStdout\``,
+        ).toBe(pinsNativeWindowsStdout === true)
         expect(existsSync(join(dir, 'session.jsonl')), `${name}/session.jsonl`).toBe(true)
         expect(existsSync(join(dir, 'replay.override.json')), `${name}/replay.override.json presence must match \`overridden\``)
           .toBe(overridden === true)
