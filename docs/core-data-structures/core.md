@@ -342,6 +342,11 @@ interface Agent {
    * `options.envelope: 'raw'` preserves caller-owned framing. Does not run the
    * model.
    *
+   * In an open turn, inject appends at the current log position except while
+   * the current tool-call batch executes: accepted context waits FIFO until the
+   * batch settles, then appends after every recorded result and before turn
+   * close even when execution is interrupted.
+   *
    * Turn-enclosure (the turn-enclosure RFC): an inject while a turn is open joins that turn;
    * an inject while idle wraps its `context/message` in a one-shot `injection`
    * turn (`turn/start` → `context/message` → `turn/end`) and checkpoints it for

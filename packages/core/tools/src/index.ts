@@ -252,8 +252,8 @@ export interface ToolExecutionResult {
    */
   error?: ToolErrorInfo
   /**
-   * Model-facing context for the next request, separate from this tool result.
-   * The loop buffers it until all step results are logged, preserving pairing.
+   * Model-facing context for the next request, separate from this tool result. The loop
+   * accepts it into the active-batch FIFO, then appends after recorded results even if interrupted.
    */
   additionalContexts?: HookContext[]
   /**
@@ -865,7 +865,7 @@ export class ToolRegistry extends Service {
    * its {@link PostToolDecision}: `accept` keeps the call successful (replacing
    * `content` when given), `block` turns it into an `isError` whose content is
    * the corrective `feedback`. Either decision may attach `additionalContexts`,
-   * which are ferried on the returned result for the loop's per-step buffer.
+   * which are ferried on the returned result for the loop's active-batch FIFO.
    * Context deferred by the tool body survives an accepted result but is
    * discarded when the outer call is blocked; a block exposes only context the
    * blocking decision explicitly supplied.
