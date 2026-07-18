@@ -9,7 +9,7 @@
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
-    { "path": "../../core/system-prompt" },
+    { "path": "../../llm/llm" },
     { "path": "../../core/agent" }
   ]
 }
