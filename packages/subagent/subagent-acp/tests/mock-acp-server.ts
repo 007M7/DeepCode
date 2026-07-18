@@ -36,10 +36,9 @@
  *                         grace, before the SIGKILL escalation). Touches
  *                         MOCK_READY_FILE once armed.
  *
- * It is NOT a test spec (no `describe`/`it`) — it is spawned BY the specs as the
- * child process the ACP backend drives. Kept as a `.ts` run under tsx by the
- * spec (which passes its own tsconfig), mirroring how the snapshot harness boots
- * the real example.
+ * It is not a test spec: the specs launch this protocol-only fixture through
+ * the mode-aware example resolver (tsx in source mode, Node type stripping in
+ * built mode). It imports no harness code or workspace paths.
  *
  * @module @deepseek-ai/dsh-subagent-acp/tests/mock-acp-server
  */

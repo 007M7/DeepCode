@@ -4,7 +4,7 @@ The **SDK server plugin** (`jsonrpc`): mounting it serves a stdio JSON-RPC serve
 
 ## Wiring
 
-`inject: ['agents']`. The server gets or creates one agent per `sessionId` from the `initialize.provider`/`initialize.model` pair. It classifies subagent completions through live parent ownership or durable parent lineage and retains parent-scoped provider/id counts after child disposal. A registered owner for the provider route wins; an unowned `deepseek` route mounts `dsh-llm-deepseek` using `$DEEPSEEK_API_KEY` and `$DEEPSEEK_BASE_URL`, while any other unowned provider fails initialization. Persistence, tools, and other adapters come from the surrounding `cordis.yml`.
+`inject: ['agents']`. The server gets or creates one agent per `sessionId` from the `initialize.provider`/`initialize.model` pair. It forwards subagent completions only when the lifecycle payload's `local` flag was snapshotted from the provider's exact in-process child; reusable provider names, child ids, and durable lineage never establish locality. A registered owner for the provider route wins; an unowned `deepseek` route mounts `dsh-llm-deepseek` using `$DEEPSEEK_API_KEY` and `$DEEPSEEK_BASE_URL`, while any other unowned provider fails initialization. Persistence, tools, and other adapters come from the surrounding `cordis.yml`.
 
 ## Config
 

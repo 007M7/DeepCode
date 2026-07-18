@@ -175,6 +175,7 @@ export async function startInProcessRun(
 
   return {
     id: childId,
+    localAgent: child,
     result,
     dispose(): Promise<void> {
       request.signal.removeEventListener('abort', onAbort)
