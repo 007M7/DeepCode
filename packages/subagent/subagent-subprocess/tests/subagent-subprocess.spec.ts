@@ -229,7 +229,7 @@ describe('disposeChildProcess', () => {
 
   it('tier 2: a child that ignores EOF but honors SIGTERM dies on the middle rung', async () => {
     const fake = new FakeChild({ diesOn: 'SIGTERM', delayMs: 5 })
-    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 }, 'linux')
     expect(fake.stdinEnded).toBe(true)
     expect(fake.kills).toEqual(['SIGTERM'])
     expect(fake.signalCode).toBe('SIGTERM')
@@ -237,7 +237,7 @@ describe('disposeChildProcess', () => {
 
   it('tier 3: a SIGTERM-trapping child is SIGKILLed, and dispose resolves only after the exit', async () => {
     const fake = new FakeChild({ delayMs: 5 }) // only SIGKILL fells it
-    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 20 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 20 }, 'linux')
     expect(fake.kills).toEqual(['SIGTERM', 'SIGKILL'])
     // Quiescence, not a request: at resolution the child has ACTUALLY exited
     // (the exit event landed, despite the scripted post-SIGKILL delay).
@@ -246,8 +246,15 @@ describe('disposeChildProcess', () => {
 
   it('walks the ladder for a child spawned without a stdin pipe', async () => {
     const fake = new FakeChild({ stdin: false, diesOn: 'SIGTERM', delayMs: 5 })
-    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 }, 'linux')
     expect(fake.kills).toEqual(['SIGTERM'])
+  })
+
+  it('skips the redundant SIGTERM tier on Windows and awaits forced exit', async () => {
+    const fake = new FakeChild({ diesOn: 'SIGTERM', delayMs: 5 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 }, 'win32')
+    expect(fake.kills).toEqual(['SIGKILL'])
+    expect(fake.signalCode).toBe('SIGKILL')
   })
 })
 

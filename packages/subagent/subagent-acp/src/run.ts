@@ -56,9 +56,9 @@ export interface AcpRunSpec {
    */
   disposeEofGraceMs: number
   /**
-   * Grace period (ms) between `SIGTERM` and the `SIGKILL` escalation in
-   * {@link SubagentRun.dispose}. The plugin fills this from its
-   * `disposeGraceMs` config.
+   * POSIX grace period (ms) between `SIGTERM` and `SIGKILL` in
+   * {@link SubagentRun.dispose}; unused on Windows. The plugin fills this from
+   * its `disposeGraceMs` config.
    */
   disposeGraceMs: number
   /**
@@ -75,7 +75,7 @@ export interface AcpRunSpec {
 /** EOF grace for child flush and nested-process teardown; wider than the signal grace below. */
 export const DEFAULT_DISPOSE_EOF_GRACE_MS = 6_000
 
-/** Default grace between SIGTERM and SIGKILL on dispose (the `disposeGraceMs` config; mirrors the bash executor). */
+/** Default POSIX grace between SIGTERM and SIGKILL on dispose (the `disposeGraceMs` config). */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
 /**
@@ -290,9 +290,9 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
       if (disposal !== undefined) return disposal
       request.signal.removeEventListener('abort', onAbort)
       requestCancel()
-      // The shared EOF → TERM → KILL ladder awaits exit. ACP normally quiesces
-      // from stdin EOF, including the final flush, so this backend uses a wider
-      // EOF grace before signals escalate.
+      // The shared platform-aware ladder awaits exit. ACP normally quiesces from
+      // stdin EOF, including the final flush, so this backend uses a wider EOF
+      // grace before process termination escalates.
       disposal = disposeProcess()
       return disposal
     },

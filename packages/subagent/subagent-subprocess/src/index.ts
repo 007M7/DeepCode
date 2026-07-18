@@ -98,33 +98,42 @@ export interface DisposeLadderGraces {
   /**
    * Tier-1 window (ms): after stdin EOF, how long the child gets to quiesce
    * ON ITS OWN — flush durable state, tear down its own nested subprocesses —
-   * before the parent escalates to `SIGTERM`. A separate (usually WIDER)
+   * before the parent escalates to platform termination. A separate (usually WIDER)
    * grace than {@link DisposeLadderGraces.disposeGraceMs}: a cooperative
    * child's EOF-driven teardown may itself be waiting on a signal-trapping
    * grandchild plus a final flush, needing more than one signal-grace of
    * headroom.
    */
   disposeEofGraceMs: number
-  /** Tier-2 window (ms): between `SIGTERM` and the `SIGKILL` escalation. */
+  /** POSIX tier-2 window (ms): between `SIGTERM` and the `SIGKILL` escalation. */
   disposeGraceMs: number
 }
 
 /**
  * Tear a child process down to quiescence, resolving only after exit: close stdin and allow
- * cooperative flush, then send `SIGTERM`, then `SIGKILL` and await the forced exit.
+ * cooperative flush, then use the host's graceful and forced termination semantics. POSIX
+ * sends `SIGTERM` before `SIGKILL`; Windows skips directly to forced termination because Node
+ * maps both signals to `TerminateProcess`.
  *
  * @param child - the child process to tear down.
  * @param graces - the two grace periods, from the consuming plugin's Config.
+ * @param platform - the host platform, injectable for unit coverage.
  */
-export async function disposeChildProcess(child: ChildProcess, graces: DisposeLadderGraces): Promise<void> {
+export async function disposeChildProcess(
+  child: ChildProcess,
+  graces: DisposeLadderGraces,
+  platform: NodeJS.Platform = process.platform,
+): Promise<void> {
   // Already gone: nothing to reap.
   if (child.exitCode !== null || child.signalCode !== null) return
   // 1. Close stdin and allow cooperative teardown and durable-state flush.
   child.stdin?.end()
   if (await exitsWithin(child, graces.disposeEofGraceMs)) return
-  // 2. SIGTERM, escalating if the child still does not exit within the grace.
-  child.kill('SIGTERM')
-  if (await exitsWithin(child, graces.disposeGraceMs)) return
+  // 2. POSIX gets a catchable graceful signal; Windows signals all force-terminate.
+  if (platform !== 'win32') {
+    child.kill('SIGTERM')
+    if (await exitsWithin(child, graces.disposeGraceMs)) return
+  }
   // 3. Force-kill and await the (now-certain) exit.
   child.kill('SIGKILL')
   await waitForExit(child)

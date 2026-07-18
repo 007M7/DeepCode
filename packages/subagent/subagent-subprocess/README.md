@@ -20,13 +20,13 @@ Exit waits over a `ChildProcess`: resolve once the child exits by any code or si
 
 ### `disposeChildProcess(child, graces)`
 
-The three-tier dispose ladder. Resolves only once the child has ACTUALLY exited — quiescence reached, not merely requested (see [defensive patterns](../../../docs/defensive-patterns.md)):
+The platform-aware dispose ladder resolves only once the child has ACTUALLY exited — quiescence reached, not merely requested (see [defensive patterns](../../../docs/defensive-patterns.md)):
 
 1. stdin EOF (when stdin is piped), then wait `graces.disposeEofGraceMs` — a cooperative child quiesces on its own, its flushes and nested-subprocess teardown intact;
-2. `SIGTERM`, then wait `graces.disposeGraceMs`;
-3. `SIGKILL`, then await the now-certain exit — a child that ignores EOF and traps `SIGTERM` cannot wedge dispose forever.
+2. on POSIX, `SIGTERM`, then wait `graces.disposeGraceMs`;
+3. force termination and await exit — `SIGKILL` on POSIX and Node's `TerminateProcess` mapping on Windows.
 
-The two graces (`DisposeLadderGraces`) come from the consuming plugin's `disposeEofGraceMs`/`disposeGraceMs` Config fields; the EOF window is deliberately a separate — usually wider — grace than the signal tier, since a cooperative child's EOF teardown may itself await a signal-trapping grandchild plus a final flush.
+The two graces (`DisposeLadderGraces`) come from the consuming plugin's `disposeEofGraceMs`/`disposeGraceMs` Config fields; `disposeGraceMs` is unused on Windows because Node maps `SIGTERM` and `SIGKILL` to the same forced termination. The EOF window is deliberately separate and usually wider, since cooperative teardown may await a signal-trapping grandchild plus a final flush.
 
 ### `createIsolatedConfigDir(prefix, pinnedPath?)`
 
@@ -37,7 +37,7 @@ A per-run isolated config directory for an external CLI child (the target of `CL
 
 ## Testing
 
-`tests/subagent-subprocess.spec.ts`: the env scrub and config-dir helpers run against the real process env and real filesystem (the rm-failure path injects its rejection at the fs boundary — a real recursive-rm failure is not portably provokable, and root ignores permission bits); the exit waits and the dispose ladder run against a scriptable fake child, driving each escalation tier deterministically. The [ACP backend suite](../subagent-acp/README.md) exercises the same ladder against real subprocesses (EOF-cooperative, EOF-ignoring, and SIGTERM-trapping children) end to end.
+`tests/subagent-subprocess.spec.ts`: the env scrub and config-dir helpers run against the real process env and real filesystem (the rm-failure path injects its rejection at the fs boundary — a real recursive-rm failure is not portably provokable, and root ignores permission bits); the exit waits and platform termination paths run against a scriptable fake child. The [ACP backend suite](../subagent-acp/README.md) exercises them against real subprocesses end to end.
 
 ## Model Experience
 
