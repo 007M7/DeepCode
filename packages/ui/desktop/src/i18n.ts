@@ -1,6 +1,7 @@
 /** Renderer locales currently supported by the desktop shell. */
 export type Locale = 'zh-CN' | 'en-US'
 
+/* jscpd:ignore-start -- Locale dictionaries deliberately keep matching key order across languages. */
 const messages = {
   'zh-CN': {
     'app.newChat': '新对话',
@@ -253,6 +254,7 @@ const messages = {
     'error.noDesktopApi': 'Desktop API is not available. Use the Electron window, not the browser tab.',
   },
 } as const
+/* jscpd:ignore-end */
 
 /** Translation key shared by both renderer dictionaries. */
 export type I18nKey = keyof typeof messages['en-US']

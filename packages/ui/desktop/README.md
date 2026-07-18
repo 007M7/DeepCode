@@ -187,17 +187,8 @@ Start with a desktop package that defines shared UI contracts, then build the El
 
 ## Known Limitations and Deferred Work
 
-- **Development build only** — this package ships a usable Electron/Vite app and
-  a real ACP subprocess bridge, but it is not yet packaged as a signed
-  distributable.
-- **ACP is the first runtime channel** — direct in-process embedding could make
-  context queries and restarts richer, but would make isolation, teardown, and
-  hot reload harder.
-- **Develop is read-first** — it exposes prompts, tools, plugins, config,
-  runtime state, and the change loop as a source browser; direct graphical
-  plugin/config editing is deferred.
-- **Trace refresh is mixed live/persisted** — chat streams from ACP live updates,
-  while Trajectory and Waterfall currently read persisted JSONL after turns
-  complete.
-- **Compare and replay remain skeletal** — the product contract is documented,
-  but semantic evaluation and dataset-level analysis belong to later work.
+- **Development build only** — this package ships a usable Electron/Vite app and a real ACP subprocess bridge, but it is not yet packaged as a signed distributable.
+- **ACP is the first runtime channel** — direct in-process embedding could make context queries and restarts richer, but would make isolation, teardown, and hot reload harder.
+- **Develop is read-first** — it exposes prompts, tools, plugins, config, runtime state, and the change loop as a source browser; direct graphical plugin/config editing is deferred.
+- **Trace refresh is mixed live/persisted** — chat streams from ACP live updates, while Trajectory and Waterfall currently read persisted JSONL after turns complete.
+- **Compare and replay remain skeletal** — the product contract is documented, but semantic evaluation and dataset-level analysis belong to later work.
