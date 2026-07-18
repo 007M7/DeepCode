@@ -15,6 +15,7 @@ import {
   type RequestPermissionResponse,
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
+import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
 /**
  * With-key e2e for the Claude hook bridge. The process-level `./hooks.json` is
@@ -25,7 +26,6 @@ import {
 
 const binScript = fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
 interface Spawned {
@@ -36,10 +36,16 @@ interface Spawned {
 }
 
 function spawnAcpAgent(cwd: string): Spawned {
+  const launch = resolveExampleLaunch({
+    srcBin: binScript,
+    configArgs: ['--config', configPath],
+    tsconfigPath: repoTsconfig,
+    env: { DSH_PERMISSION_MODE: 'danger-full-access' },
+  })
   const child = spawn(
-    process.execPath,
-    ['--import', tsxLoader, binScript, '--config', configPath],
-    { cwd, env: { ...process.env, TSX_TSCONFIG_PATH: repoTsconfig, DSH_PERMISSION_MODE: 'danger-full-access' }, stdio: ['pipe', 'pipe', 'pipe'] },
+    launch.command,
+    launch.args,
+    { cwd, env: { ...process.env, ...launch.env }, stdio: ['pipe', 'pipe', 'pipe'] },
   )
   const stderr: string[] = []
   child.stderr.setEncoding('utf8')

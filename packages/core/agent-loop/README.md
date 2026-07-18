@@ -29,6 +29,7 @@ The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loo
 
 ```ts
 interface Config {
+  maxParallelToolCalls?: number // default 10; 1 is serial
   agents: Array<{
     id: string                 // required
     provider?: string
@@ -39,13 +40,13 @@ interface Config {
 }
 ```
 
-Configured agents start automatically. A model call requires both `provider` and `model`; `agent/request` may supply a missing pair before dispatch. `cwd` applies only to fresh sessions, while `resumeSessionId` retains persisted metadata. Configured agents use the deployment persona, and programmatic setup can shadow it per agent. This plugin supplies the per-agent `provider`, `model`, and `cwd` prompt variables; harness identity and deployment persona belong to `dsh-system-prompt`.
+Configured agents start automatically. A model call requires both `provider` and `model`; `agent/request` may supply a missing pair before dispatch. `maxParallelToolCalls` bounds every agent's rolling pool for parallel-safe calls and defaults to `10`. `cwd` applies only to fresh sessions, while `resumeSessionId` retains persisted metadata. Configured agents use the deployment persona, and programmatic setup can shadow it per agent. This plugin supplies the per-agent `provider`, `model`, and `cwd` prompt variables; harness identity and deployment persona belong to `dsh-system-prompt`.
 
 ### Exported concrete class
 
 - `ReactLoopAgent` — the concrete `Agent` implementation. Its inbox is a JavaScript native-private field, and one prepared session can be claimed by only one concrete driver. Everything observable happens through session events and the `agent/*` event taxonomy.
 
-`Inbox`, `runLoop`, and the instance-bound publication/start controls are package-internal. The package root does not export them, and the package exports map exposes no `./src/*` escape hatch; lifecycle owners create agents through `ctx.agents` rather than constructing or starting the driver internals. `ReactLoopAgent.send()` and running `steer()` materialize content plus resolved source once as detached, deeply frozen lossless JSON, then share that accepted record between `agent/queued` and the inbox; malformed data throws before either boundary.
+`Inbox`, `runLoop`, and the instance-bound publication/start controls are package-internal. The package root does not export them, and the package exports map exposes no `./src/*` escape hatch; lifecycle owners create agents through `ctx.agents` rather than constructing or starting the driver internals. `ReactLoopAgent.send()`, running `steer()`, and open-turn `inject()` materialize content plus resolved source once as detached, deeply frozen lossless JSON; malformed data throws before enqueue or append. An injection that arrives while the current step executes assistant tool calls stays in a FIFO until the batch settles; successful batches place it after the complete result batch, and interrupted batches drain it before the turn closes.
 
 ### Loop lifecycle (`loop.ts`)
 
@@ -58,6 +59,8 @@ Every provider call that reaches a successful finish appends exactly one `assist
 Plugin failure ends the current turn, not the loop. The loop creates one private turn cancellation holder before announcing `running`, passes its single signal through prompt handling, prompt assembly, every step, model and tool execution, continuation, terminal stop, turn end, and durability flush, then discards it. A replacement prompt accepted after cancellation receives a fresh holder, while all work in the cancelled turn observes the first typed runtime cause. The durable turn outcome is only `aborted`; disposal is a separate runtime interrupt and wins classification even if cancellation reached the signal first.
 
 Cancellation is cooperative: the loop checks for interruption between awaited boundaries but does not abandon an in-process listener, adapter, or tool Promise with `Promise.race`. `whenIdle()` and handle disposal therefore observe real quiescence. See the [explicit turn cancellation RFC](../../../docs/rfc/implemented/architecture/2026-07-16-explicit-turn-cancellation.md).
+
+Within a step, exclusive calls form barriers; parallel-safe calls use a bounded rolling pool and are reclassified before start. Only dispatch/body overlaps. Policy, durable results, and result context remain model-ordered. Abort stops new calls, drains started results, then drains accepted batch context before the turn closes through the normal abort path.
 
 ### What belongs to plugins
 
@@ -85,7 +88,7 @@ Everything that goes beyond "call the model, run the tools, repeat" belongs to p
 
 ## Known Limitations and Deferred Work
 
-- **Tool calls within a step execute sequentially** — parallel execution waits on concurrency-safety metadata in the tool contract (see `dsh-tools`).
+- **Classification is unary** — calls whose safety depends on comparing siblings or resources must remain exclusive ([rationale](../../../docs/rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md)).
 - **No resume-or-create policy on the config path** — config-driven `create()` starts a fresh `${id}-session-<uuid>` every run (`TODO(demo)`), and a config `resumeSessionId` whose resume fails logs a warning and creates no agent.
 - **Config agents have no per-agent persona field or setup hook** — they use the deployment persona; scoped persona/tool composition is available only through the programmatic `ctx.agents.create()` / `resume()` factory options.
 - **No built-in turn budget** — the default continuation is `continue` whenever a step had tool calls or steering; bounding a runaway turn requires an `agent/turn-continuation` force-stop plugin.

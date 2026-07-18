@@ -84,11 +84,12 @@ forever:
         'assistant/chunk'
       agent/step-result
       'assistant/message' (transformed content or empty success anchor after step-result rejection)
-      each tool call:
-        'tool/call'
-        tools/pre-execute -> monotonic guards -> tools/execute -> tools/post-execute -> tools/result
-        'tool/result'
-      append post-tool context and steering
+      schedule tool calls by ctx.tools.executionMode:
+        exclusive -> one-call barrier
+        parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
+        each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+        each model-order result -> ordered tools/post-execute -> 'tool/result'
+      append accepted tool-batch context after all recorded results, then steering
       'step/end'
       agent/turn-continuation
       agent/turn-stop (terminal policy)
@@ -99,11 +100,11 @@ forever:
 
 Each step assembles ordered prompt sections, tool schemas, and `{{name}}` variables; unknown or valueless references fail the turn. `dsh-system-prompt` owns the harness identity and default persona, which an agent scope may shadow. The loop supplies `model` and `cwd` ([prompt-ownership RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Post-tool context lands after all tool results so tool-call/result adjacency stays stable. Steering drains between steps; ordinary leftover steering after a turn is re-queued as input. A terminal `agent/turn-stop` is the explicit exception: it runs after ordinary continuation and steering folding, then remains authoritative through turn close and flush so steering from those later listeners is discarded rather than becoming another step or turn; ordinary queued prompts are preserved.
+Context accepted during tool execution—including async `agent.inject()` notices and post-tool `additionalContexts`—waits for settlement, then follows every recorded result. Successful batches preserve call/result adjacency; interrupted batches drain that context before turn closure. Steering drains between steps; ordinary leftover steering becomes queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through turn close and flush, and discards later steering while preserving queued prompts.
 
 ### Failure Boundaries
 
-The turn is the containment boundary. A throwing listener, adapter error finish, or failed step ends it with an error reason and reports `agent/error` without killing the driver. One explicit `AbortSignal` spans prompt submission, prompt assembly, every step, model and tool work, continuation, turn close, and flush. `cancel()` clears queued and steering work and carries a typed `user` or `parent` runtime cause, while the durable turn records only `aborted`; disposal is a distinct higher-priority terminal state that awaits quiescence before unregistering the agent and draining service disposers. Cooperative work must settle before the loop reports quiescence. See the [explicit turn cancellation decision](rfc/implemented/architecture/2026-07-16-explicit-turn-cancellation.md).
+The turn contains failures: a throwing listener, adapter error finish, or failed step records an error and reports `agent/error` without killing the driver. One explicit `AbortSignal` spans prompt submission, assembly, steps, model/tool work, continuation, turn close, and flush. `cancel()` clears queued and steering work and carries a typed `user` or `parent` cause; the durable turn records only `aborted`. Disposal is a distinct, higher-priority terminal state that waits for quiescence before unregistering the agent and draining service disposers. Cooperative work must settle before quiescence. See the [explicit turn cancellation decision](rfc/implemented/architecture/2026-07-16-explicit-turn-cancellation.md).
 
 Every session event is turn-enclosed. Reloading preserves an interrupted tail and closes it with a synthetic `interrupted` turn end. Failures after durable turn close report only through `agent/error` because no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
 
@@ -117,7 +118,7 @@ Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, re
 
 ### Agent Execution Context
 
-`AgentLoop` wraps each concrete driver in process-local `ctx.agentExecution`; its ALS frame contains only `{ agent }`. Child creation and setup stay outside the boundary, and turn, step, signal, cwd, and authority remain explicit. See the [package contract](../packages/core/agent-execution/README.md) and [decision](rfc/implemented/architecture/2026-07-15-agent-execution-context.md).
+`AgentLoop` wraps each driver in process-local `ctx.agentExecution`; its ALS frame is exactly `{ agent }`. Child creation and setup stay outside, while turn, step, signal, cwd, and authority remain explicit. See the [package contract](../packages/core/agent-execution/README.md) and [decision](rfc/implemented/architecture/2026-07-15-agent-execution-context.md).
 
 ## State
 

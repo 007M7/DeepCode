@@ -23,7 +23,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:221`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:222`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -35,7 +35,7 @@ An agent left the registry; AgentLoop emits this after driver quiescence but bef
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:230`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:231`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:372`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:373`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -59,7 +59,7 @@ Awaited serial checkpoint for session-surface mutation after prompt assembly and
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:284`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:285`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -71,7 +71,7 @@ Allow, rewrite, or block one drained prompt before it becomes a user message. Ca
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:297`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:298`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -83,7 +83,7 @@ Detached, frozen content entered the agent's inbox. Source defaults have already
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:249`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -95,7 +95,7 @@ Replace the frozen call configuration. Model-visible content must use logged cha
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:310`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:311`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -107,7 +107,7 @@ Compose request-only messages placed before derived history. The frozen result i
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:325`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:326`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -119,7 +119,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:262`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:263`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -131,7 +131,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does no
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:239`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:240`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -143,7 +143,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:337`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:338`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -155,7 +155,7 @@ Override whether the turn continues. The default continues after tool calls or s
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:348`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:349`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -167,7 +167,7 @@ Monotonic terminal-stop checkpoint after continuation and steering are folded; a
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:359`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:360`](../../packages/core/agent/src/types.ts)
 
 ## `approval/*`
 

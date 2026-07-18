@@ -7,7 +7,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS, ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { bindReactLoopAgentContext, prepareReactLoopAgent } from '../src/agent.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
@@ -56,10 +56,14 @@ describe('ReactLoopAgent', () => {
     await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('exclusive-driver'))
-    const prepared = prepareReactLoopAgent(ctx, AgentId('first-driver'), { provider: 'mock', model: 'mock' }, session)
+    const prepared = prepareReactLoopAgent(
+      ctx, AgentId('first-driver'), { provider: 'mock', model: 'mock' }, session, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+    )
 
     expect(() => prepared.agent.ctx).toThrow('context is not bound')
-    expect(() => prepareReactLoopAgent(ctx, AgentId('second-driver'), { provider: 'mock', model: 'mock' }, session))
+    expect(() => prepareReactLoopAgent(
+      ctx, AgentId('second-driver'), { provider: 'mock', model: 'mock' }, session, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+    ))
       .toThrow('already has a concrete agent driver')
 
     await prepared.dispose()
@@ -258,7 +262,9 @@ describe('ReactLoopAgent', () => {
     await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('test'))
-    const prepared = prepareReactLoopAgent(ctx, AgentId('bare'), { provider: 'mock', model: 'mock' }, session)
+    const prepared = prepareReactLoopAgent(
+      ctx, AgentId('bare'), { provider: 'mock', model: 'mock' }, session, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+    )
     const { agent } = prepared
 
     prepared.markPublished()
@@ -276,7 +282,9 @@ describe('ReactLoopAgent', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('pre-start-dispose'))
-    const prepared = prepareReactLoopAgent(ctx, AgentId('pre-start-dispose'), { provider: 'mock', model: 'mock' }, session)
+    const prepared = prepareReactLoopAgent(
+      ctx, AgentId('pre-start-dispose'), { provider: 'mock', model: 'mock' }, session, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+    )
 
     await prepared.dispose()
     expect(prepared.agent.status).toBe('disposed')
@@ -374,7 +382,9 @@ describe('ReactLoopAgent', () => {
     const adapter = new MockAdapter(['hang'])
     ctx.llm.registerAdapter(['mock'], adapter)
     const session = ctx.sessions.create(SessionId('bare'))
-    const prepared = prepareReactLoopAgent(ctx, AgentId('bare'), { provider: 'mock', model: 'mock' }, session)
+    const prepared = prepareReactLoopAgent(
+      ctx, AgentId('bare'), { provider: 'mock', model: 'mock' }, session, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+    )
     const { agent } = prepared
     prepared.markPublished()
     const dispose = prepared.startDriver()

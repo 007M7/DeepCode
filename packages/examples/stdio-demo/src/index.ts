@@ -39,6 +39,8 @@ export interface Config {
   provider: string
   /** Model name for the `main` agent (must have a registered adapter). */
   model: string
+  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
+  maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
@@ -70,6 +72,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   provider: z.string().required(),
   model: z.string().required(),
+  maxParallelToolCalls: z.number().step(1).min(1),
   persona: z.string(),
   // The array default is forced to undefined: ABSENT means "lexicographic
   // order" (the owning dsh-system-prompt schema does the same), while
