@@ -191,7 +191,12 @@ export class SecretRedactor {
   }
 
   #redactBearerTokens(text: string): string {
-    return text.replace(/(bearer\s+)([a-z0-9._-]{8,})/gi, (_match, prefix: string) => `${prefix}${this.#placeholder}`)
+    // The candidate must contain a digit: real bearer credentials are never
+    // letters-only, while prose like "bearer authentication" is.
+    return text.replace(
+      /(bearer\s+)((?=[a-z._-]*[0-9])[a-z0-9._-]{8,})/gi,
+      (_match, prefix: string) => `${prefix}${this.#placeholder}`,
+    )
   }
 
   #redactStandaloneTokens(text: string): string {

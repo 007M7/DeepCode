@@ -154,6 +154,13 @@ describe('SecretRedactor.redactText', () => {
       .toBe(`sending Bearer ${REDACTED} now`)
   })
 
+  it('keeps letters-only prose after the word bearer intact', () => {
+    expect(redactor.redactText('uses bearer authentication for requests'))
+      .toBe('uses bearer authentication for requests')
+    expect(redactor.redactText('"description": "bearer token-helper middleware"'))
+      .toBe('"description": "bearer token-helper middleware"')
+  })
+
   it('redacts standalone secret-shaped tokens while keeping package names and paths', () => {
     expect(redactor.redactText('key sk-abcdefghij1234567890 end'))
       .toBe(`key ${REDACTED} end`)
