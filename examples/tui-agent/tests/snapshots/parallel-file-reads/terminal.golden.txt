@@ -1,0 +1,94 @@
+terminal 100x36 buffer=normal length=41 base=5 viewport=5
+lifecycle started=1 stopped=0 progress=inactive
+title "DSH TUI snapshot"
+cursor hidden column=1 viewportRow=33 bufferRow=38
+buffer
+0| "╭──────────────────────────────────────────────────────────────────────────────────────────────────╮"
+  style 0-99 fg=bright-blue
+1| "│ DEEPSEEK HARNESS                                                                                 │"
+  style 0-0 fg=bright-blue
+  style 2-9 fg=bright-blue bold
+  style 11-17 bold
+  style 99-99 fg=bright-blue
+2| "│ Recorded replay: parallel-file-reads                                                             │"
+  style 0-0 fg=bright-blue
+  style 2-37 fg=bright-black
+  style 99-99 fg=bright-blue
+3| "│ main  •  deepseek-v4-flash  •  main-session                                                      │"
+  style 0-0 fg=bright-blue
+  style 2-44 dim
+  style 99-99 fg=bright-blue
+4| "╰──────────────────────────────────────────────────────────────────────────────────────────────────╯"
+  style 0-99 fg=bright-blue
+5| <blank>
+6| "▌ "
+  style 0-0 fg=bright-blue
+7| "▌ You                                                                                               "
+  style 0-0 fg=bright-blue
+  style 2-4 fg=bright-blue bold
+8| "▌ Use the read tool twice in the same assistant message: read a.txt and b.txt. Then reply DONE.     "
+  style 0-0 fg=bright-blue
+9| "▌ "
+  style 0-0 fg=bright-blue
+10| <blank>
+11| "▌ "
+  style 0-0 fg=green
+12| "▌ ✓ Read a.txt                                                                                      "
+  style 0-0 fg=green
+  style 2-2 fg=green bold
+  style 3-13 bold
+13| "▌ <path>/workspace/project"
+  style 0-0 fg=green
+14| "▌ /a.txt</path>                                                                                     "
+  style 0-0 fg=green
+15| "▌ <type>file</type>                                                                                 "
+  style 0-0 fg=green
+16| "▌ <content>                                                                                         "
+  style 0-0 fg=green
+17| "▌ 1: alpha                                                                                          "
+  style 0-0 fg=green
+18| "▌                                                                                                   "
+  style 0-0 fg=green
+19| "▌ (End of file - total 1 lines)                                                                     "
+  style 0-0 fg=green
+20| "▌ </content>                                                                                        "
+  style 0-0 fg=green
+21| "▌ "
+  style 0-0 fg=green
+22| <blank>
+23| "▌ "
+  style 0-0 fg=green
+24| "▌ ✓ Read b.txt                                                                                      "
+  style 0-0 fg=green
+  style 2-2 fg=green bold
+  style 3-13 bold
+25| "▌ <path>/workspace/project"
+  style 0-0 fg=green
+26| "▌ /b.txt</path>                                                                                     "
+  style 0-0 fg=green
+27| "▌ <type>file</type>                                                                                 "
+  style 0-0 fg=green
+28| "▌ <content>                                                                                         "
+  style 0-0 fg=green
+29| "▌ 1: beta                                                                                           "
+  style 0-0 fg=green
+30| "▌                                                                                                   "
+  style 0-0 fg=green
+31| "▌ (End of file - total 1 lines)                                                                     "
+  style 0-0 fg=green
+32| "▌ </content>                                                                                        "
+  style 0-0 fg=green
+33| "▌ "
+  style 0-0 fg=green
+34| <blank>
+35| " Assistant                                                                                          "
+  style 1-9 fg=bright-magenta bold
+36| " DONE                                                                                               "
+37| "────────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-99 dim
+38| "                                                                                                    "
+  style 1-1 inverse
+39| "────────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-99 dim
+40| "/workspace/project  ↑20 ↓6"
+  style 0-99 dim

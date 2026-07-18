@@ -17,3 +17,7 @@ Run `pnpm run demo:code-mode tui` for the sibling Code Mode overlay.
 ## Composition
 
 [`cordis.yml`](cordis.yml) includes the readline coding-agent leaf so the LLM, bash, filesystem, compaction, subagent, workflow, todo, timeout, and spill choices have one owner. Its asserted patch replaces only the terminal app config and forces `ui.mode: tui`; [`code-mode.cordis.yml`](code-mode.cordis.yml) applies the same front-door patch to the coding agent's Code Mode overlay.
+
+## Snapshot tests
+
+`tests/snapshots/<scenario>/session.jsonl` supplies recorded user prompts and model chunks; sibling child logs drive subagents and workflows. The keyless suite executes those scripts through the real loop and tool implementations, then compares readable terminal cell/style goldens. Use `pnpm run test:snapshot:refresh` for presentation-only changes and `pnpm run test:snapshot:record` with a DeepSeek key when a recorded model journey changes. The implemented [TUI snapshot RFC](../../docs/rfc/implemented/testing/2026-07-18-tui-terminal-state-snapshots.md) owns the scenario matrix and the split between recorded journeys, transient package snapshots, and PTY coverage.

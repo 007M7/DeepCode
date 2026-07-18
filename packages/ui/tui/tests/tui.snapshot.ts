@@ -23,15 +23,10 @@ const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const REFRESHING = process.env.DSH_SNAPSHOT === 'refresh'
 
 const CHECKPOINTS = [
-  'conversation-replay',
   'conversation-streaming',
-  'conversation-complete',
   'code-mode-pending',
-  'code-mode-complete',
   'dynamic-workflow-pending',
-  'dynamic-workflow-complete',
   'cordis-tools-pending',
-  'cordis-tools-complete',
   'advanced-cards-collapsed',
   'advanced-cards-expanded',
   'question-dialog',
@@ -194,25 +189,8 @@ const ADVANCED_CARD_TOOLS: Record<string, ToolDefinition> = {
 }
 
 describe('TUI terminal-state snapshots', () => {
-  it('pins resumed conversation, streaming, completion, plans, tokens, and Markdown', async () => {
-    const harness = await setupSnapshot({
-      beforeMount(session) {
-        appendUser(session, 'Explain **snapshot fidelity** with `cells`.')
-        appendAssistant(session, [
-          { type: 'reasoning', text: 'Compare the terminal state, not write fragments.' },
-          { type: 'text', text: '## Result\n\n- final viewport\n- semantic styles\n\n> deterministic and reviewable' },
-        ], { inputTokens: 12_500, outputTokens: 640 })
-        session.append('todo/write', {
-          todos: [
-            { content: 'model the terminal', status: 'completed' },
-            { content: 'capture advanced states', status: 'in_progress' },
-            { content: 'verify PTY cleanup', status: 'pending' },
-          ],
-        })
-      },
-    })
-    await checkpoint('conversation-replay', harness.terminal)
-
+  it('pins an in-flight reasoning and Markdown stream', async () => {
+    const harness = await setupSnapshot()
     await renderAfter(harness, () => {
       appendUser(harness.session, 'Show the live update.')
       harness.session.append('assistant/chunk', {
@@ -237,15 +215,6 @@ describe('TUI terminal-state snapshots', () => {
       })
     })
     await checkpoint('conversation-streaming', harness.terminal)
-
-    await renderAfter(harness, () => {
-      appendAssistant(harness.session, [
-        { type: 'reasoning', text: 'Inspecting width and styles.' },
-        { type: 'text', text: 'Streaming **visible state** is complete.' },
-      ], { inputTokens: 800, outputTokens: 120 })
-      harness.session.append('turn/end', { turn: 2, reason: { kind: 'max-tokens' } })
-    })
-    await checkpoint('conversation-complete', harness.terminal)
     await disposeSnapshot(harness)
   })
 
@@ -260,13 +229,6 @@ describe('TUI terminal-state snapshots', () => {
     }
     await renderAfter(harness, () => { appendToolCalls(harness.session, [call]) })
     await checkpoint('code-mode-pending', harness.terminal, { includeScrollback: true })
-
-    await renderAfter(harness, () => {
-      appendToolResult(harness.session, call.id, [{ type: 'text', text: 'CODE_ONE\n+CODE_TWO' }], {
-        meta: { logs: ['CODE_ONE', 'CODE_TWO', 'combined: CODE_ONE+CODE_TWO'] },
-      })
-    })
-    await checkpoint('code-mode-complete', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
   })
 
@@ -290,14 +252,6 @@ describe('TUI terminal-state snapshots', () => {
     }
     await renderAfter(harness, () => { appendToolCalls(harness.session, [call]) })
     await checkpoint('dynamic-workflow-pending', harness.terminal, { includeScrollback: true })
-
-    await renderAfter(harness, () => {
-      appendToolResult(harness.session, call.id, [{
-        type: 'text',
-        text: 'workflow "tui-matrix" completed (2 agents).\nReturn value:\n{\n  "reports": ["layout ok", "lifecycle ok"],\n  "verdict": "covered"\n}',
-      }])
-    })
-    await checkpoint('dynamic-workflow-complete', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
   })
 
@@ -314,13 +268,6 @@ describe('TUI terminal-state snapshots', () => {
     ]
     await renderAfter(harness, () => { appendToolCalls(harness.session, calls) })
     await checkpoint('cordis-tools-pending', harness.terminal, { includeScrollback: true })
-
-    await renderAfter(harness, () => {
-      appendToolResult(harness.session, 'cordis-1', [{ type: 'text', text: '## tools\nrun_code\nworkflow\ncordis_mount\ncordis_unmount' }])
-      appendToolResult(harness.session, 'cordis-2', [{ type: 'text', text: 'mounted dyn-1 (plugin "snapshot-marker", state: active)' }])
-      appendToolResult(harness.session, 'cordis-3', [{ type: 'text', text: 'unmounted dyn-1 (plugin "snapshot-marker")' }])
-    })
-    await checkpoint('cordis-tools-complete', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
   })
 
