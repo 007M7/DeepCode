@@ -18,7 +18,7 @@ In case 2, if the injected `context/message` is the last event before a flush/di
 **Every session event lives inside a turn** — between a `turn/start` and its matching `turn/end`. Concretely:
 
 - The loop appends queued `user/message` events **after** `turn/start` (inside the turn), not before it. `turn/end` is therefore owed the moment those messages are recorded, and the existing finalizer guarantees it.
-- An `agent.inject()` made while the agent is **running** appends its `context/message` into the already-open turn (unchanged).
+- An `agent.inject()` made while the agent is **running** joins the already-open turn. While the current step executes assistant tool calls, accepted context waits in arrival order until that batch settles, then appends after every recorded result and before the turn closes even when execution is interrupted.
 - An `agent.inject()` made while **idle** wraps its `context/message` in a one-shot turn: `turn/start{trigger:{kind:'injection'}}` → `context/message` → `turn/end{completed}`. A new `injection` variant joins the merge-extensible `TurnTriggerMap`.
 - The loop derives the next turn number from the log each iteration (`lastTurnNumber(session) + 1`) instead of keeping a private counter, so an idle injection's one-shot turn cannot collide with the next real turn's number.
 - The `dsh-invariants` plugin **enforces** the invariant in dev: a `user/message` / `context/message` / `steering/message` appended while no turn is open throws an `InvariantError`.
