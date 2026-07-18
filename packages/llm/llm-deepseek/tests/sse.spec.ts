@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import { DONE, parseSse } from '@deepseek-ai/dsh-llm-deepseek'
+import { DONE, parseSse } from '../src/sse.ts'
 
 /** Build a byte stream from string fragments (fragments = network reads). */
 async function* bytes(...fragments: (string | Uint8Array)[]): AsyncGenerator<Uint8Array> {

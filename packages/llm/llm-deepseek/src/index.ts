@@ -11,12 +11,9 @@ import type {} from '@deepseek-ai/dsh-llm'
 import { DeepSeekAdapter } from './adapter.ts'
 import type { DeepSeekCatalogModel } from './adapter.ts'
 
-export { DeepSeekAdapter, httpErrorCode } from './adapter.ts'
+export { DeepSeekAdapter } from './adapter.ts'
 export type { DeepSeekAdapterOptions, DeepSeekCatalogModel } from './adapter.ts'
-export { serializeMessages, serializeRequest } from './serialize.ts'
 export type { RequestDefaults } from './serialize.ts'
-export { DONE, parseSse } from './sse.ts'
-export { mapFinishReason, mapUsage, translate } from './translate.ts'
 export type * from './types.ts'
 
 export const name = 'llm-deepseek'
