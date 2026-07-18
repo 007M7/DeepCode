@@ -53,7 +53,7 @@ while time.monotonic() < deadline:
     if scenario == "conversation" and answered_question and not sent_exit and b"Decision received. Scripted TUI run complete." in output:
         os.write(fd, b"/exit\r")
         sent_exit = True
-    if scenario == "boot" and not sent_exit and b"agent REPL ready." in output:
+    if scenario == "boot" and not sent_exit and b"TUI agent ready." in output:
         os.write(fd, b"/exit\r")
         sent_exit = True
     waited, candidate = os.waitpid(pid, os.WNOHANG)
@@ -101,7 +101,7 @@ interface TuiLoaderSmokeOptions {
 }
 
 async function runTuiLoaderSmoke(options: TuiLoaderSmokeOptions = {}): Promise<string> {
-  const cwd = await mkdtemp(join(tmpdir(), 'coding-tui-smoke-'))
+  const cwd = await mkdtemp(join(tmpdir(), 'tui-agent-smoke-'))
   try {
     const launch = resolveExampleLaunch({
       srcBin: binScript,
@@ -142,11 +142,11 @@ async function runTuiLoaderSmoke(options: TuiLoaderSmokeOptions = {}): Promise<s
   }
 }
 
-describe('coding-agent TUI keyless smoke (real Loader tree in a PTY)', () => {
+describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
   it('boots pi-tui, renders the configured banner, accepts /exit, and restores the terminal', async () => {
     const output = await runTuiLoaderSmoke()
     expect(output).toContain('DEEPSEEK')
-    expect(output).toContain('agent REPL ready.')
+    expect(output).toContain('TUI agent ready.')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 

@@ -10,7 +10,7 @@
     "examples": {
       "entry": [
         "echo-agent/src/*.ts",
-        "coding-agent/tests/fixtures/tui-scripted-llm.ts",
+        "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "*/tests/**/*.e2e.ts",
         "*/tests/**/*.snapshot.ts"
       ],
