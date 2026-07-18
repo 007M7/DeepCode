@@ -1,26 +1,26 @@
 # @deepseek-ai/dsh-jsonrpc
 
-The **SDK server plugin** (`jsonrpc`): mounting it serves a stdio JSON-RPC server that lets an out-of-process SDK client (e.g. the Python `deepseek_harness` package) drive DeepSeek Harness agents without touching Cordis. The client speaks newline-delimited JSON-RPC on the process stdin/stdout ([`HarnessSdkServer`](src/server.ts): `initialize` → `session/prompt` → `shutdown`, with `session.event` / `session.finished` / `subagent.*` notifications over [`JsonRpcLineTransport`](src/transport.ts)). The SDK-client analogue of the [`acp`](../acp/README.md) bridge, split the same way: this package is the protocol plugin, while [`jsonrpc-demo`](../../examples/jsonrpc-demo/README.md) is the app bin that boots a `cordis.yml` around it — which process serves this protocol is a config decision, not a hardcoded bin. This plugin is the serving face of the [single-executable distribution plan](../../../docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md).
+The `jsonrpc` plugin serves newline-delimited JSON-RPC over stdio so out-of-process SDK clients can drive harness agents. [`HarnessSdkServer`](src/server.ts) owns the protocol methods and notifications; [`jsonrpc-demo`](../../examples/jsonrpc-demo/README.md) supplies the surrounding `cordis.yml` application.
 
 ## Wiring
 
-`inject: ['agents']`. The server gets or creates one agent per `sessionId` from the `initialize.provider`/`initialize.model` pair. It forwards subagent completions only when the lifecycle payload's `local` flag was snapshotted from the provider's exact in-process child; reusable provider names, child ids, and durable lineage never establish locality. A registered owner for the provider route wins; an unowned `deepseek` route mounts `dsh-llm-deepseek` using `$DEEPSEEK_API_KEY` and `$DEEPSEEK_BASE_URL`, while any other unowned provider fails initialization. Persistence, tools, and other adapters come from the surrounding `cordis.yml`.
+`inject: ['agents']`. The server gets or creates one agent per `sessionId`. It forwards subagent completions only when the service-snapshotted lifecycle `local` flag is true; provider names, child ids, and durable lineage never establish locality. A registered adapter wins, an unowned `deepseek` route mounts `dsh-llm-deepseek`, and any other unowned provider fails initialization. Other capabilities come from the surrounding `cordis.yml`.
 
 ## Config
 
-No `cordis.yml`-settable keys. The `JsonRpcConfig` fields (`input`, `output`, `exit`) are runtime-only test seams so a spec can drive the server over in-memory streams without a subprocess or a killed test process; production always serves the process stdio and exits via `process.exit`.
+There are no `cordis.yml` keys. `JsonRpcConfig.input`, `output`, and `exit` are runtime-only transport seams; production uses process stdio and `process.exit`.
 
 ## stdout is the protocol
 
-The process stdout this plugin runs in carries only JSON-RPC frames. The tree that loads it must load NO stdout logger (a console logger corrupts the frames) — the guarantee is config-only, same as the ACP bridge. Diagnostics go to stderr.
+Stdout carries only JSON-RPC frames. The deployment must not compose a stdout logger; diagnostics belong on stderr.
 
 ## Shutdown and exit semantics
 
-The plugin owns the PROTOCOL-level exit: a `shutdown` request is answered first (the response frame flushes), then the plugin disposes its own fiber — running the effect disposer: an idempotent `server.shutdown()` (every SDK-created agent disposed to quiescence, event subscriptions detached) plus `transport.close()` — and exits the process with code 0. Own-fiber disposal is deliberate: the request's `server.shutdown()` already flushed all SDK-owned session state, and the process exit that follows is the teardown of the rest of the tree. Process-level exits (stdin EOF → 0, SIGTERM → 0, SIGINT → 130) belong to the app bin, which disposes the whole root context. Fiber disposal WITHOUT a `shutdown` request (HMR-style unload) just stops serving — it never exits the process.
+The plugin answers `shutdown`, disposes SDK-owned agents and subscriptions to quiescence, closes the transport, then exits with code 0. EOF and signal exits belong to the app bin, which disposes the root context. Unloading only this plugin stops serving without exiting the process.
 
 ## Wire notes
 
-`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime` (SDK clients key on it, independent of this package's name). A session accepts at most one in-flight `session/prompt`; an overlapping prompt for the same `sessionId` fails immediately through the standard handler-error response, while other sessions remain independent and the same session can be reused after the active prompt settles. Persistence roots and the deployment persona come from `cordis.yml`; the wire exposes only parameters the server applies.
+`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime`. A session accepts one in-flight prompt; overlap fails immediately, other sessions remain independent, and the session is reusable after settlement. Persistence roots and persona come from `cordis.yml`.
 
 ## Model Experience
 

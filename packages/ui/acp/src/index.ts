@@ -1,36 +1,7 @@
 /**
- * The Agent Client Protocol (ACP) bridge: a client-driver / UI plugin that
- * exposes the harness agent as an ACP server over JSON-RPC stdio, so editors
- * (Zed and other ACP clients) can drive it. The structured analogue of the
- * readline `stdio-chat` plugin.
- *
- * This is NOT a loop change and NOT an ADR-0009 capability seam: it consumes
- * the existing `agent/*` event taxonomy, the `dsh-agent` create/resume factory,
- * and `dsh-session-persistence` (for `session/load`). It maps:
- *
- * - `initialize`     → protocol-version negotiation, text-only capabilities
- * - `session/new`    → `ctx.agents.create({ sessionId, meta:{cwd} })`
- * - `session/load`   → `ctx.agents.resume(...)` then replay the event log
- * - `session/prompt` → `agent.send()`, settle on the owning turn's end (a turn
- *                      that ends in `error` rejects the RPC)
- * - `session/cancel` → `agent.cancel()` (the queue-aware cancel: aborts a
- *                      running step, clears queued + steering work, and drops a
- *                      turn about to start) + settle the in-flight prompt
- *
- * Multi-session (RFC 011): N concurrent sessions per connection, each mapped to
- * its own concrete `Agent`. Sessions are keyed by their shared agent/session id;
- * every `session/event` and `agent/*` event is routed strictly to its owning
- * session record, and each `session/update` carries that id. Concurrent updates
- * may alternate on the shared connection without crossing session attribution.
- * Permission prompts use the same identity: the bridge answers
- * `approval/request` for its own agents over `session/request_permission` (see
- * the approval answerer below) — whether a call ASKS is policy (a hook or
- * plugin returning `ask`), not the bridge's.
- *
- * stdout is the protocol: this plugin must run in an example that loads NO
- * stdout logger (the console logger writes to stdout and would corrupt the
- * JSON-RPC frames). The guarantee is config-only — see the package README and
- * RFC 010 § Risks.
+ * Multi-session ACP bridge over JSON-RPC stdio. Creates or resumes agents,
+ * routes session-scoped events and approvals, and settles prompts by turn.
+ * Stdout is reserved for protocol frames.
  *
  * @module @deepseek-ai/dsh-acp
  */
@@ -104,27 +75,15 @@ import {
 } from './codec.ts'
 
 export const name = 'acp'
-// Interface services back advertised loading, tool-owned presentation with a generic fallback, and interaction.
-// TODO(acp-session-inject): remove `sessions`; the bridge never reads it, and ownership is already behind `agents`.
+// Interface services back loading, presentation, interaction, and prompt assembly.
 export const inject = ['agents', 'sessionPersistence', 'tools', 'userInteraction', 'llm', 'systemPrompt']
 
-/**
- * Build an ACP "invalid params" error whose human detail rides in the message.
- * `RequestError.invalidParams(data, additionalMessage)` keeps the standard
- * "Invalid params" message and appends `additionalMessage`, so we pass the
- * detail as `additionalMessage` (and no structured `data`).
- */
+/** Preserve invalid-parameter detail in the SDK wire error message. */
 function invalidParams(detail: string): RequestError {
   return RequestError.invalidParams(undefined, detail)
 }
 
-/**
- * Build an ACP "internal error" whose human detail rides in the message. Used
- * to reject a `session/prompt` whose turn ended in failure: a plain `Error`
- * thrown from a method handler is flattened to a generic "Internal error" on
- * the wire, so we wrap the detail in the SDK's `RequestError.internalError`
- * (which appends `additionalMessage`) to surface *why* the turn failed.
- */
+/** Preserve failed-turn detail; plain handler errors become a generic wire internal error. */
 function internalError(detail: string): RequestError {
   return RequestError.internalError(undefined, detail)
 }
@@ -249,13 +208,7 @@ export interface AcpConfig {
   provider?: string
   /** Model name for created agents (must have a registered adapter). */
   model?: string
-  /**
-   * Transport stream override. Production omits this (the plugin wires
-   * `process.stdin`/`process.stdout` via `ndJsonStream`). Tests inject an
-   * in-memory `Stream` (e.g. an `ndJsonStream` over a `Duplex` pair) to drive
-   * the bridge without a subprocess. Not part of the schemastery `Config` —
-   * it is a runtime-only seam, never set from a `cordis.yml`.
-   */
+  /** Runtime-only transport override; production uses stdio. */
   stream?: Stream
 }
 
@@ -292,30 +245,11 @@ interface ModelCatalogEntry {
 /** Per-session bridge state keyed by ACP session id. */
 interface SessionRecord {
   agent: Agent
-  /**
-   * The owned-agent disposer (from the {@link AgentHandle} the factory returned).
-   * Teardown calls it to unregister this ONE agent, stop its loop, await
-   * quiescence, and remove its session — instead of leaving it for the bridge
-   * fiber to reclaim.
-   */
+  /** Exact owned-agent disposer; resolves after registry, loop, and session teardown. */
   dispose: () => Promise<void>
-  /**
-   * Resolves tool-owned presentation for THIS session's tool calls and remembers
-   * each in-flight call's `(name, args)` so the matching `tool/result` can find
-   * its tool. Per-session so two concurrent sessions never cross their in-flight
-   * tool state.
-   */
+  /** Per-session tool presentation and call/result correlation. */
   presenter: ToolPresenter
-  /**
-   * Whether THIS session renders shell tools as terminal cards — snapshotted
-   * from the client's `_meta.terminal_output` capability at session creation
-   * (`session/new`/`session/load`), NOT re-read live. A capability snapshot per
-   * session means the `tool_call` (which registers the terminal) and the matching
-   * `tool_call_update` (which streams its output) ALWAYS agree, even if a later
-   * `initialize` mutates the connection-level capability between them — otherwise
-   * a re-`initialize` mid-call could orphan a `terminal_output` (call non-terminal,
-   * result terminal) or clobber the card (call terminal, result non-terminal).
-   */
+  /** Terminal capability snapshot shared by matching call and result updates. */
   terminalEnabled: boolean
   /** Session-local provider/model selection and the current step snapshot. */
   target: LlmTargetRef
@@ -325,18 +259,7 @@ interface SessionRecord {
     reject: (error: Error) => void
     turn: number | undefined
   } | undefined
-  /**
-   * Config switches accepted while the session was IDLE, not yet anchored in
-   * its log. The turn-enclosure contract makes a bare between-turns append
-   * invalid (the JSONL backend treats a post-`turn/end` tail as crash
-   * garbage, and dev invariants throw), so an idle switch waits here and is
-   * anchored at the next turn's prompt-submit — before anything in that
-   * turn assembles a prompt or runs a call, and last write
-   * per knob wins (an idle flip-flop anchors as one event). Until anchored,
-   * the switch lives only in bridge memory: the set/new/load responses
-   * overlay it truthfully, and a restart before the next turn reverts it —
-   * which `session/load` then reports honestly from the log's fold.
-   */
+  /** Last idle switch per knob, anchored before the next prompt assembles. */
   pendingSwitches: { preset?: string }
 }
 
@@ -347,21 +270,15 @@ interface SessionRecord {
  * correlation in a `finally` so presentation failure cannot starve settlement.
  */
 export function apply(ctx: Context, config: AcpConfig): void {
-  // Capture the injected services NOW, during apply(), while we are inside this
-  // plugin's fiber (where `inject` grants access). The ACP method handlers run
-  // LATER, from the AgentSideConnection's JSON-RPC read loop — a context that is
-  // NOT this fiber's injection scope — so reading `ctx.agents` / `ctx.logger` /
-  // `ctx.sessionPersistence` lazily inside a handler throws "cannot get property
-  // … without inject". Resolving the references here and closing over them keeps
-  // the handlers working regardless of which fiber later invokes them.
+  // ACP handlers execute outside this plugin's injection scope, so capture
+  // injected services during apply(); lazy service reads in a handler fail.
   const agents = ctx.agents
   const llm = ctx.llm
   const sessionPersistence = ctx.sessionPersistence
   const logger = ctx.logger
   const tools = ctx.tools
   const userInteraction = ctx.userInteraction
-  // A new ToolPresenter per session (and a throwaway per load replay), each given
-  // this warn sink so a throwing tool presenter is logged, not propagated.
+  // Presenter callbacks are contained so display failures cannot break protocol handling.
   const makePresenter = (agent?: Agent): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) }, agent)
 
   /** Resolve a complete target only; partial config remains available to other request listeners. */
@@ -459,23 +376,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
     }
   }
 
-  // TODO(derive-acp-session-id): derive event ids from `agent.session`, verify ownership, then remove the reverse map.
-  // Agent events currently carry only the Agent, so retain `SessionRecord.sessionId` and update both indexes together.
-  // Dropping the forward record lets the weak reverse entry expire.
   const sessions = new Map<SessionId, SessionRecord>()
-  // Session ids whose `session/load` is mid-`resume()` (the slot is reserved
-  // before the async resume so a pipelined load/new for the SAME id can't create
-  // two agents). Distinct ids load concurrently; a given id loads once at a time.
+  // Reserve an id before resume so pipelined load/new requests cannot duplicate it.
   const loadingIds = new Set<SessionId>()
-  // Set once the bridge has torn down (disposal or client disconnect). An async
-  // `session/load` mid-`resume()` when teardown ran must observe this after its
-  // await and NOT install a record (which would resurrect a live agent/listeners
-  // after the bridge closed). Checked after every load await.
+  // Async creation checks this after awaits to avoid publishing after teardown.
   let closed = false
-  // Connection-level terminal capability from the latest `initialize`; false
-  // before initialization. Each `session/new` or `session/load` snapshots it in
-  // `SessionRecord.terminalEnabled`, so later initialization affects only future
-  // sessions.
+  // Each new or loaded session snapshots the latest connection capability.
   let terminalOutputCap = false
 
   // Assigned at the bottom, before any agent event can fire (a session only
@@ -674,22 +580,13 @@ export function apply(ctx: Context, config: AcpConfig): void {
       currentValue,
       options: [
         ...presets.names.map((name: string) => presets.optionOf(name)),
-        // The derived not-a-preset state: visible exactly while it IS the
-        // current value (a knob state outside the table), switchable FROM,
-        // never a target — set() below rejects it like any unknown name.
+        // `custom` echoes the current derived state but is never a target.
         ...currentValue === 'custom' ? [presets.optionOf('custom')] : [],
       ],
     }]
   }
 
-  /**
-   * Whether the session's log currently has an open turn — the last boundary
-   * event is a `turn/start`. Decides whether a config switch may append NOW
-   * (enclosed) or must wait for the next turn (see
-   * {@link SessionRecord.pendingSwitches}). Read from the LOG, not
-   * `agent.status`: status stays `running` across the gap between two queued
-   * turns, where a bare append would still land outside any turn.
-   */
+  /** Whether the log has an open turn in which a config switch can be enclosed. */
   const isTurnOpen = (agent: Agent): boolean => {
     const events = agent.session.events
     for (let index = events.length - 1; index >= 0; index -= 1) {
@@ -700,12 +597,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     return false
   }
 
-  /**
-   * Anchor a record's pending switches into its (just-opened) turn, last
-   * write per knob — skipping a value the session already effectively has,
-   * so a net-zero idle flip-flop anchors NOTHING (the log records switches,
-   * not select clicks).
-   */
+  /** Anchor last-write-wins idle switches into a just-opened turn. */
   const flushPendingSwitches = (rec: SessionRecord): void => {
     const pending = rec.pendingSwitches
     rec.pendingSwitches = {}
@@ -717,15 +609,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
     presets.set(rec.agent.session, pending.preset)
   }
 
-  // Idle-accepted switches anchor at the next turn's prompt-submit: the turn
-  // is open (the seam fires inside it, per drained message — the first flush
-  // empties the slot, later ones no-op), the loop has not yet assembled
-  // anything for it, and — unlike appending from inside a `session/event`
-  // listener — this seam fires OUTSIDE any log emit, so peer listeners
-  // (the dev invariants, persistence) observe the anchored events in strict
-  // log order. A turn with no prompt (an idle inject's one-shot injection
-  // turn) leaves the switch pending — it runs no step, so nothing executes
-  // or assembles under a stale value.
+  // Prompt-submit is inside the new turn but before prompt assembly. Promptless
+  // injection turns leave the switch pending because they execute no request.
   ctx.on('agent/prompt-submit', (agent, _content, _source, next) => {
     const rec = ownedRecord(agent)
     if (rec !== undefined) flushPendingSwitches(rec)
@@ -780,10 +665,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
           agentOptions: agentOptions(config),
           setup: (agentCtx) => { installTarget(agentCtx, target) },
         })
-        // Creation is now asynchronous because it awaits the unpublished setup
-        // transaction. A client disconnect can therefore close this bridge
-        // after the entry check but before the handle resolves; never install a
-        // post-close record that quiesce() could not have seen.
+        // Agent creation may resolve after the bridge closes; dispose the handle
+        // instead of publishing a record that teardown could not observe.
         /* v8 ignore next 4 -- the in-memory transport rejects the in-flight RPC
            immediately on close; real stdio may let the handler resume */
         if (closed) {
@@ -991,10 +874,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             if (presets === undefined) {
               throw invalidParams(`unknown permission value ${JSON.stringify(params.value)}`)
             }
-            // A no-op switch (the value the session already shows — pending,
-            // else derived) is acknowledged FIRST and records nothing:
-            // clients re-push current selections on session start, and the
-            // derived 'custom' current is only ever valid as such an echo.
+            // A current-value echo is acknowledged without recording a switch.
             const current = rec.pendingSwitches.preset ?? presets.current(rec.agent.session.events)
             if (params.value === current) break
             if (!presets.names.includes(params.value)) {
@@ -1236,27 +1116,16 @@ export function streamSessionEventUpdate(
 }
 
 /**
- * Map a harness todo list to an ACP `plan` body. ACP's `PlanEntry` requires
- * `content` + `priority` + `status`, but a {@link TodoItem} carries no priority,
- * so synthesize a constant `'medium'` on every entry; `status` maps 1:1 (the
- * harness status triple IS `PlanEntryStatus`). The ACP client REPLACES its whole
- * plan on each `plan` update, matching the harness's whole-list-replace
- * semantics, so no per-entry diffing is needed.
- * @param todos - the harness todo list (the whole list, not a diff).
- * @returns the ACP plan body, one entry per todo.
+ * Map a whole harness todo list to an ACP replacement plan, using medium
+ * priority because harness todos do not carry one.
+ * @param todos - complete harness todo list.
+ * @returns one ACP plan entry per todo.
  */
 export function todosToPlan(todos: TodoItem[]): Plan {
   return { entries: todos.map((todo): PlanEntry => ({ content: todo.content, priority: 'medium', status: todo.status })) }
 }
 
-/**
- * Per-session terminal-rendering context threaded into
- * {@link streamSessionEventUpdate}: whether the client advertised the
- * `_meta.terminal_output` capability, and the session's workspace cwd (the
- * default terminal-card header when a tool doesn't supply its own). Kept out of
- * the pure translator's required params so the no-capability / no-presenter
- * tests stay terse.
- */
+/** Per-session terminal capability and workspace used while translating updates. */
 export interface TerminalRendering {
   enabled: boolean
   /** The session workspace cwd (terminal-card header default); `undefined` when the session has none. */
@@ -1267,47 +1136,21 @@ export interface TerminalRendering {
 const noTerminalRendering: TerminalRendering = { enabled: false, cwd: undefined }
 
 /**
- * Resolves tool-owned presentation for a session's tool-call events. A tool
- * declares `presentCall`/`presentResult` (see `dsh-tools`) returning a
- * `card`-tagged {@link ToolCallView}/{@link ToolResultView}; this looks them up
- * by name in the registry and applies a generic fallback when a tool defines
- * neither. The returned view is what {@link streamSessionEventUpdate} switches on.
- *
- * The `tool/result` session event does NOT carry the tool name or args — so to
- * call a tool's `presentResult` (which needs both), the presenter remembers each
- * `tool/call`'s `{ name, args, card }` keyed by callId and looks it up on the
- * matching result. The map is bridge-LOCAL (not a change to the event schema or a
- * core service): one presenter per live session
- * (and a throwaway per `session/load` replay), and each entry is removed when its
- * result arrives. In the normal loop a `tool/call` is always followed by a
- * `tool/result` (the registry turns even a thrown tool into an isError result),
- * so the map holds only currently-in-flight calls. The one exception is a step
- * torn down mid-tool (an abort between `tool/call` and `tool/result`), which can
- * leave a single stale entry per such call; this is bounded by the session
- * lifetime (the whole presenter is dropped on teardown) and never affects
- * correctness — a later result for a different callId is unaffected, and the
- * stale entry's only cost is one map slot until the session ends.
+ * Resolve tool-owned call/result views with a generic fallback. Per-session
+ * state correlates results with call arguments; interrupted calls may retain an
+ * entry only until that session's presenter is discarded.
  */
 export class ToolPresenter {
   private readonly pending = new Map<CallId, { name: string; args: unknown; card: ToolCallView['card'] }>()
 
   /**
-   * @param tools the registry to resolve tool definitions by name.
-   * @param onError invoked when a tool's `presentCall`/`presentResult` THROWS;
-   *   the presenter swallows the error and falls back to the generic
-   *   presentation so a buggy display callback can never fail a live turn or a
-   *   `session/load` replay (docs/defensive-patterns.md "contain callback exceptions at the
-   *   boundary"). Defaults to a no-op for callers that don't supply a logger.
+   * @param tools - registry used to resolve executing definitions.
+   * @param onError - contained presenter-error sink before generic fallback.
+   * @param agent - optional scoped registry view for the executing agent.
    */
   constructor(
     private readonly tools: Pick<ToolRegistry, 'get'>,
     private readonly onError: (message: string) => void = () => {},
-    /**
-     * The agent whose view resolves tool presentations: a scoped/shadowed
-     * tool presents with ITS OWN presentCall/presentResult — the same
-     * definition that executed — not a same-named global's. Absent (a replay
-     * with no live agent) the global view presents.
-     */
     private readonly agent?: Agent,
   ) {}
 
@@ -1316,10 +1159,8 @@ export class ToolPresenter {
    * for the matching result.
    * @param callId - the call id the matching `tool/result` will look up.
    * @param name - the tool name, resolved against the registry for `presentCall`.
-   * @param argsJson - the raw arguments JSON from the event; parsed for the view
-   * (a non-JSON string is surfaced raw).
-   * @returns the tool-owned view, or the generic fallback (title = tool name,
-   * kind `other`, parsed args as raw input) when the tool defines none or threw.
+   * @param argsJson - raw event arguments parsed for presentation.
+   * @returns the tool-owned view or generic fallback.
    */
   call(callId: CallId, name: string, argsJson: string): ToolCallView {
     const args = parseToolArguments(argsJson)
@@ -1331,10 +1172,7 @@ export class ToolPresenter {
       this.onError(`acp: tool "${name}" presentCall threw, using generic presentation: ${String(error)}`)
       present = undefined
     }
-    // No tool-owned presentation: fall back to the tool name as the title, the
-    // full parsed args as the raw input, and kind `other` (the generic card).
-    // The kind is never sniffed from the name — the bridge does not special-case
-    // tool names; a tool that wants a richer kind declares `presentCall`.
+    // Tool names never imply presentation kind; richer cards are tool-owned.
     const view: ToolCallView = present ?? { card: 'generic', title: name, kind: 'other', rawInput: args }
     this.pending.set(callId, { name, args, card: view.card })
     return view
@@ -1343,14 +1181,11 @@ export class ToolPresenter {
   /**
    * Completed-state render intent for a `tool/result`; consumes the remembered
    * `(name, args, card)`.
-   * @param callId - the id of the matching `tool/call`; an unknown or late id
-   * falls back to the raw content.
-   * @param content - the result's content blocks (the fallback and fill-in body).
+   * @param callId - matching call id; unknown or late ids use raw content.
+   * @param content - result content used by the fallback and fill-in body.
    * @param isError - whether the result is an error, forwarded to `presentResult`.
    * @param meta - the result's machine-readable meta, forwarded when present.
-   * @returns the tool-owned view — an orphaned `terminal` result (no terminal
-   * call side) and a content-less `generic` are normalized — or the raw-content
-   * generic card when the tool defines no `presentResult` or threw.
+   * @returns a normalized tool-owned view or raw-content fallback.
    */
   result(callId: CallId, content: ContentBlock[], isError: boolean, meta?: unknown): ToolResultView {
     const call = this.pending.get(callId)
@@ -1420,25 +1255,11 @@ type AcpToolCallContent =
   | { type: 'diff'; path: string; oldText: string | null; newText: string }
   | { type: 'terminal'; terminalId: string }
 
-/**
- * Relativize a file card's TITLE path against the session workspace cwd, so a
- * card reads `Read src/foo.ts` rather than `/abs/proj/src/foo.ts` — matching the
- * reference ACP adapter's `toDisplayPath`. Only the TITLE is relativized; the
- * card's `locations`/`diff` paths stay RAW (the editor opens the real path). The
- * pure tool presenter can't see the session cwd, so this happens here where the
- * bridge knows it. The rewrite is an exact substring replace of the known raw
- * path (a card carries the same path in `locations[0]`/`diffs[0]`), never a
- * heuristic. A path outside the workspace, or an absent/relative session cwd, is
- * left unchanged.
- */
+/** Relativize only in-workspace title text; location and diff paths stay raw. */
 function displayTitle(title: string, rawPath: string | undefined, sessionCwd: string | undefined): string {
   if (rawPath === undefined || sessionCwd === undefined || !isAbsolute(rawPath) || !isAbsolute(sessionCwd)) return title
   const rel = relativePath(sessionCwd, rawPath)
-  // Only relativize a target that stays INSIDE the workspace. `relative` prefixes
-  // a `..` SEGMENT for a target above the cwd — test for the segment (`..` alone
-  // or `..<sep>…`), NOT a bare `..` char prefix, so a sibling like `..cache/x`
-  // (a real in-workspace name) still relativizes. Never relativize to the empty
-  // string (rawPath === cwd — a non-file target).
+  // Test the `..` segment, not a character prefix: `..cache/x` is in-workspace.
   if (rel.length === 0 || rel === '..' || rel.startsWith(`..${pathSep}`)) return title
   return title.split(rawPath).join(rel)
 }

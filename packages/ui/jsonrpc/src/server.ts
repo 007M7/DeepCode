@@ -1,13 +1,6 @@
 /**
- * `HarnessSdkServer`: the JSON-RPC method surface the `dsh-jsonrpc` plugin
- * serves to out-of-process SDK clients (e.g. the Python `deepseek_harness`
- * package). Requests: `initialize` → `session/prompt`* → `shutdown`.
- * Notifications pushed to the host: `session.event` (every durable session
- * event, verbatim), `session.finished` (per prompt turn settle),
- * `subagent.started` / `subagent.finished` (child-session lineage and run
- * outcomes). The server owns only the SDK-facing session map — the harness
- * itself is the context the plugin mounts in; plugins, persistence, and
- * the LLM adapter set all come from the external `cordis.yml`.
+ * JSON-RPC method and notification surface for out-of-process harness SDKs.
+ * The surrounding context owns plugins, persistence, and configured adapters.
  *
  * @module @deepseek-ai/dsh-jsonrpc/server
  */
@@ -23,7 +16,7 @@ import type { SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type { JsonRpcTransportPeer } from './transport.ts'
 
-/** Parameters of the `initialize` request (once per process, before any prompt). */
+/** Parameters for the process-wide SDK handshake. */
 export interface InitializeParams {
   /** Working directory recorded on every SDK-created session's header. */
   cwd: string
@@ -33,16 +26,13 @@ export interface InitializeParams {
   model: string
 }
 
-/** Result of the `initialize` request: the server's identity for the SDK handshake. */
+/** Wire-stable server identity returned by initialization. */
 export interface InitializeResult {
   /** Wire-stable server identity (`deepseek-harness-sdk-runtime`) and version. */
   serverInfo: { name: string; version: string }
 }
 
-/**
- * Parameters of a `session/prompt` request: one user turn on one SDK session,
- * with at most one in flight per session.
- */
+/** One user turn on one SDK session. */
 export interface SessionPromptParams {
   /** The SDK-side session id; an unknown id lazily creates the agent+session pair. */
   sessionId: string
@@ -50,7 +40,7 @@ export interface SessionPromptParams {
   contentBlocks: ContentBlock[]
 }
 
-/** Result of a `session/prompt` request: the prompt ran to turn settle (outcome rides on `session.finished`). */
+/** Prompt acceptance after turn settlement; outcome rides on `session.finished`. */
 export interface SessionPromptResult {
   /** Always `true`; the turn outcome is the paired `session.finished` notification. */
   accepted: true
@@ -62,20 +52,12 @@ interface SessionRecord {
   activePrompt: boolean
 }
 
-/** Recover the delegating parent carried by every service-owned subagent lifecycle event. */
+/** Recover the delegating parent from the service-owned scoped carrier. */
 function subagentParentOf(carrier: Scoped<SubagentService>): Agent {
-  // SubagentService emits this lifecycle pair only through scopeTarget(this, parent).
   return carrierKeyOf(carrier) as Agent
 }
 
-/**
- * The SDK server over a booted harness context. Constructing it subscribes to
- * session and subagent lifecycle events, forwarding durable session
- * events and SDK-facing completion notifications while retaining local-run
- * identity across child disposal. The subscriptions live until
- * {@link shutdown}. One instance serves one transport peer for the process
- * lifetime — there is no re-`initialize`.
- */
+/** SDK server whose subscriptions and created agents live until {@link shutdown}. */
 export class HarnessSdkServer {
   private cwd = process.cwd()
   private provider = 'deepseek'
@@ -125,10 +107,9 @@ export class HarnessSdkServer {
   }
 
   /**
-   * Record cwd and provider/model, mounting the DeepSeek adapter only when the
-   * `deepseek` provider route has no configured owner.
-   * @param params - the SDK handshake parameters.
-   * @returns the server identity for the handshake.
+   * Configure the SDK route, mounting the DeepSeek fallback only when unowned.
+   * @param params - SDK handshake parameters.
+   * @returns server identity for the handshake.
    */
   async initialize(params: InitializeParams): Promise<InitializeResult> {
     this.cwd = resolve(params.cwd)
@@ -142,13 +123,9 @@ export class HarnessSdkServer {
   }
 
   /**
-   * Handle `session/prompt`: get-or-create the session's agent, send the
-   * content as the user message, await turn settle (quiescence), then notify
-   * `session.finished` with the settled turn's outcome. A session accepts at
-   * most one prompt at a time; an overlapping request fails immediately while
-   * other sessions remain independent.
-   * @param params - the target session id and prompt content.
-   * @returns `{ accepted: true }` after the turn settled.
+   * Run one prompt to settlement; overlap on the same session fails.
+   * @param params - target session and user content.
+   * @returns acceptance after the turn settled.
    */
   async prompt(params: SessionPromptParams): Promise<SessionPromptResult> {
     const rec = await this.getOrCreateSession(params.sessionId)
@@ -171,11 +148,9 @@ export class HarnessSdkServer {
   }
 
   /**
-   * Handle `shutdown`: dispose every SDK-created agent handle (awaiting loop
-   * quiescence), unmount the adapter fiber this server mounted (if any), and
-   * detach the event subscriptions. The CONTEXT stays up — the bin disposes it
-   * as part of process exit.
-   * @returns an empty object (the JSON-RPC result).
+   * Dispose server-owned agents, adapter, and subscriptions to quiescence.
+   * The surrounding context remains running.
+   * @returns empty JSON-RPC result.
    */
   shutdown(): Promise<Record<string, never>> {
     this.shutdownTask ??= this.performShutdown()
