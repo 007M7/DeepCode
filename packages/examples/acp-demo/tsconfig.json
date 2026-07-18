@@ -30,6 +30,9 @@
       "path": "../agent-spine-demo"
     },
     {
+      "path": "../../context/workspace-context"
+    },
+    {
       "path": "../../ui/user-interaction"
     },
     {

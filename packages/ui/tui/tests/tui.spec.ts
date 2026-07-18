@@ -171,6 +171,7 @@ function appendAssistant(session: Session, content: ContentBlock[], usage?: { in
   session.append('assistant/message', {
     turn: 1,
     step: 0,
+    provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
     content,
     ...usage === undefined ? {} : { usage },
   }, { surfaceOp: 'append' })
@@ -685,6 +686,7 @@ describe('tool cards and surface replay', () => {
     const assistant = result.session.append('assistant/message', {
       turn: 1,
       step: 0,
+      provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
       content: [{ type: 'tool-call', id: 'old-call' as never, name: 'bash', arguments: '{}' }],
     }, { surfaceOp: 'append' })
     result.session.append('tool/call', {
@@ -693,7 +695,7 @@ describe('tool cards and surface replay', () => {
     const toolResult = result.session.append('tool/result', {
       turn: 1, step: 0, callId: 'old-call' as never, content: [{ type: 'text', text: 'old output' }], isError: false,
     }, { surfaceOp: 'append' })
-    const start = result.session.surface.nodes[0]?.seq as number
+    const start = result.session.surface.nodes[0] as number
     result.session.append('context/message', {
       content: [{ type: 'text', text: 'summary replacement' }],
       source: { kind: 'plugin', plugin: 'compact' },

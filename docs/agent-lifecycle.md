@@ -34,16 +34,27 @@ sequenceDiagram
   Session-->>SDK: <code>session/event</code> <code>assistant/chunk</code>*
   Driver->>Hooks: <code>agent/step-result</code> waterfall
   Driver->>Session: <code>assistant/message</code>
-  Driver->>Session: <code>tool/call</code>
-  Driver->>Tools: execute through pre and post waterfalls
-  Tools-->>Session: tool-owned events when applicable
-  Driver->>Session: <code>tool/result</code> and <code>step/end</code>
+  Driver->>Tools: classify pending call by executionMode
+  loop barriers and bounded rolling pool, reclassify before start
+    opt call starts
+      Driver->>Session: <code>tool/call</code>
+      Driver->>Tools: ordered pre, concurrent execute
+      Tools-->>Session: tool-owned events when applicable
+    end
+    opt next model-order result ready
+      Driver->>Tools: ordered post
+      Driver->>Session: <code>tool/result</code>
+    end
+  end
+  Driver->>Session: <code>step/end</code>
   Driver->>Hooks: <code>agent/turn-continuation</code> waterfall
   Driver->>Hooks: <code>agent/turn-stop</code> serial terminal checkpoint
   Driver->>Session: <code>turn/end</code>
   Driver->>Persistence: <code>session/flush</code> parallel checkpoint
   Driver-->>SDK: <code>agent/status</code> idle
 ```
+
+The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.
 
 SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.
 

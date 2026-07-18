@@ -33,7 +33,7 @@ describe('config-driven session id', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     const loopFiber = await ctx.plugin(AgentLoop, {
-      agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('deferred') }],
+      agents: [{ id: AgentId('main'), provider: 'mock', model: 'mock', resumeSessionId: SessionId('deferred') }],
     })
 
     const resumeEffect = loopFiber.getEffects().find(effect => effect.label === 'agentLoop.resume(main)')
@@ -47,6 +47,7 @@ describe('config-driven session id', () => {
     const loadStarted = Promise.withResolvers<undefined>()
     const pendingLoad = Promise.withResolvers<{ meta: SessionHeader; events: SessionEvent[] }>()
     class DeferredSessionPersistence extends SessionPersistence {
+      locate(_meta: SessionHeader): undefined { return undefined }
       create(_meta: SessionHeader): Promise<void> { return Promise.resolve() }
       append(_id: SessionId, _events: readonly SessionEvent[]): Promise<void> { return Promise.resolve() }
       load(_id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
@@ -65,7 +66,7 @@ describe('config-driven session id', () => {
     const failures: Error[] = []
     ctx.on('agent/start-failed', (_id, error) => { failures.push(error) })
     const loopFiber = await ctx.plugin(AgentLoop, {
-      agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('deferred') }],
+      agents: [{ id: AgentId('main'), provider: 'mock', model: 'mock', resumeSessionId: SessionId('deferred') }],
     })
     await ctx.plugin(DeferredSessionPersistence)
     await loadStarted.promise
@@ -79,6 +80,7 @@ describe('config-driven session id', () => {
 
   it('normalizes a non-Error declarative resume rejection without duplicating an Error prefix', async () => {
     class RejectingSessionPersistence extends SessionPersistence {
+      locate(_meta: SessionHeader): undefined { return undefined }
       create(_meta: SessionHeader): Promise<void> { return Promise.resolve() }
       append(_id: SessionId, _events: readonly SessionEvent[]): Promise<void> { return Promise.resolve() }
       load(_id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
@@ -98,7 +100,7 @@ describe('config-driven session id', () => {
     const failures: Error[] = []
     ctx.on('agent/start-failed', (_id, error) => { failures.push(error) })
     const loopFiber = await ctx.plugin(AgentLoop, {
-      agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('rejected') }],
+      agents: [{ id: AgentId('main'), provider: 'mock', model: 'mock', resumeSessionId: SessionId('rejected') }],
     })
     await ctx.plugin(RejectingSessionPersistence)
 
@@ -120,7 +122,7 @@ describe('config-driven session id', () => {
     await ctx1.plugin(SystemPrompt)
     await ctx1.plugin(ToolRegistry)
     await ctx1.plugin(AgentRegistry)
-    await ctx1.plugin(AgentLoop, { agents: [{ id: AgentId('cfg'), model: 'mock' }] })
+    await ctx1.plugin(AgentLoop, { agents: [{ id: AgentId('cfg'), provider: 'mock', model: 'mock' }] })
     await ctx1.plugin(SessionPersistenceJsonl, { root })
     ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('cfg')]))
     const a1 = ctx1.agents.get(AgentId('cfg')) as ReactLoopAgent
@@ -137,7 +139,7 @@ describe('config-driven session id', () => {
     await ctx2.plugin(SystemPrompt)
     await ctx2.plugin(ToolRegistry)
     await ctx2.plugin(AgentRegistry)
-    await ctx2.plugin(AgentLoop, { agents: [{ id: AgentId('cfg'), model: 'mock' }] })
+    await ctx2.plugin(AgentLoop, { agents: [{ id: AgentId('cfg'), provider: 'mock', model: 'mock' }] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], new MockAdapter([textResponse('cfg2')]))
     const a2 = ctx2.agents.get(AgentId('cfg')) as ReactLoopAgent
@@ -176,7 +178,7 @@ describe('config-driven session id', () => {
     await ctx2.plugin(SystemPrompt)
     await ctx2.plugin(ToolRegistry)
     await ctx2.plugin(AgentRegistry)
-    await ctx2.plugin(AgentLoop, { agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('sticky-1') }] })
+    await ctx2.plugin(AgentLoop, { agents: [{ id: AgentId('main'), provider: 'mock', model: 'mock', resumeSessionId: SessionId('sticky-1') }] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], new MockAdapter([textResponse('second')]))
 
@@ -206,7 +208,7 @@ describe('config-driven session id', () => {
     await ctx.plugin(AgentRegistry)
     const failures: Array<{ id: string; error: Error }> = []
     ctx.on('agent/start-failed', (id, error) => { failures.push({ id, error }) })
-    const loopFiber = await ctx.plugin(AgentLoop, { agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('does-not-exist') }] })
+    const loopFiber = await ctx.plugin(AgentLoop, { agents: [{ id: AgentId('main'), provider: 'mock', model: 'mock', resumeSessionId: SessionId('does-not-exist') }] })
     const warn = vi.spyOn((ctx.agentLoop as unknown as { ctx: { logger: { warn: (...a: unknown[]) => void } } }).ctx.logger, 'warn')
       .mockImplementation(() => undefined)
     await ctx.plugin(SessionPersistenceJsonl, { root })

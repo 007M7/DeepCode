@@ -43,7 +43,7 @@ async function loopHarness(): Promise<Context> {
   await created.plugin(ToolRegistry)
   await created.plugin(AgentRegistry)
   await created.plugin(AgentLoop, { agents: [] })
-  await created.plugin(LlmDeepSeek, { models: ['deepseek-v4-flash'] })
+  await created.plugin(LlmDeepSeek)
   created.tools.register(defineTool({
     name: 'lookup',
     description: 'Look up the stored value for a key.',
@@ -69,7 +69,7 @@ function waitForIdle(context: Context, agent: Agent): Promise<void> {
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('log-derived request cache hits (real API)', () => {
   it('every request after the first hits the provider prefix cache', async () => {
     ctx = await loopHarness()
-    const agent = ctx.agentLoop.create(AgentId('cache-e2e'), { model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(AgentId('cache-e2e'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     // Turn 1: forces a tool call → at least two steps (two model requests).
     agent.send([{ type: 'text', text: 'Look up the key "deploy-color" with the lookup tool and tell me the value.' }])

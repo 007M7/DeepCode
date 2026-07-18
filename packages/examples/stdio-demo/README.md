@@ -10,7 +10,7 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 
 | Plugin | Why it is here |
 |---|---|
-| `@deepseek-ai/dsh-agent-spine-demo` | the spine, pre-creating a `main` agent from this app's `model` with `process.cwd()` as the fresh session cwd and carrying its `persona` |
+| `@deepseek-ai/dsh-agent-spine-demo` | the spine, pre-creating a `main` agent from this app's provider/model pair with `process.cwd()` as the fresh session cwd and carrying its `persona` |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by confirmation tools |
 | `@deepseek-ai/dsh-tool-ask-user` | the model-facing `ask_user_question` tool |
@@ -20,15 +20,18 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 
 `@cordisjs/plugin-hmr` (the dev/demo edit-reload loop) is deliberately a **leaf** entry, not baked in here: it is a Loader-only, subprocess-only dev plugin whose constructor needs `node --expose-internals` plus a live `loader`. The `demo:echo` / `demo:repl` leaves load it and pass `--expose-internals`.
 
-The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapter (`llm-deepseek` for the real model, or the mock `mock-llm` for a demo) and a bash executor (`bash-local`) — `hmr`, plus this app's [`Config`](#config). The whole plugin tree a run loads is therefore: this app's cluster, the spine inside `agent-core`, `hmr`, and the two leaf backends.
+The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapter (`llm-deepseek` for the real model, or the mock `mock-llm` for a demo) and a bash executor (`bash-local`) — `hmr`, plus this app's [`Config`](#config). The whole plugin tree a run loads is therefore: this app's cluster, the spine inside `agent-spine-demo`, `hmr`, and the two leaf backends.
 
 ## Config
 
 | Key | Default | Routed to |
 |---|---|---|
+| `provider` | (required) | the pre-created `main` agent's registered provider route |
 | `model` | (required) | the pre-created `main` agent's model |
-| `persona` | — | the deployment persona template (may reference `{{model}}`/`{{cwd}}`), routed to `dsh-system-prompt` |
+| `maxParallelToolCalls` | agent-loop default | positive-integer concurrent tool-call cap shared by the bundled loop's agents; `1` is serial |
+| `persona` | — | the deployment persona template (may reference `{{provider}}`/`{{model}}`/`{{cwd}}`), routed to `dsh-system-prompt` |
 | `toolOrder` | — | explicit model-facing tool order (a name list with one `'<unlisted-tools>'` rest entry; absent — lexicographic; an unregistered name fails each turn at prompt assembly), routed to `dsh-system-prompt` |
+| `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness home exposed to model bash and used by local skill discovery |
 | `tools` | `{ mode: 'native' }` | tool-registry presentation config (`native` / `code` / `both`), routed through `dsh-agent-spine-demo` |
 | `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-spine-demo` |
 | `toolBash` | owner defaults | model-facing bash config routed through `dsh-agent-spine-demo`, including bash's producer-local `enableRunInBackground` |
@@ -56,7 +59,6 @@ Fresh stdio sessions use the process launch directory as `session.header.cwd`, s
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
-    models: [deepseek-v4-flash]
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
@@ -64,6 +66,7 @@ Fresh stdio sessions use the process launch directory as `session.header.cwd`, s
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-demo'
   config:
+    provider: deepseek
     model: deepseek-v4-flash
     persona: 'You are a coding assistant powered by the {{model}} model.'
     ui:

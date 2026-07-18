@@ -17,6 +17,7 @@ import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
+import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
@@ -62,7 +63,7 @@ export function resolveTerminalMode(config: UiConfig | undefined, isTTY: boolean
 
 /**
  * App config: the swappable per-demo values, each routed to where the app wires
- * it. `model`/`resumeSessionId` configure the pre-created `main` agent (through
+ * it. `provider`/`model`/`resumeSessionId` configure the pre-created `main` agent (through
  * {@link @deepseek-ai/dsh-agent-spine-demo}'s forwarded `agents` list); `persona` is
  * the deployment persona (forwarded to the system-prompt plugin); `toolOrder`
  * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
@@ -71,14 +72,20 @@ export function resolveTerminalMode(config: UiConfig | undefined, isTTY: boolean
  * `welcome` is the UI banner and `ui` configures terminal mode/presentation.
  */
 export interface Config {
+  /** Provider route for the `main` agent. */
+  provider: string
   /** Model name for the `main` agent (must have a registered adapter). */
   model: string
+  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
+  maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
   toolOrder?: string[]
   /** Tool-registry config — its presentation `mode` (forwarded through agent-spine-demo; see dsh-tools). */
   tools?: ToolsConfig
+  /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
+  dshHome?: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** Terminal banner printed once on start. Defaults to `'ready.'`. */
@@ -97,16 +104,21 @@ export interface Config {
    * (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`).
    */
   resumeSessionId?: string
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
 }
 
 export const Config: z<Config> = z.object({
+  provider: z.string().required(),
   model: z.string().required(),
+  maxParallelToolCalls: z.number().step(1).min(1),
   persona: z.string(),
   // The array default is forced to undefined: ABSENT means "lexicographic
   // order" (the owning dsh-system-prompt schema does the same), while
   // schemastery's native [] default would read as an invalid configured list.
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
+  dshHome: z.string(),
   // TODO(single-default-literal): share these schema defaults and defensive
   // apply() fallbacks through named constants while retaining both boundaries.
   persistenceRoot: z.string().default('./.sessions'),
@@ -116,6 +128,7 @@ export const Config: z<Config> = z.object({
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: agentCore.ToolTasksConfigSchema,
   resumeSessionId: z.string(),
+  workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
 
 /**
@@ -132,18 +145,14 @@ export function composeTerminalApp(ctx: Context, config: Config, isTTY: boolean)
   const mode = resolveTerminalMode(config.ui, isTTY)
   if (mode === 'readline') ctx.plugin(ConsoleExporter)
   ctx.plugin(agentCore, {
-    ...config.persona !== undefined ? { persona: config.persona } : {},
-    ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
-    ...config.tools !== undefined ? { tools: config.tools } : {},
+    ...agentCore.pickSpineConfig(config),
     agents: [{
       id: AgentId('main'),
+      provider: config.provider,
       model: config.model,
       cwd: process.cwd(),
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
     }],
-    ...config.skills !== undefined ? { skills: config.skills } : {},
-    ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
-    ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
   })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(UserInteractionService)

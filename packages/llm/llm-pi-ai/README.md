@@ -1,60 +1,79 @@
 # @deepseek-ai/dsh-llm-pi-ai
 
-DeepSeek adapter for the harness LLM seam backed by [`@earendil-works/pi-ai`](https://www.npmjs.com/package/@earendil-works/pi-ai) (the LLM library behind the pi agent).
-
-## Why a second adapter exists
-
-`@deepseek-ai/dsh-llm-deepseek` already talks to the same endpoint. This package is its **design-verification twin**: same models, same wire protocol, completely different internals — a unified LLM library with its own event vocabulary versus hand-rolled fetch/SSE. Anything the harness `StreamChunk` protocol cannot express for BOTH implementations is a core-vocabulary bug. The differences it exercised on purpose:
-
-- pi-ai hands tool-call `arguments` around as **parsed objects**; the harness keeps raw JSON strings. The adapter patches replay payloads back to the original raw strings before sending them, and re-stringifies parsed output tool calls at `block-end`.
-- pi-ai reports failures as **in-stream error events** (it never throws mid-stream); these map to `finish {kind:'error'|'aborted'}` chunks — the protocol's other sanctioned error path besides throwing (which llm-deepseek uses).
-- pi-ai folds reasoning tokens into `usage.output`; there is no separate reasoning count to map.
-- pi-ai's options omit some DeepSeek/OpenAI-compatible details; the adapter uses its `onPayload` hook to preserve the harness contract (`stop`, scrubbing pi-ai's own per-tool `strict` default — the hand-rolled twin sends no such field — omitted reasoning effort, raw replayed tool arguments).
+Generic multi-provider adapter for the harness LLM seam backed by [`@earendil-works/pi-ai`](https://www.npmjs.com/package/@earendil-works/pi-ai). One plugin instance owns an explicit list of provider profiles; every request selects a profile with `GenerateOptions.provider` and resolves `GenerateOptions.model` dynamically from pi-ai's installed catalog.
 
 ## Config
 
-Same shape as llm-deepseek (one-line swap in cordis.yml), with pi-ai's thinking-level vocabulary:
+Configure credentials and deployment-specific transport settings per provider. Omitting `apiKey` delegates authentication to pi-ai's provider-native ambient discovery. `baseURL` overrides only the endpoint of the selected catalog model, preserving its API family and compatibility metadata, so private proxies such as `https://proxy.example.com:8443` remain supported.
 
 ```yaml
 - id: llm
   name: '@deepseek-ai/dsh-llm-pi-ai'
   config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
-    baseURL: !!js process.env.DEEPSEEK_BASE_URL
-    models: [deepseek-v4-flash, deepseek-v4-pro]
-    reasoning: high   # off | high | xhigh (xhigh → wire 'max')
+    providers:
+      - provider: openai
+        apiKey: !!js process.env.OPENAI_API_KEY
+        baseURL: https://proxy.example.com:8443
+        reasoning: high
+      - provider: anthropic
+        apiKey: !!js process.env.ANTHROPIC_API_KEY
+        maxRetries: 2
+      - provider: openrouter
+        apiKey: !!js process.env.OPENROUTER_API_KEY
+        headers:
+          X-Deployment: production
 ```
+
+Each provider name must exist in pi-ai's installed catalog and may appear only once in this plugin instance. Registration with `ctx.llm` is atomic: a collision with any provider route already owned by another adapter fails plugin loading without registering the remaining routes. Model ids are not lifecycle config; an unknown model fails before any provider request with `LlmError('UNKNOWN_MODEL')`.
+
+The adapter exposes each configured provider's installed pi-ai models through `ctx.llm.listModels(provider)`. This is provider-neutral selector metadata derived from `getModels(provider)`; request-time resolution still performs the authoritative catalog lookup, so discovery does not create a second model registry.
+
+Supported profile fields are `provider`, `apiKey`, `baseURL`, `headers`, `reasoning`, `thinkingBudgets`, `cacheRetention`, `transport`, `timeoutMs`, `websocketConnectTimeoutMs`, `maxRetries`, and `maxRetryDelayMs`. They map to pi-ai's common stream options. Harness app attribution wins a conflicting configured header name.
+
+## Provider/model routing and replay
+
+The selected pi-ai catalog descriptor supplies the protocol implementation. This includes native API differences such as OpenAI models whose descriptor uses the Responses API rather than Chat Completions; the harness adapter does not hardcode endpoint selection by model name.
+
+Successful assistant responses store a versioned, lossless-JSON replay state beside their durable provider/model provenance. At request time, `LlmService` passes replay state only when the historical provider route and target provider route are currently owned by this same `PiAiAdapter` instance. The adapter validates the state and restores pi-ai response ids and provider signatures even when the target provider or model changes; pi-ai then decides which metadata its target API can reuse. History without replay state is translated as foreign provider-neutral content and never impersonates a native pi-ai response.
+
+If a listener rewrites assembled assistant content, the loop drops replay state before logging the message because its provider metadata no longer describes the content. Invalid versions, malformed metadata, provenance provider/model mismatches, and content/block mismatches fail explicitly with `LlmError('INVALID_REPLAY_STATE')`.
+
+## Vocabulary differences
+
+- pi-ai tool-call arguments are parsed objects; the harness stores raw JSON strings. The adapter parses input and re-stringifies output.
+- pi-ai reports failures as in-stream error events; these map to `finish {kind:'error'|'aborted'}` chunks.
+- pi-ai folds reasoning tokens into output usage; there is no separate reasoning count to map.
+- `GenerateOptions.stop` is rejected with `UNSUPPORTED_OPTION` because pi-ai's common streaming surface cannot guarantee it across providers.
 
 ## App attribution
 
-Every request carries the shared attribution header from dsh-llm's `attributionHeaders()`, passed through pi-ai's `headers` stream option (pi-ai merges caller headers last, so it always reaches the wire - the unit suite asserts arrival on the mock server, same as llm-deepseek). OpenRouter-specific app attribution headers are intentionally not sent by this adapter contract; they are deferred to a future explicit OpenRouter adapter or mode. See [dsh-llm § App attribution](../llm/README.md#app-attribution-attributionts).
+Every request carries the shared attribution header from dsh-llm's `attributionHeaders()`, merged through pi-ai's `headers` stream option. Provider-specific app-attribution headers are not synthesized. See [dsh-llm § App attribution](../llm/README.md#app-attribution-attributionts).
 
 ## Dependency weight
 
-pi-ai declares the openai/anthropic/google/mistral/AWS SDKs as install-time dependencies. They are lazy-loaded — only the openai SDK actually loads for this adapter — but they do land in `node_modules`. Accepted for a package whose purpose is design verification.
+pi-ai installs several provider SDKs and lazy-loads the one selected by the catalog model. The dependency weight is isolated to this opt-in adapter package.
 
 ## Testing
 
-Unit suites run against a local `node:http` mock SSE server (pi-ai's openai SDK happily talks to any base URL). Real-API coverage in `tests/adapter.e2e.ts` (`pnpm run test:e2e`, key-gated): V4 Flash + V4 Pro across all exposed reasoning levels (off/high/xhigh), the thinking+tools round trip, and a cross-adapter structural-equivalence check against llm-deepseek.
+Unit tests use pi-ai catalog models redirected to local mock servers and cover provider/profile routing, native API selection, endpoint overrides, attribution, conversion, replay-state validation, and cross-provider/model replay within one adapter instance. Real-API coverage remains key-gated under `pnpm run test:e2e`.
 
 ## Model Experience
 
-### DeepSeek request through pi-ai
+### Provider request through pi-ai
 
-**What the model sees**: The selected model receives the same logical system prompt, history, tools, stop sequences, and raw replayed tool arguments as the hand-written adapter. This package adds no prompt prose and removes pi-ai's own per-tool `strict` default to preserve that contract.
+**What the model sees**: The selected catalog model receives `GenerateOptions.system`, history, tools, and sampling fields supported by pi-ai's common streaming API. This package adds no prompt prose. Provider-native replay metadata is restored only when the adapter validates it for the historical content.
 
-**Token effect**: Provider tokenization governs exact input. Reasoning level changes generated and passback content; pi-ai reports reasoning inside output usage rather than as a separate count.
+**Token effect**: Provider tokenization governs exact input. Conversion adds no model-visible text; replay metadata may let a native API reuse provider-side state.
 
-### DeepSeek response
+### Provider response
 
-**What the model sees**: pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks; parsed tool arguments are restored to raw JSON strings at the harness boundary.
+**What the model sees**: pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks. Parsed tool arguments cross the harness boundary as raw JSON strings.
 
-**Token effect**: Generated content affects later inputs only after the loop records it; adapter conversion adds no model-visible text.
+**Token effect**: Generated content affects later inputs only after the loop records it. pi-ai folds reasoning tokens into output usage when the provider does not report them separately.
 
 ## Known Limitations and Deferred Work
 
-- **`tool_choice` is not mapped** — same MVP contract as llm-deepseek.
-- **In-history `system`-role messages fold into `user`-role wire messages** — pi-ai exposes a single `systemPrompt` slot, diverging from the hand-rolled twin's `role: 'system'` passthrough.
-- **`LlmError.status` is never set** — pi-ai reports failures as in-stream events with no HTTP status, so error codes are regex-classified from the error text.
-- **`buildModel` hardcodes descriptor metadata** — `contextWindow: 128000`, `maxTokens: 64000`, zero cost, identically for every registered model name; not configurable.
-- **pi-ai's built-in retries are disabled (`maxRetries: 0`)** — failures surface immediately; retry policy belongs to `llm/stream` listeners.
+- **Catalog membership is required** — custom model ids that are absent from the installed pi-ai catalog fail with `UNKNOWN_MODEL`, even when a provider profile supplies a custom endpoint.
+- **`GenerateOptions.stop` is unsupported** — pi-ai's common stream options cannot guarantee stop-sequence behavior across providers, so the adapter rejects the field.
+- **In-history `system` messages use pi-ai's common context conversion** — provider-specific placement follows pi-ai rather than a harness-owned wire override.
+- **`LlmError.status` is unavailable for in-stream failures** — pi-ai error events do not expose a stable HTTP status across providers.

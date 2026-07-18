@@ -8,5 +8,15 @@
       }
     }
   ],
-  "deltas": []
+  "changes": [
+    [
+      {
+        "name": "t1",
+        "description": "D1",
+        "parameters": {
+          "type": "object"
+        }
+      }
+    ]
+  ]
 }

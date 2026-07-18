@@ -761,7 +761,7 @@ export interface TuiController {
 }
 
 function activeSurfaceSeqs(session: Session): Set<number> {
-  return new Set(session.surface.nodes.map(node => node.seq))
+  return new Set(session.surface.nodes)
 }
 
 function activeToolCallIds(session: Session, active: ReadonlySet<number>): Set<string> {
