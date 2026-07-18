@@ -15,6 +15,7 @@ import {
   type RequestPermissionResponse,
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
+import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
 /**
  * Exercises the default ACP composition through the real bin and Loader. The
@@ -28,9 +29,8 @@ import {
 
 const binScript = fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // The subprocess runs from a temp cwd outside the repo; point tsx at the repo
-// tsconfig so the unbuilt `paths` map resolves (see examples/AGENTS.md).
+// tsconfig so the unbuilt `paths` map resolves in src mode (see examples/AGENTS.md).
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
 // Without a usable bwrap/Seatbelt runner, the strict attempt fails closed with
@@ -55,17 +55,19 @@ interface Spawned {
 
 /** Boot the example as an ACP subprocess; the scripted client answers every permission prompt with `answer`. */
 function spawnAcpAgent(cwd: string, answer: 'allow-once' | 'reject-once'): Spawned {
+  const launch = resolveExampleLaunch({
+    srcBin: binScript,
+    configArgs: ['--config', configPath],
+    tsconfigPath: repoTsconfig,
+    // A dummy key lets the deepseek adapter boot keyless (presence-checked at
+    // apply, used only on a real model call); the with-key tests carry the
+    // real key, so the fallback is inert there.
+    env: { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY || 'sk-dummy-for-boot' },
+  })
   const child = spawn(
-    process.execPath,
-    ['--import', tsxLoader, binScript, '--config', configPath],
-    {
-      cwd,
-      // A dummy key lets the deepseek adapter boot keyless (presence-checked at
-      // apply, used only on a real model call); the with-key tests carry the
-      // real key, so the fallback is inert there.
-      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY || 'sk-dummy-for-boot', TSX_TSCONFIG_PATH: repoTsconfig },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    },
+    launch.command,
+    launch.args,
+    { cwd, env: { ...process.env, ...launch.env }, stdio: ['pipe', 'pipe', 'pipe'] },
   )
   const stderr: string[] = []
   child.stderr.setEncoding('utf8')

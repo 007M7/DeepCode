@@ -90,6 +90,120 @@ importers:
         specifier: ^4.1.8
         version: 4.1.8(@types/node@22.20.0)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
+  examples:
+    dependencies:
+      '@cordisjs/plugin-hmr':
+        specifier: workspace:*
+        version: link:../vendor/hmr
+      '@cordisjs/plugin-include':
+        specifier: workspace:*
+        version: link:../vendor/include
+      '@deepseek-ai/dsh-acp-demo':
+        specifier: workspace:*
+        version: link:../packages/examples/acp-demo
+      '@deepseek-ai/dsh-bash-local':
+        specifier: workspace:*
+        version: link:../packages/bash/bash-local
+      '@deepseek-ai/dsh-bash-sandbox':
+        specifier: workspace:*
+        version: link:../packages/bash/bash-sandbox
+      '@deepseek-ai/dsh-code-runtime-worker':
+        specifier: workspace:*
+        version: link:../packages/code-runtime/code-runtime-worker
+      '@deepseek-ai/dsh-compact-basic':
+        specifier: workspace:*
+        version: link:../packages/compact/compact-basic
+      '@deepseek-ai/dsh-fs-local':
+        specifier: workspace:*
+        version: link:../packages/fs/fs-local
+      '@deepseek-ai/dsh-fs-policy':
+        specifier: workspace:*
+        version: link:../packages/fs/fs-policy
+      '@deepseek-ai/dsh-hooks-claude':
+        specifier: workspace:*
+        version: link:../packages/hooks/hooks-claude
+      '@deepseek-ai/dsh-hooks-codex':
+        specifier: workspace:*
+        version: link:../packages/hooks/hooks-codex
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:*
+        version: link:../packages/llm/llm
+      '@deepseek-ai/dsh-llm-deepseek':
+        specifier: workspace:*
+        version: link:../packages/llm/llm-deepseek
+      '@deepseek-ai/dsh-llm-replay':
+        specifier: workspace:*
+        version: link:../packages/support/llm-replay
+      '@deepseek-ai/dsh-permission':
+        specifier: workspace:*
+        version: link:../packages/ui/permission
+      '@deepseek-ai/dsh-repeat-tool-guard':
+        specifier: workspace:*
+        version: link:../packages/guard/repeat-tool-guard
+      '@deepseek-ai/dsh-sandbox-local':
+        specifier: workspace:*
+        version: link:../packages/sandbox/sandbox-local
+      '@deepseek-ai/dsh-spill-local':
+        specifier: workspace:*
+        version: link:../packages/spill/spill-local
+      '@deepseek-ai/dsh-spill-policy':
+        specifier: workspace:*
+        version: link:../packages/spill/spill-policy
+      '@deepseek-ai/dsh-stdio-demo':
+        specifier: workspace:*
+        version: link:../packages/examples/stdio-demo
+      '@deepseek-ai/dsh-subagent':
+        specifier: workspace:*
+        version: link:../packages/subagent/subagent
+      '@deepseek-ai/dsh-subagent-fork':
+        specifier: workspace:*
+        version: link:../packages/subagent/subagent-fork
+      '@deepseek-ai/dsh-subagent-spawn':
+        specifier: workspace:*
+        version: link:../packages/subagent/subagent-spawn
+      '@deepseek-ai/dsh-time-context':
+        specifier: workspace:*
+        version: link:../packages/context/time-context
+      '@deepseek-ai/dsh-timeout-policy':
+        specifier: workspace:*
+        version: link:../packages/timeout/timeout-policy
+      '@deepseek-ai/dsh-token-meter':
+        specifier: workspace:*
+        version: link:../packages/llm/token-meter
+      '@deepseek-ai/dsh-tool-cordis':
+        specifier: workspace:*
+        version: link:../packages/cordis/tool-cordis
+      '@deepseek-ai/dsh-tool-fs':
+        specifier: workspace:*
+        version: link:../packages/fs/tool-fs
+      '@deepseek-ai/dsh-tool-fs-search':
+        specifier: workspace:*
+        version: link:../packages/fs/tool-fs-search
+      '@deepseek-ai/dsh-tool-subagent':
+        specifier: workspace:*
+        version: link:../packages/subagent/tool-subagent
+      '@deepseek-ai/dsh-tool-todo':
+        specifier: workspace:*
+        version: link:../packages/todo/tool-todo
+      '@deepseek-ai/dsh-tool-workflow':
+        specifier: workspace:*
+        version: link:../packages/workflow/tool-workflow
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:*
+        version: link:../packages/core/tools
+      '@deepseek-ai/dsh-user-approval':
+        specifier: workspace:*
+        version: link:../packages/ui/user-approval
+      '@deepseek-ai/dsh-web':
+        specifier: workspace:*
+        version: link:../packages/web/web
+      '@deepseek-ai/dsh-web-fetch-local':
+        specifier: workspace:*
+        version: link:../packages/web/web-fetch-local
+      '@deepseek-ai/dsh-workflow-workerthread':
+        specifier: workspace:*
+        version: link:../packages/workflow/workflow-workerthread
+
   packages/bash/bash:
     devDependencies:
       '@deepseek-ai/dsh-sandbox':
@@ -293,6 +407,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-loader-smoke':
+        specifier: workspace:^
+        version: link:../../support/loader-smoke
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
@@ -1352,6 +1469,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-loader-smoke':
+        specifier: workspace:^
+        version: link:../../support/loader-smoke
       '@deepseek-ai/dsh-subagent':
         specifier: workspace:^
         version: link:../subagent
@@ -1532,9 +1652,9 @@ importers:
       '@agentclientprotocol/sdk':
         specifier: 0.25.1
         version: 0.25.1(zod@4.4.3)
-      tsx:
-        specifier: ^4.22.4
-        version: 4.22.4
+      '@deepseek-ai/dsh-loader-smoke':
+        specifier: workspace:*
+        version: link:../loader-smoke
       vitest:
         specifier: ^4.1.8
         version: 4.1.8(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
