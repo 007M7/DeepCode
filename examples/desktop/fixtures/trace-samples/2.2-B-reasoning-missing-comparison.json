@@ -1,0 +1,76 @@
+[
+  {
+    "_mock": true,
+    "_mockReason": "#162 rec 21 companion fixture (team-lead 2026-07-17 real-audience directive): a real research scenario where an engineer is debugging 'did my API/harness return thinking tokens or not?'. Two consecutive turns, SAME prompt shape, differing only in whether the assistant/message content carries a `reasoning` block (i.e., whether the request/header's request round-tripped a thinking field). Turn A has reasoning present (streamed via reasoning-delta chunks); turn B has no reasoning at all — same tokens output otherwise. Opening the reasoning block on A and finding no block on B gives a one-minute triage: 'the model DID think but the harness dropped it' vs 'the model returned no thinking' becomes visually obvious without diffing raw response bodies. The reasoning-tokens usage field is present on A, absent on B, mirroring the wire signal a responder would look at."
+  },
+
+  { "type": "user/message", "time": 1721401800050, "seq": 801,
+    "data": { "content": [ { "type": "text", "text": "Turn A: what does dsh-brand's `pickPreset` fall back to when the preset name is unknown?" } ] } },
+  { "type": "step/start", "time": 1721401800100, "seq": 802,
+    "data": { "turn": 8, "step": 0 } },
+  { "type": "request/header", "time": 1721401800150, "seq": 803,
+    "data": {
+      "header": {
+        "model": "deepseek-chat",
+        "system": "You are a research coding agent.",
+        "tools": [ { "name": "read", "description": "Read a file." } ],
+        "config": { "temperature": 0.2, "maxTokens": 4096, "reasoning": { "enabled": true } }
+      },
+      "reason": "step-start"
+    }
+  },
+
+  { "type": "assistant/chunk", "time": 1721401800200, "seq": 804,
+    "data": { "chunk": { "type": "reasoning-delta", "text": "The user is asking about pickPreset's unknown-name fallback." } } },
+  { "type": "assistant/chunk", "time": 1721401800210, "seq": 805,
+    "data": { "chunk": { "type": "reasoning-delta", "text": " Looking at the code I remember it defaults to 'default' when the map lookup misses." } } },
+  { "type": "assistant/chunk", "time": 1721401800220, "seq": 806,
+    "data": { "chunk": { "type": "reasoning-delta", "text": " Answering directly since we don't need a tool call to confirm this." } } },
+
+  { "type": "assistant/chunk", "time": 1721401800240, "seq": 807,
+    "data": { "chunk": { "type": "text-delta", "text": "Falls back to the 'default' preset." } } },
+
+  { "type": "assistant/message", "time": 1721401800300, "seq": 808,
+    "data": {
+      "content": [
+        { "type": "reasoning", "text": "The user is asking about pickPreset's unknown-name fallback. Looking at the code I remember it defaults to 'default' when the map lookup misses. Answering directly since we don't need a tool call to confirm this." },
+        { "type": "text", "text": "Falls back to the 'default' preset." }
+      ],
+      "usage": { "inputTokens": 380, "outputTokens": 12, "reasoningTokens": 46 }
+    }
+  },
+
+  { "type": "step/end", "time": 1721401800400, "seq": 809,
+    "data": { "turn": 8, "step": 0, "reason": "stop" } },
+
+  { "type": "user/message", "time": 1721401801050, "seq": 810,
+    "data": { "content": [ { "type": "text", "text": "Turn B (rerun with reasoning disabled): what does dsh-brand's `pickPreset` fall back to when the preset name is unknown?" } ] } },
+  { "type": "step/start", "time": 1721401801100, "seq": 811,
+    "data": { "turn": 9, "step": 0 } },
+  { "type": "request/header", "time": 1721401801150, "seq": 812,
+    "data": {
+      "header": {
+        "model": "deepseek-chat",
+        "system": "You are a research coding agent.",
+        "tools": [ { "name": "read", "description": "Read a file." } ],
+        "config": { "temperature": 0.2, "maxTokens": 4096, "reasoning": { "enabled": false } }
+      },
+      "reason": "step-start"
+    }
+  },
+
+  { "type": "assistant/chunk", "time": 1721401801240, "seq": 813,
+    "data": { "chunk": { "type": "text-delta", "text": "Falls back to the 'default' preset." } } },
+
+  { "type": "assistant/message", "time": 1721401801300, "seq": 814,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Falls back to the 'default' preset." }
+      ],
+      "usage": { "inputTokens": 380, "outputTokens": 12 }
+    }
+  },
+
+  { "type": "step/end", "time": 1721401801400, "seq": 815,
+    "data": { "turn": 9, "step": 0, "reason": "stop" } }
+]

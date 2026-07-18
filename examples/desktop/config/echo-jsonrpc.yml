@@ -1,0 +1,52 @@
+# JSON-RPC serving config for the desktop demo — keyless echo profile.
+#
+# The runtime bin (packages/examples/jsonrpc-demo) hosts these plugins:
+# `dsh-jsonrpc` serves newline-delimited JSON-RPC on stdio, the spine gives
+# the agent shape, and the leaf plugins supply a mock adapter + echo tool so
+# there's no network dependency. Matches the shape in
+# python/sdk-runtime/src/deepseek_harness_runtime/runtime/cordis.yml but with
+# the mock-echo adapter swapped in.
+
+# Stdio JSON-RPC serving surface — the demo's whole reason to exist.
+- id: jsonrpc
+  name: '@deepseek-ai/dsh-jsonrpc'
+
+# Agent spine — the SDK server creates agents per sessionId.
+# agent-spine-demo requires an explicit workspaceContext (Config | false)
+# because it changes model-visible input; there is no schema default.
+# `false` = hermetic prompts (no workspace overview injected), which is the
+# right shape for the keyless mock path — the mock adapter ignores any
+# workspace context anyway.
+- id: agent-core
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    workspaceContext: false
+
+# Mock adapter from the echo-agent leaf. Path is relative to this file.
+- id: mock-llm
+  name: '../../echo-agent/src/mock-llm.ts'
+
+# Echo tool so the UI has something to render as a tool call.
+- id: echo-tool
+  name: '../../echo-agent/src/echo-tool.ts'
+
+# Bash executor sits behind agent-core's bash tool schema — required by the spine.
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+
+# User-interaction seam: required whenever the JSON-RPC client announces
+# capabilities.interruptions=true (the desktop shell always does; see
+# main.js:handshake). Without this the daemon logs
+# "jsonrpc client announced capabilities.interruptions=true but the composition
+# has no ctx.userInteraction" and the shell's runtime-error banner fires on
+# the empty state — hiding the four differentiator cards behind an error
+# strip. Kept in the echo profile too so all default profiles bind the same
+# interaction surface (product-flow-review A-P0-2 root cause, 2026-07-16).
+- id: user-interaction
+  name: '@deepseek-ai/dsh-user-interaction'
+
+# JSONL persistence — sessions land under ./.sessions inside this dir.
+- id: sessions
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'

@@ -1,0 +1,5 @@
+[
+  { "type": "turn/start", "seq": 300, "time": 1721117300000, "data": { "turn": 6, "trigger": { "kind": "injection", "source": { "kind": "plugin", "plugin": "time-context" } } } },
+  { "type": "context/message", "seq": 301, "time": 1721117300001, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "Current time: 2026-07-16T04:35:00Z (Asia/Shanghai +08:00). The user's last message was 2 minutes ago." }], "source": { "kind": "plugin", "plugin": "time-context" } } },
+  { "type": "turn/end", "seq": 302, "time": 1721117300010, "data": { "turn": 6, "reason": { "kind": "completed" } } }
+]

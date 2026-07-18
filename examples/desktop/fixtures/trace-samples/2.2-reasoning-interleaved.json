@@ -1,0 +1,173 @@
+[
+  {
+    "_mock": true,
+    "_mockReason": "#162 rec 21 (reasoning first-class fold block): one turn with TWO reasoning blocks at different positions in the content stream — one before a tool call, one after the tool result. Reasoning is streamed via reasoning-delta chunks; the first block also has a text block ahead of it so the ordering of block indices exercises non-monotone content-block reveal."
+  },
+  {
+    "type": "user/message",
+    "time": 1721401000050,
+    "seq": 601,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Check whether packages/core/session/src/types.ts imports from dsh-brand, and if not, add the import." }
+      ]
+    }
+  },
+  {
+    "type": "step/start",
+    "time": 1721401000100,
+    "seq": 602,
+    "data": { "turn": 6, "step": 0 }
+  },
+  {
+    "type": "request/header",
+    "time": 1721401000150,
+    "seq": 603,
+    "data": {
+      "header": {
+        "model": "deepseek-chat",
+        "system": "You are a research coding agent.",
+        "tools": [
+          { "name": "read", "description": "Read a file." },
+          { "name": "edit", "description": "Edit a file by string replacement." }
+        ],
+        "config": { "temperature": 0.2, "maxTokens": 4096 }
+      },
+      "reason": "step-start"
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721401000200,
+    "seq": 604,
+    "data": {
+      "chunk": {
+        "type": "reasoning-delta",
+        "text": "The user wants me to inspect the imports at the top of the file, so"
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721401000210,
+    "seq": 605,
+    "data": {
+      "chunk": {
+        "type": "reasoning-delta",
+        "text": " a read call is the cheapest first move. If the import is already present"
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721401000220,
+    "seq": 606,
+    "data": {
+      "chunk": {
+        "type": "reasoning-delta",
+        "text": " I can stop after one tool call, otherwise I edit."
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721401000240,
+    "seq": 607,
+    "data": {
+      "chunk": { "type": "text-delta", "text": "Reading the file first to check the current imports." }
+    }
+  },
+  {
+    "type": "tool/call",
+    "time": 1721401000280,
+    "seq": 608,
+    "data": {
+      "callId": "call_read_6",
+      "name": "read",
+      "arguments": "{\"path\":\"packages/core/session/src/types.ts\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "time": 1721401000360,
+    "seq": 609,
+    "data": {
+      "callId": "call_read_6",
+      "content": [
+        { "type": "text", "text": "import type { SessionEvent } from './events'\nimport type { Branded } from '@deepseek-ai/dsh-brand'\n\nexport type SessionId = Branded<'SessionId', string>\n" }
+      ],
+      "isError": false,
+      "meta": { "card": "generic", "durationMs": 74 }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721401000420,
+    "seq": 610,
+    "data": {
+      "chunk": {
+        "type": "reasoning-delta",
+        "text": "Good — the Branded import is already there on line 2, so the file is already"
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721401000430,
+    "seq": 611,
+    "data": {
+      "chunk": {
+        "type": "reasoning-delta",
+        "text": " correct. I don't need to edit; I should just report what I found."
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721401000450,
+    "seq": 612,
+    "data": {
+      "chunk": { "type": "text-delta", "text": "The import is already present at line 2 — no edit needed." }
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1721401000500,
+    "seq": 613,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Reading the file first to check the current imports." },
+        { "type": "reasoning", "text": "The user wants me to inspect the imports at the top of the file, so a read call is the cheapest first move. If the import is already present I can stop after one tool call, otherwise I edit." },
+        { "type": "text", "text": "The import is already present at line 2 — no edit needed." },
+        { "type": "reasoning", "text": "Good — the Branded import is already there on line 2, so the file is already correct. I don't need to edit; I should just report what I found." }
+      ],
+      "usage": {
+        "inputTokens": 520,
+        "outputTokens": 118,
+        "cacheReadTokens": 320,
+        "reasoningTokens": 62
+      }
+    }
+  },
+  {
+    "type": "step/end",
+    "time": 1721401000550,
+    "seq": 614,
+    "data": { "turn": 6, "step": 0 }
+  },
+  {
+    "type": "turn/end",
+    "time": 1721401000600,
+    "seq": 615,
+    "data": {
+      "turn": 6,
+      "reason": { "kind": "stop" },
+      "usage": {
+        "inputTokens": 520,
+        "outputTokens": 118,
+        "cacheReadTokens": 320,
+        "reasoningTokens": 62
+      }
+    }
+  }
+]

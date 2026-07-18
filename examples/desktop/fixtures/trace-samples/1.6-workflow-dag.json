@@ -1,0 +1,95 @@
+{
+  "_mock": true,
+  "_mockReason": "Like 1.6-workflow-seq.json. DAG family: 6 nodes with multiple in- and out-degrees.",
+  "workflow": {
+    "name": "release-cut",
+    "kind": "dag",
+    "steps": [
+      {
+        "id": "checkout",
+        "name": "checkout master",
+        "status": "done",
+        "durationMs": 200,
+        "in": [],
+        "out": [
+          "build",
+          "docs"
+        ]
+      },
+      {
+        "id": "build",
+        "name": "pnpm build",
+        "status": "done",
+        "durationMs": 12000,
+        "in": [
+          "checkout"
+        ],
+        "out": [
+          "test-unit",
+          "test-e2e"
+        ]
+      },
+      {
+        "id": "docs",
+        "name": "pnpm doc-sync",
+        "status": "done",
+        "durationMs": 2100,
+        "in": [
+          "checkout"
+        ],
+        "out": [
+          "publish"
+        ]
+      },
+      {
+        "id": "test-unit",
+        "name": "unit tests",
+        "status": "done",
+        "durationMs": 8000,
+        "in": [
+          "build"
+        ],
+        "out": [
+          "publish"
+        ]
+      },
+      {
+        "id": "test-e2e",
+        "name": "e2e tests",
+        "status": "running",
+        "durationMs": null,
+        "in": [
+          "build"
+        ],
+        "out": [
+          "publish"
+        ]
+      },
+      {
+        "id": "publish",
+        "name": "npm publish",
+        "status": "pending",
+        "in": [
+          "docs",
+          "test-unit",
+          "test-e2e"
+        ],
+        "out": []
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "tool/call",
+      "seq": 1100,
+      "time": 1721119200000,
+      "data": {
+        "turn": 14,
+        "step": 0,
+        "callId": "call_wf_3",
+        "name": "workflow",
+        "arguments": "{\"name\":\"release-cut\",\"kind\":\"dag\"}"
+      }
+    }
+  ]
+}

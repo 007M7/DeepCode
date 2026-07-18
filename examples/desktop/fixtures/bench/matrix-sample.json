@@ -1,0 +1,231 @@
+{
+  "meta": {
+    "note": "Demo-tier fixture batch for the Bench page (#187). Real batches will come from bench/list-experiments (G19, pending). Data shapes mirror dsbench-v2-reference.md §打分合约 (code_result.json = {resolved, score, reason} per run) and the bench-design-pack-160.md §3 kind one-pagers. All numbers are illustrative — nothing here talked to a real model.",
+    "generatedAt": 1721160000000,
+    "version": 1
+  },
+  "experiments": [
+    {
+      "id": "matrix-deepseek-vs-baseline-onProm28",
+      "name": "deepseek-vs-baseline-onProm28",
+      "kind": "matrix",
+      "status": "running",
+      "progress": { "done": 62, "total": 84 },
+      "createdAt": 1720982400000,
+      "N": 3,
+      "promptSet": { "id": "prom-28", "version": "v7", "count": 28 },
+      "models": [
+        { "id": "deepseek-chat",     "label": "deepseek-chat" },
+        { "id": "deepseek-reasoner", "label": "deepseek-reasoner" },
+        { "id": "baseline-oss",      "label": "baseline-oss" }
+      ],
+      "config": {
+        "profile": "stdio-deepseek",
+        "rubric": { "id": "code-grade-v3", "kind": "code-grade" },
+        "temperature": 0.2
+      },
+      "matrix": {
+        "prompts": [
+          { "id": "sum-of-primes",    "label": "sum-of-primes" },
+          { "id": "unify-json-diff",  "label": "unify-json-diff" },
+          { "id": "parse-jsonc",      "label": "parse-jsonc" },
+          { "id": "topo-sort-tasks",  "label": "topo-sort-tasks" }
+        ],
+        "models": [
+          { "id": "deepseek-chat",     "label": "deepseek-chat" },
+          { "id": "deepseek-reasoner", "label": "deepseek-reasoner" },
+          { "id": "baseline-oss",      "label": "baseline-oss" }
+        ],
+        "cells": {
+          "sum-of-primes|deepseek-chat": {
+            "promptId": "sum-of-primes", "modelId": "deepseek-chat",
+            "resolvedCount": 3, "N": 3, "status": "ok",
+            "score": 0.87, "latencyMs": 1700, "tokens": { "in": 640, "out": 320 }, "cost": 0.021,
+            "runs": [
+              { "runIdx": 1, "resolved": true, "score": 0.88, "reason": "passes tests", "latencyMs": 1680, "tokens": { "in": 640, "out": 320 }, "cost": 0.007, "sessionId": "sess-mchat-1" },
+              { "runIdx": 2, "resolved": true, "score": 0.86, "reason": "passes tests", "latencyMs": 1720, "tokens": { "in": 640, "out": 322 }, "cost": 0.007, "sessionId": "sess-mchat-2" },
+              { "runIdx": 3, "resolved": true, "score": 0.87, "reason": "passes tests", "latencyMs": 1700, "tokens": { "in": 640, "out": 318 }, "cost": 0.007, "sessionId": "sess-mchat-3" }
+            ]
+          },
+          "sum-of-primes|deepseek-reasoner": {
+            "promptId": "sum-of-primes", "modelId": "deepseek-reasoner",
+            "resolvedCount": 3, "N": 3, "status": "ok",
+            "score": 0.91, "latencyMs": 3200, "tokens": { "in": 640, "out": 890 }, "cost": 0.048,
+            "runs": [
+              { "runIdx": 1, "resolved": true, "score": 0.91, "reason": "reasoning-block traced", "latencyMs": 3100, "tokens": { "in": 640, "out": 880 }, "cost": 0.016, "sessionId": "sess-mreas-1" },
+              { "runIdx": 2, "resolved": true, "score": 0.90, "reason": "reasoning-block traced", "latencyMs": 3200, "tokens": { "in": 640, "out": 900 }, "cost": 0.016, "sessionId": "sess-mreas-2" },
+              { "runIdx": 3, "resolved": true, "score": 0.92, "reason": "reasoning-block traced", "latencyMs": 3300, "tokens": { "in": 640, "out": 890 }, "cost": 0.016, "sessionId": "sess-mreas-3" }
+            ]
+          },
+          "sum-of-primes|baseline-oss": {
+            "promptId": "sum-of-primes", "modelId": "baseline-oss",
+            "resolvedCount": 0, "N": 3, "status": "fail",
+            "score": 0.28, "latencyMs": 3400, "tokens": { "in": 640, "out": 220 }, "cost": 0.006,
+            "runs": [
+              { "runIdx": 1, "resolved": false, "score": 0.30, "reason": "syntax error in output", "latencyMs": 3400, "tokens": { "in": 640, "out": 210 }, "cost": 0.002, "sessionId": "sess-mbase-1" },
+              { "runIdx": 2, "resolved": false, "score": 0.28, "reason": "syntax error in output", "latencyMs": 3400, "tokens": { "in": 640, "out": 230 }, "cost": 0.002, "sessionId": "sess-mbase-2" },
+              { "runIdx": 3, "resolved": false, "score": 0.26, "reason": "syntax error in output", "latencyMs": 3400, "tokens": { "in": 640, "out": 220 }, "cost": 0.002, "sessionId": "sess-mbase-3" }
+            ]
+          },
+          "unify-json-diff|deepseek-chat": {
+            "promptId": "unify-json-diff", "modelId": "deepseek-chat",
+            "resolvedCount": 3, "N": 3, "status": "ok",
+            "score": 0.91, "latencyMs": 1900, "tokens": { "in": 720, "out": 410 }, "cost": 0.024,
+            "runs": [
+              { "runIdx": 1, "resolved": true, "score": 0.92, "reason": "passes tests", "latencyMs": 1900, "tokens": { "in": 720, "out": 410 }, "cost": 0.008 },
+              { "runIdx": 2, "resolved": true, "score": 0.90, "reason": "passes tests", "latencyMs": 1900, "tokens": { "in": 720, "out": 410 }, "cost": 0.008 },
+              { "runIdx": 3, "resolved": true, "score": 0.91, "reason": "passes tests", "latencyMs": 1900, "tokens": { "in": 720, "out": 410 }, "cost": 0.008 }
+            ]
+          },
+          "unify-json-diff|deepseek-reasoner": {
+            "promptId": "unify-json-diff", "modelId": "deepseek-reasoner",
+            "resolvedCount": 3, "N": 3, "status": "ok",
+            "score": 0.85, "latencyMs": 3600, "tokens": { "in": 720, "out": 950 }, "cost": 0.051,
+            "runs": [
+              { "runIdx": 1, "resolved": true, "score": 0.85, "reason": "passes tests", "latencyMs": 3600, "tokens": { "in": 720, "out": 950 }, "cost": 0.017 },
+              { "runIdx": 2, "resolved": true, "score": 0.85, "reason": "passes tests", "latencyMs": 3600, "tokens": { "in": 720, "out": 950 }, "cost": 0.017 },
+              { "runIdx": 3, "resolved": true, "score": 0.85, "reason": "passes tests", "latencyMs": 3600, "tokens": { "in": 720, "out": 950 }, "cost": 0.017 }
+            ]
+          },
+          "unify-json-diff|baseline-oss": {
+            "promptId": "unify-json-diff", "modelId": "baseline-oss",
+            "resolvedCount": 1, "N": 3, "status": "ok",
+            "score": 0.44, "latencyMs": 3200, "tokens": { "in": 720, "out": 260 }, "cost": 0.007,
+            "runs": [
+              { "runIdx": 1, "resolved": true,  "score": 0.60, "reason": "one lucky pass", "latencyMs": 3200, "tokens": { "in": 720, "out": 260 }, "cost": 0.002 },
+              { "runIdx": 2, "resolved": false, "score": 0.42, "reason": "wrong diff format", "latencyMs": 3200, "tokens": { "in": 720, "out": 260 }, "cost": 0.002 },
+              { "runIdx": 3, "resolved": false, "score": 0.30, "reason": "wrong diff format", "latencyMs": 3200, "tokens": { "in": 720, "out": 260 }, "cost": 0.002 }
+            ]
+          },
+          "parse-jsonc|deepseek-chat": {
+            "promptId": "parse-jsonc", "modelId": "deepseek-chat",
+            "resolvedCount": 3, "N": 3, "status": "ok",
+            "score": 0.79, "latencyMs": 1500, "tokens": { "in": 580, "out": 290 }, "cost": 0.018,
+            "runs": [
+              { "runIdx": 1, "resolved": true, "score": 0.80, "reason": "passes tests", "latencyMs": 1500, "tokens": { "in": 580, "out": 290 }, "cost": 0.006 },
+              { "runIdx": 2, "resolved": true, "score": 0.78, "reason": "passes tests", "latencyMs": 1500, "tokens": { "in": 580, "out": 290 }, "cost": 0.006 },
+              { "runIdx": 3, "resolved": true, "score": 0.79, "reason": "passes tests", "latencyMs": 1500, "tokens": { "in": 580, "out": 290 }, "cost": 0.006 }
+            ]
+          },
+          "parse-jsonc|deepseek-reasoner": {
+            "promptId": "parse-jsonc", "modelId": "deepseek-reasoner",
+            "resolvedCount": 1, "N": 3, "status": "running",
+            "score": 0.68, "latencyMs": 3000, "tokens": { "in": 580, "out": 720 }, "cost": 0.041,
+            "runs": [
+              { "runIdx": 1, "resolved": true, "score": 0.68, "reason": "partial trace", "latencyMs": 3000, "tokens": { "in": 580, "out": 720 }, "cost": 0.014 }
+            ]
+          },
+          "parse-jsonc|baseline-oss": {
+            "promptId": "parse-jsonc", "modelId": "baseline-oss",
+            "resolvedCount": 0, "N": 0, "status": "queued",
+            "score": 0, "latencyMs": null, "tokens": null, "cost": null,
+            "runs": []
+          },
+          "topo-sort-tasks|deepseek-chat": {
+            "promptId": "topo-sort-tasks", "modelId": "deepseek-chat",
+            "resolvedCount": 3, "N": 3, "status": "ok",
+            "score": 0.94, "latencyMs": 2100, "tokens": { "in": 810, "out": 470 }, "cost": 0.026,
+            "runs": [
+              { "runIdx": 1, "resolved": true, "score": 0.94, "reason": "passes tests", "latencyMs": 2100, "tokens": { "in": 810, "out": 470 }, "cost": 0.009 },
+              { "runIdx": 2, "resolved": true, "score": 0.94, "reason": "passes tests", "latencyMs": 2100, "tokens": { "in": 810, "out": 470 }, "cost": 0.009 },
+              { "runIdx": 3, "resolved": true, "score": 0.94, "reason": "passes tests", "latencyMs": 2100, "tokens": { "in": 810, "out": 470 }, "cost": 0.008 }
+            ]
+          },
+          "topo-sort-tasks|deepseek-reasoner": {
+            "promptId": "topo-sort-tasks", "modelId": "deepseek-reasoner",
+            "resolvedCount": 2, "N": 3, "status": "ok",
+            "score": 0.68, "latencyMs": 3700, "tokens": { "in": 810, "out": 1020 }, "cost": 0.054,
+            "runs": [
+              { "runIdx": 1, "resolved": true,  "score": 0.72, "reason": "passes tests",       "latencyMs": 3700, "tokens": { "in": 810, "out": 1020 }, "cost": 0.018 },
+              { "runIdx": 2, "resolved": true,  "score": 0.68, "reason": "passes tests",       "latencyMs": 3700, "tokens": { "in": 810, "out": 1020 }, "cost": 0.018 },
+              { "runIdx": 3, "resolved": false, "score": 0.64, "reason": "cycle undetected",   "latencyMs": 3700, "tokens": { "in": 810, "out": 1020 }, "cost": 0.018 }
+            ]
+          },
+          "topo-sort-tasks|baseline-oss": {
+            "promptId": "topo-sort-tasks", "modelId": "baseline-oss",
+            "resolvedCount": 0, "N": 0, "status": "queued",
+            "score": 0, "latencyMs": null, "tokens": null, "cost": null,
+            "runs": []
+          }
+        }
+      }
+    },
+    {
+      "id": "ab-memory-plugin-v2-vs-v1",
+      "name": "memory-plugin-v2-vs-v1",
+      "kind": "ab",
+      "status": "done",
+      "progress": { "done": 48, "total": 48 },
+      "createdAt": 1720886400000,
+      "N": 24,
+      "promptSet": { "id": "prom-memory-24", "version": "v3", "count": 24 },
+      "models": [{ "id": "deepseek-chat", "label": "deepseek-chat" }],
+      "config": {
+        "profile": "stdio-deepseek",
+        "rubric": { "id": "memory-recall-v1", "kind": "code-grade" },
+        "plugin": { "id": "memory-plugin", "vary": "version" }
+      },
+      "ab": {
+        "variantA": { "label": "v2", "plugin": "memory-plugin", "version": "v2" },
+        "variantB": { "label": "v1", "plugin": "memory-plugin", "version": "v1" },
+        "rows": [
+          { "promptId": "recall-file-context",   "a": { "resolved": true,  "score": 0.87, "latencyMs": 1800, "tokens": { "in": 1200, "out": 320 } }, "b": { "resolved": true,  "score": 0.79, "latencyMs": 2100, "tokens": { "in": 1400, "out": 350 } } },
+          { "promptId": "recall-conversation",   "a": { "resolved": true,  "score": 0.91, "latencyMs": 1900, "tokens": { "in": 1300, "out": 340 } }, "b": { "resolved": true,  "score": 0.88, "latencyMs": 2200, "tokens": { "in": 1500, "out": 370 } } },
+          { "promptId": "recall-across-forks",   "a": { "resolved": false, "score": 0.32, "latencyMs": 2400, "tokens": { "in": 1500, "out": 280 } }, "b": { "resolved": true,  "score": 0.68, "latencyMs": 2600, "tokens": { "in": 1700, "out": 400 } } },
+          { "promptId": "recall-with-compact",   "a": { "resolved": true,  "score": 0.82, "latencyMs": 2000, "tokens": { "in": 1400, "out": 360 } }, "b": { "resolved": true,  "score": 0.74, "latencyMs": 2300, "tokens": { "in": 1600, "out": 390 } } },
+          { "promptId": "recall-multi-file",     "a": { "resolved": true,  "score": 0.90, "latencyMs": 2100, "tokens": { "in": 1450, "out": 380 } }, "b": { "resolved": true,  "score": 0.85, "latencyMs": 2400, "tokens": { "in": 1650, "out": 410 } } },
+          { "promptId": "recall-code-symbol",    "a": { "resolved": true,  "score": 0.88, "latencyMs": 1750, "tokens": { "in": 1150, "out": 300 } }, "b": { "resolved": true,  "score": 0.86, "latencyMs": 2050, "tokens": { "in": 1350, "out": 330 } } },
+          { "promptId": "recall-with-shadowed",  "a": { "resolved": true,  "score": 0.75, "latencyMs": 2200, "tokens": { "in": 1550, "out": 400 } }, "b": { "resolved": false, "score": 0.42, "latencyMs": 2500, "tokens": { "in": 1750, "out": 420 } } },
+          { "promptId": "recall-stale-context",  "a": { "resolved": true,  "score": 0.80, "latencyMs": 1950, "tokens": { "in": 1350, "out": 350 } }, "b": { "resolved": true,  "score": 0.78, "latencyMs": 2250, "tokens": { "in": 1550, "out": 380 } } }
+        ]
+      }
+    },
+    {
+      "id": "rep-parse-jsonc-edge-cases",
+      "name": "parse-jsonc-edge-cases N=5",
+      "kind": "rep",
+      "status": "done",
+      "progress": { "done": 5, "total": 5 },
+      "createdAt": 1720800000000,
+      "N": 5,
+      "models": [{ "id": "deepseek-chat", "label": "deepseek-chat" }],
+      "config": {
+        "profile": "stdio-deepseek",
+        "rubric": { "id": "code-grade-v3", "kind": "code-grade" },
+        "temperature": 0.7
+      },
+      "rep": {
+        "input": "Parse this JSONC with mixed //-comments, /* */-blocks, trailing commas, and unquoted keys.",
+        "dims": [
+          { "id": "code_correctness", "label": "code_correctness", "kind": "score" },
+          { "id": "passes_tests",     "label": "passes_tests",     "kind": "boolean" },
+          { "id": "latency",          "label": "latency",          "kind": "latency" },
+          { "id": "tokens_out",       "label": "tokens (out)",     "kind": "tokens" }
+        ],
+        "repetitions": [
+          { "idx": 1, "resolved": false, "score": 0.62, "latencyMs": 1400, "tokens": { "in": 580, "out": 543 }, "sessionId": "sess-rep-1", "dimensions": { "code_correctness": 0.62, "passes_tests": false, "latency": 1400, "tokens_out": 543 } },
+          { "idx": 2, "resolved": true,  "score": 0.85, "latencyMs":  900, "tokens": { "in": 580, "out": 488 }, "sessionId": "sess-rep-2", "dimensions": { "code_correctness": 0.85, "passes_tests": true,  "latency":  900, "tokens_out": 488 } },
+          { "idx": 3, "resolved": true,  "score": 0.79, "latencyMs": 1100, "tokens": { "in": 580, "out": 510 }, "sessionId": "sess-rep-3", "dimensions": { "code_correctness": 0.79, "passes_tests": true,  "latency": 1100, "tokens_out": 510 } },
+          { "idx": 4, "resolved": true,  "score": 0.91, "latencyMs": 1300, "tokens": { "in": 580, "out": 521 }, "sessionId": "sess-rep-4", "dimensions": { "code_correctness": 0.91, "passes_tests": true,  "latency": 1300, "tokens_out": 521 } },
+          { "idx": 5, "resolved": true,  "score": 0.72, "latencyMs": 1200, "tokens": { "in": 580, "out": 499 }, "sessionId": "sess-rep-5", "dimensions": { "code_correctness": 0.72, "passes_tests": true,  "latency": 1200, "tokens_out": 499 } }
+        ]
+      }
+    },
+    {
+      "id": "matrix-reasoner-vs-chat-on-swe-lite",
+      "name": "reasoner-vs-chat-on-swe-bench-lite",
+      "kind": "matrix",
+      "status": "queued",
+      "progress": { "done": 0, "total": 60 },
+      "createdAt": 1720720000000,
+      "N": 3,
+      "promptSet": { "id": "swe-bench-lite", "version": "2024.11", "count": 20 },
+      "models": [
+        { "id": "deepseek-reasoner", "label": "deepseek-reasoner" },
+        { "id": "deepseek-chat",     "label": "deepseek-chat" }
+      ],
+      "config": { "profile": "stdio-deepseek", "rubric": { "id": "swe-lite-grader", "kind": "code-grade" } },
+      "matrix": { "prompts": [], "models": [], "cells": {} }
+    }
+  ]
+}

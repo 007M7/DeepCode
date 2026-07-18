@@ -1,0 +1,5 @@
+[
+  { "type": "turn/start", "seq": 700, "time": 1721117700000, "data": { "turn": 10, "trigger": { "kind": "injection", "source": { "kind": "plugin", "plugin": "acme-notifier" } } } },
+  { "type": "context/message", "seq": 701, "time": 1721117700001, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "New GitHub notification: PR #457 got a review request from @reviewer-bot. Comment: 'please address the 4 blocking issues'." }], "source": { "kind": "plugin", "plugin": "acme-notifier" } } },
+  { "type": "turn/end", "seq": 702, "time": 1721117700010, "data": { "turn": 10, "reason": { "kind": "completed" } } }
+]

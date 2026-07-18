@@ -1,0 +1,267 @@
+[
+  {
+    "_mock": true,
+    "_mockReason": "#162 rec 31 (subagent inline under parent's spawn row): parent turn issues a spawn_agent tool call, subagent.started fires, child session ran 3 turns of activity (read → edit → verify), subagent.finished carries a structured JSON return in the parent's tool/result content."
+  },
+  {
+    "type": "user/message",
+    "time": 1721404000050,
+    "seq": 901,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Have a subagent audit packages/core/session/src for unused exports and delete them, then report the count." }
+      ]
+    }
+  },
+  {
+    "type": "step/start",
+    "time": 1721404000100,
+    "seq": 902,
+    "data": { "turn": 9, "step": 0 }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1721404000200,
+    "seq": 903,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Spawning a subagent to run the audit." }
+      ],
+      "usage": { "inputTokens": 420, "outputTokens": 12 }
+    }
+  },
+  {
+    "type": "tool/call",
+    "time": 1721404000260,
+    "seq": 904,
+    "data": {
+      "callId": "call_spawn_9",
+      "name": "spawn_agent",
+      "arguments": "{\"prompt\":\"Audit packages/core/session/src for unused exports, delete them, and return {removed: string[], count: number} as JSON.\",\"tools\":[\"read\",\"edit\",\"bash\"]}"
+    }
+  },
+
+  {
+    "_mock": true,
+    "type": "_notification",
+    "method": "subagent.started",
+    "params": { "parentSessionId": "root-abc", "childSessionId": "sub-def", "parentCallId": "call_spawn_9" }
+  },
+
+  {
+    "_sessionId": "sub-def",
+    "type": "user/message",
+    "time": 1721404000320,
+    "seq": 1,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Audit packages/core/session/src for unused exports, delete them, and return {removed: string[], count: number} as JSON." }
+      ],
+      "source": { "kind": "plugin", "plugin": "subagent-delegate" }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "assistant/message",
+    "time": 1721404000420,
+    "seq": 2,
+    "data": {
+      "content": [
+        { "type": "reasoning", "text": "I'll list the source files first, then walk each one with the export inspector." },
+        { "type": "text", "text": "Listing source files." }
+      ],
+      "usage": { "inputTokens": 210, "outputTokens": 44, "reasoningTokens": 18 }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "tool/call",
+    "time": 1721404000460,
+    "seq": 3,
+    "data": {
+      "callId": "sub_call_read_1",
+      "name": "read",
+      "arguments": "{\"path\":\"packages/core/session/src/index.ts\"}"
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "tool/result",
+    "time": 1721404000540,
+    "seq": 4,
+    "data": {
+      "callId": "sub_call_read_1",
+      "content": [ { "type": "text", "text": "export * from './events'\nexport * from './types'\nexport { legacyHelper } from './legacy'  // orphan\n" } ],
+      "isError": false,
+      "meta": { "card": "generic", "durationMs": 72 }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "assistant/message",
+    "time": 1721404000640,
+    "seq": 5,
+    "data": {
+      "content": [
+        { "type": "text", "text": "legacyHelper looks orphaned; removing it." }
+      ],
+      "usage": { "inputTokens": 260, "outputTokens": 12 }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "tool/call",
+    "time": 1721404000700,
+    "seq": 6,
+    "data": {
+      "callId": "sub_call_edit_1",
+      "name": "edit",
+      "arguments": "{\"path\":\"packages/core/session/src/index.ts\",\"old\":\"export { legacyHelper } from './legacy'  // orphan\\n\",\"new\":\"\"}"
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "tool/result",
+    "time": 1721404000760,
+    "seq": 7,
+    "data": {
+      "callId": "sub_call_edit_1",
+      "content": [ { "type": "text", "text": "edit applied (1 replacement)" } ],
+      "isError": false,
+      "meta": { "card": "diff", "durationMs": 44 }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "tool/call",
+    "time": 1721404000800,
+    "seq": 8,
+    "data": {
+      "callId": "sub_call_bash_1",
+      "name": "bash",
+      "arguments": "{\"cmd\":\"pnpm typecheck --filter @deepseek-ai/dsh-session\"}"
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "tool/result",
+    "time": 1721404000980,
+    "seq": 9,
+    "data": {
+      "callId": "sub_call_bash_1",
+      "content": [ { "type": "text", "text": "typecheck OK (0 errors)" } ],
+      "isError": false,
+      "meta": { "card": "terminal", "durationMs": 172 }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "assistant/message",
+    "time": 1721404001060,
+    "seq": 10,
+    "data": {
+      "content": [
+        { "type": "text", "text": "```json\n{\"removed\":[\"legacyHelper\"],\"count\":1}\n```" }
+      ],
+      "usage": { "inputTokens": 340, "outputTokens": 22 }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "turn/end",
+    "time": 1721404001100,
+    "seq": 11,
+    "data": { "turn": 3, "reason": { "kind": "stop" } }
+  },
+
+  {
+    "_mock": true,
+    "type": "_notification",
+    "method": "subagent.finished",
+    "params": {
+      "parentSessionId": "root-abc",
+      "childSessionId": "sub-def",
+      "parentCallId": "call_spawn_9",
+      "status": "ok",
+      "lastAssistantMessage": [
+        { "type": "text", "text": "```json\n{\"removed\":[\"legacyHelper\"],\"count\":1}\n```" }
+      ],
+      "childEvents": [
+        { "type": "user/message", "time": 1721404000320, "seq": 1,
+          "data": { "content": [ { "type": "text", "text": "Audit packages/core/session/src for unused exports, delete them, and return {removed: string[], count: number} as JSON." } ],
+                    "source": { "kind": "plugin", "plugin": "subagent-delegate" } } },
+        { "type": "assistant/message", "time": 1721404000420, "seq": 2,
+          "data": { "content": [
+                      { "type": "reasoning", "text": "I'll list the source files first, then walk each one with the export inspector." },
+                      { "type": "text", "text": "Listing source files." } ],
+                    "usage": { "inputTokens": 210, "outputTokens": 44, "reasoningTokens": 18 } } },
+        { "type": "tool/call", "time": 1721404000460, "seq": 3,
+          "data": { "callId": "sub_call_read_1", "name": "read",
+                    "arguments": "{\"path\":\"packages/core/session/src/index.ts\"}" } },
+        { "type": "tool/result", "time": 1721404000540, "seq": 4,
+          "data": { "callId": "sub_call_read_1",
+                    "content": [ { "type": "text", "text": "export * from './events'\nexport * from './types'\nexport { legacyHelper } from './legacy'  // orphan\n" } ],
+                    "isError": false, "meta": { "card": "generic", "durationMs": 72 } } },
+        { "type": "assistant/message", "time": 1721404000640, "seq": 5,
+          "data": { "content": [ { "type": "text", "text": "legacyHelper looks orphaned; removing it." } ],
+                    "usage": { "inputTokens": 260, "outputTokens": 12 } } },
+        { "type": "tool/call", "time": 1721404000700, "seq": 6,
+          "data": { "callId": "sub_call_edit_1", "name": "edit",
+                    "arguments": "{\"path\":\"packages/core/session/src/index.ts\",\"old\":\"export { legacyHelper } from './legacy'  // orphan\\n\",\"new\":\"\"}" } },
+        { "type": "tool/result", "time": 1721404000760, "seq": 7,
+          "data": { "callId": "sub_call_edit_1",
+                    "content": [ { "type": "text", "text": "edit applied (1 replacement)" } ],
+                    "isError": false, "meta": { "card": "diff", "durationMs": 44 } } },
+        { "type": "tool/call", "time": 1721404000800, "seq": 8,
+          "data": { "callId": "sub_call_bash_1", "name": "bash",
+                    "arguments": "{\"cmd\":\"pnpm typecheck --filter @deepseek-ai/dsh-session\"}" } },
+        { "type": "tool/result", "time": 1721404000980, "seq": 9,
+          "data": { "callId": "sub_call_bash_1",
+                    "content": [ { "type": "text", "text": "typecheck OK (0 errors)" } ],
+                    "isError": false, "meta": { "card": "terminal", "durationMs": 172 } } },
+        { "type": "assistant/message", "time": 1721404001060, "seq": 10,
+          "data": { "content": [ { "type": "text", "text": "```json\n{\"removed\":[\"legacyHelper\"],\"count\":1}\n```" } ],
+                    "usage": { "inputTokens": 340, "outputTokens": 22 } } },
+        { "type": "turn/end", "time": 1721404001100, "seq": 11,
+          "data": { "turn": 3, "reason": { "kind": "stop" } } }
+      ]
+    }
+  },
+
+  {
+    "type": "tool/result",
+    "time": 1721404001160,
+    "seq": 905,
+    "data": {
+      "callId": "call_spawn_9",
+      "content": [
+        { "type": "text", "text": "```json\n{\"removed\":[\"legacyHelper\"],\"count\":1}\n```" }
+      ],
+      "isError": false,
+      "meta": { "card": "generic", "durationMs": 840, "childSessionId": "sub-def" }
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1721404001240,
+    "seq": 906,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Subagent removed one unused export (legacyHelper). Typecheck passed." }
+      ],
+      "usage": { "inputTokens": 560, "outputTokens": 24 }
+    }
+  },
+  {
+    "type": "step/end",
+    "time": 1721404001280,
+    "seq": 907,
+    "data": { "turn": 9, "step": 0 }
+  },
+  {
+    "type": "turn/end",
+    "time": 1721404001320,
+    "seq": 908,
+    "data": { "turn": 9, "reason": { "kind": "stop" } }
+  }
+]

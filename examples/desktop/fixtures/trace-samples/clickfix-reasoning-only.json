@@ -1,0 +1,121 @@
+[
+  {
+    "_mock": true,
+    "_mockReason": "Clickability audit P2 (2026-07-17): reasoning-heavy turn used by mock-reasoning-only to demo the DeepSeek differentiator — reasoning-delta chunks + usage.reasoningTokens are the DSH signal upstream Claude/OpenAI hosts don't surface. One turn, one step, one assistant message; the reasoning body dwarfs the visible reply, and usage carries reasoningTokens=982 so the tab chip reads honestly."
+  },
+  {
+    "type": "user/message",
+    "time": 1721501000050,
+    "seq": 5000,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Given the tri-view detail pane, where is the Reasoning tab supposed to live and why can most upstream hosts not show one?" }
+      ]
+    }
+  },
+  {
+    "type": "turn/start",
+    "time": 1721501000080,
+    "seq": 5001,
+    "data": { "turn": 1, "trigger": "user" }
+  },
+  {
+    "type": "step/start",
+    "time": 1721501000100,
+    "seq": 5002,
+    "data": { "turn": 1, "step": 0 }
+  },
+  {
+    "type": "request/header",
+    "time": 1721501000110,
+    "seq": 5003,
+    "data": {
+      "header": {
+        "model": "deepseek-reasoner",
+        "provider": "deepseek",
+        "system": "You are a careful research assistant. Think step by step before you answer.",
+        "config": { "temperature": 0.3, "maxTokens": 4096 }
+      },
+      "reason": "step-start"
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721501000300,
+    "seq": 5004,
+    "data": { "chunk": { "type": "reasoning-delta", "text": "Let me trace this carefully. The tri-view is Tree / Timeline / Graph, " } }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721501000350,
+    "seq": 5005,
+    "data": { "chunk": { "type": "reasoning-delta", "text": "and each of them lands a right-side detail pane on click. So the Reasoning tab lives inside that right-side pane, alongside Feedback / Input / Output / Attributes. " } }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721501000420,
+    "seq": 5006,
+    "data": { "chunk": { "type": "reasoning-delta", "text": "It's conditional — a step without reasoning-delta chunks or a positive usage.reasoningTokens hides the tab entirely, so casual turns don't get a fifth clickable that says nothing. " } }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721501000480,
+    "seq": 5007,
+    "data": { "chunk": { "type": "reasoning-delta", "text": "As for why upstreams don't show it: Anthropic's Claude ships an `extended_thinking` field on the API but hides the text in the product; OpenAI's o-series does the same with its `reasoning.summary`. " } }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721501000550,
+    "seq": 5008,
+    "data": { "chunk": { "type": "reasoning-delta", "text": "DeepSeek exposes reasoning as a first-class content-block type plus a dedicated reasoning-delta chunk, and DSH's aggregator forwards both to the UI. " } }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721501000620,
+    "seq": 5009,
+    "data": { "chunk": { "type": "reasoning-delta", "text": "So the visualisation happens because the wire carries the payload — the product is honest about what the model produced instead of collapsing it into a summary. That's the differentiator the audit calls out." } }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721501000700,
+    "seq": 5010,
+    "data": { "chunk": { "type": "text-delta", "text": "The Reasoning tab lives in the tri-view's right-side detail pane, next to Feedback / Input / Output / Attributes, and appears only when the step has reasoning-delta content or a positive usage.reasoningTokens. " } }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721501000740,
+    "seq": 5011,
+    "data": { "chunk": { "type": "text-delta", "text": "Most upstream hosts don't expose one because their wire hides reasoning: Anthropic keeps `extended_thinking` on the API only, OpenAI ships an aggregate `reasoning.summary`, and neither routes the raw stream to the UI. DeepSeek does — reasoning is a first-class content-block and its own chunk type — so DSH can render it faithfully." }
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1721501000800,
+    "seq": 5012,
+    "data": {
+      "content": [
+        { "type": "reasoning", "text": "Let me trace this carefully. The tri-view is Tree / Timeline / Graph, and each of them lands a right-side detail pane on click. So the Reasoning tab lives inside that right-side pane, alongside Feedback / Input / Output / Attributes. It's conditional — a step without reasoning-delta chunks or a positive usage.reasoningTokens hides the tab entirely, so casual turns don't get a fifth clickable that says nothing. As for why upstreams don't show it: Anthropic's Claude ships an `extended_thinking` field on the API but hides the text in the product; OpenAI's o-series does the same with its `reasoning.summary`. DeepSeek exposes reasoning as a first-class content-block type plus a dedicated reasoning-delta chunk, and DSH's aggregator forwards both to the UI. So the visualisation happens because the wire carries the payload — the product is honest about what the model produced instead of collapsing it into a summary. That's the differentiator the audit calls out." },
+        { "type": "text", "text": "The Reasoning tab lives in the tri-view's right-side detail pane, next to Feedback / Input / Output / Attributes, and appears only when the step has reasoning-delta content or a positive usage.reasoningTokens. Most upstream hosts don't expose one because their wire hides reasoning: Anthropic keeps `extended_thinking` on the API only, OpenAI ships an aggregate `reasoning.summary`, and neither routes the raw stream to the UI. DeepSeek does — reasoning is a first-class content-block and its own chunk type — so DSH can render it faithfully." }
+      ],
+      "usage": {
+        "inputTokens": 214,
+        "outputTokens": 118,
+        "reasoningTokens": 982,
+        "cacheReadTokens": 0
+      },
+      "finish_reason": "stop"
+    }
+  },
+  {
+    "type": "step/end",
+    "time": 1721501000900,
+    "seq": 5013,
+    "data": { "turn": 1, "step": 0, "reason": { "kind": "stop" } }
+  },
+  {
+    "type": "turn/end",
+    "time": 1721501000950,
+    "seq": 5014,
+    "data": { "turn": 1, "reason": { "kind": "stop" } }
+  }
+]

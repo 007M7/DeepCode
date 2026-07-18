@@ -1,0 +1,7 @@
+[
+  { "type": "turn/start", "seq": 1, "time": 1721116000000, "data": { "turn": 0, "trigger": { "kind": "message", "source": { "kind": "user" } } } },
+  { "type": "context/message", "seq": 2, "time": 1721116000010, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "# CLAUDE.md\n\nThis project is the DeepSeek Harness SDK, a Cordis-based plugin-driven agent framework. Every capability is a plugin.\n\n## Commands\n- pnpm run test\n- pnpm run typecheck\n\n(truncated)" }], "source": { "kind": "plugin", "plugin": "hooks-claude" } } },
+  { "type": "context/message", "seq": 3, "time": 1721116000012, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "# AGENTS.md — Harness Packages\n\nEach npm package is named @deepseek-ai/dsh-<name>; vendored packages keep the upstream name and set private: true.\n\n(truncated)" }], "source": { "kind": "plugin", "plugin": "hooks-claude" } } },
+  { "type": "user/message", "seq": 4, "time": 1721116000500, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "Show me the core types in packages/core/session" }], "source": { "kind": "user" } } },
+  { "type": "turn/end", "seq": 5, "time": 1721116005000, "data": { "turn": 0, "reason": { "kind": "completed" } } }
+]

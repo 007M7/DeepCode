@@ -1,0 +1,130 @@
+[
+  {
+    "_mock": true,
+    "_mockReason": "#162 rec 22 (partial-JSON tool row): assistant/chunk events carrying tool-call-delta pieces that concatenate to a valid write_file arguments JSON. Confirms the pi §2.3 four-frame table (from {} through path partial through path+content partial to sealed). Wire shape follows packages/llm/llm/src/types.ts:116 (StreamChunk union member tool-call-delta { index, id, name?, argumentsDelta }). Second call: run_bash streamed across 3 slices so aggregator tests exercise more than one open row."
+  },
+  {
+    "type": "user/message",
+    "time": 1721402000050,
+    "seq": 701,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Create src/lib/foo.ts exporting a bar() function, then run it via node -e to confirm the export works." }
+      ]
+    }
+  },
+  {
+    "type": "step/start",
+    "time": 1721402000100,
+    "seq": 702,
+    "data": { "turn": 7, "step": 0 }
+  },
+  {
+    "type": "request/header",
+    "time": 1721402000150,
+    "seq": 703,
+    "data": {
+      "header": {
+        "model": "deepseek-chat",
+        "tools": [
+          { "name": "write_file", "description": "Write a file to disk with the given content." },
+          { "name": "run_bash", "description": "Run a shell command; returns stdout+stderr." }
+        ]
+      },
+      "reason": "step-start"
+    }
+  },
+
+  { "type": "assistant/chunk", "time": 1721402000210, "seq": 704,
+    "data": { "chunk": { "type": "tool-call-delta", "index": 0, "id": "call_write_1", "name": "write_file", "argumentsDelta": "{\"path\":\"" } } },
+  { "type": "assistant/chunk", "time": 1721402000225, "seq": 705,
+    "data": { "chunk": { "type": "tool-call-delta", "index": 0, "id": "call_write_1", "argumentsDelta": "src/lib/f" } } },
+  { "type": "assistant/chunk", "time": 1721402000240, "seq": 706,
+    "data": { "chunk": { "type": "tool-call-delta", "index": 0, "id": "call_write_1", "argumentsDelta": "oo.ts" } } },
+  { "type": "assistant/chunk", "time": 1721402000255, "seq": 707,
+    "data": { "chunk": { "type": "tool-call-delta", "index": 0, "id": "call_write_1", "argumentsDelta": "\",\"content\":\"expor" } } },
+  { "type": "assistant/chunk", "time": 1721402000270, "seq": 708,
+    "data": { "chunk": { "type": "tool-call-delta", "index": 0, "id": "call_write_1", "argumentsDelta": "t function bar(){" } } },
+  { "type": "assistant/chunk", "time": 1721402000285, "seq": 709,
+    "data": { "chunk": { "type": "tool-call-delta", "index": 0, "id": "call_write_1", "argumentsDelta": " return 'bar' " } } },
+  { "type": "assistant/chunk", "time": 1721402000300, "seq": 710,
+    "data": { "chunk": { "type": "tool-call-delta", "index": 0, "id": "call_write_1", "argumentsDelta": "}\"}" } } },
+
+  {
+    "type": "tool/call",
+    "time": 1721402000330,
+    "seq": 711,
+    "data": {
+      "callId": "call_write_1",
+      "name": "write_file",
+      "arguments": "{\"path\":\"src/lib/foo.ts\",\"content\":\"export function bar(){ return 'bar' }\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "time": 1721402000390,
+    "seq": 712,
+    "data": {
+      "callId": "call_write_1",
+      "content": [ { "type": "text", "text": "wrote 42 bytes" } ],
+      "isError": false,
+      "meta": { "card": "generic", "durationMs": 52 }
+    }
+  },
+
+  { "type": "assistant/chunk", "time": 1721402000420, "seq": 713,
+    "data": { "chunk": { "type": "tool-call-delta", "index": 1, "id": "call_bash_1", "name": "run_bash", "argumentsDelta": "{\"command\":\"node -" } } },
+  { "type": "assistant/chunk", "time": 1721402000435, "seq": 714,
+    "data": { "chunk": { "type": "tool-call-delta", "index": 1, "id": "call_bash_1", "argumentsDelta": "e \\\"console.log(re" } } },
+  { "type": "assistant/chunk", "time": 1721402000450, "seq": 715,
+    "data": { "chunk": { "type": "tool-call-delta", "index": 1, "id": "call_bash_1", "argumentsDelta": "quire('./src/lib/foo').bar())\\\"\"}" } } },
+
+  {
+    "type": "tool/call",
+    "time": 1721402000480,
+    "seq": 716,
+    "data": {
+      "callId": "call_bash_1",
+      "name": "run_bash",
+      "arguments": "{\"command\":\"node -e \\\"console.log(require('./src/lib/foo').bar())\\\"\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "time": 1721402000640,
+    "seq": 717,
+    "data": {
+      "callId": "call_bash_1",
+      "content": [ { "type": "text", "text": "bar\n" } ],
+      "isError": false,
+      "meta": { "card": "terminal", "durationMs": 158 }
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1721402000700,
+    "seq": 718,
+    "data": {
+      "content": [
+        { "type": "text", "text": "foo.ts written; node round-trip prints \"bar\" — export works." }
+      ],
+      "usage": { "inputTokens": 380, "outputTokens": 42, "cacheReadTokens": 220 }
+    }
+  },
+  {
+    "type": "step/end",
+    "time": 1721402000740,
+    "seq": 719,
+    "data": { "turn": 7, "step": 0 }
+  },
+  {
+    "type": "turn/end",
+    "time": 1721402000780,
+    "seq": 720,
+    "data": {
+      "turn": 7,
+      "reason": { "kind": "stop" },
+      "usage": { "inputTokens": 380, "outputTokens": 42, "cacheReadTokens": 220 }
+    }
+  }
+]

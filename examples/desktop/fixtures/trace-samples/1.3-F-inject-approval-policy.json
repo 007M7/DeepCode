@@ -1,0 +1,6 @@
+[
+  { "type": "turn/start", "seq": 600, "time": 1721117600000, "data": { "turn": 9, "trigger": { "kind": "message", "source": { "kind": "user" } } } },
+  { "type": "user/message", "seq": 601, "time": 1721117600010, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "Stop asking me every time — auto-allow pnpm commands from now on." }], "source": { "kind": "user" } } },
+  { "type": "context/message", "seq": 602, "time": 1721117600020, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "Approval policy updated: pnpm subcommands now bypass user confirmation for this session. Previous policy: ask (always). New policy: allow-when-matches(/^pnpm(\\s|$)/)." }], "source": { "kind": "plugin", "plugin": "user-approval" } } },
+  { "type": "turn/end", "seq": 603, "time": 1721117600030, "data": { "turn": 9, "reason": { "kind": "completed" } } }
+]

@@ -1,0 +1,93 @@
+# JSON-RPC serving config with the real DeepSeek adapter. Needs
+# DEEPSEEK_API_KEY in the environment (the desktop shell inherits it from the
+# user's shell; or set it in `.env` at the DSH runtime root, which
+# dsh-app-boot loads via loadEnv).
+#
+# Composition contract: the desktop shell announces
+# capabilities.interruptions=true on initialize, so the JSON-RPC server needs
+# @deepseek-ai/dsh-user-interaction to mount the interrupt bridge or
+# initialize fails loud. session/list + session/events also require
+# @deepseek-ai/dsh-session-query. Both are loaded below — omitting either
+# leaves the shell showing runtime status "starting" indefinitely while
+# stderr surfaces the failed handshake.
+
+- id: jsonrpc
+  name: '@deepseek-ai/dsh-jsonrpc'
+
+# agent-spine-demo requires an explicit `workspaceContext` (Config | false)
+# because the loader changes model-visible input; there is no schema default.
+# `false` = hermetic prompts (no workspace overview injected). Aligns with
+# packages/examples/agent-spine-demo/src/index.ts Config schema. When we want
+# a workspace overview later, swap for `{ maxBytes: 65536 }` matching the
+# byte-budget pattern in examples/cordis-agent/cordis.yml.
+- id: agent-core
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    workspaceContext: false
+
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    baseURL: !!js process.env.DEEPSEEK_BASE_URL
+    models:
+      - deepseek-v4-flash
+      - deepseek-v4-pro
+    # Showcase default: pin thinking on so the reasoning fold — our headline
+    # visualization — is visible out of the box for a first-run user. The
+    # provider default is already "enabled", but a future flip would silently
+    # drop reasoning-delta events on this profile and take the fold with it.
+    # See packages/llm/llm-deepseek/src/index.ts Config for the field shape.
+    thinking: enabled
+
+- id: sessions
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+
+# Host-facing session metadata: session/list and session/events require the
+# session-query service and fail loud without it. The desktop shell polls
+# session/list on every runtime handshake and reads session/events on
+# switch-back.
+- id: session-query
+  name: '@deepseek-ai/dsh-session-query'
+
+# User-interaction seam: required when the JSON-RPC client announces
+# capabilities.interruptions=true (the desktop shell does). Without this the
+# interrupt bridge cannot mount and initialize itself fails loud with
+# "jsonrpc client announced capabilities.interruptions=true but the composition
+# has no ctx.userInteraction …".
+- id: user-interaction
+  name: '@deepseek-ai/dsh-user-interaction'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+
+# Showcase default: ship the model-facing filesystem tool suite so file edits
+# render the diff card — the second headline visualization after the reasoning
+# fold. This is a three-part stack (matching examples/coding-agent/cordis.yml
+# — the canonical composition):
+#
+#   1. fs-local provides the backend that resolves paths from process.cwd()
+#      (schema in packages/fs/fs-local/src/index.ts).
+#   2. fs-policy enforces the read-before-write / observation contract that
+#      tool-fs's edit/write listeners rely on.
+#   3. tool-fs registers the fs.read / fs.edit / fs.write model-facing tools
+#      (its `inject` is ['tools', 'fs', 'systemPrompt']). Without this, no fs
+#      tool is exposed to the model at all — an fs.edit request would just
+#      make the model reply "no fs tool available", which is exactly what
+#      the previous default-profile behaviour did.
+#
+# Diff cards render only for tools with data-tool-card-family=fs (see
+# src/renderer/tool-cards.js), so this stack is the sole path to the
+# out-of-the-box diff-card demo.
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.cwd()
+
+- id: fs-policy
+  name: '@deepseek-ai/dsh-fs-policy'
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'

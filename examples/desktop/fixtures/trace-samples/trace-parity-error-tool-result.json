@@ -1,0 +1,11 @@
+[
+  { "type": "turn/start", "seq": 200, "time": 1721117000000, "data": { "turn": 4, "trigger": { "kind": "message", "source": { "kind": "user" } } } },
+  { "type": "user/message", "seq": 201, "time": 1721117000001, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "Read x.ts and print its first line." }], "source": { "kind": "user" } } },
+  { "type": "step/start", "seq": 202, "time": 1721117000100, "data": { "turn": 4, "step": 0 } },
+  { "type": "request/header", "seq": 203, "time": 1721117000101, "data": { "header": { "model": "deepseek-chat", "provider": "deepseek", "system": "You are a coding assistant.", "tools": [{ "name": "read", "description": "read a file", "parameters": { "type": "object" } }], "config": { "temperature": 0, "topP": 0.9, "maxTokens": 4096 }, "messagePrefix": [] }, "reason": "step-start" } },
+  { "type": "assistant/message", "seq": 204, "time": 1721117000800, "surfaceOp": "append", "data": { "turn": 4, "step": 0, "content": [{ "type": "text", "text": "Reading x.ts now." }, { "type": "tool_use", "id": "call_read_x", "name": "read", "input": { "path": "x.ts" } }], "usage": { "inputTokens": 512, "outputTokens": 48, "cacheReadTokens": 128 } } },
+  { "type": "tool/call", "seq": 205, "time": 1721117000801, "data": { "turn": 4, "step": 0, "callId": "call_read_x", "name": "read", "arguments": "{\"path\":\"x.ts\"}" } },
+  { "type": "tool/result", "seq": 206, "time": 1721117001200, "surfaceOp": "append", "data": { "turn": 4, "step": 0, "callId": "call_read_x", "isError": true, "content": [{ "type": "text", "text": "RuntimeError: file not found: x.ts\n  at read (fs/file.ts:42:11)\n  at tool.dispatch (loop.ts:118:8)" }], "error": { "name": "RuntimeError", "message": "file not found: x.ts" }, "meta": { "card": "generic", "durationMs": 399 } } },
+  { "type": "step/end", "seq": 207, "time": 1721117001250, "data": { "turn": 4, "step": 0 } },
+  { "type": "turn/end", "seq": 208, "time": 1721117001260, "data": { "turn": 4, "reason": { "kind": "error", "message": "tool failed" } } }
+]

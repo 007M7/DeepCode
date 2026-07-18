@@ -1,0 +1,66 @@
+{
+  "collapsed": [
+    {
+      "fixture": "trace-drawer",
+      "open": false,
+      "ariaExpanded": "false",
+      "hasBefore": true,
+      "hasAfter": false
+    },
+    {
+      "fixture": "runtime-row",
+      "open": false,
+      "ariaExpanded": "false",
+      "hasBefore": true,
+      "hasAfter": false
+    },
+    {
+      "fixture": "inject-card",
+      "open": false,
+      "ariaExpanded": "false",
+      "hasBefore": true,
+      "hasAfter": false
+    },
+    {
+      "fixture": "subagent-trace",
+      "open": false,
+      "ariaExpanded": "false",
+      "hasBefore": false,
+      "hasAfter": true
+    },
+    {
+      "fixture": "recall-card",
+      "open": false,
+      "ariaExpanded": "false",
+      "hasBefore": true,
+      "hasAfter": true
+    }
+  ],
+  "expanded": [
+    {
+      "fixture": "trace-drawer",
+      "open": true,
+      "ariaExpanded": "true"
+    },
+    {
+      "fixture": "runtime-row",
+      "open": true,
+      "ariaExpanded": "true"
+    },
+    {
+      "fixture": "inject-card",
+      "open": true,
+      "ariaExpanded": "true"
+    },
+    {
+      "fixture": "subagent-trace",
+      "open": true,
+      "ariaExpanded": "true"
+    },
+    {
+      "fixture": "recall-card",
+      "open": true,
+      "ariaExpanded": "true"
+    }
+  ]
+}

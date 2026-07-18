@@ -1,0 +1,23 @@
+node_modules/
+*.log
+boot.log
+.DS_Store
+dist/
+.env
+.env.*
+!.env.example
+
+# DSH runtime overlay + daemon persistence (see README)
+.dsh-desktop/
+.dsh/
+.sessions/
+userdata/
+
+# Local QA / driver scratch
+.qa/
+.tmp/
+
+# Editor / IDE
+.vscode/
+.idea/
+.claude/

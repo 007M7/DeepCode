@@ -1,0 +1,61 @@
+{
+  "_note": "Sample sessions for the RL annotation demo — three multi-turn trajectories chosen to exercise the 5-dim scoring card + the export pipeline. Each session's events follow the shape the renderer already uses elsewhere in the demo (role/content/type).",
+  "sessions": [
+    {
+      "sessionId": "sess-fib-01",
+      "title": "Fibonacci — from naive to memoized",
+      "taskGroup": "code-gen",
+      "taskSubtask": "function-completion",
+      "createdAt": 1721030400000,
+      "events": [
+        { "type": "user/message", "content": "Please write a fibonacci function.", "seq": 1 },
+        { "type": "assistant/message", "content": "Here is a naive recursive implementation:\n\n```python\ndef fib(n):\n    if n < 2:\n        return n\n    return fib(n-1) + fib(n-2)\n```", "reasoning_content": "The user wants a fibonacci function. A naive recursive one is the simplest starting point.", "seq": 2 },
+        { "type": "user/message", "content": "That is exponential time. Make it iterative.", "seq": 3 },
+        { "type": "assistant/message", "content": "Iterative version:\n\n```python\ndef fib(n):\n    a, b = 0, 1\n    for _ in range(n):\n        a, b = b, a + b\n    return a\n```", "seq": 4 },
+        { "type": "user/message", "content": "Now add memoization so repeated calls are fast.", "seq": 5 },
+        { "type": "assistant/message", "content": "Using functools:\n\n```python\nfrom functools import lru_cache\n\n@lru_cache(maxsize=None)\ndef fib(n):\n    if n < 2:\n        return n\n    return fib(n-1) + fib(n-2)\n```", "seq": 6 }
+      ]
+    },
+    {
+      "sessionId": "sess-bug-02",
+      "title": "Off-by-one in slice range",
+      "taskGroup": "fix-optimize",
+      "taskSubtask": "bug-fix",
+      "createdAt": 1721116800000,
+      "events": [
+        { "type": "user/message", "content": "This test fails: `page(items, 2)` should return items 10-19 but returns 11-20. What's wrong?", "seq": 1 },
+        { "type": "assistant/message", "content": "Looking at `page(items, page_num)`: the slice `items[page_num*10:(page_num+1)*10]` for page 2 gives `items[20:30]`, not `items[10:20]`. If page numbering is 1-based (page 1 = items 0-9), the fix is `items[(page_num-1)*10:page_num*10]`.", "seq": 2 },
+        { "type": "tool/call", "tool": "shell", "arguments": { "cmd": "pytest tests/test_pagination.py -v" }, "seq": 3 },
+        { "type": "user/message", "content": "Good catch. Please write a regression test for this.", "seq": 4 },
+        { "type": "assistant/message", "content": "```python\ndef test_page_1_based():\n    items = list(range(30))\n    assert page(items, 1) == list(range(0, 10))\n    assert page(items, 2) == list(range(10, 20))\n    assert page(items, 3) == list(range(20, 30))\n```", "seq": 5 }
+      ]
+    },
+    {
+      "sessionId": "sess-svg-03",
+      "title": "SVG cat icon — three iterations",
+      "taskGroup": "interaction-reasoning",
+      "taskSubtask": "svg-gen",
+      "createdAt": 1721203200000,
+      "events": [
+        { "type": "user/message", "content": "Draw a simple SVG cat face — two triangles for ears, a circle for the head, and eyes.", "seq": 1 },
+        { "type": "assistant/message", "content": "<svg viewBox=\"0 0 100 100\"><circle cx=\"50\" cy=\"55\" r=\"30\" fill=\"none\" stroke=\"#333\"/><polygon points=\"25,35 35,15 45,35\" fill=\"#333\"/><polygon points=\"55,35 65,15 75,35\" fill=\"#333\"/><circle cx=\"42\" cy=\"52\" r=\"2\" fill=\"#333\"/><circle cx=\"58\" cy=\"52\" r=\"2\" fill=\"#333\"/></svg>", "seq": 2 },
+        { "type": "user/message", "content": "The ears look pointy but the eyes are too small. Make the eyes bigger and add whiskers.", "seq": 3 },
+        { "type": "assistant/message", "content": "<svg viewBox=\"0 0 100 100\"><circle cx=\"50\" cy=\"55\" r=\"30\" fill=\"none\" stroke=\"#333\"/><polygon points=\"25,35 35,15 45,35\" fill=\"#333\"/><polygon points=\"55,35 65,15 75,35\" fill=\"#333\"/><circle cx=\"40\" cy=\"52\" r=\"4\" fill=\"#333\"/><circle cx=\"60\" cy=\"52\" r=\"4\" fill=\"#333\"/><line x1=\"20\" y1=\"65\" x2=\"40\" y2=\"67\" stroke=\"#333\"/><line x1=\"20\" y1=\"70\" x2=\"40\" y2=\"70\" stroke=\"#333\"/><line x1=\"60\" y1=\"67\" x2=\"80\" y2=\"65\" stroke=\"#333\"/><line x1=\"60\" y1=\"70\" x2=\"80\" y2=\"70\" stroke=\"#333\"/></svg>", "seq": 4 },
+        { "type": "user/message", "content": "The whiskers are only two — cats usually have three. And add a small nose.", "seq": 5 },
+        { "type": "assistant/message", "content": "<svg viewBox=\"0 0 100 100\"><circle cx=\"50\" cy=\"55\" r=\"30\" fill=\"none\" stroke=\"#333\"/><polygon points=\"25,35 35,15 45,35\" fill=\"#333\"/><polygon points=\"55,35 65,15 75,35\" fill=\"#333\"/><circle cx=\"40\" cy=\"52\" r=\"4\" fill=\"#333\"/><circle cx=\"60\" cy=\"52\" r=\"4\" fill=\"#333\"/><polygon points=\"48,60 52,60 50,64\" fill=\"#333\"/><line x1=\"20\" y1=\"63\" x2=\"40\" y2=\"66\" stroke=\"#333\"/><line x1=\"20\" y1=\"68\" x2=\"40\" y2=\"68\" stroke=\"#333\"/><line x1=\"20\" y1=\"73\" x2=\"40\" y2=\"70\" stroke=\"#333\"/><line x1=\"60\" y1=\"66\" x2=\"80\" y2=\"63\" stroke=\"#333\"/><line x1=\"60\" y1=\"68\" x2=\"80\" y2=\"68\" stroke=\"#333\"/><line x1=\"60\" y1=\"70\" x2=\"80\" y2=\"73\" stroke=\"#333\"/></svg>", "seq": 6 }
+      ]
+    }
+  ],
+  "seedAnnotations": {
+    "sess-fib-01": {
+      "overall": "good",
+      "taskGroup": "code-gen",
+      "taskSubtask": "function-completion",
+      "turnScores": [
+        { "turnIndex": 0, "dims": { "feedback-understanding": 5, "fix-effectiveness": 4, "no-regression": 5, "over-correction": 5, "convergence": 3 }, "priorFeedback": "Please write a fibonacci function.", "note": "Correct implementation but starts with the naive shape — leaves room for follow-ups." },
+        { "turnIndex": 1, "dims": { "feedback-understanding": 5, "fix-effectiveness": 5, "no-regression": 5, "over-correction": 5, "convergence": 4 }, "priorFeedback": "That is exponential time. Make it iterative.", "note": "Iterative fix is minimal and correct." },
+        { "turnIndex": 2, "dims": { "feedback-understanding": 5, "fix-effectiveness": 5, "no-regression": 4, "over-correction": 4, "convergence": 5 }, "priorFeedback": "Now add memoization so repeated calls are fast.", "note": "lru_cache is clean; slight over-correction switching back to recursive." }
+      ]
+    }
+  }
+}

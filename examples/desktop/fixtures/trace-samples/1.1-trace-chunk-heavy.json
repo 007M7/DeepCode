@@ -1,0 +1,1630 @@
+[
+  {
+    "type": "user/message",
+    "time": 1721199999500,
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Explain in two or three paragraphs what Harness is."
+        }
+      ]
+    },
+    "seq": 200
+  },
+  {
+    "type": "step/start",
+    "time": 1721200000000,
+    "data": {
+      "turn": 5,
+      "step": 0
+    },
+    "seq": 201
+  },
+  {
+    "type": "request/header",
+    "time": 1721200000050,
+    "data": {
+      "header": {
+        "model": "deepseek-chat",
+        "system": "You are DeepSeek Harness…",
+        "tools": [
+          {
+            "name": "read"
+          },
+          {
+            "name": "edit"
+          },
+          {
+            "name": "bash"
+          }
+        ],
+        "config": {
+          "temperature": 0.4
+        },
+        "messagePrefix": [
+          {
+            "role": "user",
+            "content": "…"
+          },
+          {
+            "role": "assistant",
+            "content": "…"
+          },
+          {
+            "role": "user",
+            "content": "…"
+          },
+          {
+            "role": "assistant",
+            "content": "…"
+          }
+        ]
+      },
+      "reason": "step-start"
+    },
+    "seq": 202
+  },
+  {
+    "type": "hook/before-tool-call",
+    "time": 1721200000080,
+    "data": {
+      "hookName": "guard-tool-call",
+      "allowed": true
+    },
+    "seq": 203
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000100,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "Harn"
+      }
+    },
+    "seq": 204
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000140,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ess "
+      }
+    },
+    "seq": 205
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000180,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "is "
+      }
+    },
+    "seq": 206
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000220,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "a "
+      }
+    },
+    "seq": 207
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000260,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "plu"
+      }
+    },
+    "seq": 208
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000300,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "gin"
+      }
+    },
+    "seq": 209
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000340,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "-ba"
+      }
+    },
+    "seq": 210
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000380,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "sed "
+      }
+    },
+    "seq": 211
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000420,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "age"
+      }
+    },
+    "seq": 212
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000460,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "nt "
+      }
+    },
+    "seq": 213
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000500,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "runt"
+      }
+    },
+    "seq": 214
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000540,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ime "
+      }
+    },
+    "seq": 215
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000580,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "bui"
+      }
+    },
+    "seq": 216
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000620,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "lt "
+      }
+    },
+    "seq": 217
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000660,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "on "
+      }
+    },
+    "seq": 218
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000700,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "a "
+      }
+    },
+    "seq": 219
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000740,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "mic"
+      }
+    },
+    "seq": 220
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000780,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "rok"
+      }
+    },
+    "seq": 221
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000820,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ern"
+      }
+    },
+    "seq": 222
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000860,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "el. "
+      }
+    },
+    "seq": 223
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000900,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "The "
+      }
+    },
+    "seq": 224
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000940,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ker"
+      }
+    },
+    "seq": 225
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200000980,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "nel "
+      }
+    },
+    "seq": 226
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001020,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "do"
+      }
+    },
+    "seq": 227
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001060,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "es "
+      }
+    },
+    "seq": 228
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001100,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "two "
+      }
+    },
+    "seq": 229
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001140,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "thin"
+      }
+    },
+    "seq": 230
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001180,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "gs: "
+      }
+    },
+    "seq": 231
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001220,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "it "
+      }
+    },
+    "seq": 232
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001260,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ow"
+      }
+    },
+    "seq": 233
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001300,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ns "
+      }
+    },
+    "seq": 234
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001340,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "the "
+      }
+    },
+    "seq": 235
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001380,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "eve"
+      }
+    },
+    "seq": 236
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001420,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "nt "
+      }
+    },
+    "seq": 237
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001460,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "log "
+      }
+    },
+    "seq": 238
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001500,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "for "
+      }
+    },
+    "seq": 239
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001540,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "a "
+      }
+    },
+    "seq": 240
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001580,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "sess"
+      }
+    },
+    "seq": 241
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001620,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "io"
+      }
+    },
+    "seq": 242
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001660,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "n, "
+      }
+    },
+    "seq": 243
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001700,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "and "
+      }
+    },
+    "seq": 244
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001740,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "it "
+      }
+    },
+    "seq": 245
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001780,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "di"
+      }
+    },
+    "seq": 246
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001820,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "spa"
+      }
+    },
+    "seq": 247
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001860,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "tch"
+      }
+    },
+    "seq": 248
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001900,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "es "
+      }
+    },
+    "seq": 249
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001940,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "wi"
+      }
+    },
+    "seq": 250
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200001980,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "re "
+      }
+    },
+    "seq": 251
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002020,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "eve"
+      }
+    },
+    "seq": 252
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002060,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "nts "
+      }
+    },
+    "seq": 253
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002100,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "to "
+      }
+    },
+    "seq": 254
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002140,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "plug"
+      }
+    },
+    "seq": 255
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002180,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ins "
+      }
+    },
+    "seq": 256
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002220,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "th"
+      }
+    },
+    "seq": 257
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002260,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "at "
+      }
+    },
+    "seq": 258
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002300,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ren"
+      }
+    },
+    "seq": 259
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002340,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "der "
+      }
+    },
+    "seq": 260
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002380,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "the"
+      }
+    },
+    "seq": 261
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002420,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "m, "
+      }
+    },
+    "seq": 262
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002460,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "mut"
+      }
+    },
+    "seq": 263
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002500,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ate "
+      }
+    },
+    "seq": 264
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002540,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "cont"
+      }
+    },
+    "seq": 265
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002580,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ex"
+      }
+    },
+    "seq": 266
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002620,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "t, "
+      }
+    },
+    "seq": 267
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002660,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "or "
+      }
+    },
+    "seq": 268
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002700,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "dri"
+      }
+    },
+    "seq": 269
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002740,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ve "
+      }
+    },
+    "seq": 270
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002780,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "too"
+      }
+    },
+    "seq": 271
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002820,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ls. "
+      }
+    },
+    "seq": 272
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002860,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "Eve"
+      }
+    },
+    "seq": 273
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002900,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ry "
+      }
+    },
+    "seq": 274
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002940,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "use"
+      }
+    },
+    "seq": 275
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200002980,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "r-v"
+      }
+    },
+    "seq": 276
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003020,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "isi"
+      }
+    },
+    "seq": 277
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003060,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ble "
+      }
+    },
+    "seq": 278
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003100,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "beha"
+      }
+    },
+    "seq": 279
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003140,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "vi"
+      }
+    },
+    "seq": 280
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003180,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "or "
+      }
+    },
+    "seq": 281
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003220,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "liv"
+      }
+    },
+    "seq": 282
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003260,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "es "
+      }
+    },
+    "seq": 283
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003300,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "in "
+      }
+    },
+    "seq": 284
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003340,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "a "
+      }
+    },
+    "seq": 285
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003380,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "plug"
+      }
+    },
+    "seq": 286
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003420,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "in, "
+      }
+    },
+    "seq": 287
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003460,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "so "
+      }
+    },
+    "seq": 288
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003500,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "sw"
+      }
+    },
+    "seq": 289
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003540,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "itc"
+      }
+    },
+    "seq": 290
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003580,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "hi"
+      }
+    },
+    "seq": 291
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003620,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ng "
+      }
+    },
+    "seq": 292
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003660,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "mod"
+      }
+    },
+    "seq": 293
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003700,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "el "
+      }
+    },
+    "seq": 294
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003740,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "fami"
+      }
+    },
+    "seq": 295
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003780,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "li"
+      }
+    },
+    "seq": 296
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003820,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "es "
+      }
+    },
+    "seq": 297
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003860,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "or "
+      }
+    },
+    "seq": 298
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003900,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "to"
+      }
+    },
+    "seq": 299
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003940,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ol "
+      }
+    },
+    "seq": 300
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200003980,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "sets "
+      }
+    },
+    "seq": 301
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004020,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "mea"
+      }
+    },
+    "seq": 302
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004060,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ns "
+      }
+    },
+    "seq": 303
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004100,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "compo"
+      }
+    },
+    "seq": 304
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004140,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "sing "
+      }
+    },
+    "seq": 305
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004180,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "a "
+      }
+    },
+    "seq": 306
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004220,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "diffe"
+      }
+    },
+    "seq": 307
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004260,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "rent "
+      }
+    },
+    "seq": 308
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004300,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "set "
+      }
+    },
+    "seq": 309
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004340,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "of "
+      }
+    },
+    "seq": 310
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004380,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "plug"
+      }
+    },
+    "seq": 311
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004420,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ins "
+      }
+    },
+    "seq": 312
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004460,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "aro"
+      }
+    },
+    "seq": 313
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004500,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "und "
+      }
+    },
+    "seq": 314
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004540,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "the "
+      }
+    },
+    "seq": 315
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004580,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "same "
+      }
+    },
+    "seq": 316
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004620,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "ker"
+      }
+    },
+    "seq": 317
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 1721200004660,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "chunk": {
+        "type": "text-delta",
+        "text": "nel."
+      }
+    },
+    "seq": 318
+  },
+  {
+    "type": "tool/call",
+    "time": 1721200004750,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "callId": "call_read_h1",
+      "name": "read",
+      "arguments": "{\"path\":\"packages/core/session/src/types.ts\",\"offset\":0,\"limit\":40}"
+    },
+    "seq": 319
+  },
+  {
+    "type": "tool/result",
+    "time": 1721200004880,
+    "surfaceOp": "append",
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "callId": "call_read_h1",
+      "content": [
+        {
+          "type": "text",
+          "text": "export interface SessionEvent { seq: number; type: string; time: number; data?: any }\n// … 37 more lines"
+        }
+      ],
+      "isError": false,
+      "meta": {
+        "card": "generic",
+        "durationMs": 130
+      }
+    },
+    "seq": 320
+  },
+  {
+    "type": "assistant/message",
+    "time": 1721200004950,
+    "data": {
+      "turn": 5,
+      "step": 0,
+      "content": [
+        {
+          "type": "text",
+          "text": "Harness is a plugin-based agent runtime built on a microkernel. The kernel does two things: it owns the event log for a session, and it dispatches wire events to plugins that render them, mutate context, or drive tools. Every user-visible behavior lives in a plugin, so switching model families or tool sets means composing a different set of plugins around the same kernel."
+        }
+      ]
+    },
+    "seq": 321
+  },
+  {
+    "type": "step/end",
+    "time": 1721200005000,
+    "data": {
+      "turn": 5,
+      "step": 0
+    },
+    "seq": 322
+  }
+]

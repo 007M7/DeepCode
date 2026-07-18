@@ -1,0 +1,106 @@
+{
+  "_mock": true,
+  "_mockReason": "workflow/* Cordis events are not yet on the wire (see the historical note in panels-c-controller.js:198); the wire patch belongs to impl-plugin-wire. This fixture demonstrates the sequential-flow shape (workflow tool call + 5 step-progress events; a local mock event type mock/workflow-step, not a real wire type).",
+  "workflow": {
+    "name": "translate-comments",
+    "kind": "seq",
+    "steps": [
+      {
+        "id": "s1",
+        "name": "read types.ts",
+        "status": "done",
+        "durationMs": 320,
+        "output": "480 lines"
+      },
+      {
+        "id": "s2",
+        "name": "extract comment blocks",
+        "status": "done",
+        "durationMs": 180,
+        "output": "32 blocks"
+      },
+      {
+        "id": "s3",
+        "name": "translate to zh",
+        "status": "running",
+        "durationMs": null,
+        "output": "in progress: 24/32"
+      },
+      {
+        "id": "s4",
+        "name": "write back edits",
+        "status": "pending",
+        "durationMs": null,
+        "output": null
+      },
+      {
+        "id": "s5",
+        "name": "run typecheck",
+        "status": "pending",
+        "durationMs": null,
+        "output": null
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "tool/call",
+      "seq": 900,
+      "time": 1721119000000,
+      "data": {
+        "turn": 12,
+        "step": 0,
+        "callId": "call_wf_1",
+        "name": "workflow",
+        "arguments": "{\"name\":\"translate-comments\",\"kind\":\"seq\"}"
+      }
+    },
+    {
+      "type": "mock/workflow-step",
+      "seq": 901,
+      "time": 1721119000100,
+      "data": {
+        "stepId": "s1",
+        "status": "started"
+      }
+    },
+    {
+      "type": "mock/workflow-step",
+      "seq": 902,
+      "time": 1721119000420,
+      "data": {
+        "stepId": "s1",
+        "status": "done",
+        "output": "480 lines"
+      }
+    },
+    {
+      "type": "mock/workflow-step",
+      "seq": 903,
+      "time": 1721119000440,
+      "data": {
+        "stepId": "s2",
+        "status": "started"
+      }
+    },
+    {
+      "type": "mock/workflow-step",
+      "seq": 904,
+      "time": 1721119000620,
+      "data": {
+        "stepId": "s2",
+        "status": "done",
+        "output": "32 blocks"
+      }
+    },
+    {
+      "type": "mock/workflow-step",
+      "seq": 905,
+      "time": 1721119000640,
+      "data": {
+        "stepId": "s3",
+        "status": "started"
+      }
+    }
+  ]
+}

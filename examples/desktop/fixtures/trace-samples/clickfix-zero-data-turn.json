@@ -1,0 +1,28 @@
+[
+  {
+    "_mock": true,
+    "_mockReason": "Clickability audit insert (2026-07-17 user 実機 screenshot): a turn/end with no usage, no cost, no duration, no stopReason — the shape that used to produce '— · — / $? · — · —' + a stranded single-dot glyph. The fix: skip mounting the footer and glyph entirely (zero-drop rule guarantees per-field L2 reachability; the L0 footer is a gist row and gets to omit no-signal turns). Test asserts turn container renders no <footer.turn-footer> child."
+  },
+  {
+    "type": "user/message",
+    "time": 1721501500000,
+    "seq": 6000,
+    "data": {
+      "content": [
+        { "type": "text", "text": "hi" }
+      ]
+    }
+  },
+  {
+    "type": "turn/start",
+    "time": 1721501500010,
+    "seq": 6001,
+    "data": {}
+  },
+  {
+    "type": "turn/end",
+    "time": 1721501500020,
+    "seq": 6002,
+    "data": {}
+  }
+]

@@ -1,0 +1,10 @@
+[
+  { "type": "turn/start", "seq": 200, "time": 1721117000000, "data": { "turn": 5, "trigger": { "kind": "message", "source": { "kind": "user" } } } },
+  { "type": "user/message", "seq": 201, "time": 1721117000010, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "Run pnpm run test:coverage" }], "source": { "kind": "user" } } },
+  { "type": "step/start", "seq": 202, "time": 1721117000100, "data": { "turn": 5, "step": 0 } },
+  { "type": "tool/call", "seq": 203, "time": 1721117000500, "data": { "turn": 5, "step": 0, "callId": "call_bash_1", "name": "bash", "arguments": "{\"command\":\"pnpm run test:coverage\"}" } },
+  { "type": "context/message", "seq": 204, "time": 1721117000600, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "You are about to run a long-lived bash command. Prefer non-interactive flags; use `pnpm --silent` for less noise." }], "source": { "kind": "plugin", "plugin": "tool-bash" } } },
+  { "type": "tool/result", "seq": 205, "time": 1721117030000, "surfaceOp": "append", "data": { "turn": 5, "step": 0, "callId": "call_bash_1", "content": [{ "type": "text", "text": "…coverage output…" }], "isError": false, "meta": { "card": "terminal", "durationMs": 29500 } } },
+  { "type": "step/end", "seq": 206, "time": 1721117030100, "data": { "turn": 5, "step": 0 } },
+  { "type": "turn/end", "seq": 207, "time": 1721117030110, "data": { "turn": 5, "reason": { "kind": "completed" } } }
+]

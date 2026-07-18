@@ -1,0 +1,109 @@
+{
+  "$schema": "https://dsh.dev/schemas/plugin-index-v1.json",
+  "version": 1,
+  "notes": "Curated demo index for the Plugins → Browse tab. Each entry maps 1:1 to a real workspace package under packages/. The `source: local` marker is a placeholder for a future remote index served by plugin.engineer; the renderer already reads `source` so switching to a URL is a config-only change.",
+  "source": "local",
+  "updatedAt": "2026-07-16",
+  "entries": [
+    {
+      "id": "tool-web",
+      "package": "@deepseek-ai/dsh-tool-web",
+      "title": "Web tools",
+      "description": "Model-facing web_search and web_fetch tools over the web capability seam. Ships the search + fetch provider skeleton; wire it to an HTTP backend or use the built-in mock.",
+      "author": "DeepSeek",
+      "permissions": ["net"],
+      "tags": ["research", "browsing"],
+      "entry": { "id": "tool-web", "name": "@deepseek-ai/dsh-tool-web" }
+    },
+    {
+      "id": "tool-fs",
+      "package": "@deepseek-ai/dsh-tool-fs",
+      "title": "Filesystem tools",
+      "description": "Read, write, and edit files through ctx.fs. The bread-and-butter toolset for any coding agent — pair it with tool-bash for a full workbench.",
+      "author": "DeepSeek",
+      "permissions": ["fs"],
+      "tags": ["coding", "essentials"],
+      "entry": { "id": "tool-fs", "name": "@deepseek-ai/dsh-tool-fs" }
+    },
+    {
+      "id": "tool-todo",
+      "package": "@deepseek-ai/dsh-tool-todo",
+      "title": "Todo writer",
+      "description": "Session-owned todo list backed by the event-sourced log. Lets the agent plan a multi-step task and check items off as it goes.",
+      "author": "DeepSeek",
+      "permissions": [],
+      "tags": ["planning"],
+      "entry": { "id": "tool-todo", "name": "@deepseek-ai/dsh-tool-todo" }
+    },
+    {
+      "id": "tool-skill",
+      "package": "@deepseek-ai/dsh-tool-skill",
+      "title": "Skill loader",
+      "description": "Model-facing tool that discovers and loads named skills from the skill provider registry. Pair with skill-local to serve skills from disk.",
+      "author": "DeepSeek",
+      "permissions": [],
+      "tags": ["skills"],
+      "entry": { "id": "tool-skill", "name": "@deepseek-ai/dsh-tool-skill" }
+    },
+    {
+      "id": "skill-local",
+      "package": "@deepseek-ai/dsh-skill-local",
+      "title": "Local skill provider",
+      "description": "Serves skills from a local filesystem directory to the skill registry. Install alongside tool-skill for a working local skills workflow.",
+      "author": "DeepSeek",
+      "permissions": ["fs"],
+      "tags": ["skills"],
+      "entry": { "id": "skill-local", "name": "@deepseek-ai/dsh-skill-local" }
+    },
+    {
+      "id": "tool-subagent",
+      "package": "@deepseek-ai/dsh-tool-subagent",
+      "title": "Subagent delegation",
+      "description": "Delegate work to a child agent via the ctx.subagents seam. Register one or more subagent providers separately (spawn, subprocess, in-process, ACP, or fork).",
+      "author": "DeepSeek",
+      "permissions": [],
+      "tags": ["multi-agent"],
+      "entry": { "id": "tool-subagent", "name": "@deepseek-ai/dsh-tool-subagent" }
+    },
+    {
+      "id": "time-context",
+      "package": "@deepseek-ai/dsh-time-context",
+      "title": "Time context",
+      "description": "Opt-in system-prompt context: the current wall-clock time and the elapsed time since the previous message. Bounded and cheap; nothing model-visible beyond a small prelude.",
+      "author": "DeepSeek",
+      "permissions": [],
+      "tags": ["context"],
+      "entry": { "id": "time-context", "name": "@deepseek-ai/dsh-time-context" }
+    },
+    {
+      "id": "timeout-policy",
+      "package": "@deepseek-ai/dsh-timeout-policy",
+      "title": "Tool timeout policy",
+      "description": "Arms a per-tool deadline on tools/execute; returns TOOL_TIMEOUT if the tool call outruns it. Belt-and-braces protection for a shell tool that hangs.",
+      "author": "DeepSeek",
+      "permissions": [],
+      "tags": ["reliability"],
+      "entry": { "id": "timeout-policy", "name": "@deepseek-ai/dsh-timeout-policy" }
+    },
+    {
+      "id": "repeat-tool-guard",
+      "package": "@deepseek-ai/dsh-repeat-tool-guard",
+      "title": "Repeat-tool guard",
+      "description": "Advisory reminders when the agent loops on identical tool calls. Nudges the model to change course rather than short-circuiting the loop.",
+      "author": "DeepSeek",
+      "permissions": [],
+      "tags": ["loop-hygiene"],
+      "entry": { "id": "repeat-tool-guard", "name": "@deepseek-ai/dsh-repeat-tool-guard" }
+    },
+    {
+      "id": "mcp-client",
+      "package": "@deepseek-ai/dsh-mcp-client",
+      "title": "MCP client bridge",
+      "description": "Connects to Model Context Protocol servers and registers their tools on ctx.tools. Add MCP server configs after installing.",
+      "author": "DeepSeek",
+      "permissions": ["net", "subprocess"],
+      "tags": ["integration", "mcp"],
+      "entry": { "id": "mcp-client", "name": "@deepseek-ai/dsh-mcp-client" }
+    }
+  ]
+}

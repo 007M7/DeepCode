@@ -1,0 +1,161 @@
+[
+  {
+    "_mock": true,
+    "_mockReason": "#162 rec 22-bis: one full turn showing the pi rhythm — reasoning → text → tool-row → tool-result → reasoning → text — all as sealed acts (replay path, no deltas). Used for shot 24 (turn container). Seqs increment monotonically inside the turn."
+  },
+  {
+    "type": "user/message",
+    "time": 1721400000050,
+    "seq": 501,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Add a comment header to src/lib/main.ts explaining its role, then verify the file still parses." }
+      ]
+    }
+  },
+  {
+    "type": "step/start",
+    "time": 1721400000100,
+    "seq": 502,
+    "data": { "turn": 5, "step": 0 }
+  },
+  {
+    "type": "request/header",
+    "time": 1721400000150,
+    "seq": 503,
+    "data": {
+      "header": {
+        "model": "deepseek-chat",
+        "system": "You are DeepSeek Harness — a research coding agent.",
+        "tools": [
+          { "name": "read", "description": "Read a file." },
+          { "name": "edit", "description": "Edit a file by string replacement." },
+          { "name": "bash", "description": "Run a shell command." }
+        ],
+        "config": { "temperature": 0.3, "maxTokens": 4096 }
+      },
+      "reason": "step-start"
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1721400000400,
+    "seq": 504,
+    "data": {
+      "content": [
+        { "type": "reasoning", "text": "I should first inspect the current top of the file so my header sits in the right position, then edit, then check parsing with a syntax-only run." },
+        { "type": "text", "text": "I'll read the file, add the header, and verify it parses." }
+      ],
+      "usage": { "inputTokens": 620, "outputTokens": 84, "reasoningTokens": 41 }
+    }
+  },
+  {
+    "type": "tool/call",
+    "time": 1721400000450,
+    "seq": 505,
+    "data": {
+      "callId": "call_read_5",
+      "name": "read",
+      "arguments": "{\"path\":\"src/lib/main.ts\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "time": 1721400000520,
+    "seq": 506,
+    "data": {
+      "callId": "call_read_5",
+      "content": [
+        { "type": "text", "text": "import { App } from './app'\nnew App().run()\n" }
+      ],
+      "isError": false,
+      "meta": { "card": "generic", "durationMs": 62 }
+    }
+  },
+  {
+    "type": "tool/call",
+    "time": 1721400000560,
+    "seq": 507,
+    "data": {
+      "callId": "call_edit_5",
+      "name": "edit",
+      "arguments": "{\"path\":\"src/lib/main.ts\",\"old\":\"import { App } from './app'\",\"new\":\"// main.ts — entry point: boots the App composition root.\\nimport { App } from './app'\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "time": 1721400000610,
+    "seq": 508,
+    "data": {
+      "callId": "call_edit_5",
+      "content": [ { "type": "text", "text": "edit applied (1 replacement)" } ],
+      "isError": false,
+      "meta": { "card": "diff", "durationMs": 44 }
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1721400000720,
+    "seq": 509,
+    "data": {
+      "content": [
+        { "type": "reasoning", "text": "Now I need a cheap parse check that does not execute the boot chain — node --check on the file is enough." },
+        { "type": "text", "text": "Header added. Verifying parse now." }
+      ],
+      "usage": { "inputTokens": 700, "outputTokens": 60, "reasoningTokens": 28 }
+    }
+  },
+  {
+    "type": "tool/call",
+    "time": 1721400000740,
+    "seq": 510,
+    "data": {
+      "callId": "call_bash_5",
+      "name": "bash",
+      "arguments": "{\"cmd\":\"node --check src/lib/main.ts\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "time": 1721400000880,
+    "seq": 511,
+    "data": {
+      "callId": "call_bash_5",
+      "content": [ { "type": "text", "text": "(no output; exit 0)" } ],
+      "isError": false,
+      "meta": { "card": "terminal", "durationMs": 138 }
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1721400000940,
+    "seq": 512,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Done. Header added, file still parses cleanly." }
+      ],
+      "usage": {
+        "inputTokens": 780,
+        "outputTokens": 34,
+        "cacheReadTokens": 512,
+        "reasoningTokens": 12
+      }
+    }
+  },
+  {
+    "type": "step/end",
+    "time": 1721400001000,
+    "seq": 513,
+    "data": { "turn": 5, "step": 0 }
+  },
+  {
+    "type": "turn/end",
+    "time": 1721400001050,
+    "seq": 514,
+    "data": {
+      "turn": 5,
+      "reason": { "kind": "stop" },
+      "usage": { "inputTokens": 780, "outputTokens": 178, "cacheReadTokens": 512, "reasoningTokens": 81 }
+    }
+  }
+]

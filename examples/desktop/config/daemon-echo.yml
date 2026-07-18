@@ -1,0 +1,44 @@
+# Daemon-hosted JSON-RPC serving config for the desktop demo — keyless echo.
+#
+# The daemon bin (packages/examples/daemon-demo) binds the unix socket at
+# $DSH_DAEMON_SOCKET_PATH and holds the lockfile at $DSH_DAEMON_LOCKFILE_PATH.
+# Both env values are required so misconfiguration fails loud rather than
+# silently binding a fixed default under $HOME.
+#
+# The leaf mirrors examples/daemon-agent/cordis.yml from the dev clone,
+# with paths rewritten so relative plugin imports still resolve against the
+# echo-agent leaf inside the dev clone.
+
+# Mock adapter and echo tool from the echo-agent leaf; keyless.
+- id: mock-llm
+  name: '../../echo-agent/src/mock-llm.ts'
+
+- id: echo-tool
+  name: '../../echo-agent/src/echo-tool.ts'
+
+# Bash executor — required by the spine's bash tool schema.
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+
+# session-query backs session/list metadata (title, running, lastEventTime)
+# and the sidebar tree; without it the daemon errors on session/list. Same
+# load pattern as the dev clone's integration-smoke.mjs.
+- id: session-query
+  name: '@deepseek-ai/dsh-session-query'
+
+# NOTE (2026-07-16): user-interaction is NOT loaded here — the
+# `dsh-daemon-demo` bundle below already imports it and installs the
+# interrupt bridge internally (see the "spine + jsonrpc-net + JSONL
+# persistence + user-interaction" line below and daemon-demo/src/index.ts).
+# Loading it again at the top level would double-mount the service and
+# fail loud on daemon start. The stdio profile (echo-jsonrpc.yml) does
+# load it, because that profile has no bundle to piggyback on.
+
+# The daemon app bundle: spine + jsonrpc-net + JSONL persistence + user-interaction.
+- id: daemon-agent
+  name: '@deepseek-ai/dsh-daemon-demo'
+  config:
+    socketPath: !!js process.env.DSH_DAEMON_SOCKET_PATH
+    lockfilePath: !!js process.env.DSH_DAEMON_LOCKFILE_PATH
+    persona: 'You are a mock daemon agent.'
+    persistenceRoot: !!js process.env.DSH_DAEMON_SESSIONS_ROOT ?? './.sessions'

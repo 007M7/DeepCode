@@ -1,0 +1,87 @@
+[
+  {
+    "type": "assistant/message",
+    "seq": 148,
+    "time": 1721119500000,
+    "surfaceOp": "append",
+    "data": {
+      "turn": 17,
+      "step": 8,
+      "content": [
+        {
+          "type": "text",
+          "text": "…last assistant message, turn ends here…"
+        }
+      ]
+    }
+  },
+  {
+    "type": "turn/end",
+    "seq": 149,
+    "time": 1721119500010,
+    "data": {
+      "turn": 17,
+      "reason": {
+        "kind": "completed"
+      }
+    }
+  },
+  {
+    "type": "compact/start",
+    "seq": 150,
+    "time": 1721119510000,
+    "data": {
+      "turn": 17
+    }
+  },
+  {
+    "type": "compact/summary",
+    "seq": 151,
+    "time": 1721119512500,
+    "data": {
+      "summary": [
+        {
+          "type": "text",
+          "text": "Session so far (seqs 1–149, turns 0–17): user asked to audit and translate SessionEventMap comments across 3 core packages; assistant used workflow(iter) to loop, translated 32+18+25 blocks total, ran typecheck+lint+coverage gates all green; found 0 regressions. Next likely: extend to bash/fs packages or land as a PR."
+        }
+      ],
+      "shadowedRange": {
+        "start": 1,
+        "end": 149
+      },
+      "shadowedSeqs": [],
+      "shadowedTokenCount": 32180,
+      "model": "deepseek-chat",
+      "maxTokens": 512
+    }
+  },
+  {
+    "type": "compact/end",
+    "seq": 152,
+    "time": 1721119512600,
+    "data": {
+      "turn": 17
+    }
+  },
+  {
+    "type": "user/message",
+    "seq": 153,
+    "time": 1721119512700,
+    "surfaceOp": "append",
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Session so far (seqs 1–149, turns 0–17): user asked to audit and translate SessionEventMap comments across 3 core packages; assistant used workflow(iter) to loop, translated 32+18+25 blocks total, ran typecheck+lint+coverage gates all green; found 0 regressions. Next likely: extend to bash/fs packages or land as a PR."
+        }
+      ],
+      "source": {
+        "kind": "plugin",
+        "plugin": "compact"
+      }
+    }
+  },
+  {
+    "_note": "shadowedSeqs is kept as an empty array in the sample to keep the file small; on a real machine it would be [1, 2, ..., 149] or a subset. The frontend can render shadowedRange from range boundaries alone to display \"149 events compressed\"."
+  }
+]

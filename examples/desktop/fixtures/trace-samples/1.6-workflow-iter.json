@@ -1,0 +1,48 @@
+{
+  "_mock": true,
+  "_mockReason": "Like 1.6-workflow-seq.json. Iter family: while loop over 3 rounds.",
+  "workflow": {
+    "name": "translate-all-comments",
+    "kind": "iter",
+    "loop": {
+      "predicate": "hasMoreFiles(remaining)",
+      "iterations": [
+        {
+          "n": 1,
+          "item": "packages/core/session/src/types.ts",
+          "status": "done",
+          "durationMs": 6200,
+          "output": "32 blocks translated"
+        },
+        {
+          "n": 2,
+          "item": "packages/core/agent/src/types.ts",
+          "status": "done",
+          "durationMs": 5800,
+          "output": "18 blocks translated"
+        },
+        {
+          "n": 3,
+          "item": "packages/core/tools/src/presentation.ts",
+          "status": "running",
+          "durationMs": null,
+          "output": "12/25 blocks"
+        }
+      ]
+    }
+  },
+  "events": [
+    {
+      "type": "tool/call",
+      "seq": 1200,
+      "time": 1721119300000,
+      "data": {
+        "turn": 15,
+        "step": 0,
+        "callId": "call_wf_4",
+        "name": "workflow",
+        "arguments": "{\"name\":\"translate-all-comments\",\"kind\":\"iter\"}"
+      }
+    }
+  ]
+}

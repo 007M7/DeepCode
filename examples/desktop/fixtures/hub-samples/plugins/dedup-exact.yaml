@@ -1,0 +1,10 @@
+# dedup-exact plugin (demo shim)
+# A no-op yaml so the Hub has at least one file-tier plugin row that
+# researchers can view / edit. The runtime-backed plugins.list() surface is
+# still the authoritative source for the Plugins section — this file just
+# gives the "New from template" chip a starting point when a user creates a
+# new plugin locally.
+id: dedup-exact
+package: '@deepseek-ai/dsh-dedup-exact'
+kind: 'tool'
+description: 'Exact-match deduplication over a JSONL corpus.'

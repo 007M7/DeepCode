@@ -1,0 +1,17 @@
+[
+  { "type": "turn/start", "seq": 100, "time": 1721116800000, "data": { "turn": 3, "trigger": { "kind": "message", "source": { "kind": "user" } } } },
+  { "type": "user/message", "seq": 101, "time": 1721116800001, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "Add English docstrings for every entry in SessionEventMap in packages/core/session/src/types.ts" }], "source": { "kind": "user" } } },
+  { "type": "step/start", "seq": 102, "time": 1721116800100, "data": { "turn": 3, "step": 0 } },
+  { "type": "request/header", "seq": 103, "time": 1721116800101, "data": { "header": { "model": "deepseek-chat", "system": "…", "tools": [], "config": { "temperature": 0 }, "messagePrefix": [] }, "reason": "step-start" } },
+  { "type": "assistant/chunk", "seq": 104, "time": 1721116800500, "data": { "turn": 3, "step": 0, "chunk": { "type": "text-delta", "text": "Reading the file first." } } },
+  { "type": "assistant/message", "seq": 105, "time": 1721116800800, "surfaceOp": "append", "data": { "turn": 3, "step": 0, "content": [{ "type": "text", "text": "Reading the file first." }, { "type": "tool_use", "id": "call_read_1", "name": "read", "input": { "path": "packages/core/session/src/types.ts" } }], "usage": { "input": 512, "output": 48 } } },
+  { "type": "tool/call", "seq": 106, "time": 1721116800801, "data": { "turn": 3, "step": 0, "callId": "call_read_1", "name": "read", "arguments": "{\"path\":\"packages/core/session/src/types.ts\"}" } },
+  { "type": "tool/result", "seq": 107, "time": 1721116801200, "surfaceOp": "append", "data": { "turn": 3, "step": 0, "callId": "call_read_1", "content": [{ "type": "text", "text": "…380 lines of content…" }], "isError": false, "meta": { "card": "generic" } } },
+  { "type": "step/end", "seq": 108, "time": 1721116801250, "data": { "turn": 3, "step": 0 } },
+  { "type": "step/start", "seq": 109, "time": 1721116801260, "data": { "turn": 3, "step": 1 } },
+  { "type": "assistant/message", "seq": 110, "time": 1721116803000, "surfaceOp": "append", "data": { "turn": 3, "step": 1, "content": [{ "type": "text", "text": "Docstrings added — writing the file back." }, { "type": "tool_use", "id": "call_edit_1", "name": "edit", "input": { "path": "packages/core/session/src/types.ts" } }], "usage": { "input": 1024, "output": 320 } } },
+  { "type": "tool/call", "seq": 111, "time": 1721116803001, "data": { "turn": 3, "step": 1, "callId": "call_edit_1", "name": "edit", "arguments": "{\"path\":\"packages/core/session/src/types.ts\",\"old\":\"…\",\"new\":\"…\"}" } },
+  { "type": "tool/result", "seq": 112, "time": 1721116803400, "surfaceOp": "append", "data": { "turn": 3, "step": 1, "callId": "call_edit_1", "content": [{ "type": "text", "text": "edited 32 hunks" }], "isError": false, "meta": { "card": "diff", "durationMs": 399, "files": [{ "path": "packages/core/session/src/types.ts", "hunks": 32 }] } } },
+  { "type": "step/end", "seq": 113, "time": 1721116803410, "data": { "turn": 3, "step": 1 } },
+  { "type": "turn/end", "seq": 114, "time": 1721116803411, "data": { "turn": 3, "reason": { "kind": "completed" } } }
+]

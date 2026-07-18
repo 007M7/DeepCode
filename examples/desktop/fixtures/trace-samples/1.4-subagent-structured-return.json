@@ -1,0 +1,170 @@
+[
+  {
+    "_mock": true,
+    "_mockReason": "subagent structured JSON return: the wire's subagent.finished.lastAssistantMessage is currently ContentBlock[], with no dedicated structured-return slot. The demo borrows code_block(lang=json) as the agreed structured-return discriminator.",
+    "type": "_notification",
+    "method": "subagent.started",
+    "params": {
+      "parentSessionId": "root-abc",
+      "childSessionId": "sub-def"
+    }
+  },
+  {
+    "type": "turn/start",
+    "seq": 1,
+    "time": 1721118000000,
+    "_sessionId": "sub-def",
+    "data": {
+      "turn": 0,
+      "trigger": {
+        "kind": "message",
+        "source": {
+          "kind": "plugin",
+          "plugin": "subagent-delegate"
+        }
+      }
+    }
+  },
+  {
+    "type": "user/message",
+    "seq": 2,
+    "time": 1721118000010,
+    "_sessionId": "sub-def",
+    "surfaceOp": "append",
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Find every SurfaceEventType reference in packages/core/session and return a file:line list."
+        }
+      ],
+      "source": {
+        "kind": "plugin",
+        "plugin": "subagent-delegate"
+      }
+    }
+  },
+  {
+    "type": "step/start",
+    "seq": 3,
+    "time": 1721118000100,
+    "_sessionId": "sub-def",
+    "data": {
+      "turn": 0,
+      "step": 0
+    }
+  },
+  {
+    "type": "tool/call",
+    "seq": 4,
+    "time": 1721118000200,
+    "_sessionId": "sub-def",
+    "data": {
+      "turn": 0,
+      "step": 0,
+      "callId": "call_grep_1",
+      "name": "grep",
+      "arguments": "{\"pattern\":\"SurfaceEventType\",\"path\":\"packages/core/session\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "seq": 5,
+    "time": 1721118000500,
+    "_sessionId": "sub-def",
+    "surfaceOp": "append",
+    "data": {
+      "turn": 0,
+      "step": 0,
+      "callId": "call_grep_1",
+      "content": [
+        {
+          "type": "text",
+          "text": "packages/core/session/src/types.ts:294\npackages/core/session/src/types.ts:298\npackages/core/session/src/index.ts:353"
+        }
+      ],
+      "isError": false,
+      "meta": {
+        "card": "generic"
+      }
+    }
+  },
+  {
+    "type": "step/end",
+    "seq": 6,
+    "time": 1721118000510,
+    "_sessionId": "sub-def",
+    "data": {
+      "turn": 0,
+      "step": 0
+    }
+  },
+  {
+    "type": "step/start",
+    "seq": 7,
+    "time": 1721118000520,
+    "_sessionId": "sub-def",
+    "data": {
+      "turn": 0,
+      "step": 1
+    }
+  },
+  {
+    "type": "assistant/message",
+    "seq": 8,
+    "time": 1721118001500,
+    "_sessionId": "sub-def",
+    "surfaceOp": "append",
+    "data": {
+      "turn": 0,
+      "step": 1,
+      "content": [
+        {
+          "type": "text",
+          "text": "```json\n{\n  \"references\": [\n    { \"file\": \"packages/core/session/src/types.ts\", \"line\": 294 },\n    { \"file\": \"packages/core/session/src/types.ts\", \"line\": 298 },\n    { \"file\": \"packages/core/session/src/index.ts\", \"line\": 353 }\n  ],\n  \"total\": 3\n}\n```"
+        }
+      ]
+    }
+  },
+  {
+    "type": "step/end",
+    "seq": 9,
+    "time": 1721118001510,
+    "_sessionId": "sub-def",
+    "data": {
+      "turn": 0,
+      "step": 1
+    }
+  },
+  {
+    "type": "turn/end",
+    "seq": 10,
+    "time": 1721118001520,
+    "_sessionId": "sub-def",
+    "data": {
+      "turn": 0,
+      "reason": {
+        "kind": "completed"
+      }
+    }
+  },
+  {
+    "_mock": true,
+    "type": "_notification",
+    "method": "subagent.finished",
+    "params": {
+      "provider": "in-process",
+      "agentId": "sub-def",
+      "parentSessionId": "root-abc",
+      "childSessionId": "sub-def",
+      "status": "ok",
+      "stopReason": "completed",
+      "lastAssistantMessage": [
+        {
+          "type": "text",
+          "text": "```json\n{\n  \"references\": [\n    { \"file\": \"packages/core/session/src/types.ts\", \"line\": 294 },\n    { \"file\": \"packages/core/session/src/types.ts\", \"line\": 298 },\n    { \"file\": \"packages/core/session/src/index.ts\", \"line\": 353 }\n  ],\n  \"total\": 3\n}\n```"
+        }
+      ]
+    }
+  }
+]

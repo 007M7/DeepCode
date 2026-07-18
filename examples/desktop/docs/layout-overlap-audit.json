@@ -1,0 +1,1595 @@
+{
+  "generatedAt": "2026-07-18T14:36:33.658Z",
+  "widths": [
+    1512,
+    1100,
+    800
+  ],
+  "panes": [
+    "chat",
+    "tree",
+    "context",
+    "tracing",
+    "plugins",
+    "hub",
+    "bench",
+    "rubrics",
+    "runtimes",
+    "mission",
+    "growth",
+    "prs",
+    "settings",
+    "chat"
+  ],
+  "fixtures": [
+    "1.1-trace-full",
+    "2.3-toolcall-delta-stream",
+    "2.5-compact-before-after",
+    "2.6-subagent-inline-trace",
+    "2.2-reasoning-interleaved"
+  ],
+  "counts": {
+    "overlapHigh": 0,
+    "overlapMed": 0,
+    "overlapLow": 1,
+    "overflowHigh": 0,
+    "overflowMed": 0,
+    "overflowLow": 0,
+    "orphan": 39
+  },
+  "findings": [
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "hub",
+      "paneLabel": "Hub",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "hub",
+      "paneLabel": "Hub",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "bench",
+      "paneLabel": "Bench",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "bench",
+      "paneLabel": "Bench",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "bench",
+      "paneLabel": "Bench",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 1032,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "rubrics",
+      "paneLabel": "Rubrics",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "rubrics",
+      "paneLabel": "Rubrics",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "rubrics",
+      "paneLabel": "Rubrics",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 1032,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "runtimes",
+      "paneLabel": "Runtimes",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "runtimes",
+      "paneLabel": "Runtimes",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "runtimes",
+      "paneLabel": "Runtimes",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 1032,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "mission",
+      "paneLabel": "Mission",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "mission",
+      "paneLabel": "Mission",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "mission",
+      "paneLabel": "Mission",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 1032,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "growth",
+      "paneLabel": "Growth",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "growth",
+      "paneLabel": "Growth",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "growth",
+      "paneLabel": "Growth",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 1032,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "prs",
+      "paneLabel": "PRs",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "prs",
+      "paneLabel": "PRs",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "prs",
+      "paneLabel": "PRs",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 1032,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "settings",
+      "paneLabel": "Settings",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "settings",
+      "paneLabel": "Settings",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "settings",
+      "paneLabel": "Settings",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 1032,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "chat",
+      "paneLabel": "Chat (post-fixture, tool-cards & trace rows)",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "chat",
+      "paneLabel": "Chat (post-fixture, tool-cards & trace rows)",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1432,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1512,
+      "pane": "chat",
+      "paneLabel": "Chat (post-fixture, tool-cards & trace rows)",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 1032,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "chat",
+      "paneLabel": "Chat (empty)",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "chat",
+      "paneLabel": "Chat (empty)",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "chat",
+      "paneLabel": "Chat (empty)",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "tree",
+      "paneLabel": "Session Tree",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "tree",
+      "paneLabel": "Session Tree",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "tree",
+      "paneLabel": "Session Tree",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "context",
+      "paneLabel": "Context",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "context",
+      "paneLabel": "Context",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "context",
+      "paneLabel": "Context",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "tracing",
+      "paneLabel": "Tracing",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "tracing",
+      "paneLabel": "Tracing",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "tracing",
+      "paneLabel": "Tracing",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "overlap",
+      "width": 1100,
+      "pane": "tracing",
+      "paneLabel": "Tracing",
+      "severity": "LOW",
+      "a": "table.tracing-page-table > thead > tr > th.tracing-page-th.num:nth-of-type(6)",
+      "b": "aside.devtools-drawer:nth-of-type(2) > div.devtools-search-row:nth-of-type(4) > label.devtools-autoscroll > input",
+      "aText": "P99 Latency",
+      "bText": "",
+      "iRatio": 0.89,
+      "shot": "docs/layout-audit-shots/w1100-tracing-38.png"
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "plugins",
+      "paneLabel": "Plugins (+ Playground card)",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "plugins",
+      "paneLabel": "Plugins (+ Playground card)",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "plugins",
+      "paneLabel": "Plugins (+ Playground card)",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "hub",
+      "paneLabel": "Hub",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "hub",
+      "paneLabel": "Hub",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "hub",
+      "paneLabel": "Hub",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "bench",
+      "paneLabel": "Bench",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "bench",
+      "paneLabel": "Bench",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "bench",
+      "paneLabel": "Bench",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "rubrics",
+      "paneLabel": "Rubrics",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "rubrics",
+      "paneLabel": "Rubrics",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "rubrics",
+      "paneLabel": "Rubrics",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "runtimes",
+      "paneLabel": "Runtimes",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "runtimes",
+      "paneLabel": "Runtimes",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "runtimes",
+      "paneLabel": "Runtimes",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "mission",
+      "paneLabel": "Mission",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "mission",
+      "paneLabel": "Mission",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "mission",
+      "paneLabel": "Mission",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "growth",
+      "paneLabel": "Growth",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "growth",
+      "paneLabel": "Growth",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "growth",
+      "paneLabel": "Growth",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "prs",
+      "paneLabel": "PRs",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "prs",
+      "paneLabel": "PRs",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "prs",
+      "paneLabel": "PRs",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "settings",
+      "paneLabel": "Settings",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "settings",
+      "paneLabel": "Settings",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "settings",
+      "paneLabel": "Settings",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "chat",
+      "paneLabel": "Chat (post-fixture, tool-cards & trace rows)",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "chat",
+      "paneLabel": "Chat (post-fixture, tool-cards & trace rows)",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 1020,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 1100,
+      "pane": "chat",
+      "paneLabel": "Chat (post-fixture, tool-cards & trace rows)",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 620,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "chat",
+      "paneLabel": "Chat (empty)",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "chat",
+      "paneLabel": "Chat (empty)",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "chat",
+      "paneLabel": "Chat (empty)",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "tree",
+      "paneLabel": "Session Tree",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "tree",
+      "paneLabel": "Session Tree",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "tree",
+      "paneLabel": "Session Tree",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "context",
+      "paneLabel": "Context",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "context",
+      "paneLabel": "Context",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "context",
+      "paneLabel": "Context",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "tracing",
+      "paneLabel": "Tracing",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "tracing",
+      "paneLabel": "Tracing",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "tracing",
+      "paneLabel": "Tracing",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "plugins",
+      "paneLabel": "Plugins (+ Playground card)",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "plugins",
+      "paneLabel": "Plugins (+ Playground card)",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "plugins",
+      "paneLabel": "Plugins (+ Playground card)",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "hub",
+      "paneLabel": "Hub",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "hub",
+      "paneLabel": "Hub",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "hub",
+      "paneLabel": "Hub",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "bench",
+      "paneLabel": "Bench",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "bench",
+      "paneLabel": "Bench",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "bench",
+      "paneLabel": "Bench",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "rubrics",
+      "paneLabel": "Rubrics",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "rubrics",
+      "paneLabel": "Rubrics",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "rubrics",
+      "paneLabel": "Rubrics",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "runtimes",
+      "paneLabel": "Runtimes",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "runtimes",
+      "paneLabel": "Runtimes",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "runtimes",
+      "paneLabel": "Runtimes",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "mission",
+      "paneLabel": "Mission",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "mission",
+      "paneLabel": "Mission",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "mission",
+      "paneLabel": "Mission",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "growth",
+      "paneLabel": "Growth",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "growth",
+      "paneLabel": "Growth",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "growth",
+      "paneLabel": "Growth",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "prs",
+      "paneLabel": "PRs",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "prs",
+      "paneLabel": "PRs",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "prs",
+      "paneLabel": "PRs",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "settings",
+      "paneLabel": "Settings",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "settings",
+      "paneLabel": "Settings",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "settings",
+      "paneLabel": "Settings",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "chat",
+      "paneLabel": "Chat (post-fixture, tool-cards & trace rows)",
+      "severity": "HIGH",
+      "sel": ".fork-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "chat",
+      "paneLabel": "Chat (post-fixture, tool-cards & trace rows)",
+      "severity": "HIGH",
+      "sel": ".playground-compare-drawer",
+      "rect": {
+        "x": 40,
+        "y": 40,
+        "w": 720,
+        "h": 820
+      }
+    },
+    {
+      "kind": "orphan-overlay",
+      "width": 800,
+      "pane": "chat",
+      "paneLabel": "Chat (post-fixture, tool-cards & trace rows)",
+      "severity": "HIGH",
+      "sel": ".devtools-drawer",
+      "rect": {
+        "x": 320,
+        "y": 0,
+        "w": 480,
+        "h": 900
+      }
+    }
+  ]
+}

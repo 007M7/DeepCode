@@ -1,0 +1,1423 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>DSH Desktop</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <!-- Brand row: product name + a passive search glyph. Kept small so the
+           list dominates the vertical space, matching the reference desktop
+           sidebar's information density. -->
+      <div class="sidebar-brand">
+        <!-- Brand mark: 22px rounded whale logo + DSH wordmark. The image lives
+             outside src/ so a repo-wide asset move doesn't churn the tree; the
+             two-hop relative path is stable because the renderer is always
+             loaded via file:// from src/renderer/index.html. -->
+        <img class="brand-logo" src="../../assets/logo.png" alt="" width="22" height="22" aria-hidden="true">
+        <div class="brand-name">DSH</div>
+        <button class="brand-search icon-btn" title="Search sessions" aria-label="Search">
+          <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M8.5 3.5a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm4 8.5 4 4"/></svg>
+        </button>
+      </div>
+
+      <!-- Section-nav (task #189 / IA §2 Alt A): three activity-shaped
+           groups — observation / iteration / runtime. Group headers use
+           lowercase-gray typography (LangSmith's neutral convention);
+           they are `<div class="nav-group-header">` blocks with a
+           data-nav-group attribute so a small CSS + JS pair can show an
+           item-count on hover without touching the button rows.
+           Buttons preserve `.tab-btn` + `data-tab` so switchTo() works.
+           Placeholder buttons carry `data-lane="pending"` so parallel
+           lanes (context/hub/bench/rubrics) can swap them in with a
+           one-line diff — same button shell, just fill the SVG + label
+           and drop the `data-lane` attr when the page lands.
+           Fixture-tier surfaces carry a `data-fixture-tier="true"` bit;
+           renderer.js turns that into a "· demo" chip until wire lands. -->
+      <nav class="sidebar-nav" aria-label="Primary">
+        <div class="nav-group" data-nav-group="observation" data-item-count="4">
+          <div class="nav-group-header">observation</div>
+          <button class="tab-btn nav-item active" data-tab="chat" title="Chat sessions">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M3 5.5A2.5 2.5 0 0 1 5.5 3h9A2.5 2.5 0 0 1 17 5.5v6A2.5 2.5 0 0 1 14.5 14H9l-4 3v-3H5.5A2.5 2.5 0 0 1 3 11.5z"/></svg>
+            <span>Chat</span>
+          </button>
+          <button class="tab-btn nav-item" data-tab="tree" title="Session tree (forks &amp; subagents)">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M6 4v4a3 3 0 0 0 3 3h5M6 3.2a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm10 7a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM6 13a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/></svg>
+            <span>Session Tree</span>
+          </button>
+          <!-- lane-context slot — live as of CTX merge (feat/lane-context-page @ ec032fd).
+               Attrs flipped from data-lane="pending" per team-lead rule "each slot
+               flips in its own merge" (parallel to bench flip in BENCH merge; hub+
+               rubrics remain queued for NAV delta). Icon swapped to the "layered
+               rows" glyph from CTX to signal context mutations stacked over time. -->
+          <button class="tab-btn nav-item" data-tab="context" title="Context (per-turn ledger of injections, compacts, recalls)">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M3 5h14M3 10h14M3 15h9"/></svg>
+            <span>Context</span>
+          </button>
+          <!-- lane-tracing slot (#225) — LangSmith-style project runs table.
+               One row per session; scanning columns: Name / Most Recent Run /
+               Trace Count / Error Rate / P50 / P99 / Total Tokens / Total Cost.
+               Reads through __dshChat.getSessions + cachedEvents (no new wire)
+               and routes a row click into the existing __dshTraceTriView. -->
+          <button class="tab-btn nav-item" data-tab="tracing" title="Tracing (project runs table — all sessions with latency / tokens / cost)">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M3 6h14M3 10h14M3 14h14M7 4v12M13 4v12"/></svg>
+            <span>Tracing</span>
+          </button>
+        </div>
+
+        <div class="nav-group" data-nav-group="iteration" data-item-count="3">
+          <div class="nav-group-header">iteration</div>
+          <!-- Playground nav entry: no dedicated Playground pane exists yet
+               (the surface still lives inside Plugins). Interim: this button
+               opens Plugins and scrolls to the Playground card. Marked
+               fixture-tier so the "· demo" chip signals to users that the
+               dedicated page has not landed. When lane-playground-page
+               lands, flip data-tab to "playground" and clear this fallback. -->
+          <button class="tab-btn nav-item" data-tab="playground-shim" data-fixture-tier="true"
+                  title="Playground — currently lives inside Plugins tab">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M5 3.5h10M5 16.5h10M7 3.5v13M13 3.5v13M4 6.5h12M4 13.5h12"/></svg>
+            <span>Playground</span>
+          </button>
+          <!-- lane-hub slot — live as of NAV delta merge (feat/lane-hub-page @ 84a9651
+               already merged as 42d86d8; this merge is the flip point per team-lead
+               rule "each slot flips in its own lane's merge — hub+rubrics flip in NAV
+               delta since neither NAV nor HUB touched index.html on the merge path").
+               data-fixture-tier stays because Hub is still fixture-backed until the
+               real plugin/prompt/skill/rubric/profile/dataset/script producers wire
+               up; the "· demo" chip decorateNav() paints from it stays truthful. -->
+          <button class="tab-btn nav-item" data-tab="hub" data-fixture-tier="true"
+                  title="Hub — plugin/prompt/skill/rubric/profile/dataset/script catalog (fixture-tier)">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M10 2.5 3 6l7 3.5L17 6zM3 10l7 3.5L17 10M3 14l7 3.5L17 14"/></svg>
+            <span>Hub</span>
+          </button>
+          <!-- lane-bench slot — live as of BENCH merge (feat/lane-bench-page @ 1a35696).
+               Attrs flipped from data-lane="pending"/data-fixture-tier per team-lead
+               rule "each slot flips in its own merge" (parallel to hub+rubrics flip in
+               NAV delta). -->
+          <button class="tab-btn nav-item" data-tab="bench"
+                  title="Bench — researcher experiment platform (matrix / plugin A/B / repetition)">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M3 16.5h14M6 16.5V10M10 16.5V6M14 16.5V12"/></svg>
+            <span>Bench</span>
+          </button>
+        </div>
+
+        <div class="nav-group" data-nav-group="runtime" data-item-count="6">
+          <div class="nav-group-header">runtime</div>
+          <!-- lane-rubrics slot — live as of NAV delta merge (feat/lane-rubrics-annotation
+               @ 70293ba already merged as a13e020; this merge is the flip point per team-
+               lead rule "hub+rubrics flip in NAV delta since neither NAV nor RUB touched
+               index.html on the merge path"). data-fixture-tier stays because the 28-task
+               rubric catalog is still fixture-backed until the annotation-store producer
+               wires up; the "· demo" chip decorateNav() paints from it stays truthful. -->
+          <button class="tab-btn nav-item" data-tab="rubrics" data-fixture-tier="true"
+                  title="Rubrics — catalog-first scoring rubric library, 28-task groups (fixture-tier)">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M4 5h12M4 10h12M4 15h8M14 14l2 2 3-3"/></svg>
+            <span>Rubrics</span>
+          </button>
+          <button class="tab-btn nav-item" data-tab="plugins" title="Plugins">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M7 3v3H4v4a2 2 0 0 0 2 2h1v4h3v-4h2v4h3v-4a2 2 0 0 0 2-2V6h-3V3h-3v3h-2V3z"/></svg>
+            <span>Plugins</span>
+          </button>
+          <button class="tab-btn nav-item" data-tab="runtimes" title="Local runtime profiles + isolated daemons">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M3 5h14v4H3zM3 11h14v4H3zM6 7h.01M6 13h.01M9 7h.01M9 13h.01"/></svg>
+            <span>Runtimes</span>
+          </button>
+          <button class="tab-btn nav-item" data-tab="mission" title="Missions">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="10" r="2" fill="currentColor"/><path stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M10 1.5V4M10 16v2.5M1.5 10H4M16 10h2.5"/></svg>
+            <span>Missions</span>
+          </button>
+          <button class="tab-btn nav-item" data-tab="growth" title="Growth (self-evolution log)">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M3 16.5h14M4.5 16V12M8 16V8.5M12 16V5M15.5 16V10M4.5 12l3.5-3.5L12 5l3.5 5"/></svg>
+            <span>Growth</span>
+          </button>
+          <button class="tab-btn nav-item" data-tab="prs" title="Pull Requests">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="5" cy="4" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="16" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="15" cy="16" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path fill="none" stroke="currentColor" stroke-width="1.5" d="M5 5.8v8.4M5 6.5c0 4 5 4 5 6.5V6M15 14.2V9l-2 2M15 9l2 2"/></svg>
+            <span>PRs</span>
+          </button>
+        </div>
+
+        <!-- Settings is its own row — outside the three activity groups
+             because it is administrative (rates, keys) rather than a
+             research surface. Placed at the bottom of the nav so it never
+             fights the observation/iteration/runtime rhythm. -->
+        <div class="nav-group nav-group--admin" data-nav-group="admin" data-item-count="1">
+          <button class="tab-btn nav-item" data-tab="settings" title="Settings (pricing, API keys)">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M10 2 8 4H5v3L2 9v2l3 2v3h3l2 2 2-2h3v-3l3-2V9l-3-2V4h-3z"/><circle cx="10" cy="10" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+            <span>Settings</span>
+          </button>
+        </div>
+      </nav>
+
+      <div class="tab-panel" data-tab-panel="chat">
+        <div class="sidebar-section-head">
+          <span class="section-label">Recent</span>
+          <button id="sessions-toggle" class="ghost small" type="button" hidden>Show all</button>
+          <button id="new-session" class="icon-btn" title="New session" aria-label="New session">
+            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M10 4v12M4 10h12"/></svg>
+          </button>
+        </div>
+        <ul id="sessions" class="sessions" aria-label="Recent sessions"></ul>
+        <div class="sidebar-foot">
+          <label class="field">
+            <span>Profile</span>
+            <select id="profile" title="Which agent runtime configuration this shell talks to. Each profile bundles a transport (stdio or daemon), a model, and a plugin set."></select>
+          </label>
+          <button id="reset-onboarding" class="ghost small" title="Clear the shell profile and rerun onboarding on next start.">Reset onboarding</button>
+        </div>
+      </div>
+
+      <div class="tab-panel" data-tab-panel="tree" hidden>
+        <div class="sidebar-section-head">
+          <span class="section-label">Session Tree</span>
+          <button id="tree-refresh" class="icon-btn ghost" title="Refresh" aria-label="Refresh">
+            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M15.5 4.5v4h-4M4.5 15.5v-4h4M5.2 7.6a6 6 0 0 1 10 .4M14.8 12.4a6 6 0 0 1-10-.4"/></svg>
+          </button>
+        </div>
+        <div class="tree-sidebar-note muted">
+          Every session and its forks. Solid edges are your branches; dashed edges are subagents the model spawned.
+        </div>
+      </div>
+
+      <!-- Hub sidebar panel: just a heading + a hint. The Hub main pane is
+           self-contained (per-section counts, actions, and rows), so the
+           sidebar surface here stays intentionally quiet — the researcher's
+           eye should be on the catalog, not a second nav. -->
+      <div class="tab-panel" data-tab-panel="hub" hidden>
+        <div class="sidebar-section-head">
+          <span class="section-label">Hub</span>
+        </div>
+        <div class="sidebar-foot">
+          <div class="muted" style="font-size: var(--fs-xs); padding: 4px 0;">
+            Assets stored under <code>~/.dsh-desktop/hub/</code>.
+            Plugins are the hero section; other kinds are part of the plugin ecosystem.
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" data-tab-panel="plugins" hidden>
+        <div class="sidebar-section-head">
+          <span class="section-label">Plugins</span>
+          <button id="plugins-refresh" class="icon-btn ghost" title="Refresh" aria-label="Refresh">
+            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M15.5 4.5v4h-4M4.5 15.5v-4h4M5.2 7.6a6 6 0 0 1 10 .4M14.8 12.4a6 6 0 0 1-10-.4"/></svg>
+          </button>
+        </div>
+        <div class="sidebar-foot">
+          <button id="plugins-apply" class="primary" disabled title="Restart the runtime so overlay edits take effect.">Apply + restart</button>
+          <div class="plugins-sidebar-note muted" id="plugins-sidebar-note">
+            No unsaved changes.
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" data-tab-panel="mission" hidden>
+        <div class="sidebar-section-head">
+          <span class="section-label">Missions</span>
+          <button id="mission-refresh" class="icon-btn ghost" title="Refresh" aria-label="Refresh">
+            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M15.5 4.5v4h-4M4.5 15.5v-4h4M5.2 7.6a6 6 0 0 1 10 .4M14.8 12.4a6 6 0 0 1-10-.4"/></svg>
+          </button>
+        </div>
+        <div class="mission-sidebar-note muted">
+          Long-running task overview. Switch subviews in the main pane.
+        </div>
+      </div>
+
+      <div class="tab-panel" data-tab-panel="prs" hidden>
+        <div class="sidebar-section-head">
+          <span class="section-label">Pull Requests</span>
+          <button id="pr-refresh" class="icon-btn ghost" title="Refresh" aria-label="Refresh">
+            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M15.5 4.5v4h-4M4.5 15.5v-4h4M5.2 7.6a6 6 0 0 1 10 .4M14.8 12.4a6 6 0 0 1-10-.4"/></svg>
+          </button>
+        </div>
+        <div class="pr-sidebar-note muted">
+          Review and track pull requests, backed by <code>gh pr list</code>. Click a row
+          to open on GitHub, or Ask DSH to spin up a review chat.
+        </div>
+      </div>
+
+      <!-- Runtimes sidebar — page owns its own body; the sidebar just
+           orients + provides a refresh button. See runtimes-page.js. -->
+      <div class="tab-panel" data-tab-panel="runtimes" hidden>
+        <div class="sidebar-section-head">
+          <span class="section-label">Runtimes</span>
+          <button id="runtimes-refresh" class="icon-btn ghost" title="Reread profile list + status" aria-label="Refresh">
+            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M15.5 4.5v4h-4M4.5 15.5v-4h4M5.2 7.6a6 6 0 0 1 10 .4M14.8 12.4a6 6 0 0 1-10-.4"/></svg>
+          </button>
+        </div>
+        <div class="runtimes-sidebar-note muted">
+          Local profiles, adapters, and any isolated daemon currently up. Composed
+          locally until <code>runtime/list</code> lands on the wire (gap G8).
+        </div>
+      </div>
+
+      <!-- Rubrics sidebar (task #188) — orients the user to the catalog. -->
+      <div class="tab-panel" data-tab-panel="rubrics" hidden>
+        <div class="sidebar-section-head">
+          <span class="section-label">Rubrics</span>
+          <button id="rubrics-refresh" class="icon-btn ghost" title="Reload the catalog" aria-label="Refresh">
+            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M15.5 4.5v4h-4M4.5 15.5v-4h4M5.2 7.6a6 6 0 0 1 10 .4M14.8 12.4a6 6 0 0 1-10-.4"/></svg>
+          </button>
+        </div>
+        <div class="rubrics-sidebar-note muted">
+          Evaluator library — one SKILL.md file per rubric, grouped by task category.
+          Every rubric attaches to Bench for scoring runs; "Create from scratch"
+          lives at the bottom of the page as a fallback CTA.
+        </div>
+        <div class="sidebar-foot">
+          <button id="rubrics-annotate-open" class="ghost small" title="Open the export drawer for annotated sessions">Export annotations</button>
+        </div>
+      </div>
+
+      <!-- Settings sidebar — administrative; no data source, just a note. -->
+      <div class="tab-panel" data-tab-panel="settings" hidden>
+        <div class="sidebar-section-head">
+          <span class="section-label">Settings</span>
+        </div>
+        <div class="settings-sidebar-note muted">
+          Model pricing overrides and API-key presence. Overrides live in
+          this shell only; the runtime is never told.
+        </div>
+      </div>
+
+      <!-- Growth sidebar (kept minimal — this page is a self-contained page,
+           the sidebar just orients the user to what it's for). -->
+      <div class="tab-panel" data-tab-panel="growth" hidden>
+        <div class="sidebar-section-head">
+          <span class="section-label">Growth</span>
+          <button id="growth-refresh" class="icon-btn ghost" title="Reread the growth log" aria-label="Refresh">
+            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M15.5 4.5v4h-4M4.5 15.5v-4h4M5.2 7.6a6 6 0 0 1 10 .4M14.8 12.4a6 6 0 0 1-10-.4"/></svg>
+          </button>
+        </div>
+        <div class="growth-sidebar-note muted">
+          Every entry links to a real event — plugin install, overlay apply, vibe
+          session. This is an audit trail, not a persona.
+        </div>
+      </div>
+    </aside>
+    <main class="main">
+      <!-- Chat pane -->
+      <section class="pane" data-pane="chat">
+        <header class="header">
+          <div class="title" id="session-title">New chat</div>
+          <div class="header-actions">
+            <!-- Quick chat launcher. The global shortcut ⌘⇧Space also
+                 toggles this overlay; keeping a visible button makes it
+                 discoverable for users who never learn shortcuts. -->
+            <button id="quickchat-open" class="ghost small" title="Quick chat (⌘⇧Space)" aria-label="Open quick chat">
+              <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M3 5.5A2.5 2.5 0 0 1 5.5 3h9A2.5 2.5 0 0 1 17 5.5v6A2.5 2.5 0 0 1 14.5 14H9l-4 3v-3H5.5A2.5 2.5 0 0 1 3 11.5z"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M7.5 8.5h5M7.5 6.5h5"/></svg>
+              <span>Quick chat</span>
+            </button>
+            <!-- Rate this trajectory. Opens the annotation drawer scoped to
+                 the current session; keyboard-first once opened (1–5 for
+                 dim scores, arrows to navigate, b/o/g for overall). -->
+            <button id="chat-rate-trajectory" class="ghost small" title="Rate this trajectory" aria-label="Rate trajectory">
+              <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M10 2.5l2.4 4.9 5.4.8-3.9 3.8.9 5.4L10 14.9l-4.8 2.5.9-5.4-3.9-3.8 5.4-.8z"/></svg>
+              <span>Rate</span>
+            </button>
+            <!-- Debug popover trigger. The `.debug` container underneath is
+                 what devtools-panel.js and existing mock listeners target, but
+                 it's visually a fly-out — no more debug bar clogging the
+                 header. Clicking the trigger toggles [data-open] on the
+                 wrapper; CSS reveals `.debug`. -->
+            <div class="debug-popover" id="debug-popover">
+              <button class="ghost small debug-toggle" id="debug-toggle" aria-expanded="false" title="Debug actions (mock events)">
+                <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" d="M7 3.5c0-.8.7-1.5 3-1.5s3 .7 3 1.5M4 8h12M5 8c0-2 2.2-3 5-3s5 1 5 3v4a5 5 0 0 1-10 0zM2.5 10.5H5m10 0h2.5M4 14.5l-2 1.5M16 14.5l2 1.5"/></svg>
+                <span>Debug</span>
+              </button>
+              <div class="debug">
+                <!-- These retain their exact IDs so renderer.js listeners bind.
+                     Visual weight: none — they only appear in the popover. -->
+                <div class="debug-group-label">Mock cards</div>
+                <button id="mock-approval" class="ghost small">approval card</button>
+                <button id="mock-question" class="ghost small">question card</button>
+                <button id="mock-widget-table" class="ghost small">widget · table</button>
+                <button id="mock-widget-chart" class="ghost small">widget · chart</button>
+                <button id="mock-widget-options" class="ghost small">widget · options</button>
+                <button id="mock-widget-verbs" class="ghost small">widget · verbs (all)</button>
+                <button id="mock-widget-broken" class="ghost small">widget · broken action</button>
+                <button id="mock-card-terminal" class="ghost small">card · terminal</button>
+                <button id="mock-card-diff" class="ghost small">card · diff (edit)</button>
+                <button id="mock-card-diff-write" class="ghost small">card · diff (write)</button>
+                <button id="mock-card-diff-multi" class="ghost small">card · diff (3 files · hunks)</button>
+                <button id="mock-code-dispatch" class="ghost small">code-dispatch fan-out</button>
+                <button id="mock-web-search" class="ghost small">web · search</button>
+                <button id="mock-skill" class="ghost small">skill loaded</button>
+                <button id="mock-workflow" class="ghost small">workflow card</button>
+                <button id="mock-task-lifecycle" class="ghost small">task drawer</button>
+                <button id="mock-recall" class="ghost small">recall card</button>
+                <button id="mock-compact-summary" class="ghost small">compact summary</button>
+                <button id="mock-artifact" class="ghost small">artifact</button>
+                <!-- Batch 3 (task #138): §1.4 subagent + §1.6 workflow 五族
+                     fixture loaders. Each button loads the matching JSON
+                     fixture from fixtures/trace-samples/, pipes its events
+                     through onSessionEvent when applicable, and mounts the
+                     workflow/subagent card into the Context Rail drawer's
+                     body — batch 2's `.context-rail-drawer` container is
+                     the shared canvas, so batch 3's cards land there. -->
+                <div class="debug-group-label">Workflow / Subagent (fixture mock)</div>
+                <button id="mock-workflow-seq" class="ghost small">wf · seq</button>
+                <button id="mock-workflow-fanout" class="ghost small">wf · fan-out</button>
+                <button id="mock-workflow-dag" class="ghost small">wf · dag</button>
+                <button id="mock-workflow-iter" class="ghost small">wf · iter</button>
+                <button id="mock-workflow-branch" class="ghost small">wf · branch</button>
+                <button id="mock-subagent" class="ghost small">subagent · structured return</button>
+                <div class="debug-group-label">Trace samples (§1.1 / §1.3)</div>
+                <button id="mock-trace-one-turn" class="ghost small">trace · one turn (§1.1)</button>
+                <button id="mock-inject-A" class="ghost small">inject A · SessionStart</button>
+                <button id="mock-inject-B" class="ghost small">inject B · plugin</button>
+                <button id="mock-inject-C" class="ghost small">inject C · time-tick</button>
+                <button id="mock-inject-D" class="ghost small">inject D · guard</button>
+                <button id="mock-inject-E" class="ghost small">inject E · compact shadow</button>
+                <button id="mock-inject-F" class="ghost small">inject F · approval</button>
+                <button id="mock-inject-G" class="ghost small">inject G · unknown</button>
+                <button id="mock-inject-H" class="ghost small">inject H · user</button>
+                <button id="mock-upstream-live" class="ghost small">upstream A · subagent live</button>
+                <button id="mock-upstream-raw" class="ghost small">upstream B · raw inject</button>
+                <div class="debug-group-label">Viz P0 gap fills (viz-coverage-matrix §5)</div>
+                <button id="mock-prompt-blocked" class="ghost small">prompt · blocked</button>
+                <button id="mock-approval-auto-allow" class="ghost small">approval · auto-allow (bash)</button>
+                <button id="mock-approval-auto-reject" class="ghost small">approval · auto-reject (write)</button>
+                <button id="mock-sandbox-switch" class="ghost small">sandbox · workspace-write</button>
+                <button id="mock-preset-switch" class="ghost small">preset · headless</button>
+                <button id="mock-subagent-plain-return" class="ghost small">subagent · plain-prose return + stopReason</button>
+                <div class="debug-group-label">Clickability audit fills (docs/demo-clickability-audit.md)</div>
+                <button id="mock-reasoning-only" class="ghost small">reasoning · heavy turn (differentiator)</button>
+                <button id="mock-fork-compare" class="ghost small">fork · open compare drawer</button>
+                <button id="mock-zero-data-turn" class="ghost small">turn footer · zero-data (glyph/footer suppression)</button>
+                <div class="debug-group-label">Field P0 收尾批 (§3 P0 剩余)</div>
+                <button id="mock-turn-end-error" class="ghost small">turn/end · error (step + message + code)</button>
+                <button id="mock-turn-end-rejected" class="ghost small">turn/end · rejected (long reason)</button>
+                <button id="mock-session-finished-error" class="ghost small">session.finished · error reason</button>
+                <button id="mock-finish-reason-run" class="ghost small">chunk.finish · max-tokens on step</button>
+              </div>
+            </div>
+          </div>
+        </header>
+        <section id="stream" class="stream" aria-live="polite">
+          <!-- Fresh-eyes P0 (2026-07-18): the empty-welcome block used to
+               vanish forever the moment New session ran (renderer.js clears
+               the stream via streamEl.innerHTML = ''), leaving a blank pane
+               until a full reload. renderer.js now snapshots this initial
+               node into `state.emptyWelcomeTemplate` at boot and re-clones
+               it back into the stream on every session switch where the
+               stream would otherwise render zero rows (updateEmptyStateVisibility
+               below). Removed on the first real event. -->
+          <div class="empty-welcome" data-empty="chat">
+            <div class="empty-welcome-badge empty-welcome-badge--brand">
+              <img src="../../assets/logo.png" alt="" width="56" height="56">
+            </div>
+            <h1 class="empty-welcome-title">Where should we start?</h1>
+            <p class="empty-welcome-sub">DSH is a workbench with the agent's internals in view. Any turn can be branched, any plugin can be written on the fly, and you can always see what the model still remembers.</p>
+            <!-- Rec 29 revision (2026-07-17, user "两种风格重复了，只保留一种"):
+                 the top vertical launcher + bottom horizontal chip row were
+                 both offering doors — 8 cards, page had to scroll, info
+                 overload. User ruled: keep ONE style (horizontal card,
+                 icon-left / title / one-line hint), 4 cards total, one
+                 screen no scroll. Content priority (user's own words):
+                   1. Have the agent write a plugin — "everything is plugin"
+                      is the DSH differentiator; C-slot first.
+                   2. Explore context & composition — the "上下文可组件"
+                      story (per-turn injections, compacts, recalls that a
+                      researcher can inspect and tune).
+                   3. Try a chat — plain entry for a user who just wants to
+                      talk to the runtime.
+                   4. See a full trace — the tracing/harness-internals
+                      story; loads the sample fixture and jumps to Tracing.
+                 Explicitly dropped from the empty state (still reachable
+                 via nav): Run a benchmark, Open Growth, Fork any turn,
+                 Get oriented, Watch a long task. Click handlers for those
+                 stay in renderer.js so the nav routes don't rot; only the
+                 first-screen doors changed.
+                 §7 constraint (density-layering-spec.md): one accent per
+                 view — icon tiles now paint on --accent / --accent-soft
+                 uniformly, matching the launcher-icon grammar already
+                 codified in style.css above line 7259. -->
+            <div class="empty-welcome-prompts" data-empty-launcher>
+              <!-- Slot 1 (C-slot): self-referential plugins. Jumps to the
+                   Plugins pane where "Vibe a plugin" lives. Preserves the
+                   original data-action="vibe" so the existing chip handler
+                   in renderer.js (~line 6467) fires unchanged. -->
+              <button class="prompt-chip prompt-chip--action" type="button"
+                      data-action="vibe" data-launcher="vibe-plugin"
+                      title="Open the Plugins pane and focus the 'Vibe a plugin' entry point.">
+                <span class="prompt-chip-icon">
+                  <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M7 3v3H4v4a2 2 0 0 0 2 2h1v4h3v-4h2v4h3v-4a2 2 0 0 0 2-2V6h-3V3h-3v3h-2V3z"/></svg>
+                </span>
+                <span class="prompt-chip-body">
+                  <span class="prompt-chip-title">Have the agent write a plugin</span>
+                  <span class="prompt-chip-hint">Describe a capability in chat; DSH mounts it into its own runtime and you keep going.</span>
+                </span>
+              </button>
+              <!-- Slot 2: context composition (the "上下文可组件" story).
+                   Routes to the Context pane where injections / compacts /
+                   recalls are ledgered per turn. New handler branch
+                   data-action="context" wired in renderer.js. -->
+              <button class="prompt-chip prompt-chip--action" type="button"
+                      data-action="context" data-launcher="context"
+                      title="Open the Context pane — per-turn ledger of injections, compacts, recalls.">
+                <span class="prompt-chip-icon">
+                  <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" d="M3 4.5h14M3 8.5h9M3 12.5h14M3 16.5h9M15 8.5l2.5 2.5-2.5 2.5"/></svg>
+                </span>
+                <span class="prompt-chip-body">
+                  <span class="prompt-chip-title">Explore context &amp; composition</span>
+                  <span class="prompt-chip-hint">See every injection, compact, and recall — the pieces that assemble each turn's context.</span>
+                </span>
+              </button>
+              <!-- Slot 3: plain chat entry. Focuses the composer via the
+                   existing data-launcher="try-chat" branch. -->
+              <button class="prompt-chip prompt-chip--action" type="button"
+                      data-launcher="try-chat"
+                      title="Focus the composer and start typing a message.">
+                <span class="prompt-chip-icon">
+                  <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M3 5.5A2.5 2.5 0 0 1 5.5 3h9A2.5 2.5 0 0 1 17 5.5v6A2.5 2.5 0 0 1 14.5 14H9l-4 3v-3H5.5A2.5 2.5 0 0 1 3 11.5z"/></svg>
+                </span>
+                <span class="prompt-chip-body">
+                  <span class="prompt-chip-title">Try a chat</span>
+                  <span class="prompt-chip-hint">Send a message to your active runtime.</span>
+                </span>
+              </button>
+              <!-- Slot 4: full-trace / tracing story. Merges the old
+                   "Explore sample trace" (loads fixture) with the Tracing
+                   pane jump so a user sees the multi-turn recording
+                   inside the tri-view where harness internals live. -->
+              <button class="prompt-chip prompt-chip--action" type="button"
+                      data-launcher="sample-trace"
+                      title="Load a pre-recorded multi-turn session and open the Tracing tri-view — see every step the harness took.">
+                <span class="prompt-chip-icon">
+                  <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M4 3.5h9l3 3V16.5h-12zM12.5 3.5V7h3M6 10h8M6 12.5h5M6 15h6"/></svg>
+                </span>
+                <span class="prompt-chip-body">
+                  <span class="prompt-chip-title">See a full trace</span>
+                  <span class="prompt-chip-hint">Load a multi-turn recording and watch how the harness runs each step.</span>
+                </span>
+              </button>
+            </div>
+            <!-- Task #192: Sample-trace empty state was moved into the
+                 four-card launcher above (rec 29, 2026-07-17). The old
+                 #empty-load-sample-trace ID is retained on a hidden
+                 shim button so existing listeners (renderer.js:5293
+                 sampleTraceBtn + window.__dshLoadSampleTrace) keep
+                 working without an if-null branch. The visible entry
+                 point is [data-launcher="sample-trace"] in the launcher. -->
+            <button id="empty-load-sample-trace" type="button" hidden aria-hidden="true"
+                    data-action="load-sample-trace"></button>
+          </div>
+        </section>
+        <footer class="composer composer-shell">
+          <!-- Next-action suggestion chips. Renderer-side controller
+               (next-action-controller in renderer.js) fills this row with
+               up to 3 chips per turn/end; each chip is a verb envelope
+               matching the widget action catalog (see next-actions.js).
+               Empty by default; hidden entirely when no suggestions land. -->
+          <div id="next-action-chips" class="next-action-chips" hidden></div>
+          <div class="composer-frame">
+            <textarea id="input" rows="3" placeholder="Message DSH… (Enter to send, Shift+Enter for newline)"></textarea>
+            <div class="composer-bar">
+              <div class="composer-meta">
+                <span class="composer-chip" id="composer-cwd" title="Working directory">
+                  <svg viewBox="0 0 20 20" width="12" height="12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M3 6.5V15a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7.5a1 1 0 0 0-1-1h-6l-1.7-1.7A1 1 0 0 0 7.6 4.5H4a1 1 0 0 0-1 1z"/></svg>
+                  <span class="composer-chip-label">~/harness</span>
+                </span>
+                <span class="composer-chip composer-chip--mode" id="composer-mode" title="Permission mode">
+                  <svg viewBox="0 0 20 20" width="12" height="12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M10 2.5 4 5v5c0 3.6 2.6 6.6 6 7.5 3.4-.9 6-3.9 6-7.5V5z"/></svg>
+                  <span class="composer-chip-label">ask-first</span>
+                </span>
+                <label class="composer-chip composer-chip--select" title="Model for the next turn">
+                  <svg viewBox="0 0 20 20" width="12" height="12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M10 2.5v3.5M10 14v3.5M4 10H2.5M17.5 10H16M14.2 14.2l1 1M4.8 4.8l1 1M14.2 5.8l1-1M4.8 15.2l1-1"/><circle cx="10" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+                  <select id="composer-model" class="composer-select" aria-label="Model">
+                    <option value="">Default model</option>
+                  </select>
+                  <span class="composer-chip-suffix" id="composer-model-hint" hidden>next turn</span>
+                </label>
+              </div>
+              <!-- Preflight (2026-07-18) NO_ADAPTER guard: inline warning
+                   surfaces when the composer's selected model isn't in the
+                   active profile's supported-models list. Renderer toggles
+                   `hidden` from renderComposerModel; text is filled with
+                   the target profile suggestion. Muted colour + full-width
+                   row so it reads as guidance, not an error banner. -->
+              <div id="composer-model-warn" class="composer-model-warn" hidden role="note" aria-live="polite"></div>
+              <div class="composer-actions">
+                <button id="cancel" class="ghost small" disabled title="Cancel the running turn">Cancel</button>
+                <button id="send" class="composer-send primary" title="Send (Enter)" aria-label="Send message">
+                  <!-- Fresh-eyes P0 (2026-07-18, review-fresh-eyes.md #7):
+                       stroke 1.8→2.2 and size 16→18 so the up-arrow reads
+                       as a send-glyph at a glance instead of a small mark
+                       inside a coloured disc. -->
+                  <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M10 16V4M5 9l5-5 5 5"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </footer>
+        <div class="statusbar">
+          <span id="status-dot" class="dot"></span>
+          <span id="status-text">idle</span>
+          <!-- Context meter (task #49): live indicator of context-window
+               fullness. Level bar colour comes from .ctx-meter.level-*
+               classes; approx mode prefixes the token label with `~`.
+               See src/renderer/context-meter.js. -->
+          <span class="ctx-meter" id="ctx-meter" title="Session context usage">
+            <span class="ctx-meter-bar"><span class="ctx-meter-fill"></span></span>
+            <span class="ctx-meter-label" id="ctx-meter-label">—</span>
+            <button id="ctx-compact-btn" class="ghost small" disabled
+                    title="Compact conversation history now.">Compact</button>
+            <!-- Context Rail launcher (strategy list §1.2 "常驻迷你 meter 点
+                 击直达 Context Rail 抽屉"). Opens the right-side drawer that
+                 projects the session event stream onto a vertical timeline
+                 projects the session's event stream onto a vertical timeline
+                 of inject/compact/recall/steer dots. -->
+            <button id="ctx-rail-btn" class="ghost small"
+                    title="Open Context Rail drawer">Rail</button>
+          </span>
+          <span class="spacer"></span>
+          <span id="model-badge" class="muted"></span>
+        </div>
+        <!-- Context Rail drawer — the shared right-side canvas §1.2 asked
+             for. Hidden by default; toggled open by #ctx-rail-btn. Shares
+             the .side-drawer chrome family with panels-c-tasks-drawer so
+             batch 3's workflow drawer can reuse the same container. -->
+        <aside class="context-rail-drawer" id="context-rail-drawer" hidden aria-hidden="true">
+          <header class="context-rail-drawer-head">
+            <span class="context-rail-drawer-title">Context Rail</span>
+            <span class="context-rail-drawer-sub muted">inject · compact · recall · steer</span>
+            <button type="button" class="context-rail-drawer-close ghost small" id="context-rail-drawer-close" title="Close">×</button>
+          </header>
+          <div class="context-rail-drawer-body" id="context-rail-drawer-body">
+            <div class="context-rail-empty">Open a session to see its context timeline.</div>
+          </div>
+        </aside>
+      </section>
+
+      <!-- Session Tree pane. The feature-first surface: DSH's event log makes
+           every turn a fork boundary and every subagent a first-class child,
+           so we get a proper tree instead of a flat "history" list. Two-column
+           layout: compact tree navigator on the left, session preview on the
+           right. All wiring lives in session-tree-page.js. -->
+      <section class="pane" data-pane="tree" hidden>
+        <header class="header">
+          <div class="header-lead">
+            <div class="page-title">Session Tree</div>
+            <div class="page-sub muted">Every session as a branchable timeline. Fork points, subagent lineage, and status — all in one view.</div>
+          </div>
+          <div class="header-actions">
+            <button id="tree-compare-btn" class="ghost small" disabled title="Select two same-parent branches (⇧-click) to compare.">
+              <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M5 3v14M15 3v14M8 6h4M8 10h4M8 14h4"/></svg>
+              <span>Compare branches</span>
+            </button>
+          </div>
+        </header>
+        <section class="tree-body">
+          <!-- Left column: tree of every root and its descendants. The
+               <ul>-driven tree keeps sibling order stable; fork edges are
+               solid + fork glyph, subagent edges dashed + robot glyph, drawn
+               with pure CSS on the connector spans. -->
+          <div class="tree-nav" aria-label="Session tree">
+            <div class="tree-nav-head">
+              <div class="tree-nav-legend">
+                <span class="tree-legend-item"><span class="tree-legend-edge tree-legend-edge--fork"></span>fork</span>
+                <span class="tree-legend-item"><span class="tree-legend-edge tree-legend-edge--subagent"></span>subagent</span>
+              </div>
+              <div class="tree-nav-meta muted"><span id="tree-count">0</span> in tree</div>
+            </div>
+            <ul id="tree-list" class="tree-list" aria-label="Sessions"></ul>
+            <div class="tree-empty muted" id="tree-empty" hidden>
+              No sessions yet. Start a chat, then use Fork on any turn.
+            </div>
+          </div>
+
+          <!-- Right column: preview of the selected node. Empty state shows a
+               short primer so first-time users understand what they're looking
+               at without opening docs. -->
+          <div class="tree-preview" id="tree-preview">
+            <div class="tree-preview-empty" id="tree-preview-empty">
+              <div class="tree-preview-empty-title">Select a session</div>
+              <div class="tree-preview-empty-body muted">Click a row on the left to see its metadata, timeline, and actions here. Hover any row for quick actions like fork or compare.</div>
+            </div>
+            <div class="tree-preview-card" id="tree-preview-card" hidden>
+              <div class="tree-preview-head">
+                <div class="tree-preview-lead">
+                  <div class="tree-preview-title" id="tree-preview-title">—</div>
+                  <div class="tree-preview-sub muted">
+                    <span id="tree-preview-id" class="mono"></span>
+                    <span class="tree-preview-sep">·</span>
+                    <span id="tree-preview-rel"></span>
+                  </div>
+                </div>
+                <div class="tree-preview-status" id="tree-preview-status">
+                  <span class="tree-status-dot"></span>
+                  <span class="tree-status-label">idle</span>
+                </div>
+              </div>
+              <dl class="tree-preview-meta">
+                <div class="tree-preview-meta-row">
+                  <dt>cwd</dt>
+                  <dd id="tree-preview-cwd" class="mono">—</dd>
+                </div>
+                <div class="tree-preview-meta-row">
+                  <dt>model</dt>
+                  <dd id="tree-preview-model">—</dd>
+                </div>
+                <div class="tree-preview-meta-row">
+                  <dt>events</dt>
+                  <dd id="tree-preview-events">—</dd>
+                </div>
+                <div class="tree-preview-meta-row">
+                  <dt>context</dt>
+                  <dd id="tree-preview-context">
+                    <span class="tree-context-bar"><span class="tree-context-fill"></span></span>
+                    <span class="tree-context-label muted">—</span>
+                  </dd>
+                </div>
+              </dl>
+              <div class="tree-preview-timeline">
+                <div class="tree-preview-timeline-head">
+                  <span class="tree-preview-section-label">Timeline</span>
+                  <span class="tree-preview-timeline-hint muted">turn · tool · compact · fork</span>
+                </div>
+                <div class="tree-preview-timeline-track" id="tree-preview-timeline">
+                  <div class="tree-preview-timeline-empty muted">No events yet.</div>
+                </div>
+                <div class="tree-preview-timeline-legend">
+                  <span class="tree-tl-legend"><span class="tree-tl-marker tree-tl-marker--turn"></span>turn</span>
+                  <span class="tree-tl-legend"><span class="tree-tl-marker tree-tl-marker--tool"></span>tool</span>
+                  <span class="tree-tl-legend"><span class="tree-tl-marker tree-tl-marker--compact"></span>compact</span>
+                  <span class="tree-tl-legend"><span class="tree-tl-marker tree-tl-marker--fork"></span>fork</span>
+                </div>
+              </div>
+              <div class="tree-preview-actions">
+                <button id="tree-preview-open" class="primary">Open session</button>
+                <button id="tree-preview-fork" class="ghost small">Fork from latest</button>
+              </div>
+            </div>
+            <div class="tree-preview-compare" id="tree-preview-compare" hidden>
+              <div class="tree-preview-compare-head">
+                <span class="tree-preview-section-label">Compare branches</span>
+                <button id="tree-compare-close" class="ghost small" title="Close comparison">Close</button>
+              </div>
+              <div class="tree-preview-compare-body">
+                <div class="tree-preview-compare-col" data-compare-col="left">
+                  <div class="tree-preview-compare-col-title" id="tree-compare-left-title">—</div>
+                  <div class="tree-preview-compare-col-sub muted" id="tree-compare-left-sub">—</div>
+                  <div class="tree-preview-compare-timeline" id="tree-compare-left-timeline"></div>
+                </div>
+                <div class="tree-preview-compare-col" data-compare-col="right">
+                  <div class="tree-preview-compare-col-title" id="tree-compare-right-title">—</div>
+                  <div class="tree-preview-compare-col-sub muted" id="tree-compare-right-sub">—</div>
+                  <div class="tree-preview-compare-timeline" id="tree-compare-right-timeline"></div>
+                </div>
+              </div>
+              <div class="tree-preview-compare-hint muted">
+                Fork point highlighted; the two timelines diverge after that seq. Click any marker to jump to the source turn in that branch.
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <!-- Missions Control pane -->
+      <section class="pane" data-pane="mission" hidden>
+        <header class="header">
+          <div class="header-lead">
+            <div class="page-title">Missions</div>
+            <div class="page-sub muted">Long-running tasks across all sessions. Watch progress, jump into any subagent.</div>
+          </div>
+          <div class="header-actions">
+            <!-- Debug popover retained for the mock/mission button as a
+                 backing element; hidden by default because doc §5 moves the
+                 demo-data entry to the empty-state suggestion bar in the
+                 body. Kept in the DOM so the existing #mock-mission id
+                 remains addressable by other scripts if needed. -->
+            <div class="debug-popover" id="mission-debug-popover" hidden>
+              <button class="ghost small debug-toggle" data-toggle="mission-debug" aria-expanded="false" title="Mission demo (mock events)">
+                <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" d="M7 3.5c0-.8.7-1.5 3-1.5s3 .7 3 1.5M4 8h12M5 8c0-2 2.2-3 5-3s5 1 5 3v4a5 5 0 0 1-10 0z"/></svg>
+                <span>Debug</span>
+              </button>
+              <div class="debug">
+                <div class="debug-group-label">Mission demo</div>
+                <button id="mock-mission" class="ghost small">Load mission demo</button>
+              </div>
+            </div>
+          </div>
+        </header>
+        <section class="mission-body">
+          <div class="mission-topbar">
+            <div class="mission-summary" id="mission-summary"></div>
+            <div class="mission-ticker" id="mission-ticker" title="Most recent events across all sessions"></div>
+          </div>
+          <div class="mission-subview-tabs">
+            <button class="mission-subview-tab active" data-mission-tab="tree">Tree</button>
+            <button class="mission-subview-tab" data-mission-tab="topo">Topology</button>
+            <button class="mission-subview-tab" data-mission-tab="board">Board</button>
+          </div>
+          <div class="mission-panels">
+            <div class="mission-panel" data-mission-panel="tree"></div>
+            <div class="mission-panel" data-mission-panel="topo" hidden></div>
+            <div class="mission-panel" data-mission-panel="board" hidden></div>
+          </div>
+        </section>
+      </section>
+
+      <!-- Hub pane (#186 + #190). The seven-kind asset catalog. Painted
+           entirely by src/renderer/hub-page.js on first switchTo('hub') so
+           the initial index.html is empty inside the pane. -->
+      <section class="pane" data-pane="hub" hidden></section>
+
+      <!-- Plugins pane, row-list style page: heading + subtitle + actions row,
+           then subnav (Installed / Browse) already provided by market-ui.js. -->
+      <section class="pane" data-pane="plugins" hidden>
+        <header class="header">
+          <div class="header-lead">
+            <div class="page-title">Plugins</div>
+            <div class="page-sub muted">Manage the capabilities available to the runtime. Toggle on to enable; add your own or install from the catalog.</div>
+          </div>
+          <div class="header-actions">
+            <button id="plugins-probe" class="ghost small" title="Boot an isolated daemon over the current overlay to catch fail-loud errors.">Test boot</button>
+            <button id="plugins-playground" class="ghost small" hidden title="Try overlay edits in an isolated scratch runtime.">Playground</button>
+            <button id="plugins-vibe" class="ghost small" hidden disabled title="Start a chat with the self-referential cordis toolset in scope.">Vibe a plugin</button>
+            <button id="plugins-add" class="primary small" title="Register a plugin package in the user overlay (npm-style id or local path).">Add plugin…</button>
+          </div>
+        </header>
+        <section class="plugins-body">
+          <div class="plugins-meta" id="plugins-meta"></div>
+          <table class="plugins-table" id="plugins-table">
+            <thead>
+              <tr>
+                <th>Enabled</th>
+                <th>ID</th>
+                <th>Package</th>
+                <th>Source</th>
+                <th>Runtime</th>
+              </tr>
+            </thead>
+            <tbody id="plugins-tbody"></tbody>
+          </table>
+        </section>
+      </section>
+
+      <!-- Playground pane -->
+      <section class="pane" data-pane="playground" hidden>
+        <header class="header playground-header">
+          <div class="header-lead">
+            <div class="page-title">Playground <span class="muted small">— scratch runtime, unsaved</span></div>
+            <div class="page-sub muted">Experiment with overlay edits in isolation. Apply commits the changes; discard tears it down.</div>
+          </div>
+          <div class="header-actions">
+            <button id="playground-compare" class="ghost small" title="Pick a live session and re-send its first user message here for a side-by-side compare.">Compare against history…</button>
+            <button id="playground-discard" class="ghost small" title="Kill the scratch daemon and remove the temp dir.">Discard</button>
+            <button id="playground-apply" class="primary small" title="Copy scratch overlay over the live overlay and restart the main runtime.">Apply configuration</button>
+          </div>
+        </header>
+        <div class="playground-banner">
+          Working in a scratch runtime. Nothing here is written back to your
+          live overlay until you press <em>Apply</em>.
+        </div>
+        <div class="playground-body">
+          <section id="playground-stream" class="stream playground-stream" aria-live="polite"></section>
+          <aside class="playground-side">
+            <div class="playground-meta" id="playground-meta"></div>
+            <table class="plugins-table" id="playground-plugins-table">
+              <thead>
+                <tr><th>On</th><th>ID</th></tr>
+              </thead>
+              <tbody id="playground-plugins-tbody"></tbody>
+            </table>
+          </aside>
+        </div>
+        <footer class="composer playground-composer">
+          <textarea id="playground-input" rows="3" placeholder="Message the scratch runtime… (Enter to send)"></textarea>
+          <div class="composer-actions">
+            <button id="playground-send" class="primary">Send</button>
+          </div>
+        </footer>
+        <div id="playground-compare-drawer" class="playground-compare-drawer" hidden>
+          <div class="drawer-head">
+            <span class="title">Compare against session:</span>
+            <select id="playground-compare-select"></select>
+            <button id="playground-compare-close" class="ghost small">Close</button>
+          </div>
+          <div class="drawer-body">
+            <div class="compare-col compare-live">
+              <div class="col-title">Live history (read-only)</div>
+              <div id="playground-compare-live" class="stream compact"></div>
+            </div>
+            <div class="compare-col compare-playground">
+              <div class="col-title">Playground (this run)</div>
+              <div id="playground-compare-playground" class="stream compact"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Pull Requests pane. row-list style row list backed by `gh pr list`.
+           Header carries a search input + filter chips (All/Open/Mine);
+           the list itself is grouped by open vs recently merged/closed.
+           The renderer script is src/renderer/pr-page.js. -->
+      <section class="pane" data-pane="prs" hidden>
+        <header class="header">
+          <div class="header-lead">
+            <div class="page-title">Pull Requests</div>
+            <div class="page-sub muted" id="pr-subtitle">Not loaded</div>
+          </div>
+          <div class="header-actions">
+            <button id="pr-refresh-btn" class="ghost small" title="Reload from `gh pr list`">Refresh</button>
+          </div>
+        </header>
+        <!-- Filters lead the toolbar so the primary scoping control is the
+             first thing the eye lands on; the free-text search is a
+             secondary refinement to the right. QA round-3 §8.2 flagged the
+             prior order (search first, chips trailing) as making the chips
+             feel like an afterthought. -->
+        <div class="pr-toolbar">
+          <div class="pr-filters" role="tablist" aria-label="Filter PRs">
+            <button class="pr-filter-chip active" data-pr-filter="all" role="tab" aria-selected="true">
+              <span class="pr-filter-label">All</span>
+              <span class="pr-filter-count" data-pr-count-for="all" hidden></span>
+            </button>
+            <button class="pr-filter-chip" data-pr-filter="open" role="tab" aria-selected="false">
+              <span class="pr-filter-label">Open</span>
+              <span class="pr-filter-count" data-pr-count-for="open" hidden></span>
+            </button>
+            <button class="pr-filter-chip" data-pr-filter="mine" role="tab" aria-selected="false">
+              <span class="pr-filter-label">Mine</span>
+              <span class="pr-filter-count" data-pr-count-for="mine" hidden></span>
+            </button>
+          </div>
+          <label class="pr-search-wrap">
+            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M8.5 3.5a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm4 8.5 4 4"/></svg>
+            <input id="pr-search" class="pr-search" type="search" placeholder="Search PRs by title, branch, author, #number…" />
+          </label>
+        </div>
+        <div class="pr-body">
+          <div id="pr-meta" class="pr-meta"></div>
+          <div id="pr-list" class="pr-list" role="list" aria-label="Pull requests"></div>
+        </div>
+      </section>
+
+      <!-- Rubrics pane (task #188) — catalog-first evaluator library.
+           Rendered by src/renderer/rubrics-page.js; the pure model lives at
+           rubrics-model.js and the fixture blobs are inlined via
+           rubrics-seed.js. The detail drawer sits fixed to the right; the
+           annotation flow (task #191) lives in annotation-panel.js and is
+           reachable from Chat header + Recent list rows. -->
+      <section class="pane" data-pane="rubrics" hidden>
+        <header class="header">
+          <div class="header-lead">
+            <div class="page-title">
+              Rubrics
+              <!-- Page-level demo chip (fix/demo-labels) — the 28 seeded
+                   rubrics come from rubrics-seed.js today; user-authored
+                   rubrics land in memory only until the G1 library/put
+                   seam wires up. Nav already carries "· demo" but the page
+                   header previously read as real. See docs/review-demo-labels.md P3. -->
+              <span class="demo-tier-chip" title="Rubrics catalog is fixture-tier (rubrics-seed.js). User-authored rubrics land in memory only until the G1 library/put seam wires up — see docs/plugin-mcp-audit.md §3 gap G1.">demo · G1 pending</span>
+            </div>
+            <div class="page-sub muted"><span id="rubrics-subtask-badge">28 subtasks · 7 groups</span></div>
+          </div>
+          <div class="header-actions">
+            <button id="rubrics-refresh-btn" class="ghost small" title="Reload the catalog">Refresh</button>
+            <button id="rubrics-export-open" class="ghost small" title="Open the annotation export drawer">Export annotations</button>
+          </div>
+        </header>
+        <div class="rubrics-body">
+          <div id="rubrics-catalog" class="rubrics-catalog" aria-live="polite"></div>
+        </div>
+        <!-- L2 rubric detail drawer (fixed to the right). Click a tile to open. -->
+        <div id="rubric-detail-backdrop" class="rubric-detail-backdrop"></div>
+        <aside id="rubric-detail-drawer" class="rubric-detail-drawer" aria-hidden="true" aria-label="Rubric detail">
+          <div class="rubric-detail-drawer-head">
+            <div class="rubric-detail-drawer-title">Rubric</div>
+            <button type="button" id="rubric-detail-close" class="ghost small" aria-label="Close (Esc)" title="Close">×</button>
+          </div>
+          <div id="rubric-detail-body" class="rubric-detail-drawer-body"></div>
+        </aside>
+      </section>
+
+      <!-- Growth pane. Rendered by src/renderer/growth-v2.js — the
+           compact-window "harness evolution log" for researchers. See the
+           header of growth-v2.js for pane structure + data source. -->
+      <section class="pane" data-pane="growth" hidden>
+        <header class="header">
+          <div class="header-lead">
+            <div class="page-title">Growth</div>
+            <div class="page-sub muted">Our companionship log is a set of auditable facts, not persona copy.</div>
+          </div>
+          <div class="header-actions">
+            <button id="growth-mode-closeness" class="ghost small growth-mode-chip active" data-growth-mode="closeness" type="button">Closeness</button>
+            <button id="growth-mode-growth" class="ghost small growth-mode-chip" data-growth-mode="growth" type="button">Growth</button>
+          </div>
+        </header>
+        <section class="growth-body">
+          <div id="growth-identity" class="growth-identity"></div>
+          <div id="growth-heatmap-card" class="growth-card">
+            <div class="growth-card-head">
+              <h3 class="growth-card-title">Activity heatmap</h3>
+              <div id="growth-heatmap-meta" class="muted small"></div>
+            </div>
+            <div id="growth-heatmap" class="growth-heatmap"></div>
+            <div class="growth-heatmap-legend">
+              <span class="muted small">less</span>
+              <span class="growth-heatmap-legend-cell" data-level="empty"></span>
+              <span class="growth-heatmap-legend-cell" data-level="low"></span>
+              <span class="growth-heatmap-legend-cell" data-level="med"></span>
+              <span class="growth-heatmap-legend-cell" data-level="high"></span>
+              <span class="growth-heatmap-legend-cell" data-level="peak"></span>
+              <span class="muted small">more</span>
+            </div>
+          </div>
+          <div class="growth-log">
+            <aside id="growth-diary" class="growth-diary">
+              <div class="growth-diary-empty muted">
+                Pick a moment from the timeline to see what changed.
+              </div>
+            </aside>
+            <div id="growth-timeline" class="growth-timeline" role="list" aria-label="Growth timeline"></div>
+          </div>
+          <div id="growth-empty" class="growth-empty" hidden></div>
+        </section>
+      </section>
+
+      <!-- Runtimes pane (task #189 / IA §3 Runtimes one-pager). Rendered by
+           src/renderer/runtimes-page.js on switchTo('runtimes'). Body has
+           two sections: the profile list (one row per registered profile,
+           expandable into a capability matrix) and the isolated-daemon
+           section (any Playground scratch daemon currently up). The
+           legend chip up top names the wire seam this composes locally
+           until `runtime/list` (G8) lands. -->
+      <section class="pane" data-pane="runtimes" hidden id="runtimes-pane">
+        <header class="header">
+          <div class="header-lead">
+            <div class="page-title">Runtimes</div>
+            <div class="page-sub muted">Local profiles, daemon state, adapter capabilities. One row per profile — expand for the capability matrix.</div>
+          </div>
+          <div class="header-actions">
+            <span class="runtimes-legend muted small" title="Local composition — runtime/list (G8) lands this on the wire.">
+              composed locally · gap G8
+            </span>
+          </div>
+        </header>
+        <section class="runtimes-body">
+          <div class="runtimes-list" data-runtimes-list></div>
+          <div class="runtimes-isolated" data-runtimes-isolated></div>
+        </section>
+      </section>
+
+      <!-- Settings pane (task #193). Two sections: Model pricing (editable
+           table seeded from price-table.js DEFAULT_PRICE_TABLE, edits
+           persist via settings-model.setOverride) + API keys (display-only
+           presence chart, no key values ever shown). The keys concept
+           paragraph explains personal-tier (API key you own) vs.
+           service-tier (shared credential) — a naming clarity that the
+           shell has never surfaced before. -->
+      <section class="pane" data-pane="settings" hidden id="settings-pane">
+        <header class="header">
+          <div class="header-lead">
+            <div class="page-title">Settings</div>
+            <div class="page-sub muted">Demo-tier price overrides and API-key presence. Never reads or displays a key value.</div>
+          </div>
+        </header>
+        <section class="settings-body">
+          <section class="settings-section" data-settings-pricing>
+            <div class="settings-section-head">
+              <h3 class="settings-section-title">Model pricing</h3>
+              <div class="settings-section-sub muted">
+                Rates are in USD per million tokens. Edits persist to this
+                shell's <code>localStorage</code> and flow through
+                <code>window.__dshEffectivePriceTable()</code>; the
+                runtime is never told. Press <em>Reset</em> to remove an
+                override.
+              </div>
+            </div>
+            <table class="settings-price-table">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>Input</th>
+                  <th>Output</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody data-settings-price-tbody></tbody>
+            </table>
+          </section>
+          <section class="settings-section" data-settings-keys>
+            <div class="settings-section-head">
+              <h3 class="settings-section-title">API keys</h3>
+              <div class="settings-section-sub muted">
+                Presence only — this page never shows a key value. A
+                <strong>personal</strong> key is one you own directly (your
+                own DeepSeek / OpenAI / Anthropic API key); a
+                <strong>service</strong> credential is a shared token
+                managed by an operator. To change a key, edit the launch
+                environment or your profile YAML — the shell does not
+                write keys.
+              </div>
+            </div>
+            <!-- Rec 30 (2026-07-17): keys modelled as a resource table
+                 (Name / Tier / Description / Presence / Last used), the
+                 shape LangSmith Settings > API Keys ships. The old
+                 free-form <ul> is retained in settings-page.js as a
+                 fallback but the primary surface is the table below.
+                 The `Last used` column is `—` today; a future keys/list
+                 seam (adjacent to G8 runtime/list) can populate it. -->
+            <table class="settings-keys-table" data-settings-keys-table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Tier</th>
+                  <th>Description</th>
+                  <th>Presence</th>
+                  <th>Last used</th>
+                </tr>
+              </thead>
+              <tbody data-settings-keys-tbody></tbody>
+            </table>
+          </section>
+        </section>
+      </section>
+
+      <!-- Bench pane. Researcher experiment platform per docs/design-refs/
+           bench-design-pack-160.md. Three kinds under `All | Matrix | Plugin
+           A/B | Repetition` sub-tabs (Option C of the pack §2). Data flows
+           through bench-model.js (pure) → bench-page.js (DOM); fixtures are
+           inlined in bench-fixture.js. G18/G19/G20/G21 seams for real batch
+           are still pending upstream — the page labels itself "local
+           sequential run" honestly. -->
+      <section class="pane" data-pane="bench" hidden>
+        <header class="header">
+          <div class="header-lead">
+            <div class="page-title" title="Bench — demo · G18/G19/G20 pending">
+              Bench
+              <!-- Page-level demo chip (fix/demo-labels) — the whole Bench
+                   surface is fixture-driven today; detail-level chip already
+                   says so once a row is picked, but the list + empty state
+                   previously read as real. See docs/review-demo-labels.md P2. -->
+              <span class="demo-tier-chip" title="Bench is local-lite: sequential fixture-replay today. Server-side batching (bench/list-experiments = G19, bench/reevaluate = G18, bench/results = G20) is still pending upstream — see docs/design-refs/bench-design-pack-160.md §7.">demo · G18/G19/G20 pending</span>
+            </div>
+            <div class="page-sub muted">Local-lite experiment runner — matrix / plugin A/B / repetition. DSBench-compatible <code>code_result.json</code>.</div>
+          </div>
+          <div class="header-actions">
+            <button class="ghost small" data-bench-explore title="Load the fixture experiment bundle so a fresh install can walk the entire L0 → L2 chain zero-key.">Explore sample experiment</button>
+            <button class="primary small" data-bench-new title="Pick a kind (Matrix / Plugin A/B / Repetition) to configure a new experiment.">+ New experiment</button>
+          </div>
+        </header>
+        <div class="bench-toolbar" role="tablist" aria-label="Bench sub-tabs">
+          <button class="bench-subtab-chip active" data-bench-subtab="all"    role="tab" aria-selected="true">All</button>
+          <button class="bench-subtab-chip"        data-bench-subtab="matrix" role="tab" aria-selected="false">Matrix</button>
+          <button class="bench-subtab-chip"        data-bench-subtab="ab"     role="tab" aria-selected="false">Plugin A/B</button>
+          <button class="bench-subtab-chip"        data-bench-subtab="rep"    role="tab" aria-selected="false">Repetition</button>
+          <span class="bench-toolbar-spacer"></span>
+          <span class="bench-toolbar-meta muted small" data-bench-list-count></span>
+        </div>
+        <div class="bench-body">
+          <section class="bench-list" data-bench-list aria-label="Experiments list"></section>
+          <section class="bench-detail" data-bench-detail aria-label="Experiment detail"></section>
+        </div>
+      </section>
+
+      <!-- Context page pane (#185, #179-A). The standalone context surface:
+           one row per turn boundary, chip groups on expansion, JSON drawer
+           on `{ }`, "Open Rail" reuses the existing Context Rail drawer.
+           Rendered by src/renderer/context-page.js. -->
+      <section class="pane" data-pane="context" hidden>
+        <header class="header">
+          <div class="header-lead">
+            <div class="page-title">Context</div>
+            <div class="page-sub muted" id="context-page-subtitle">Per-turn ledger of shadowing, injection, recall, and compact events.</div>
+          </div>
+          <div class="header-actions">
+            <button id="context-page-open-rail" class="ghost small" type="button" title="Open the vertical Context Rail drawer for this session.">Open Rail</button>
+            <button id="context-page-save-profile" class="ghost small" type="button" title="Serialise the current shadowing / compact / injection view to a downloadable YAML.">Save as profile</button>
+          </div>
+        </header>
+        <!-- Body layout is state-driven (#14, user field report 2026-07-17):
+             — Empty state: `.is-empty` collapses the grid to a single column so
+               the empty card + SDK card read as one stacked document (page
+               chrome), avoiding the pre-fix "left hole + right-floating empty
+               card + orphaned SDK card" trio. Empty card exempt from the
+               centered-card ban as page chrome (LangSmith Home shape).
+             — Populated state: two columns (list · sticky legend). Order in
+               source is empty → list → legend so the empty card sits at page
+               top when it shows. The duplicate "No context activity …" head
+               was removed — the header subtitle already carries that line
+               (see context-page.js renderEmpty()). -->
+        <section class="context-page-body" data-context-body>
+          <div id="context-page-empty" class="context-page-empty" hidden>
+            <div class="context-page-empty-note muted small">Load a sample session to see the page shape, or start a chat from the Chat tab and come back.</div>
+            <div class="context-page-empty-actions">
+              <button id="context-page-load-sample" class="ghost small" type="button">Load sample: compact-three-events</button>
+              <button id="context-page-load-workflow" class="ghost small" type="button">Load sample: session-start hooks</button>
+            </div>
+          </div>
+          <div id="context-page-list" class="context-page-list" role="list" aria-label="Per-turn context ledger"></div>
+          <aside class="context-page-legend-card">
+            <h3 class="context-page-legend-title">SDK support</h3>
+            <div class="context-page-legend-sub muted small">Every knob on this page states its wire status. `live` = the runtime honours it now. `restart-required` = editable, applied on next session restart. `upstream-pending` = no wire method yet (see the G-numbers in ia-design-pack §5).</div>
+            <div id="context-page-legend" class="context-page-legend"></div>
+          </aside>
+        </section>
+      </section>
+
+      <!-- Tracing page pane (#225). LangSmith-style project runs table:
+           one row per session, scanning columns for the metrics the Chat
+           pane hides inside individual sessions. Search filters by Name;
+           Columns customizer toggles visibility with localStorage
+           persistence. A row click opens the tri-view (Tree | Timeline |
+           Graph) already used by the inline trace card, with a
+           breadcrumb Back to the table. Rendered by
+           src/renderer/tracing-page.js. -->
+      <section class="pane" data-pane="tracing" hidden>
+        <header class="header">
+          <div class="header-lead">
+            <div class="page-title">Tracing</div>
+            <div class="page-sub muted" id="tracing-page-subtitle">All sessions in this project — latency, tokens, cost, error rate.</div>
+          </div>
+          <div class="header-actions tracing-page-actions">
+            <label class="tracing-page-search">
+              <span class="visually-hidden">Search sessions by name</span>
+              <input id="tracing-page-search" type="search" placeholder="Search by name" autocomplete="off" spellcheck="false"/>
+            </label>
+            <div class="tracing-page-columns">
+              <button id="tracing-page-columns-btn" class="ghost small" type="button" aria-expanded="false" aria-haspopup="true" title="Show or hide columns">Columns</button>
+              <div id="tracing-page-columns-menu" class="tracing-page-columns-menu" hidden role="menu" aria-label="Column visibility"></div>
+            </div>
+          </div>
+        </header>
+        <section class="tracing-page-body">
+          <div id="tracing-page-breadcrumb" class="tracing-page-breadcrumb" hidden>
+            <button id="tracing-page-back" class="ghost small" type="button">← Back to Tracing</button>
+            <span id="tracing-page-breadcrumb-title" class="tracing-page-breadcrumb-title muted"></span>
+          </div>
+          <div id="tracing-page-table-wrap" class="tracing-page-table-wrap">
+            <table id="tracing-page-table" class="tracing-page-table" data-tracing-table>
+              <thead><tr id="tracing-page-thead-row"></tr></thead>
+              <tbody id="tracing-page-tbody"></tbody>
+            </table>
+            <div id="tracing-page-empty" class="tracing-page-empty" hidden>
+              <div class="tracing-page-empty-head">No sessions yet.</div>
+              <div class="tracing-page-empty-note muted small">Open a chat from the Chat tab, or seed a fixture session via DevTools (<code>window.__dshQaSeedSession</code> when DSH_QA=1).</div>
+            </div>
+          </div>
+          <div id="tracing-page-detail" class="tracing-page-detail" hidden></div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <!-- Quick chat overlay. Rendered lazily by src/renderer/quick-chat.js the
+       first time it's shown; kept out of the DOM here so no CSS rules or
+       tab-order surprises leak into the app until the user asks for it. -->
+
+  <!-- Onboarding overlay -->
+  <div id="onboarding" class="onboarding" hidden>
+    <div class="onboarding-card">
+      <div class="onboarding-progress">
+        <span class="dot on" data-step="1"></span>
+        <span class="dot" data-step="2"></span>
+      </div>
+      <section class="onboarding-step" data-onboarding-step="1">
+        <h2>What will you mainly use this for?</h2>
+        <p class="muted">The shell picks a starter plugin set. You can change it later in Plugins → Reset onboarding.</p>
+        <div class="onboarding-cards">
+          <button class="onboarding-choice" data-role="coding">
+            <div class="lbl">Writing code</div>
+            <div class="hint">Full toolchain: bash + fs + web + skill loader.</div>
+          </button>
+          <button class="onboarding-choice" data-role="research">
+            <div class="lbl">Research and analysis</div>
+            <div class="hint">Bash off; fs + web for lookups; provenance on.</div>
+          </button>
+          <button class="onboarding-choice" data-role="general">
+            <div class="lbl">General assistant</div>
+            <div class="hint">Chat only; smallest surface area.</div>
+          </button>
+        </div>
+        <div class="onboarding-actions">
+          <span class="spacer"></span>
+          <button class="ghost small" data-onboarding-action="skip">Skip and use defaults</button>
+        </div>
+      </section>
+      <section class="onboarding-step" data-onboarding-step="2" hidden>
+        <h2>How would you like tools to escalate?</h2>
+        <p class="muted">Sensitive actions (bash outside the workspace, network calls) can ask first or run automatically.</p>
+        <div class="onboarding-cards">
+          <button class="onboarding-choice" data-approval="ask">
+            <div class="lbl">Ask each time (safer)</div>
+            <div class="hint">A card interrupts the turn to confirm.</div>
+          </button>
+          <button class="onboarding-choice" data-approval="auto">
+            <div class="lbl">Always approve (faster)</div>
+            <div class="hint">Escalations run without asking.</div>
+          </button>
+        </div>
+        <div class="onboarding-actions">
+          <button class="ghost small" data-onboarding-action="back">Back</button>
+          <span class="spacer"></span>
+        </div>
+      </section>
+    </div>
+  </div>
+  <script src="./session-tree.js"></script>
+  <script src="./next-actions.js"></script>
+  <script src="./widgets.js"></script>
+  <!-- Shared string truncate helper (window.__dshTextTruncate). Must load
+       before interact-cards / trigger-templates / trace-aggregator. -->
+  <script src="./text-truncate.js"></script>
+  <script src="./interact-cards.js"></script>
+  <script src="./trigger-templates.js"></script>
+  <!-- #168 step 1: shared per-block controls (pretty⇅raw · copy · download).
+       Must load before tool-cards + trace-detail-pane which both call into
+       window.__dshPayloadControls. -->
+  <script src="./payload-controls.js"></script>
+  <!-- #168 step 2: request/header "Re-run with edited config" button. Must
+       load before renderer.js reaches the trace pane / request-header L1
+       code path; loading here keeps it beside other renderer-widget helpers. -->
+  <script src="./edit-rerun-header.js"></script>
+  <!-- #168 step 3: tool row "Edit & re-run" (inline JSON editor + fork).
+       Loaded before tool-cards for the same reason. -->
+  <script src="./tool-edit-rerun.js"></script>
+  <!-- #168 step 4: fork-compare drawer (opened by step 2 + 3 on a
+       successful fork). Independent of the Playground pane so it works
+       from any tab. -->
+  <script src="./fork-compare.js"></script>
+  <script src="./tool-cards.js"></script>
+  <script src="./artifacts.js"></script>
+  <script src="./plugin-runtime-fold.js"></script>
+  <script src="./mcp-tool-name.js"></script>
+  <!-- Shared HTML escaper (window.__dshHtmlEscape). Must load before any
+       renderer that consumes it (market/playground/plugins UI, bench). -->
+  <script src="./html-escape.js"></script>
+  <script src="./plugins-mcp-card.js"></script>
+  <script src="./market-import-panel.js"></script>
+  <script src="./plugins-ui.js"></script>
+  <!-- Hub page (#186 + #190). Model + DOM controller. Loaded here so the
+       tab switcher can call window.__dshHub.show() when the user clicks Hub. -->
+  <script src="./hub-model.js"></script>
+  <script src="./hub-page.js"></script>
+  <script src="./market-ui.js"></script>
+  <script src="./onboarding-ui.js"></script>
+  <script src="./compare-history.js"></script>
+  <script src="./playground-ui.js"></script>
+  <script src="./layout-heuristics.js"></script>
+  <script src="./layout-controller.js"></script>
+  <script src="./visibility.js"></script>
+  <script src="./visibility-controller.js"></script>
+  <script src="./mission-model.js"></script>
+  <script src="./mission-tree.js"></script>
+  <script src="./mission-topo.js"></script>
+  <script src="./mission-board.js"></script>
+  <script src="./mission-controller.js"></script>
+  <script src="./devtools-model.js"></script>
+  <script src="./devtools-panel.js"></script>
+  <script src="./panels-c.js"></script>
+  <script src="./context-meter.js"></script>
+  <script src="./compact-badge.js"></script>
+  <script src="./compact-card.js"></script>
+  <script src="./context-rail.js"></script>
+  <script src="./workflow-view.js"></script>
+  <script src="./subagent-view.js"></script>
+  <script src="./subagent-lineage.js"></script><!-- ticket #15 A: live child event router -->
+  <script src="./debug-fixtures.js"></script>
+  <script src="./inject-family.js"></script>
+  <script src="./raw-inject.js"></script><!-- ticket #15 B: envelope:'raw' classifier -->
+  <script src="./trace-aggregator.js"></script>
+  <script src="./trace-timeline.js"></script><!-- task #203: view B Gantt/waterfall -->
+  <script src="./trace-graph.js"></script><!-- task #203: view C agent node graph -->
+  <script src="./trace-detail-pane.js"></script><!-- task #205: right-side detail pane (4 tabs) -->
+  <script src="./trace-tri-view.js"></script><!-- task #203: view chips + panels -->
+  <script src="./price-table.js"></script><!-- task #158: cost chip data source -->
+  <script src="./parse-incremental-json.js"></script><!-- task #162 rec 22: partial-JSON tool row -->
+  <script src="./reasoning-block.js"></script><!-- task #162 rec 21: inline reasoning fold block -->
+  <script src="./turn-footer.js"></script><!-- task #162 rec 23: per-turn cost/usage terminator row -->
+  <script src="./turn-flow-glyph.js"></script><!-- task #201 / trace-viz §4d: inline turn-flow shape glyph -->
+  <script src="./details-aria.js"></script><!-- fix/expand-affordance 2026-07-18: <details> [open] → summary aria-expanded reflection helper -->
+  <script src="./assistant-turn.js"></script><!-- task #162 rec 22-bis: assistant-turn container (consumes the three above) -->
+
+  <script src="./event-filter.js"></script>
+  <script src="./capabilities.js"></script>
+  <script src="./mock-fixtures.js"></script><!-- task #96 F-05: Debug popover mock functions extracted from renderer.js -->
+  <script src="./renderer.js"></script>
+  <script src="./next-action-controller.js"></script>
+  <script src="./panels-c-controller.js"></script>
+  <script src="./pr-page.js"></script>
+  <!-- Lane-nav (task #189/#193): runtimes page + settings page + pure
+       settings-model helpers. settings-model must load BEFORE
+       settings-page so the DOM controller finds the pure module. -->
+  <script src="./settings-model.js"></script>
+  <script src="./runtimes-page.js"></script>
+  <script src="./settings-page.js"></script>
+  <script src="./quick-chat.js"></script>
+  <script src="./session-tree-page.js"></script>
+  <!-- Growth v2 (Ticket #140) — compact-window evolution log with rubric/
+       error write-back. Owns the [data-pane="growth"] section. -->
+  <script src="./growth-v2-model.js"></script>
+  <script src="./growth-v2.js"></script>
+  <!-- Rubrics + Annotation (tasks #188 / #191). Models first, seed second
+       (inlined fixture blobs), then the page renderers. -->
+  <script src="./rubrics-model.js"></script>
+  <script src="./annotation-model.js"></script>
+  <script src="./rubrics-seed.js"></script>
+  <script src="./rubrics-page.js"></script>
+  <script src="./annotation-panel.js"></script>
+  <!-- Bench (#187). Order: pure model → inlined fixture → DOM controller.
+       All three attach to window under __dshBenchModel / __dshBenchFixture /
+       __dshBench so renderer.js's switchTo('bench') can call `show()`. -->
+  <script src="./bench-model.js"></script>
+  <script src="./bench-fixture.js"></script>
+  <script src="./bench-page.js"></script>
+  <!-- Context page (#185, #179-A). Loads after renderer.js/growth-v2 so
+       it can pick up window.__dshChat + window.__dshContextMeter +
+       window.__dshInjectFamily; the switchTo('context') hook in
+       renderer.js drives its refresh on tab entry. -->
+  <script src="./context-page-model.js"></script>
+  <script src="./context-page.js"></script>
+  <!-- Tracing page (#225). Loads after context-page so it can share the
+       __dshChat + __dshTraceAgg + __dshTraceTriView surfaces; the
+       switchTo('tracing') hook in renderer.js drives its refresh on tab
+       entry. -->
+  <script src="./tracing-index-model.js"></script>
+  <script src="./tracing-page.js"></script>
+  <!-- A-P1-3: in-app confirmation for destructive actions. Native <dialog> so
+       focus, ESC, and the backdrop click all behave the way the OS expects,
+       without a heavier modal component. Content is filled by the caller
+       via dataset before .showModal(). -->
+  <dialog id="confirm-dialog" class="app-dialog" aria-labelledby="confirm-dialog-title">
+    <form method="dialog" class="app-dialog-form">
+      <h3 id="confirm-dialog-title" class="app-dialog-title">Confirm</h3>
+      <p id="confirm-dialog-body" class="app-dialog-body muted"></p>
+      <div class="app-dialog-actions">
+        <button value="cancel" class="ghost small">Cancel</button>
+        <button value="confirm" class="primary small" id="confirm-dialog-ok">OK</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Ticket #139 (strategy §1.5): right-side drawer for tool-call/result raw
+       JSON. Every tool card grows a "{ }" badge on its summary; clicking it
+       calls window.__dshToolCards.openJsonDrawer(...) which fills this node's
+       panes and toggles .open. Non-modal (position: fixed) so the main chat
+       stream stays clickable + scrollable while the drawer is up — mirrors
+       the strategy doc's L2 抽屉 rule ("抽屉 pin 时可保持打开切消息"). -->
+  <aside id="tool-json-drawer" class="tool-json-drawer" aria-hidden="true" aria-label="Raw tool JSON">
+    <div class="tool-json-drawer-head">
+      <div class="tool-json-drawer-title">tool JSON</div>
+      <button type="button" id="tool-json-drawer-close" class="ghost small" aria-label="Close JSON drawer" title="Close (Esc)">×</button>
+    </div>
+    <div class="tool-json-drawer-body">
+      <details class="tool-json-section" open>
+        <summary>tool/call.arguments</summary>
+        <pre class="tool-json-pane" data-json-pane="call"></pre>
+      </details>
+      <details class="tool-json-section" open>
+        <summary>tool/result &nbsp;<span class="tool-json-note">(content · meta · isError · error · durationMs)</span></summary>
+        <pre class="tool-json-pane" data-json-pane="result"></pre>
+      </details>
+    </div>
+  </aside>
+
+  <!-- QA harness: no-op unless URL hash contains `qa`. -->
+  <script src="./qa-harness.js"></script>
+</body>
+</html>

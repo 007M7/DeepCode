@@ -1,0 +1,6 @@
+[
+  { "type": "turn/start", "seq": 800, "time": 1721117800000, "data": { "turn": 11, "trigger": { "kind": "message", "source": { "kind": "user" } } } },
+  { "type": "context/message", "seq": 801, "time": 1721117800010, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "# skill: refactor-fs-writes\n\nWhen updating any FS-touching code path, always: (1) use `fs.promises` not sync APIs; (2) wrap in a session Effect for teardown; (3) add a test that observes the effect via `ctx.on('session/event', …)`." }], "source": { "kind": "user" } } },
+  { "type": "user/message", "seq": 802, "time": 1721117800020, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "Refactor the write path in packages/fs" }], "source": { "kind": "user" } } },
+  { "type": "turn/end", "seq": 803, "time": 1721117800030, "data": { "turn": 11, "reason": { "kind": "completed" } } }
+]

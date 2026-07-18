@@ -1,0 +1,57 @@
+# Vibe leaf, DeepSeek variant: same shape as daemon-vibe.yml but with the
+# real DeepSeek adapter swapped in. Loaded through the jsonrpc-demo bin on
+# stdio (the daemon-demo path is fine too, but the deepseek profile only
+# needs one long-lived process for the shell's demo scope).
+#
+# Needs `DEEPSEEK_API_KEY` in `.env` at the DSH runtime root. See
+# `examples/cordis-agent/cordis.yml` in the DSH runtime checkout for the
+# canonical self-referential composition; this is a JSON-RPC-serving mirror
+# of it.
+
+- id: jsonrpc
+  name: '@deepseek-ai/dsh-jsonrpc'
+
+# agent-spine-demo requires an explicit `workspaceContext` (Config | false).
+# Vibe leaf mirrors examples/cordis-agent/cordis.yml which uses a 65536-byte
+# budget so the model gets a workspace overview; the plain deepseek-jsonrpc
+# leaf keeps `false` for hermetic prompts. See
+# `packages/examples/agent-spine-demo/src/index.ts` in the DSH runtime
+# checkout for the Config schema.
+- id: agent-core
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    workspaceContext:
+      maxBytes: 65536
+
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    baseURL: !!js process.env.DEEPSEEK_BASE_URL
+    models:
+      - deepseek-v4-pro
+      - deepseek-v4-flash
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+  config:
+    timeoutMs: 60000
+
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.cwd()
+
+- id: web
+  name: '@deepseek-ai/dsh-web'
+
+- id: web-fetch-local
+  name: '@deepseek-ai/dsh-web-fetch-local'
+
+- id: sessions
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+
+- id: tool-cordis
+  name: '@deepseek-ai/dsh-tool-cordis'

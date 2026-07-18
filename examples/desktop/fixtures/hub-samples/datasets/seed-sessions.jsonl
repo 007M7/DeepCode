@@ -1,0 +1,5 @@
+{"session_id":"s-001","messages":[{"role":"user","content":"list files"},{"role":"assistant","content":"here are the files"}],"reasoning_content":"user wants ls output","tool_calls":[{"name":"bash","args":{"cmd":"ls"}}]}
+{"session_id":"s-002","messages":[{"role":"user","content":"what time is it"},{"role":"assistant","content":"14:22 local"}],"reasoning_content":"time query","tool_calls":[]}
+{"session_id":"s-003","messages":[{"role":"user","content":"list files"},{"role":"assistant","content":"here are the files"}],"reasoning_content":"user wants ls output","tool_calls":[{"name":"bash","args":{"cmd":"ls"}}]}
+{"session_id":"s-004","messages":[{"role":"user","content":"summarise this paper"},{"role":"assistant","content":"the paper argues..."}],"reasoning_content":"summarisation task","tool_calls":[]}
+{"session_id":"s-005","messages":[{"role":"user","content":"what time is it"},{"role":"assistant","content":"14:22 local"}],"reasoning_content":"time query","tool_calls":[]}

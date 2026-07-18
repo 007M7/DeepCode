@@ -1,0 +1,74 @@
+[
+  {
+    "_mock": true,
+    "_mockReason": "#162 rec 32 (compact before/after diff tab): compact/summary event carrying 12 shadowed seqs (representing ~3.8k tokens of prior turn content), a ContentBlock[] summary block (~380 tokens), and full strategy metadata so the ratio bar can render (10.0x compression)."
+  },
+  {
+    "type": "assistant/message",
+    "time": 1721403000050,
+    "seq": 801,
+    "data": {
+      "turn": 12,
+      "step": 4,
+      "content": [
+        { "type": "text", "text": "Refactor complete — will summarise the session so far." }
+      ],
+      "usage": { "inputTokens": 4200, "outputTokens": 210 }
+    }
+  },
+  {
+    "type": "compact/start",
+    "time": 1721403000100,
+    "seq": 802,
+    "data": {
+      "reason": { "kind": "user" },
+      "model": "deepseek-chat",
+      "maxTokens": 800,
+      "shadowedRange": { "start": 121, "end": 132 },
+      "trigger": { "kind": "user" }
+    }
+  },
+  {
+    "type": "compact/summary",
+    "time": 1721403000450,
+    "seq": 803,
+    "data": {
+      "model": "deepseek-chat",
+      "maxTokens": 800,
+      "shadowedRange": { "start": 121, "end": 132 },
+      "shadowedSeqs": [121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132],
+      "shadowedTokenCount": 3812,
+      "summary": [
+        { "type": "text", "text": "The session refactored src/lib/app.ts to split App into AppShell (thin) and AppCore (business logic), moved two utility functions to src/lib/util/*, and ran the unit suite (all 96 tests passed). Key decisions: (a) AppShell owns cli/env parsing only, (b) AppCore is constructor-injectable to make tests hermetic, (c) new util modules keep the previous public API by re-export. Follow-ups queued: rename AppShell.start → AppShell.run for symmetry with the interface, and cover the new AppCore.render path with an integration test." }
+      ],
+      "trigger": { "kind": "user" }
+    }
+  },
+  {
+    "type": "compact/end",
+    "time": 1721403000500,
+    "seq": 804,
+    "data": { "model": "deepseek-chat", "shadowedRange": { "start": 121, "end": 132 } }
+  },
+
+  {
+    "_mock": true,
+    "_note": "The shadowedSeqs above are fully expanded so the demo can render one row per shadowed event without a live session/events fetch. In a real machine session, the compact-before column would lazy-load each seq via session/events {seq} (P0-1 expander). Below we ALSO include synthetic previews for each shadowed seq under _shadowedPreview so the demo can render text without wire access. Consumers of the diff renderer should call the wire path in production; this field is a demo-only convenience."
+  },
+  {
+    "_shadowedPreview": [
+      { "seq": 121, "type": "user/message",      "gist": "Refactor App: split shell and core, keep public API." },
+      { "seq": 122, "type": "assistant/message", "gist": "Plan: 1) read src/lib/app.ts 2) draft AppShell/AppCore 3) move utils." },
+      { "seq": 123, "type": "tool/call",         "gist": "read(path=src/lib/app.ts)" },
+      { "seq": 124, "type": "tool/result",       "gist": "app.ts 240 lines, 3 exported functions, mixed cli+business logic." },
+      { "seq": 125, "type": "assistant/message", "gist": "Splitting App into AppShell (cli parsing) and AppCore (business)." },
+      { "seq": 126, "type": "tool/call",         "gist": "edit(path=src/lib/app.ts, old=..., new=...)" },
+      { "seq": 127, "type": "tool/result",       "gist": "edit applied (1 replacement); AppShell/AppCore extracted." },
+      { "seq": 128, "type": "tool/call",         "gist": "write_file(path=src/lib/util/parse-args.ts)" },
+      { "seq": 129, "type": "tool/result",       "gist": "wrote 88 bytes" },
+      { "seq": 130, "type": "tool/call",         "gist": "run_bash(command=pnpm test)" },
+      { "seq": 131, "type": "tool/result",       "gist": "96 passed / 0 failed; 1.2s" },
+      { "seq": 132, "type": "assistant/message", "gist": "Refactor complete — will summarise the session so far." }
+    ]
+  }
+]

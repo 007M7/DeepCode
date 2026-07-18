@@ -1,0 +1,12 @@
+# no-emoji rubric
+# A simple regex-executor rubric — pass if the assistant reply contains no
+# emoji codepoints. Matches the demo's own emoji-ban gate.
+id: no-emoji
+description: 'Assert the assistant reply contains no emoji codepoints.'
+executor:
+  kind: regex
+  pattern: '[\p{Extended_Pictographic}]'
+  invert: true
+expected:
+  resolved: true
+  score: 1.0

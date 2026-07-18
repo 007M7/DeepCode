@@ -1,0 +1,170 @@
+[
+  {
+    "_mock": true,
+    "_mockReason": "Ticket #15 A (2026-07-17) live subagent sub-trajectory. Shape follows the real kernel wire (packages/ui/jsonrpc/src/server.ts:82-96, audited @ fa2065872): subagent.started carries only parent/child sessionId (no parentCallId); child session.event notifications ride the same session.event channel keyed on the child sessionId; subagent.finished carries status + lastAssistantMessage but not childEvents (they already flowed live). The renderer's live-routing table matches childSessionId → parent's spawn tool row via meta.lastSpawnCallId heuristic. Fixture plays: parent assistant announces plan → spawn_agent tool/call → subagent.started → 6 child session.events flowing live (turn/start, assistant/chunk×3, tool/call, tool/result, turn/end) → subagent.finished with structured JSON return."
+  },
+  {
+    "type": "user/message",
+    "time": 1721416000050,
+    "seq": 1001,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Have a subagent grep packages/core/session/src for `SessionEvent` usage sites and report the count." }
+      ]
+    }
+  },
+  {
+    "type": "step/start",
+    "time": 1721416000100,
+    "seq": 1002,
+    "data": { "turn": 1, "step": 0 }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1721416000200,
+    "seq": 1003,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Delegating the audit to a subagent." }
+      ],
+      "usage": { "inputTokens": 120, "outputTokens": 8 }
+    }
+  },
+  {
+    "type": "tool/call",
+    "time": 1721416000260,
+    "seq": 1004,
+    "data": {
+      "callId": "call_spawn_live_1",
+      "name": "spawn_agent",
+      "arguments": "{\"prompt\":\"grep packages/core/session/src for SessionEvent usage sites\",\"tools\":[\"grep\",\"read\"]}"
+    }
+  },
+  {
+    "_mock": true,
+    "_mockReason": "subagent.started — real wire shape: only parent/child sessionId, no parentCallId. Renderer picks anchor from meta.lastSpawnCallId (heuristic).",
+    "type": "_notification",
+    "method": "subagent.started",
+    "params": { "parentSessionId": "root-align-a", "childSessionId": "sub-align-a-1" }
+  },
+  {
+    "_sessionId": "sub-align-a-1",
+    "type": "turn/start",
+    "time": 1721416000320,
+    "seq": 1,
+    "data": { "trigger": "spawn", "turn": 0 }
+  },
+  {
+    "_sessionId": "sub-align-a-1",
+    "type": "assistant/chunk",
+    "time": 1721416000360,
+    "seq": 2,
+    "data": {
+      "turn": 0,
+      "step": 0,
+      "chunk": { "type": "reasoning-delta", "text": "Planning grep pattern for SessionEvent." }
+    }
+  },
+  {
+    "_sessionId": "sub-align-a-1",
+    "type": "assistant/chunk",
+    "time": 1721416000420,
+    "seq": 3,
+    "data": {
+      "turn": 0,
+      "step": 0,
+      "chunk": { "type": "text-delta", "text": "Running grep for SessionEvent usage sites." }
+    }
+  },
+  {
+    "_sessionId": "sub-align-a-1",
+    "type": "tool/call",
+    "time": 1721416000480,
+    "seq": 4,
+    "data": {
+      "callId": "sub_call_grep_1",
+      "name": "grep",
+      "arguments": "{\"pattern\":\"SessionEvent\",\"path\":\"packages/core/session/src\"}"
+    }
+  },
+  {
+    "_sessionId": "sub-align-a-1",
+    "type": "tool/result",
+    "time": 1721416000620,
+    "seq": 5,
+    "data": {
+      "callId": "sub_call_grep_1",
+      "content": [ { "type": "text", "text": "packages/core/session/src/index.ts:44: export interface SessionEvent\npackages/core/session/src/index.ts:112: emit(event: SessionEvent)\npackages/core/session/src/index.ts:236: return { role, envelope }\n" } ],
+      "isError": false,
+      "meta": { "card": "generic", "durationMs": 140 }
+    }
+  },
+  {
+    "_sessionId": "sub-align-a-1",
+    "type": "assistant/chunk",
+    "time": 1721416000720,
+    "seq": 6,
+    "data": {
+      "turn": 0,
+      "step": 0,
+      "chunk": { "type": "text-delta", "text": "Found 3 SessionEvent usage sites in index.ts. Returning structured count." }
+    }
+  },
+  {
+    "_sessionId": "sub-align-a-1",
+    "type": "assistant/message",
+    "time": 1721416000780,
+    "seq": 7,
+    "data": {
+      "content": [
+        { "type": "text", "text": "```json\n{\"count\":3,\"file\":\"packages/core/session/src/index.ts\",\"lines\":[44,112,236]}\n```" }
+      ],
+      "usage": { "inputTokens": 350, "outputTokens": 42 }
+    }
+  },
+  {
+    "_sessionId": "sub-align-a-1",
+    "type": "turn/end",
+    "time": 1721416000840,
+    "seq": 8,
+    "data": { "reason": { "kind": "completed" } }
+  },
+  {
+    "_mock": true,
+    "_mockReason": "subagent.finished — real wire shape (server.ts:106-123): no childEvents (they already flowed live via session.event above); lastAssistantMessage carries the structured JSON so subagent-view.parseSubagentReturn can render the return section.",
+    "type": "_notification",
+    "method": "subagent.finished",
+    "params": {
+      "parentSessionId": "root-align-a",
+      "childSessionId": "sub-align-a-1",
+      "agentId": "agent-live-a-1",
+      "status": "ok",
+      "stopReason": "completed",
+      "provider": "deepseek",
+      "lastAssistantMessage": [
+        { "type": "text", "text": "```json\n{\"count\":3,\"file\":\"packages/core/session/src/index.ts\",\"lines\":[44,112,236]}\n```" }
+      ]
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1721416000920,
+    "seq": 1005,
+    "data": {
+      "content": [ { "type": "text", "text": "Subagent found 3 SessionEvent usage sites in index.ts (lines 44, 112, 236)." } ],
+      "usage": { "inputTokens": 260, "outputTokens": 24 }
+    }
+  },
+  {
+    "type": "step/end",
+    "time": 1721416000980,
+    "seq": 1006,
+    "data": { "turn": 1, "step": 0 }
+  },
+  {
+    "type": "turn/end",
+    "time": 1721416001040,
+    "seq": 1007,
+    "data": { "reason": { "kind": "completed" } }
+  }
+]

@@ -1,0 +1,1360 @@
+[
+  {
+    "_mock": true,
+    "_mockReason": "Sample trace fixture concatenated for zero-key demo (task #192). Composed from five sealed 2.x fixtures — 2.1 turn / 2.2 reasoning / 2.3 tool-call-delta / 2.5 compact / 2.6 subagent — with seqs rebased so the log stays monotonic across the merged stream. Every card family from the #162 recs (turn container, reasoning fold, partial-JSON row, compact Diff, subagent inline, per-turn footer) should render from this one file, so a first-time user can Explore Sample Trace and see the full grammar without any DeepSeek key."
+  },
+  {
+    "type": "user/message",
+    "time": 1000,
+    "seq": 1,
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Add a comment header to src/lib/main.ts explaining its role, then verify the file still parses."
+        }
+      ]
+    }
+  },
+  {
+    "type": "step/start",
+    "time": 1050,
+    "seq": 2,
+    "data": {
+      "turn": 5,
+      "step": 0
+    }
+  },
+  {
+    "type": "request/header",
+    "time": 1100,
+    "seq": 3,
+    "data": {
+      "header": {
+        "model": "deepseek-chat",
+        "system": "You are DeepSeek Harness — a research coding agent.",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file."
+          },
+          {
+            "name": "edit",
+            "description": "Edit a file by string replacement."
+          },
+          {
+            "name": "bash",
+            "description": "Run a shell command."
+          }
+        ],
+        "config": {
+          "temperature": 0.3,
+          "maxTokens": 4096
+        }
+      },
+      "reason": "step-start"
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1350,
+    "seq": 4,
+    "data": {
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "I should first inspect the current top of the file so my header sits in the right position, then edit, then check parsing with a syntax-only run."
+        },
+        {
+          "type": "text",
+          "text": "I'll read the file, add the header, and verify it parses."
+        }
+      ],
+      "usage": {
+        "inputTokens": 620,
+        "outputTokens": 84,
+        "reasoningTokens": 41
+      }
+    }
+  },
+  {
+    "type": "tool/call",
+    "time": 1400,
+    "seq": 5,
+    "data": {
+      "callId": "call_read_5",
+      "name": "read",
+      "arguments": "{\"path\":\"src/lib/main.ts\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "time": 1470,
+    "seq": 6,
+    "data": {
+      "callId": "call_read_5",
+      "content": [
+        {
+          "type": "text",
+          "text": "import { App } from './app'\nnew App().run()\n"
+        }
+      ],
+      "isError": false,
+      "meta": {
+        "card": "generic",
+        "durationMs": 62
+      }
+    }
+  },
+  {
+    "type": "tool/call",
+    "time": 1510,
+    "seq": 7,
+    "data": {
+      "callId": "call_edit_5",
+      "name": "edit",
+      "arguments": "{\"path\":\"src/lib/main.ts\",\"old\":\"import { App } from './app'\",\"new\":\"// main.ts — entry point: boots the App composition root.\\nimport { App } from './app'\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "time": 1560,
+    "seq": 8,
+    "data": {
+      "callId": "call_edit_5",
+      "content": [
+        {
+          "type": "text",
+          "text": "edit applied (1 replacement)"
+        }
+      ],
+      "isError": false,
+      "meta": {
+        "card": "diff",
+        "durationMs": 44
+      }
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1670,
+    "seq": 9,
+    "data": {
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "Now I need a cheap parse check that does not execute the boot chain — node --check on the file is enough."
+        },
+        {
+          "type": "text",
+          "text": "Header added. Verifying parse now."
+        }
+      ],
+      "usage": {
+        "inputTokens": 700,
+        "outputTokens": 60,
+        "reasoningTokens": 28
+      }
+    }
+  },
+  {
+    "type": "tool/call",
+    "time": 1690,
+    "seq": 10,
+    "data": {
+      "callId": "call_bash_5",
+      "name": "bash",
+      "arguments": "{\"cmd\":\"node --check src/lib/main.ts\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "time": 1830,
+    "seq": 11,
+    "data": {
+      "callId": "call_bash_5",
+      "content": [
+        {
+          "type": "text",
+          "text": "(no output; exit 0)"
+        }
+      ],
+      "isError": false,
+      "meta": {
+        "card": "terminal",
+        "durationMs": 138
+      }
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1890,
+    "seq": 12,
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Done. Header added, file still parses cleanly."
+        }
+      ],
+      "usage": {
+        "inputTokens": 780,
+        "outputTokens": 34,
+        "cacheReadTokens": 512,
+        "reasoningTokens": 12
+      }
+    }
+  },
+  {
+    "type": "step/end",
+    "time": 1950,
+    "seq": 13,
+    "data": {
+      "turn": 5,
+      "step": 0
+    }
+  },
+  {
+    "type": "turn/end",
+    "time": 2000,
+    "seq": 14,
+    "data": {
+      "turn": 5,
+      "reason": {
+        "kind": "stop"
+      },
+      "usage": {
+        "inputTokens": 780,
+        "outputTokens": 178,
+        "cacheReadTokens": 512,
+        "reasoningTokens": 81
+      }
+    }
+  },
+  {
+    "type": "user/message",
+    "time": 3000,
+    "seq": 15,
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Check whether packages/core/session/src/types.ts imports from dsh-brand, and if not, add the import."
+        }
+      ]
+    }
+  },
+  {
+    "type": "step/start",
+    "time": 3050,
+    "seq": 16,
+    "data": {
+      "turn": 6,
+      "step": 0
+    }
+  },
+  {
+    "type": "request/header",
+    "time": 3100,
+    "seq": 17,
+    "data": {
+      "header": {
+        "model": "deepseek-chat",
+        "system": "You are a research coding agent.",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file."
+          },
+          {
+            "name": "edit",
+            "description": "Edit a file by string replacement."
+          }
+        ],
+        "config": {
+          "temperature": 0.2,
+          "maxTokens": 4096
+        }
+      },
+      "reason": "step-start"
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 3150,
+    "seq": 18,
+    "data": {
+      "chunk": {
+        "type": "reasoning-delta",
+        "text": "The user wants me to inspect the imports at the top of the file, so"
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 3160,
+    "seq": 19,
+    "data": {
+      "chunk": {
+        "type": "reasoning-delta",
+        "text": " a read call is the cheapest first move. If the import is already present"
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 3170,
+    "seq": 20,
+    "data": {
+      "chunk": {
+        "type": "reasoning-delta",
+        "text": " I can stop after one tool call, otherwise I edit."
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 3190,
+    "seq": 21,
+    "data": {
+      "chunk": {
+        "type": "text-delta",
+        "text": "Reading the file first to check the current imports."
+      }
+    }
+  },
+  {
+    "type": "tool/call",
+    "time": 3230,
+    "seq": 22,
+    "data": {
+      "callId": "call_read_6",
+      "name": "read",
+      "arguments": "{\"path\":\"packages/core/session/src/types.ts\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "time": 3310,
+    "seq": 23,
+    "data": {
+      "callId": "call_read_6",
+      "content": [
+        {
+          "type": "text",
+          "text": "import type { SessionEvent } from './events'\nimport type { Branded } from '@deepseek-ai/dsh-brand'\n\nexport type SessionId = Branded<'SessionId', string>\n"
+        }
+      ],
+      "isError": false,
+      "meta": {
+        "card": "generic",
+        "durationMs": 74
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 3370,
+    "seq": 24,
+    "data": {
+      "chunk": {
+        "type": "reasoning-delta",
+        "text": "Good — the Branded import is already there on line 2, so the file is already"
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 3380,
+    "seq": 25,
+    "data": {
+      "chunk": {
+        "type": "reasoning-delta",
+        "text": " correct. I don't need to edit; I should just report what I found."
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 3400,
+    "seq": 26,
+    "data": {
+      "chunk": {
+        "type": "text-delta",
+        "text": "The import is already present at line 2 — no edit needed."
+      }
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 3450,
+    "seq": 27,
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Reading the file first to check the current imports."
+        },
+        {
+          "type": "reasoning",
+          "text": "The user wants me to inspect the imports at the top of the file, so a read call is the cheapest first move. If the import is already present I can stop after one tool call, otherwise I edit."
+        },
+        {
+          "type": "text",
+          "text": "The import is already present at line 2 — no edit needed."
+        },
+        {
+          "type": "reasoning",
+          "text": "Good — the Branded import is already there on line 2, so the file is already correct. I don't need to edit; I should just report what I found."
+        }
+      ],
+      "usage": {
+        "inputTokens": 520,
+        "outputTokens": 118,
+        "cacheReadTokens": 320,
+        "reasoningTokens": 62
+      }
+    }
+  },
+  {
+    "type": "step/end",
+    "time": 3500,
+    "seq": 28,
+    "data": {
+      "turn": 6,
+      "step": 0
+    }
+  },
+  {
+    "type": "turn/end",
+    "time": 3550,
+    "seq": 29,
+    "data": {
+      "turn": 6,
+      "reason": {
+        "kind": "stop"
+      },
+      "usage": {
+        "inputTokens": 520,
+        "outputTokens": 118,
+        "cacheReadTokens": 320,
+        "reasoningTokens": 62
+      }
+    }
+  },
+  {
+    "type": "user/message",
+    "time": 4550,
+    "seq": 30,
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Create src/lib/foo.ts exporting a bar() function, then run it via node -e to confirm the export works."
+        }
+      ]
+    }
+  },
+  {
+    "type": "step/start",
+    "time": 4600,
+    "seq": 31,
+    "data": {
+      "turn": 7,
+      "step": 0
+    }
+  },
+  {
+    "type": "request/header",
+    "time": 4650,
+    "seq": 32,
+    "data": {
+      "header": {
+        "model": "deepseek-chat",
+        "tools": [
+          {
+            "name": "write_file",
+            "description": "Write a file to disk with the given content."
+          },
+          {
+            "name": "run_bash",
+            "description": "Run a shell command; returns stdout+stderr."
+          }
+        ]
+      },
+      "reason": "step-start"
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 4710,
+    "seq": 33,
+    "data": {
+      "chunk": {
+        "type": "tool-call-delta",
+        "index": 0,
+        "id": "call_write_1",
+        "name": "write_file",
+        "argumentsDelta": "{\"path\":\""
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 4725,
+    "seq": 34,
+    "data": {
+      "chunk": {
+        "type": "tool-call-delta",
+        "index": 0,
+        "id": "call_write_1",
+        "argumentsDelta": "src/lib/f"
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 4740,
+    "seq": 35,
+    "data": {
+      "chunk": {
+        "type": "tool-call-delta",
+        "index": 0,
+        "id": "call_write_1",
+        "argumentsDelta": "oo.ts"
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 4755,
+    "seq": 36,
+    "data": {
+      "chunk": {
+        "type": "tool-call-delta",
+        "index": 0,
+        "id": "call_write_1",
+        "argumentsDelta": "\",\"content\":\"expor"
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 4770,
+    "seq": 37,
+    "data": {
+      "chunk": {
+        "type": "tool-call-delta",
+        "index": 0,
+        "id": "call_write_1",
+        "argumentsDelta": "t function bar(){"
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 4785,
+    "seq": 38,
+    "data": {
+      "chunk": {
+        "type": "tool-call-delta",
+        "index": 0,
+        "id": "call_write_1",
+        "argumentsDelta": " return 'bar' "
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 4800,
+    "seq": 39,
+    "data": {
+      "chunk": {
+        "type": "tool-call-delta",
+        "index": 0,
+        "id": "call_write_1",
+        "argumentsDelta": "}\"}"
+      }
+    }
+  },
+  {
+    "type": "tool/call",
+    "time": 4830,
+    "seq": 40,
+    "data": {
+      "callId": "call_write_1",
+      "name": "write_file",
+      "arguments": "{\"path\":\"src/lib/foo.ts\",\"content\":\"export function bar(){ return 'bar' }\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "time": 4890,
+    "seq": 41,
+    "data": {
+      "callId": "call_write_1",
+      "content": [
+        {
+          "type": "text",
+          "text": "wrote 42 bytes"
+        }
+      ],
+      "isError": false,
+      "meta": {
+        "card": "generic",
+        "durationMs": 52
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 4920,
+    "seq": 42,
+    "data": {
+      "chunk": {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_bash_1",
+        "name": "run_bash",
+        "argumentsDelta": "{\"command\":\"node -"
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 4935,
+    "seq": 43,
+    "data": {
+      "chunk": {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_bash_1",
+        "argumentsDelta": "e \\\"console.log(re"
+      }
+    }
+  },
+  {
+    "type": "assistant/chunk",
+    "time": 4950,
+    "seq": 44,
+    "data": {
+      "chunk": {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_bash_1",
+        "argumentsDelta": "quire('./src/lib/foo').bar())\\\"\"}"
+      }
+    }
+  },
+  {
+    "type": "tool/call",
+    "time": 4980,
+    "seq": 45,
+    "data": {
+      "callId": "call_bash_1",
+      "name": "run_bash",
+      "arguments": "{\"command\":\"node -e \\\"console.log(require('./src/lib/foo').bar())\\\"\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "time": 5140,
+    "seq": 46,
+    "data": {
+      "callId": "call_bash_1",
+      "content": [
+        {
+          "type": "text",
+          "text": "bar\n"
+        }
+      ],
+      "isError": false,
+      "meta": {
+        "card": "terminal",
+        "durationMs": 158
+      }
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 5200,
+    "seq": 47,
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "foo.ts written; node round-trip prints \"bar\" — export works."
+        }
+      ],
+      "usage": {
+        "inputTokens": 380,
+        "outputTokens": 42,
+        "cacheReadTokens": 220
+      }
+    }
+  },
+  {
+    "type": "step/end",
+    "time": 5240,
+    "seq": 48,
+    "data": {
+      "turn": 7,
+      "step": 0
+    }
+  },
+  {
+    "type": "turn/end",
+    "time": 5280,
+    "seq": 49,
+    "data": {
+      "turn": 7,
+      "reason": {
+        "kind": "stop"
+      },
+      "usage": {
+        "inputTokens": 380,
+        "outputTokens": 42,
+        "cacheReadTokens": 220
+      }
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 6280,
+    "seq": 50,
+    "data": {
+      "turn": 12,
+      "step": 4,
+      "content": [
+        {
+          "type": "text",
+          "text": "Refactor complete — will summarise the session so far."
+        }
+      ],
+      "usage": {
+        "inputTokens": 4200,
+        "outputTokens": 210
+      }
+    }
+  },
+  {
+    "type": "compact/start",
+    "time": 6330,
+    "seq": 51,
+    "data": {
+      "reason": {
+        "kind": "user"
+      },
+      "model": "deepseek-chat",
+      "maxTokens": 800,
+      "shadowedRange": {
+        "start": 121,
+        "end": 132
+      },
+      "trigger": {
+        "kind": "user"
+      }
+    }
+  },
+  {
+    "type": "compact/summary",
+    "time": 6680,
+    "seq": 52,
+    "data": {
+      "model": "deepseek-chat",
+      "maxTokens": 800,
+      "shadowedRange": {
+        "start": 121,
+        "end": 132
+      },
+      "shadowedSeqs": [
+        121,
+        122,
+        123,
+        124,
+        125,
+        126,
+        127,
+        128,
+        129,
+        130,
+        131,
+        132
+      ],
+      "shadowedTokenCount": 3812,
+      "summary": [
+        {
+          "type": "text",
+          "text": "The session refactored src/lib/app.ts to split App into AppShell (thin) and AppCore (business logic), moved two utility functions to src/lib/util/*, and ran the unit suite (all 96 tests passed). Key decisions: (a) AppShell owns cli/env parsing only, (b) AppCore is constructor-injectable to make tests hermetic, (c) new util modules keep the previous public API by re-export. Follow-ups queued: rename AppShell.start → AppShell.run for symmetry with the interface, and cover the new AppCore.render path with an integration test."
+        }
+      ],
+      "trigger": {
+        "kind": "user"
+      }
+    }
+  },
+  {
+    "type": "compact/end",
+    "time": 6730,
+    "seq": 53,
+    "data": {
+      "model": "deepseek-chat",
+      "shadowedRange": {
+        "start": 121,
+        "end": 132
+      }
+    }
+  },
+  {
+    "_shadowedPreview": [
+      {
+        "seq": 121,
+        "type": "user/message",
+        "gist": "Refactor App: split shell and core, keep public API."
+      },
+      {
+        "seq": 122,
+        "type": "assistant/message",
+        "gist": "Plan: 1) read src/lib/app.ts 2) draft AppShell/AppCore 3) move utils."
+      },
+      {
+        "seq": 123,
+        "type": "tool/call",
+        "gist": "read(path=src/lib/app.ts)"
+      },
+      {
+        "seq": 124,
+        "type": "tool/result",
+        "gist": "app.ts 240 lines, 3 exported functions, mixed cli+business logic."
+      },
+      {
+        "seq": 125,
+        "type": "assistant/message",
+        "gist": "Splitting App into AppShell (cli parsing) and AppCore (business)."
+      },
+      {
+        "seq": 126,
+        "type": "tool/call",
+        "gist": "edit(path=src/lib/app.ts, old=..., new=...)"
+      },
+      {
+        "seq": 127,
+        "type": "tool/result",
+        "gist": "edit applied (1 replacement); AppShell/AppCore extracted."
+      },
+      {
+        "seq": 128,
+        "type": "tool/call",
+        "gist": "write_file(path=src/lib/util/parse-args.ts)"
+      },
+      {
+        "seq": 129,
+        "type": "tool/result",
+        "gist": "wrote 88 bytes"
+      },
+      {
+        "seq": 130,
+        "type": "tool/call",
+        "gist": "run_bash(command=pnpm test)"
+      },
+      {
+        "seq": 131,
+        "type": "tool/result",
+        "gist": "96 passed / 0 failed; 1.2s"
+      },
+      {
+        "seq": 132,
+        "type": "assistant/message",
+        "gist": "Refactor complete — will summarise the session so far."
+      }
+    ]
+  },
+  {
+    "type": "user/message",
+    "time": 7730,
+    "seq": 954,
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Have a subagent audit packages/core/session/src for unused exports and delete them, then report the count."
+        }
+      ]
+    }
+  },
+  {
+    "type": "step/start",
+    "time": 7780,
+    "seq": 955,
+    "data": {
+      "turn": 9,
+      "step": 0
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 7880,
+    "seq": 956,
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Spawning a subagent to run the audit."
+        }
+      ],
+      "usage": {
+        "inputTokens": 420,
+        "outputTokens": 12
+      }
+    }
+  },
+  {
+    "type": "tool/call",
+    "time": 7940,
+    "seq": 957,
+    "data": {
+      "callId": "call_spawn_9",
+      "name": "spawn_agent",
+      "arguments": "{\"prompt\":\"Audit packages/core/session/src for unused exports, delete them, and return {removed: string[], count: number} as JSON.\",\"tools\":[\"read\",\"edit\",\"bash\"]}"
+    }
+  },
+  {
+    "_mock": true,
+    "type": "_notification",
+    "method": "subagent.started",
+    "params": {
+      "parentSessionId": "root-abc",
+      "childSessionId": "sub-def",
+      "parentCallId": "call_spawn_9"
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "user/message",
+    "time": 8000,
+    "seq": 54,
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Audit packages/core/session/src for unused exports, delete them, and return {removed: string[], count: number} as JSON."
+        }
+      ],
+      "source": {
+        "kind": "plugin",
+        "plugin": "subagent-delegate"
+      }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "assistant/message",
+    "time": 8100,
+    "seq": 55,
+    "data": {
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "I'll list the source files first, then walk each one with the export inspector."
+        },
+        {
+          "type": "text",
+          "text": "Listing source files."
+        }
+      ],
+      "usage": {
+        "inputTokens": 210,
+        "outputTokens": 44,
+        "reasoningTokens": 18
+      }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "tool/call",
+    "time": 8140,
+    "seq": 56,
+    "data": {
+      "callId": "sub_call_read_1",
+      "name": "read",
+      "arguments": "{\"path\":\"packages/core/session/src/index.ts\"}"
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "tool/result",
+    "time": 8220,
+    "seq": 57,
+    "data": {
+      "callId": "sub_call_read_1",
+      "content": [
+        {
+          "type": "text",
+          "text": "export * from './events'\nexport * from './types'\nexport { legacyHelper } from './legacy'  // orphan\n"
+        }
+      ],
+      "isError": false,
+      "meta": {
+        "card": "generic",
+        "durationMs": 72
+      }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "assistant/message",
+    "time": 8320,
+    "seq": 58,
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "legacyHelper looks orphaned; removing it."
+        }
+      ],
+      "usage": {
+        "inputTokens": 260,
+        "outputTokens": 12
+      }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "tool/call",
+    "time": 8380,
+    "seq": 59,
+    "data": {
+      "callId": "sub_call_edit_1",
+      "name": "edit",
+      "arguments": "{\"path\":\"packages/core/session/src/index.ts\",\"old\":\"export { legacyHelper } from './legacy'  // orphan\\n\",\"new\":\"\"}"
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "tool/result",
+    "time": 8440,
+    "seq": 60,
+    "data": {
+      "callId": "sub_call_edit_1",
+      "content": [
+        {
+          "type": "text",
+          "text": "edit applied (1 replacement)"
+        }
+      ],
+      "isError": false,
+      "meta": {
+        "card": "diff",
+        "durationMs": 44
+      }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "tool/call",
+    "time": 8480,
+    "seq": 61,
+    "data": {
+      "callId": "sub_call_bash_1",
+      "name": "bash",
+      "arguments": "{\"cmd\":\"pnpm typecheck --filter @deepseek-ai/dsh-session\"}"
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "tool/result",
+    "time": 8660,
+    "seq": 62,
+    "data": {
+      "callId": "sub_call_bash_1",
+      "content": [
+        {
+          "type": "text",
+          "text": "typecheck OK (0 errors)"
+        }
+      ],
+      "isError": false,
+      "meta": {
+        "card": "terminal",
+        "durationMs": 172
+      }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "assistant/message",
+    "time": 8740,
+    "seq": 63,
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "```json\n{\"removed\":[\"legacyHelper\"],\"count\":1}\n```"
+        }
+      ],
+      "usage": {
+        "inputTokens": 340,
+        "outputTokens": 22
+      }
+    }
+  },
+  {
+    "_sessionId": "sub-def",
+    "type": "turn/end",
+    "time": 8780,
+    "seq": 64,
+    "data": {
+      "turn": 3,
+      "reason": {
+        "kind": "stop"
+      }
+    }
+  },
+  {
+    "_mock": true,
+    "type": "_notification",
+    "method": "subagent.finished",
+    "params": {
+      "parentSessionId": "root-abc",
+      "childSessionId": "sub-def",
+      "parentCallId": "call_spawn_9",
+      "status": "ok",
+      "lastAssistantMessage": [
+        {
+          "type": "text",
+          "text": "```json\n{\"removed\":[\"legacyHelper\"],\"count\":1}\n```"
+        }
+      ],
+      "childEvents": [
+        {
+          "type": "user/message",
+          "time": 1721404000320,
+          "seq": 1,
+          "data": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Audit packages/core/session/src for unused exports, delete them, and return {removed: string[], count: number} as JSON."
+              }
+            ],
+            "source": {
+              "kind": "plugin",
+              "plugin": "subagent-delegate"
+            }
+          }
+        },
+        {
+          "type": "assistant/message",
+          "time": 1721404000420,
+          "seq": 2,
+          "data": {
+            "content": [
+              {
+                "type": "reasoning",
+                "text": "I'll list the source files first, then walk each one with the export inspector."
+              },
+              {
+                "type": "text",
+                "text": "Listing source files."
+              }
+            ],
+            "usage": {
+              "inputTokens": 210,
+              "outputTokens": 44,
+              "reasoningTokens": 18
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "time": 1721404000460,
+          "seq": 3,
+          "data": {
+            "callId": "sub_call_read_1",
+            "name": "read",
+            "arguments": "{\"path\":\"packages/core/session/src/index.ts\"}"
+          }
+        },
+        {
+          "type": "tool/result",
+          "time": 1721404000540,
+          "seq": 4,
+          "data": {
+            "callId": "sub_call_read_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "export * from './events'\nexport * from './types'\nexport { legacyHelper } from './legacy'  // orphan\n"
+              }
+            ],
+            "isError": false,
+            "meta": {
+              "card": "generic",
+              "durationMs": 72
+            }
+          }
+        },
+        {
+          "type": "assistant/message",
+          "time": 1721404000640,
+          "seq": 5,
+          "data": {
+            "content": [
+              {
+                "type": "text",
+                "text": "legacyHelper looks orphaned; removing it."
+              }
+            ],
+            "usage": {
+              "inputTokens": 260,
+              "outputTokens": 12
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "time": 1721404000700,
+          "seq": 6,
+          "data": {
+            "callId": "sub_call_edit_1",
+            "name": "edit",
+            "arguments": "{\"path\":\"packages/core/session/src/index.ts\",\"old\":\"export { legacyHelper } from './legacy'  // orphan\\n\",\"new\":\"\"}"
+          }
+        },
+        {
+          "type": "tool/result",
+          "time": 1721404000760,
+          "seq": 7,
+          "data": {
+            "callId": "sub_call_edit_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "edit applied (1 replacement)"
+              }
+            ],
+            "isError": false,
+            "meta": {
+              "card": "diff",
+              "durationMs": 44
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "time": 1721404000800,
+          "seq": 8,
+          "data": {
+            "callId": "sub_call_bash_1",
+            "name": "bash",
+            "arguments": "{\"cmd\":\"pnpm typecheck --filter @deepseek-ai/dsh-session\"}"
+          }
+        },
+        {
+          "type": "tool/result",
+          "time": 1721404000980,
+          "seq": 9,
+          "data": {
+            "callId": "sub_call_bash_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "typecheck OK (0 errors)"
+              }
+            ],
+            "isError": false,
+            "meta": {
+              "card": "terminal",
+              "durationMs": 172
+            }
+          }
+        },
+        {
+          "type": "assistant/message",
+          "time": 1721404001060,
+          "seq": 10,
+          "data": {
+            "content": [
+              {
+                "type": "text",
+                "text": "```json\n{\"removed\":[\"legacyHelper\"],\"count\":1}\n```"
+              }
+            ],
+            "usage": {
+              "inputTokens": 340,
+              "outputTokens": 22
+            }
+          }
+        },
+        {
+          "type": "turn/end",
+          "time": 1721404001100,
+          "seq": 11,
+          "data": {
+            "turn": 3,
+            "reason": {
+              "kind": "stop"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "tool/result",
+    "time": 8840,
+    "seq": 958,
+    "data": {
+      "callId": "call_spawn_9",
+      "content": [
+        {
+          "type": "text",
+          "text": "```json\n{\"removed\":[\"legacyHelper\"],\"count\":1}\n```"
+        }
+      ],
+      "isError": false,
+      "meta": {
+        "card": "generic",
+        "durationMs": 840,
+        "childSessionId": "sub-def"
+      }
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 8920,
+    "seq": 959,
+    "data": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Subagent removed one unused export (legacyHelper). Typecheck passed."
+        }
+      ],
+      "usage": {
+        "inputTokens": 560,
+        "outputTokens": 24
+      }
+    }
+  },
+  {
+    "type": "step/end",
+    "time": 8960,
+    "seq": 960,
+    "data": {
+      "turn": 9,
+      "step": 0
+    }
+  },
+  {
+    "type": "turn/end",
+    "time": 9000,
+    "seq": 961,
+    "data": {
+      "turn": 9,
+      "reason": {
+        "kind": "stop"
+      }
+    }
+  }
+]

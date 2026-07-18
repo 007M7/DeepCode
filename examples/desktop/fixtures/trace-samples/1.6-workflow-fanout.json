@@ -1,0 +1,64 @@
+{
+  "_mock": true,
+  "_mockReason": "Like 1.6-workflow-seq.json. Fan-out family: one fan-out step spawns 3 parallel subagent branches.",
+  "workflow": {
+    "name": "audit-three-packages",
+    "kind": "fan-out",
+    "steps": [
+      {
+        "id": "root",
+        "name": "start",
+        "status": "done",
+        "durationMs": 10
+      },
+      {
+        "id": "b1",
+        "name": "audit dsh-fs",
+        "status": "done",
+        "durationMs": 4200,
+        "parent": "root",
+        "output": "3 findings"
+      },
+      {
+        "id": "b2",
+        "name": "audit dsh-bash",
+        "status": "running",
+        "durationMs": null,
+        "parent": "root",
+        "output": "step 2/5"
+      },
+      {
+        "id": "b3",
+        "name": "audit dsh-web",
+        "status": "done",
+        "durationMs": 3100,
+        "parent": "root",
+        "output": "0 findings"
+      },
+      {
+        "id": "merge",
+        "name": "merge findings",
+        "status": "pending",
+        "parent": [
+          "b1",
+          "b2",
+          "b3"
+        ]
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "tool/call",
+      "seq": 1000,
+      "time": 1721119100000,
+      "data": {
+        "turn": 13,
+        "step": 0,
+        "callId": "call_wf_2",
+        "name": "workflow",
+        "arguments": "{\"name\":\"audit-three-packages\",\"kind\":\"fan-out\"}"
+      }
+    }
+  ]
+}

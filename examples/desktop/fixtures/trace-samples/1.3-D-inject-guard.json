@@ -1,0 +1,9 @@
+[
+  { "type": "turn/start", "seq": 400, "time": 1721117400000, "data": { "turn": 7, "trigger": { "kind": "message", "source": { "kind": "user" } } } },
+  { "type": "step/start", "seq": 401, "time": 1721117400100, "data": { "turn": 7, "step": 3 } },
+  { "type": "tool/call", "seq": 402, "time": 1721117400200, "data": { "turn": 7, "step": 3, "callId": "call_read_3", "name": "read", "arguments": "{\"path\":\"/etc/hosts\"}" } },
+  { "type": "tool/result", "seq": 403, "time": 1721117400300, "surfaceOp": "append", "data": { "turn": 7, "step": 3, "callId": "call_read_3", "content": [{ "type": "text", "text": "…" }], "isError": false, "meta": { "card": "generic" } } },
+  { "type": "step/end", "seq": 404, "time": 1721117400310, "data": { "turn": 7, "step": 3 } },
+  { "type": "context/message", "seq": 405, "time": 1721117400320, "surfaceOp": "append", "data": { "content": [{ "type": "text", "text": "You've called `read /etc/hosts` 3 times in this turn with identical arguments. This looks like a loop — consider a different approach or ask the user for clarification." }], "source": { "kind": "plugin", "plugin": "repeat-tool-guard" } } },
+  { "type": "turn/end", "seq": 406, "time": 1721117400400, "data": { "turn": 7, "reason": { "kind": "completed" } } }
+]

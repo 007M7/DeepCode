@@ -1,0 +1,59 @@
+# Vibe leaf: the daemon-echo agent bundle + the self-referential cordis
+# toolset, so a chat inside the shell can inspect + mount plugins into the
+# live runtime. Loaded through the same daemon-demo bin as `daemon-echo.yml`;
+# the sole difference is the extra `tool-cordis` entry at the end.
+#
+# This leaf expects a real model (`mock-echo` cannot compose plugins), so the
+# UI hides the entry point in the mock profile. The real-model shape lives at
+# `examples/cordis-agent/cordis.yml` in the DSH runtime checkout — this
+# leaf's overlays swap in the DeepSeek adapter when the shell is running
+# under the deepseek profile.
+#
+# See packages/cordis/tool-cordis/README.md for the tool trust stance:
+# `cordis_mount` evaluates model-written JS in a node:vm sandbox — grant it
+# like bash access.
+
+- id: mock-llm
+  name: '../../echo-agent/src/mock-llm.ts'
+
+- id: echo-tool
+  name: '../../echo-agent/src/echo-tool.ts'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+
+# ctx.fs / ctx.web providers so plugins the model writes have real capabilities
+# to build on. Model-facing read/write/edit + search/fetch tools stay off on
+# purpose — the point is the agent *authors* its own tools rather than picking
+# from a prepacked shelf.
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.cwd()
+
+- id: web
+  name: '@deepseek-ai/dsh-web'
+
+- id: web-fetch-local
+  name: '@deepseek-ai/dsh-web-fetch-local'
+
+- id: session-query
+  name: '@deepseek-ai/dsh-session-query'
+
+- id: daemon-agent
+  name: '@deepseek-ai/dsh-daemon-demo'
+  config:
+    socketPath: !!js process.env.DSH_DAEMON_SOCKET_PATH
+    lockfilePath: !!js process.env.DSH_DAEMON_LOCKFILE_PATH
+    persistenceRoot: !!js process.env.DSH_DAEMON_SESSIONS_ROOT ?? './.sessions'
+    persona: |
+      You are the DSH vibe agent: you author cordis plugins to extend your own
+      runtime. Use cordis_inspect to look around (its `api` and `events`
+      sections are your reference), cordis_mount to add plugins, and
+      cordis_unmount to clean up. In mounted code, never use Node built-ins
+      (require/setTimeout/fetch) — use the cordis services via inject: fs,
+      web, bash, timer (ctx.setTimeout). Prefer small single-purpose plugins.
+
+# Loaded last so ctx.tools exists — the cordis toolset registers into it.
+- id: tool-cordis
+  name: '@deepseek-ai/dsh-tool-cordis'

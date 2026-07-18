@@ -1,0 +1,10 @@
+# local-python profile
+# Minimal runtime configuration a researcher hands to the daemon. Stored as a
+# file so the Hub can list + fork it; the wire tier would put this under
+# `~/.dsh/profiles/local-python.yaml`.
+name: local-python
+transport: daemon
+model: deepseek-chat
+plugins:
+  - id: bash-local
+  - id: session-query

@@ -1,0 +1,43 @@
+{
+  "_note": [
+    "Real wire shape observed on the default profile (stdio-deepseek) when the",
+    "model calls fs.edit. Captured 2026-07-18 during lane-showcase 12/12 verify.",
+    "Origin: agent-loop packages/core/agent-loop/src/loop.ts persists the tool's",
+    "raw execute() meta on the tool/result event — see edit.ts:92-96 in",
+    "packages/fs/tool-fs. The `presentResult()` view (which would add card:'diff')",
+    "is a display-time callback the runtime never invokes. Until the runtime seam",
+    "emits the presented view, the renderer must infer the card from this shape.",
+    "This fixture is a shape lock: if the wire ever gains card:'diff', the",
+    "downstream test still passes via the primary dispatch branch; if the wire",
+    "loses the diffs array, the fallback fails loudly."
+  ],
+  "toolCall": {
+    "type": "tool/call",
+    "seq": 4,
+    "data": {
+      "callId": "fixture_call_fs_edit_1",
+      "name": "fs.edit",
+      "arguments": "{\"file_path\":\"/tmp/dsh-showcase/seed-3lines.txt\",\"old_string\":\"line B\",\"new_string\":\"line B (edited)\"}"
+    }
+  },
+  "toolResult": {
+    "type": "tool/result",
+    "seq": 5,
+    "data": {
+      "callId": "fixture_call_fs_edit_1",
+      "content": [
+        { "type": "text", "text": "Edited /tmp/dsh-showcase/seed-3lines.txt (1 replacement)" }
+      ],
+      "isError": false,
+      "meta": {
+        "diffs": [
+          {
+            "path": "/tmp/dsh-showcase/seed-3lines.txt",
+            "oldText": "line A\nline B\nline C\n",
+            "newText": "line A\nline B (edited)\nline C\n"
+          }
+        ]
+      }
+    }
+  }
+}

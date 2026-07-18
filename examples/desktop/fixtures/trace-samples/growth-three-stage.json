@@ -1,0 +1,48 @@
+{
+  "_mock": true,
+  "_mockReason": "Growth data source aggregation via session/list+session/events is still backlog (task #92). During the demo we drive this page from a fixture that tells the three-stage evolution story: rough prompt -> add rubric -> pass rate +42%.",
+  "compactWindows": [
+    {
+      "id": "cw-2026-07-01",
+      "time": 1719811200000,
+      "model": "deepseek-chat",
+      "shadowedRange": { "start": 1, "end": 240 },
+      "shadowedTokenCount": 28500,
+      "summary": "Initial system prompt was one line: 'You are a coding assistant.' Out of 12 user questions, 5 went off track (agent ran plain `pnpm test` instead of `pnpm run test:coverage`; treated doc-sync as a typecheck step).",
+      "rubrics": [],
+      "errors": [
+        { "id": "e1", "text": "test:coverage vs. unit test confused", "cause": "system prompt never spelled out the gate semantics", "createdAt": 1719815000000 }
+      ],
+      "eval": { "name": "gate-order-eval", "pass": 5, "total": 12, "improvedTo": "42%" }
+    },
+    {
+      "id": "cw-2026-07-05",
+      "time": 1720155600000,
+      "model": "deepseek-chat",
+      "shadowedRange": { "start": 241, "end": 490 },
+      "shadowedTokenCount": 31200,
+      "summary": "Added an explicit gate order to the system prompt (typecheck -> lint -> coverage -> snapshot -> doc-sync). First rubric captured: 'when the user says \"run tests\", the default is `pnpm run test:coverage`'. Out of 15 user questions, only 1 went off track (progress: 5 -> 1).",
+      "rubrics": [
+        { "id": "r1", "assertion": "When the user says 'run tests', the agent should invoke `pnpm run test:coverage`, not plain `pnpm run test`.", "expected": "test:coverage", "createdAt": 1720158000000 }
+      ],
+      "errors": [
+        { "id": "e2", "text": "doc-sync step was skipped before merge", "cause": "gate order listed doc-sync but never marked it required", "createdAt": 1720160000000 }
+      ],
+      "eval": { "name": "gate-order-eval", "pass": 14, "total": 15, "prevPass": 5, "prevTotal": 12, "improvedFrom": "42%", "improvedTo": "93%" }
+    },
+    {
+      "id": "cw-2026-07-15",
+      "time": 1721001600000,
+      "model": "deepseek-chat",
+      "shadowedRange": { "start": 491, "end": 780 },
+      "shadowedTokenCount": 29800,
+      "summary": "After annotating doc-sync as a required gate, re-ran the eval: only 1 of 18 questions went off track (pass rate 5/12=42% -> 14/15=93% -> 17/18=94%). Evolution is stable; safe to promote to baseline.",
+      "rubrics": [
+        { "id": "r1", "assertion": "When the user says 'run tests', the agent should invoke `pnpm run test:coverage`.", "expected": "test:coverage", "createdAt": 1720158000000 },
+        { "id": "r2", "assertion": "doc-sync is a required gate; the agent must mention it before proposing a merge.", "expected": "doc-sync mentioned before merge", "createdAt": 1721005000000 }
+      ],
+      "errors": [],
+      "eval": { "name": "gate-order-eval", "pass": 17, "total": 18, "prevPass": 14, "prevTotal": 15, "improvedFrom": "42%", "improvedTo": "94%" }
+    }
+  ]
+}

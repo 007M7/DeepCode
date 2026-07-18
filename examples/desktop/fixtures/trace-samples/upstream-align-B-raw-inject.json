@@ -1,0 +1,94 @@
+[
+  {
+    "_mock": true,
+    "_mockReason": "Ticket #15 B (2026-07-17) envelope:'raw' inject cards. Two raw injections: (1) workspace-context plugin with meta.kind='workspace-instructions' (typed shape — version + changes[]); (2) unknown-kind raw injection so the fallback generic card path is exercised. Interleaved with a tagged (envelope='context') plugin inject so a reviewer can visually A/B them side by side. Kernel wire seat: packages/core/session/src/types.ts:239-251 (envelope + meta fields) plus packages/core/session/src/index.ts:236-243 (raw = no <context> tag wrap). Audited @ deepseek-harness-dev fa2065872."
+  },
+  {
+    "type": "turn/start",
+    "time": 1721416100050,
+    "seq": 2001,
+    "data": { "trigger": "user", "turn": 1 }
+  },
+  {
+    "type": "user/message",
+    "time": 1721416100100,
+    "seq": 2002,
+    "data": {
+      "content": [
+        { "type": "text", "text": "Refactor the diff-viewer to support side-by-side view." }
+      ]
+    }
+  },
+  {
+    "_mock": true,
+    "_mockReason": "workspace-context plugin raw injection — the only known raw producer as of 07-17.",
+    "type": "context/message",
+    "time": 1721416100160,
+    "seq": 2003,
+    "data": {
+      "envelope": "raw",
+      "source": { "kind": "plugin", "plugin": "workspace-context" },
+      "meta": {
+        "kind": "workspace-instructions",
+        "version": "2026.07.17",
+        "changes": [
+          { "path": "packages/plugins/diff-viewer/src/index.ts", "action": "add" },
+          { "path": "packages/plugins/diff-viewer/README.md", "action": "add" },
+          { "path": "packages/plugins/diff-viewer-legacy/src/index.ts", "action": "remove" }
+        ]
+      },
+      "content": [
+        { "type": "text", "text": "<workspace-instructions version=\"2026.07.17\">\nRecent changes in this workspace:\n  + packages/plugins/diff-viewer/src/index.ts (new)\n  + packages/plugins/diff-viewer/README.md (new)\n  - packages/plugins/diff-viewer-legacy/src/index.ts (removed)\n\nWhen editing diff-viewer, prefer the new module path; the legacy path is scheduled for removal.\n</workspace-instructions>" }
+      ]
+    }
+  },
+  {
+    "_mock": true,
+    "_mockReason": "Tagged (envelope absent) context/message from a first-party plugin — kept alongside so the visual A/B between tagged vs raw is easy to see in one selfie.",
+    "type": "context/message",
+    "time": 1721416100220,
+    "seq": 2004,
+    "data": {
+      "source": { "kind": "plugin", "plugin": "time-context" },
+      "content": [
+        { "type": "text", "text": "Current time (Asia/Shanghai): 2026-07-17 14:52" }
+      ]
+    }
+  },
+  {
+    "_mock": true,
+    "_mockReason": "Unknown-kind raw injection — meta.kind is a string the classifier doesn't recognise, so it falls back to the generic 'raw · <kind>' card. Zero-loss: full meta lands in the L2 JSON drawer.",
+    "type": "context/message",
+    "time": 1721416100280,
+    "seq": 2005,
+    "data": {
+      "envelope": "raw",
+      "source": { "kind": "plugin", "plugin": "experimental-context" },
+      "meta": {
+        "kind": "session-note",
+        "version": "0.1.0",
+        "note": "The user is refactoring diff-viewer; prefer minimal-diff patches."
+      },
+      "content": [
+        { "type": "text", "text": "[experimental-context] Session note: the current work stream is a diff-viewer refactor. Keep patches minimal-diff shaped." }
+      ]
+    }
+  },
+  {
+    "type": "assistant/message",
+    "time": 1721416100360,
+    "seq": 2006,
+    "data": {
+      "content": [
+        { "type": "text", "text": "I'll refactor the diff-viewer to add a side-by-side mode. Given the workspace-instructions note, I'll target packages/plugins/diff-viewer/src/index.ts and skip the legacy path." }
+      ],
+      "usage": { "inputTokens": 480, "outputTokens": 42 }
+    }
+  },
+  {
+    "type": "turn/end",
+    "time": 1721416100420,
+    "seq": 2007,
+    "data": { "reason": { "kind": "completed" } }
+  }
+]

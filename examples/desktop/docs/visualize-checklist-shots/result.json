@@ -1,0 +1,610 @@
+{
+  "startedAt": "2026-07-18T18:42:21.508Z",
+  "profileName": "stdio-deepseek",
+  "verdicts": {
+    "1_user_bubble": {
+      "pass": true,
+      "evidence": {
+        "count": 2,
+        "sample": {
+          "label": "User",
+          "text": "·UserCompute 17 × 23 step by step (show the intermediate steps in your thinking). Then use bash to write ONLY the final numeric answer as a single line to /tmp/dsh-showcase/note.txt. Verify with cat. Reply done."
+        }
+      }
+    },
+    "2_assistant_stream": {
+      "pass": true,
+      "evidence": {
+        "count": 6,
+        "sample": {
+          "text": "fork from here",
+          "len": 14
+        }
+      }
+    },
+    "3_reasoning_fold": {
+      "pass": true,
+      "evidence": {
+        "count": 6,
+        "sample": {
+          "tag": "DIV",
+          "className": "turn-child reasoning-block",
+          "openable": true,
+          "textLen": 387,
+          "preview": "▹thinking · …eate the directory and write the answer.I need to compute 17 × 23 step by step, then write the final answer to a file. Let me compute 17 × 23: Method 1: 17 × 20 = 340, 17 × 3 = 51, 340 + 51 = 391 Method 2: (20 - 3) × 23 = 460 - 69 = 391 Method 3: 10 × 23 = 230, 7 × 23 = 161, 230 + 161 ="
+        }
+      }
+    },
+    "4_tool_call_row_and_args": {
+      "pass": true,
+      "evidence": {
+        "toolBlockCount": 4,
+        "drawerProbe": {
+          "attempted": true,
+          "braceBtnClicked": true,
+          "detailsOpen": true,
+          "drawerPresent": true,
+          "drawerVisible": true,
+          "drawerPayload": "\n    \n      tool: bash\n      ×\n    \n    \n      \n        tool/call.arguments\n        prettycopydownload{\n  \"callId\": \"call_00_px3PCSb3ZfNyCv4eewvv8649\",\n  \"name\": \"bash\",\n  \"arguments\": \"{\\\"command\\\": \\\"mkdir -p /tmp/dsh-showcase && echo 391 > /tmp/dsh-showcase/note.txt && cat /tmp/dsh-showcase/note.txt\\\", \\\"description\\\": \\\"Create dir, write answer, verify\\\"}\"\n}\n      \n      \n        tool/result  ",
+          "inlinePre": "{\n  \"command\": \"mkdir -p /tmp/dsh-showcase && echo 391 > /tmp/dsh-showcase/note.txt && cat /tmp/dsh-showcase/note.txt\",\n  \"description\": \"Create dir, write answer, verify\"\n}"
+        }
+      }
+    },
+    "5_diff_card_fs": {
+      "pass": true,
+      "evidence": {
+        "count": 1,
+        "sample": {
+          "family": "fs",
+          "classList": "card-diff",
+          "path": "/tmp/dsh-showcase/note-seed.txt",
+          "bodyLen": 81,
+          "preview": "/tmp/dsh-showcase/note-seed.txt+1 −1@@ -1,3 +1,3 @@ alpha-beta+beta-updated gamma"
+        }
+      }
+    },
+    "6_terminal_card_bash": {
+      "pass": true,
+      "evidence": {
+        "count": 2,
+        "sample": {
+          "family": "bash",
+          "name": "bash",
+          "text": ">bashmkdir -p /tmp/dsh-showcase && echo 391 > /tmp/dsh-showcase/note.txt && cat /t…{ }edit & re-runargsprettycopydownload{ \"command\": \"mkdir -p /tmp/dsh-showcase && echo 391 > /tmp/dsh-showcase/note.txt && cat /tmp/dsh-showcase/note.txt\", \"description\": \"Create dir, write answer, verify\" }edited arg"
+        }
+      }
+    },
+    "7_turn_footer_real_values": {
+      "pass": true,
+      "evidence": {
+        "count": 4,
+        "sample": {
+          "fields": [
+            {
+              "label": "turn-footer-field field-usage",
+              "text": "↑92 (2.7k cached) ↓7"
+            },
+            {
+              "label": "turn-footer-field field-stop",
+              "text": "completed"
+            }
+          ],
+          "allText": "turn flow — 3 stepstool · step 1.1 — bash(…)tool · step 1.2 — bash(…)llm · step 1.3 — Done.↑92 (2.7k cached) ↓7 · completedtrace · ↑92 ↓7 cache 2.7k reasoning 4TreeTimelineGraphExport SVGWaterfallExpand allCollapse allSettings↑92 ↓7 cache 2.7k reasoning 4▸ step 1.3 — \"Done.\"671ms∨turn1step3startSeq255endSeq269durationMs671ttft636mscost$?usage↑92 ↓7 cache 2.7k reasoning 4inputTokens92outputTokens7c",
+          "hasDash": true
+        }
+      }
+    },
+    "8_trace_row_and_triview": {
+      "pass": true,
+      "evidence": {
+        "traceCards": 6,
+        "tri": {
+          "attempted": true,
+          "results": [
+            {
+              "view": "tree",
+              "chipFound": true,
+              "panelVisible": true,
+              "kids": 2,
+              "svgs": 0,
+              "preview": "WaterfallExpand allCollapse allSettings↑92 ↓7 cache 2.7k reasoning 4▸ step 1.3 — \"Done.\"671ms∨turn1step3startSeq255endSeq269durationMs671ttft636mscost$?usage↑92 ↓7 cache 2.7k reasoning 4inputTokens92o"
+            },
+            {
+              "view": "timeline",
+              "chipFound": true,
+              "panelVisible": true,
+              "kids": 1,
+              "svgs": 1,
+              "preview": "0ms168ms336ms503ms671msstep 1.3 — Done. · 671msstep 1.3 — Done. · 671msstep 1.3 — Done. · 671ms · 671msassistant/chunkassistant/chunkassistant/chunk · pointassistant/chunkassistant/chunkassistant/chun"
+            },
+            {
+              "view": "graph",
+              "chipFound": true,
+              "panelVisible": true,
+              "kids": 1,
+              "svgs": 1,
+              "preview": "●step 1.3step 1.3 · step · 671ms · seq 255◆llmllm · llm · ↑92 ↓7 · seq 268"
+            }
+          ]
+        }
+      }
+    },
+    "9_json_drawer_payload": {
+      "pass": true,
+      "evidence": {
+        "attempted": true,
+        "braceBtnClicked": true,
+        "detailsOpen": true,
+        "drawerPresent": true,
+        "drawerVisible": true,
+        "drawerPayload": "\n    \n      tool: bash\n      ×\n    \n    \n      \n        tool/call.arguments\n        prettycopydownload{\n  \"callId\": \"call_00_px3PCSb3ZfNyCv4eewvv8649\",\n  \"name\": \"bash\",\n  \"arguments\": \"{\\\"command\\\": \\\"mkdir -p /tmp/dsh-showcase && echo 391 > /tmp/dsh-showcase/note.txt && cat /tmp/dsh-showcase/note.txt\\\", \\\"description\\\": \\\"Create dir, write answer, verify\\\"}\"\n}\n      \n      \n        tool/result  ",
+        "inlinePre": "{\n  \"command\": \"mkdir -p /tmp/dsh-showcase && echo 391 > /tmp/dsh-showcase/note.txt && cat /tmp/dsh-showcase/note.txt\",\n  \"description\": \"Create dir, write answer, verify\"\n}"
+      }
+    },
+    "10_tracing_page_row": {
+      "pass": true,
+      "evidence": {
+        "attempted": true,
+        "rowCount": 1,
+        "sample": [
+          {
+            "cells": [
+              "Compute 17 × 23 step by step (show the i",
+              "7/18/2026, 11:42",
+              "2",
+              "0.0%",
+              "1.20s",
+              "2.31s",
+              "18033",
+              "—"
+            ],
+            "sessionAttr": "a6664794-4e6b-4230-b293-6b185f1dbc2c",
+            "isOurs": true,
+            "allDashes": false
+          }
+        ],
+        "ours": {
+          "cells": [
+            "Compute 17 × 23 step by step (show the i",
+            "7/18/2026, 11:42",
+            "2",
+            "0.0%",
+            "1.20s",
+            "2.31s",
+            "18033",
+            "—"
+          ],
+          "sessionAttr": "a6664794-4e6b-4230-b293-6b185f1dbc2c",
+          "isOurs": true,
+          "allDashes": false
+        }
+      }
+    },
+    "11_step_boundary_chips": {
+      "pass": true,
+      "evidence": {
+        "chips": 6,
+        "metas": 6,
+        "sample": "turn1step3startSeq255endSeq269durationMs671ttft636mscost$?"
+      }
+    },
+    "12_context_meter_numeric": {
+      "pass": true,
+      "evidence": {
+        "before": {
+          "present": true,
+          "text": "~0 / ~128k (assumed) Compact Rail",
+          "titleSnippet": "Context usage: ~0 tokens (heuristic — the adapter didn't report token usage) against an assumed 128000-token budget (the runtime hasn't reported this model's real context window; showing the shell's d",
+          "numeric": "0 / ~128"
+        },
+        "afterText": "82 / ~128k (assumed) Compact Rail",
+        "afterTitle": "Context usage: 82 tokens against an assumed 128000-token budget (the runtime hasn't reported this model's real context window; showing the shell's default fallback).",
+        "afterNum": "82 / ~128"
+      }
+    }
+  },
+  "evidence": {
+    "sessionId": "a6664794-4e6b-4230-b293-6b185f1dbc2c",
+    "contextBefore": {
+      "present": true,
+      "text": "~0 / ~128k (assumed) Compact Rail",
+      "titleSnippet": "Context usage: ~0 tokens (heuristic — the adapter didn't report token usage) against an assumed 128000-token budget (the runtime hasn't reported this model's real context window; showing the shell's d",
+      "numeric": "0 / ~128"
+    },
+    "harvest": {
+      "userMatches": [
+        {
+          "label": "User",
+          "text": "·UserCompute 17 × 23 step by step (show the intermediate steps in your thinking). Then use bash to write ONLY the final numeric answer as a single line to /tmp/dsh-showcase/note.txt. Verify with cat. Reply done."
+        },
+        {
+          "label": "User",
+          "text": "·UserThe file /tmp/dsh-showcase/note-seed.txt contains three lines exactly: \"alpha\", \"beta\", \"gamma\". Use the fs edit tool to replace \"beta\" with \"beta-updated\", keeping \"alpha\" and \"gamma\" unchanged. RULES (STRICT): - Use the fs \"edit\" tool (preferred) or the fs \"write\" tool (fallback). Both produce diff cards. - Do NOT use bash. Do NOT use sed. Do NOT use cordis_mount. Do NOT use cordis_inspect."
+        }
+      ],
+      "assistantBubbles": [
+        {
+          "text": "fork from here",
+          "len": 14
+        },
+        {
+          "text": "fork from here",
+          "len": 14
+        },
+        {
+          "text": "Done.fork from here",
+          "len": 19
+        },
+        {
+          "text": "fork from here",
+          "len": 14
+        },
+        {
+          "text": "fork from here",
+          "len": 14
+        },
+        {
+          "text": "donefork from here",
+          "len": 18
+        }
+      ],
+      "reasoning": [
+        {
+          "tag": "DIV",
+          "className": "turn-child reasoning-block",
+          "openable": true,
+          "textLen": 387,
+          "preview": "▹thinking · …eate the directory and write the answer.I need to compute 17 × 23 step by step, then write the final answer to a file. Let me compute 17 × 23: Method 1: 17 × 20 = 340, 17 × 3 = 51, 340 + 51 = 391 Method 2: (20 - 3) × 23 = 460 - 69 = 391 Method 3: 10 × 23 = 230, 7 × 23 = 161, 230 + 161 ="
+        },
+        {
+          "tag": "DIV",
+          "className": "turn-child reasoning-block",
+          "openable": true,
+          "textLen": 92,
+          "preview": "▹thinking · The file was created and verified. Done.The file was created and verified. Done."
+        },
+        {
+          "tag": "DIV",
+          "className": "turn-child reasoning-block",
+          "openable": true,
+          "textLen": 44,
+          "preview": "▹thinking · Confirmed. Done.Confirmed. Done."
+        },
+        {
+          "tag": "DIV",
+          "className": "turn-child reasoning-block",
+          "openable": true,
+          "textLen": 217,
+          "preview": "▹thinking · …t read the file, then use the edit tool.The user wants me to use the edit tool to replace \"beta\" with \"beta-updated\" in /tmp/dsh-showcase/note-seed.txt. Let me first read the file, then use the edit tool."
+        },
+        {
+          "tag": "DIV",
+          "className": "turn-child reasoning-block",
+          "openable": true,
+          "textLen": 194,
+          "preview": "▹thinking · …l to replace \"beta\" with \"beta-updated\".The file exists and contains exactly three lines: \"alpha\", \"beta\", \"gamma\". Now I'll use the edit tool to replace \"beta\" with \"beta-updated\"."
+        },
+        {
+          "tag": "DIV",
+          "className": "turn-child reasoning-block",
+          "openable": true,
+          "textLen": 138,
+          "preview": "▹thinking · …pha\", \"beta-updated\", \"gamma\". All done.The edit succeeded. The file now contains \"alpha\", \"beta-updated\", \"gamma\". All done."
+        }
+      ],
+      "toolBlocks": [
+        {
+          "family": "bash",
+          "name": "bash",
+          "hasBraceGlyph": true,
+          "text": ">bashmkdir -p /tmp/dsh-showcase && echo 391 > /tmp/dsh-showcase/note.txt && cat /t…{ }edit & re-runargsprettycopydownload{ \"command\": \"mkdir -p /tmp/dsh-showcase && echo 391 > /tmp/dsh-showcase/note.txt && cat /tmp/dsh-showcase/note.txt\", \"description\": \"Create dir, write answer, verify\" }edited arg"
+        },
+        {
+          "family": "bash",
+          "name": "bash",
+          "hasBraceGlyph": true,
+          "text": ">bashcat /tmp/dsh-showcase/note.txt{ }edit & re-runargsprettycopydownload{ \"command\": \"cat /tmp/dsh-showcase/note.txt\", \"description\": \"Verify file content\" }edited argsRe-run with edited argsBackend does not rewrite historical tool arguments; edits are delivered as a context message on the fork so "
+        },
+        {
+          "family": "fs",
+          "name": "read",
+          "hasBraceGlyph": true,
+          "text": "=readpath=/tmp/dsh-showcase/note-seed.txt{ }edit & re-runargsprettycopydownload{ \"file_path\": \"/tmp/dsh-showcase/note-seed.txt\" }edited argsRe-run with edited argsBackend does not rewrite historical tool arguments; edits are delivered as a context message on the fork so the next turn honors them.res"
+        },
+        {
+          "family": "fs",
+          "name": "edit",
+          "hasBraceGlyph": true,
+          "text": "=editpath=/tmp/dsh-showcase/note-seed.txt{ }edit & re-runargsprettycopydownload{ \"file_path\": \"/tmp/dsh-showcase/note-seed.txt\", \"old_string\": \"beta\", \"new_string\": \"beta-updated\" }edited argsRe-run with edited argsBackend does not rewrite historical tool arguments; edits are delivered as a context "
+        }
+      ],
+      "diffCards": [
+        {
+          "family": "fs",
+          "classList": "card-diff",
+          "path": "/tmp/dsh-showcase/note-seed.txt",
+          "bodyLen": 81,
+          "preview": "/tmp/dsh-showcase/note-seed.txt+1 −1@@ -1,3 +1,3 @@ alpha-beta+beta-updated gamma"
+        }
+      ],
+      "terminalCards": [
+        {
+          "family": "bash",
+          "name": "bash",
+          "text": ">bashmkdir -p /tmp/dsh-showcase && echo 391 > /tmp/dsh-showcase/note.txt && cat /t…{ }edit & re-runargsprettycopydownload{ \"command\": \"mkdir -p /tmp/dsh-showcase && echo 391 > /tmp/dsh-showcase/note.txt && cat /tmp/dsh-showcase/note.txt\", \"description\": \"Create dir, write answer, verify\" }edited arg"
+        },
+        {
+          "family": "bash",
+          "name": "bash",
+          "text": ">bashcat /tmp/dsh-showcase/note.txt{ }edit & re-runargsprettycopydownload{ \"command\": \"cat /tmp/dsh-showcase/note.txt\", \"description\": \"Verify file content\" }edited argsRe-run with edited argsBackend does not rewrite historical tool arguments; edits are delivered as a context message on the fork so "
+        }
+      ],
+      "footers": [
+        {
+          "fields": [
+            {
+              "label": "turn-footer-field field-usage",
+              "text": "↑92 (2.7k cached) ↓7"
+            },
+            {
+              "label": "turn-footer-field field-stop",
+              "text": "completed"
+            }
+          ],
+          "allText": "turn flow — 3 stepstool · step 1.1 — bash(…)tool · step 1.2 — bash(…)llm · step 1.3 — Done.↑92 (2.7k cached) ↓7 · completedtrace · ↑92 ↓7 cache 2.7k reasoning 4TreeTimelineGraphExport SVGWaterfallExpand allCollapse allSettings↑92 ↓7 cache 2.7k reasoning 4▸ step 1.3 — \"Done.\"671ms∨turn1step3startSeq255endSeq269durationMs671ttft636mscost$?usage↑92 ↓7 cache 2.7k reasoning 4inputTokens92outputTokens7c",
+          "hasDash": true
+        },
+        {
+          "fields": [
+            {
+              "label": "turn-footer-field field-usage",
+              "text": "↑92 (2.7k cached) ↓7"
+            },
+            {
+              "label": "turn-footer-field field-stop",
+              "text": "completed"
+            }
+          ],
+          "allText": "↑92 (2.7k cached) ↓7 · completed",
+          "hasDash": false
+        },
+        {
+          "fields": [
+            {
+              "label": "turn-footer-field field-usage",
+              "text": "↑58 (3.2k cached) ↓24"
+            },
+            {
+              "label": "turn-footer-field field-stop",
+              "text": "completed"
+            }
+          ],
+          "allText": "turn flow — 3 stepstool · step 2.1 — read(…)tool · step 2.2 — edit(…)llm · step 2.3 — done↑58 (3.2k cached) ↓24 · completedtrace · ↑58 ↓24 cache 3.2k reasoning 22TreeTimelineGraphExport SVGWaterfallExpand allCollapse allSettings↑58 ↓24 cache 3.2k reasoning 22▸ step 2.3 — \"done\"673ms∨turn2step3startSeq439endSeq470durationMs673ttft350mscost$?usage↑58 ↓24 cache 3.2k reasoning 22inputTokens58outputTok",
+          "hasDash": true
+        },
+        {
+          "fields": [
+            {
+              "label": "turn-footer-field field-usage",
+              "text": "↑58 (3.2k cached) ↓24"
+            },
+            {
+              "label": "turn-footer-field field-stop",
+              "text": "completed"
+            }
+          ],
+          "allText": "↑58 (3.2k cached) ↓24 · completed",
+          "hasDash": false
+        }
+      ],
+      "traceCards": [
+        {
+          "streaming": false,
+          "text": "↑92 ↓7 cache 2.7k reasoning 4▸ step 1.3 — \"Done.\"671ms∨turn1step3startSeq255endSeq269durationMs671ttft636mscost$?usage↑92 ↓7 cache 2.7k reasoning 4inputTokens92outputTokens7cacheReadTokens2688cacheWri"
+        },
+        {
+          "streaming": false,
+          "text": "↑8 ↓233 cache 2.4k reasoning 135▸ step 1.1 — \"bash(…)\"2347ms∨turn1step1startSeq2endSeq205durationMs2347ttft950mscost$?usage↑8 ↓233 cache 2.4k reasoning 135inputTokens8outputTokens233cacheReadTokens243"
+        },
+        {
+          "streaming": false,
+          "text": "↑127 ↓79 cache 2.6k reasoning 9▸ step 1.2 — \"bash(…)\"1167ms∨turn1step2startSeq206endSeq254durationMs1167ttft672mscost$?usage↑127 ↓79 cache 2.6k reasoning 9inputTokens127outputTokens79cacheReadTokens25"
+        },
+        {
+          "streaming": false,
+          "text": "↑58 ↓24 cache 3.2k reasoning 22▸ step 2.3 — \"done\"673ms∨turn2step3startSeq439endSeq470durationMs673ttft350mscost$?usage↑58 ↓24 cache 3.2k reasoning 22inputTokens58outputTokens24cacheReadTokens3200cach"
+        },
+        {
+          "streaming": false,
+          "text": "↑255 ↓100 cache 2.7k reasoning 46▸ step 2.1 — \"read(…)\"1226ms∨turn2step1startSeq273endSeq350durationMs1226ttft554mscost$?usage↑255 ↓100 cache 2.7k reasoning 46inputTokens255outputTokens100cacheReadTok"
+        },
+        {
+          "streaming": false,
+          "text": "↑160 ↓126 cache 2.9k reasoning 36▸ step 2.2 — \"edit(…)\"1547ms∨turn2step2startSeq351endSeq438durationMs1547ttft674mscost$?usage↑160 ↓126 cache 2.9k reasoning 36inputTokens160outputTokens126cacheReadTok"
+        }
+      ],
+      "triChips": [
+        {
+          "view": "tree",
+          "text": "Tree"
+        },
+        {
+          "view": "timeline",
+          "text": "Timeline"
+        },
+        {
+          "view": "graph",
+          "text": "Graph"
+        },
+        {
+          "view": "tree",
+          "text": "Tree"
+        },
+        {
+          "view": "timeline",
+          "text": "Timeline"
+        },
+        {
+          "view": "graph",
+          "text": "Graph"
+        }
+      ],
+      "stepChips": [
+        "turn1step3startSeq255endSeq269durationMs671ttft636mscost$?",
+        "turn1step1startSeq2endSeq205durationMs2347ttft950mscost$?",
+        "turn1step2startSeq206endSeq254durationMs1167ttft672mscost$?",
+        "turn2step3startSeq439endSeq470durationMs673ttft350mscost$?",
+        "turn2step1startSeq273endSeq350durationMs1226ttft554mscost$?",
+        "turn2step2startSeq351endSeq438durationMs1547ttft674mscost$?"
+      ],
+      "stepMetas": [
+        "turn1step3startSeq255endSeq269durationMs671ttft636mscost$?usage↑92 ↓7 cache 2.7k reasoning 4inputTokens92outputTokens7cacheReadTokens2688cacheWriteTokensabsentreasoningTokens4",
+        "turn1step1startSeq2endSeq205durationMs2347ttft950mscost$?usage↑8 ↓233 cache 2.4k reasoning 135inputTokens8outputTokens233cacheReadTokens2432cacheWriteTokensabsentreasoningTokens135",
+        "turn1step2startSeq206endSeq254durationMs1167ttft672mscost$?usage↑127 ↓79 cache 2.6k reasoning 9inputTokens127outputTokens79cacheReadTokens2560cacheWriteTokensabsentreasoningTokens9",
+        "turn2step3startSeq439endSeq470durationMs673ttft350mscost$?usage↑58 ↓24 cache 3.2k reasoning 22inputTokens58outputTokens24cacheReadTokens3200cacheWriteTokensabsentreasoningTokens22",
+        "turn2step1startSeq273endSeq350durationMs1226ttft554mscost$?usage↑255 ↓100 cache 2.7k reasoning 46inputTokens255outputTokens100cacheReadTokens2688cacheWriteTokensabsentreasoningTokens46",
+        "turn2step2startSeq351endSeq438durationMs1547ttft674mscost$?usage↑160 ↓126 cache 2.9k reasoning 36inputTokens160outputTokens126cacheReadTokens2944cacheWriteTokensabsentreasoningTokens36"
+      ],
+      "meterAfter": {
+        "text": "82 / ~128k (assumed) Compact Rail",
+        "title": "Context usage: 82 tokens against an assumed 128000-token budget (the runtime hasn't reported this model's real context window; showing the shell's default fallback)."
+      },
+      "toolPayloads": [
+        {
+          "callId": "call_00_px3PCSb3ZfNyCv4eewvv8649",
+          "hasArgs": false,
+          "hasResult": true,
+          "resultMetaKeys": null,
+          "resultMetaSnippet": null
+        },
+        {
+          "callId": "call_00_u3NyLmQAeJmB6H2VYimZ9914",
+          "hasArgs": false,
+          "hasResult": true,
+          "resultMetaKeys": null,
+          "resultMetaSnippet": null
+        },
+        {
+          "callId": "call_00_aykir3BWfN2oB7fr1vPe7190",
+          "hasArgs": false,
+          "hasResult": true,
+          "resultMetaKeys": null,
+          "resultMetaSnippet": null
+        },
+        {
+          "callId": "call_00_daFBwZBuHP06njTMa8931753",
+          "hasArgs": false,
+          "hasResult": true,
+          "resultMetaKeys": [
+            "diffs"
+          ],
+          "resultMetaSnippet": "{\"diffs\":[{\"path\":\"/tmp/dsh-showcase/note-seed.txt\",\"oldText\":\"alpha\\nbeta\\ngamma\",\"newText\":\"alpha\\nbeta-updated\\ngamma\"}]}"
+        }
+      ],
+      "rawToolResults": [
+        {
+          "callId": "call_00_px3PCSb3ZfNyCv4eewvv8649",
+          "hasMeta": false,
+          "metaKeys": null,
+          "metaSnippet": null
+        },
+        {
+          "callId": "call_00_u3NyLmQAeJmB6H2VYimZ9914",
+          "hasMeta": false,
+          "metaKeys": null,
+          "metaSnippet": null
+        },
+        {
+          "callId": "call_00_aykir3BWfN2oB7fr1vPe7190",
+          "hasMeta": false,
+          "metaKeys": null,
+          "metaSnippet": null
+        },
+        {
+          "callId": "call_00_daFBwZBuHP06njTMa8931753",
+          "hasMeta": true,
+          "metaKeys": [
+            "diffs"
+          ],
+          "metaSnippet": "{\"diffs\":[{\"path\":\"/tmp/dsh-showcase/note-seed.txt\",\"oldText\":\"alpha\\nbeta\\ngamma\",\"newText\":\"alpha\\nbeta-updated\\ngamma\"}]}"
+        }
+      ]
+    },
+    "drawerProbe": {
+      "attempted": true,
+      "braceBtnClicked": true,
+      "detailsOpen": true,
+      "drawerPresent": true,
+      "drawerVisible": true,
+      "drawerPayload": "\n    \n      tool: bash\n      ×\n    \n    \n      \n        tool/call.arguments\n        prettycopydownload{\n  \"callId\": \"call_00_px3PCSb3ZfNyCv4eewvv8649\",\n  \"name\": \"bash\",\n  \"arguments\": \"{\\\"command\\\": \\\"mkdir -p /tmp/dsh-showcase && echo 391 > /tmp/dsh-showcase/note.txt && cat /tmp/dsh-showcase/note.txt\\\", \\\"description\\\": \\\"Create dir, write answer, verify\\\"}\"\n}\n      \n      \n        tool/result  ",
+      "inlinePre": "{\n  \"command\": \"mkdir -p /tmp/dsh-showcase && echo 391 > /tmp/dsh-showcase/note.txt && cat /tmp/dsh-showcase/note.txt\",\n  \"description\": \"Create dir, write answer, verify\"\n}"
+    },
+    "triProbe": {
+      "attempted": true,
+      "results": [
+        {
+          "view": "tree",
+          "chipFound": true,
+          "panelVisible": true,
+          "kids": 2,
+          "svgs": 0,
+          "preview": "WaterfallExpand allCollapse allSettings↑92 ↓7 cache 2.7k reasoning 4▸ step 1.3 — \"Done.\"671ms∨turn1step3startSeq255endSeq269durationMs671ttft636mscost$?usage↑92 ↓7 cache 2.7k reasoning 4inputTokens92o"
+        },
+        {
+          "view": "timeline",
+          "chipFound": true,
+          "panelVisible": true,
+          "kids": 1,
+          "svgs": 1,
+          "preview": "0ms168ms336ms503ms671msstep 1.3 — Done. · 671msstep 1.3 — Done. · 671msstep 1.3 — Done. · 671ms · 671msassistant/chunkassistant/chunkassistant/chunk · pointassistant/chunkassistant/chunkassistant/chun"
+        },
+        {
+          "view": "graph",
+          "chipFound": true,
+          "panelVisible": true,
+          "kids": 1,
+          "svgs": 1,
+          "preview": "●step 1.3step 1.3 · step · 671ms · seq 255◆llmllm · llm · ↑92 ↓7 · seq 268"
+        }
+      ]
+    },
+    "tracingProbe": {
+      "attempted": true,
+      "rowCount": 1,
+      "sample": [
+        {
+          "cells": [
+            "Compute 17 × 23 step by step (show the i",
+            "7/18/2026, 11:42",
+            "2",
+            "0.0%",
+            "1.20s",
+            "2.31s",
+            "18033",
+            "—"
+          ],
+          "sessionAttr": "a6664794-4e6b-4230-b293-6b185f1dbc2c",
+          "isOurs": true,
+          "allDashes": false
+        }
+      ],
+      "ours": {
+        "cells": [
+          "Compute 17 × 23 step by step (show the i",
+          "7/18/2026, 11:42",
+          "2",
+          "0.0%",
+          "1.20s",
+          "2.31s",
+          "18033",
+          "—"
+        ],
+        "sessionAttr": "a6664794-4e6b-4230-b293-6b185f1dbc2c",
+        "isOurs": true,
+        "allDashes": false
+      }
+    }
+  },
+  "realCalls": 2,
+  "error": null
+}

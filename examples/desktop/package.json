@@ -1,0 +1,25 @@
+{
+  "name": "dsh-desktop",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Minimal Electron desktop shell over the DSH JSON-RPC runtime — proof-of-concept for a ChatGPT.app-style host.",
+  "license": "MIT",
+  "author": "DeepSeek Harness Team",
+  "keywords": [
+    "dsh",
+    "electron",
+    "jsonrpc",
+    "agent",
+    "deepseek",
+    "harness"
+  ],
+  "main": "src/main/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}
