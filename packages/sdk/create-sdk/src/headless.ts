@@ -15,7 +15,7 @@ import type { CreateArgs } from './args.ts'
  * (the interactive tree/suggests prompts are skipped). Absent required answers make
  * the run fail loud through `HeadlessPromptPort` rather than blocking.
  */
-export interface HeadlessCreateSpec {
+interface HeadlessCreateSpec {
   directory?: string
   description?: string
   provider?: 'deepseek' | 'custom'
@@ -43,7 +43,7 @@ function asRecord(value: unknown, source: string): Record<string, unknown> {
 }
 
 /** Parse and shallow-validate a headless spec from JSON text. */
-export function parseHeadlessSpec(text: string, source: string): HeadlessCreateSpec {
+function parseHeadlessSpec(text: string, source: string): HeadlessCreateSpec {
   let parsed: unknown
   try {
     parsed = JSON.parse(text)

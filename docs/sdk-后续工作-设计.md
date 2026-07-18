@@ -1,6 +1,7 @@
 # DeepSeek Harness SDK 后续工作设计
 
 > 状态：设计成稿，供通读与评审。定案后由 ccyu 转正式 RFC 并双语化。本文件为临时设计文档，不走 doc-sync / 文档预算门禁。
+>
 > 一句话：**SDK 初版已合并；本轮把"创建项目""创建插件""遥测""交互测试"四块补齐，核心是抽出一个既撑交互又撑 headless 的创建内核，其余三块围绕它扩展。**
 
 ## 0. 总览（一屏读完）
@@ -134,6 +135,7 @@ SDK 初版（`packages/sdk/*`）已经落地三个包：
 - **consent 承载**：遥测作为 `create` 时默认打开的 feature 写进 cordis.yml（对用户可见、随项目）。
 
 > **接线现状（读码修正）**：launcher 上报已接通——`runDshSdkCommand` 计时包住每条命令，`finally` 里 resolve consent（甲）→ 建 redacted payload（cordis.yml+package.json 全文、不读 .env）→ fire-and-forget 上报 + flush，best-effort 永不影响命令结果。**默认开**：无遥测条目 → 甲 → 上报。**opt-out 现状**：在 cordis.yml 手动加一条 `disabled` 的 `@deepseek-ai/dsh-telemetry` 条目即关（`ConsentResolver` 读到 disabled → 不报；disabled 条目 cordis 不加载，故不会因"它不是运行时插件"而 boot 失败）。
+>
 > **暂缓（催表 opt-out 开关）**：把"关遥测"做成 config/create 向导里的勾选项还没做。关键约束：`@deepseek-ai/dsh-telemetry` 是 **launcher 库、不是 cordis 运行时插件**，所以 consent 条目只能以 **disabled 形态**存在（enabled=无条目=甲默认报；要关才写 disabled 条目），不能像普通 feature 那样挂一个 enabled 的可 boot 条目。向导化这个"只在关闭时才出现条目"的特殊语义留作后续。
 
 **在案取舍**：发全文会把第三方（含私有 scoped）包名、cordis 配置值（base-url/路径）暴露给 endpoint 持有方；主流工具都不发这些（Turbo 排除包名、Angular 禁模块名）。ccyu 作为本 SDK 维护者接受此暴露——目的即掌握开发者用了哪些 plugin/依赖/配置。
