@@ -1562,7 +1562,7 @@ describe('workspace context request injection', () => {
 })
 
 describe('dynamic nested workspace context injection', () => {
-  it('re-arms a buffered instruction change when a later tool aborts the step before context append', async () => {
+  it('commits a buffered instruction change before a later tool abort closes the step', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     const ctx = new Context()
@@ -1604,12 +1604,14 @@ describe('dynamic nested workspace context injection', () => {
 
       agent.send([{ type: 'text', text: 'read and abort' }])
       await agent.whenIdle()
-      expect(agent.session.events.filter(event => event.type === 'context/message')).toHaveLength(0)
+      expect(agent.session.events.filter(event => event.type === 'context/message')).toHaveLength(1)
 
       agent.send([{ type: 'text', text: 'retry the read' }])
       await agent.whenIdle()
 
       const contexts = agent.session.events.filter(event => event.type === 'context/message')
+      // The aborted batch drained its accepted context before step close, so the
+      // retry sees durable history without producing a duplicate instruction.
       expect(contexts).toHaveLength(1)
       expect(adapter.requests).toHaveLength(3)
       expect(adapter.requests[2]?.messages.map(blocks => blocksText(blocks.content)).join('\n'))

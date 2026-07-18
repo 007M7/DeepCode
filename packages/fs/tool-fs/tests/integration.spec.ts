@@ -384,6 +384,33 @@ describe('signal, concurrency, and the fs/observed contract', () => {
     expect(onDisk === 'ONE value here' || onDisk === 'base TWO here').toBe(true)
   })
 
+  it('a stale observed version from an older read fails closed at edit CAS', async () => {
+    await writeFile(join(dir, 'a.txt'), 'older content\n')
+    const target = await ctx.fs.resolve('a.txt')
+    const firstInfo = await ctx.fs.stat(target)
+    if (!firstInfo) throw new Error('expected first stat')
+
+    expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
+
+    await writeFile(join(dir, 'a.txt'), 'newer current content\n')
+    const secondInfo = await ctx.fs.stat(target)
+    if (!secondInfo) throw new Error('expected second stat')
+    expect(secondInfo.version).not.toBe(firstInfo.version)
+    expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
+
+    // Reproduce an older concurrent read winning the observation race.
+    ctx.emit('fs/observed', target, firstInfo.version, { agent: { session } })
+
+    const edit = await callOwned('edit', {
+      file_path: 'a.txt',
+      old_string: 'newer',
+      new_string: 'edited',
+    })
+    expect(edit.isError).toBe(true)
+    expect(edit.error).toMatchObject({ code: 'FS_STALE_VERSION' })
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('newer current content\n')
+  })
+
   it('a throwing fs/observed listener surfaces as isError, but the mutation already hit disk', async () => {
     // fs/observed is a plain ctx.emit after the write succeeded; a throwing listener cannot
     // roll the write back — it only turns the tool result into isError.

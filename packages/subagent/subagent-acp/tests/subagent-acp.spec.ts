@@ -21,8 +21,6 @@ import { acpStopReason, acpContentText, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DI
  */
 
 const mockServer = fileURLToPath(new URL('./mock-acp-server.ts', import.meta.url))
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
-const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 
 /** A throwaway parent Agent — the ACP backend ignores it, but the seam requires one. */
 const fakeParent = { id: 'parent', session: { header: {} } } as unknown as Agent
@@ -46,11 +44,9 @@ async function setup(mockEnv: SetupEnv = {}, permission: 'allow' | 'reject' = 'r
   await ctx.plugin(acp, {
     providerName: 'acp',
     command: process.execPath,
-    args: ['--import', tsxLoader, mockServer],
+    args: [mockServer],
     permission,
-    // The mock-server scripting vars must reach the child; TSX_TSCONFIG_PATH lets
-    // tsx resolve @deepseek-ai/* from a child cwd outside the repo.
-    env: { ...mockEnv, TSX_TSCONFIG_PATH: repoTsconfig },
+    env: mockEnv,
   })
   return ctx
 }
@@ -197,10 +193,10 @@ describe('dsh-subagent-acp', () => {
     try {
       const spec: AcpRunSpec = {
         command: process.execPath,
-        args: ['--import', tsxLoader, mockServer],
+        args: [mockServer],
         cwd: process.cwd(),
         permission: 'reject',
-        env: { MOCK_TRAP_SIGTERM: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready, TSX_TSCONFIG_PATH: repoTsconfig },
+        env: { MOCK_TRAP_SIGTERM: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready },
         // Short on BOTH tiers: the trap ignores EOF and SIGTERM, so dispose must
         // burn the EOF window, then the SIGTERM window, then SIGKILL — keep each
         // small so the whole ladder finishes well within the 4000ms bound.
@@ -240,7 +236,7 @@ describe('dsh-subagent-acp', () => {
     try {
       const spec: AcpRunSpec = {
         command: process.execPath,
-        args: ['--import', tsxLoader, mockServer],
+        args: [mockServer],
         cwd: process.cwd(),
         permission: 'reject',
         // MOCK_HANG so the prompt never resolves on its own — we tear down a live
@@ -249,7 +245,7 @@ describe('dsh-subagent-acp', () => {
         // wider grace.
         env: {
           MOCK_HANG: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready,
-          MOCK_FLUSH_ON_EOF: flushed, MOCK_FLUSH_DELAY_MS: '400', TSX_TSCONFIG_PATH: repoTsconfig,
+          MOCK_FLUSH_ON_EOF: flushed, MOCK_FLUSH_DELAY_MS: '400',
         },
         disposeEofGraceMs: 2000,
         disposeGraceMs: 50,
@@ -280,12 +276,12 @@ describe('dsh-subagent-acp', () => {
     try {
       const spec: AcpRunSpec = {
         command: process.execPath,
-        args: ['--import', tsxLoader, mockServer],
+        args: [mockServer],
         cwd: process.cwd(),
         permission: 'reject',
         env: {
           MOCK_HANG: '1', MOCK_IGNORE_EOF: '1', MOCK_TEXT: 'x',
-          MOCK_READY_FILE: ready, MOCK_SIGTERM_FILE: sigterm, TSX_TSCONFIG_PATH: repoTsconfig,
+          MOCK_READY_FILE: ready, MOCK_SIGTERM_FILE: sigterm,
         },
         // Tiny EOF grace so the ignored-EOF window elapses fast, then SIGTERM.
         disposeEofGraceMs: 150,
@@ -404,9 +400,9 @@ describe('dsh-subagent-acp', () => {
       await ctx.plugin(acp, {
         providerName: 'acp',
         command: process.execPath,
-        args: ['--import', tsxLoader, mockServer],
+        args: [mockServer],
         permission: 'reject',
-        env: { MOCK_TRAP_SIGTERM: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready, TSX_TSCONFIG_PATH: repoTsconfig },
+        env: { MOCK_TRAP_SIGTERM: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready },
         disposeEofGraceMs: 150,
         disposeGraceMs: 150,
       })
@@ -455,10 +451,10 @@ describe('dsh-subagent-acp', () => {
       request(),
       {
         command: process.execPath,
-        args: ['--import', tsxLoader, mockServer],
+        args: [mockServer],
         cwd: process.cwd(),
         permission: 'reject',
-        env: { MOCK_CRASH_ON_PROMPT: '1', TSX_TSCONFIG_PATH: repoTsconfig },
+        env: { MOCK_CRASH_ON_PROMPT: '1' },
         disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
         disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
         onError: (error, stopReason) => { errors.push({ message: error.message, stopReason }) },
@@ -493,10 +489,10 @@ describe('dsh-subagent-acp', () => {
       request(),
       {
         command: process.execPath,
-        args: ['--import', tsxLoader, mockServer],
+        args: [mockServer],
         cwd: process.cwd(),
         permission: 'reject',
-        env: { MOCK_CRASH_ON_PROMPT: '1', TSX_TSCONFIG_PATH: repoTsconfig },
+        env: { MOCK_CRASH_ON_PROMPT: '1' },
         disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
         disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
         onError: () => { throw new Error('sink boom') },
