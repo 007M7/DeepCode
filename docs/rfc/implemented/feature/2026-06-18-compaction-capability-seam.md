@@ -8,7 +8,7 @@ A long-running agent conversation grows without bound. As the event log accumula
 
 The [session surface](../../implemented/architecture/2026-06-18-session-surface.md) was built as the foundation for exactly this — an ordered projection over the event log with a `surfaceOp: { op: 'replace', start, end }` operation purpose-built to shadow a range of entries and insert a replacement, with `sourceEventSeqs` recording provenance so the decision replays deterministically. What remained was the plugin that *decides what to compact and produces the summary*.
 
-Two forces shape the design. First, compaction is **swappable**: token counting can be a char/4 heuristic or a real tokenizer, and summarization can be a model call, a template, or a remote service — these vary independently of *when* and *which range* to compact. Second, `SurfaceEventType` is closed to five event types (`user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`); only those may carry `surfaceOp`. A bespoke `compaction/*` event therefore **cannot** itself appear on the surface — the compiler rejects `surfaceOp` on it and the invariants plugin rejects it at runtime.
+Two forces shape the design. First, compaction policy and reusable token measurement vary independently: measurement belongs to the LLM-family [`ctx.tokenMeter` service](../../implemented/architecture/2026-07-15-replay-token-meter-service.md), while summarization can be a model call, a template, or a remote service. Second, `SurfaceEventType` is closed to five event types (`user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`); only those may carry `surfaceOp`. A bespoke `compaction/*` event therefore **cannot** itself appear on the surface — the compiler rejects `surfaceOp` on it and the invariants plugin rejects it at runtime.
 
 ## Decision
 
@@ -17,20 +17,20 @@ Two forces shape the design. First, compaction is **swappable**: token counting 
 Per the [capability-seams RFC](../../implemented/architecture/2026-06-13-capability-seams.md), compaction ships as separate packages so the contract, the algorithm, and (later) the consumer surface evolve independently:
 
 1. **Interface** — `@deepseek-ai/dsh-compact`: an abstract `CompactService` owning the `ctx.compact` key, the `CompactionResult` vocabulary, and the `compact/*` session events. It declares `compactIfNeeded()` and `compactRegion()` as **abstract** — the contract states *what* compaction does, not *how*.
-2. **Implementation** — `@deepseek-ai/dsh-compact-basic`: a concrete `BasicCompactService` that owns the entire algorithm — token estimation (chars per token — the `charsPerToken` config, default 4 — + per-block overhead), the tail→head retention walk, summarization via `ctx.llm.stream()`, the surface replacement, the lock, and the `agent/pre-step` auto-compaction listener. A tokenizer-based or template-based backend is a sibling package (or a subclass overriding the two protected estimation/summarization hooks).
+2. **Implementation** — `@deepseek-ai/dsh-compact-basic`: a concrete `BasicCompactService` that consumes `ctx.tokenMeter` and owns the tail→head retention walk, summarization via `ctx.llm.stream()`, the surface replacement, the lock, and the `agent/pre-step` auto-compaction listener. `summarize()` is its sole subclass hook; pricing and replay stay with the meter.
 3. **Consumer** — deferred. A `/compact` tool and slash command will `inject: ['compact']` and call the contract; they are intentionally out of scope here so the seam settles first.
 
 ### The contract depends on `dsh-session` and `dsh-llm` — a deliberate deviation
 
-The capability-seams RFC states the interface package "depends only on cordis" (true of `dsh-bash`, whose vocabulary is self-contained). Compaction **cannot** honor that: its verbs act on an agent-owned `Session` (`compactRegion(start, end, agent)`) and the durable `compact/summary` event carries `ContentBlock[]`. There is no way to express the contract without naming `Session`/`SessionEvent` (from `dsh-session`) and `ContentBlock` (from `dsh-llm`).
+The capability-seams RFC states the interface package "depends only on cordis" (true of `dsh-bash`, whose vocabulary is self-contained). Compaction **cannot** honor that: its verbs act on an agent-owned `Session` (`compactRegion(start, end, agent)`) and its output uses the content vocabulary (`CompactionResult.summary: ContentBlock[]`). There is no way to express the contract without naming `Session`/`SessionEvent` (from `dsh-session`) and `ContentBlock` (from `dsh-llm`).
 
 This is not a coupling smell — it is the contract's domain. The "only cordis" guidance was always shorthand for "the interface depends only on what the contract genuinely names, and never on an implementation." `dsh-session` and `dsh-llm` are themselves interface/vocabulary packages, not implementations; `dsh-compact` still imports no backend. The seam's real invariant — *consumers and implementations evolve independently behind an abstract service* — holds intact.
 
 ### Abstract `compactIfNeeded` / `compactRegion`, algorithm in the backend
 
-An earlier draft put the full algorithm (the retention walk, token-summing, text extraction) as concrete methods on the interface, with only `estimateContentTokens()` and `summarize()` abstract. That recouples the contract to one strategy: a backend that wants a different retention policy or a different event-sequencing would have to fight inherited concrete code. Making both core methods abstract puts every *how* decision in the backend, where it belongs, and keeps the interface a pure statement of *what*. The backend remains internally factored — `estimateContentTokens()` and `summarize()` are `protected` hooks a sub-backend can override without reimplementing the walk — but that factoring is the backend's private concern, not the contract's.
+An earlier draft put the full algorithm (the retention walk, token-summing, text extraction) as concrete methods on the interface. That recouples the contract to one strategy: a backend that wants a different retention policy or event sequence would have to fight inherited concrete code. Making both core methods abstract puts every *how* decision in the backend and keeps the interface a statement of *what*. Token measurement is not a compaction hook at all; the singleton service lets multiple consumers share one per-session replay fold.
 
-`compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)` takes required inputs from the auto-compaction seam: the agent, assembled system prompt, composed request prefix, and turn abort signal. `compactRegion(start, end, agent, signal?)` uses `agent.session` as its single session identity and keeps an optional signal for manual callers. The backend's summarization request is a direct `ctx.llm.stream()` call; the configured summarization model falls back to the agent's model, and adapters can still route through the LLM seam.
+`compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)` takes required pressure inputs and cancellation. `compactRegion(start, end, agent, signal?)` uses `agent.session` as its single session identity and keeps an optional signal for manual callers. The pre-step integration resolves a provisional provider/model pair from the latest logged request header, then `AgentOptions`; a model-less router-only first step skips pressure because `agent/request` can route later. The default summarizer resolves its target from explicit config, the latest logged routed target, then agent options.
 
 ### Auto-compaction runs on `agent/pre-step`, a dedicated surface-mutation seam
 
@@ -40,7 +40,7 @@ The fix is a dedicated loop seam, **`agent/pre-step`** (`@mode serial`), fired b
 
 ```
 assembly = ctx.systemPrompt.assemble()
-await ctx.serial('agent/pre-step', agent, turn, step, system, signal)  ⟵ compaction mutates the surface here
+await ctx.serial('agent/pre-step', agent, turn, step, system, prefix, signal)  ⟵ compaction mutates the surface here
 session('step/start')                 ⟵ the step opens AFTER the seam
 messages = session.deriveMessages()   ⟵ single derive, reflects the compaction
 request  = waterfall agent/request    ⟵ pure request transform (hooks, model switch)
@@ -52,7 +52,7 @@ The loop derives messages once after `agent/pre-step`. Running before `step/star
 
 Auto-compaction fires before **every** step, not once per turn. This is **load-bearing for runaway-turn survival**: a tool-heavy ReAct turn appends an `assistant/message` + a `tool/result` per step, so the surface grows *within* a turn. A single turn can grow past the window on its own (a "runaway turn") — and the only moment to rescue it before the next model call overflows is the next step's `pre-step` checkpoint. Gating compaction to a turn's first step (or, worse, retaining the whole in-flight turn verbatim) re-opens exactly the hole compaction exists to close: the harness would die when compaction is most needed.
 
-`compactIfNeeded` retains the smallest tail of whole surface units whose estimated size reaches `retainTokens` and compacts older nodes. A unit is a complete closed step or one no-step message. If the token cutoff lands inside a step, retention expands until the cut is tool-pairing balanced. Balance is checked on surface order, not log sequence, because replacement summaries have new sequence numbers at old surface positions. `compactRegion` rejects boundaries that split a tool call from its result. The in-flight turn receives no special retention.
+`compactIfNeeded` retains the smallest tail of whole surface units whose estimated size reaches `retainTokens` and compacts older nodes. A unit is a complete closed step or one no-step message. If the token cutoff lands inside a step, retention expands until the cut is tool-pairing balanced. Balance is checked on surface order, not log sequence, because replacement summaries have new sequence numbers at old surface positions. `dsh-compact` exports the before/after edge helpers; their per-session cache folds only appended surface-tail nodes while `replaceGeneration` is unchanged, does no event reads for log-only growth, and rebuilds current membership and balances after replacement. `compactRegion` rejects boundaries that split a tool call from its result. The in-flight turn receives no special retention.
 
 A runaway turn thus compacts exactly like any other history: its early *closed* steps get summarized while its recent steps stay verbatim. When the only compactable content left is an un-splittable open tail step (its tool-calls have no results yet), compaction declines (`null`) and retries once that step closes.
 
@@ -64,7 +64,7 @@ Auto-compaction always starts at the surface head, merging the prior checkpoint 
 
 ### Approximate convergence invariant
 
-`resolveConfig` validates numeric knobs but does NOT reject based on a pretend summary-length invariant. Convergence is dynamic: provider output caps can be spent on hidden or surfaced reasoning tokens, and the model may emit a summary of unpredictable size. `maxTokens` is only the provider-side generation cap for the summarization call; reasoning blocks are stripped before the checkpoint is stored. If a compacted surface is still over threshold, `compactIfNeeded()` re-compacts the head checkpoint up to `compactionRetries` extra times, but each committed summary must be smaller than the content it shadows. The sole residual is the single-unit-overflow case above (a backward-rounded oversized step can push the retained tail over budget) — which is exactly the out-of-scope concern, not a thrash bug.
+`resolveConfig` supplies usable defaults: threshold ratio `0.8`, retained tail `floor(contextWindow × 0.16)`, empty summarization-model override, `maxTokens: 8192`, `compactionRetries: 1`, and `auto: true`. Optional top-level `thresholdRatio` and `retainTokens` override the policy for the token meter's single context window; retention must remain below the resulting threshold. Convergence remains dynamic because provider output caps can be spent on hidden or surfaced reasoning tokens and summary size is unpredictable. If the compacted surface remains over threshold, `compactIfNeeded()` re-compacts the head checkpoint up to the configured retry count, but each committed summary must be smaller than what it shadows.
 
 ### Surface replacement: `compact/*` events are log-only; one `user/message` carries the summary
 
@@ -103,19 +103,19 @@ Two failure paths, both documented:
 
 ## Alternatives considered
 
-- **The full algorithm as concrete interface methods** (only estimation/summarization abstract) — the earlier draft; rejected because it recouples the contract to one retention strategy. Both core methods are abstract; the `protected` estimation/summarization hooks are the backend's private factoring, not the contract's.
+- **The full algorithm as concrete interface methods** — rejected because it recouples the contract to one retention strategy. Both core methods are abstract; reusable measurement is a separate LLM-family service and `summarize()` is basic's sole hook.
 - **Compaction on the `agent/request` waterfall** — the earlier cut; rejected for the double-derive it forced and for handing the listener context it structurally cannot compact. The dedicated `agent/pre-step` seam makes the layering correct by construction.
 - **A separate `compact/error` event** — rejected: `compact/end` keeps an `error?` field, mirroring `tool/result`'s self-contained error — one event tells success from failure without correlating a sibling.
 - **Teaching core turn-repair about `compact/*`** — rejected: the log-only orphan is inert, and a core module patched for every future `xxx/start … xxx/end` plugin pair is exactly the coupling the capability-seam architecture exists to avoid.
 
 ## Consequences
 
-- **New packages**: `packages/compact/compact` (interface) and a sibling `compact-basic` (backend) under `packages/compact/`, wired into the root tsconfigs. The consumer tier is deferred.
+- **Packages**: `packages/compact/compact` supplies the interface and `compact-basic` supplies the backend. `packages/llm/token-meter` owns replay-aware measurement independently. The consumer tier is deferred.
 - **New loop seam**: `agent/pre-step` (`@mode serial`) declared in `dsh-agent` and emitted by `dsh-agent-loop` after system assembly and before `step/start`. This is a documented change to the loop — `docs/architecture.md` records it and the generated cordis catalog carries its signature.
 - **`SessionEventMap`** gains `compact/start` / `compact/summary` / `compact/end` by declaration merging (merge-extensible); `SurfaceEventType` is **not** touched. These are session events, not cordis `Events`, so the event-taxonomy gate needs no entry.
-- **`dsh-session`** gains the tool-pairing balance predicate (`isToolPairingBalanced`, in `tool-pairing.ts`, exported from the package index) that `compactRegion`/`compactIfNeeded` use to keep a collapsed region from splitting a step's tool-call/result pair. The surface `replace` op and the surface-metadata runtime guard already existed and are reused.
+- **`dsh-compact`** owns `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)`, the cached surface-edge checks that `compactRegion` and `compactIfNeeded` use to avoid splitting a tool-call/result pair. The cache validates current membership by seq and answers both edges from one per-cut balance sequence; stale or missing seqs and orphan results reject. `dsh-session` continues to own the surface `replace` operation, ordered event sequences, and rewrite generation.
 - **`dsh-invariants`** drops its `surface replace: start must be <= end` assertion: a head-anchored compaction lands a high-seq replacement entry at an older range's *position*, so `start > end` numerically is normal and valid (the range is positional, validated by the surface's `indexOf` checks that remain). The turn-enclosure invariant is reused unchanged.
-- **Wiring**: `dsh-compact-basic` is loaded in `examples/coding-agent`'s `cordis.yml`, so the seam ships in the real demo (it was previously loaded nowhere).
+- **Wiring**: `examples/coding-agent/cordis.yml` loads zero-config `dsh-token-meter` before `dsh-compact-basic`; the service-wide window and compact defaults make the pair usable without repeated numeric policy.
 
 ## Testing
 

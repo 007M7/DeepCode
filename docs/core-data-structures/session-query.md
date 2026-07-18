@@ -1,6 +1,6 @@
 # Session Query
 
-Exact reads over the live-preferred logical session corpus. The [package contract](../../packages/session-query/session-query) owns source precedence, dynamic optional persistence, cloning, surface classification, bounded windows, and typed failures. Full-text search is a separate proposed SQLite phase.
+Exact reads and relationship traces over the live-preferred logical session corpus. The [package contract](../../packages/session-query/session-query) owns source precedence, dynamic optional persistence, cloning, surface classification, bounded windows, tracing validation, and typed failures. Full-text search is a separate proposed SQLite package.
 
 Source: [`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
 
@@ -30,6 +30,34 @@ export interface SessionEventRecord {
 }
 ```
 
+## Session lineage
+
+`SessionLineageTrace` carries known parents in immediate-to-outward order and a forest of recursively nested direct descendants. The completeness discriminant makes a known root and a missing parent mutually exclusive.
+
+```ts type-equiv
+export interface SessionLineageNode {
+  session: SessionRecord
+  descendants: SessionLineageNode[]
+}
+```
+
+```ts type-equiv
+export type SessionLineageTrace = {
+  target: SessionRecord
+  ancestors: SessionRecord[]
+  descendants: SessionLineageNode[]
+} & (
+  | {
+    complete: true
+    root: SessionRecord
+  }
+  | {
+    complete: false
+    unresolvedParentId: SessionId
+  }
+)
+```
+
 ## Bounded event reads
 
 The request addresses one raw seq and optional neighboring counts. The result carries a `SessionHeader` rather than availability flags so a known live target can remain independent of persistence health.
@@ -53,6 +81,28 @@ export interface SessionEventWindow {
 }
 ```
 
+## Event relationships
+
+Event traces distinguish positional surface replacement from logged provenance. Every seq list contains direct links except `replacementChain`, which follows immediate replacers from the target to the final positional replacement.
+
+```ts type-equiv
+export interface SessionEventTraceRequest {
+  sessionId: SessionId
+  seq: number
+}
+```
+
+```ts type-equiv
+export interface SessionEventTrace {
+  target: SessionEventRecord
+  replacedBy?: number
+  replacementChain: number[]
+  replacedEventSeqs: number[]
+  sourceEventSeqs: number[]
+  derivedEventSeqs: number[]
+}
+```
+
 ## Errors
 
 The closed code union distinguishes request validation, missing targets, malformed surface logs, optional-backend failure, and contradictory source metadata.
@@ -61,6 +111,7 @@ The closed code union distinguishes request validation, missing targets, malform
 export type SessionQueryErrorCode =
   | 'SESSION_QUERY_EVENT_NOT_FOUND'
   | 'SESSION_QUERY_INVALID_CONFIG'
+  | 'SESSION_QUERY_INVALID_LINEAGE'
   | 'SESSION_QUERY_INVALID_SURFACE'
   | 'SESSION_QUERY_INVALID_WINDOW'
   | 'SESSION_QUERY_PERSISTENCE_FAILED'

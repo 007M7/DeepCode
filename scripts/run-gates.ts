@@ -24,6 +24,7 @@ type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
 interface Gate {
   id: string
   label: string
+  displayCommand: string
   command: string
   args: string[]
   needs?: string[]
@@ -38,8 +39,14 @@ interface GateResult {
   durationMs: number
   stdout: string
   stderr: string
+  output: GateOutputChunk[]
   exitCode: number | null
   error?: string
+}
+
+interface GateOutputChunk {
+  stream: 'stdout' | 'stderr'
+  text: string
 }
 
 interface RunningGate {
@@ -47,13 +54,24 @@ interface RunningGate {
   promise: Promise<GateResult>
 }
 
+interface ConcurrencyDefault {
+  workers: number
+  source: string
+}
+
 const root = resolve(import.meta.dirname, '..')
 const mode = parseMode(process.argv[2])
 const gates = gatesForMode(mode)
-const maxConcurrency = concurrencyFromEnv('DSH_GATE_CONCURRENCY', defaultConcurrency(gates.length))
+const concurrencyDefault = defaultConcurrency(mode, gates.length)
+const concurrencyOverride = process.env.DSH_GATE_CONCURRENCY
+const maxConcurrency = concurrencyFromEnv('DSH_GATE_CONCURRENCY', concurrencyDefault.workers)
+const verbose = process.env.DSH_GATE_VERBOSE === '1'
 const startedAt = performance.now()
 
-console.log(`run-gates: ${mode} running ${gates.length} gate(s) with ${maxConcurrency} worker(s).`)
+const concurrencySource = concurrencyOverride === undefined || concurrencyOverride === ''
+  ? concurrencyDefault.source
+  : '$DSH_GATE_CONCURRENCY'
+console.log(`run-gates: ${mode} running ${gates.length} gate(s) with ${maxConcurrency} worker(s) from ${concurrencySource}.`)
 
 const results = await runGates(gates, maxConcurrency)
 printSummary(results, performance.now() - startedAt)
@@ -78,8 +96,15 @@ function parseMode(raw: string | undefined): Mode {
   }
 }
 
-function defaultConcurrency(total: number): number {
-  return Math.min(total, Math.max(4, availableParallelism()))
+function defaultConcurrency(selectedMode: Mode, total: number): ConcurrencyDefault {
+  const available = availableParallelism()
+  const modeLimit = selectedMode === 'pre-push' ? Math.min(4, available) : available
+  return {
+    workers: Math.min(total, modeLimit),
+    source: selectedMode === 'pre-push'
+      ? `${available} available CPU(s), pre-push cap 4`
+      : `${available} available CPU(s)`,
+  }
 }
 
 function concurrencyFromEnv(name: string, fallback: number): number {
@@ -96,6 +121,7 @@ function pnpmScript(id: string, script: string, options: Partial<Gate> = {}): Ga
   return {
     id,
     label: options.label ?? script,
+    displayCommand: `pnpm run ${script}`,
     ...pnpmInvocation(['run', script]),
     ...options,
   }
@@ -105,6 +131,7 @@ function pnpmExec(id: string, args: string[], options: Partial<Gate> = {}): Gate
   return {
     id,
     label: options.label ?? `pnpm exec ${args.join(' ')}`,
+    displayCommand: `pnpm exec ${args.join(' ')}`,
     ...pnpmInvocation(['exec', ...args]),
     ...options,
   }
@@ -162,7 +189,10 @@ function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('snapshot', 'test:snapshot'),
         pnpmScript('build', 'build'),
         ...hygieneLeafGates({ artifactNeeds: ['build'] }),
-        ...docSyncLeafGates(),
+        ...docSyncLeafGates({
+          docTypecheckNeeds: ['build'],
+          docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+        }),
         pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
       ]
   }
@@ -182,6 +212,7 @@ function ciPrimaryGates(): Gate[] {
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
+    pnpmScript('website-build', 'website:build', { label: 'website build' }),
     pnpmScript('build', 'build', { needs: ['typecheck'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
@@ -201,6 +232,7 @@ function ciStaticGates(): Gate[] {
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
+    pnpmScript('website-build', 'website:build', { label: 'website build' }),
   ]
 }
 
@@ -275,9 +307,15 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
   ]
 }
 
-function docSyncLeafGates(): Gate[] {
+function docSyncLeafGates(options: {
+  docTypecheckNeeds?: string[]
+  docTypecheckEnv?: Record<string, string | undefined>
+} = {}): Gate[] {
+  const docTypecheckOptions: Partial<Gate> = {}
+  if (options.docTypecheckNeeds !== undefined) docTypecheckOptions.needs = options.docTypecheckNeeds
+  if (options.docTypecheckEnv !== undefined) docTypecheckOptions.env = options.docTypecheckEnv
   return [
-    pnpmScript('doc-typecheck', 'doc-typecheck'),
+    pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions),
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
     pnpmScript('tool-catalog', 'verify-tool-catalog', { label: 'tool catalog' }),
@@ -285,6 +323,7 @@ function docSyncLeafGates(): Gate[] {
     pnpmScript('persistence-catalog', 'verify-persistence-catalog', { label: 'persistence catalog' }),
     pnpmScript('doc-graphs', 'verify-doc-graphs', { label: 'doc graphs' }),
     pnpmScript('scoped-events', 'verify-scoped-events', { label: 'scoped events' }),
+    pnpmScript('website-api', 'verify-website-api', { label: 'website api' }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap' }),
     pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
@@ -298,6 +337,7 @@ function docSyncLeafGates(): Gate[] {
     pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),
     pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets' }),
     pnpmScript('package-readme-limitations', 'verify-package-readme-limitations', { label: 'package README limitations' }),
+    pnpmScript('website-yaml', 'verify-website-yaml', { label: 'website yaml' }),
   ]
 }
 
@@ -306,6 +346,7 @@ function demoSmokeGate(options: { needs?: string[] } = {}): Gate {
   return {
     id: 'demo-smoke',
     label: 'demo smoke',
+    displayCommand: 'pnpm run demo:echo',
     ...pnpmInvocation(['run', 'demo:echo']),
     input: 'echo ci smoke\n',
     ...dependencyOptions,
@@ -383,6 +424,7 @@ async function runGates(allGates: Gate[], maxActive: number): Promise<GateResult
           durationMs: 0,
           stdout: '',
           stderr: '',
+          output: [],
           exitCode: null,
           error: `dependency failed or skipped: ${failedDeps.join(', ')}`,
         }
@@ -417,8 +459,10 @@ async function runGate(gate: Gate): Promise<GateResult> {
   const started = performance.now()
   let stdout = ''
   let stderr = ''
+  const output: GateOutputChunk[] = []
+  let spawnError: string | undefined
 
-  const exitCode = await new Promise<number | null>((resolveExit, reject) => {
+  const exitCode = await new Promise<number | null>((resolveExit) => {
     const child = spawn(gate.command, gate.args, {
       cwd: root,
       env: { ...process.env, ...gate.env },
@@ -426,19 +470,28 @@ async function runGate(gate: Gate): Promise<GateResult> {
     })
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => { stdout += chunk })
-    child.stderr.on('data', (chunk: string) => { stderr += chunk })
-    child.on('error', reject)
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk
+      output.push({ stream: 'stdout', text: chunk })
+    })
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk
+      output.push({ stream: 'stderr', text: chunk })
+    })
+    child.on('error', (error) => {
+      spawnError = `failed to start command: ${error.message}`
+      resolveExit(null)
+    })
     child.on('close', resolveExit)
     if (gate.input !== undefined) child.stdin.end(gate.input)
     else child.stdin.end()
   })
 
-  let status: GateStatus = exitCode === 0 ? 'passed' : 'failed'
-  let error: string | undefined
+  let status: GateStatus = exitCode === 0 && spawnError === undefined ? 'passed' : 'failed'
+  let error = spawnError
   if (status === 'passed' && gate.verify !== undefined) {
     try {
-      await gate.verify({ gate, status, durationMs: performance.now() - started, stdout, stderr, exitCode })
+      await gate.verify({ gate, status, durationMs: performance.now() - started, stdout, stderr, output, exitCode })
     } catch (verifyError: unknown) {
       status = 'failed'
       error = verifyError instanceof Error ? verifyError.message : String(verifyError)
@@ -451,6 +504,7 @@ async function runGate(gate: Gate): Promise<GateResult> {
     durationMs: performance.now() - started,
     stdout,
     stderr,
+    output,
     exitCode,
   }
   if (error !== undefined) result.error = error
@@ -459,9 +513,16 @@ async function runGate(gate: Gate): Promise<GateResult> {
 
 function printResult(result: GateResult): void {
   const seconds = (result.durationMs / 1000).toFixed(2)
-  console.log(`\n== ${result.status.toUpperCase()} ${result.gate.label} (${seconds}s) ==`)
-  process.stdout.write(result.stdout)
-  process.stderr.write(result.stderr)
+  if (result.status === 'passed' && !verbose) {
+    console.log(`run-gates: PASS ${result.gate.label} (${seconds}s)`)
+    return
+  }
+
+  const heading = `${result.status.toUpperCase()} ${result.gate.label} (${seconds}s)`
+  const writeHeading = result.status === 'passed' ? console.log : console.error
+  writeHeading(`\n== ${heading} ==`)
+  if (result.status !== 'passed') console.error(`command: ${result.gate.displayCommand}`)
+  printOutput(result.output)
   if (result.error !== undefined) console.error(result.error)
 }
 
@@ -471,4 +532,22 @@ function printSummary(results: GateResult[], durationMs: number): void {
   const skipped = results.filter(result => result.status === 'skipped').length
   const seconds = (durationMs / 1000).toFixed(2)
   console.log(`\nrun-gates: ${passed} passed, ${failed} failed, ${skipped} skipped in ${seconds}s.`)
+
+  const unsuccessful = results.filter(result => result.status === 'failed' || result.status === 'skipped')
+  if (unsuccessful.length === 0) return
+
+  console.error('run-gates: unsuccessful gates:')
+  for (const result of unsuccessful) {
+    const duration = (result.durationMs / 1000).toFixed(2)
+    const reason = result.error ?? (result.exitCode === null ? 'no exit code' : `exit ${result.exitCode}`)
+    console.error(`  - ${result.status.toUpperCase()} ${result.gate.label} (${duration}s, ${reason})`)
+    console.error(`    ${result.gate.displayCommand}`)
+  }
+}
+
+function printOutput(output: GateOutputChunk[]): void {
+  for (const chunk of output) {
+    if (chunk.stream === 'stdout') process.stdout.write(chunk.text)
+    else process.stderr.write(chunk.text)
+  }
 }

@@ -17,6 +17,7 @@ import z from 'schemastery'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
+import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
@@ -26,7 +27,7 @@ export const name = 'stdio-demo'
 
 /**
  * App config: the swappable per-demo values, each routed to where the app wires
- * it. `model`/`resumeSessionId` configure the pre-created agent (through
+ * it. `provider`/`model`/`resumeSessionId` configure the pre-created `main` agent (through
  * {@link @deepseek-ai/dsh-agent-spine-demo}'s forwarded `agents` list); `persona` is
  * the deployment persona (forwarded to the system-prompt plugin); `toolOrder`
  * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
@@ -35,7 +36,9 @@ export const name = 'stdio-demo'
  * `welcome` is the UI banner.
  */
 export interface Config {
-  /** Model name for the pre-created agent (must have a registered adapter). */
+  /** Provider route for the `main` agent. */
+  provider: string
+  /** Model name for the `main` agent (must have a registered adapter). */
   model: string
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
@@ -43,6 +46,8 @@ export interface Config {
   toolOrder?: string[]
   /** Tool-registry config — its presentation `mode` (forwarded through agent-spine-demo; see dsh-tools). */
   tools?: ToolsConfig
+  /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
+  dshHome?: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
@@ -59,9 +64,12 @@ export interface Config {
    * (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`).
    */
   resumeSessionId?: string
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
 }
 
 export const Config: z<Config> = z.object({
+  provider: z.string().required(),
   model: z.string().required(),
   persona: z.string(),
   // The array default is forced to undefined: ABSENT means "lexicographic
@@ -69,6 +77,7 @@ export const Config: z<Config> = z.object({
   // schemastery's native [] default would read as an invalid configured list.
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
+  dshHome: z.string(),
   // TODO(single-default-literal): share these schema defaults and defensive
   // apply() fallbacks through named constants while retaining both boundaries.
   persistenceRoot: z.string().default('./.sessions'),
@@ -77,6 +86,7 @@ export const Config: z<Config> = z.object({
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: agentCore.ToolTasksConfigSchema,
   resumeSessionId: z.string(),
+  workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
 
 /**
@@ -98,18 +108,14 @@ export function apply(ctx: Context, config: Config): void {
     sessionId,
   })
   ctx.plugin(agentCore, {
-    ...config.persona !== undefined ? { persona: config.persona } : {},
-    ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
-    ...config.tools !== undefined ? { tools: config.tools } : {},
+    ...agentCore.pickSpineConfig(config),
     agents: [{
-      id: 'main',
+      id: SessionId('main'),
+      provider: config.provider,
       model: config.model,
       cwd: process.cwd(),
       ...resumeSessionId === undefined ? { sessionId } : { resumeSessionId: sessionId },
     }],
-    ...config.skills !== undefined ? { skills: config.skills } : {},
-    ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
-    ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
   })
   ctx.plugin(toolAskUser)
 }

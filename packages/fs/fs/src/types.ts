@@ -27,16 +27,17 @@ export function FsTargetKey(key: string): FsTargetKey {
 
 /**
  * Opaque file-version token — the freshness token a write/edit guards against.
- * The local backend derives it from mtime+size; a remote backend might use a
- * revision id. The policy layer records it for stale checks; consumers may
- * display related metadata but MUST NOT interpret this token.
+ * The local backend derives it from high-resolution stat identity and freshness
+ * fields; a remote backend might use a revision id. The policy layer records it
+ * for stale checks; consumers may display related metadata but MUST NOT
+ * interpret this token.
  */
 export type FsVersion = Branded<'FsVersion'>
 
 /**
  * Brand a string as an {@link FsVersion}. For backend use only — a consumer
  * never manufactures a version, it receives one from `stat`/write/edit outcomes.
- * @param v - the backend's raw version string (the local backend derives it from mtime+size).
+ * @param v - the backend's raw version string.
  * @returns the same string, branded; no validation is performed.
  */
 export function FsVersion(v: string): FsVersion {
@@ -69,6 +70,21 @@ export interface FsInfo {
   /** Whether the target is a regular file, a directory, or something else. */
   type: 'file' | 'directory' | 'other'
   /** Byte size of a regular file, when the backend can report it. */
+  size?: number
+}
+
+/**
+ * Metadata about a path without following the final path component when it is a
+ * symbolic link. Unlike {@link FsInfo}, this path-level probe can report
+ * `symlink` so consumers with trust-boundary rules can reject repository-owned
+ * links before resolving a target.
+ */
+export interface FsPathInfo {
+  /** Opaque freshness token of the path entry right now. */
+  version: FsVersion
+  /** Whether the path entry is a regular file, directory, symlink, or other. */
+  type: 'file' | 'directory' | 'symlink' | 'other'
+  /** Byte size of the path entry, when the backend can report it. */
   size?: number
 }
 
