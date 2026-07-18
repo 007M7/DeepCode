@@ -6,7 +6,7 @@ Status: implemented
 
 The session log maintains two representations that cost more machinery than their consumers require: a pseudo-linked surface and custom request-header deltas.
 
-`SurfaceManager` stores the same order in an array, a seq map, and mutable `prev`/`next` links. Production never reads `prev`; compact's sole `next` read is the successor of an array position. Replacement already uses `indexOf`, so the links do not make its dominant operation constant-time. A seq array with linear replacement lookup has the same asymptotic replacement cost and one representation to validate.
+`SurfaceManager` stores the same order in an array, a seq map, and mutable `prev`/`next` links. Production never reads either link: compact's tool-pairing balance answers from per-cut balances cached in surface order. Replacement already uses `indexOf`, so the links do not make its dominant operation constant-time. A seq array with linear replacement lookup has the same asymptotic replacement cost and one representation to validate.
 
 The request-header subsystem implements a custom system/tool delta codec and transmission-decision layer even though its contract says deltas are an encoding optimization, not a reconstructability requirement. Retaining the initial/resume full snapshot at each loop-instance boundary, then writing a canonical full `request/header` whenever that instance's assembled header changes, preserves replay while deleting `SystemDelta`, `ToolsDelta`, round-trip fallback, and the durable `request/header-delta` variant. Codec-only vocabulary disappears with the codec, not because its individual arms were invalid.
 
@@ -14,7 +14,7 @@ The implementation retains append and replacement `sourceEventSeqs`, crash-repai
 
 ## Decision
 
-`SurfaceManager.nodes` is a `readonly number[]` of event sequences; the public `SurfaceNode` shape, node links, and seq-to-node map are removed. The internal replace-generation signal remains. The complete `foldSurface()` read used by session-query returns the same number-array representation plus replacement metadata without making the incremental manager retain history. Tool-pairing balance and compaction use array values and indices for successor and replacement ranges.
+`SurfaceManager.nodes` is a `readonly number[]` of event sequences; the public `SurfaceNode` shape, node links, and seq-to-node map are removed. The internal replace-generation signal remains. The complete `foldSurface()` read used by session-query returns the same number-array representation plus replacement metadata without making the incremental manager retain history. Tool-pairing balance and compaction use event sequences and surface positions; the compact-owned per-cut balance cache does not depend on node links.
 
 Request headers use canonical full snapshots only. Initial and resume anchors remain full snapshots even when unchanged; an in-instance change appends another full `request/header` with reason `change`. The delta event, codec types, diff/apply helpers, and codec-only `fallback` reason are removed. Request reconstruction selects the latest snapshot.
 

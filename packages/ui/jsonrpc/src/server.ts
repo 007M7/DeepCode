@@ -21,6 +21,8 @@ import type { JsonRpcTransportPeer } from './transport.ts'
 export interface InitializeParams {
   /** Working directory recorded on every SDK-created session's header. */
   cwd: string
+  /** Provider route every SDK-created agent runs on. */
+  provider: string
   /** Model name every SDK-created agent runs on (see {@link HarnessSdkServer.initialize} for adapter fallback). */
   model: string
 }
@@ -66,6 +68,7 @@ interface SubagentRecord {
  */
 export class HarnessSdkServer {
   private cwd = process.cwd()
+  private provider = 'deepseek'
   private model = 'deepseek'
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
@@ -124,16 +127,18 @@ export class HarnessSdkServer {
   }
 
   /**
-   * Record cwd and model, mounting the DeepSeek adapter only when the config
-   * registered no adapter for that model.
+   * Record cwd and provider/model, mounting the DeepSeek adapter only when the
+   * `deepseek` provider route has no configured owner.
    * @param params - the SDK handshake parameters.
    * @returns the server identity for the handshake.
    */
   async initialize(params: InitializeParams): Promise<InitializeResult> {
     this.cwd = resolve(params.cwd)
+    this.provider = params.provider
     this.model = params.model
-    if (!this.llmFiber && !this.hasAdapterFor(this.model)) {
-      this.llmFiber = await this.ctx.plugin(LlmDeepSeek, { models: [this.model] })
+    if (!this.hasAdapterFor(this.provider)) {
+      if (this.provider !== 'deepseek') throw new Error(`no adapter registered for provider "${this.provider}"`)
+      this.llmFiber = await this.ctx.plugin(LlmDeepSeek, {})
     }
     return { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } }
   }
@@ -244,7 +249,7 @@ export class HarnessSdkServer {
       agentId: AgentId(sessionId),
       sessionId: SessionId(sessionId),
       meta: { cwd: this.cwd },
-      agentOptions: { model: this.model },
+      agentOptions: { provider: this.provider, model: this.model },
     })
     const rec: SessionRecord = { handle, lastTurnEnd: undefined, activePrompt: false }
     this.sessions.set(sessionId, rec)
@@ -256,7 +261,7 @@ export class HarnessSdkServer {
     return reason.kind === 'completed' ? 'ok' : 'error'
   }
 
-  private hasAdapterFor(model: string): boolean {
-    return this.ctx.get('llm')?.models().includes(model) ?? false
+  private hasAdapterFor(provider: string): boolean {
+    return this.ctx.get('llm')?.listProviders().some(entry => entry.id === provider) ?? false
   }
 }

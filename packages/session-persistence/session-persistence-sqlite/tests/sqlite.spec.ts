@@ -189,6 +189,12 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await mounted.dispose()
   })
 
+  it('has no independent per-session log location', async () => {
+    const { ctx, dispose } = await backend()
+    expect(ctx.sessionPersistence.locate(meta('sqlite-location'))).toBeUndefined()
+    await dispose()
+  })
+
   it('an interrupted turn (rows after the last turn/end) is PRESERVED and closed during load', async () => {
     const path = await freshDbPath()
     const m = meta('crash')
@@ -507,7 +513,7 @@ describe('surface field round-trip', () => {
     const session = ctx.sessions.create(SessionId('roundtrip-surface'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [0] })
+    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [0] })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.parallel('session/flush', session)
     const loaded = await ctx.sessionPersistence.load(SessionId('roundtrip-surface'))
