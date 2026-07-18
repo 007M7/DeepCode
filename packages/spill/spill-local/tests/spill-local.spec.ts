@@ -85,11 +85,16 @@ describe('saveTextFile', () => {
     expect(saved.path.includes('/..')).toBe(false)
   })
 
-  it.skipIf(process.platform === 'win32')('creates the session dir with owner-only permissions', async () => {
+  it('creates the session directory and file with owner-only POSIX permissions', async () => {
     const saved = await saveTextFile({ root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' })
-    // 0o700 dir, 0o600 file (masked by umask, but the owner bits must hold).
-    expect(statSync(dirname(saved.path)).mode & 0o700).toBe(0o700)
-    expect(statSync(saved.path).mode & 0o600).toBe(0o600)
+    const directory = statSync(dirname(saved.path))
+    const file = statSync(saved.path)
+    expect(directory.isDirectory()).toBe(true)
+    expect(file.isFile()).toBe(true)
+    if (process.platform !== 'win32') {
+      expect(directory.mode & 0o777).toBe(0o700)
+      expect(file.mode & 0o777).toBe(0o600)
+    }
   })
 
   it('gives distinct paths to two saves of the same name', async () => {

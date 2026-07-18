@@ -437,7 +437,6 @@ export async function reconcileInstructionContext(
     ) continue
 
     const file = await readScopeInstruction(probedFile, resolved.maxSourceBytes, fileSystem, options.signal)
-    /* v8 ignore next -- Windows cannot make the probed file unreadable through POSIX mode bits. */
     if (file === undefined) continue
     const currentDigest = instructionContentSha1(file.content)
     const nextVersion: InstructionVersionState = {
