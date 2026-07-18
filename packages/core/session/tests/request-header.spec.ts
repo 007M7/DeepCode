@@ -5,7 +5,7 @@ import { Session, SessionId, canonicalHeader, foldRequestHeader, headerEquals } 
 import type { EpochHeader, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 
-const CONFIG = { model: 'm' }
+const CONFIG = { provider: 'mock', model: 'm' }
 
 function tool(name: string, description = 'd'): ToolSchema {
   return { name, description, parameters: { type: 'object' } }
@@ -28,7 +28,7 @@ describe('headerEquals', () => {
 
   it('compares every canonical field and preserves tool order', () => {
     expect(headerEquals(base, structuredClone(base))).toBe(true)
-    expect(headerEquals(base, { ...base, config: { model: 'other' } })).toBe(false)
+    expect(headerEquals(base, { ...base, config: { provider: 'mock', model: 'other' } })).toBe(false)
     expect(headerEquals(base, { ...base, system: 'other' })).toBe(false)
     expect(headerEquals(base, { ...base, messagePrefix: [msg('other')] })).toBe(false)
     expect(headerEquals(base, { ...base, tools: [] })).toBe(false)
@@ -56,8 +56,8 @@ describe('foldRequestHeader', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('request/header', { header: { config: CONFIG, system: 'first' }, reason: 'initial' })
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    session.append('request/header', { header: { config: { model: 'other' }, tools: [] }, reason: 'change' })
-    expect(foldRequestHeader(session.events)).toEqual({ config: { model: 'other' } })
+    session.append('request/header', { header: { config: { provider: 'mock', model: 'other' }, tools: [] }, reason: 'change' })
+    expect(foldRequestHeader(session.events)).toEqual({ config: { provider: 'mock', model: 'other' } })
   })
 })
 

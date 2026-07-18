@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-llm-replay
 
-A replay LLM plugin for keyless snapshot tests. It installs a single `llm/stream` waterfall listener that short-circuits the waterfall (never calls `next()`) and yields model streams reconstructed from a recorded **session JSONL** fixture — so a test can boot the real agent against a fixed model transcript with no API key.
+A replay LLM plugin for keyless snapshot tests. It yields model streams reconstructed from a recorded **session JSONL** fixture, so a test can boot the real agent against a fixed model transcript with no API key. With `providers` configured it registers a replay-only adapter whose catalog is visible to clients such as ACP editors; without `providers` it installs the catch-all `llm/stream` waterfall used by tests that do not need discovery.
 
 Its consumer is the ACP snapshot harness in `examples/acp-agent`, which loads this plugin (via `cordis.snapshot.yml`) in place of a real LLM adapter. The package exists so its derive/parse/replay logic falls under the per-file 100% coverage gate on `packages/*/src` (the same logic, while it lived under `examples/`, was outside the gate).
 
@@ -23,10 +23,18 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
 | `file` | string | `$DSH_SNAPSHOT_FILE` | Path to the primary (parent) `session.jsonl` fixture. Required (config or env). |
 | `overrideFile` | string | `$DSH_SNAPSHOT_OVERRIDE` | Optional path to a `ReplayEntry[]` sidecar that replaces the PRIMARY session's derived script. |
 | `childFiles` | string[] | `$DSH_SNAPSHOT_CHILD_FILES` (path-delimited) | Recorded subagent child-session logs for a nested scenario; empty for a single-session scenario. |
+| `providers` | `ReplayProviderConfig[]` | — | Optional replay-only provider and model catalog. Configured routes dispatch through the replay adapter and never perform provider I/O. |
 
 ```yaml
 - id: llm-replay
   name: '@deepseek-ai/dsh-llm-replay'
+  config:
+    providers:
+      - id: deepseek
+        name: DeepSeek
+        models:
+          - id: deepseek-v4-flash
+          - id: deepseek-v4-pro
   # file/overrideFile/childFiles default to $DSH_SNAPSHOT_FILE /
   # $DSH_SNAPSHOT_OVERRIDE / $DSH_SNAPSHOT_CHILD_FILES, set by the snapshot
   # harness per scenario.
@@ -34,11 +42,11 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
 
 ## Exports
 
-- `installLlmReplay(ctx, config)` — install the `llm/stream` listener; returns the disposer (HMR safety). Use this in tests to drive replay without the Loader or env vars.
+- `installLlmReplay(ctx, config)` — install the configured replay adapter or catch-all `llm/stream` listener; returns the disposer (HMR safety). Use this in tests to drive replay without the Loader or env vars.
 - `loadSessionScripts(config)` — resolve the ordered `SessionScript[]` (primary + children) for a scenario, ready to bind to live sessions in first-call order.
 - `loadReplayScript(config)` — resolve the `ReplayEntry[]` for the PRIMARY session only (sidecar override if present, else derived from the JSONL; fail-loud if the fixture is missing).
 - `deriveReplayScript(events)` / `parseSessionLog(text)` / `parseSessionHeader(text)` — the pure helpers that turn a recorded session log into a script and read its header `id`/`createdAt`. A derived group must end in a `finish` chunk; a group without one is the fingerprint of a thrown `stream()` and must instead be expressed via an override sidecar.
-- Types `ReplayEntry` / `SessionScript` / `ReplayConfig` / `Config`.
+- Types `ReplayEntry` / `SessionScript` / `ReplayConfig` / `ReplayProviderConfig` / `ReplayModelConfig` / `Config`.
 
 ## Plugin export shape
 

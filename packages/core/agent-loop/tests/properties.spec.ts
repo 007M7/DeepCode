@@ -90,7 +90,7 @@ describe('agent loop scheduling properties', () => {
       async (texts) => {
         const ctx = await harness()
         try {
-          const agent = ctx.agentLoop.create(AgentId('a'), { model: 'mock' })
+          const agent = ctx.agentLoop.create(AgentId('a'), { provider: 'mock', model: 'mock' })
           const { seen: trace } = recordStatus(ctx, agent)
           const idle = nextIdle(ctx, agent)
           // Send all in one synchronous tick: they queue before the loop wakes.
@@ -115,7 +115,7 @@ describe('agent loop scheduling properties', () => {
       async (texts) => {
         const ctx = await harness()
         try {
-          const agent = ctx.agentLoop.create(AgentId('a'), { model: 'mock' })
+          const agent = ctx.agentLoop.create(AgentId('a'), { provider: 'mock', model: 'mock' })
           for (const text of texts) {
             const idle = nextIdle(ctx, agent)
             agent.send([{ type: 'text', text }])
@@ -140,7 +140,7 @@ describe('agent loop scheduling properties', () => {
       async (steps) => {
         const ctx = await harness()
         try {
-          const agent = ctx.agentLoop.create(AgentId('a'), { model: 'mock' })
+          const agent = ctx.agentLoop.create(AgentId('a'), { provider: 'mock', model: 'mock' })
           // Capture before each send; the last waiter covers the final turn, and
           // awaiting an already-settled earlier waiter is harmless.
           let lastIdle: Promise<void> | undefined
