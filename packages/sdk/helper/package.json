@@ -33,7 +33,6 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-brand": "workspace:^",
-    "@deepseek-ai/dsh-compact-basic": "workspace:^",
     "@deepseek-ai/dsh-hooks-claude": "workspace:^",
     "@deepseek-ai/dsh-hooks-codex": "workspace:^",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",

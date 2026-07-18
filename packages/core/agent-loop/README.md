@@ -31,6 +31,7 @@ The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loo
 interface Config {
   agents: Array<{
     id: string                 // required
+    provider?: string
     model?: string
     resumeSessionId?: string   // load this persisted session instead of creating one
     cwd?: string               // optional workspace cwd for the fresh session
@@ -38,7 +39,7 @@ interface Config {
 }
 ```
 
-Configured agents start automatically. `cwd` applies only to fresh sessions; `resumeSessionId` retains persisted metadata. They use the deployment persona. Programmatic setup can shadow it per agent. This plugin supplies the per-agent `model` and `cwd` prompt variables; harness identity and deployment persona belong to `dsh-system-prompt`.
+Configured agents start automatically. A model call requires both `provider` and `model`; `agent/request` may supply a missing pair before dispatch. `cwd` applies only to fresh sessions, while `resumeSessionId` retains persisted metadata. Configured agents use the deployment persona, and programmatic setup can shadow it per agent. This plugin supplies the per-agent `provider`, `model`, and `cwd` prompt variables; harness identity and deployment persona belong to `dsh-system-prompt`.
 
 ### Exported concrete class
 
@@ -49,6 +50,8 @@ Configured agents start automatically. `cwd` applies only to fresh sessions; `re
 ### Loop lifecycle (`loop.ts`)
 
 The driver owns one agent for its lifetime. It records turn, step, request, stream, and tool boundaries in the session log; live extension events coordinate policy around those durable facts. The [architecture turn flow](../../../docs/architecture.md#turn-flow) and generated [event catalog](../../../docs/cordis-catalog/events.md) are the authoritative sequence and signatures.
+
+Every provider call that reaches a successful finish appends exactly one `assistant/message` completion anchor, including content-less calls and `max-tokens` finishes. A successful `agent/step-result` stores its transformed content; a rejected result records empty content before the original failure continues. The anchor retains exact chunk provenance (`[]` for a stream with no chunks) and usage when available, while empty content stays out of derived message history.
 
 Plugin failure ends the current turn, not the loop. Cancellation clears pending work and aborts the current step without leaking to the next prompt. Terminal continuation stops remain authoritative through turn close and durability flush.
 

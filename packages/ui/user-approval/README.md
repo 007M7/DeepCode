@@ -6,7 +6,7 @@ Each request must belong to an open agent turn. The service appends a paired `ap
 
 Answerers are `approval/request` waterfall listeners. Return an outcome to answer for an owned agent or call `next()` to delegate. Agent-scoped listeners receive only that agent's requests; compose one terminal answerer per deployment because sibling listener order is not a policy priority mechanism. The ACP bridge is the shipped human answerer.
 
-`ApprovalPolicy` is `'ask'` or `'never'`. The effective value is the last `approval/policy` event, falling back to config; `setApprovalPolicy()` is the write path. `'never'` rejects before interactive dispatch and is the only policy stated in the prompt. Switches produce at most one coalesced notice whose header marker distinguishes user changes from operator/config changes.
+`ApprovalPolicy` is `'ask'` or `'never'`. The effective value is the last `approval/policy` event, falling back to config; `setApprovalPolicy()` is the write path. `'never'` rejects before interactive dispatch and is the only policy stated in the prompt. Switches produce at most one coalesced notice, attributed to the user when the override follows the last `request/header` and to operator/config otherwise.
 
 The tools pipeline routes `ask` decisions through this seam and fails closed when it is absent; the sandboxed bash tool also uses it for escalated retries. The ACP bridge is the shipped human answerer for calls it owns. Audit events remain log-only, so the model sees only the asking consumer's result. See the [approval-seam RFC](../../../docs/rfc/implemented/feature/2026-07-06-approval-seam.md) and [sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md).
 

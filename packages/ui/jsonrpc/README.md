@@ -4,7 +4,7 @@ Stdio JSON-RPC plugin for out-of-process SDK clients such as Python `deepseek_ha
 
 ## Wiring
 
-`inject: ['agents']`. The server gets or creates one agent per `sessionId` on `session/prompt` and demuxes `subagent/end` through the registry. If `initialize.model` lacks a registered adapter, it mounts `dsh-llm-deepseek` using `$DEEPSEEK_API_KEY` and `$DEEPSEEK_BASE_URL`; a config-registered adapter wins. Persistence, tools, and other adapters come from the surrounding `cordis.yml`.
+`inject: ['agents']`. The server gets or creates one agent per `sessionId` from the `initialize.provider`/`initialize.model` pair and demuxes `subagent/end` through the registry. A registered owner for the provider route wins; an unowned `deepseek` route mounts `dsh-llm-deepseek` using `$DEEPSEEK_API_KEY` and `$DEEPSEEK_BASE_URL`, while any other unowned provider fails initialization. Persistence, tools, and other adapters come from the surrounding `cordis.yml`.
 
 ## Config
 

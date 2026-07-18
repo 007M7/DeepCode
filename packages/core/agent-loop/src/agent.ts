@@ -8,7 +8,7 @@
 
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { AgentId, AgentOptions, AgentStatus, HookContext, SendOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentId, AgentOptions, AgentStatus, HookContext, InjectOptions, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -152,7 +152,7 @@ export class ReactLoopAgent implements Agent {
   /** Whether the current step is executing an assistant tool-call batch. */
   private toolBatchActive = false
   /** Open-turn injections waiting for the active assistant tool-call batch to close. */
-  private deferredInjections: InboxMessage[] = []
+  private deferredInjections: HookContext[] = []
 
   constructor(
     private loopCtx: Context,
@@ -206,6 +206,15 @@ export class ReactLoopAgent implements Agent {
     return deepFreeze(accepted)
   }
 
+  /** Detach one context before it can outlive its caller in the active-batch FIFO. */
+  private acceptContext(context: HookContext): HookContext {
+    const accepted = snapshotJsonValue(context)
+    if (accepted === undefined) {
+      throw new TypeError('agent context must be losslessly JSON-serializable')
+    }
+    return deepFreeze(accepted)
+  }
+
   /** Reject a driving operation once teardown has synchronously closed the agent. */
   private assertNotDisposed(): void {
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
@@ -228,10 +237,17 @@ export class ReactLoopAgent implements Agent {
     agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
   }
 
-  inject(content: ContentBlock[], options?: SendOptions): void {
+  inject(content: ContentBlock[], options?: InjectOptions): void {
     this.assertNotDisposed()
+    const source = this.resolveSource(options)
+    const context = {
+      content,
+      source,
+      ...options?.envelope !== undefined ? { envelope: options.envelope } : {},
+      ...options?.meta !== undefined ? { meta: options.meta } : {},
+    }
     if (isTurnOpen(this.session)) {
-      const accepted = this.acceptMessage(content, options)
+      const accepted = this.acceptContext(context)
       // Provider protocols require every assistant tool-call batch to be
       // followed only by its tool results. Historical interrupted batches do
       // not own new context; only the currently executing batch may defer it.
@@ -242,7 +258,6 @@ export class ReactLoopAgent implements Agent {
       this.session.append('context/message', accepted, { surfaceOp: 'append' })
       return
     }
-    const source = this.resolveSource(options)
     // No turn open: wrap the injection in a one-shot turn so every event stays
     // turn-enclosed (the durability/replay boundary is the turn).
     const turn = lastTurnNumber(this.session) + 1
@@ -252,7 +267,7 @@ export class ReactLoopAgent implements Agent {
     // are contained by Session and cannot create a false append failure.
     try {
       this.session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-      this.session.append('context/message', { content, source }, { surfaceOp: 'append' })
+      this.session.append('context/message', context, { surfaceOp: 'append' })
     } finally {
       // Close the turn if turn/start made it into the log. A pre-commit veto
       // must escape rather than being mistaken for a committed turn/end.
@@ -298,8 +313,7 @@ export class ReactLoopAgent implements Agent {
   ): Promise<T> {
     this.toolBatchActive = true
     const acceptContext = (context: HookContext): void => {
-      const accepted = this.acceptMessage(context.content, { source: context.source })
-      this.deferredInjections.push(accepted)
+      this.deferredInjections.push(this.acceptContext(context))
     }
     try {
       return await run(acceptContext)
