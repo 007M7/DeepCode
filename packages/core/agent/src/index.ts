@@ -132,9 +132,6 @@ interface FactorySlot {
  */
 export class AgentRegistry extends Service {
   private store = new Map<AgentId, AgentEntry>()
-  // TODO(agent-entry-mirror): derive exact-object checks from store.get(agent.id)
-  // plus entry.agent identity; this WeakMap mirrors the authoritative id map.
-  private entries = new WeakMap<Agent, AgentEntry>()
   private factory: FactorySlot | undefined
 
   constructor(ctx: Context) {
@@ -222,8 +219,9 @@ export class AgentRegistry extends Service {
   enter(agent: Agent): () => void {
     const id = agent.id
     const carrier = scopeTarget(agent, agent)
-    // Prepared transactions arbitrate identity at this publication boundary.
-    if (this.entries.has(agent) || this.store.has(id)) throw new Error(`agent "${id}" is already registered`)
+    // This is the authoritative collision boundary. Concurrent create/resume
+    // operations may both prepare, but only one exact entry can publish.
+    if (this.store.has(id)) throw new Error(`agent "${id}" is already registered`)
     const entry: AgentEntry = {
       id,
       agent,
@@ -233,7 +231,6 @@ export class AgentRegistry extends Service {
       detachRequested: false,
     }
     this.store.set(id, entry)
-    this.entries.set(agent, entry)
     let entered = true
     const detach = (): void => {
       if (!entered) return
@@ -256,7 +253,6 @@ export class AgentRegistry extends Service {
     /* v8 ignore next -- enter() rejects replacement while this single-shot detach capability is live. */
     if (this.store.get(entry.id) !== entry) return
     this.store.delete(entry.id)
-    this.entries.delete(entry.agent)
     // An insertion rolled back before announce was never externally created,
     // so emitting disposed would invent an impossible lifecycle edge. Marking
     // happens before the created emit: if a later created listener throws,
@@ -288,8 +284,8 @@ export class AgentRegistry extends Service {
    *   creation listener).
    */
   announce(agent: Agent): void {
-    const entry = this.entries.get(agent)
-    if (entry === undefined || this.store.get(entry.id) !== entry) {
+    const entry = this.store.get(agent.id)
+    if (entry === undefined || entry.agent !== agent) {
       throw new Error(`agent "${agent.id}" is not live in this registry`)
     }
     if (entry.announced || entry.announcing) {

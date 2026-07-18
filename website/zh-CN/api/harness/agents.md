@@ -20,7 +20,7 @@ Register the effect-scoped creation factory, rejecting a duplicate. Service fact
 
 **Returns** the exact Cordis effect disposer.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L152)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L149)
 
 ### ctx.agents.create(options)
 
@@ -34,7 +34,7 @@ Create and publish an owned agent and session through the active factory. Reject
 
 **Returns** the handle after setup, rollback-covered publication, and loop start complete.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L177)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L174)
 
 ### ctx.agents.resume(options)
 
@@ -48,7 +48,7 @@ Load a persisted session and resume an agent on it through the registered factor
 
 **Returns** the handle after setup, rollback-covered publication, and loop start complete.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L193)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L190)
 
 ### ctx.agents.register(agent)
 
@@ -62,7 +62,7 @@ Register a live agent in the calling effect scope, with scope-filtered creation 
 
 **Returns** the exact Cordis effect disposer for nested teardown ordering.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L207)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L204)
 
 ### ctx.agents.enter(agent)
 
@@ -76,7 +76,7 @@ Insert an unpublished agent for an ordered factory transaction.
 
 **Returns** an idempotent closure that removes this exact entry and emits the paired disposal edge; detachment during creation dispatch is deferred.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L222)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L219)
 
 ### ctx.agents.announce(agent)
 
@@ -88,7 +88,7 @@ Announce an agent previously inserted with enter.
 
 - `agent` — the live inserted agent to announce.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L290)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L286)
 
 ### ctx.agents.get(id)
 
@@ -102,7 +102,7 @@ Look up a live agent.
 
 **Returns** the agent, or undefined when no live agent has that id.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L324)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L320)
 
 ### ctx.agents.list()
 
@@ -114,4 +114,4 @@ All live agents, in registration order.
 
 **Returns** a fresh array; mutating it does not affect the registry.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L332)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L328)
