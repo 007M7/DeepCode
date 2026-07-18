@@ -96,6 +96,20 @@ describe('dsh-tool-subagent', () => {
     expect(foreground.isError).toBe(false)
   })
 
+  it('keeps foreground and background calls exclusive', async () => {
+    const ctx = await setup({ provider: 'mock' })
+    expect(ctx.tools.executionMode({
+      callId: CallId('subagent-foreground'),
+      name: 'subagent',
+      arguments: { description: 'do work', prompt: 'Reply OK' },
+    })).toEqual({ kind: 'exclusive' })
+    expect(ctx.tools.executionMode({
+      callId: CallId('subagent-background'),
+      name: 'subagent',
+      arguments: { description: 'do work', prompt: 'Reply OK', run_in_background: true },
+    })).toEqual({ kind: 'exclusive' })
+  })
+
   it.each([
     { stopReason: 'aborted' as const, fragment: 'cancelled' },
     { stopReason: 'error' as const, fragment: 'failed' },
