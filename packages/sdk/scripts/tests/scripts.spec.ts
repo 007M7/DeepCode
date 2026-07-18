@@ -168,6 +168,7 @@ describe('Commander launcher arguments', () => {
     await expect(runDshSdkCommand(['unknown'], context)).resolves.toBe(1)
     await expect(runDshSdkCommand([], context)).resolves.toBe(0)
     expect(context.readStdout()).toContain('Usage: dsh-sdk')
+    expect(context.readStdout()).toContain('create <source>')
 
     const defaults = commandContext(root)
     await writeFile(join(root, 'main.mjs'), 'export function main() { return "ok" }\n')

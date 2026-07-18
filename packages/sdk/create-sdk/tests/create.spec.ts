@@ -477,6 +477,7 @@ describe('create command composition', () => {
     context.stdout.isTTY = false
     await expect(createProject(['--help'], context)).resolves.toBeUndefined()
     expect(context.readStdout()).toContain('Usage: create-sdk')
+    expect(context.readStdout()).toContain('--config-json <json>')
     expect(context.readStdout()).not.toContain('--link-workspace')
     await expect(createProject(argv('agent', false), context)).rejects.toThrow('interactive TTY')
     context.stdin.isTTY = true
