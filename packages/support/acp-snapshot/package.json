@@ -23,7 +23,7 @@
   "license": "BSD-3-Clause",
   "dependencies": {
     "@agentclientprotocol/sdk": "0.25.1",
-    "tsx": "^4.22.4",
+    "@deepseek-ai/dsh-loader-smoke": "workspace:*",
     "vitest": "^4.1.8"
   },
   "peerDependencies": {
