@@ -28,17 +28,19 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 
 /**
  * Unit tests for the subprocess harness, driven through the REAL spawn path
- * (tsx loader, temp cwd, env plumbing) against the scripted fake ACP bin in
+ * (mode-aware launcher, temp cwd, env plumbing) against the scripted fake ACP bin in
  * ./fixtures/fake-acp-agent.ts. Each case writes a `behavior.json` next to a
  * throwaway fixture path; the fake bin echoes observable facts (env, seeded
  * workspace, permission outcomes) into `agent_message_chunk` text, so the
  * assertions read plain `rawStdout`.
  */
 
+const fakeAgent = fileURLToPath(new URL('./fixtures/fake-acp-agent.ts', import.meta.url))
 const AGENT: AgentUnderTest = {
-  binScript: fileURLToPath(new URL('./fixtures/fake-acp-agent.ts', import.meta.url)),
+  binScript: fakeAgent,
+  libBinScript: fakeAgent,
   // The fake bin ignores its config argv; any real path documents the shape.
-  configPath: fileURLToPath(new URL('./fixtures/fake-acp-agent.ts', import.meta.url)),
+  configPath: fakeAgent,
   tsconfigPath: fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url)),
 }
 
@@ -240,6 +242,23 @@ describe('runScenario', () => {
       { steps: [{ op: 'initialize' }] },
       { agent: AGENT, mode: 'replay', fixtureFile },
     )).rejects.toThrow(/agent stderr:\nfake agent requested startup failure/)
+  })
+
+  it('preserves launch-resolution errors when no child process exists', async () => {
+    const { dir, fixtureFile } = await scenario({})
+    vi.stubEnv('DSH_EXAMPLE_MODE', 'lib')
+    try {
+      await expect(runScenario(
+        { steps: [] },
+        {
+          agent: { ...AGENT, binScript: join(dir, 'outside-src.ts'), libBinScript: undefined },
+          mode: 'replay',
+          fixtureFile,
+        },
+      )).rejects.toThrow(/expected a "\/src\/" segment/)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('drives a full turn: initialize (terminal caps), session, prompt, permission stub, harvest', { timeout: 20_000 }, async () => {
