@@ -244,6 +244,23 @@ describe('runScenario', () => {
     )).rejects.toThrow(/agent stderr:\nfake agent requested startup failure/)
   })
 
+  it('preserves launch-resolution errors when no child process exists', async () => {
+    const { dir, fixtureFile } = await scenario({})
+    vi.stubEnv('DSH_EXAMPLE_MODE', 'lib')
+    try {
+      await expect(runScenario(
+        { steps: [] },
+        {
+          agent: { ...AGENT, binScript: join(dir, 'outside-src.ts'), libBinScript: undefined },
+          mode: 'replay',
+          fixtureFile,
+        },
+      )).rejects.toThrow(/expected a "\/src\/" segment/)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('drives a full turn: initialize (terminal caps), session, prompt, permission stub, harvest', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({
       permissionProbe: true,
