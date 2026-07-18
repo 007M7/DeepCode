@@ -71,6 +71,7 @@ try {
     start() {
       return Promise.resolve({
         id: child.agent.id,
+        localAgent: child.agent,
         result: result.promise,
         dispose() { return Promise.resolve(); },
       });

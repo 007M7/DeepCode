@@ -144,6 +144,7 @@ describe('dsh-tool-subagent', () => {
       inheritsParentContext: false,
       start: async () => ({
         id: SessionId('weird-child'),
+        localAgent: undefined,
         result: Promise.resolve({ output: [{ type: 'text', text: 'partial' }], stopReason: 'frobnicated' as never }),
         dispose: async () => {},
       }),
@@ -171,6 +172,7 @@ describe('dsh-tool-subagent', () => {
         seen = request
         return {
           id: SessionId('capture-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -200,6 +202,7 @@ describe('dsh-tool-subagent', () => {
         seen = request
         return {
           id: SessionId('bare-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -327,6 +330,7 @@ describe('dsh-tool-subagent', () => {
       inheritsParentContext: false,
       start: async () => ({
         id: SessionId('spy-child'),
+        localAgent: undefined,
         result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
         dispose: async () => void disposed(),
       }),
@@ -349,6 +353,7 @@ describe('dsh-tool-subagent', () => {
       inheritsParentContext: false,
       start: async () => ({
         id: SessionId('spy-child'),
+        localAgent: undefined,
         result: Promise.resolve({ output: [], stopReason: 'error' as const }),
         dispose: async () => void disposed(),
       }),
@@ -380,6 +385,7 @@ describe('dsh-tool-subagent', () => {
         }, { once: true })
         return {
           id: SessionId('spy-child'),
+          localAgent: undefined,
           result,
           dispose: async () => {},
         }
@@ -472,6 +478,7 @@ describe('dsh-tool-subagent', () => {
         seen = request
         return {
           id: SessionId('capture2-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -529,6 +536,7 @@ describe('dsh-tool-subagent', () => {
         seen = request
         return {
           id: SessionId('capture3-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -558,6 +566,7 @@ describe('dsh-tool-subagent', () => {
         seen = request
         return {
           id: SessionId('capture4-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -732,6 +741,7 @@ describe('dsh-tool-subagent background mode', () => {
         }, { once: true })
         return {
           id,
+          localAgent: undefined,
           result,
           dispose: () => Promise.resolve(),
         }
@@ -771,6 +781,7 @@ describe('dsh-tool-subagent background mode', () => {
     const order: string[] = []
     const completed = await settleRun({
       id: SessionId('child-1'),
+      localAgent: undefined,
       result: Promise.resolve({ output: [{ type: 'text' as const, text: 'ok' }], stopReason: 'completed' as const }),
       dispose() { order.push('dispose'); return Promise.resolve() },
     })
@@ -782,6 +793,7 @@ describe('dsh-tool-subagent background mode', () => {
     let disposed = false
     const failed = await settleRun({
       id: SessionId('child-2'),
+      localAgent: undefined,
       result: Promise.reject(new Error('transport gone')),
       dispose() { disposed = true; return Promise.resolve() },
     })
@@ -790,6 +802,7 @@ describe('dsh-tool-subagent background mode', () => {
 
     const disposeFailed = await settleRun({
       id: SessionId('child-3'),
+      localAgent: undefined,
       result: Promise.resolve({ output: [], stopReason: 'completed' }),
       dispose: () => Promise.reject(new Error('reap failed')),
     })
@@ -797,6 +810,7 @@ describe('dsh-tool-subagent background mode', () => {
 
     const bothFailed = await settleRun({
       id: SessionId('child-4'),
+      localAgent: undefined,
       result: Promise.reject(new Error('result failed')),
       dispose: () => Promise.reject(new Error('reap failed')),
     })
@@ -832,6 +846,7 @@ describe('background preflight failure (no orphaned child, by construction)', ()
         starts += 1
         return {
           id: SessionId('probe-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [], stopReason: 'completed' as const }),
           dispose: () => Promise.resolve(),
         }

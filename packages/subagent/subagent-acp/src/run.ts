@@ -294,6 +294,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   let disposal: Promise<void> | undefined
   return {
     id,
+    localAgent: undefined,
     result,
     dispose(): Promise<void> {
       if (disposal !== undefined) return disposal
