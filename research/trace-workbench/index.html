@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DeepSeek Harness Workbench</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="left-pane">
+        <header class="brand">
+          <div class="mark">DH</div>
+          <div>
+            <p class="overline">Local replay</p>
+            <h1>Harness Workbench</h1>
+          </div>
+        </header>
+
+        <button id="newSessionButton" class="new-session-button">+ New session</button>
+
+        <section class="session-search-card">
+          <label class="field-label" for="sessionSearch">Sessions</label>
+          <input id="sessionSearch" type="search" placeholder="Search sessions">
+          <div id="sourceLine" class="source-line">Loading persisted sessions...</div>
+        </section>
+
+        <nav id="sessionList" class="session-list" aria-label="Sessions"></nav>
+      </aside>
+
+      <div class="pane-divider" id="dividerLeft" role="separator" aria-orientation="vertical" aria-label="Resize sessions panel"></div>
+
+      <main class="main-pane">
+        <header class="main-switcher">
+          <div class="conversation-title">
+            <span class="replay-pill">replay</span>
+            <strong id="conversationTitle">Loading session...</strong>
+            <span id="sessionCrumb"></span>
+          </div>
+          <div class="segmented large">
+            <button class="active" data-main-view="conversation">Chat</button>
+            <button data-main-view="trajectory">Trajectory</button>
+            <button data-main-view="waterfall">Waterfall</button>
+          </div>
+        </header>
+
+        <section id="conversationView" class="view split-view active">
+          <div class="chat-split" id="chatSplit">
+            <div class="conversation-scroll">
+              <div id="conversation" class="conversation"></div>
+            </div>
+            <div class="pane-divider" id="dividerInspector" role="separator" aria-orientation="vertical" aria-label="Resize inspector"></div>
+            <aside id="detailDrawer" class="inspector" aria-label="Inspector">
+              <header class="details-head">
+                <div class="detail-object">
+                  <div id="detailIcon" class="detail-icon">S</div>
+                  <div>
+                    <h2 id="detailTitle">Selected item</h2>
+                    <p id="detailSubtitle">Click a chat message to inspect it.</p>
+                  </div>
+                </div>
+                <div class="drawer-actions">
+                  <button id="jumpFromInspector" title="在 Trajectory 中打开">→ Traj</button>
+                  <button id="inspectorClose" aria-label="Close inspector">Close</button>
+                </div>
+              </header>
+
+              <div class="detail-tabs">
+                <button class="active" data-detail-tab="input">Input</button>
+                <button data-detail-tab="output">Output</button>
+                <button data-detail-tab="metadata">Metadata</button>
+                <button data-detail-tab="feedback">Feedback</button>
+              </div>
+
+              <section id="inputPanel" class="detail-panel active">
+                <div class="format-row">
+                  <strong>Input</strong>
+                  <select data-format-target="inputText">
+                    <option value="plain">Plain</option>
+                    <option value="json">JSON</option>
+                    <option value="jsonl">JSONL</option>
+                    <option value="yaml">YAML</option>
+                  </select>
+                </div>
+                <pre id="inputText" class="code-block"></pre>
+              </section>
+
+              <section id="outputPanel" class="detail-panel">
+                <div class="format-row">
+                  <strong>Output</strong>
+                  <select data-format-target="outputText">
+                    <option value="plain">Plain</option>
+                    <option value="json">JSON</option>
+                    <option value="jsonl">JSONL</option>
+                    <option value="yaml">YAML</option>
+                  </select>
+                </div>
+                <pre id="outputText" class="code-block"></pre>
+              </section>
+
+              <section id="metadataPanel" class="detail-panel">
+                <div class="format-row">
+                  <strong>Metadata</strong>
+                  <select data-format-target="metadataText">
+                    <option value="json">JSON</option>
+                    <option value="yaml">YAML</option>
+                    <option value="plain">Plain</option>
+                  </select>
+                </div>
+                <pre id="metadataText" class="code-block tall"></pre>
+              </section>
+
+              <section id="feedbackPanel" class="detail-panel">
+                <div class="feedback-compose-card">
+                  <form id="feedbackForm" class="feedback-form">
+                    <label class="feedback-author">
+                      <span>标注人</span>
+                      <input id="feedbackAuthor" type="text" placeholder="your name" value="shentuni">
+                    </label>
+                    <textarea id="feedbackText" rows="5" placeholder="输入标注内容（Enter 提交，Alt+Enter 换行）"></textarea>
+                    <button class="feedback-submit" type="submit">提交标注</button>
+                  </form>
+                </div>
+                <section class="feedback-history">
+                  <header>
+                    <strong>已有反馈</strong>
+                    <span>针对当前选中对象</span>
+                  </header>
+                  <div id="feedbackList" class="feedback-list"></div>
+                </section>
+              </section>
+            </aside>
+          </div>
+        </section>
+
+        <section id="trajectoryView" class="view split-view">
+          <div class="traj-split">
+            <nav id="trajTree" class="traj-tree" aria-label="Session structure"></nav>
+            <div class="traj-main">
+              <div class="trajectory-toolbar">
+                <span>Agent trajectory</span>
+                <div>
+                  <button id="expandAllTrajectory">Expand all</button>
+                  <button id="collapseTrajectory">Collapse</button>
+                </div>
+              </div>
+              <div id="trajectory" class="trajectory"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="waterfallView" class="view split-view">
+          <div class="wf-split" id="wfSplit">
+            <div class="waterfall-scroll">
+              <div id="waterfall" class="waterfall"></div>
+            </div>
+            <div class="pane-divider" id="dividerWfInspector" role="separator" aria-orientation="vertical" aria-label="Resize inspector"></div>
+          </div>
+        </section>
+
+        <form id="composer" class="composer disabled">
+          <button type="button" class="composer-plus" aria-label="Add context" disabled>+</button>
+          <textarea id="composerInput" rows="1" placeholder="Replay mode — live input is not wired yet" disabled></textarea>
+          <div class="composer-meta">read-only</div>
+          <button type="submit" class="send-button" disabled>↑</button>
+        </form>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>

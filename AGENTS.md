@@ -33,6 +33,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
 python/      Python SDK and bundled runtime (see python/README.md)
 examples/    Runnable cordis.yml leaves over packages/examples bundles (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
+research/    research prototypes (see research/trace-workbench/README.md)
 scripts/     repo gates and generators
 ```
 
