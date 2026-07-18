@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { LlmError, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import { DeepSeekAdapter, httpErrorCode } from '@deepseek-ai/dsh-llm-deepseek'
+import { DeepSeekAdapter } from '@deepseek-ai/dsh-llm-deepseek'
+import { httpErrorCode } from '../src/adapter.ts'
 import { assemble } from './assemble.ts'
 
 /** One scripted behavior for the next request the mock server receives. */
@@ -236,6 +237,19 @@ describe('DeepSeekAdapter against a mock server', () => {
 })
 
 describe('plugin registration and config', () => {
+  it('keeps wire helpers off the package root', () => {
+    for (const helper of [
+      'httpErrorCode',
+      'serializeMessages',
+      'serializeRequest',
+      'DONE',
+      'parseSse',
+      'mapFinishReason',
+      'mapUsage',
+      'translate',
+    ]) expect(LlmDeepSeek).not.toHaveProperty(helper)
+  })
+
   it('registers the deepseek provider and unregisters on dispose (HMR safety)', async () => {
     const server = await mockServer([])
     const ctx = new Context()
