@@ -13,7 +13,7 @@
 {"type":"tool/result","seq":11,"time":0,"data":{"turn":1,"step":1,"callId":"advanced-mount","content":[{"type":"text","text":"mounted dyn-1 (plugin \"<anonymous>\", state: active)"}],"isError":false},"sourceEventSeqs":[10],"surfaceOp":"append"}
 {"type":"step/end","seq":12,"time":0,"data":{"turn":1,"step":1}}
 {"type":"step/start","seq":13,"time":0,"data":{"turn":1,"step":2}}
-{"type":"request/header","seq":14,"time":0,"data":{"header":{"config":{"model":"smoke-model"},"system":"{{system}}","tools":["bash","bash_kill","bash_output","cordis_inspect","cordis_mount","cordis_unmount","run_code","skill","snapshot_double","subagent","workflow"]},"reason":"fallback"}}
+{"type":"request/header","seq":14,"time":0,"data":{"header":{"config":{"model":"smoke-model"},"system":"{{system}}","tools":["bash","bash_kill","bash_output","cordis_inspect","cordis_mount","cordis_unmount","run_code","skill","snapshot_double","subagent","workflow"]},"reason":"change"}}
 {"type":"assistant/chunk","seq":15,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"tool-call"}}}
 {"type":"assistant/chunk","seq":16,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":0,"id":"advanced-code","name":"run_code","argumentsDelta":"{\"code\": \"return await tools.snapshot_double({ value: 21 })\"}"}}}
 {"type":"assistant/chunk","seq":17,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":0,"block":{"type":"tool-call","id":"advanced-code","name":"run_code","arguments":"{\"code\": \"return await tools.snapshot_double({ value: 21 })\"}"}}}}
@@ -55,7 +55,7 @@
 {"type":"tool/result","seq":53,"time":0,"data":{"turn":1,"step":5,"callId":"advanced-unmount","content":[{"type":"text","text":"unmounted dyn-1 (plugin \"<anonymous>\")"}],"isError":false},"sourceEventSeqs":[52],"surfaceOp":"append"}
 {"type":"step/end","seq":54,"time":0,"data":{"turn":1,"step":5}}
 {"type":"step/start","seq":55,"time":0,"data":{"turn":1,"step":6}}
-{"type":"request/header-delta","seq":56,"time":0,"data":{"system":{"keepStart":62,"keepEnd":34,"insert":[]},"tools":{"added":[],"removed":["snapshot_double"],"changed":[]}}}
+{"type":"request/header","seq":56,"time":0,"data":{"header":{"config":{"model":"smoke-model"},"system":"{{system}}","tools":["bash","bash_kill","bash_output","cordis_inspect","cordis_mount","cordis_unmount","run_code","skill","subagent","workflow"]},"reason":"change"}}
 {"type":"assistant/chunk","seq":57,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
 {"type":"assistant/chunk","seq":58,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"text-delta","index":0,"text":"ADVANCED_EXECUTABLE_OK"}}}
 {"type":"assistant/chunk","seq":59,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"ADVANCED_EXECUTABLE_OK"}}}}
