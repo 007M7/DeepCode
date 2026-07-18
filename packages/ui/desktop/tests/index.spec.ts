@@ -11,9 +11,9 @@ import {
   ownsComposer,
   SURFACE_DEFINITIONS,
   SURFACE_POLICIES,
-  type DesktopSurface,
   type InspectorTarget,
 } from '../src/index.ts'
+import { translate } from '../src/i18n.ts'
 
 const target: InspectorTarget = {
   id: 'session:one:event:1',
@@ -89,7 +89,7 @@ describe('desktop inspector contracts', () => {
 
   it('keeps inspector tabs ordered with feedback last', () => {
     expect(INSPECTOR_TABS).toEqual(['input', 'output', 'metadata', 'feedback'])
-    expect(openInspectorState(target).tabs.map((tab) => tab.tab)).toEqual(INSPECTOR_TABS)
+    expect(openInspectorState(target).tabs.map(tab => tab.tab)).toEqual(INSPECTOR_TABS)
     expect(closedInspectorState()).toEqual({
       open: false,
       activeTab: 'input',
@@ -99,5 +99,14 @@ describe('desktop inspector contracts', () => {
 
   it('uses shentuni as the default feedback author', () => {
     expect(DEFAULT_FEEDBACK_AUTHOR).toBe('shentuni')
+  })
+})
+
+describe('desktop i18n', () => {
+  it('switches visible shell labels between Chinese and English', () => {
+    expect(translate('zh-CN', 'app.newChat')).toBe('新对话')
+    expect(translate('en-US', 'app.newChat')).toBe('New chat')
+    expect(translate('zh-CN', 'app.language')).toBe('EN')
+    expect(translate('en-US', 'app.language')).toBe('中文')
   })
 })

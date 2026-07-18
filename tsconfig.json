@@ -70,6 +70,7 @@
     { "path": "./packages/ui/acp" },
     { "path": "./packages/examples/acp-demo" },
     { "path": "./packages/ui/app-boot" },
+    { "path": "./packages/ui/desktop" },
     { "path": "./packages/ui/jsonrpc" },
     { "path": "./packages/examples/jsonrpc-demo" },
     { "path": "./packages/ui/stdio" },

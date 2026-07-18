@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-base-to-string, @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unnecessary-type-conversion, @stylistic/max-len */
 import {
   DEFAULT_FEEDBACK_AUTHOR,
   INSPECTOR_TABS,
@@ -9,6 +10,11 @@ import {
 } from './index.ts'
 import { translate, type I18nKey, type Locale } from './i18n.ts'
 import './styles.css'
+
+const PATH_SYSTEM_PROMPT = 'packages/core/system-prompt/src/index.ts'
+const PATH_TOOL_REGISTRY = 'packages/core/tools/src/index.ts'
+const PATH_TOOL_BASH = 'packages/bash/tool-bash/src/index.ts'
+const PATH_TOOL_SUBAGENT = 'packages/subagent/tool-subagent/src/index.ts'
 
 interface SessionSummary {
   readonly id: string
@@ -109,7 +115,7 @@ interface TargetPayload {
 }
 
 interface RequestContextSnapshot {
-  readonly event?: SessionEvent
+  readonly event: SessionEvent | undefined
   readonly seq: number
   readonly header: Record<string, unknown>
   readonly delta: Record<string, unknown>
@@ -141,7 +147,7 @@ interface DevArtifactGroup {
 type AppModule = 'sessions' | 'develop'
 
 const SESSION_SURFACES: readonly DesktopSurface[] = ['chat', 'trajectory', 'waterfall']
-const initialLocale = (localStorage.getItem('dsh.locale') === 'en-US' ? 'en-US' : 'zh-CN') as Locale
+const initialLocale: Locale = localStorage.getItem('dsh.locale') === 'en-US' ? 'en-US' : 'zh-CN'
 
 const state = {
   runtime: undefined as unknown,
@@ -175,20 +181,20 @@ void boot()
 
 async function boot(): Promise<void> {
   if (!hasDesktopApi()) {
-    state.error = 'Desktop API is not available. Open the Electron window with: pnpm --dir packages/ui/desktop run dev.'
+    state.error = `${t('error.noDesktopApi')} pnpm --dir packages/ui/desktop run dev`
     render()
     return
   }
 
-  window.dshDesktop.runtime.onStatus(payload => {
+  window.dshDesktop.runtime.onStatus((payload) => {
     state.runtime = payload
     render()
   })
-  window.dshDesktop.runtime.onStderr(payload => {
+  window.dshDesktop.runtime.onStderr((payload) => {
     state.stderr = String(asRecord(payload).tail ?? asRecord(payload).text ?? '')
     render()
   })
-  window.dshDesktop.sessions.onUpdate(payload => {
+  window.dshDesktop.sessions.onUpdate((payload) => {
     handleSessionUpdate(asSessionUpdate(payload))
   })
 
@@ -259,7 +265,7 @@ function handleSessionUpdate(payload: SessionUpdatePayload): void {
     else rows.push(row)
     state.liveRows.set(payload.sessionId, rows)
   } else if (kind === 'user_message_chunk') {
-    rows.push(makeSyntheticRow(payload.sessionId, 'user', 'User', contentText(update.content), `user-${rows.length}`))
+    rows.push(makeSyntheticRow(payload.sessionId, 'user', t('chat.user'), contentText(update.content), `user-${rows.length}`))
     state.liveRows.set(payload.sessionId, rows)
   }
 
@@ -339,7 +345,7 @@ function renderSessionGroup(title: string, sessions: SessionSummary[]): string {
     <section class="session-group">
       <div class="group-title">${escapeHtml(title)}</div>
       <div class="session-list">
-        ${sessions.map(renderSessionItem).join('') || `<div class="empty-list">No ${escapeHtml(title.toLowerCase())} sessions</div>`}
+        ${sessions.map(renderSessionItem).join('') || `<div class="empty-list">${escapeHtml(t('app.emptySessions'))}</div>`}
       </div>
     </section>
   `
@@ -404,7 +410,7 @@ function renderMainContent(session: SessionSummary | undefined): string {
   if (session === undefined) return state.draftChat ? renderDraftChat() : renderEmptySession()
   return `
     <section class="session-canvas">
-      ${state.error ? `<div class="notice"><strong>Error</strong><span>${escapeHtml(state.error)}</span></div>` : ''}
+      ${state.error ? `<div class="notice"><strong>${escapeHtml(t('app.errorTitle'))}</strong><span>${escapeHtml(state.error)}</span></div>` : ''}
       ${state.activeSurface === 'chat' ? '' : renderSessionHeader(session)}
       ${renderActiveSurface()}
     </section>
@@ -653,33 +659,6 @@ function renderSpanRow(span: SpanRow, total: number): string {
   `
 }
 
-function renderContextSurface(): string {
-  const rows = contextRows()
-  return `
-    <section class="surface context-surface">
-      <header class="surface-intro">
-        <strong>Context</strong>
-        <span>这是开发分析视图：它解释模型请求边界里真正进入上下文的内容，用来改 prompt、tool schema 和 config。</span>
-      </header>
-      <div class="context-grid">
-        ${rows.map(renderContextCard).join('') || renderEmptyTrace()}
-      </div>
-    </section>
-  `
-}
-
-function renderContextCard(row: ContextRow): string {
-  return `
-    <button class="context-card ${row.kind} ${selectedClass(row.target)}" data-target="${row.target.id}">
-      <span class="context-card-head">
-        <strong>${escapeHtml(row.title)}</strong>
-        <em>${escapeHtml(row.subtitle)}${row.changed ? ' · changed' : ''}</em>
-      </span>
-      <span class="context-preview">${escapeHtml(row.preview)}</span>
-    </button>
-  `
-}
-
 function renderDevelopModule(): string {
   const groups = developArtifactGroups()
   const artifacts = groups.flatMap(group => group.artifacts)
@@ -703,8 +682,8 @@ function renderDevelopModule(): string {
 function renderEmptyDevBrowser(): string {
   return `
     <section class="dev-empty">
-      <strong>No development artifacts found</strong>
-      <span>Start the runtime or check the active cordis.yml config.</span>
+      <strong>${escapeHtml(t('dev.emptyTitle'))}</strong>
+      <span>${escapeHtml(t('dev.emptyBody'))}</span>
     </section>
   `
 }
@@ -744,14 +723,14 @@ function renderDevArtifactDetail(artifact: DevArtifact): string {
         <em>${escapeHtml(artifact.status ?? artifact.kind)}</em>
       </header>
       <section class="dev-detail-grid">
-        ${renderDevFact('Source', artifact.source ?? 'unknown')}
-        ${renderDevFact('Owner', artifact.owner ?? 'unknown')}
-        ${renderDevFact('Recently used', artifact.recent ?? 'No recent evidence yet')}
-        ${renderDevFact('Reload', reloadLabelForArtifact(artifact))}
+        ${renderDevFact(t('dev.source'), artifact.source ?? t('dev.unknown'))}
+        ${renderDevFact(t('dev.owner'), artifact.owner ?? t('dev.unknown'))}
+        ${renderDevFact(t('dev.recentlyUsed'), artifact.recent ?? t('dev.noRecentEvidence'))}
+        ${renderDevFact(t('dev.reload'), reloadLabelForArtifact(artifact))}
       </section>
       ${renderDevCodePanel(contentTitleForArtifact(artifact), contentMetaForArtifact(artifact), artifact.value ?? '')}
       ${artifact.id === 'prompt:persona' ? renderDevRegistrySnapshot() : ''}
-      ${artifact.metadata === undefined ? '' : renderDevCodePanel('Metadata', 'Implementation, dependency, and last-seen evidence', artifact.metadata)}
+      ${artifact.metadata === undefined ? '' : renderDevCodePanel(t('dev.metadata'), t('dev.metadataSubtitle'), artifact.metadata)}
       ${artifact.kind === 'runtime' ? renderRuntimePanel() : ''}
       ${artifact.kind === 'change' ? renderChangeLoopPanel() : ''}
     </article>
@@ -774,12 +753,12 @@ function renderDevRegistrySnapshot(): string {
   return `
     <section class="dev-registry-snapshot">
       <div>
-        <h4>Registered plugins</h4>
-        ${renderDevPillList(plugins, 'No registered plugins found')}
+        <h4>${escapeHtml(t('dev.registeredPlugins'))}</h4>
+        ${renderDevPillList(plugins, t('dev.noPlugins'))}
       </div>
       <div>
-        <h4>Registered tool surfaces</h4>
-        ${renderDevPillList(tools, 'No registered tools found yet')}
+        <h4>${escapeHtml(t('dev.registeredTools'))}</h4>
+        ${renderDevPillList(tools, t('dev.noTools'))}
       </div>
     </section>
   `
@@ -800,39 +779,39 @@ function renderDevPillList(artifacts: DevArtifact[], empty: string): string {
 }
 
 function contentTitleForArtifact(artifact: DevArtifact): string {
-  if (artifact.kind === 'prompt') return 'Effective prompt content'
-  if (artifact.kind === 'tool') return 'Tool schema'
-  if (artifact.kind === 'plugin') return 'Plugin config / contribution'
-  if (artifact.kind === 'config') return 'Active configuration'
-  if (artifact.kind === 'runtime') return 'Runtime state'
-  return 'Suggested verification loop'
+  if (artifact.kind === 'prompt') return t('dev.effectivePromptContent')
+  if (artifact.kind === 'tool') return t('dev.toolSchema')
+  if (artifact.kind === 'plugin') return t('dev.pluginContribution')
+  if (artifact.kind === 'config') return t('dev.activeConfiguration')
+  if (artifact.kind === 'runtime') return t('dev.runtimeState')
+  return t('dev.suggestedLoop')
 }
 
 function contentMetaForArtifact(artifact: DevArtifact): string {
-  if (artifact.kind === 'prompt') return 'Current source-level prompt text or prompt owner metadata'
-  if (artifact.kind === 'tool') return 'Current registered schema when last seen by a model request'
-  if (artifact.kind === 'plugin') return 'Who injects prompt/context or registers tools, based on active Cordis config'
-  if (artifact.kind === 'config') return 'Model/runtime parameters and files whose edits require reload'
-  if (artifact.kind === 'runtime') return 'Current Electron main process and ACP bridge state'
-  return 'How to rerun and compare after editing the agent'
+  if (artifact.kind === 'prompt') return t('dev.promptMeta')
+  if (artifact.kind === 'tool') return t('dev.toolMeta')
+  if (artifact.kind === 'plugin') return t('dev.pluginMeta')
+  if (artifact.kind === 'config') return t('dev.configMeta')
+  if (artifact.kind === 'runtime') return t('dev.runtimeMeta')
+  return t('dev.loopMeta')
 }
 
 function reloadLabelForArtifact(artifact: DevArtifact): string {
-  if (artifact.kind === 'runtime') return 'Manual restart available here'
-  if (artifact.kind === 'change') return String(asRecord(state.dev).restartNeeded ?? false) === 'true' ? 'Restart recommended' : 'No restart signal'
-  if (artifact.kind === 'config' || artifact.kind === 'prompt' || artifact.kind === 'tool' || artifact.kind === 'plugin') return 'Restart ACP after editing'
-  return 'unknown'
+  if (artifact.kind === 'runtime') return t('dev.manualRestart')
+  if (artifact.kind === 'change') return String(asRecord(state.dev).restartNeeded ?? false) === 'true' ? t('dev.restartRecommended') : t('dev.noRestartSignal')
+  if (artifact.kind === 'config' || artifact.kind === 'prompt' || artifact.kind === 'tool' || artifact.kind === 'plugin') return t('dev.restartAfterEdit')
+  return t('dev.unknown')
 }
 
 function renderChangeLoopPanel(): string {
   return `
     <section class="dev-loop-card">
-      <strong>Recommended loop</strong>
+      <strong>${escapeHtml(t('dev.recommendedLoop'))}</strong>
       <ol>
-        <li>Edit the prompt, tool, plugin, or config source.</li>
-        <li>Restart ACP runtime if the changed file is loaded at process start.</li>
-        <li>Return to Chat and rerun a previous task or start a new one.</li>
-        <li>Use Trajectory / Waterfall to compare behavior and timing evidence.</li>
+        <li>${escapeHtml(t('dev.loopStepEdit'))}</li>
+        <li>${escapeHtml(t('dev.loopStepRestart'))}</li>
+        <li>${escapeHtml(t('dev.loopStepRerun'))}</li>
+        <li>${escapeHtml(t('dev.loopStepCompare'))}</li>
       </ol>
     </section>
   `
@@ -860,7 +839,7 @@ function developArtifactGroups(): DevArtifactGroup[] {
       source: String(composition.configPath ?? 'examples/acp-agent/cordis.yml'),
       owner: '@deepseek-ai/dsh-acp-demo -> @deepseek-ai/dsh-system-prompt',
       value: persona || 'No persona block found in the active config.',
-      metadata: promptOwner ?? { path: 'packages/system-prompt/system-prompt/src/index.ts' },
+      metadata: promptOwner ?? { path: PATH_SYSTEM_PROMPT },
       recent: recentPromptSummary(recentPromptUses, request),
     },
     {
@@ -870,9 +849,9 @@ function developArtifactGroups(): DevArtifactGroup[] {
       title: 'Prompt assembly service',
       subtitle: 'Owns persona, steering sections, and tool-order assembly',
       status: 'source',
-      source: String(asRecord(promptOwner).path ?? 'packages/system-prompt/system-prompt/src/index.ts'),
+      source: String(asRecord(promptOwner).path ?? PATH_SYSTEM_PROMPT),
       owner: '@deepseek-ai/dsh-system-prompt',
-      value: promptOwner ?? { path: 'packages/system-prompt/system-prompt/src/index.ts' },
+      value: promptOwner ?? { path: PATH_SYSTEM_PROMPT },
       metadata: {
         lastSeenSystemPromptChars: request.system.length,
         messagePrefix: request.messagePrefix,
@@ -972,23 +951,23 @@ function buildToolArtifacts(request: RequestContextSnapshot, plugins: unknown[],
         metadata: {
           fullTool: tool,
           ownerPlugin: plugin ?? 'No matching plugin inferred from active config',
-          registry: owner ?? { path: 'packages/tools/tools/src/index.ts' },
+          registry: owner ?? { path: PATH_TOOL_REGISTRY },
           recentToolCall: recent ?? 'No persisted call evidence found',
         },
         recent: recentToolSummary(recent) || (request.event === undefined ? 'No request evidence yet' : `Schema last seen in request seq ${request.seq}`),
       } satisfies DevArtifact
     })
   }
-  const toolPlugins = plugins.filter(plugin => {
+  const toolPlugins = plugins.filter((plugin) => {
     const record = asRecord(plugin)
     const id = String(record.id ?? '')
     const name = String(record.name ?? '')
     return id.includes('tool') || name.includes('tool') || id === 'bash' || id.includes('subagent') || id.includes('workflow')
   })
-  return toolPlugins.map(plugin => {
+  return toolPlugins.map((plugin) => {
     const record = asRecord(plugin)
     const id = String(record.id ?? 'tool')
-    const recent = recentToolCalls.find(call => {
+    const recent = recentToolCalls.find((call) => {
       const name = String(asRecord(call).name)
       return toolLikelyOwnedByPlugin(name, record) || id.includes(name)
     })
@@ -1004,7 +983,7 @@ function buildToolArtifacts(request: RequestContextSnapshot, plugins: unknown[],
       value: String(record.configPreview ?? '').trim() || 'Tool schema will appear here after the first model request captures the registered tool list.',
       metadata: {
         plugin,
-        registry: owner ?? { path: 'packages/tools/tools/src/index.ts' },
+        registry: owner ?? { path: PATH_TOOL_REGISTRY },
         recentToolCall: recent ?? 'No persisted call evidence found',
       },
       recent: recentToolSummary(recent) || 'No request schema loaded',
@@ -1069,9 +1048,9 @@ function toolLikelyOwnedByPlugin(toolName: string, plugin: Record<string, unknow
 function toolImplementationSource(toolName: string, plugin: unknown): string {
   const packageName = String(asRecord(plugin).name ?? '')
   if (packageName.startsWith('@deepseek-ai/dsh-')) return `packages/${packageName.replace('@deepseek-ai/dsh-', '').replace(/^tool-/, 'tool-')}/`
-  if (toolName === 'bash') return 'packages/bash/tool-bash/src/index.ts'
-  if (toolName === 'subagent' || toolName === 'subagent_fork') return 'packages/agent/tool-subagent/src/index.ts'
-  return 'packages/tools/tools/src/index.ts'
+  if (toolName === 'bash') return PATH_TOOL_BASH
+  if (toolName === 'subagent' || toolName === 'subagent_fork') return PATH_TOOL_SUBAGENT
+  return PATH_TOOL_REGISTRY
 }
 
 function modelFromConfigText(text: string): string {
@@ -1082,7 +1061,7 @@ function modelFromConfigText(text: string): string {
 function extractPersonaFromConfig(text: string): string {
   const match = text.match(/persona:\s*\|\n([\s\S]*?)(?:\n\S|\n\s*#|$)/)
   if (match === null) return ''
-  return match[1]
+  return (match[1] ?? '')
     .split('\n')
     .map(line => line.replace(/^ {6}/, ''))
     .join('\n')
@@ -1092,8 +1071,8 @@ function extractPersonaFromConfig(text: string): string {
 function renderRuntimePanel(): string {
   return `
     <section class="module-card dev-status">
-      <dl>${renderKeyValue('Repo', shortPath(runtimeRepoRoot()))}${renderKeyValue('Branch', gitField('branch'))}${renderKeyValue('Commit', gitField('commit'))}${renderKeyValue('Dirty', gitField('dirty'))}${renderKeyValue('ACP', runtimeLabel())}${renderKeyValue('Restart needed', String(asRecord(state.dev).restartNeeded ?? false))}</dl>
-      <button data-action="restart-runtime" ${hasDesktopApi() ? '' : 'disabled'}>Restart ACP runtime</button>
+      <dl>${renderKeyValue(t('app.repo'), shortPath(runtimeRepoRoot()))}${renderKeyValue(t('app.branch'), gitField('branch'))}${renderKeyValue(t('app.commit'), gitField('commit'))}${renderKeyValue(t('app.dirty'), gitField('dirty'))}${renderKeyValue(t('app.acp'), runtimeLabel())}${renderKeyValue(t('app.restartNeeded'), String(asRecord(state.dev).restartNeeded ?? false))}</dl>
+      <button data-action="restart-runtime" ${hasDesktopApi() ? '' : 'disabled'}>${escapeHtml(t('dev.restartRuntime'))}</button>
     </section>
   `
 }
@@ -1120,7 +1099,7 @@ function renderBottomArea(session: SessionSummary | undefined): string {
     <form class="composer" data-prompt-form="true">
       <textarea name="prompt" placeholder="${escapeHtml(session === undefined ? t('composer.placeholderDraft') : t('composer.placeholderSession'))}"></textarea>
       <div class="composer-meta">
-        <button type="submit" disabled aria-label="Send message">↑</button>
+        <button type="submit" disabled aria-label="${escapeHtml(t('composer.send'))}">↑</button>
       </div>
     </form>
   `
@@ -1152,7 +1131,7 @@ function renderInspector(): string {
 function renderInspectorTabs(feedbackCount = feedbackForTarget().length): string {
   return INSPECTOR_TABS.map(tab => `
     <button class="${tab === state.activeInspectorTab ? 'active' : ''}" data-inspector-tab="${tab}">
-      ${label(tab)}${tab === 'feedback' && feedbackCount > 0 ? ` ${feedbackCount}` : ''}
+      ${inspectorTabLabel(tab)}${tab === 'feedback' && feedbackCount > 0 ? ` ${feedbackCount}` : ''}
     </button>
   `).join('')
 }
@@ -1286,23 +1265,23 @@ function rowsFromEvents(events: readonly SessionEvent[]): ChatRow[] {
     const seq = event.seq ?? rows.length
     const data = asRecord(event.data)
     if (event.type === 'user/message') {
-      rows.push({ target: makeTarget('message', 'User message', seq, `seq ${seq}`), role: 'user', title: 'User', body: contentText(data.content), eventSeqs: [seq] })
+      rows.push({ target: makeTarget('message', t('chat.userMessage'), seq, `seq ${seq}`), role: 'user', title: t('chat.user'), body: contentText(data.content), eventSeqs: [seq] })
     } else if (event.type === 'assistant/message') {
       const key = `${data.turn}:${data.step}`
       const reasoning = reasoningByStep.get(key)
       if (reasoning !== undefined && !seenReasoningStep.has(key)) {
         seenReasoningStep.add(key)
         rows.push({
-          target: makeTarget('assistant-stream', 'Thinking', reasoning.seq, `turn ${String(data.turn)} step ${String(data.step)}`),
+          target: makeTarget('assistant-stream', t('chat.thinking'), reasoning.seq, `turn ${String(data.turn)} step ${String(data.step)}`),
           role: 'thinking',
-          title: 'Thinking',
+          title: t('chat.thinking'),
           body: reasoning.text,
           eventSeqs: [reasoning.seq],
           collapsed: true,
           badge: 'folded',
         })
       }
-      rows.push({ target: makeTarget('message', 'Assistant message', seq, `seq ${seq}`), role: 'assistant', title: 'Assistant', body: contentText(data.content), eventSeqs: [seq] })
+      rows.push({ target: makeTarget('message', t('chat.assistantMessage'), seq, `seq ${seq}`), role: 'assistant', title: t('chat.assistant'), body: contentText(data.content), eventSeqs: [seq] })
     } else if (event.type === 'tool/call') {
       const callId = String(data.callId ?? '')
       const result = toolResults.get(callId)
@@ -1310,7 +1289,7 @@ function rowsFromEvents(events: readonly SessionEvent[]): ChatRow[] {
       rows.push({
         target: makeTarget('tool-call', `Tool · ${String(data.name ?? 'tool')}`, seq, `seq ${seq}`),
         role: 'tool',
-        title: `Tool use · ${String(data.name ?? 'tool')}`,
+        title: `${t('chat.toolUse')} · ${String(data.name ?? 'tool')}`,
         body: renderValue({
           input: data.arguments ?? data.rawInput ?? data,
           output: resultData.content ?? resultData.output,
@@ -1339,11 +1318,11 @@ function flushLiveDrafts(sessionId: string): ChatRow[] {
   const rows = [...(state.liveRows.get(sessionId) ?? [])]
   const thinking = state.pendingThinking.get(sessionId)
   if (thinking !== undefined && thinking.length > 0) {
-    rows.push(makeSyntheticRow(sessionId, 'thinking', 'Thinking', thinking, 'thinking-live', true))
+    rows.push(makeSyntheticRow(sessionId, 'thinking', t('chat.thinking'), thinking, 'thinking-live', true))
   }
   const assistant = state.pendingAssistant.get(sessionId)
   if (assistant !== undefined && assistant.length > 0) {
-    rows.push(makeSyntheticRow(sessionId, 'assistant', 'Assistant', assistant, 'assistant-live'))
+    rows.push(makeSyntheticRow(sessionId, 'assistant', t('chat.assistant'), assistant, 'assistant-live'))
   }
   return rows
 }
@@ -1369,7 +1348,7 @@ function makeSyntheticRow(
     body,
     eventSeqs: [],
     collapsed,
-    badge: collapsed ? 'live' : undefined,
+    ...(collapsed ? { badge: 'live' } : {}),
   }
 }
 
@@ -1419,7 +1398,7 @@ function treeRow(
     title,
     subtitle,
     meta: `seq ${seq}`,
-    tone,
+    ...(tone === undefined ? {} : { tone }),
   }
 }
 
@@ -1456,7 +1435,7 @@ function timedRow(title: string, start: SessionEvent, end: SessionEvent, kind: I
     subtitle: `${eventTime(start)} → ${eventTime(end)}`,
     startMs: Math.max(0, (start.time ?? 0) - zero),
     durationMs,
-    tone,
+    ...(tone === undefined ? {} : { tone }),
   }
 }
 
@@ -1484,14 +1463,14 @@ function contextRows(): ContextRow[] {
   const request = latestRequestContext()
   const rows: ContextRow[] = []
   if (request.event !== undefined) {
-    rows.push(contextRow('System prompt', `${request.system.length} chars`, request.system || 'No system prompt found in latest request header.', 'system', 'request', request.seq, Boolean(request.delta.system)))
-    rows.push(contextRow('Tool schemas', `${request.tools.length} tools`, request.tools.length > 0 ? request.tools.map(tool => String(asRecord(tool).name ?? 'tool')).join(', ') : 'No tool schemas found in latest request header.', 'tools', 'request', request.seq, Boolean(request.delta.tools)))
-    rows.push(contextRow('Call config', request.config === undefined ? 'empty' : 'available', renderValue(request.config), 'config', 'request', request.seq, Boolean(request.delta.config)))
-    rows.push(contextRow('Message prefix', Array.isArray(request.messagePrefix) ? `${request.messagePrefix.length} messages` : 'derived', renderValue(request.messagePrefix), 'messages', 'request', request.seq, Boolean(request.delta.messagePrefix)))
+    rows.push(contextRow(t('context.systemPrompt'), `${request.system.length} chars`, request.system || t('context.noSystem'), 'system', 'request', request.seq, Boolean(request.delta.system)))
+    rows.push(contextRow(t('context.toolSchemas'), `${request.tools.length} ${t('waterfall.tools')}`, request.tools.length > 0 ? request.tools.map(tool => String(asRecord(tool).name ?? 'tool')).join(', ') : t('context.noTools'), 'tools', 'request', request.seq, Boolean(request.delta.tools)))
+    rows.push(contextRow(t('context.callConfig'), request.config === undefined ? t('context.empty') : t('context.available'), renderValue(request.config), 'config', 'request', request.seq, Boolean(request.delta.config)))
+    rows.push(contextRow(t('context.messagePrefix'), Array.isArray(request.messagePrefix) ? `${request.messagePrefix.length} ${t('context.messages')}` : t('context.derived'), renderValue(request.messagePrefix), 'messages', 'request', request.seq, Boolean(request.delta.messagePrefix)))
   }
   const modelVisible = rowsFromEvents(events).filter(row => row.role === 'user' || row.role === 'assistant' || row.role === 'context')
-  rows.push(contextRow('Derived history', `${modelVisible.length} visible rows`, modelVisible.map(row => `${row.title}: ${truncate(row.body, 80)}`).join('\n'), 'messages', 'context-section', 0))
-  rows.push(contextRow('Raw JSONL', `${events.length} events`, state.trace?.rawText ?? '', 'raw', 'session', 0))
+  rows.push(contextRow(t('context.derivedHistory'), `${modelVisible.length} ${t('context.visibleRows')}`, modelVisible.map(row => `${row.title}: ${truncate(row.body, 80)}`).join('\n'), 'messages', 'context-section', 0))
+  rows.push(contextRow(t('context.rawJsonl'), `${events.length} ${t('context.events')}`, state.trace?.rawText ?? '', 'raw', 'session', 0))
   return rows
 }
 
@@ -1591,7 +1570,7 @@ function feedbackForTarget(): FeedbackRecord[] {
   return (state.trace?.feedback ?? []).filter(record => record.data?.targetId === selected.id)
 }
 
-document.addEventListener('click', event => {
+document.addEventListener('click', (event) => {
   const element = event.target instanceof Element ? event.target : undefined
 
   const module = element?.closest<HTMLButtonElement>('[data-module]')?.dataset.module as AppModule | undefined
@@ -1657,7 +1636,7 @@ document.addEventListener('click', event => {
     void loadTrace(state.selectedSessionId).then(() => refreshSessions(state.selectedSessionId))
   } else if (action === 'restart-runtime') {
     if (!hasDesktopApi()) {
-      state.error = 'Desktop API is not available. Use the Electron window, not the browser tab.'
+      state.error = t('error.noDesktopApi')
       render()
       return
     }
@@ -1665,7 +1644,7 @@ document.addEventListener('click', event => {
   }
 })
 
-document.addEventListener('input', event => {
+document.addEventListener('input', (event) => {
   const input = event.target instanceof HTMLInputElement ? event.target : undefined
   if (input?.dataset.search === 'true') {
     state.query = input.value
@@ -1679,7 +1658,7 @@ document.addEventListener('input', event => {
   }
 })
 
-document.addEventListener('submit', event => {
+document.addEventListener('submit', (event) => {
   const form = event.target instanceof HTMLFormElement ? event.target : undefined
   if (form?.dataset.promptForm === 'true') {
     event.preventDefault()
@@ -1692,7 +1671,7 @@ document.addEventListener('submit', event => {
   }
 })
 
-document.addEventListener('keydown', event => {
+document.addEventListener('keydown', (event) => {
   const textarea = event.target instanceof HTMLTextAreaElement ? event.target : undefined
   if (textarea !== undefined && textarea.closest<HTMLFormElement>('[data-prompt-form="true"]') !== null) {
     if (event.key !== 'Enter' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
@@ -1731,7 +1710,7 @@ function startDraftChat(): void {
 
 async function createBackendSession(): Promise<string | undefined> {
   if (!hasDesktopApi()) {
-    state.error = 'Desktop API is not available. Use the Electron window, not the browser tab.'
+    state.error = t('error.noDesktopApi')
     render()
     return undefined
   }
@@ -1750,7 +1729,7 @@ async function createBackendSession(): Promise<string | undefined> {
 
 async function sendPrompt(prompt: string, form: HTMLFormElement): Promise<void> {
   if (!hasDesktopApi()) {
-    state.error = 'Desktop API is not available. Use the Electron window, not the browser tab.'
+    state.error = t('error.noDesktopApi')
     render()
     return
   }
@@ -1761,7 +1740,7 @@ async function sendPrompt(prompt: string, form: HTMLFormElement): Promise<void> 
   const textarea = form.querySelector<HTMLTextAreaElement>('textarea[name="prompt"]')
   if (textarea !== null) autosizeComposer(textarea)
   const rows = state.liveRows.get(sessionId) ?? []
-  rows.push(makeSyntheticRow(sessionId, 'user', 'User', prompt, `user-${Date.now()}`))
+  rows.push(makeSyntheticRow(sessionId, 'user', t('chat.user'), prompt, `user-${Date.now()}`))
   state.liveRows.set(sessionId, rows)
   state.pendingAssistant.delete(sessionId)
   state.pendingThinking.delete(sessionId)
@@ -1870,22 +1849,29 @@ function uniqueTurns(): number[] {
 }
 
 function moduleTitle(): string {
-  if (state.activeModule === 'sessions') return 'Sessions'
-  return 'Develop'
+  if (state.activeModule === 'sessions') return t('app.sessions')
+  return t('app.develop')
 }
 
 function topbarTitle(session: SessionSummary | undefined): string {
   if (state.activeModule !== 'sessions') return moduleTitle()
-  return session?.title || 'Sessions'
+  return session?.title || t('app.sessions')
 }
 
 function surfaceLabel(surface: DesktopSurface): string {
   if (surface === 'chat') return t('surface.chat')
   if (surface === 'trajectory') return t('surface.trajectory')
   if (surface === 'waterfall') return t('surface.waterfall')
-  if (surface === 'context') return 'Context'
-  if (surface === 'compare') return 'Compare'
-  return 'Dev'
+  if (surface === 'context') return t('surface.context')
+  if (surface === 'compare') return t('surface.compare')
+  return t('surface.dev')
+}
+
+function inspectorTabLabel(tab: InspectorTab): string {
+  if (tab === 'input') return t('inspector.input')
+  if (tab === 'output') return t('inspector.output')
+  if (tab === 'metadata') return t('inspector.metadata')
+  return t('inspector.feedback')
 }
 
 function runtimeLabel(): string {
@@ -1952,7 +1938,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function contentText(value: unknown): string {
   if (!Array.isArray(value)) return ''
-  return value.map(block => {
+  return value.map((block) => {
     const record = asRecord(block)
     if (record.type === 'text' || record.type === 'reasoning') return String(record.text ?? '')
     if (record.type === 'resource_link') return `[resource ${String(record.name ?? '')}] ${String(record.uri ?? '')}`

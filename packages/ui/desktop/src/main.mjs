@@ -369,12 +369,12 @@ function devStatus() {
         },
         {
           label: 'System prompt service',
-          path: 'packages/system-prompt/system-prompt/src/index.ts',
+          path: 'packages/core/system-prompt/src/index.ts',
           purpose: 'Owns persona, tool order, and assembled model-facing prompt sections.',
         },
         {
           label: 'Tool registry',
-          path: 'packages/tools/tools/src/index.ts',
+          path: 'packages/core/tools/src/index.ts',
           purpose: 'Owns model-facing tool registration, schema validation, and tool presentation mode.',
         },
       ],

@@ -94,6 +94,7 @@ flowchart TD
   subgraph group_ui["packages/ui"]
     pkg_acp["acp"]
     pkg_app_boot["app-boot"]
+    pkg_desktop["desktop"]
     pkg_jsonrpc["jsonrpc"]
     pkg_permission["permission"]
     pkg_stdio["stdio"]
@@ -383,6 +384,7 @@ flowchart TD
 | [`acp-snapshot`](../packages/support/acp-snapshot) | `support` | — |
 | [`loader-smoke`](../packages/support/loader-smoke) | `support` | — |
 | [`app-boot`](../packages/ui/app-boot) | `ui` | — |
+| [`desktop`](../packages/ui/desktop) | `ui` | — |
 | [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | — |
 | [`jsonrpc-demo`](../packages/examples/jsonrpc-demo) | `examples` | — |
 | [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand) |

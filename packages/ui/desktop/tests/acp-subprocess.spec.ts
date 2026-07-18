@@ -48,7 +48,7 @@ describe('desktop ACP subprocess bridge', () => {
 
     let stderr = ''
     child.stderr.setEncoding('utf8')
-    child.stderr.on('data', chunk => { stderr += String(chunk) })
+    child.stderr.on('data', (chunk) => { stderr += String(chunk) })
 
     const stream: Stream = ndJsonStream(
       Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
@@ -69,7 +69,7 @@ describe('desktop ACP subprocess bridge', () => {
     }), stream)
 
     const init = await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    expect(init.agentInfo.name).toBe('deepseek-harness-acp')
+    expect(init.agentInfo?.name).toBe('deepseek-harness-acp')
 
     const session = await client.newSession({ cwd: process.cwd(), mcpServers: [] })
     expect(session.sessionId).toBeTruthy()

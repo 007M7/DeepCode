@@ -171,14 +171,33 @@ Start with a desktop package that defines shared UI contracts, then build the El
 - Replay creates a separate candidate run with lineage metadata.
 - Compare operates over two runs, not "inside" one session.
 
-## Known limitations and deferred work
+## Model Experience
 
-This package now ships a usable Electron/Vite development app and a real ACP subprocess bridge. It is still a v1 workbench rather than a packaged distributable.
+### Composer prompt
 
-The first runtime channel is ACP. Direct in-process embedding would make context queries and restarts richer, but it makes isolation, teardown, and hot reload harder and should wait until the ACP path is working.
+**What the model sees**: The desktop composer sends the user's text to the managed ACP runtime as the `session/prompt` content. This package adds no extra system prompt, steering prose, or tool definition of its own.
 
-The first Dev panel is agent-assisted. A direct graphical plugin/config editor should come after the app can reliably run, replay, compare, and restart the runtime.
+**Token effect**: User-message tokens are data-dependent and then follow the active runtime's normal session-retention and compaction behavior. Electron shell chrome, inspector state, and the language toggle add zero model-context tokens.
 
-The current trace/context surfaces read persisted JSONL after turns complete and use ACP live updates for streaming chat. A richer live raw-event side channel would make Trajectory/Context update at token-time rather than after the persistence flush.
+### Runtime context evidence
 
-The first Compare view is structural and textual. Semantic evaluation and dataset-level analysis belong to a later evaluation product surface.
+**What the model sees**: The visible system prompt, steering messages, tool set, message prefix, and config come from the active `cordis.yml` composition and its plugins. The desktop app only reads those emitted facts from ACP updates and persisted JSONL for inspection.
+
+**Token effect**: No additional tokens are introduced by viewing `Chat`, `Trajectory`, `Waterfall`, or `Develop`. The displayed `request/header`, `context/message`, and `steering/message` data reflect tokens the runtime already assembled for the model.
+
+## Known Limitations and Deferred Work
+
+- **Development build only** — this package ships a usable Electron/Vite app and
+  a real ACP subprocess bridge, but it is not yet packaged as a signed
+  distributable.
+- **ACP is the first runtime channel** — direct in-process embedding could make
+  context queries and restarts richer, but would make isolation, teardown, and
+  hot reload harder.
+- **Develop is read-first** — it exposes prompts, tools, plugins, config,
+  runtime state, and the change loop as a source browser; direct graphical
+  plugin/config editing is deferred.
+- **Trace refresh is mixed live/persisted** — chat streams from ACP live updates,
+  while Trajectory and Waterfall currently read persisted JSONL after turns
+  complete.
+- **Compare and replay remain skeletal** — the product contract is documented,
+  but semantic evaluation and dataset-level analysis belong to later work.

@@ -201,6 +201,7 @@ export interface DevPanelStatus {
   readonly suggestedPrompt?: string
 }
 
+/** Default author filled into new feedback entries. */
 export const DEFAULT_FEEDBACK_AUTHOR = 'shentuni'
 
 /** Default surface definitions for the first Electron implementation. */
@@ -270,22 +271,39 @@ export const SURFACE_DEFINITIONS: Record<DesktopSurface, SurfaceDefinition> = {
 /** Backward-compatible alias for callers that only need policies. */
 export const SURFACE_POLICIES: Record<DesktopSurface, SurfacePolicy> = SURFACE_DEFINITIONS
 
-/** Returns whether selecting from a middle surface should open the inspector. */
+/**
+ * Returns whether selecting from a middle surface should open the inspector.
+ * @param surface - The active middle surface.
+ * @param target - The object the user selected, if any.
+ * @returns True when this selection should open the inspector drawer.
+ */
 export function opensInspector(surface: DesktopSurface, target: InspectorTarget | undefined): boolean {
   return target !== undefined && SURFACE_POLICIES[surface].fullDetailInInspector
 }
 
-/** Returns whether the surface is allowed to show the chat composer. */
+/**
+ * Returns whether the surface is allowed to show the chat composer.
+ * @param surface - The active middle surface.
+ * @returns True only for the driving chat surface.
+ */
 export function ownsComposer(surface: DesktopSurface): boolean {
   return SURFACE_DEFINITIONS[surface].ownsComposer
 }
 
-/** Full detail belongs in the inspector for trace-analysis surfaces, not the Develop artifact browser. */
+/**
+ * Full detail belongs in the inspector for trace-analysis surfaces, not the Develop artifact browser.
+ * @param surface - The active middle surface.
+ * @returns True when raw payloads should live in the inspector for this surface.
+ */
 export function fullDetailBelongsInInspector(surface: DesktopSurface): boolean {
   return SURFACE_DEFINITIONS[surface].fullDetailInInspector
 }
 
-/** Create a stable, view-independent inspector id. */
+/**
+ * Create a stable, view-independent inspector id.
+ * @param key - Stable fields that identify the selected object.
+ * @returns A colon-delimited target id shared across surfaces.
+ */
 export function createInspectorTargetId(key: InspectorTargetKey): string {
   const parts = [`session:${key.sessionId}`]
   if (key.runId !== undefined) parts.push(`run:${key.runId}`)
@@ -295,7 +313,11 @@ export function createInspectorTargetId(key: InspectorTargetKey): string {
   return parts.join(':')
 }
 
-/** Pick a useful starting inspector tab for common target kinds. */
+/**
+ * Pick a useful starting inspector tab for common target kinds.
+ * @param target - The selected object that will be inspected.
+ * @returns The inspector tab that best matches the target's primary payload.
+ */
 export function defaultInspectorTabForTarget(target: InspectorTarget): InspectorTab {
   switch (target.kind) {
     case 'assistant-stream':
@@ -314,7 +336,10 @@ export function defaultInspectorTabForTarget(target: InspectorTarget): Inspector
   }
 }
 
-/** Build closed drawer state when no node is selected. */
+/**
+ * Build closed drawer state when no node is selected.
+ * @returns An inspector state with no target and no visible tabs.
+ */
 export function closedInspectorState(): InspectorState {
   return {
     open: false,
@@ -323,13 +348,17 @@ export function closedInspectorState(): InspectorState {
   }
 }
 
-/** Build an open drawer state for a selected target. */
+/**
+ * Build an open drawer state for a selected target.
+ * @param target - The selected object that owns the inspector content.
+ * @returns An open inspector state with the default tab selected.
+ */
 export function openInspectorState(target: InspectorTarget): InspectorState {
   return {
     open: true,
     target,
     activeTab: defaultInspectorTabForTarget(target),
-    tabs: INSPECTOR_TABS.map((tab) => ({
+    tabs: INSPECTOR_TABS.map(tab => ({
       tab,
       available: true,
       canCopy: tab !== 'feedback',
