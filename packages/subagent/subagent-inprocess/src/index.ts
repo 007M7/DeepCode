@@ -107,8 +107,10 @@ export async function startInProcessRun(
   const childId = AgentId(randomUUID())
   const seedLength = options.seed?.length ?? 0
   const parentHeader = parent.session.header
+  const parentProvider = parent.options.provider
   const parentModel = parent.options.model
   const agentOptions: AgentOptions = {
+    ...parentProvider !== undefined ? { provider: parentProvider } : {},
     ...parentModel !== undefined ? { model: parentModel } : {},
     ...request.agentOptions,
     subagentDepth: childDepth,

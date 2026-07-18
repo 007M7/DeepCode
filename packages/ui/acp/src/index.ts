@@ -34,13 +34,15 @@ import {
   type PromptRequest,
   type PromptResponse,
   type SessionConfigOption,
+  type SessionConfigSelectGroup,
+  type SessionConfigSelectOption,
   type SessionNotification,
   type SetSessionConfigOptionRequest,
   type SetSessionConfigOptionResponse,
   type Stream,
   type StopReason,
 } from '@agentclientprotocol/sdk'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmCallConfig, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
@@ -52,6 +54,9 @@ import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } f
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
+// Side-effect type import: declaration-merges prompt assembly onto Context and
+// the scoped waterfall used to keep persona variables aligned with requests.
+import type {} from '@deepseek-ai/dsh-system-prompt'
 // Side-effect type import: declaration-merges the `approval/request` waterfall
 // the bridge answers for its own agents (see the approval answerer below).
 import type {} from '@deepseek-ai/dsh-user-approval'
@@ -73,7 +78,7 @@ import {
 export const name = 'acp'
 // Interface services back advertised loading, tool-owned presentation with a generic fallback, and interaction.
 // TODO(acp-session-inject): remove `sessions`; the bridge never reads it, and ownership is already behind `agents`.
-export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools', 'userInteraction']
+export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools', 'userInteraction', 'llm', 'systemPrompt']
 
 /** Build an ACP invalid-params error with visible human detail. */
 function invalidParams(detail: string): RequestError {
@@ -201,6 +206,8 @@ function stringArrayContent(
 
 /** Plugin config: the agent template ACP sessions are created from. */
 export interface AcpConfig {
+  /** Provider route for created agents. */
+  provider?: string
   /** Model name for created agents (must have a registered adapter). */
   model?: string
   /** Runtime-only transport override for tests; production uses stdio. */
@@ -208,8 +215,34 @@ export interface AcpConfig {
 }
 
 export const Config: Schema<AcpConfig> = Schema.object({
+  provider: Schema.string(),
   model: Schema.string(),
 })
+
+/** Provider/model pair selected for one ACP session. */
+interface LlmTarget {
+  provider: string
+  model: string
+}
+
+/** Mutable target shared by one agent's scoped assembly and request listeners. */
+interface LlmTargetRef {
+  current: LlmTarget | undefined
+  /** Step snapshot captured by prompt assembly so target switches cannot split prompt and request. */
+  assembled: LlmTarget | undefined
+}
+
+/** One resolved ACP model selector plus its opaque value lookup. */
+interface ModelDirectory {
+  option: Extract<SessionConfigOption, { type: 'select' }> | undefined
+  targets: ReadonlyMap<string, LlmTarget>
+}
+
+/** One provider and its adapter-advertised models, detached for one RPC. */
+interface ModelCatalogEntry {
+  provider: LlmProviderInfo
+  models: LlmModelInfo[]
+}
 
 /** Per-session bridge state keyed by ACP session id. */
 interface SessionRecord {
@@ -221,6 +254,8 @@ interface SessionRecord {
   presenter: ToolPresenter
   /** Session-creation snapshot of terminal-card support for call/result consistency. */
   terminalEnabled: boolean
+  /** Session-local provider/model selection and the current step snapshot. */
+  target: LlmTargetRef
   /** In-flight prompt and its captured turn number for exact settlement. */
   inflight: {
     resolve: (reason: StopReason) => void
@@ -243,12 +278,108 @@ interface SessionRecord {
 export function apply(ctx: Context, config: AcpConfig): void {
   // Handlers run later outside this injection scope, so capture services now.
   const agents = ctx.agents
+  const llm = ctx.llm
   const sessionPersistence = ctx.sessionPersistence
   const logger = ctx.logger
   const tools = ctx.tools
   const userInteraction = ctx.userInteraction
   // Presenter failures are logged and contained per session or replay.
   const makePresenter = (agent?: Agent): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) }, agent)
+
+  /** Resolve a complete target only; partial config remains available to other request listeners. */
+  const configuredTarget = (): LlmTarget | undefined => config.provider !== undefined && config.model !== undefined
+    ? { provider: config.provider, model: config.model }
+    : undefined
+
+  /** Install the ACP target as an agent-scoped prompt/request override. */
+  const installTarget = (agentCtx: Context, target: LlmTargetRef): void => {
+    const agent = agentCtx.agent
+    /* v8 ignore next -- setup is invoked only with the freshly created agent's scoped context. */
+    if (agent === undefined) throw new Error('acp: agent setup has no scoped agent')
+    const logged = agent.session.requestHeader()?.config
+    if (logged !== undefined) target.current = { provider: logged.provider, model: logged.model }
+
+    // Capture once at assembly entry and apply the same pair after downstream
+    // prompt listeners. A selector change during async assembly therefore takes
+    // effect on the following step instead of splitting {{model}} from routing.
+    agentCtx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      const selected = target.current
+      const assembled = await next()
+      target.assembled = selected
+      if (selected === undefined) return assembled
+      return {
+        ...assembled,
+        variables: {
+          ...assembled.variables,
+          provider: selected.provider,
+          model: selected.model,
+        },
+      }
+    })
+    agentCtx.on('agent/request', async (_agent, _turn, _step, _callConfig, next): Promise<LlmCallConfig> => {
+      const resolved = await next()
+      const selected = target.assembled
+      return selected === undefined ? resolved : {
+        ...resolved,
+        provider: selected.provider,
+        model: selected.model,
+      }
+    })
+  }
+
+  /** Opaque ACP value preserving both routing dimensions. */
+  const targetValue = (target: LlmTarget): string => JSON.stringify([target.provider, target.model])
+
+  /** Read one detached advisory catalog snapshot before mutating session state. */
+  const readModelCatalog = async (): Promise<ModelCatalogEntry[]> => Promise.all(
+    llm.listProviders().map(async provider => ({
+      provider,
+      models: await llm.listModels(provider.id),
+    })),
+  )
+
+  /** Resolve one catalog snapshot into the ACP model selector for a session. */
+  const modelDirectory = (catalog: readonly ModelCatalogEntry[], current: LlmTarget | undefined): ModelDirectory => {
+    if (current === undefined) return { option: undefined, targets: new Map() }
+    const models = catalog.map(entry => ({ provider: entry.provider, models: [...entry.models] }))
+    const currentProvider = models.find(entry => entry.provider.id === current.provider)
+    if (currentProvider === undefined) return { option: undefined, targets: new Map() }
+    if (!currentProvider.models.some(model => model.id === current.model)) {
+      currentProvider.models = [...currentProvider.models, {
+        provider: current.provider,
+        id: current.model,
+        name: current.model,
+      }]
+    }
+
+    const targets = new Map<string, LlmTarget>()
+    const groups = models.flatMap(({ provider, models: entries }) => {
+      if (entries.length === 0) return []
+      const options = entries.map((model): SessionConfigSelectOption => {
+        const target = { provider: model.provider, model: model.id }
+        const value = targetValue(target)
+        targets.set(value, target)
+        return {
+          value,
+          name: model.name,
+          ...model.description === undefined ? {} : { description: model.description },
+        }
+      })
+      return [{ group: provider.id, name: provider.name, options } satisfies SessionConfigSelectGroup]
+    })
+    return {
+      option: {
+        id: 'model',
+        name: 'Model',
+        description: 'Sets this session\'s provider and model.',
+        category: 'model',
+        type: 'select',
+        currentValue: targetValue(current),
+        options: groups.length === 1 ? groups.flatMap(group => group.options) : groups,
+      },
+      targets,
+    }
+  }
 
   // TODO(derive-acp-session-id): derive event ids from `agent.session`, verify ownership, then remove the reverse map.
   // Agent events currently carry only the Agent, so retain `SessionRecord.sessionId` and update both indexes together.
@@ -433,16 +564,17 @@ export function apply(ctx: Context, config: AcpConfig): void {
 
   // --- The ACP Agent method surface -----------------------------------------
 
-  /**
-   * Build the single Permissions option when `ctx.permission` is composed.
-   * Its value comes from the session log, overlaid by an unanchored idle
-   * switch, so `session/load` needs no catch-up state.
-   */
-  const configOptionsFor = (agent: Agent, pending: SessionRecord['pendingSwitches'] = {}): SessionConfigOption[] => {
+  /** Build every ACP session option from the model directory and live services. */
+  const configOptionsFor = (
+    agent: Agent,
+    directory: ModelDirectory,
+    pending: SessionRecord['pendingSwitches'] = {},
+  ): SessionConfigOption[] => {
+    const options = directory.option === undefined ? [] : [directory.option]
     const presets = ctx.get('permission')
-    if (presets === undefined) return []
+    if (presets === undefined) return options
     const currentValue = pending.preset ?? presets.current(agent.session.events)
-    return [{
+    return [...options, {
       id: 'permission',
       name: 'Permissions',
       description: 'Sets this session\'s sandbox and approval behavior.',
@@ -541,11 +673,15 @@ export function apply(ctx: Context, config: AcpConfig): void {
         validateWorkspaceParams(params)
         validateMcpServers(params)
         const sessionId = SessionId(randomUUID())
+        const target: LlmTargetRef = { current: configuredTarget(), assembled: undefined }
+        const directory = modelDirectory(await readModelCatalog(), target.current)
+        assertOpen()
         const handle = await agents.create({
           agentId: AgentId(sessionId),
           sessionId,
           meta: { cwd: params.cwd },
           agentOptions: agentOptions(config),
+          setup: (agentCtx) => { installTarget(agentCtx, target) },
         })
         // Creation awaits the unpublished setup transaction. A client disconnect
         // can therefore close this bridge
@@ -564,10 +700,11 @@ export function apply(ctx: Context, config: AcpConfig): void {
           dispose: () => handle.dispose(),
           presenter: makePresenter(handle.agent),
           terminalEnabled: terminalOutputCap,
+          target,
           inflight: undefined,
           pendingSwitches: {},
         })
-        const configOptions = configOptionsFor(handle.agent)
+        const configOptions = configOptionsFor(handle.agent, directory)
         return { sessionId, ...configOptions.length > 0 ? { configOptions } : {} }
       },
 
@@ -612,10 +749,14 @@ export function apply(ctx: Context, config: AcpConfig): void {
               throw invalidParams(`session ${sessionId} cwd mismatch: persisted ${persistedCwd}, requested ${params.cwd}`)
             }
           }
+          const catalog = await readModelCatalog()
+          assertOpen()
+          const target: LlmTargetRef = { current: configuredTarget(), assembled: undefined }
           const handle = await agents.resume({
             agentId: AgentId(sessionId),
             resumeSessionId: sessionId,
             agentOptions: agentOptions(config),
+            setup: (agentCtx) => { installTarget(agentCtx, target) },
           })
           // The bridge may have torn down (disposal / client disconnect) while
           // resume() was pending. Its listeners are gone, so installing a record
@@ -631,6 +772,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             await handle.dispose()
             throw invalidParams('connection closed during session/load')
           }
+          const directory = modelDirectory(catalog, target.current)
           const agent = handle.agent
           bySession.set(agent, sessionId)
           // Snapshot the terminal capability ONCE for this session (used by both
@@ -643,6 +785,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             dispose: () => handle.dispose(),
             presenter: makePresenter(agent),
             terminalEnabled,
+            target,
             inflight: undefined,
             pendingSwitches: {},
           }
@@ -668,7 +811,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           for (const event of agent.session.events) {
             streamSessionEventUpdate(sessionId, event, notify, replayPresenter, replayTerminal)
           }
-          const configOptions = configOptionsFor(agent)
+          const configOptions = configOptionsFor(agent, directory)
           return configOptions.length > 0 ? { configOptions } : {}
         } finally {
           loadingIds.delete(sessionId)
@@ -722,18 +865,35 @@ export function apply(ctx: Context, config: AcpConfig): void {
         return Promise.resolve()
       },
 
-      setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
+      async setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
         assertOpen()
         const rec = requireSession(SessionId(params.sessionId))
-        // The advertised option is a select, so the boolean-shaped variant of
-        // the request is a protocol misuse regardless of configId.
+        // Every advertised option is a select, so the boolean-shaped variant
+        // is a protocol misuse regardless of configId.
         if (typeof params.value !== 'string') {
           throw invalidParams(`config option ${params.configId} is a select; boolean values are not accepted`)
         }
+        let directory = modelDirectory(await readModelCatalog(), rec.target.current)
         // Open-turn switches append immediately; idle switches wait for the
         // next prompt-submit. Only values advertised by this composition are
         // accepted, and the session log remains the durable store.
         switch (params.configId) {
+          case 'model': {
+            const target = directory.targets.get(params.value)
+            if (target === undefined) {
+              throw invalidParams(`unknown model value ${JSON.stringify(params.value)}`)
+            }
+            rec.target.current = { ...target }
+            const option = directory.option
+            /* v8 ignore next -- `targets` is populated only while constructing
+               this selector; a found target therefore proves it exists. */
+            if (option === undefined) throw internalError('model directory target has no selector')
+            directory = {
+              ...directory,
+              option: { ...option, currentValue: params.value },
+            }
+            break
+          }
           case 'permission': {
             const presets = ctx.get('permission')
             if (presets === undefined) {
@@ -755,7 +915,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         }
         // The spec requires the COMPLETE refreshed config state in the response
         // (a change may cascade); ours are independent, but the contract holds.
-        return Promise.resolve({ configOptions: configOptionsFor(rec.agent, rec.pendingSwitches) })
+        return { configOptions: configOptionsFor(rec.agent, directory, rec.pendingSwitches) }
       },
     }
   }
@@ -851,11 +1011,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
  * Build per-agent options from the plugin config, omitting absent fields
  * (exactOptionalPropertyTypes: never assign `undefined` to an optional key).
  * Exported for unit coverage of both the present and absent branches.
- * @param config - the plugin config carrying the optional model name.
- * @returns the per-agent options, with `model` present only when configured.
+ * @param config - the plugin config carrying the optional provider/model target.
+ * @returns the per-agent options, with each configured target field present.
  */
-export function agentOptions(config: AcpConfig): { model?: string } {
+export function agentOptions(config: AcpConfig): { provider?: string; model?: string } {
   return {
+    ...config.provider !== undefined ? { provider: config.provider } : {},
     ...config.model !== undefined ? { model: config.model } : {},
   }
 }
