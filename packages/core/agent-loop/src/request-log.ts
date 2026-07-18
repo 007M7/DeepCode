@@ -1,11 +1,12 @@
 /**
  * Per-loop-instance request-header bookkeeping for reconstructability. The
- * comparison baseline is the header folded from the session log, so a fresh
- * loop instance needs no special resume or fork state.
+ * comparison baseline is folded from the session log; a fresh instance anchors
+ * it with an initial/resume snapshot and later logs full changed snapshots.
+ *
  * @module dsh-agent-loop/request-log
  */
 
-import { diffHeader, headerEquals, applyHeaderDelta } from '@deepseek-ai/dsh-session'
+import { headerEquals } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, Session } from '@deepseek-ai/dsh-session'
 import type { Message } from '@deepseek-ai/dsh-llm'
 
@@ -32,10 +33,8 @@ export function createTransmissionLog(): TransmissionLog {
 }
 
 /**
- * Append whatever header event makes the log reproduce this request's header.
- * The first request from an instance always records a full `initial` or `resume`
- * snapshot. Later requests record nothing when unchanged, a round-tripping
- * delta when expressible, or a full `fallback` snapshot otherwise.
+ * Append the full header snapshot owed by this request: initial/resume for the
+ * instance's first request, nothing when unchanged, or change otherwise.
  *
  * @param session - the session whose log explains the request.
  * @param state - this loop instance's bookkeeping (mutated on first log).
@@ -52,12 +51,5 @@ export function recordRequestHeader(session: Session, state: TransmissionLog, he
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const baseline = session.requestHeader()!
   if (headerEquals(baseline, header)) return
-  const delta = diffHeader(baseline, header)
-  /* v8 ignore next -- headerEquals false ⟹ diffHeader defined: both compare the same four parts */
-  if (delta === undefined) return
-  if (headerEquals(applyHeaderDelta(baseline, delta), header)) {
-    session.append('request/header-delta', delta)
-  } else {
-    session.append('request/header', { header, reason: 'fallback' })
-  }
+  session.append('request/header', { header, reason: 'change' })
 }

@@ -8,7 +8,7 @@ Status: implemented
 
 Harness 中存在两种有用但不同的上下文概念。Cordis `Context` 负责选择服务、注册归属和生命周期；`agent.ctx` 是一个存活 Agent 所拥有的扁平注册作用域。Agent 与会话身份描述的则是异步操作主体。若把根 `ctx.agent` 改成「当前正在运行的 Agent」，就会混淆这两种含义，并在单进程并发驱动多个 Agent 时失效。
 
-进程内深层基础设施仍需要可信的发起 Agent。能力传输层、追踪辅助函数、日志器和网关客户端可能位于显式 loop、工具及请求参数的下层。在每个私有辅助函数中传递 `agent` 会增加管道代码，而进程级可变槽会在 `await` 之间发生并发错误。模型可见参数同样不合适，因为模型不能选择可信的会话或路由请求头。
+进程内深层基础设施仍需要可信的发起 Agent。能力传输层、追踪辅助函数、日志器和网关客户端可能位于显式 loop、工具及请求参数的下层。在每个私有辅助函数中传递 `agent` 会增加管道代码，而进程级可变槽会在 `await` 之间发生并发错误。模型可见参数同样不合适，因为模型不能选择可信的会话或路由请求头。它是必载控制基础设施，而不是模型可见的可选上下文增强。
 
 ## 决策
 
@@ -26,7 +26,7 @@ export interface AgentExecutionService {
 }
 ```
 
-`current()` 执行可选读取，`require()` 抛出 `no agent execution context is active`，`run()` 保留操作返回的准确同步值或 Promise。`run(undefined, operation)` 会建立真实的清空边界，供不得继承 Agent 的工作使用。会话仍通过 `execution.agent.session` 推导；轮次、步骤、工具调用、signal、模型、cwd、沙箱和授权继续由现有归属方管理。
+`current()` 执行可选读取，`require()` 抛出 `no agent execution context is active`，`run()` 保留操作返回的准确同步值或 Promise。`run(undefined, operation)` 会建立真实的清空边界，供不得继承 Agent 的工作使用。一个同类实现曾观察到未清空的隐式值穿过已调度工作泄漏进后续轮次；显式 undefined 边界可以防止这类泄漏。会话仍通过 `execution.agent.session` 推导；轮次、步骤、工具调用、signal、模型、cwd、沙箱和授权继续由现有归属方管理。
 
 `AgentLoop` 注入该服务，并用 `agentExecution.run({ agent }, ...)` 包裹每个具体驱动的完整 `runLoop` 生命周期。因此，并发驱动使用彼此独立的存储，子驱动会遮蔽父驱动，子边界结束后父存储得到恢复。创建、持久化加载和尚未发布的 `setup(agentCtx)` 位于子边界之外：由父 Agent 发起的创建使用父身份，而 `agentCtx.agent` 显式标识子 Agent。
 
@@ -40,11 +40,21 @@ export interface AgentExecutionService {
 
 本决策扩展 [Agent 注册作用域契约](2026-07-08-agent-scope-contexts.md)及其[运行时设计](2026-07-12-agent-scope-runtime-design.md)，不会改变其中 `agent.ctx` 的静态含义。
 
+## 参考模型
+
+| Claude Code | Harness 中的设计 |
+|---|---|
+| AppState store | Cordis 部署服务及其拥有的实时状态 |
+| QueryEngine | Agent 驱动及 loop 所拥有的运行时状态 |
+| ToolUseContext | 能力边界上的显式 Agent、工具和请求参数 |
+| AgentContext ALS | 窄粒度 `AgentExecution` 载体 |
+| Transcript | 事件溯源 `Session` 与持久化后端 |
+
 ## 验证
 
-服务测试锁定可选与必需读取、同步与跨 `await` 传播、并发与嵌套边界、显式清空、throw 或 rejection 后的恢复、准确返回值身份、排空顺序及已 dispose 引用错误。AgentLoop 集成测试覆盖重叠的真实驱动、嵌套父子创建、无 Agent 的直接工具执行、提供方或根 Context teardown 期间的取消、服务重启，以及 Agent dispose 后保留的引用。
+服务测试锁定可选与必需读取、同步与跨 `await` 传播、并发与嵌套边界、显式清空、throw 或 rejection 后的恢复、准确返回值身份、排空顺序及已 dispose 引用错误。AgentLoop 集成测试覆盖重叠的真实驱动、嵌套父子创建、无 Agent 的直接工具执行、提供方或根 Context teardown 期间的取消、服务重启，以及 Agent dispose 后保留的引用。针对脱离主调用链的异步工作的测试会防止上下文泄漏，同时不改变现有显式取消契约。
 
-测试替身能力传输层在内部推导 `X-Harness-Session-Id`，并断言工具 schema 与记录的参数都不包含身份字段。组合测试和生成目录确保默认 bundle、SDK 主干、Python 运行时闭包及直接 AgentLoop harness 都装载提供方；缺少提供方时 AgentLoop 保持未激活。
+测试替身能力传输层在内部推导 `X-Harness-Session-Id`，并断言工具 schema 与记录的参数都不包含身份字段。组合测试和生成目录确保默认 bundle、SDK 主干、Python 运行时闭包及直接 AgentLoop harness 都装载提供方；缺少提供方时 AgentLoop 保持未激活。文档检查确保 `AGENTS.md` 中的仓库布局、`packages/core/README.md` 中的包表，以及 `packages/README.md` 中的分组说明都与该必载提供方保持一致。
 
 ## 考虑过的替代方案
 

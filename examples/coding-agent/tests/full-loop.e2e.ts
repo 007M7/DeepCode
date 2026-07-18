@@ -28,7 +28,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('full loop: real model + real bas
   it('runs a bash command on request and reports its output', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-full-loop-e2e-'))
     ctx = await codingHarness(workdir, { persona: SYSTEM_PROMPT })
-    const agent = ctx.agentLoop.create(AgentId('e2e-loop'), { model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(AgentId('e2e-loop'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.send([{ type: 'text', text: 'Run `echo e2e-ok` with the bash tool and tell me its exact output.' }])
     await waitForIdle(ctx, agent)

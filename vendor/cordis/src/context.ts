@@ -14,14 +14,21 @@ import { Fiber } from './fiber.ts'
  * be read from `ctx`.
  */
 export interface Context {
+  /** Isolation map: service name → scope label. Lookups for a name resolve within its label. */
   [symbols.isolate]: Dict<symbol>
+  /** Intercept map: service name → config merged into that service's per-plugin config. */
   [symbols.intercept]: Dict
-  /** @experimental */
+  /** The root context of the application (every child context shares it). @experimental */
   root: this
+  /** Base URL used to resolve relative plugin/module specifiers, if the runtime sets one. */
   baseUrl?: string
+  /** The event bus. Its methods are also mixed onto `ctx` (`ctx.on`, `ctx.emit`, ...). */
   events: EventsService
+  /** The logging service. Call `ctx.logger(name)` for a named logger. */
   logger: LoggerService
+  /** The reflection layer backing the context proxy (`ctx.get`, `ctx.provide`, ...). */
   reflect: ReflectService
+  /** The plugin registry. Its methods are mixed onto `ctx` (`ctx.plugin`, `ctx.inject`). */
   registry: RegistryService
 }
 
@@ -33,12 +40,24 @@ export interface Context {
  * contexts without mutating their parent.
  */
 export class Context {
+  /** Symbol key under which a disposer exposes its {@link EffectMeta} diagnostics tree. */
   static readonly effect: unique symbol = symbols.effect
+  /** Symbol key for a context's listener filter, consulted on every event dispatch. */
   static readonly filter: unique symbol = symbols.filter
+  /** Symbol key of the isolation map (see the `Context[symbols.isolate]` property). */
   static readonly isolate: unique symbol = symbols.isolate
+  /** Symbol key of the intercept map (see the `Context[symbols.intercept]` property). */
   static readonly intercept: unique symbol = symbols.intercept
 
-  /** Returns true for Cordis context proxies and context prototypes. */
+  /**
+   * Returns true for Cordis context proxies and context prototypes.
+   *
+   * Works across realms and across multiple copies of cordis, because the
+   * brand is keyed by a global symbol rather than by `instanceof`.
+   *
+   * @param value — the value to test.
+   * @returns `true` if `value` is a Cordis context, narrowing its type.
+   */
   static is(value: any): value is Context {
     return !!value?.[Context.is as any]
   }
@@ -68,7 +87,15 @@ export class Context {
     return `Context <${this.fiber.name}>`
   }
 
-  /** Create a child context with extra metadata on top of the current scope. */
+  /**
+   * Create a child context with extra metadata on top of the current scope.
+   *
+   * The child prototypally inherits every property of this context; own
+   * properties of `meta` shadow the inherited ones. The parent is not mutated.
+   *
+   * @param meta — own properties (including symbol keys) to define on the child.
+   * @returns a child context inheriting from this one.
+   */
   extend(meta = {}): this {
     const shadow = Reflect.getOwnPropertyDescriptor(this, symbols.shadow)?.value
     const self = Object.create(getTraceable(this, this))
@@ -79,14 +106,36 @@ export class Context {
     return Object.assign(Object.create(self), { [symbols.shadow]: shadow })
   }
 
-  /** Create a child context with an independent service scope for `name`. */
+  /**
+   * Create a child context with an independent service scope for `name`.
+   *
+   * Below the returned context, reads and writes of the service `name`
+   * resolve against the new label instead of the parent's, so a different
+   * implementation can be provided without affecting the parent scope.
+   * Passing the same `label` to two `isolate()` calls joins their scopes.
+   *
+   * @param name — the service name to isolate.
+   * @param label — scope label to join; defaults to a fresh unique symbol.
+   * @returns a child context whose `name` service resolves in the new scope.
+   */
   isolate(name: string, label?: symbol) {
     const shadow = Object.create(this[symbols.isolate])
     shadow[name] = label ?? Symbol(name)
     return this.extend({ [symbols.isolate]: shadow })
   }
 
-  /** Add service-specific intercept config for plugins started below this context. */
+  /**
+   * Add service-specific intercept config for plugins started below this
+   * context.
+   *
+   * Plugins loaded under the returned context see `config` merged into the
+   * service's resolved config (ancestor entries first; see
+   * `Service[symbols.resolveConfig]`). The parent context is not affected.
+   *
+   * @param name — the service name whose config to intercept.
+   * @param config — the intercept config to merge for that service.
+   * @returns a child context carrying the additional intercept entry.
+   */
   intercept<K extends InjectKey>(name: K, config: Context[K] extends { [symbols.config]: infer T } ? T : never): this
   intercept(name: string, config: any): this
   intercept(name: string, config: any) {

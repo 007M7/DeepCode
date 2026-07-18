@@ -34,7 +34,7 @@ describe('config-driven session id', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentExecutionProvider)
     const loopFiber = await ctx.plugin(AgentLoop, {
-      agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('deferred') }],
+      agents: [{ id: AgentId('main'), provider: 'mock', model: 'mock', resumeSessionId: SessionId('deferred') }],
     })
 
     const resumeEffect = loopFiber.getEffects().find(effect => effect.label === 'agentLoop.resume(main)')
@@ -56,7 +56,7 @@ describe('config-driven session id', () => {
     await ctx1.plugin(ToolRegistry)
     await ctx1.plugin(AgentRegistry)
     await ctx1.plugin(AgentExecutionProvider)
-    await ctx1.plugin(AgentLoop, { agents: [{ id: AgentId('cfg'), model: 'mock' }] })
+    await ctx1.plugin(AgentLoop, { agents: [{ id: AgentId('cfg'), provider: 'mock', model: 'mock' }] })
     await ctx1.plugin(SessionPersistenceJsonl, { root })
     ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('cfg')]))
     const a1 = ctx1.agents.get(AgentId('cfg')) as ReactLoopAgent
@@ -74,7 +74,7 @@ describe('config-driven session id', () => {
     await ctx2.plugin(ToolRegistry)
     await ctx2.plugin(AgentRegistry)
     await ctx2.plugin(AgentExecutionProvider)
-    await ctx2.plugin(AgentLoop, { agents: [{ id: AgentId('cfg'), model: 'mock' }] })
+    await ctx2.plugin(AgentLoop, { agents: [{ id: AgentId('cfg'), provider: 'mock', model: 'mock' }] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], new MockAdapter([textResponse('cfg2')]))
     const a2 = ctx2.agents.get(AgentId('cfg')) as ReactLoopAgent
@@ -115,7 +115,7 @@ describe('config-driven session id', () => {
     await ctx2.plugin(ToolRegistry)
     await ctx2.plugin(AgentRegistry)
     await ctx2.plugin(AgentExecutionProvider)
-    await ctx2.plugin(AgentLoop, { agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('sticky-1') }] })
+    await ctx2.plugin(AgentLoop, { agents: [{ id: AgentId('main'), provider: 'mock', model: 'mock', resumeSessionId: SessionId('sticky-1') }] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], new MockAdapter([textResponse('second')]))
 
@@ -144,7 +144,7 @@ describe('config-driven session id', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentExecutionProvider)
-    await ctx.plugin(AgentLoop, { agents: [{ id: AgentId('main'), model: 'mock', resumeSessionId: SessionId('does-not-exist') }] })
+    await ctx.plugin(AgentLoop, { agents: [{ id: AgentId('main'), provider: 'mock', model: 'mock', resumeSessionId: SessionId('does-not-exist') }] })
     const warn = vi.spyOn((ctx.agentLoop as unknown as { ctx: { logger: { warn: (...a: unknown[]) => void } } }).ctx.logger, 'warn')
       .mockImplementation(() => undefined)
     await ctx.plugin(SessionPersistenceJsonl, { root })

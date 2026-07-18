@@ -8,7 +8,7 @@ English | [中文](2026-07-15-agent-execution-context.zh.md)
 
 The harness has two useful but different notions of context. A Cordis `Context` selects services, registration ownership, and lifetime; `agent.ctx` is the flat registration scope owned by one live Agent. Agent and Session identity instead describe the subject of an asynchronous operation. Changing a root `ctx.agent` to mean “whichever Agent is running” would conflate those meanings and fail when one process drives Agents concurrently.
 
-Deep process-local infrastructure still needs a trusted initiating Agent. Capability transports, tracing helpers, loggers, and gateway clients may sit below the explicit loop, tool, and request parameters. Threading `agent` through every private helper adds plumbing, while a process-global mutable slot is incorrect across `await`. Model-visible arguments are also unsuitable because a model must not choose a trusted Session or routing header.
+Deep process-local infrastructure still needs a trusted initiating Agent. Capability transports, tracing helpers, loggers, and gateway clients may sit below the explicit loop, tool, and request parameters. Threading `agent` through every private helper adds plumbing, while a process-global mutable slot is incorrect across `await`. Model-visible arguments are also unsuitable because a model must not choose a trusted Session or routing header. This is mandatory control infrastructure rather than optional model-visible context enrichment.
 
 ## Decision
 
@@ -26,7 +26,7 @@ export interface AgentExecutionService {
 }
 ```
 
-`current()` is optional, `require()` throws `no agent execution context is active`, and `run()` preserves the operation's exact synchronous value or Promise. `run(undefined, operation)` establishes a real clearing boundary for work that must not inherit an Agent. Session remains derived as `execution.agent.session`; turn, step, tool call, signal, model, cwd, sandbox, and authorization stay with their existing owners.
+`current()` is optional, `require()` throws `no agent execution context is active`, and `run()` preserves the operation's exact synchronous value or Promise. `run(undefined, operation)` establishes a real clearing boundary for work that must not inherit an Agent. A comparable implementation observed an uncleared ambient value crossing scheduled work into a later turn; the explicit undefined boundary prevents that class of leak. Session remains derived as `execution.agent.session`; turn, step, tool call, signal, model, cwd, sandbox, and authorization stay with their existing owners.
 
 `AgentLoop` injects the service and wraps each concrete driver's complete `runLoop` lifetime in `agentExecution.run({ agent }, ...)`. Concurrent drivers therefore receive independent stores, a child driver shadows its parent, and the parent store returns when the child boundary settles. Creation, persistence load, and unpublished `setup(agentCtx)` remain outside the child's boundary: creation initiated by a parent runs under the parent identity, while `agentCtx.agent` explicitly identifies the child.
 
@@ -40,11 +40,21 @@ A host-aware transport may derive a deployment-owned header such as `X-Harness-S
 
 This decision extends the [Agent registration-scope contract](2026-07-08-agent-scope-contexts.md) and its [runtime design](2026-07-12-agent-scope-runtime-design.md); it does not change their static `agent.ctx` meaning.
 
+## Reference model
+
+| Claude Code | Harness design |
+|---|---|
+| AppState store | Cordis deployment services and their owned live state |
+| QueryEngine | Agent driver plus loop-owned runtime state |
+| ToolUseContext | Explicit Agent, tool, and request parameters at capability seams |
+| AgentContext ALS | Narrow `AgentExecution` carrier |
+| Transcript | Event-sourced `Session` and persistence backends |
+
 ## Verification
 
-Service tests pin optional and required reads, synchronous and awaited propagation, overlapping and nested boundaries, explicit clearing, restoration after throw or rejection, exact return identity, drain ordering, and disposed-reference errors. AgentLoop integration tests run overlapping real drivers, nested parent/child creation, agentless direct tool execution, cancellation during provider/root teardown, service restart, and a captured Agent after disposal.
+Service tests pin optional and required reads, synchronous and awaited propagation, overlapping and nested boundaries, explicit clearing, restoration after throw or rejection, exact return identity, drain ordering, and disposed-reference errors. AgentLoop integration tests run overlapping real drivers, nested parent/child creation, agentless direct tool execution, cancellation during provider/root teardown, service restart, and a captured Agent after disposal. Detached-work coverage prevents context leakage without changing existing explicit cancellation contracts.
 
-The test-double capability transport derives `X-Harness-Session-Id` internally and asserts that neither its tool schema nor logged arguments contains an identity field. Composition tests and generated catalogs keep the provider present in the default bundle, SDK spine, Python runtime closure, and direct AgentLoop harnesses; a missing provider leaves AgentLoop inactive.
+The test-double capability transport derives `X-Harness-Session-Id` internally and asserts that neither its tool schema nor logged arguments contains an identity field. Composition tests and generated catalogs keep the provider present in the default bundle, SDK spine, Python runtime closure, and direct AgentLoop harnesses; a missing provider leaves AgentLoop inactive. Documentation checks keep the repository layout in `AGENTS.md`, the package table in `packages/core/README.md`, and the group description in `packages/README.md` aligned with the mandatory provider.
 
 ## Alternatives considered
 

@@ -45,10 +45,16 @@
       "path": "../../core/agent-execution"
     },
     {
+      "path": "../../context/workspace-context"
+    },
+    {
       "path": "../../core/agent-loop"
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../util/home"
     },
     {
       "path": "../../bash/tool-bash"

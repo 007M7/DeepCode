@@ -12,7 +12,7 @@ Filesystem resolution used one plugin-load cwd while bash used the session proje
 
 Thread the caller's session cwd into path resolution, exactly as `dsh-tool-bash` already does for `workdir`. The **caller** (the tool) supplies the cwd; the provider does not read a session or agent.
 
-- `FileSystem.resolve` widens to `resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>`. `opts.cwd` is the base a RELATIVE `path` resolves against; an absolute `path` ignores it; omitting `opts.cwd` uses the backend's own default. An options object (not a positional `cwd?`) leaves room for future resolution hints without another signature change.
+- `FileSystem.resolve` accepts `resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>`. `opts.cwd` is the base a RELATIVE `path` resolves against; an absolute `path` ignores it; omitting `opts.cwd` uses the backend's own default. `opts.signal` cancels resolution when the backend performs I/O. The options object keeps both caller-owned resolution controls together without positional growth.
 - `dsh-fs-local.resolve` uses `resolveLocalTarget(opts?.cwd ?? this.config.cwd, path)`. `config.cwd` stays the default for a caller that supplies none (non-ACP / no-session use, and the single-session stdio demo where `process.cwd()` IS the workspace).
 - `dsh-tool-fs`'s `read`/`write`/`edit` derive the session cwd through a shared `sessionCwd(exec)` helper (`exec.agent?.session.header.cwd`, mirroring bash's `resolveWorkdir`) and pass it to `resolve`. A non-agent / headerless caller yields `undefined`, so the backend applies its default.
 
