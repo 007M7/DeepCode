@@ -29,7 +29,7 @@ The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loo
 
 ```ts
 interface Config {
-  maxParallelToolCalls?: number // shared by every agent; default 10; 1 is serial
+  maxParallelToolCalls?: number // default 10; 1 is serial
   agents: Array<{
     id: string                 // required
     provider?: string
@@ -54,7 +54,7 @@ The driver owns one agent for its lifetime. It records turn, step, request, stre
 
 Plugin failure ends the current turn, not the loop. Cancellation clears pending work and aborts the current step without leaking to the next prompt. Terminal continuation stops remain authoritative through turn close and durability flush.
 
-Within a step, consecutive parallel-safe calls form a rolling-pool group; exclusive calls are ordering barriers. The scheduler reclassifies pending calls after each barrier and before replenishing the pool, so a live tool-registry change applies before the next call starts. Only dispatch/body overlaps. Pre/post policy, durable results, and additional context remain in model order. Abort stops replenishment, drains started calls, drops their buffered context, and ends the turn through the normal abort path.
+Within a step, exclusive calls form barriers; parallel-safe calls use a bounded rolling pool and are reclassified before start. Only dispatch/body overlaps. Policy, durable results, and context remain model-ordered. Abort stops new calls, drains started results, discards their context, and follows the normal abort path.
 
 ### What belongs to plugins
 
@@ -82,7 +82,7 @@ Everything that goes beyond "call the model, run the tools, repeat" belongs to p
 
 ## Known Limitations and Deferred Work
 
-- **Concurrency is explicit and conservative** — only tools whose per-call classifier returns `true` join the rolling pool; undeclared, invalid, or throwing classifications remain exclusive.
+- **Classification is unary** — calls whose safety depends on comparing siblings or resources must remain exclusive ([rationale](../../../docs/rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md)).
 - **No resume-or-create policy on the config path** — config-driven `create()` starts a fresh `${id}-session-<uuid>` every run (`TODO(demo)`), and a config `resumeSessionId` whose resume fails logs a warning and creates no agent.
 - **Config agents have no per-agent persona field or setup hook** — they use the deployment persona; scoped persona/tool composition is available only through the programmatic `ctx.agents.create()` / `resume()` factory options.
 - **No built-in turn budget** — the default continuation is `continue` whenever a step had tool calls or steering; bounding a runaway turn requires an `agent/turn-continuation` force-stop plugin.

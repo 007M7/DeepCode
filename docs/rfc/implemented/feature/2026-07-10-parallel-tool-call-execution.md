@@ -16,11 +16,11 @@ Each tool may provide an optional `isConcurrencySafe(args)` classifier. It is sy
 
 The classifier is deliberately unary. Returning `true` is the tool's promise that this call may overlap with any sibling call that also returns `true`; the scheduler does not compare calls or prove that their resource accesses are compatible.
 
-Arguments still support input-sensitive classification. A tool may classify a read-only operation as parallel and a mutating operation as exclusive. The interface cannot express relational rules such as "these writes are safe only when their paths differ," so a call whose safety depends on a sibling remains exclusive.
+The unary classifier remains input-sensitive. A tool may classify a read-only operation as parallel and a mutating operation as exclusive. The interface cannot express relational rules such as "these writes are safe only when their paths differ," so a call whose safety depends on a sibling remains exclusive.
 
 `defineTool()` validates arguments before invoking a typed classifier. Invalid arguments classify as exclusive and produce the ordinary argument error only if the call executes. `ctx.tools.executionMode(exec)` resolves the live tool definition and returns the tagged `parallel` or `exclusive` mode; unknown tools fail closed to exclusive.
 
-A tagged mode, rather than a public boolean scheduler API, leaves room for a future resource-aware mode without changing the classifier contract.
+A tagged mode, rather than a public boolean scheduler API, keeps resource-aware variants representable without changing the classifier contract.
 
 ## Scheduling and ordering
 
@@ -58,7 +58,7 @@ Any shared state touched during execution must be concurrency-safe. This include
 
 `maxParallelToolCalls` is a positive AgentLoop deployment cap shared by every agent the factory creates. It defaults to `10`; `1` preserves serial execution. Exact fields and defaults live in the generated [configuration catalog](../../../config-catalog.md).
 
-The shipped declarations are conservative. Web search, web fetch, and filesystem read opt in. Filesystem writes and edits, bash tools, subagent delegation, workflow, user interaction, todo mutation, Code Mode, and Cordis mutation tools remain exclusive. A subagent may share its parent's workspace or external resources, and the unary classifier cannot prove that sibling delegations have disjoint effects. Bash stays exclusive until its owning package supplies a proven input-sensitive classifier.
+The shipped declarations are conservative. Web search, web fetch, and filesystem read opt in. Filesystem writes and edits, bash tools, subagent delegation, workflow, user interaction, todo mutation, Code Mode, and Cordis mutation tools remain exclusive. A subagent may share its parent's workspace or external resources, and the unary classifier cannot prove that sibling delegations have disjoint effects. Bash has no proven input-sensitive classifier and remains exclusive.
 
 Filesystem read relies on a narrow recorder exception: its synchronous observation updates may settle out of order, but write and edit re-check the observed version before mutation, so stale state only produces `FS_STALE_VERSION`.
 
@@ -80,7 +80,7 @@ Snapshot coverage pins the visible multi-call transcript: pending calls may over
 
 **Parallelize the complete tool pipeline.** This keeps the loop on the public one-call API but runs pre- and post-execute middleware concurrently. Existing guards and hook bridges may carry ordered state, so only dispatch overlaps.
 
-**Expose staged methods or a scheduling waterfall.** Public `prepare` / `dispatch` / `finalize` methods or a `tools/execution-mode` event add extension surface before another consumer needs it. The loop uses an internal scheduler view, while `executionMode(exec)` remains the insertion point for a future policy seam.
+**Expose staged methods or a scheduling waterfall.** Public `prepare` / `dispatch` / `finalize` methods or a `tools/execution-mode` event add extension surface before another consumer needs it. The loop uses an internal scheduler view, while `executionMode(exec)` leaves an insertion point for a policy seam.
 
 **Start calls while the model streams.** This may reduce latency further but changes assistant-message authority, replay, and call/result pairing. The scheduler starts only after the assistant message is complete.
 

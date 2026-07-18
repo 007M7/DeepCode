@@ -82,11 +82,11 @@ forever:
         'assistant/chunk'
       agent/step-result
       'assistant/message'
-      schedule tool calls by ctx.tools.executionMode (reclassify before pool replenishment;
-        exclusive = barrier; parallel-safe = rolling pool, <= maxParallelToolCalls in flight):
-        while the bounded pool has work:
-          capacity available -> 'tool/call' -> tools/pre-execute -> monotonic guards -> tools/execute
-          next model-order slot ready -> tools/post-execute -> 'tool/result'
+      schedule tool calls by ctx.tools.executionMode:
+        exclusive -> one-call barrier
+        parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
+        each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+        each model-order result -> ordered tools/post-execute -> 'tool/result'
       append post-tool context (model order) and steering
       'step/end'
       agent/turn-continuation

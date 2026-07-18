@@ -1,13 +1,6 @@
 /**
- * The per-step tool-call scheduler (`tool-calls.ts`): live classification by
- * `ctx.tools.executionMode`, the rolling pool for parallel groups, model-order
- * `tool/result` commit despite out-of-order settlement, registry-change
- * reclassification, interleaved `tool/call` audit records, ordered
- * `tools/pre-execute`/`tools/post-execute`, model-ordered `additionalContexts`,
- * and abort behavior.
- *
- * Tools are mocked and deterministic — no real API, no snapshot here (the
- * transcript-facing live-order behavior is pinned by the ACP snapshot goldens).
+ * Exercises scheduler ordering and cancellation with deterministic gated tools.
+ * ACP goldens own transcript-facing coverage.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -48,7 +41,7 @@ function events(agent: ReactLoopAgent): SessionEvent[] {
   return [...agent.session.events]
 }
 
-/** An assistant message with N tool-call blocks named `name` (ids c1..cN, arg = index). */
+/** Build one assistant response containing the supplied tool calls. */
 function multiCall(calls: { id: string; name: string; args: object }[]): StreamChunk[] {
   const chunks: StreamChunk[] = []
   calls.forEach((call, index) => {
@@ -82,18 +75,15 @@ function gatedTool(name: string, parallel: boolean) {
   return {
     tool,
     started,
-    /** Release one in-flight call by its arg id (its `execute` resolves). */
     release(id: string) { gates.get(id)?.(); gates.delete(id) },
     pending() { return [...gates.keys()] },
   }
 }
 
-/** A parallel-safe gated tool. */
 function gatedParallelTool(name: string) {
   return gatedTool(name, true)
 }
 
-/** An exclusive gated tool. */
 function gatedExclusiveTool(name: string) {
   return gatedTool(name, false)
 }
@@ -116,7 +106,6 @@ describe('tool-call scheduler: grouping and barriers', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'go' }])
-    // All three start before any is released — proof of concurrency.
     await until(() => gated.started.length === 3)
     expect(gated.started).toEqual(['1', '2', '3'])
     gated.release('1'); gated.release('2'); gated.release('3')
@@ -124,9 +113,6 @@ describe('tool-call scheduler: grouping and barriers', () => {
   })
 
   it('an exclusive call between two parallel-safe calls forms a barrier (3 groups)', async () => {
-    // read A (safe), write A (exclusive), read A (safe) → the write must not
-    // overlap either read. The exclusive tool records whether a read was still
-    // in flight when it ran.
     const order: string[] = []
     const adapter = new MockAdapter([
       multiCall([
@@ -150,7 +136,6 @@ describe('tool-call scheduler: grouping and barriers', () => {
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
-    // The write ran strictly between the two reads (barrier ordering).
     expect(order).toEqual(['r-start-A1', 'r-end-A1', 'w-A2', 'r-start-A3', 'r-end-A3'])
   })
 
@@ -243,8 +228,6 @@ describe('tool-call scheduler: model-order results despite out-of-order settleme
 
     agent.send([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 2)
-    // Release the SECOND call first; its result must NOT be committed until the
-    // first commits (the commit cursor holds it in a slot).
     gated.release('2')
     await new Promise(r => setTimeout(r, 5))
     const beforeFirst = events(agent).filter(e => e.type === 'tool/result')
@@ -270,8 +253,6 @@ describe('tool-call scheduler: model-order results despite out-of-order settleme
     gated.release('2'); gated.release('1')
     await waitForIdle(ctx, agent)
 
-    // deriveMessages pairs the assistant tool-call blocks with tool-result
-    // blocks by callId — model order, independent of log interleaving.
     const messages = agent.session.deriveMessages()
     const toolResults = messages.flatMap(m => m.content.filter(b => b.type === 'tool-result'))
     expect(toolResults.map(b => b.toolCallId)).toEqual([CallId('c1'), CallId('c2')])
@@ -314,11 +295,9 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'go' }])
-    // Only 2 start initially (the cap).
     await until(() => gated.started.length === 2)
     await new Promise(r => setTimeout(r, 5))
     expect(gated.started).toEqual(['1', '2'])
-    // Releasing one starts the next in model order.
     gated.release('1')
     await until(() => gated.started.length === 3)
     expect(gated.started).toEqual(['1', '2', '3'])
@@ -354,7 +333,7 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     await waitForIdle(ctx, agent)
   })
 
-  it('applies the global Config cap to every agent created by the factory', async () => {
+  it('applies the configured cap to every factory-created agent', async () => {
     const adapter = new MockAdapter([
       multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }, { id: 'c2', name: 'p', args: { id: '2' } }]),
       textResponse('done'),
@@ -365,7 +344,6 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     await ctx.plugin(SystemPrompt, { persona: '' })
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
-    // The global cap of 1 must serialize every agent from this factory.
     await ctx.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
     ctx.llm.registerAdapter(['mock'], adapter)
     const gated = gatedParallelTool('p')
@@ -400,8 +378,6 @@ describe('tool-call scheduler: ordered middleware and additional contexts', () =
 
     agent.send([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 3)
-    // Settle in reverse; post-execute (ordered by the commit cursor) still fires
-    // in model order because post runs on the commit path, not on dispatch.
     gated.release('3'); gated.release('2'); gated.release('1')
     await waitForIdle(ctx, agent)
 
@@ -427,7 +403,6 @@ describe('tool-call scheduler: ordered middleware and additional contexts', () =
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
-    // Both tool/results precede both context/messages, and context is model-ordered.
     const contextTexts = log.filter(e => e.type === 'context/message')
       .map(e => (e.data.content[0] as { text: string }).text)
     expect(contextTexts).toEqual(['ctx-c1', 'ctx-c2'])
@@ -436,7 +411,7 @@ describe('tool-call scheduler: ordered middleware and additional contexts', () =
     expect(lastResult).toBeLessThan(firstContext)
   })
 
-  it('keeps pre-produced deny/error results ordered without dispatching those calls', async () => {
+  it('orders pre-execute denials and errors without dispatching them', async () => {
     const adapter = new MockAdapter([
       multiCall([
         { id: 'c1', name: 'p', args: { id: '1' } },

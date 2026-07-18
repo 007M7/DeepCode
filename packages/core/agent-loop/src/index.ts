@@ -333,9 +333,8 @@ export { DEFAULT_MAX_PARALLEL_TOOL_CALLS }
 /** Agent-loop plugin configuration. */
 export interface Config {
   /**
-   * Concurrent parallel-safe tool-call cap shared by every agent this factory
-   * creates. A positive integer; `1` preserves fully serial execution and an
-   * omitted value defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
+   * Maximum parallel-safe calls in flight per agent step. `1` is serial;
+   * omission defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
    */
   maxParallelToolCalls?: number
   /** Agents created or resumed at plugin startup. */
@@ -355,7 +354,6 @@ export class AgentLoop extends Service implements AgentFactory {
 
   /** Runtime schema for declarative agents. */
   static Config = z.object({
-    // The deployment-wide cap is defaulted and validated at plugin load.
     maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS),
     agents: z.array(z.object({
       id: z.string().required(),
@@ -367,7 +365,7 @@ export class AgentLoop extends Service implements AgentFactory {
   }) as unknown as z<Config>
 
   private readonly ownership: FactoryOwnership
-  /** Resolved immutable scheduler cap shared by every driver from this factory. */
+  /** Resolved concurrency cap for every driver created by this factory. */
   private readonly maxParallelToolCalls: number
   /** Plain holder prevents Cordis from re-tracing the factory's dependency context through a caller shadow. */
   private readonly runtime: { ctx: Context }

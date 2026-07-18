@@ -34,14 +34,14 @@ sequenceDiagram
   Session-->>SDK: <code>session/event</code> <code>assistant/chunk</code>*
   Driver->>Hooks: <code>agent/step-result</code> waterfall
   Driver->>Session: <code>assistant/message</code>
-  Driver->>Tools: classify next call by executionMode
-  loop bounded rolling pool with reclassification before replenishing
-    opt capacity available for an unstarted call
-      Driver->>Session: <code>tool/call</code> pending audit
-      Driver->>Tools: ordered pre / pooled dispatch
+  Driver->>Tools: classify pending call by executionMode
+  loop barriers and bounded rolling pool, reclassify before start
+    opt call starts
+      Driver->>Session: <code>tool/call</code>
+      Driver->>Tools: ordered pre, concurrent execute
       Tools-->>Session: tool-owned events when applicable
     end
-    opt next model-order result is ready
+    opt next model-order result ready
       Driver->>Tools: ordered post
       Driver->>Session: <code>tool/result</code>
     end

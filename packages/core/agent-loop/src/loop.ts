@@ -74,7 +74,7 @@ function stepFinishReason(finish: FinishReason): TurnEndReason | undefined {
 export interface LoopHandle {
   /** Native-private agent inbox handed to the driver only at internal startup. */
   readonly inbox: Inbox
-  /** Immutable concurrent tool-call cap resolved by the owning factory. */
+  /** Maximum parallel-safe calls allowed in one step. */
   readonly maxParallelToolCalls: number
   setStatus(status: 'idle' | 'running'): void
   setAbort(controller: AbortController | undefined): void
@@ -558,13 +558,12 @@ async function runStep(
   // Empty messages exist only to carry usage; the helper also omits empty chunk provenance.
   recordAssistantMessage(session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs)
 
-  // The scheduler overlaps only dispatch/body for parallel-safe calls; policy,
-  // results, and additional context remain in model order.
+  // Dispatch may overlap; policy, results, and context remain model-ordered.
   const pendingContext = toolCalls.length > 0
     ? await executeToolCalls(ctx, agent, turn, step, toolCalls, signal, maxParallelToolCalls)
     : []
 
-  // Append context after the complete result batch to preserve call/result adjacency.
+  // Context follows the complete result batch to preserve call/result adjacency.
   for (const context of pendingContext) {
     agent.inject(context.content, {
       source: context.source,

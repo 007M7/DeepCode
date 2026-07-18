@@ -27,18 +27,14 @@ export const name = 'acp-demo'
  * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
  * the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * `tools` is the tool registry's config (its presentation `mode`, forwarded
- * through agent-spine-demo); `maxParallelToolCalls` configures the bundled
- * agent loop; `persistenceRoot` is the JSONL backend's directory.
+ * through agent-spine-demo); `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
   /** Provider route for ACP-created agents. */
   provider: string
   /** Model name for ACP-created agents (must have a registered adapter). */
   model: string
-  /**
-   * Concurrent parallel-safe tool-call cap for the bundled agent loop. A
-   * positive integer; the loop defaults it when omitted and `1` is serial.
-   */
+  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
   maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
@@ -66,8 +62,6 @@ export interface Config {
 export const Config: z<Config> = z.object({
   provider: z.string().required(),
   model: z.string().required(),
-  // A positive integer; a bad value (0, negative, fractional) fails config
-  // validation here rather than being silently dropped from cordis.yml.
   maxParallelToolCalls: z.number().step(1).min(1),
   persona: z.string(),
   // The array default is forced to undefined: ABSENT means "lexicographic

@@ -284,13 +284,11 @@ export interface DefineToolOptions<S extends SchemaSpec> {
    */
   readonly timeoutMs?: number
   /**
-   * Optional synchronous concurrency-safety classifier (see
-   * {@link ToolDefinition.isConcurrencySafe}). `args` is the typed, schema-
-   * validated shape — zero casts. Validated SOFTLY, mirroring the presenters:
-   * on an arg mismatch the produced classifier returns `false` (the conservative
-   * exclusive default) instead of the hard {@link ToolArgsError} the execute path
-   * raises, since replay/scheduling may feed older-schema args. Host-only — never
-   * sent to the model.
+   * Optional pure synchronous classifier for sibling overlap. It receives typed
+   * arguments after soft validation; invalid input returns `false` without
+   * invoking it. See {@link ToolDefinition.isConcurrencySafe}.
+   * @param args - typed validated arguments.
+   * @returns whether this call may join a parallel group.
    */
   isConcurrencySafe?(args: InferArgs<S>): boolean
   /**
@@ -325,7 +323,7 @@ export interface DefineToolOptions<S extends SchemaSpec> {
  * @param options - the tool's name, description, typed parameter schema,
  *   execute body, and optional presenters.
  * @returns a registry-ready definition with strict execution validation and
- *   soft presenter and concurrency-classifier validation for replay compatibility.
+ *   soft presenter and classifier validation for replay compatibility.
  */
 export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>): ToolDefinition {
   // Object-literal execute methods don't use `this`; the reference is safe.
@@ -371,10 +369,7 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
       return userPresentResult(args as InferArgs<S>, result)
     }
   }
-  // Concurrency classification is host-only scheduler metadata (never sent to
-  // the model) and, like the presenters, may run against replay/scheduling args
-  // from an older schema — so it validates SOFTLY: an arg mismatch returns
-  // `false` (conservative exclusive default), never the hard ToolArgsError.
+  // Invalid arguments fail closed without invoking the typed classifier.
   if (userIsConcurrencySafe) {
     tool.isConcurrencySafe = (args: unknown): boolean => {
       if (validateArgs(options.parameters, args).length > 0) return false

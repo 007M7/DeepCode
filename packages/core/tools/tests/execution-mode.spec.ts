@@ -1,9 +1,4 @@
-/**
- * Per-call concurrency classification: `ToolDefinition.isConcurrencySafe`,
- * `defineTool()`'s soft-validated forwarding of it, and the registry's
- * `executionMode(exec)` decision. Also proves the classifier never leaks into
- * the model-facing `schemas()` projection.
- */
+/** Covers fail-closed per-call classification and model-schema isolation. */
 
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
@@ -28,7 +23,7 @@ function exec(name: string, args: unknown): ToolExecutionInput {
 }
 
 describe('ToolRegistry.executionMode', () => {
-  it('returns parallel only when the registered tool declares isConcurrencySafe → true', async () => {
+  it('returns parallel only for an explicit true classifier', async () => {
     const ctx = await setup()
     ctx.tools.register(defineTool({
       name: 'safe',
@@ -58,7 +53,6 @@ describe('ToolRegistry.executionMode', () => {
 
   it('returns exclusive when the classifier returns false for these args', async () => {
     const ctx = await setup()
-    // Input-sensitive: safe to read, unsafe to write — the same tool differs by args.
     ctx.tools.register(defineTool({
       name: 'rw',
       description: 'read or write',
@@ -70,11 +64,8 @@ describe('ToolRegistry.executionMode', () => {
     expect(ctx.tools.executionMode(exec('rw', { mode: 'write' }))).toEqual({ kind: 'exclusive' })
   })
 
-  it('a defineTool classifier soft-fails to exclusive on invalid args (no ToolArgsError)', async () => {
+  it('classifies invalid defineTool arguments as exclusive without throwing', async () => {
     const ctx = await setup()
-    // The typed classifier would read args.mode, but the required arg is missing:
-    // soft validation returns false (exclusive) rather than throwing, matching the
-    // presenter pattern. Executing the same bad args WOULD raise ToolArgsError.
     ctx.tools.register(defineTool({
       name: 'needs-mode',
       description: 'requires mode',
@@ -85,9 +76,8 @@ describe('ToolRegistry.executionMode', () => {
     expect(ctx.tools.executionMode(exec('needs-mode', {}))).toEqual({ kind: 'exclusive' })
   })
 
-  it('a thrown classifier fails closed to exclusive (raw definition)', async () => {
+  it('treats a throwing raw classifier as exclusive', async () => {
     const ctx = await setup()
-    // A hand-rolled ToolDefinition (not via defineTool) whose check throws.
     const raw: ToolDefinition = {
       name: 'thrower',
       description: 'classifier throws',
@@ -99,7 +89,7 @@ describe('ToolRegistry.executionMode', () => {
     expect(ctx.tools.executionMode(exec('thrower', {}))).toEqual({ kind: 'exclusive' })
   })
 
-  it('a truthy non-boolean classifier result fails closed to exclusive (raw definition)', async () => {
+  it('treats a truthy non-boolean raw result as exclusive', async () => {
     const ctx = await setup()
     const raw = {
       name: 'truthy',
@@ -112,7 +102,7 @@ describe('ToolRegistry.executionMode', () => {
     expect(ctx.tools.executionMode(exec('truthy', {}))).toEqual({ kind: 'exclusive' })
   })
 
-  it('a raw definition (no defineTool) receives the raw parsed value', async () => {
+  it('passes parsed arguments directly to a raw definition', async () => {
     const ctx = await setup()
     let seen: unknown
     ctx.tools.register({

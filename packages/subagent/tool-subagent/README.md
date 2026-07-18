@@ -26,7 +26,7 @@ With `run_in_background: true`, the tool registers the parent-owned task before 
 
 ## Concurrency
 
-Foreground and background calls are exclusive. Children may share the parent's workspace or external resources, and the unary scheduler classifier cannot prove that sibling delegations have disjoint effects. See the [parallel tool-call RFC](../../../docs/rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
+Foreground and background calls are exclusive. Children may share the parent's workspace or external resources, and a unary classifier cannot prove that sibling delegations have disjoint effects. See the [parallel tool-call RFC](../../../docs/rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
 
 ## Model Experience
 

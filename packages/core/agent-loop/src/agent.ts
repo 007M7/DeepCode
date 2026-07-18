@@ -54,7 +54,7 @@ export interface PreparedReactLoopAgent {
  * @param id - the concrete agent identity.
  * @param options - loop options for the agent.
  * @param session - the prepared session the agent will own.
- * @param maxParallelToolCalls - resolved scheduler cap shared by this factory's agents.
+ * @param maxParallelToolCalls - resolved in-flight cap for this agent.
  * @returns the agent and closures bound only to that exact instance.
  */
 export function prepareReactLoopAgent(
@@ -144,7 +144,7 @@ export class ReactLoopAgent implements Agent {
    * the `disposed` transition fires and leave the promise hanging.
    */
   private idleWaiters: (() => void)[] = []
-  /** Immutable scheduler cap resolved by the owning AgentLoop factory. */
+  /** Maximum parallel-safe calls allowed in one step. */
   private readonly maxParallelToolCalls: number
   /**
    * Durability checkpoints started by idle {@link inject} calls. `inject()` is

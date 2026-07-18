@@ -398,9 +398,7 @@ describe('signal, concurrency, and the fs/observed contract', () => {
     expect(secondInfo.version).not.toBe(firstInfo.version)
     expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
 
-    // Simulate an older concurrent read finishing last and overwriting the
-    // observed-state WeakMap with the stale version it saw before the external
-    // file change. The provider's in-lock CAS is still the safety boundary.
+    // Reproduce an older concurrent read winning the observation race.
     ctx.emit('fs/observed', target, firstInfo.version, { agent: { session } })
 
     const edit = await callOwned('edit', {

@@ -6,7 +6,7 @@
 
 Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L447)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L438)
 
 ### ctx.tools.register(definition)
 
@@ -20,7 +20,7 @@ Register globally or in the calling agent scope. Scoped tools shadow globals; du
 
 **Returns** the exact disposer that unregisters the tool.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L547)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L538)
 
 ### ctx.tools.restrict(filter)
 
@@ -34,7 +34,7 @@ Restrict global tools for the calling agent scope. Empty filters, unknown names,
 
 **Returns** the exact disposer that lifts this restriction.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L587)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L578)
 
 ### ctx.tools.guard(guard)
 
@@ -48,7 +48,7 @@ Register a monotonic guard after the extensible `tools/pre-execute` waterfall. A
 
 **Returns** the exact disposer that unregisters the guard.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L638)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L629)
 
 ### ctx.tools.get(name, scope?)
 
@@ -63,7 +63,7 @@ Look up a tool as one scope sees it (scoped shadows global; a restricted-away gl
 
 **Returns** the definition the scope resolves, or undefined when none is visible.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L740)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L731)
 
 ### ctx.tools.schemas(scope?)
 
@@ -77,7 +77,7 @@ Project visible definitions onto the allowlisted model-facing schema fields, exc
 
 **Returns** one deep-cloned schema per visible tool.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L750)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L741)
 
 ### ctx.tools.executionMode(exec)
 
@@ -85,13 +85,13 @@ Project visible definitions onto the allowlisted model-facing schema fields, exc
 executionMode(exec: ToolExecutionInput): ToolExecutionMode
 ```
 
-Classify how one pending call may be scheduled relative to its siblings in the same assistant step. Looks up the tool through the caller's visible scoped view and calls its `isConcurrencySafe(exec.arguments)` classifier. Only an explicit `true` yields `{ kind: 'parallel' }`; unknown, restricted-away, undeclared, falsey, or throwing checks fail closed to `{ kind: 'exclusive' }`.
+Classify a pending call through the caller's visible tool definition. Only an exact `true` is parallel; unknown, hidden, undeclared, invalid, or throwing classifiers are exclusive.
 
-- `exec` — the call to classify (name, parsed arguments, optional agent scope).
+- `exec` — call name, parsed arguments, and optional agent scope.
 
-**Returns** the conservative scheduling mode for this call.
+**Returns** the fail-closed scheduling mode.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L774)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L762)
 
 ### ctx.tools.execute(exec)
 
@@ -99,10 +99,10 @@ Classify how one pending call may be scheduled relative to its siblings in the s
 async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 ```
 
-Execute through pre-policy, guards, around-dispatch, post-policy, and final notification. Tool and listener failures resolve as materialized error results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen snapshot final observers receive. Scheduler staging preserves these semantics when dispatches overlap.
+Execute through pre-policy, guards, around-dispatch, post-policy, and final notification. Tool and listener failures resolve as materialized error results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen snapshot final observers receive.
 
 - `exec` — the typed same-process call input. The registry assigns its correlation token before policy begins.
 
 **Returns** the materialized final result.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L795)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L782)

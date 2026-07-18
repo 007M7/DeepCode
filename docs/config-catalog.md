@@ -39,18 +39,14 @@ Source: [`packages/ui/acp/src/index.ts:208`](../packages/ui/acp/src/index.ts)
  * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
  * the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * `tools` is the tool registry's config (its presentation `mode`, forwarded
- * through agent-spine-demo); `maxParallelToolCalls` configures the bundled
- * agent loop; `persistenceRoot` is the JSONL backend's directory.
+ * through agent-spine-demo); `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
   /** Provider route for ACP-created agents. */
   provider: string
   /** Model name for ACP-created agents (must have a registered adapter). */
   model: string
-  /**
-   * Concurrent parallel-safe tool-call cap for the bundled agent loop. A
-   * positive integer; the loop defaults it when omitted and `1` is serial.
-   */
+  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
   maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
@@ -75,7 +71,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/acp-demo/src/index.ts:33`](../packages/examples/acp-demo/src/index.ts)
+Source: [`packages/examples/acp-demo/src/index.ts:32`](../packages/examples/acp-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -85,9 +81,8 @@ Requires: `agents` · `sessions` · `llm` · `tools` · `systemPrompt`
 /** Agent-loop plugin configuration. */
 export interface Config {
   /**
-   * Concurrent parallel-safe tool-call cap shared by every agent this factory
-   * creates. A positive integer; `1` preserves fully serial execution and an
-   * omitted value defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
+   * Maximum parallel-safe calls in flight per agent step. `1` is serial;
+   * omission defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
    */
   maxParallelToolCalls?: number
   /** Agents created or resumed at plugin startup. */
@@ -127,7 +122,7 @@ Source: [`packages/core/agent-loop/src/index.ts:334`](../packages/core/agent-loo
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
   agents?: AgentLoopConfig['agents']
-  /** Shared concurrent tool-call cap (see dsh-agent-loop's `Config`). */
+  /** Agent-loop concurrency cap; `1` is serial. */
   maxParallelToolCalls?: AgentLoopConfig['maxParallelToolCalls']
   /** The deployment persona (see dsh-system-prompt's `Config`). */
   persona?: SystemPromptConfig['persona']
@@ -814,10 +809,7 @@ export interface Config {
   provider: string
   /** Model name for the `main` agent (must have a registered adapter). */
   model: string
-  /**
-   * Concurrent parallel-safe tool-call cap for the bundled agent loop. A
-   * positive integer; the loop defaults it when omitted and `1` is serial.
-   */
+  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
   maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
@@ -1215,7 +1207,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:391`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:382`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 

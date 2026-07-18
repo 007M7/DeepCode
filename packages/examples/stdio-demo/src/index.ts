@@ -39,10 +39,7 @@ export interface Config {
   provider: string
   /** Model name for the `main` agent (must have a registered adapter). */
   model: string
-  /**
-   * Concurrent parallel-safe tool-call cap for the bundled agent loop. A
-   * positive integer; the loop defaults it when omitted and `1` is serial.
-   */
+  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
   maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
@@ -75,8 +72,6 @@ export interface Config {
 export const Config: z<Config> = z.object({
   provider: z.string().required(),
   model: z.string().required(),
-  // A positive integer; a bad value (0, negative, fractional) fails config
-  // validation here rather than being silently dropped from cordis.yml.
   maxParallelToolCalls: z.number().step(1).min(1),
   persona: z.string(),
   // The array default is forced to undefined: ABSENT means "lexicographic

@@ -132,15 +132,16 @@ export interface ToolDefinition extends ToolSchema {
    */
   timeoutMs?: number
   /**
-   * Pure, synchronous host-only classifier for overlap with sibling tool calls.
-   * Only `true` opts in; omission, exceptions, and invalid `defineTool`
-   * arguments are treated as exclusive.
+   * Pure synchronous classifier for overlap with sibling tool calls. Only
+   * `true` opts in; omission, exceptions, non-`true` returns, and invalid
+   * `defineTool` arguments are exclusive. This metadata is never model-visible.
    *
-   * Opted-in executions must not mutate parent-owned state, and shared state
-   * they touch must be concurrency-safe. See the
+   * Opted-in executions must not mutate parent-owned state. Shared state must
+   * tolerate concurrent dispatch; recorder races are permitted only when they
+   * commute or fail closed. See the
    * [parallel-tool-call RFC](../../../../docs/rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md)
-   * for the full safety contract and recorder exception.
-   * @param args - Parsed tool arguments.
+   * for the full contract.
+   * @param args - parsed arguments; `defineTool` validates before calling.
    * @returns Whether this call may join a parallel group.
    */
   isConcurrencySafe?(args: unknown): boolean
@@ -206,12 +207,8 @@ export interface ToolExecutionInput {
 }
 
 /**
- * How a single tool call may be scheduled relative to its siblings in one
- * assistant step, as decided by {@link ToolRegistry.executionMode}. `parallel`
- * calls may run concurrently within a rolling pool; an `exclusive` call runs
- * alone and forms an ordering barrier. Object-tagged (rather than a bare
- * boolean) so a future resource-grouping dimension can extend a variant — e.g.
- * `{ kind: 'exclusive', group: 'session:...' }` — without a breaking change.
+ * Scheduling mode for one pending call. `parallel` may overlap with siblings;
+ * `exclusive` runs alone and forms an ordering barrier.
  */
 export type ToolExecutionMode =
   | { kind: 'parallel' }
@@ -245,9 +242,8 @@ export interface ToolRunContext extends ToolExecution {
 }
 
 /**
- * Internal result of the scheduler-owned `tools/pre-execute` stage. Exported
- * only so `dsh-agent-loop` can split ordered middleware from concurrent
- * dispatch without exposing named staged service methods on `ctx.tools`.
+ * Scheduler-only result after ordered pre-execute and guards. A `post-result`
+ * still receives post-execute; a `final-result` bypasses it.
  * @internal
  */
 export type ScheduledToolPreparation =
@@ -256,10 +252,8 @@ export type ScheduledToolPreparation =
   | { kind: 'final-result'; exec: ToolRunContext; result: ToolExecutionResult }
 
 /**
- * Internal result of the scheduler-owned `tools/execute` stage. A normal tool
- * result still needs ordered post-execute finalization; a pipeline failure
- * after/beside dispatch is already final and bypasses post-execute, matching
- * {@link ToolRegistry.execute}'s public one-call semantics.
+ * Scheduler-only dispatch result. A `post-result` still receives post-execute;
+ * a `final-result` already matches {@link ToolRegistry.execute} failure semantics.
  * @internal
  */
 export type ScheduledToolDispatch =
@@ -267,10 +261,9 @@ export type ScheduledToolDispatch =
   | { kind: 'final-result'; result: ToolExecutionResult }
 
 /**
- * Internal scheduler view of the registry pipeline. `dsh-agent-loop` uses this
- * symbol-keyed entry point to keep `tools/pre-execute` and `tools/post-execute`
- * ordered while overlapping only `tools/execute` dispatch/body. Ordinary
- * callers use {@link ToolRegistry.execute}; this symbol is not a plugin seam.
+ * Symbol-keyed scheduler view that keeps pre/post policy ordered while
+ * overlapping dispatch. Ordinary callers use {@link ToolRegistry.execute};
+ * this is not a plugin seam.
  * @internal
  */
 export interface ToolRegistryScheduler {
@@ -285,9 +278,7 @@ export interface ToolRegistryScheduler {
 }
 
 /**
- * Symbol-keyed internal scheduler entry point on {@link ToolRegistry}. The
- * generated service catalog deliberately skips computed members, so this does
- * not create a named public staged API.
+ * Scheduler entry point omitted from the generated named service API.
  * @internal
  */
 export const TOOL_REGISTRY_SCHEDULER: unique symbol = Symbol('@deepseek-ai/dsh-tools.scheduler')
@@ -762,14 +753,11 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Classify how one pending call may be scheduled relative to its siblings in
-   * the same assistant step. Looks up the tool through the caller's visible
-   * scoped view and calls its `isConcurrencySafe(exec.arguments)` classifier.
-   * Only an explicit `true` yields `{ kind: 'parallel' }`; unknown,
-   * restricted-away, undeclared, falsey, or throwing checks fail closed to
-   * `{ kind: 'exclusive' }`.
-   * @param exec - the call to classify (name, parsed arguments, optional agent scope).
-   * @returns the conservative scheduling mode for this call.
+   * Classify a pending call through the caller's visible tool definition. Only
+   * an exact `true` is parallel; unknown, hidden, undeclared, invalid, or
+   * throwing classifiers are exclusive.
+   * @param exec - call name, parsed arguments, and optional agent scope.
+   * @returns the fail-closed scheduling mode.
    */
   executionMode(exec: ToolExecutionInput): ToolExecutionMode {
     const tool = this.get(exec.name, exec.agent)
@@ -787,7 +775,6 @@ export class ToolRegistry extends Service {
    * notification. Tool and listener failures resolve as materialized error
    * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
    * the same lossless, frozen snapshot final observers receive.
-   * Scheduler staging preserves these semantics when dispatches overlap.
    * @param exec - the typed same-process call input. The registry assigns its
    *   correlation token before policy begins.
    * @returns the materialized final result.
@@ -796,7 +783,6 @@ export class ToolRegistry extends Service {
     return this.prepareExecution(exec, prepared => this.completeScheduledExecution(prepared))
   }
 
-  /** Complete every remaining stage for the public one-call execution path. */
   private async completeScheduledExecution(prepared: ScheduledToolPreparation): Promise<ToolExecutionResult> {
     switch (prepared.kind) {
       case 'dispatch': {
@@ -815,7 +801,6 @@ export class ToolRegistry extends Service {
     }
   }
 
-  /** Materialize caller input into the immutable identity object used by the pipeline. */
   private createExecution(exec: ToolExecutionInput): ScheduledToolPreparation | { kind: 'ready'; exec: ToolRunContext } {
     const deferredContexts: HookContext[] = []
     const token = createExecutionToken()
@@ -859,7 +844,6 @@ export class ToolRegistry extends Service {
     return this.prepareExecution(input, prepared => prepared)
   }
 
-  /** Run preparation and hand its outcome directly to the selected continuation. */
   private async prepareExecution<T>(
     input: ToolExecutionInput,
     next: (prepared: ScheduledToolPreparation) => T | PromiseLike<T>,
@@ -894,9 +878,8 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Run only the around-dispatch/body stage. Tool-body and unknown-tool failures
-   * are normalized results that still go through post-execute; waterfall or
-   * registry invariant failures become final results, matching `execute()`.
+   * Run around-dispatch and the tool body. Tool and unknown-tool failures still
+   * receive post-execute; pipeline failures are already final.
    * @param exec - the prepared execution.
    * @returns whether the result still needs post-execute.
    * @internal
@@ -970,7 +953,7 @@ export class ToolRegistry extends Service {
     return finalResult
   }
 
-  /** Notify final-result observers without giving them a mutation/error channel into the outcome. */
+  /** Notify observers without exposing a mutation or error channel into the outcome. */
   private notifyResult(exec: ToolExecution, result: ToolExecutionResult): void {
     // Freeze the remaining mutable signal slot before observers receive the
     // shared WeakMap-keyable execution object.
