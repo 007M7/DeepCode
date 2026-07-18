@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { CallId, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, AssistantMessageEvent, Usage } from '@earendil-works/pi-ai'
-import { mapStopReason, mapUsage, toPiContext, toPiReplayState, toStreamChunks } from '@deepseek-ai/dsh-llm-pi-ai'
+import { toPiContext } from '../src/context.ts'
+import { toPiReplayState } from '../src/replay.ts'
+import { mapStopReason, mapUsage, toStreamChunks } from '../src/stream.ts'
 
 function usage(input = 0, output = 0, cacheRead = 0, cacheWrite = 0): Usage {
   return {
