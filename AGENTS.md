@@ -99,7 +99,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 ## Conventions
 
 - Every npm package is `@deepseek-ai/dsh-<name>`; vendored packages keep upstream names and are `private: true`. `cordis` is a peerDependency (+ dev) of every harness package.
-- ESM everywhere (`"type": "module"`). Cross-package imports use package names, never relative paths; in-package relative imports use explicit `.ts` extensions. Dev/test/demo run unbuilt via tsx + the root tsconfig `paths` map; builds are for outside consumers only.
+- ESM everywhere (`"type": "module"`). Cross-package imports use package names; in-package relative imports include `.ts`. CI subprocesses that boot examples or Cordis configs run built `lib/` under plain Node; only explicit source-path regressions use tsx ([testing policy](docs/testing.md#test-subprocess-launch-modes)).
 - **Registrations are effects**: every contribution goes through `ctx.effect()` / `ctx.on()`; a registry's `register()` returns the disposer.
 - **Typed events use declaration merging** and merge-extensible maps. Event JSDoc needs `@mode` and payload `@param`; scoped keys absent from payloads need `@dshScopeScan unsupported`. Public service methods document parameters and non-void returns.
 - **Switch on discriminant tags.** Closed unions end in `assertNever`; merge-extensible unions fall through a documented default.

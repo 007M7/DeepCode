@@ -6,7 +6,7 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 ## `ToolDefinition` — a registered tool
 
-A `ToolSchema` (the model-facing fields) plus the `execute` function and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `execute`/`presentCall`/`presentResult` must never leak into a model request.
+A `ToolSchema` (the model-facing fields) plus the `execute` function, host-only scheduler metadata, and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `execute`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` must never leak into a model request.
 
 ```ts type-equiv
 interface ToolDefinition extends ToolSchema {
@@ -19,6 +19,18 @@ interface ToolDefinition extends ToolSchema {
    * cooperative implementation that can reach quiescence when the signal aborts.
    */
   timeoutMs?: number
+  /**
+   * Pure synchronous classifier for overlap with sibling tool calls. Only
+   * `true` opts in; omission, exceptions, non-`true` returns, and invalid
+   * `defineTool` arguments are exclusive. This metadata is never model-visible.
+   *
+   * Opted-in executions must not mutate parent-owned state. Shared state must
+   * tolerate concurrent dispatch; recorder races are permitted only when they
+   * commute or fail closed. See the parallel-tool-call RFC for the full contract.
+   * @param args - parsed arguments; `defineTool` validates before calling.
+   * @returns Whether this call may join a parallel group.
+   */
+  isConcurrencySafe?(args: unknown): boolean
   /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
@@ -133,6 +145,14 @@ interface ToolRunContext extends ToolExecution {
 }
 ```
 
+The agent loop asks the registry for each pending call's execution mode and uses it to form exclusive barriers and rolling-pool parallel runs:
+
+```ts type-equiv
+type ToolExecutionMode =
+  | { kind: 'parallel' }
+  | { kind: 'exclusive' }
+```
+
 ```ts type-equiv
 interface ToolExecution extends ToolExecutionInput {
   /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
@@ -160,11 +180,13 @@ interface ToolExecutionResult {
   error?: ToolErrorInfo
   /**
    * Extra model-facing contexts deferred by a composite tool or attached by
-   * `tools/post-execute` listeners for the NEXT request. They are NOT part of
-   * this call's `content`: the loop buffers every context and appends them only
-   * AFTER all `tool/result`s for the step, preserving tool-call/result
-   * adjacency. The array preserves each context's source, envelope, metadata,
-   * and production order instead of flattening mixed plugin provenance.
+   * `tools/post-execute` listeners for the NEXT request. They are not part of
+   * this call's `content`: the loop accepts them into the active-batch FIFO and
+   * appends them after every recorded `tool/result` when the batch settles, even
+   * when execution is interrupted. The array preserves each context's source,
+   * envelope, metadata, and production order. An accepted outer call keeps
+   * deferred contexts before decision contexts; a block retains only contexts
+   * supplied by the blocking decision.
    */
   additionalContexts?: HookContext[]
   /**
