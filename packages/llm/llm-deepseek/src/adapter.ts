@@ -6,12 +6,22 @@
  */
 
 import { attributionHeaders, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { serializeRequest } from './serialize.ts'
 import type { RequestDefaults } from './serialize.ts'
 import { parseSse } from './sse.ts'
 import { translate } from './translate.ts'
 import type { WireError } from './types.ts'
+
+/** One optional model entry advertised by the hand-written adapter. */
+export interface DeepSeekCatalogModel {
+  /** Wire model id accepted by the configured endpoint. */
+  id: string
+  /** Selector label; defaults to {@link id}. */
+  name?: string
+  /** Optional selector detail for deployments with similar model variants. */
+  description?: string
+}
 
 /** Constructor options for {@link DeepSeekAdapter}; the plugin's `apply` resolves them from Config + environment. */
 export interface DeepSeekAdapterOptions {
@@ -21,6 +31,8 @@ export interface DeepSeekAdapterOptions {
   baseURL: string
   /** Request defaults applied to every call (thinking mode, effort). */
   defaults?: RequestDefaults
+  /** Advisory models exposed to discovery consumers; requests remain unrestricted. */
+  models?: readonly DeepSeekCatalogModel[]
 }
 
 /**
@@ -47,6 +59,19 @@ export function httpErrorCode(status: number): string {
 export class DeepSeekAdapter extends LlmAdapter {
   constructor(private readonly options: DeepSeekAdapterOptions) {
     super()
+  }
+
+  override providerInfo(provider: string): LlmProviderInfo {
+    return { id: provider, name: 'DeepSeek' }
+  }
+
+  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    return Promise.resolve((this.options.models ?? []).map(model => ({
+      provider,
+      id: model.id,
+      name: model.name ?? model.id,
+      ...model.description === undefined ? {} : { description: model.description },
+    })))
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {

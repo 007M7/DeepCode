@@ -6,13 +6,15 @@ Status: implemented
 
 ## 问题
 
+本记录中的动态系统提示词存储和刷新决策已由[持久的逐步骤时间上下文](2026-07-16-durable-per-step-time-context.md)取代。需要显式启用的包（package）、分区时间格式和校验仍然保留；后续 RFC 负责当前的模型可见与持久性契约。
+
 如果部署方既未在提示词中提供时钟，也未给模型提供查询工具，agent（智能体）请求就无法获得实时准确的时间。静态文本会变得陈旧，而对于日期、截止时间或闲置时长等常规推理，调用工具会增加开销。缺少已经过去的时长时，模型无法区分紧接着发送的消息与上一条消息几小时后才发送的消息。
 
 提示词组装流程可以在每个步骤中根据持久会话时间戳派生这两项信息，请求头日志则可以记录实际渲染的确切值。在会话历史中累积陈旧读数或唤醒空闲 agent 都会违反现有请求生命周期。
 
 ## 决策
 
-`@deepseek-ai/dsh-time-context` 是位于 `packages/context/time-context/`、需要显式启用的函数插件。`context/` 产品分组用于容纳既不定义工具、也不定义服务的有界请求上下文增强。`dsh-agent-spine-demo` 和仓库提供的示例都不会加载该 package；只有当 token 与信息披露成本可接受时，部署方才显式挂载它。
+`@deepseek-ai/dsh-time-context` 是位于 `packages/context/time-context/`、需要显式启用的函数插件。`context/` 产品分组用于容纳既不定义工具、也不定义服务的有界请求上下文增强。`dsh-agent-spine-demo` 和仓库提供的示例都不会加载该包；只有当 token 与信息披露成本可接受时，部署方才显式挂载它。
 
 该插件注册顺序值为 10 的全局系统提示词区段 `context:time`，位置在部署方角色设定之后、工具指导之前。对于活跃轮次，它会输出带数字 UTC 偏移和 IANA 时区、形似 ISO 的时间戳，以及从轮次开始前最后一条模型可见消息起算的紧凑整秒时长。未绑定 agent 或 agent 处于空闲状态时，该区段为空。
 
@@ -30,11 +32,11 @@ Status: implemented
 
 ### 日志与 token 形态
 
-agent loop（智能体循环）会在发送前通过 `request/header` 和 `request/header-delta` 记录时间区块，从而满足[可重建请求契约](../architecture/2026-07-05-reconstructable-requests.md)。每个请求只携带一个当前区块；先前的读数不会保留在会话历史中。该插件拥有时间信息，并按照[提示词变量 RFC](../architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)通过提示词注册表贡献该信息，无需为循环添加特殊分支。
+agent loop（智能体循环）会在发送前通过完整的 `request/header` 快照记录时间区块，从而满足[可重建请求契约](../architecture/2026-07-05-reconstructable-requests.md)。每个请求只携带一个当前区块；先前的读数不会保留在会话历史中。该插件拥有时间信息，并按照[提示词变量 RFC](../architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)通过提示词注册表贡献该信息，无需为循环添加特殊分支。
 
 ## 测试
 
-单元测试固定格式化、基线、刷新策略、校验、逐 agent 状态、资源释放行为，以及系统时区在加载时的捕获行为。使用真实 agent loop 的测试固定实际发送的提示词和 `request/header-delta`。无密钥子进程端到端测试通过真实 Loader 和 stdio 应用启动测试专用 `cordis.yml`，在受控 `TZ` 下省略 `timeZone`，驱动两个轮次，并从外部校验持久请求头。默认快照组合不包含该插件，因此其中的 transcript（文本记录）fixture（测试前置数据）不包含时间区块。
+单元测试固定格式化、基线、刷新策略、校验、逐 agent 状态、资源释放行为，以及系统时区在加载时的捕获行为。使用真实 agent loop 的测试固定实际发送的提示词和完整的 `request/header` 快照。无密钥子进程端到端测试通过真实 Loader 和 stdio 应用启动测试专用 `cordis.yml`，在受控 `TZ` 下省略 `timeZone`，驱动两个轮次，并从外部校验持久请求头。默认快照组合不包含该插件，因此其中的 transcript（文本记录）fixture（测试前置数据）不包含时间区块。
 
 ## 考虑过的替代方案
 
@@ -46,12 +48,12 @@ agent loop（智能体循环）会在发送前通过 `request/header` 和 `reque
 - **省略配置时仍默认使用 UTC**——不予采纳，因为显式启用的时钟应跟随部署环境，除非运维方选择 UTC。需要 UTC 的部署仍可配置 `timeZone: UTC`。
 - **引入时区探测库**——不予采纳，因为 Node 的 `Intl` 运行时已经能够提供进程的 IANA 时区，而且额外依赖同样无法推断远程用户的时区。
 - **在 `dsh-agent-spine-demo` 中挂载插件**——不予采纳，因为时区、信息披露、token 预算和新鲜度都属于部署策略。选择加入能保持默认上下文稳定。
-- **将 package 放入 `core/`**——不予采纳，因为 `core/` 负责产品 API 主干，而该插件是没有服务键的可选叶节点。
+- **将包放入 `core/`**——不予采纳，因为 `core/` 负责产品 API 主干，而该插件是没有服务键的可选叶节点。
 
 ## 后果
 
 - 选择加入的模型无需调用工具，即可获得分区时钟和轮次间隔时长。每个请求的系统提示词成本固定，不会随会话增长。
 - 省略 `timeZone` 时，插件采用加载时观察到的进程 `TZ`、主机或容器时区。当部署环境不能代表目标用户时，运维方必须显式配置时区。
-- 刷新会改变请求头，并可能新增 `request/header-delta`。`refreshIntervalMs` 用新鲜度换取持久增量记录的数量；设为 `0` 时，每个整秒渲染结果发生变化的步骤都会记录新值。
+- 刷新会改变请求头，并可能新增一份 reason 为 `change` 的完整 `request/header` 快照。`refreshIntervalMs` 用新鲜度换取完整持久快照的数量与大小；设为 `0` 时，每个整秒渲染结果发生变化的步骤都会记录新值。
 - 系统不会仅为刷新时间而创建请求。长时间运行的工具会保留先前读数，直至下一步骤开始组装。
 - 时长反映持久追加边界处的 harness 处理时间，不包含消息进入日志之前的客户端网络延迟。若要保留客户端来源时间戳，需要单独的持久输入契约。

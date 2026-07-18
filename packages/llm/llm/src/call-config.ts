@@ -1,17 +1,18 @@
 /**
- * Conversation call configuration and freeze utilities. Model and sampling
- * values are request-header state that can affect cache reuse; request
- * waterfalls replace them and the loop logs changes instead of allowing
- * silent per-call drift.
+ * Conversation call configuration and freeze utilities. Provider routing,
+ * model, and sampling values are request-header state that can affect cache
+ * reuse; request waterfalls replace them and the loop logs changed snapshots
+ * instead of allowing silent per-call drift.
  * @module dsh-llm/call-config
  */
 
 /**
- * Model + sampling scalars of one conversation's requests. Every field maps
+ * Provider + model + sampling scalars of one conversation's requests. Every field maps
  * 1:1 onto the same-named `GenerateOptions` field; the loop builds requests
  * from the logged header rather than accepting these per call.
  */
 export interface LlmCallConfig {
+  provider: string
   model: string
   temperature?: number
   maxTokens?: number
@@ -21,13 +22,13 @@ export interface LlmCallConfig {
 /**
  * Field-wise equality over {@link LlmCallConfig} — the comparison a caller
  * runs to decide whether a proposed configuration is a real change (worth a
- * logged header delta) or the held one restated.
+ * logged header snapshot) or the held one restated.
  * @param a - one configuration.
  * @param b - the other.
  * @returns whether every field (including the `stop` list, element-wise) matches.
  */
 export function callConfigEquals(a: LlmCallConfig, b: LlmCallConfig): boolean {
-  if (a.model !== b.model || a.temperature !== b.temperature || a.maxTokens !== b.maxTokens) return false
+  if (a.provider !== b.provider || a.model !== b.model || a.temperature !== b.temperature || a.maxTokens !== b.maxTokens) return false
   if (a.stop === undefined || b.stop === undefined) return a.stop === b.stop
   return a.stop.length === b.stop.length && a.stop.every((s, i) => s === b.stop?.[i])
 }
