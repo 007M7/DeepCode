@@ -255,8 +255,8 @@ function invalidateInstructionVersions(
 /**
  * Settle provisional tool-result state against durable session events.
  * A matching context event confirms the transition. If its owning step closes
- * first, the loop discarded its context buffer, so both duplicate suppression
- * and the metadata fast path must be re-armed for the next successful touch.
+ * first, both duplicate suppression and the metadata fast path are re-armed for
+ * the next successful touch.
  * @param session - session whose append-only log emitted `event`.
  * @param event - newly committed session event.
  * @param pendingBySession - provisional transitions awaiting log confirmation.
