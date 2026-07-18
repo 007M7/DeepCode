@@ -5,7 +5,7 @@ import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool, type PostToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId, type ContinuationDecision } from '@deepseek-ai/dsh-agent'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS, ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { prepareReactLoopAgent } from '../src/agent.ts'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { maxTokensResponse, MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
@@ -822,7 +822,9 @@ describe('turn numbering continues across seeded sessions', () => {
     ctx2.llm.registerAdapter(['mock'], second)
 
     const seeded = ctx2.sessions.create(SessionId('forked'), { seed: [...agent.session.events] })
-    const prepared = prepareReactLoopAgent(ctx2, AgentId('forked-agent'), { provider: 'mock', model: 'mock' }, seeded)
+    const prepared = prepareReactLoopAgent(
+      ctx2, AgentId('forked-agent'), { provider: 'mock', model: 'mock' }, seeded, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+    )
     const forked = prepared.agent
     prepared.markPublished()
     ctx2.effect(() => prepared.startDriver())
