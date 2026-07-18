@@ -37,3 +37,4 @@ Current UI capabilities:
 - Failed tool calls are marked in every view (red rail + `← error` chip in Trajectory, red bar in Waterfall, `Tool failed` in Chat).
 - Panes resize by dragging the dividers (clamped; widths persist), and all panes squeeze each other in one layer.
 - URL carries `?session=&view=&sel=` so any selection is a shareable deep link.
+- The header's 「在 Finder 中显示」 button reveals the current session's `.jsonl` in the OS file manager (`open -R` / `explorer /select` / `xdg-open`).

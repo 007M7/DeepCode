@@ -790,6 +790,23 @@ h4 {
   color: #2456b3;
 }
 
+.reveal-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: #fff;
+  color: #4c586c;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.reveal-btn:hover {
+  border-color: #b7d5fb;
+  background: var(--blue-soft);
+  color: #2456b3;
+}
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));

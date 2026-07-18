@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+const { execFile } = require('node:child_process')
 const fs = require('node:fs')
 const http = require('node:http')
 const path = require('node:path')
@@ -165,6 +166,15 @@ function summarize(file) {
     model: header.config?.model,
     title: textOfContent(firstUser?.data?.content).slice(0, 120) || String(meta.id),
   }
+}
+
+// Reveal a file in the OS file manager. The path always comes from
+// findSessionFile (never from the request), and execFile takes an argv array —
+// no shell, no injection surface.
+function revealInFileManager(file) {
+  if (process.platform === 'darwin') execFile('open', ['-R', file], () => {})
+  else if (process.platform === 'win32') execFile('explorer', [`/select,${file}`], () => {})
+  else execFile('xdg-open', [path.dirname(file)], () => {})
 }
 
 function findSessionFile(id) {
@@ -432,6 +442,13 @@ const server = http.createServer(async (req, res) => {
         const id = suffix.slice(0, -'/feedback'.length)
         if (req.method === 'GET') return send(res, 200, { feedback: readFeedback(id) })
         if (req.method === 'POST') return send(res, 200, { feedback: appendFeedback(id, await readJsonBody(req)) })
+      }
+      if (req.method === 'POST' && suffix.endsWith('/reveal')) {
+        const id = suffix.slice(0, -'/reveal'.length)
+        const file = findSessionFile(id)
+        if (!file) return send(res, 404, { error: `session not found: ${id}` })
+        revealInFileManager(file)
+        return send(res, 200, { ok: true, path: file })
       }
       if (req.method === 'POST' && suffix.endsWith('/messages')) {
         return send(res, 501, {

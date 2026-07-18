@@ -442,6 +442,8 @@ function renderChrome() {
       ? `<button class="crumb" data-load-session="${escapeHtml(session.parent.id)}" title="Open the session that spawned this one">↳ spawned by: ${escapeHtml(truncate(session.parent.title ?? session.parent.id, 48))}</button>`
       : ''
   }
+  const reveal = $('#revealSession')
+  if (reveal) reveal.title = session.header.path ?? ''
 }
 
 /* ── Trajectory: step-grouped rows + navigation tree ─────────────────────────
@@ -1507,6 +1509,12 @@ document.addEventListener('click', async (event) => {
 
   if (event.target.closest('#inspectorClose')) {
     closeInspector()
+    return
+  }
+
+  if (event.target.closest('#revealSession')) {
+    const result = await postJson(`/api/sessions/${encodeURIComponent(state.session.header.id)}/reveal`, {})
+    toast(result.ok ? '已在文件管理器中显示' : result.error ?? '无法定位文件')
     return
   }
 
