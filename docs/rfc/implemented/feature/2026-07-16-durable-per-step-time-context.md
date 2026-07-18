@@ -44,7 +44,7 @@ Their baseline is the durable event timestamp of the preceding time-context mess
 
 Each reading remains a normal surface node until compaction shadows it; positive interval scheduling never removes existing readings. A later request therefore sees the cumulative unshadowed readings that affected earlier preparation and steps, rather than a system-prompt value rewritten in place.
 
-The plugin contributes nothing to system-prompt assembly. `request/header` and `request/header-delta` contain no time-context text; request reconstruction obtains the complete durable surface prefix at each `step/start`. Readings and requests need not map one-to-one because a failed preparation can leave a reading while interval suppression can prepare a request without appending one. The plugin depends on the agent registry for its lifecycle listener and does not require the system-prompt service at runtime.
+The plugin contributes nothing to system-prompt assembly. `request/header` contains no time-context text; request reconstruction obtains the complete durable surface prefix at each `step/start`. Readings and requests need not map one-to-one because a failed preparation can leave a reading while interval suppression can prepare a request without appending one. The plugin depends on the agent registry for its lifecycle listener and does not require the system-prompt service at runtime.
 
 ## Testing
 

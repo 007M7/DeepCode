@@ -16,6 +16,7 @@
     { "path": "./packages/util/timeout" },
     { "path": "./packages/util/retention" },
     { "path": "./packages/llm/llm" },
+    { "path": "./packages/llm/token-meter" },
     { "path": "./packages/core/session" },
     { "path": "./packages/core/scope" },
     { "path": "./packages/session-persistence/session-persistence" },

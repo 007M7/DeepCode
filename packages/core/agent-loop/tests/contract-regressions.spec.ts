@@ -3,12 +3,12 @@ import { Context } from 'cordis'
 import LlmService, { CallId, ContentBlock, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool, type PostToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId, type ContinuationDecision } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS, ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { prepareReactLoopAgent } from '../src/agent.ts'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
-import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+import { maxTokensResponse, MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 /** Regression tests for agent-loop boundary, identity, and lifecycle contracts. */
 
@@ -132,6 +132,73 @@ describe('session log records what agent/step-result actually produced', () => {
   })
 })
 
+describe('successful provider completion survives agent/step-result failure', () => {
+  async function expectContentlessCompletionAnchor(
+    response: StreamChunk[],
+    id: string,
+    providerText: string,
+  ): Promise<void> {
+    const adapter = new MockAdapter([response])
+    const ctx = await harness(adapter)
+    await ctx.plugin(Invariants)
+    const agent = ctx.agentLoop.create(AgentId(id), { provider: 'mock', model: 'mock' })
+    const failure = new Error(`${id} result processing failed`)
+    const reported: Error[] = []
+
+    ctx.on('agent/step-result', async () => {
+      throw failure
+    })
+    ctx.on('agent/error', (subject, _turn, _step, error) => {
+      if (subject === agent) reported.push(error)
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const events = [...agent.session.events]
+    const chunks = events.filter(event => event.type === 'assistant/chunk')
+    const completions = events.filter(event => event.type === 'assistant/message')
+    expect(completions).toHaveLength(1)
+    expect(completions[0]?.type === 'assistant/message' && completions[0].data).toEqual({
+      turn: 1,
+      step: 1,
+      content: [],
+      provenance: { provider: 'mock', model: 'mock' },
+      usage: { inputTokens: 10, outputTokens: providerText.length },
+    })
+    expect(completions[0]?.sourceEventSeqs).toEqual(chunks.map(event => event.seq))
+    expect(agent.session.deriveMessages()).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'go' }] },
+    ])
+    expect(reported).toHaveLength(1)
+    expect(reported[0]).toBe(failure)
+    const turnEnd = events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({
+      kind: 'error',
+      step: 1,
+      message: failure.message,
+    })
+  }
+
+  it('records one content-less anchor when ordinary stop result processing rejects', async () => {
+    const providerText = 'ordinary provider output'
+    await expectContentlessCompletionAnchor(
+      textResponse(providerText),
+      'a-step-result-stop-failure',
+      providerText,
+    )
+  })
+
+  it('records one content-less anchor when max-token result processing rejects', async () => {
+    const providerText = 'truncated provider output'
+    await expectContentlessCompletionAnchor(
+      maxTokensResponse(providerText),
+      'a-step-result-max-token-failure',
+      providerText,
+    )
+  })
+})
+
 describe('abort during tool execution ends the turn', () => {
   it('aborting the in-flight step inside a tool prevents both remaining tools and the next model step', async () => {
     const adapter = new MockAdapter([
@@ -181,6 +248,190 @@ describe('abort during tool execution ends the turn', () => {
     expect(executed).toEqual(['aborter'])           // second tool never ran
     expect(adapter.requests).toHaveLength(1)        // no follow-up model call
     expect(reasons).toEqual([{ kind: 'aborted', reason: 'user interrupt' }])
+  })
+
+  it('records context accepted before a tool-step abort in the same turn', async () => {
+    const adapter = new MockAdapter([toolCallResponse('c1', 'aborter', {})])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a-abort-injection'), { provider: 'mock', model: 'mock' })
+    ctx.tools.register(defineTool({
+      name: 'aborter',
+      description: '',
+      parameters: {},
+      async execute() {
+        agent.inject([{ type: 'text', text: 'accepted before abort' }], { source: { kind: 'plugin', plugin: 'test' } })
+        ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
+        return [{ type: 'text', text: 'done' }]
+      },
+    }))
+    ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
+      kind: 'accept',
+      additionalContexts: [{
+        content: [{ type: 'text', text: 'accepted result context after abort' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }],
+    }))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const events = [...agent.session.events]
+    expect(events
+      .filter(event => event.type === 'tool/result' || event.type === 'context/message'
+        || event.type === 'step/end' || event.type === 'turn/end')
+      .map(event => event.type))
+      .toEqual(['tool/result', 'context/message', 'context/message', 'step/end', 'turn/end'])
+    expect(events
+      .filter(event => event.type === 'context/message')
+      .map(event => event.data.content))
+      .toEqual([
+        [{ type: 'text', text: 'accepted before abort' }],
+        [{ type: 'text', text: 'accepted result context after abort' }],
+      ])
+  })
+
+  it('records post-tool context when a later call aborts the batch', async () => {
+    const adapter = new MockAdapter([[
+      { type: 'block-start', index: 0, blockType: 'tool-call' },
+      { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('c1'), name: 'first', arguments: '{}' } },
+      { type: 'block-start', index: 1, blockType: 'tool-call' },
+      { type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('c2'), name: 'aborter', arguments: '{}' } },
+      { type: 'finish', reason: { kind: 'tool-calls' } },
+    ] satisfies StreamChunk[]])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a-later-abort-context'), { provider: 'mock', model: 'mock' })
+    ctx.tools.register(defineTool({
+      name: 'first',
+      description: '',
+      parameters: {},
+      async execute() {
+        return [{ type: 'text', text: 'first done' }]
+      },
+    }))
+    ctx.tools.register(defineTool({
+      name: 'aborter',
+      description: '',
+      parameters: {},
+      async execute() {
+        ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
+        return [{ type: 'text', text: 'aborted' }]
+      },
+    }))
+    ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
+      if (exec.callId !== CallId('c1')) return next()
+      return {
+        kind: 'accept',
+        additionalContexts: [{
+          content: [{ type: 'text', text: 'accepted after first result' }],
+          source: { kind: 'plugin', plugin: 'test' },
+        }],
+      }
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const events = [...agent.session.events]
+    expect(events
+      .filter(event => event.type === 'tool/result' || event.type === 'context/message'
+        || event.type === 'step/end' || event.type === 'turn/end')
+      .map(event => event.type))
+      .toEqual(['tool/result', 'tool/result', 'context/message', 'step/end', 'turn/end'])
+    expect(events.find(event => event.type === 'context/message')?.data.content)
+      .toEqual([{ type: 'text', text: 'accepted after first result' }])
+  })
+
+  it('drains deferred context before disposal reaches quiescence', async () => {
+    const adapter = new MockAdapter([toolCallResponse('c1', 'waiter', {})])
+    const ctx = await harness(adapter)
+    const started = Promise.withResolvers<undefined>()
+    let agent!: ReactLoopAgent
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      agent = inner.agentLoop.create(AgentId('a-dispose-injection'), { provider: 'mock', model: 'mock' })
+    }, { inject: ['agentLoop'] }))
+    ctx.tools.register(defineTool({
+      name: 'waiter',
+      description: '',
+      parameters: {},
+      async execute(_args, exec) {
+        agent.inject([{ type: 'text', text: 'accepted before disposal' }], { source: { kind: 'plugin', plugin: 'test' } })
+        started.resolve(undefined)
+        const signal = exec.signal
+        if (!signal) throw new Error('tool execution signal is missing')
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) resolve()
+          else signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+        return [{ type: 'text', text: 'done' }]
+      },
+    }))
+    ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
+      kind: 'accept',
+      additionalContexts: [{
+        content: [{ type: 'text', text: 'accepted result context during disposal' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }],
+    }))
+
+    send(agent, 'go')
+    await started.promise
+    await fiber.dispose()
+
+    expect(agent.session.events
+      .filter(event => event.type === 'context/message')
+      .map(event => event.data.content))
+      .toEqual([
+        [{ type: 'text', text: 'accepted before disposal' }],
+        [{ type: 'text', text: 'accepted result context during disposal' }],
+      ])
+    expect(agent.session.events.find(event => event.type === 'turn/end')?.data.reason)
+      .toEqual({ kind: 'disposed' })
+  })
+
+  it('limits injection deferral to the current tool batch', async () => {
+    const adapter = new MockAdapter([
+      [
+        { type: 'block-start', index: 0, blockType: 'tool-call' },
+        { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('c1'), name: 'aborter', arguments: '{}' } },
+        { type: 'block-start', index: 1, blockType: 'tool-call' },
+        { type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('c2'), name: 'second', arguments: '{}' } },
+        { type: 'finish', reason: { kind: 'tool-calls' } },
+      ] satisfies StreamChunk[],
+      textResponse('later turn'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a-historical-tool-pair'), { provider: 'mock', model: 'mock' })
+    ctx.tools.register(defineTool({
+      name: 'aborter',
+      description: '',
+      parameters: {},
+      async execute() {
+        ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
+        return [{ type: 'text', text: 'done' }]
+      },
+    }))
+    ctx.tools.register(defineTool({
+      name: 'second',
+      description: '',
+      parameters: {},
+      async execute() {
+        return [{ type: 'text', text: 'must not run' }]
+      },
+    }))
+
+    send(agent, 'leave an unmatched historical call')
+    await waitForIdle(ctx, agent)
+    ctx.on('agent/pre-step', (subject, turn) => {
+      if (subject === agent && turn === 2) {
+        agent.inject([{ type: 'text', text: 'new turn context' }], { source: { kind: 'plugin', plugin: 'test' } })
+      }
+    })
+    send(agent, 'start a text-only turn')
+    await waitForIdle(ctx, agent)
+
+    expect(agent.session.events.find(event => event.type === 'context/message')?.data.content)
+      .toEqual([{ type: 'text', text: 'new turn context' }])
+    expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('new turn context')
   })
 })
 
@@ -1118,9 +1369,10 @@ describe('tool result call identity', () => {
   })
 })
 
-describe('surface: assistant/message omits sourceEventSeqs when no chunks streamed', () => {
-  it('a step-result listener injecting content over an empty stream appends with surfaceOp but no sourceEventSeqs', async () => {
-    // Injected result content with no chunks must omit empty sourceEventSeqs.
+describe('surface: assistant/message records exact empty provenance when no chunks streamed', () => {
+  it('a step-result listener injecting content over an empty stream records sourceEventSeqs []', async () => {
+    // The explicit empty source set distinguishes a known empty provider
+    // stream from legacy events whose provenance was not recorded.
     const adapter = new MockAdapter([[]])
     const ctx = await harness(adapter)
     await ctx.plugin(Invariants)
@@ -1137,7 +1389,7 @@ describe('surface: assistant/message omits sourceEventSeqs when no chunks stream
     const recorded = agent.session.events.find(e => e.type === 'assistant/message')!
     expect(recorded.type).toBe('assistant/message')
     expect(recorded.surfaceOp).toBe('append')
-    expect(recorded.sourceEventSeqs).toBeUndefined()
+    expect(recorded.sourceEventSeqs).toEqual([])
     // The injected content reaches derived history.
     expect(JSON.stringify(agent.session.deriveMessages())).toContain('injected')
   })

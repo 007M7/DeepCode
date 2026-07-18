@@ -227,89 +227,19 @@ describe('scrubRequestHeaders', () => {
     expect(scrubRequestHeaders(`${headerLine}\n${odd}\n`)).toContain('"messagePrefix":"weird"')
   })
 
-  it('scrubs a header-delta prefix replacement to one token per message', () => {
-    const delta = JSON.stringify({
-      type: 'request/header-delta', seq: 8, time: 9,
-      data: { messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'leaked opener' }] }] },
-    })
-    const out = scrubRequestHeaders(`${headerLine}\n${delta}\n`)
-    expect(out).toContain('"messagePrefix":["{{messagePrefix}}"]')
-    expect(out).not.toContain('leaked opener')
-    // The empty-array transition-to-absence stays a structural fact.
-    const toNone = JSON.stringify({ type: 'request/header-delta', seq: 9, time: 9, data: { messagePrefix: [] } })
-    expect(scrubRequestHeaders(`${headerLine}\n${toNone}\n`)).toContain('"messagePrefix":[]')
-  })
-
-  it('leaves a delta with no scrubbable payload byte-identical (config-only, or non-array shapes)', () => {
-    const configOnly = JSON.stringify({ type: 'request/header-delta', seq: 8, time: 9, data: { config: { model: 'm2' } } })
-    const oddShapes = JSON.stringify({ type: 'request/header-delta', seq: 9, time: 9, data: { system: { insert: 'not-an-array' }, tools: null } })
+  it('leaves malformed headers with no scrubbable payload byte-identical', () => {
     const headerless = JSON.stringify({ type: 'request/header', seq: 10, time: 9, data: { reason: 'initial' } })
     const nullData = JSON.stringify({ type: 'request/header', seq: 11, time: 9, data: null })
-    const raw = `${headerLine}\n${configOnly}\n${oddShapes}\n${headerless}\n${nullData}\n`
+    const raw = `${headerLine}\n${headerless}\n${nullData}\n`
     expect(scrubRequestHeaders(raw)).toBe(raw)
-  })
-
-  it('scrubs a one-sided tools delta and passes non-object schema entries through', () => {
-    const addedOnly = JSON.stringify({
-      type: 'request/header-delta', seq: 8, time: 9,
-      data: { tools: { added: [null, 'weird', { name: 'x', description: 'D' }] } },
-    })
-    const out = scrubRequestHeaders(`${headerLine}\n${addedOnly}\n`)
-    // Non-object entries survive untouched; the object entry keeps only name.
-    expect(out).toContain('"added":[null,"weird",{"name":"x","description":"{{tools}}"}]')
-    const changedOnly = JSON.stringify({
-      type: 'request/header-delta', seq: 8, time: 9,
-      data: { tools: { changed: [{ name: 'y', parameters: {} }] } },
-    })
-    expect(scrubRequestHeaders(`${headerLine}\n${changedOnly}\n`))
-      .toContain('"changed":[{"name":"y","parameters":"{{tools}}"}]')
-  })
-
-  it('scrubs a header-delta system payload but keeps its line positions and arity', () => {
-    const delta = JSON.stringify({
-      type: 'request/header-delta', seq: 8, time: 9,
-      data: { system: { keepStart: 1, keepEnd: 4, insert: ['leaked prompt line', 'second line'] }, config: { model: 'm2' } },
-    })
-    const out = scrubRequestHeaders(`${headerLine}\n${delta}\n`)
-    // One token PER inserted line: the edit's position AND extent survive.
-    expect(out).toContain('"insert":["{{system}}","{{system}}"]')
-    expect(out).toContain('"keepStart":1')
-    expect(out).toContain('"keepEnd":4')
-    expect(out).toContain('"config":{"model":"m2"}')
-    expect(out).not.toContain('leaked prompt line')
-    expect(out).not.toContain('{{tools}}') // no tools delta → none invented
-  })
-
-  it('scrubs a header-delta tools payload but keeps the added/removed/changed names', () => {
-    const delta = JSON.stringify({
-      type: 'request/header-delta', seq: 8, time: 9,
-      data: {
-        tools: {
-          added: [{ name: 'grep', description: 'Search files.', parameters: { type: 'object' } }],
-          removed: ['bash_kill'],
-          changed: [{ name: 'read', description: 'Read v2.', parameters: { type: 'object' } }],
-        },
-      },
-    })
-    const out = scrubRequestHeaders(`${headerLine}\n${delta}\n`)
-    // WHICH tools changed is behavior and survives; their bulk does not.
-    expect(out).toContain('"added":[{"name":"grep","description":"{{tools}}","parameters":"{{tools}}"}]')
-    expect(out).toContain('"removed":["bash_kill"]')
-    expect(out).toContain('"changed":[{"name":"read","description":"{{tools}}","parameters":"{{tools}}"}]')
-    expect(out).not.toContain('Search files')
-    expect(out).not.toContain('Read v2')
   })
 
   it('passes every other line through byte-for-byte and is idempotent', () => {
     const other = JSON.stringify({ type: 'assistant/chunk', seq: 4, time: 9, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'hi' } } })
-    const delta = JSON.stringify({
-      type: 'request/header-delta', seq: 8, time: 9,
-      data: { system: { keepStart: 0, keepEnd: 0, insert: ['x'] }, tools: { added: [{ name: 't', description: 'd', parameters: {} }], removed: [], changed: [] } },
-    })
-    const raw = `${headerLine}\n${headerEvent({ config: { model: 'm' }, system: 's', tools: [] })}\n${delta}\n${other}\n`
+    const raw = `${headerLine}\n${headerEvent({ config: { model: 'm' }, system: 's', tools: [] })}\n${other}\n`
     const once = scrubRequestHeaders(raw)
     expect(once.split('\n')[0]).toBe(headerLine)
-    expect(once.split('\n')[3]).toBe(other)
+    expect(once.split('\n')[2]).toBe(other)
     expect(scrubRequestHeaders(once)).toBe(once)
   })
 })
@@ -327,12 +257,15 @@ describe('scrubSystemPrompts', () => {
         reason: 'initial',
       },
     })
-    const delta = JSON.stringify({
-      type: 'request/header-delta', seq: 2, time: 3,
+    const changed = JSON.stringify({
+      type: 'request/header', seq: 2, time: 3,
       data: {
-        system: { keepStart: 1, keepEnd: 2, insert: ['new prompt line'] },
-        tools: { changed: [{ name: 'read', description: 'changed schema' }] },
-        messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'changed prefix' }] }],
+        header: {
+          system: 'new prompt',
+          tools: [{ name: 'read', description: 'changed schema' }],
+          messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'changed prefix' }] }],
+        },
+        reason: 'change',
       },
     })
     const toolsOnly = JSON.stringify({
@@ -340,11 +273,10 @@ describe('scrubSystemPrompts', () => {
       data: { header: { tools: [{ name: 'read', description: 'schema only' }] }, reason: 'resume' },
     })
 
-    const out = scrubSystemPrompts(`${header}\n${delta}\n${toolsOnly}\n`)
+    const out = scrubSystemPrompts(`${header}\n${changed}\n${toolsOnly}\n`)
     expect(out).toContain('"system":"{{system}}"')
-    expect(out).toContain('"insert":["{{system}}"]')
     expect(out).not.toContain('full prompt')
-    expect(out).not.toContain('new prompt line')
+    expect(out).not.toContain('new prompt')
     expect(out).toContain('full schema')
     expect(out).toContain('full prefix')
     expect(out).toContain('changed schema')
@@ -367,12 +299,15 @@ describe('scrubToolSchemas', () => {
         reason: 'initial',
       },
     })
-    const delta = JSON.stringify({
-      type: 'request/header-delta', seq: 2, time: 3,
+    const changed = JSON.stringify({
+      type: 'request/header', seq: 2, time: 3,
       data: {
-        system: { keepStart: 1, keepEnd: 2, insert: ['new prompt line'] },
-        tools: { added: [{ name: 'grep', description: 'new schema' }], changed: [{ name: 'read', description: 'changed schema' }] },
-        messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'changed prefix' }] }],
+        header: {
+          system: 'new prompt',
+          tools: [{ name: 'grep', description: 'new schema' }],
+          messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'changed prefix' }] }],
+        },
+        reason: 'change',
       },
     })
     const systemOnly = JSON.stringify({
@@ -380,15 +315,12 @@ describe('scrubToolSchemas', () => {
       data: { header: { system: 'prompt only' }, reason: 'resume' },
     })
 
-    const out = scrubToolSchemas(`${header}\n${delta}\n${systemOnly}\n`)
-    expect(out).toContain('"tools":"{{tools}}"')
-    expect(out).toContain('"added":[{"name":"grep","description":"{{tools}}"}]')
-    expect(out).toContain('"changed":[{"name":"read","description":"{{tools}}"}]')
+    const out = scrubToolSchemas(`${header}\n${changed}\n${systemOnly}\n`)
+    expect(out.match(/"tools":"{{tools}}"/g)).toHaveLength(2)
     expect(out).not.toContain('full schema')
     expect(out).not.toContain('new schema')
-    expect(out).not.toContain('changed schema')
     expect(out).toContain('full prompt')
-    expect(out).toContain('new prompt line')
+    expect(out).toContain('new prompt')
     expect(out).toContain('full prefix')
     expect(out).toContain('changed prefix')
     expect(out.split('\n')[2]).toBe(systemOnly)

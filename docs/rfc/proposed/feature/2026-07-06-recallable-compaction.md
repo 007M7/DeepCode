@@ -16,7 +16,7 @@ Split the checkpoint into two classes and make shadowed history reachable.
 
 ### Frozen index checkpoints
 
-Newly stale history splits into chunks by deterministic policy: accumulate toward `chunkTokens`, snap edges to balanced tool-pairing cuts (`isToolPairingBalanced`), prefer turn boundaries, and place the final boundary as close to the retain boundary as balance allows, so the trailing slice shrinks to roughly one turn. Each chunk is compacted by one `compactRegion` call into an **index stub** (`stubTokens`, ~100–200 tokens):
+Newly stale history splits into chunks by deterministic policy: accumulate toward `chunkTokens`, snap edges with `toolPairingBalancedBefore` / `toolPairingBalancedAfter`, prefer turn boundaries, and place the final boundary as close to the retain boundary as balance allows, so the trailing slice shrinks to roughly one turn. Each chunk is compacted by one `compactRegion` call into an **index stub** (`stubTokens`, ~100–200 tokens):
 
 - two or three lines of what happened;
 - a keyword line of low-frequency literal anchors — exact error strings, values, config keys — grouped by kind;

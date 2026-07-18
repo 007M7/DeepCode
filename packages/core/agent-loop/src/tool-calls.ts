@@ -1,8 +1,8 @@
 /**
  * Schedules one assistant step's tool calls. Exclusive calls form barriers;
  * parallel calls use a bounded rolling pool and are reclassified before start.
- * Dispatch may overlap, while policy, results, and context remain model-ordered.
- * Abort stops replenishment and drains started calls.
+ * Dispatch may overlap, while policy, results, and result context remain
+ * model-ordered. Abort stops replenishment and drains started calls.
  *
  * Each started call records `tool/call`; `tool/result` commits in model order,
  * preserving derived history when audit events interleave with earlier results.
@@ -31,8 +31,8 @@ interface Slot {
 
 /**
  * Schedule one assistant step's tool calls by their live concurrency mode.
- * Started calls receive ordered results; abort drains them, discards their
- * buffered context, and rethrows so the turn owns final error handling.
+ * Started calls receive ordered results. Abort drains them and rethrows after
+ * accepting their context into the batch FIFO owned by the caller.
  *
  * @param ctx - loop context that owns the tool registry.
  * @param agent - agent and session receiving the call lifecycle.
@@ -41,7 +41,7 @@ interface Slot {
  * @param toolCalls - assistant calls in model order.
  * @param signal - abort signal shared by the step.
  * @param maxParallel - validated in-flight cap.
- * @returns buffered contexts in model call order.
+ * @param acceptContext - accepts committed result context into the active batch.
  */
 export async function executeToolCalls(
   ctx: Context,
@@ -51,7 +51,8 @@ export async function executeToolCalls(
   toolCalls: ToolCallBlock[],
   signal: AbortSignal,
   maxParallel: number,
-): Promise<HookContext[]> {
+  acceptContext: (context: HookContext) => void,
+): Promise<void> {
   const { session } = agent
 
   // Inputs are distinct because tools/execute wrappers may replace `exec.signal`.
@@ -66,7 +67,6 @@ export async function executeToolCalls(
     },
   }))
 
-  const pendingContext: HookContext[] = []
   let next = 0
   while (next < planned.length) {
     // Commit before classifying again so registry changes affect unstarted calls.
@@ -74,9 +74,8 @@ export async function executeToolCalls(
     const first = planned[next]!
     const mode = ctx.tools.executionMode(first.exec).kind
     const group = mode === 'parallel' ? planned.slice(next) : [first]
-    next += await runGroup(ctx, session, turn, step, group, mode, signal, maxParallel, pendingContext)
+    next += await runGroup(ctx, session, turn, step, group, mode, signal, maxParallel, acceptContext)
   }
-  return pendingContext
 }
 
 /** Parse model arguments, preserving invalid JSON as text and mapping empty input to `{}`. */
@@ -92,8 +91,8 @@ function parseArguments(raw: string): unknown {
  * Run one exclusive barrier or parallel pool. Later calls are reclassified
  * before start; an exclusive reclassification waits for the current pool to
  * drain and remains for the caller's next barrier. Results and contexts commit
- * in model order. Abort stops starts, drains and commits started calls, discards
- * their contexts, and throws.
+ * in model order. Abort stops starts, drains and commits started calls, accepts
+ * their contexts into the owning batch, and throws.
  */
 async function runGroup(
   ctx: Context,
@@ -104,7 +103,7 @@ async function runGroup(
   mode: ToolExecutionMode['kind'],
   signal: AbortSignal,
   maxParallel: number,
-  pendingContext: HookContext[],
+  acceptContext: (context: HookContext) => void,
 ): Promise<number> {
   /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
   if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
@@ -127,7 +126,7 @@ async function runGroup(
         : ctx.tools[TOOL_REGISTRY_SCHEDULER].finish(slot.exec, slot.result)
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded index
       appendToolResult(session, turn, step, call!.block, result, callSeqs[committed]!)
-      pendingContext.push(...result.additionalContexts ?? [])
+      for (const context of result.additionalContexts ?? []) acceptContext(context)
       committed++
     }
   }
@@ -189,7 +188,7 @@ async function runGroup(
   }
 
   if (aborted) {
-    // Started calls are committed; their context is discarded with the aborted step.
+    // Started calls and accepted context settle before the turn records the abort.
     /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
     throw new Error(String(signal.reason ?? 'aborted'))
   }

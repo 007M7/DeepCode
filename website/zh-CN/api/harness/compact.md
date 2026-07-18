@@ -4,9 +4,9 @@
 
 `CompactService` (abstract seam) — provided by `@deepseek-ai/dsh-compact`.
 
-Abstract compaction service. Implementations own token estimation, retention, and summarization, but a successful run must replace the selected surface span with one summary node and prevent concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
+Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L37)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L38)
 
 ### ctx.compact.compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)
 
@@ -23,7 +23,7 @@ Check token pressure and compact if the conversation is too large. Estimate the 
 
 **Returns** the compaction result, or `null` if no compaction was needed.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L57)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L58)
 
 ### ctx.compact.compactRegion(session, start, end, agent, signal?)
 
@@ -31,14 +31,14 @@ Check token pressure and compact if the conversation is too large. Estimate the 
 abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
-Forcibly compact a range of surface nodes into a single summary node. `start` and `end` name an inclusive span by surface position, not numeric seq order; replacements can make visible seqs non-monotonic. Both edges must be balanced so assistant tool calls remain paired with their results. A model- backed implementation forwards cancellation and rejects active, missing, reversed, or unbalanced ranges. Use toolPairingBalancedBefore and toolPairingBalancedAfter for the edge checks.
+Forcibly compact a range of surface nodes into a single summary node. `start` and `end` name an inclusive span by surface position, not numeric seq order; replacements can make visible seqs non-monotonic. Both edges must be balanced so assistant tool calls remain paired with their results. A model- backed implementation forwards cancellation. The agent must own the exact target session object; implementations reject an ownership mismatch before model resolution, lock acquisition, summarization, or log mutation, and reject active, missing, reversed, or unbalanced ranges. Use toolPairingBalancedBefore and toolPairingBalancedAfter for the edge checks.
 
-- `session` — session to mutate.
+- `session` — session to mutate; must be identical to `agent.session`.
 - `start` — first surface seq, inclusive.
 - `end` — last surface seq, inclusive.
-- `agent` — summarizer context.
+- `agent` — owner of the target session and summarizer context.
 - `signal` — optional cancellation; model-backed implementations must forward it.
 
 **Returns** the replaced range and summary.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L82)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L85)

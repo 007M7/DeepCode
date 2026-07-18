@@ -1,14 +1,17 @@
 /**
- * Keyless-by-default ACP snapshot suite factory. Each scenario drives the real subprocess and
- * compares normalized stdout; comparable session fixtures are both replay input and expected
- * output. Record mode refreshes reproducible model scenarios from the live API, while refresh
- * mode replays committed scripts and rewrites derived artifacts without a key.
- * Replay scenarios run concurrently because each subprocess owns unique temp cwd and persistence
- * roots and only reads committed fixtures. Record and refresh scenarios stay serial while writing.
+ * Keyless-by-default ACP snapshot suite factory. Each scenario drives the real
+ * subprocess and compares normalized stdout; comparable session fixtures are
+ * both replay input and expected output. Record mode refreshes reproducible
+ * model scenarios from the live API, while refresh mode replays committed
+ * scripts and rewrites derived artifacts without a key.
+ * Replay scenarios run concurrently because each subprocess owns unique temp
+ * cwd and persistence roots and reads only committed fixtures. Record and
+ * refresh stay serial while writing.
  *
- * Exactly one scenario per header-composition class pins the system prompt and tool schemas in
- * dedicated sidecars. Every live header is checked against that pin, so session-dependent
- * composition must declare a separate class instead of escaping coverage.
+ * Exactly one scenario per header-composition class pins the full prompt and
+ * tool-schema sequences in dedicated sidecars. Every live header is checked
+ * against that pin, so session-dependent composition must declare a separate
+ * class instead of escaping coverage.
  * @module @deepseek-ai/dsh-acp-snapshot/suite
  */
 
@@ -82,14 +85,11 @@ export interface Scenario {
    */
   pinsHeader?: boolean
   /**
-   * How many `request/header-delta` events this PINNING scenario's fixture
-   * legitimately carries (default 0). A recorded mid-run header change — a
-   * config-option switch rewriting a prompt section — is part of the pinned
-   * surface, with readable prompt text in Markdown; any OTHER count
-   * still fails, so fixture rot stays caught. Meaningless off the pin (the
-   * live uniformity guard keeps non-pinning scenarios delta-free).
+   * How many changed `request/header` snapshots this PINNING scenario's primary
+   * fixture legitimately carries (default 0). Their full prompt text is kept in
+   * the readable Markdown pin; any other count fails. Meaningless off the pin.
    */
-  expectedHeaderDeltas?: number
+  expectedHeaderChanges?: number
   /**
    * Which header-composition class this scenario belongs to. Scenarios that
    * boot the same config compose the same header; each class has exactly one
@@ -210,114 +210,58 @@ export function normalizedToolSchemas(rawLog: string, ctx: NormalizeContext): un
   })
 }
 
-/**
- * Extract normalized tool-schema edits from request-header deltas in log order.
- * Deltas without an object-valued tools edit are omitted; their remaining
- * structure stays pinned in the session JSONL.
- *
- * @param rawLog The session `.jsonl` content to inspect.
- * @param ctx The volatile values of the run that produced it.
- * @returns The normalized tool-schema edits, in event order.
- */
-export function normalizedToolSchemaDeltas(rawLog: string, ctx: NormalizeContext): unknown[] {
-  return normalizeSessionLog(rawLog, ctx)
-    .split('\n')
-    .filter(line => line.trim().length > 0)
-    .map(line => JSON.parse(line) as { type?: unknown; data?: { tools?: unknown } })
-    .filter(record => record.type === 'request/header-delta')
-    .flatMap((record) => {
-      const tools = record.data?.tools
-      return tools !== null && typeof tools === 'object' && !Array.isArray(tools) ? [tools] : []
-    })
-}
-
 /** The structured contents of a tool-schema sidecar. */
 export interface ToolSchemasSnapshot {
   /** The complete tool schemas from the pinned request header. */
   initial: unknown[]
-  /** Complete tool-schema edits from subsequent request-header deltas. */
-  deltas: unknown[]
+  /** Complete tool schemas from subsequent changed-header snapshots. */
+  changes: unknown[][]
 }
 
 /**
- * Render tool schemas and later schema edits as canonical, readable JSON.
+ * Render the full tool-schema sequence as canonical, readable JSON.
  *
  * @param initial The pinned request header's complete tool schemas.
- * @param deltas Complete tool-schema edits from request-header deltas.
+ * @param changes Complete tool schemas from later changed headers.
  * @returns A pretty-printed JSON snapshot ending in one newline.
  */
-export function formatToolSchemasSnapshot(initial: readonly unknown[], deltas: readonly unknown[] = []): string {
-  return `${JSON.stringify({ initial, deltas }, null, 2)}\n`
+export function formatToolSchemasSnapshot(initial: readonly unknown[], changes: readonly unknown[][] = []): string {
+  return `${JSON.stringify({ initial, changes }, null, 2)}\n`
 }
 
 /**
  * Parse and validate the stable top-level shape of a tool-schema sidecar.
  *
  * @param snapshot The JSON sidecar text.
- * @returns Its initial schemas and schema deltas.
+ * @returns Its initial and changed-header schema sets.
  */
 export function parseToolSchemasSnapshot(snapshot: string): ToolSchemasSnapshot {
   const parsed = JSON.parse(snapshot) as unknown
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('acp-snapshot: tool-schema snapshot must be an object')
   }
-  const { initial, deltas } = parsed as { initial?: unknown; deltas?: unknown }
-  if (!Array.isArray(initial) || !Array.isArray(deltas)) {
-    throw new Error('acp-snapshot: tool-schema snapshot must carry array-valued initial and deltas fields')
+  const { initial, changes } = parsed as { initial?: unknown; changes?: unknown }
+  if (!Array.isArray(initial) || !Array.isArray(changes) || !changes.every(Array.isArray)) {
+    throw new Error('acp-snapshot: tool-schema snapshot must carry array-valued initial and changes fields')
   }
-  return { initial, deltas }
+  return { initial, changes }
 }
 
 /**
- * Restore a sidecar's initial schemas into a tokenized pinned header.
+ * Restore one sidecar schema set into a tokenized pinned header.
  *
  * @param header The parsed request header carrying `tools: "{{tools}}"`.
- * @param snapshot The parsed tool-schema sidecar.
- * @returns A copy of the header with its complete initial schemas restored.
+ * @param schemas The complete schemas for this full header snapshot.
+ * @returns A copy of the header with its complete schemas restored.
  */
-export function restorePinnedToolSchemas(header: unknown, snapshot: ToolSchemasSnapshot): unknown {
+export function restorePinnedToolSchemas(header: unknown, schemas: readonly unknown[]): unknown {
   if (header === null || typeof header !== 'object' || Array.isArray(header)) {
     throw new Error('acp-snapshot: pinned request header must be an object')
   }
   if ((header as { tools?: unknown }).tools !== TOOLS_TOKEN) {
     throw new Error(`acp-snapshot: pinned request header tools must equal ${TOOLS_TOKEN}`)
   }
-  return { ...header, tools: snapshot.initial }
-}
-
-/** One normalized system-prompt edit carried by a `request/header-delta`. */
-export interface SystemPromptDeltaSnapshot {
-  /** How many leading lines remain from the prior prompt. */
-  keepStart: number
-  /** How many trailing lines remain from the prior prompt. */
-  keepEnd: number
-  /** The normalized replacement lines inserted between the retained ranges. */
-  insert: string[]
-}
-
-/**
- * Extract normalized system-prompt edits from request-header deltas in log
- * order. Deltas without a well-formed system edit are omitted; their non-prompt
- * structure remains pinned in JSONL.
- *
- * @param rawLog The session `.jsonl` content to inspect.
- * @param ctx The volatile values of the run that produced it.
- * @returns The normalized system-prompt edits, in event order.
- */
-export function normalizedSystemPromptDeltas(rawLog: string, ctx: NormalizeContext): SystemPromptDeltaSnapshot[] {
-  return normalizeSessionLog(rawLog, ctx)
-    .split('\n')
-    .filter(line => line.trim().length > 0)
-    .map(line => JSON.parse(line) as { type?: unknown; data?: { system?: unknown } })
-    .filter(record => record.type === 'request/header-delta')
-    .flatMap((record) => {
-      const system = record.data?.system
-      if (system === null || typeof system !== 'object') return []
-      const { keepStart, keepEnd, insert } = system as { keepStart?: unknown; keepEnd?: unknown; insert?: unknown }
-      if (typeof keepStart !== 'number' || typeof keepEnd !== 'number' || !Array.isArray(insert)) return []
-      if (!insert.every(line => typeof line === 'string')) return []
-      return [{ keepStart, keepEnd, insert: insert }]
-    })
+  return { ...header, tools: schemas }
 }
 
 /**
@@ -326,38 +270,40 @@ export function normalizedSystemPromptDeltas(rawLog: string, ctx: NormalizeConte
  * the committed file follows the repository newline contract.
  *
  * @param prompt The normalized system prompt.
- * @param deltas Normalized prompt edits to append as readable sections.
+ * @param changes Full normalized prompts from later changed-header snapshots.
  * @returns Markdown snapshot text ending in a newline.
  */
 export function formatSystemPromptSnapshot(
   prompt: string,
-  deltas: readonly SystemPromptDeltaSnapshot[] = [],
+  changes: readonly string[] = [],
 ): string {
   let snapshot = prompt.endsWith('\n') ? prompt : `${prompt}\n`
-  for (const [index, delta] of deltas.entries()) {
-    snapshot += `\n<!-- request/header-delta ${index + 1}: keepStart=${delta.keepStart}, keepEnd=${delta.keepEnd} -->\n\n`
-    const insert = delta.insert.join('\n')
-    snapshot += insert.endsWith('\n') ? insert : `${insert}\n`
+  for (const [index, change] of changes.entries()) {
+    snapshot += `\n<!-- request/header change ${index + 1} -->\n\n`
+    snapshot += change.endsWith('\n') ? change : `${change}\n`
   }
   return snapshot
 }
 
-/** Return the initial-prompt portion of a possibly delta-bearing snapshot. */
+/** Return the initial-prompt portion of a possibly multi-header snapshot. */
 function initialSystemPromptSnapshot(snapshot: string): string {
-  const marker = snapshot.indexOf('\n<!-- request/header-delta ')
+  const marker = snapshot.indexOf('\n<!-- request/header change ')
   return marker < 0 ? snapshot : snapshot.slice(0, marker)
 }
 
 /**
- * Count the `request/header-delta` events in a session JSONL.
+ * Count changed `request/header` snapshots in a session JSONL.
  *
  * @param rawLog The session `.jsonl` content.
- * @returns How many `request/header-delta` events the log carries.
+ * @returns How many headers carry reason `change`.
  */
-export function headerDeltaCount(rawLog: string): number {
+export function headerChangeCount(rawLog: string): number {
   return rawLog.split('\n')
     .filter(line => line.trim().length > 0)
-    .filter(line => (JSON.parse(line) as { type?: unknown }).type === 'request/header-delta')
+    .filter((line) => {
+      const record = JSON.parse(line) as { type?: unknown; data?: { reason?: unknown } }
+      return record.type === 'request/header' && record.data?.reason === 'change'
+    })
     .length
 }
 
@@ -567,30 +513,19 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             ))
           }
           if (scenario.pinsHeader === true) {
-            const prompts = result.sessionLogs.flatMap(log => normalizedSystemPrompts(log.content, ctx))
-            expect(prompts.length, `${mode} produced no system prompt to snapshot`).toBeGreaterThan(0)
-            const initialSnapshot = formatSystemPromptSnapshot(prompts[0] as string)
-            for (const prompt of prompts) {
-              expect(formatSystemPromptSnapshot(prompt), 'the pinning run produced divergent system prompts')
-                .toEqual(initialSnapshot)
-            }
             const primary = result.sessionLogs[0] as HarvestedLog
-            const snapshot = formatSystemPromptSnapshot(
-              prompts[0] as string,
-              normalizedSystemPromptDeltas(primary.content, ctx),
-            )
+            const prompts = normalizedSystemPrompts(primary.content, ctx)
+            expect(prompts.length, `${mode} produced no system prompt to snapshot`).toBeGreaterThan(0)
+            const snapshot = formatSystemPromptSnapshot(prompts[0] as string, prompts.slice(1))
             await writeFile(join(dir, SYSTEM_PROMPT_SNAPSHOT), snapshot)
 
-            const schemaSets = result.sessionLogs.flatMap(log => normalizedToolSchemas(log.content, ctx))
+            const schemaSets = normalizedToolSchemas(primary.content, ctx)
             expect(schemaSets.length, `${mode} produced no tool schemas to snapshot`).toBeGreaterThan(0)
-            const initialSchemaSnapshot = formatToolSchemasSnapshot(schemaSets[0] as unknown[])
-            for (const schemas of schemaSets) {
-              expect(formatToolSchemasSnapshot(schemas), 'the pinning run produced divergent tool schemas')
-                .toEqual(initialSchemaSnapshot)
-            }
+            expect(schemaSets.length, `${mode} produced a tool-schema sequence that differs from its prompt sequence`)
+              .toBe(prompts.length)
             await writeFile(join(dir, TOOL_SCHEMAS_SNAPSHOT), formatToolSchemasSnapshot(
               schemaSets[0] as unknown[],
-              normalizedToolSchemaDeltas(primary.content, ctx),
+              schemaSets.slice(1),
             ))
           }
         }
@@ -614,8 +549,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           }
         }
 
-        // Header-uniformity guard: every live header in a class must equal the class pin split
-        // across tokenized JSONL plus readable prompt and structured schema sidecars.
+        // Every live full header must equal its class pin reconstructed from
+        // tokenized JSONL plus readable prompt and structured schema sidecars.
         /* v8 ignore next -- construction guarantees the pin exists; a miss would fail the one-header assertion loudly. */
         const pinningScenario = pinningByClass.get(classOf(scenario)) ?? scenario
         const pinningDir = join(snapshotsDir, pinningScenario.name)
@@ -623,17 +558,23 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         const pinned = normalizedHeaders(pinnedFixture, fixtureContext(pinnedFixture))
         const promptSnapshot = await readFile(join(pinningDir, SYSTEM_PROMPT_SNAPSHOT), 'utf8')
         const initialPromptSnapshot = initialSystemPromptSnapshot(promptSnapshot)
+        expect(pinned.length, `the pinning fixture (${pinningScenario.name}) has an unexpected request/header count`)
+          .toBe(1 + (pinningScenario.expectedHeaderChanges ?? 0))
         const toolSchemasSnapshot = await readFile(join(pinningDir, TOOL_SCHEMAS_SNAPSHOT), 'utf8')
         const toolSchemas = parseToolSchemasSnapshot(toolSchemasSnapshot)
-        expect(pinned.length, `the pinning fixture (${pinningScenario.name}) must carry exactly one request/header`)
-          .toBe(1)
-        const pinnedHeader = restorePinnedToolSchemas(pinned[0], toolSchemas)
+        const pinnedSchemaSets = [toolSchemas.initial, ...toolSchemas.changes]
+        expect(pinnedSchemaSets.length, `the pinning fixture (${pinningScenario.name}) has an unexpected tool-schema count`)
+          .toBe(pinned.length)
+        const pinnedHeaders = pinned.map((header, index) => restorePinnedToolSchemas(
+          header,
+          pinnedSchemaSets[index] as unknown[],
+        ))
         for (const [logIndex, log] of result.sessionLogs.entries()) {
-          const expectedDeltas = scenario.pinsHeader === true && logIndex === 0
-            ? scenario.expectedHeaderDeltas ?? 0
+          const expectedChanges = scenario.pinsHeader === true && logIndex === 0
+            ? scenario.expectedHeaderChanges ?? 0
             : 0
-          expect(headerDeltaCount(log.content), `session ${log.id}: request/header-delta count`)
-            .toBe(expectedDeltas)
+          expect(headerChangeCount(log.content), `session ${log.id}: changed request/header count`)
+            .toBe(expectedChanges)
           const headers = normalizedHeaders(scrubSystemPrompts(log.content), ctx)
           const prompts = normalizedSystemPrompts(log.content, ctx)
           const schemaSets = normalizedToolSchemas(log.content, ctx)
@@ -642,21 +583,24 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           expect(schemaSets.length, `session ${log.id}: every request/header must carry an array-valued tools field`)
             .toBe(headers.length)
           for (const [k, header] of headers.entries()) {
+            const expected = expectedChanges > 0 ? pinnedHeaders[k] : pinnedHeaders[0]
             expect(header, `session ${log.id}: request/header #${k + 1} diverged from the pinned (${pinningScenario.name}) header`)
-              .toEqual(pinnedHeader)
-            expect(formatSystemPromptSnapshot(prompts[k] as string), `session ${log.id}: initial system prompt #${k + 1} diverged from ${pinningScenario.name}/${SYSTEM_PROMPT_SNAPSHOT}`)
-              .toEqual(initialPromptSnapshot)
+              .toEqual(expected)
+            if (expectedChanges === 0) {
+              expect(formatSystemPromptSnapshot(prompts[k] as string), `session ${log.id}: initial system prompt #${k + 1} diverged from ${pinningScenario.name}/${SYSTEM_PROMPT_SNAPSHOT}`)
+                .toEqual(initialPromptSnapshot)
+            }
           }
           if (scenario.pinsHeader === true && logIndex === 0) {
             expect(formatSystemPromptSnapshot(
               prompts[0] as string,
-              normalizedSystemPromptDeltas(log.content, ctx),
-            ), `session ${log.id}: system-prompt deltas diverged from ${pinningScenario.name}/${SYSTEM_PROMPT_SNAPSHOT}`)
+              prompts.slice(1),
+            ), `session ${log.id}: changed system prompts diverged from ${pinningScenario.name}/${SYSTEM_PROMPT_SNAPSHOT}`)
               .toEqual(promptSnapshot)
             expect(formatToolSchemasSnapshot(
               schemaSets[0] as unknown[],
-              normalizedToolSchemaDeltas(log.content, ctx),
-            ), `session ${log.id}: tool-schema deltas diverged from ${pinningScenario.name}/${TOOL_SCHEMAS_SNAPSHOT}`)
+              schemaSets.slice(1),
+            ), `session ${log.id}: changed tool schemas diverged from ${pinningScenario.name}/${TOOL_SCHEMAS_SNAPSHOT}`)
               .toEqual(toolSchemasSnapshot)
           }
         }
@@ -711,25 +655,30 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       }
     })
 
-    it('every pinning fixture carries one tokenized request/header, two sidecars, and its declared deltas', async () => {
-      // The live uniformity guard runs only in NON-pinning scenarios, so a class made of just
-      // its pinning scenario would otherwise accept a re-recorded pin with several headers or
-      // an undeclared mid-run header-delta — shapes the pin design cannot represent.
+    it('every pinning fixture carries one tokenized header sequence and two sidecars', async () => {
+      // Assert the committed pin directly because a class containing only its
+      // pinning scenario has no non-pinning live run to catch undeclared changes.
       for (const scenario of pinningByClass.values()) {
         const fixture = await readFile(join(snapshotsDir, scenario.name, 'session.jsonl'), 'utf8')
         const headers = normalizedHeaders(fixture, fixtureContext(fixture))
         const promptSnapshot = await readFile(join(snapshotsDir, scenario.name, SYSTEM_PROMPT_SNAPSHOT), 'utf8')
+        expect(headers.length, `${scenario.name}: unexpected request/header count`)
+          .toBe(1 + (scenario.expectedHeaderChanges ?? 0))
         const toolSchemasSnapshot = await readFile(join(snapshotsDir, scenario.name, TOOL_SCHEMAS_SNAPSHOT), 'utf8')
         const toolSchemas = parseToolSchemasSnapshot(toolSchemasSnapshot)
-        expect(headers.length, `${scenario.name}: a pinning fixture must carry exactly one request/header`).toBe(1)
-        expect(() => restorePinnedToolSchemas(headers[0], toolSchemas), `${scenario.name}: tools must use the sidecar token`)
-          .not.toThrow()
+        const schemaSets = [toolSchemas.initial, ...toolSchemas.changes]
+        expect(schemaSets.length, `${scenario.name}: tool-schema sequence must match the header sequence`)
+          .toBe(headers.length)
+        for (const [index, header] of headers.entries()) {
+          expect(() => restorePinnedToolSchemas(header, schemaSets[index] as unknown[]), `${scenario.name}: tools must use the sidecar token`)
+            .not.toThrow()
+        }
         expect(promptSnapshot.length, `${scenario.name}/${SYSTEM_PROMPT_SNAPSHOT} must not be empty`).toBeGreaterThan(0)
         expect(promptSnapshot.endsWith('\n'), `${scenario.name}/${SYSTEM_PROMPT_SNAPSHOT} must end in a newline`).toBe(true)
         expect(toolSchemasSnapshot, `${scenario.name}/${TOOL_SCHEMAS_SNAPSHOT} must use canonical JSON formatting`)
-          .toBe(formatToolSchemasSnapshot(toolSchemas.initial, toolSchemas.deltas))
-        expect(headerDeltaCount(fixture), `${scenario.name}: a pinning fixture must carry exactly its declared request/header-deltas`)
-          .toBe(scenario.expectedHeaderDeltas ?? 0)
+          .toBe(formatToolSchemasSnapshot(toolSchemas.initial, toolSchemas.changes))
+        expect(headerChangeCount(fixture), `${scenario.name}: a pinning fixture must carry exactly its declared changed headers`)
+          .toBe(scenario.expectedHeaderChanges ?? 0)
       }
     })
 

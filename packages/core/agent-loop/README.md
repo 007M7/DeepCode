@@ -46,15 +46,17 @@ Configured agents start automatically. A model call requires both `provider` and
 
 - `ReactLoopAgent` — the concrete `Agent` implementation. Its inbox is a JavaScript native-private field, and one prepared session can be claimed by only one concrete driver. Everything observable happens through session events and the `agent/*` event taxonomy.
 
-`Inbox`, `runLoop`, and the instance-bound publication/start controls are package-internal. The package root does not export them, and the package exports map exposes no `./src/*` escape hatch; lifecycle owners create agents through `ctx.agents` rather than constructing or starting the driver internals. `ReactLoopAgent.send()` and running `steer()` materialize content plus resolved source once as detached, deeply frozen lossless JSON, then share that accepted record between `agent/queued` and the inbox; malformed data throws before either boundary.
+`Inbox`, `runLoop`, and the instance-bound publication/start controls are package-internal. The package root does not export them, and the package exports map exposes no `./src/*` escape hatch; lifecycle owners create agents through `ctx.agents` rather than constructing or starting the driver internals. `ReactLoopAgent.send()`, running `steer()`, and open-turn `inject()` materialize content plus resolved source once as detached, deeply frozen lossless JSON; malformed data throws before enqueue or append. An injection that arrives while the current step executes assistant tool calls stays in a FIFO until the batch settles; successful batches place it after the complete result batch, and interrupted batches drain it before the turn closes.
 
 ### Loop lifecycle (`loop.ts`)
 
 The driver owns one agent for its lifetime. It records turn, step, request, stream, and tool boundaries in the session log; live extension events coordinate policy around those durable facts. The [architecture turn flow](../../../docs/architecture.md#turn-flow) and generated [event catalog](../../../docs/cordis-catalog/events.md) are the authoritative sequence and signatures.
 
+Every provider call that reaches a successful finish appends exactly one `assistant/message` completion anchor, including content-less calls and `max-tokens` finishes. A successful `agent/step-result` stores its transformed content; a rejected result records empty content before the original failure continues. The anchor retains exact chunk provenance (`[]` for a stream with no chunks) and usage when available, while empty content stays out of derived message history.
+
 Plugin failure ends the current turn, not the loop. Cancellation clears pending work and aborts the current step without leaking to the next prompt. Terminal continuation stops remain authoritative through turn close and durability flush.
 
-Within a step, exclusive calls form barriers; parallel-safe calls use a bounded rolling pool and are reclassified before start. Only dispatch/body overlaps. Policy, durable results, and context remain model-ordered. Abort stops new calls, drains started results, discards their context, and follows the normal abort path.
+Within a step, exclusive calls form barriers; parallel-safe calls use a bounded rolling pool and are reclassified before start. Only dispatch/body overlaps. Policy, durable results, and result context remain model-ordered. Abort stops new calls, drains started results, then drains accepted batch context before the turn closes through the normal abort path.
 
 ### What belongs to plugins
 

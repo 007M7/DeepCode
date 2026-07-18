@@ -32,11 +32,11 @@ Status: implemented
 
 ### 日志与 token 形态
 
-agent loop（智能体循环）会在发送前通过 `request/header` 和 `request/header-delta` 记录时间区块，从而满足[可重建请求契约](../architecture/2026-07-05-reconstructable-requests.md)。每个请求只携带一个当前区块；先前的读数不会保留在会话历史中。该插件拥有时间信息，并按照[提示词变量 RFC](../architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)通过提示词注册表贡献该信息，无需为循环添加特殊分支。
+agent loop（智能体循环）会在发送前通过完整的 `request/header` 快照记录时间区块，从而满足[可重建请求契约](../architecture/2026-07-05-reconstructable-requests.md)。每个请求只携带一个当前区块；先前的读数不会保留在会话历史中。该插件拥有时间信息，并按照[提示词变量 RFC](../architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)通过提示词注册表贡献该信息，无需为循环添加特殊分支。
 
 ## 测试
 
-单元测试固定格式化、基线、刷新策略、校验、逐 agent 状态、资源释放行为，以及系统时区在加载时的捕获行为。使用真实 agent loop 的测试固定实际发送的提示词和 `request/header-delta`。无密钥子进程端到端测试通过真实 Loader 和 stdio 应用启动测试专用 `cordis.yml`，在受控 `TZ` 下省略 `timeZone`，驱动两个轮次，并从外部校验持久请求头。默认快照组合不包含该插件，因此其中的 transcript（文本记录）fixture（测试前置数据）不包含时间区块。
+单元测试固定格式化、基线、刷新策略、校验、逐 agent 状态、资源释放行为，以及系统时区在加载时的捕获行为。使用真实 agent loop 的测试固定实际发送的提示词和完整的 `request/header` 快照。无密钥子进程端到端测试通过真实 Loader 和 stdio 应用启动测试专用 `cordis.yml`，在受控 `TZ` 下省略 `timeZone`，驱动两个轮次，并从外部校验持久请求头。默认快照组合不包含该插件，因此其中的 transcript（文本记录）fixture（测试前置数据）不包含时间区块。
 
 ## 考虑过的替代方案
 
@@ -54,6 +54,6 @@ agent loop（智能体循环）会在发送前通过 `request/header` 和 `reque
 
 - 选择加入的模型无需调用工具，即可获得分区时钟和轮次间隔时长。每个请求的系统提示词成本固定，不会随会话增长。
 - 省略 `timeZone` 时，插件采用加载时观察到的进程 `TZ`、主机或容器时区。当部署环境不能代表目标用户时，运维方必须显式配置时区。
-- 刷新会改变请求头，并可能新增 `request/header-delta`。`refreshIntervalMs` 用新鲜度换取持久增量记录的数量；设为 `0` 时，每个整秒渲染结果发生变化的步骤都会记录新值。
+- 刷新会改变请求头，并可能新增一份 reason 为 `change` 的完整 `request/header` 快照。`refreshIntervalMs` 用新鲜度换取完整持久快照的数量与大小；设为 `0` 时，每个整秒渲染结果发生变化的步骤都会记录新值。
 - 系统不会仅为刷新时间而创建请求。长时间运行的工具会保留先前读数，直至下一步骤开始组装。
 - 时长反映持久追加边界处的 harness 处理时间，不包含消息进入日志之前的客户端网络延迟。若要保留客户端来源时间戳，需要单独的持久输入契约。

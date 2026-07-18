@@ -84,14 +84,18 @@ Harness 使用 `cordis.yml` 描述一个 Agent 加载哪些插件、以什么参
       You are coding-agent, a coding assistant powered by the {{model}} model.
       Verify your work by running the code or tests. Keep answers brief and factual.
 
+# Token 计量：统一定义模型能看到的 token 上限
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+  config:
+    contextWindow: 128000
+
 # 自动压缩：对话太长时自动总结旧内容，腾出上下文空间
-# contextWindow 是模型能看到的 token 上限
 # thresholdRatio 超过这个比例就触发压缩
 # compactionRetries 是压缩后仍超标时的额外重试次数
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
   config:
-    contextWindow: 128000
     thresholdRatio: 0.8
     retainTokens: 20480
     maxTokens: 8192
@@ -214,8 +218,6 @@ config:
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
   disabled: true
-  config:
-    contextWindow: 128000
 ```
 
 ## 各插件配置参考

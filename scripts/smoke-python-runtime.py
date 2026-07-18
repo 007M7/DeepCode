@@ -707,7 +707,7 @@ def normalize_snapshot_value(
 
 
 def scrub_snapshot_header(value: dict[object, object]) -> None:
-    """Tokenize request-header bulk while retaining delta tool names."""
+    """Tokenize full request-header bulk while retaining tool names."""
     data = value.get("data")
     if not isinstance(data, dict):
         return
@@ -725,29 +725,6 @@ def scrub_snapshot_header(value: dict[object, object]) -> None:
             ]
         if isinstance(header.get("messagePrefix"), list):
             header["messagePrefix"] = ["{{messagePrefix}}" for _ in header["messagePrefix"]]
-        return
-    if value.get("type") != "request/header-delta":
-        return
-    system = data.get("system")
-    if isinstance(system, dict) and isinstance(system.get("insert"), list):
-        system["insert"] = ["{{system}}" for _ in system["insert"]]
-    tools = data.get("tools")
-    if isinstance(tools, dict):
-        for key in ("added", "changed"):
-            if isinstance(tools.get(key), list):
-                tools[key] = [scrub_snapshot_tool_schema(tool) for tool in tools[key]]
-    if isinstance(data.get("messagePrefix"), list):
-        data["messagePrefix"] = ["{{messagePrefix}}" for _ in data["messagePrefix"]]
-
-
-def scrub_snapshot_tool_schema(value: object) -> object:
-    """Keep a changed tool's name while tokenizing its schema bulk."""
-    if not isinstance(value, dict):
-        return value
-    return {
-        key: item if key == "name" else "{{tools}}"
-        for key, item in value.items()
-    }
 
 
 def render_jsonl(records: list[object]) -> str:

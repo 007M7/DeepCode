@@ -6,7 +6,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { encodeSegment, logPath, scanLog, sessionDir } from '../src/format.ts'
+import { encodeSegment, logPath, scanLog, sessionDir, toHeaderLine } from '../src/format.ts'
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
@@ -192,6 +192,40 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await ctx.sessionPersistence.append(m.id, log)
     const loaded = await ctx.sessionPersistence.load(m.id)
     expect(loaded.events).toEqual(log) // chunks preserved, contiguous seqs
+  })
+
+  it('rejects a stored v0 log containing a legacy request/header-delta event', async () => {
+    const m = meta('legacy-header-delta', '/legacy')
+    const path = logPath(root, m.cwd, m.id)
+    await mkdir(sessionDir(root, m.cwd), { recursive: true })
+    await writeFile(path, [
+      JSON.stringify(toHeaderLine(m)),
+      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+      JSON.stringify({ type: 'request/header-delta', seq: 1, time: 2, data: { config: { model: 'legacy' } } }),
+      JSON.stringify({ type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } }),
+      '',
+    ].join('\n'))
+
+    await expect(ctx.sessionPersistence.load(m.id)).rejects.toThrow(/unsupported legacy request\/header-delta event at seq 1/)
+  })
+
+  it('rejects a stored v0 full header carrying the legacy fallback reason', async () => {
+    const m = meta('legacy-header-fallback', '/legacy')
+    const path = logPath(root, m.cwd, m.id)
+    await mkdir(sessionDir(root, m.cwd), { recursive: true })
+    await writeFile(path, [
+      JSON.stringify(toHeaderLine(m)),
+      JSON.stringify({
+        type: 'request/header',
+        seq: 0,
+        time: 1,
+        data: { header: { config: { model: 'legacy' } }, reason: 'fallback' },
+      }),
+      '',
+    ].join('\n'))
+
+    await expect(ctx.sessionPersistence.load(m.id))
+      .rejects.toThrow(/unsupported legacy request\/header reason "fallback" at seq 0/)
   })
 
   it('persists a forked child seed through the existing session write path', async () => {

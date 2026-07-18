@@ -36,7 +36,7 @@ ACP 选择还必须保留提供方维度。同一个模型 ID 可能存在于多
 
 Agent setup 会安装作用域内的 `system-prompt/assemble` 与 `agent/request` 监听器。Prompt 组装为每个 step 只快照一次选中的字段组合，在下游 prompt 监听器完成后覆盖组装结果中的 `provider` 与 `model` 变量；请求监听器则在下游请求监听器完成后应用同一个快照。因此，异步组装期间发生的选择会从下一个 step 生效，不会导致 prompt 文本与路由分裂。其他调用配置字段保持不变。
 
-请求头仍是持久化事实来源。当选中目标被实际使用时，现有 `request/header` 或 `request/header-delta` 事件会记录它。`session/load` 先从折叠后的最后请求头初始化 ACP 选择，再回退到 bridge 配置。一个从未被请求使用的选择只保留在内存中，因为它从未成为模型可见状态。
+请求头仍是持久化事实来源。当选中目标被实际使用时，现有的完整 `request/header` 快照会记录它。`session/load` 先从折叠后的最后请求头初始化 ACP 选择，再回退到 bridge 配置。一个从未被请求使用的选择只保留在内存中，因为它从未成为模型可见状态。
 
 本功能不使用 ACP 的实验性 `providers/*` 能力。该草案接口配置提供方 base URL、协议和 headers，其中可能包含密钥；它不枚举模型，并且会赋予 UI 改写部署所有的适配器配置的权力。
 

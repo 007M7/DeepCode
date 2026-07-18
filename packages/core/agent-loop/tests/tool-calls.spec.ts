@@ -502,7 +502,7 @@ describe('tool-call scheduler: abort handling', () => {
       .toEqual([CallId('c1')])
   })
 
-  it('stops replenishing after abort, commits started results, and drops buffered additional contexts', async () => {
+  it('stops replenishing after abort, commits started results, and drains accepted additional contexts', async () => {
     const adapter = new MockAdapter([
       multiCall([1, 2, 3, 4].map(n => ({ id: `c${n}`, name: 'p', args: { id: String(n) } }))),
       textResponse('should never be requested'),
@@ -528,7 +528,12 @@ describe('tool-call scheduler: abort handling', () => {
       .toEqual([CallId('c1'), CallId('c2')])
     expect(events(agent).filter(e => e.type === 'tool/result').map(e => e.data.callId))
       .toEqual([CallId('c1'), CallId('c2')])
-    expect(events(agent).filter(e => e.type === 'context/message')).toEqual([])
+    const settled = events(agent).filter(e => e.type === 'tool/result' || e.type === 'context/message')
+    expect(settled.map(e => e.type))
+      .toEqual(['tool/result', 'tool/result', 'context/message', 'context/message'])
+    expect(settled.filter(e => e.type === 'context/message')
+      .map(e => (e.data.content[0] as { text: string }).text))
+      .toEqual(['ctx-c1', 'ctx-c2'])
   })
 
   it('does not run an exclusive barrier after a parallel group aborts', async () => {

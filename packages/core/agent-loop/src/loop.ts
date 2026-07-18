@@ -10,7 +10,7 @@ import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, Messag
 import { isDeepStrictEqual } from 'node:util'
 import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { AgentEventDispatch, ContinuationDecision, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
@@ -89,6 +89,8 @@ export interface LoopHandle {
   clearCancel(): void
   /** Settle idle waiters when pre-running cancellation skips a turn, without emitting `agent/status`. */
   settleIdle(): void
+  /** Run an active tool-call batch, accepting post-tool context into the FIFO drained before settlement. */
+  readonly withToolBatch: <T>(run: (acceptContext: (context: HookContext) => void) => Promise<T>) => Promise<T>
 }
 
 /**
@@ -334,8 +336,7 @@ async function runTurn(
       let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
         stepOutcome = await runStep(
-          ctx, events, agent, turn, step, assembly, fullSystemPrompt, boundaryMessages,
-          transmission, abort.signal, handle.maxParallelToolCalls)
+          ctx, events, agent, handle, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
       } catch (error: unknown) {
         stepOutcome = { error: toError(error) }
       } finally {
@@ -472,6 +473,7 @@ async function runStep(
   ctx: Context,
   events: AgentEventDispatch,
   agent: ReactLoopAgent,
+  handle: LoopHandle,
   turn: number,
   step: number,
   assembly: PromptAssembly,
@@ -479,7 +481,6 @@ async function runStep(
   boundaryMessages: Message[],
   transmission: TransmissionLog,
   signal: AbortSignal,
-  maxParallelToolCalls: number,
 ): Promise<{ hadToolCalls: boolean; finish: FinishReason }> {
   const { session, options } = agent
 
@@ -541,7 +542,9 @@ async function runStep(
     const assembled = assembler.message()
     const assembledContent = structuredClone(assembled.content)
     let message: Message = withoutToolCalls(assembled)
-    message = withoutToolCalls(await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message)))
+    message = withoutToolCalls(await processStepResult(
+      events, session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs,
+    ))
     // Preserve usage even when max-token truncation produced no content.
     recordAssistantMessage(session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs)
     return { hadToolCalls: false, finish: assembler.finish }
@@ -551,28 +554,55 @@ async function runStep(
   const assembled = assembler.message()
   const assembledContent = structuredClone(assembled.content)
   let message: Message = assembled
-  message = await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message))
+  message = await processStepResult(
+    events, session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs,
+  )
 
-  const toolCalls = message.content.filter(block => block.type === 'tool-call')
-
-  // Empty messages exist only to carry usage; the helper also omits empty chunk provenance.
+  // Every successful call records its completion anchor, including explicit
+  // empty chunk provenance for a contentless, usage-less provider response.
   recordAssistantMessage(session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs)
 
-  // Dispatch may overlap; policy, results, and context remain model-ordered.
-  const pendingContext = toolCalls.length > 0
-    ? await executeToolCalls(ctx, agent, turn, step, toolCalls, signal, maxParallelToolCalls)
-    : []
+  // Dispatch may overlap; policy, durable results, and result context stay model-ordered.
+  const toolCalls = message.content.filter(block => block.type === 'tool-call')
+  if (toolCalls.length === 0) return { hadToolCalls: false, finish: assembler.finish }
+  return handle.withToolBatch(async (acceptContext) => {
+    await executeToolCalls(
+      ctx, agent, turn, step, toolCalls, signal, handle.maxParallelToolCalls, acceptContext,
+    )
+    return { hadToolCalls: true, finish: assembler.finish }
+  })
+}
 
-  // Context follows the complete result batch to preserve call/result adjacency.
-  for (const context of pendingContext) {
-    agent.inject(context.content, {
-      source: context.source,
-      ...context.envelope !== undefined ? { envelope: context.envelope } : {},
-      ...context.meta !== undefined ? { meta: context.meta } : {},
-    })
+/** Preserve successful-call accounting without retaining output that result processing rejected. */
+async function processStepResult(
+  events: AgentEventDispatch,
+  session: Session,
+  turn: number,
+  step: number,
+  config: LlmCallConfig,
+  assembledContent: ContentBlock[],
+  message: Message,
+  assembler: BlockAssembler,
+  chunkSeqs: number[],
+): Promise<Message> {
+  try {
+    return await events.waterfall(
+      'agent/step-result', turn, step, message, () => Promise.resolve(message),
+    )
+  } catch (error: unknown) {
+    recordAssistantMessage(
+      session,
+      turn,
+      step,
+      config,
+      assembledContent,
+      { ...message, content: [] },
+      assembler,
+      chunkSeqs,
+      false,
+    )
+    throw error
   }
-
-  return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
 }
 
 /** Record one content-or-usage assistant message with replay-safe provenance. */
@@ -585,8 +615,8 @@ function recordAssistantMessage(
   message: Message,
   assembler: BlockAssembler,
   chunkSeqs: number[],
+  preserveReplayState = true,
 ): void {
-  if (message.content.length === 0 && assembler.usage === undefined) return
   session.append(
     'assistant/message',
     {
@@ -596,11 +626,11 @@ function recordAssistantMessage(
       provenance: assistantProvenance(
         config,
         assembler.replayState,
-        isDeepStrictEqual(message.content, assembledContent),
+        preserveReplayState && isDeepStrictEqual(message.content, assembledContent),
       ),
       ...assembler.usage === undefined ? {} : { usage: assembler.usage },
     },
-    { surfaceOp: 'append', ...chunkSeqs.length > 0 ? { sourceEventSeqs: chunkSeqs } : {} },
+    { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
   )
 }
 

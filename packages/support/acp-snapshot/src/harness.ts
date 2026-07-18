@@ -11,7 +11,6 @@ import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, delimiter } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { Readable, Writable } from 'node:stream'
 import {
   ClientSideConnection,
@@ -23,12 +22,7 @@ import {
   type RequestPermissionResponse,
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
-
-// Resolve tsx's ESM loader to an ABSOLUTE path once: the child runs with its
-// cwd in a temp dir OUTSIDE the repo, where a bare `--import tsx` would not
-// resolve from node_modules. import.meta.resolve gives this package's tsx
-// regardless of the child cwd.
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
+import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
 /**
  * The agent composition a scenario runs against: which bin to boot and which
@@ -37,8 +31,10 @@ const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
  * them from its own `import.meta.url`.
  */
 export interface AgentUnderTest {
-  /** The agent bin entry (e.g. `packages/examples/acp-demo/src/bin.ts`), run unbuilt via tsx. */
+  /** The agent bin's SOURCE entry (e.g. `packages/examples/acp-demo/src/bin.ts`); the `lib` bin is derived from it. */
   binScript: string
+  /** Explicit plain-Node entry for `lib` mode; intended for test fixtures outside a package `src/` tree. */
+  libBinScript?: string | undefined
   /**
    * The example's live `cordis.yml`. Under `DSH_SNAPSHOT=replay` the bin swaps
    * it for the sibling `cordis.snapshot.yml` (the keyless replay overlay), so
@@ -47,10 +43,8 @@ export interface AgentUnderTest {
   configPath: string
   /**
    * The repo-root tsconfig whose `paths` map resolves the unbuilt workspace
-   * imports. Passed to the child as `TSX_TSCONFIG_PATH`: tsx finds a tsconfig
-   * by searching UP from the child's cwd — a temp dir outside the repo — so
-   * without the explicit pin the dsh-* imports fail before the bin writes a
-   * byte.
+   * imports in `src` mode (passed to the child as `TSX_TSCONFIG_PATH`). Ignored
+   * in `lib` mode, where the example resolves plugins through real `exports`.
    */
   tsconfigPath: string
 }
@@ -184,25 +178,32 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     if (opts.workspaceDir !== undefined && existsSync(opts.workspaceDir)) {
       await cp(opts.workspaceDir, cwd, { recursive: true })
     }
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      TSX_TSCONFIG_PATH: opts.agent.tsconfigPath,
-      DSH_SNAPSHOT: opts.mode,
-      DSH_SNAPSHOT_FILE: opts.fixtureFile,
-      DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
-      DSH_SNAPSHOT_SPILL_ROOT: spillRoot,
-      DSH_HOME: join(cwd, '.dsh'),
-      DSH_AGENTS_HOME: join(cwd, '.agents'),
-      ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
-      ...opts.childFiles !== undefined && opts.childFiles.length > 0
-        ? { DSH_SNAPSHOT_CHILD_FILES: opts.childFiles.join(delimiter) }
-        : {},
-    }
+    // Boot the agent in the environment's mode (DSH_EXAMPLE_MODE): `src` runs the
+    // source bin under tsx with the paths map; `lib` runs the built bin under plain
+    // Node, resolving plugins through the example's workspace node_modules → lib.
+    const launch = resolveExampleLaunch({
+      srcBin: opts.agent.binScript,
+      libBin: opts.agent.libBinScript,
+      configArgs: ['--config', opts.configPath ?? opts.agent.configPath],
+      tsconfigPath: opts.agent.tsconfigPath,
+      env: {
+        DSH_SNAPSHOT: opts.mode,
+        DSH_SNAPSHOT_FILE: opts.fixtureFile,
+        DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
+        DSH_SNAPSHOT_SPILL_ROOT: spillRoot,
+        DSH_HOME: join(cwd, '.dsh'),
+        DSH_AGENTS_HOME: join(cwd, '.agents'),
+        ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
+        ...opts.childFiles !== undefined && opts.childFiles.length > 0
+          ? { DSH_SNAPSHOT_CHILD_FILES: opts.childFiles.join(delimiter) }
+          : {},
+      },
+    })
 
     child = spawn(
-      process.execPath,
-      ['--import', tsxLoader, opts.agent.binScript, '--config', opts.configPath ?? opts.agent.configPath],
-      { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] },
+      launch.command,
+      launch.args,
+      { cwd, env: { ...process.env, ...launch.env }, stdio: ['pipe', 'pipe', 'pipe'] },
     )
 
     child.stderr.setEncoding('utf8')

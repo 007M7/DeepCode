@@ -18,7 +18,7 @@ An exact target read first checks the live store and snapshots the live header a
 
 ## Surface semantics
 
-`dsh-session` exports `foldSurface(events)`, and `SurfaceManager` uses the same transition functions for its incremental cache. The fold returns detached current nodes and each replacement's actual removed seqs. `listEvents()` and `traceEvent()` use that result to classify every raw event, so inspection cannot disagree with model-history derivation about positional replacement semantics.
+`dsh-session` exports `foldSurface(events)`, and `SurfaceManager` uses the same transition functions for its incremental cache. The fold returns detached current event sequences and each replacement's actual removed seqs. `listEvents()` and `traceEvent()` use that result to classify every raw event, so inspection cannot disagree with model-history derivation about positional replacement semantics.
 
 `readEvent()` returns the complete target plus raw neighbors by contiguous seq. `before` and `after` default to zero and are independently bounded by `readWindowMax`, default 50. The result carries a cloned `SessionHeader`, not a source-availability record, because determining a live target's persisted flag would violate the guarantee that live exact reads do not depend on persistence health.
 

@@ -125,8 +125,8 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
 }
 
 /**
- * Replace system-prompt content in request headers and header deltas with
- * `{{system}}` tokens while retaining field presence and delta structure.
+ * Replace system-prompt content in request headers with `{{system}}` tokens
+ * while retaining field presence.
  * Other header content stays verbatim, so a header-pinning fixture can keep
  * its complete tool schemas while every JSONL fixture omits the prompt text.
  * Lines without a system payload pass through byte-for-byte; the transform is
@@ -140,11 +140,11 @@ export function scrubSystemPrompts(rawLog: string): string {
 }
 
 /**
- * Replace tool schemas in request headers and header deltas with `{{tools}}`
- * tokens while retaining field presence, tool names, and delta structure.
- * System prompts and session-prefix messages stay verbatim so pinning fixtures
- * can move only schema bulk into their dedicated JSON sidecar. Lines without a
- * tool payload pass through byte-for-byte; the transform is idempotent.
+ * Replace tool schemas in full request-header snapshots with `{{tools}}`
+ * tokens while retaining field presence. System prompts and session-prefix
+ * messages stay verbatim so pinning fixtures can move only schema bulk into
+ * their dedicated JSON sidecar. Lines without a tool payload pass through
+ * byte-for-byte; the transform is idempotent.
  *
  * @param rawLog The raw session `.jsonl` content.
  * @returns The JSONL with tool-schema content tokenized.
@@ -157,9 +157,9 @@ export function scrubToolSchemas(rawLog: string): string {
  * Replace all bulky request-header content in a session JSONL with stable
  * tokens. This includes the system-prompt fields handled by
  * {@link scrubSystemPrompts}, tool schemas, and session-prefix messages. It
- * keeps system-delta line positions and arity, tool-delta names, prefix
- * message counts, field presence, config, and reason. Lines without content
- * to scrub pass through byte-for-byte, and the transform is idempotent.
+ * keeps prefix message counts, field presence, config, and reason. Lines
+ * without content to scrub pass through byte-for-byte, and the transform is
+ * idempotent.
  *
  * @param rawLog The raw session `.jsonl` content.
  * @returns The JSONL with all header bulk tokenized, other lines byte-identical.
@@ -195,33 +195,7 @@ function scrubHeaderContent(rawLog: string, options: HeaderScrubOptions): string
       }
       return touched ? JSON.stringify(record) : line
     }
-    if (record.type === 'request/header-delta') {
-      let touched = false
-      const system = data.system as Record<string, unknown> | null | undefined
-      if (options.system === true && system !== null && typeof system === 'object' && Array.isArray(system.insert)) {
-        system.insert = system.insert.map(() => SYSTEM)
-        touched = true
-      }
-      const tools = data.tools as Record<string, unknown> | null | undefined
-      if (options.tools === true && tools !== null && typeof tools === 'object') {
-        if (Array.isArray(tools.added)) { tools.added = tools.added.map(scrubToolSchema); touched = true }
-        if (Array.isArray(tools.changed)) { tools.changed = tools.changed.map(scrubToolSchema); touched = true }
-      }
-      if (options.prefix === true && Array.isArray(data.messagePrefix)) {
-        data.messagePrefix = data.messagePrefix.map(() => MESSAGE_PREFIX)
-        touched = true
-      }
-      return touched ? JSON.stringify(record) : line
-    }
     return line
   })
   return out.join('\n')
-}
-
-/** Tokenize one tool schema's bulk (description, parameters, anything else), keeping its identifying `name`. */
-function scrubToolSchema(tool: unknown): unknown {
-  if (tool === null || typeof tool !== 'object' || Array.isArray(tool)) return tool
-  const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(tool)) out[k] = k === 'name' ? v : TOOLS
-  return out
 }
