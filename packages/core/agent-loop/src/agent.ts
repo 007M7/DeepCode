@@ -8,7 +8,7 @@
 
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { AgentId, AgentOptions, AgentStatus, InjectOptions, SendOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentId, AgentOptions, AgentStatus, HookContext, InjectOptions, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -149,6 +149,10 @@ export class ReactLoopAgent implements Agent {
    * this set before the lifecycle unregisters the agent or detaches its session.
    */
   private pendingIdleFlushes = new Set<Promise<void>>()
+  /** Whether the current step is executing an assistant tool-call batch. */
+  private toolBatchActive = false
+  /** Open-turn injections waiting for the active assistant tool-call batch to close. */
+  private deferredInjections: HookContext[] = []
 
   constructor(
     private loopCtx: Context,
@@ -189,16 +193,24 @@ export class ReactLoopAgent implements Agent {
   }
 
   /**
-   * Accept one public send/steer payload as the exact detached record shared by
-   * the live notification and inbox. Lossless-JSON materialization reads every
-   * nested field once; deep freeze prevents an observer from rewriting queued
-   * work before the loop drains it.
+   * Accept one public message payload as a detached record. Lossless-JSON
+   * materialization reads every nested field once; deep freeze prevents later
+   * caller mutation before an inbox or deferred-injection queue drains it.
    */
-  private acceptInboxMessage(content: ContentBlock[], options?: SendOptions): InboxMessage {
+  private acceptMessage(content: ContentBlock[], options?: SendOptions): InboxMessage {
     const source = this.resolveSource(options)
     const accepted = snapshotJsonValue({ content, source })
     if (accepted === undefined) {
       throw new TypeError('agent message content and source must be losslessly JSON-serializable')
+    }
+    return deepFreeze(accepted)
+  }
+
+  /** Detach one context before it can outlive its caller in the active-batch FIFO. */
+  private acceptContext(context: HookContext): HookContext {
+    const accepted = snapshotJsonValue(context)
+    if (accepted === undefined) {
+      throw new TypeError('agent context must be losslessly JSON-serializable')
     }
     return deepFreeze(accepted)
   }
@@ -210,7 +222,7 @@ export class ReactLoopAgent implements Agent {
 
   send(content: ContentBlock[], options?: SendOptions): void {
     this.assertNotDisposed()
-    const accepted = this.acceptInboxMessage(content, options)
+    const accepted = this.acceptMessage(content, options)
     this.#inbox.enqueue(accepted)
     const info = { source: accepted.source, steering: false } as const
     agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
@@ -219,7 +231,7 @@ export class ReactLoopAgent implements Agent {
   steer(content: ContentBlock[], options?: SendOptions): void {
     this.assertNotDisposed()
     if (this._status !== 'running') { this.send(content, options); return }
-    const accepted = this.acceptInboxMessage(content, options)
+    const accepted = this.acceptMessage(content, options)
     this.#inbox.steer(accepted)
     const info = { source: accepted.source, steering: true } as const
     agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
@@ -235,10 +247,15 @@ export class ReactLoopAgent implements Agent {
       ...options?.meta !== undefined ? { meta: options.meta } : {},
     }
     if (isTurnOpen(this.session)) {
-      // A turn is open in the LOG (decided from the log, not agent status —
-      // status can be `running` with no turn open): the context/message is
-      // turn-enclosed by that turn, so append it directly.
-      this.session.append('context/message', context, { surfaceOp: 'append' })
+      const accepted = this.acceptContext(context)
+      // Provider protocols require every assistant tool-call batch to be
+      // followed only by its tool results. Historical interrupted batches do
+      // not own new context; only the currently executing batch may defer it.
+      if (this.toolBatchActive) {
+        this.deferredInjections.push(accepted)
+        return
+      }
+      this.session.append('context/message', accepted, { surfaceOp: 'append' })
       return
     }
     // No turn open: wrap the injection in a one-shot turn so every event stays
@@ -275,6 +292,34 @@ export class ReactLoopAgent implements Agent {
         const retire = (): void => { this.pendingIdleFlushes.delete(flush) }
         void flush.then(retire, retire)
       }
+    }
+  }
+
+  /** Append deferred open-turn injections after the loop closes a tool-result batch. */
+  private drainDeferredInjections(): void {
+    const pending = this.deferredInjections.splice(0)
+    for (const accepted of pending) {
+      this.session.append('context/message', accepted, { surfaceOp: 'append' })
+    }
+  }
+
+  /**
+   * Run one tool-call batch and drain its deferred context before settlement.
+   * The loop-owned acceptor remains valid after public disposal begins because
+   * the interrupted turn stays open until this batch settles.
+   */
+  private async withToolBatch<T>(
+    run: (acceptContext: (context: HookContext) => void) => Promise<T>,
+  ): Promise<T> {
+    this.toolBatchActive = true
+    const acceptContext = (context: HookContext): void => {
+      this.deferredInjections.push(this.acceptContext(context))
+    }
+    try {
+      return await run(acceptContext)
+    } finally {
+      this.toolBatchActive = false
+      this.drainDeferredInjections()
     }
   }
 
@@ -342,6 +387,7 @@ export class ReactLoopAgent implements Agent {
       isCancelled: () => this.cancelRequested,
       cancelReason: () => this.cancelReason,
       clearCancel: () => { this.cancelRequested = false },
+      withToolBatch: run => this.withToolBatch(run),
       // Pre-step cancellation re-parks without emitting a status transition.
       settleIdle: () => { this.settleIdleWaiters() },
     })
