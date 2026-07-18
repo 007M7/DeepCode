@@ -2,8 +2,8 @@
  * Minimal no-network ACP child process for keyless backend tests. Environment variables script its
  * text and stop reason, a cancel-cooperative or cancel-ignoring hang, permission requests, and a
  * readiness marker. Disposal fixtures can delay an EOF flush, ignore EOF but exit and mark
- * SIGTERM, or trap SIGTERM to require SIGKILL. The specs spawn this non-test module under tsx with
- * an explicit tsconfig, mirroring real example boot.
+ * SIGTERM, or trap SIGTERM to require SIGKILL. The specs run this protocol-only fixture directly
+ * with Node's type stripping; it imports no harness code or workspace paths.
  * @module @deepseek-ai/dsh-subagent-acp/tests/mock-acp-server
  */
 
