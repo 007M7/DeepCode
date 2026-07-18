@@ -45,7 +45,7 @@ Every product adapter sends application identity on provider HTTP requests. `att
 - `LlmAdapter` — abstract base class for provider adapters. The only required method is `stream()`.
 - `BlockAssembler` — incrementally assembles raw chunks into complete content blocks and an assistant message. The agent loop feeds it raw chunks (logging them for replay) while reading the assembled blocks/message for history.
 - `HarnessError` — base class for the harness error taxonomy: a stable `code` string (distinct from the human `message`) plus `cause` chaining. Lives here, in the leaf package every other imports, so a single base is shared without a new dependency edge. Per-package errors (`LlmError`, `ToolArgsError`, `InvariantError`, …) extend it. `isHarnessError(value)` narrows at seams.
-- `LlmError` — extends `HarnessError`; `code` string (`NO_ADAPTER`, `DUPLICATE_ADAPTER`, and adapter codes like `AUTH`/`RATE_LIMIT`) plus an optional numeric `status` when the failure came from a non-2xx provider response.
+- `LlmError` — extends `HarnessError`; its stable `code` string (`NO_ADAPTER`, `DUPLICATE_ADAPTER`, and adapter codes like `AUTH`/`RATE_LIMIT`) is the programmatic failure contract.
 
 ### Real adapters
 
