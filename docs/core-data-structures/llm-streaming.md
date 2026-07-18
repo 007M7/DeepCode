@@ -16,7 +16,12 @@ type StreamChunk =
   | { type: 'tool-call-delta'; index: number; id: CallId; name?: string; argumentsDelta: string }
   | { type: 'block-end'; index: number; block: ContentBlock }
   | { type: 'usage'; usage: TokenUsage }
-  | { type: 'finish'; reason: FinishReason }
+  | {
+    type: 'finish'
+    reason: FinishReason
+    /** Adapter-private lossless-JSON state for replaying a successful response. */
+    replayState?: unknown
+  }
 ```
 
 ## The adapter contract
@@ -27,8 +32,9 @@ Every adapter MUST obey these, and every consumer may rely on them:
 - **Tool-call `arguments` stay raw JSON strings end-to-end.** Partial fragments stream via `argumentsDelta`; a provider that hands back parsed objects re-stringifies at `block-end`.
 - **Two sanctioned error paths.** A failure may either THROW from `stream()` (transport/protocol errors) **or** end the stream with `finish {kind:'error'|'aborted'}` (provider in-band errors, for adapters that can't throw mid-stream). Consumers must handle *both*. The agent loop translates a finish-error/aborted into a turn error — it never logs a normal completed assistant message for a failed step.
 - **Every provider HTTP request carries the app-attribution header.** Adapters send `attributionHeaders()` (below) - the `User-Agent` baseline - and prove it with a wire-level test (mock server asserting the received header, or the library's header hook for a library-backed adapter).
+- **Replay state is adapter-owned.** A successful `finish` may carry lossless-JSON state needed to reconstruct a native provider response. The loop stores it with the assembled assistant message unless an `agent/step-result` listener rewrote the content. On a later request, `LlmService` passes the state only when the historical provider and target provider are currently registered to the exact same adapter instance. That adapter validates the state and owns any cross-model or cross-provider conversion; other adapters receive the provider-neutral content and provenance without the private state.
 
-This contract is why two adapters exist as a deliberate pair: `dsh-llm-deepseek` (hand-rolled fetch/SSE) and `dsh-llm-pi-ai` (the same endpoint through `@earendil-works/pi-ai`). Two independent internals over one contract is what pinned the protocol down — the library-backed adapter can't throw mid-stream, so it exercises the finish-chunk error path the hand-rolled one might not.
+This contract was pinned down by two deliberately independent implementations: `dsh-llm-deepseek` (hand-rolled fetch/SSE) and `dsh-llm-pi-ai` (a generic multi-provider adapter through `@earendil-works/pi-ai`). The library-backed adapter cannot throw mid-stream, so it exercises the finish-chunk error path the hand-rolled one might not.
 
 ## `AppIdentity` — app attribution
 
@@ -58,11 +64,11 @@ interface TokenUsage {
 
 ## `BlockAssembler`
 
-`BlockAssembler` ([`packages/llm/llm/src/assembler.ts`](../../packages/llm/llm/src/assembler.ts)) is the single shared implementation that folds a `StreamChunk` stream back into `ContentBlock`s and a final `Message`. The loop logs the raw chunks (for replay fidelity) while feeding the same chunks through an assembler — so the canonical log keeps token-level detail and the derived message is rebuilt deterministically. A consumer that needs the assembled result without re-implementing the fold uses this.
+`BlockAssembler` ([`packages/llm/llm/src/assembler.ts`](../../packages/llm/llm/src/assembler.ts)) is the single shared implementation that folds a `StreamChunk` stream back into `ContentBlock`s, usage, finish reason, and replay state. The loop logs the raw chunks while feeding the same chunks through an assembler, then stores the assembled assistant content with its provider/model provenance. A consumer that needs the assembled result without re-implementing the fold uses this.
 
 ## The seam
 
-`LlmAdapter` is the provider seam: subclass, implement `stream()`, register with `ctx.llm.registerAdapter(models, adapter)`. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()`) and the `llm/stream` waterfall are described in [architecture.md § Content blocks and streaming](../architecture.md#content-blocks-and-streaming-dsh-llm).
+`LlmAdapter` is the provider seam: subclass, implement `stream()`, and register one adapter instance with `ctx.llm.registerAdapter(providers, adapter)`. `GenerateOptions.provider` selects the registered adapter; `GenerateOptions.model` is passed to that adapter and need not be registered at lifecycle start. Duplicate provider routes fail atomically. Optional `providerInfo()` and asynchronous `listModels()` methods feed `LlmService.listProviders()` / `listModels()` with detached selector metadata. That catalog is advisory rather than a request whitelist: the adapter remains authoritative and may accept unlisted model ids. Adapter lookup happens at the terminal continuation of the `llm/stream` waterfall, so a listener may short-circuit the call or route a mutable one-shot request before lookup. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()`) and the `llm/stream` waterfall are described in [architecture.md § Content blocks and streaming](../architecture.md#content-blocks-and-streaming-dsh-llm).
 
 `ContentBlockType` (the key set the `index`-correlated blocks carry) derives from `ContentBlockMap`:
 

@@ -32,8 +32,8 @@ The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loo
 ```ts
 interface Config {
   agents: Array<{
-    id: string                 // required stable label; prefixes fresh combined ids
-    sessionId?: string         // optional exact resume-or-create identity
+    id: string                 // required
+    provider?: string
     model?: string
     resumeSessionId?: string   // load this persisted session instead of creating one
     cwd?: string               // optional workspace cwd for the fresh session
@@ -41,7 +41,7 @@ interface Config {
 }
 ```
 
-Agents listed in config are auto-created at startup. `cwd` seeds a fresh config-created session; a materialized exact `sessionId` remount and an explicit `resumeSessionId` keep the persisted session header. An overlapping remount waits for an already-disposed same-id agent to finish detaching both registries before it inspects persistence, so asynchronous teardown cannot strand the configured identity. While the factory is active, a declarative lookup, resume, setup, or publication failure is contained, logged, and emitted as `agent-loop/config-start-failed(sessionId, error)` because no live `Agent` exists for an `agent/*` signal; cancellation caused by factory teardown is silent. Config agents have no per-agent persona field: they use `dsh-system-prompt`'s deployment default, while programmatic factory callers can register an agent-scoped `deployment:persona` shadow in `setup`. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from `assembleContextFor(agent)` — the helper couples the typed agent with its matching scope selector. These are runtime facts of the agents THIS loop drives, unlike the `harness:identity` and default `deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
+Configured agents start automatically. A model call requires both `provider` and `model`; `agent/request` may supply a missing pair before dispatch. `cwd` applies only to fresh sessions, while `resumeSessionId` retains persisted metadata. Configured agents use the deployment persona, and programmatic setup can shadow it per agent. This plugin supplies the per-agent `provider`, `model`, and `cwd` prompt variables; harness identity and deployment persona belong to `dsh-system-prompt`.
 
 ### Exported concrete class
 
@@ -53,51 +53,9 @@ Agents listed in config are auto-created at startup. `cwd` seeds a fresh config-
 
 The internal loop driver runs one agent for its whole lifetime:
 
-```
-create agent → emit agent/session-start(source)   ⟵ once, before turn 1
-forever:
-  wait for queued messages (idle)
-  TURN (error-contained):
-    'turn/start'
-    each queued: waterfall agent/prompt-submit → allow (→ session('user/message'),
-      inject additionalContext) | block (→ session('prompt/blocked'), drop)
-    if every prompt blocked: 'turn/end'(rejected), no step  ⟵ zero-step turn
-    STEP loop:
-      drain steering
-      assembly = await systemPrompt.assemble(assembleContextFor(agent))
-                                                ⟵ renderPrompt(assembly) IS the full prompt
-      prefix ??= waterfall agent/session-prefix   ⟵ once per instance (first step): frozen
-                                                session prefix; on the header, never history
-      await serial agent/pre-step(…, prefix)  ⟵ surface mutation (compaction) outside the step;
-                                                pressure gates see the prefix the request carries
-      boundary = session.deriveMessages()   ⟵ reconstruction boundary: same sync frame,
-      session('step/start')                     strictly before step/start
-      config = waterfall agent/request       ⟵ frozen seed; return a replacement to switch
-      session('request/header'[-delta])      ⟵ the header event this request owes the log
-      stream llm.stream(freeze({header..., messages: prefix+boundary})) → session('assistant/chunk')
-      message = waterfall agent/step-result
-      session('assistant/message')
-      each tool-call: session('tool/call')
-        → tools.execute() [pre waterfall → monotonic guards → around dispatch → post waterfall → final notification]
-        → session('tool/result')
-      append buffered post-execute additionalContext as session('context/message')(s)
-      drain steering → session('steering/message')
-      cont = waterfall agent/turn-continuation → ContinuationDecision
-        ({action:'continue', reason?} records reason as next-step steering)
-      pending steering can override an ordinary stop
-      terminal = serial agent/turn-stop → ContinuationStop | undefined
-        (after ordinary decision/reason/steering folding)
-      if terminal stop, or ordinary action==stop with no pending steering: break
-    session('turn/end')
-    await session/flush
-    terminal turn: discard steering added before/during close and flush; keep ordinary queued sends
-    ordinary turn: re-enqueue leftover steering as queued
-  idle unless more queued
-```
+Every provider call that reaches a successful finish appends exactly one `assistant/message` completion anchor, including content-less calls and `max-tokens` finishes. A successful `agent/step-result` stores its transformed content; a rejected result records empty content before the original failure continues. The anchor retains exact chunk provenance (`[]` for a stream with no chunks) and usage when available, while empty content stays out of derived message history.
 
-Error containment: a throwing plugin ends the **turn**, never the loop. A throwing `agent/turn-stop` policy likewise fails the turn closed. A successful terminal stop stays authoritative through `turn/end` and `session/flush`, preventing their listeners from resurrecting steering through the late fallback. Dispose mid-turn emits `agent/status('disposed')` and ends with reason `disposed`. A step that hits the model's output-token ceiling makes the turn end `max-tokens` (the rule: any `max-tokens` step in the turn surfaces as `max-tokens`; `disposed`/`aborted`/`error` still take precedence) — distinct from a clean `completed` stop.
-
-Cancellation: `agent.cancel()` is the single public stop primitive — it clears the queued + steering FIFOs, aborts the in-flight step, and drives a turn-scoped marker the driver checks at every point a turn could start or continue (right after the idle wait, after the `running` flip, before each step, and at the continuation gate) so a turn about to start is dropped. A cancelled turn ends `aborted`; a queued-but-not-started prompt never runs and cannot be batched into the cancelled turn. The marker is reset once per loop iteration, so a cancel governs exactly one turn and never leaks onto a later prompt. (The loop still aborts its own per-step `AbortController` directly on disposal and from `cancel()`; that controller is loop-internal, not a public verb.)
+Plugin failure ends the current turn, not the loop. Cancellation clears pending work and aborts the current step without leaking to the next prompt. Terminal continuation stops remain authoritative through turn close and durability flush.
 
 ### What belongs to plugins
 

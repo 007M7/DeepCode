@@ -223,6 +223,14 @@ describe('dsh-workflow-workerthread', () => {
       expect(provider.runs[0]!.request.parent).toBeDefined()
     })
 
+    it('agent({provider}) forwards provider-only agentOptions across the thread', async () => {
+      const { ctx, parent, provider } = await setup()
+      const result = await run(ctx, parent, scripted("return await agent('route me', { provider: 'openai' })"))
+
+      expect(result.value).toBe('stub reply')
+      expect(provider.runs[0]!.request.agentOptions).toEqual({ provider: 'openai' })
+    })
+
     it('a fatal hook error inside the worker kills the script and reports the error', async () => {
       const { ctx, parent } = await setup()
       const result = await run(ctx, parent, scripted("return await parallel([() => agent('x', { isolation: 'worktree' })])"))

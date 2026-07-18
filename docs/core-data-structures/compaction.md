@@ -11,7 +11,7 @@ Compaction extends [`SessionEventMap`](session.md) with three event types via de
 | Event | Payload | Role |
 |---|---|---|
 | `compact/start` | `{ turn }` | acquires the log-recorded lock |
-| `compact/summary` | `{ summary, shadowedRange, shadowedSeqs, shadowedTokenCount, model, maxTokens? }` | provenance: the summary blocks, the shadowed surface-boundary pair (`start`/`end` seqs — a position span, not a numeric interval), the shadowed seqs in surface order, the estimated token count, and the summarize call's envelope (`model`, plus its generation cap when one applied) — logged so the one-shot request is reconstructable from log + code (the reconstructability RFC) |
+| `compact/summary` | `{ summary, shadowedRange, shadowedSeqs, shadowedTokenCount, provider, model, maxTokens? }` | provenance: the summary blocks, the shadowed surface-boundary pair (`start`/`end` seqs — a position span, not a numeric interval), the shadowed seqs in surface order, the estimated token count, and the summarize call's envelope (`provider`, `model`, plus its generation cap when one applied) — logged so the one-shot request is reconstructable from log + code (the reconstructability RFC) |
 | `compact/end` | `{ turn, error? }` | releases the lock (`error` set when summarization threw) |
 
 The lock brackets the **whole** operation: `compact/start` is appended first, then summarization, the `compact/summary` provenance record, and the `user/message` replacement all land, and only then `compact/end`. Releasing the lock last turns a crash mid-operation into a detectable orphaned lock (a `compact/start` with no matching `compact/end`) rather than a `compact/end` that falsely claims compaction finished.
@@ -50,6 +50,8 @@ interface CompactionResult {
 
 ## The service
 
-`CompactService` exposes `compactIfNeeded(...)` for pressure-triggered compaction, returning `null` when no compaction is needed, and `compactRegion(...)` for an explicit inclusive surface range. The pre-step caller supplies the agent, full prompt, session prefix, and abort signal; implementations must forward that signal to summarization. Estimation, retention, event sequencing, and summarization remain backend policy.
+`CompactService` exposes `compactIfNeeded(...)` for pressure-triggered compaction, returning `null` when no compaction is needed, and `compactRegion(...)` for an explicit inclusive surface range. The pre-step caller supplies the agent, full prompt, session prefix, and abort signal; implementations must forward that signal to summarization. The seam owns no pricing API: [`ctx.tokenMeter`](token-meter.md) directly owns estimation and replay, while `dsh-compact-basic` owns retention, event sequencing, routed summarization calls, and their configuration.
 
 Auto-compaction runs at serial `agent/pre-step`, before the step and request derivation, so it can replace surface nodes while keeping trace events outside the step. Region boundaries preserve tool-call/result pairing but do not preserve whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compact-basic` owns the retention and failure details.
+
+The seam exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for those edge checks. Both validate current surface membership and reject missing seqs and orphan results; the [package contract](../../packages/compact/compact/README.md#tool-pairing-boundaries) owns their cache semantics.

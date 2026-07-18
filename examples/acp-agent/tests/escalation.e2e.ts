@@ -103,7 +103,7 @@ describe('default sandbox composition keyless smoke (real cordis.yml via the Loa
     expect(sessionId.length).toBeGreaterThan(0)
   }, 30_000)
 
-  it('advertises the Permissions select and honors a switch end to end (no key, no model)', async () => {
+  it('advertises model and Permissions selects and honors a permission switch without a model call', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-config-'))
     spawned = launchExampleAcpAgent(workdir, 'reject-once')
     const { client } = spawned
@@ -112,8 +112,9 @@ describe('default sandbox composition keyless smoke (real cordis.yml via the Loa
     // ONE select advertises, current from the configured default preset.
     const created = await client.newSession({ cwd: workdir, mcpServers: [] })
     const advertised = created.configOptions ?? []
+    const modelValue = JSON.stringify(['deepseek', 'deepseek-v4-flash'])
     expect(advertised.map(option => [option.id, 'currentValue' in option ? option.currentValue : undefined]))
-      .toEqual([['permission', 'workspace-write']])
+      .toEqual([['model', modelValue], ['permission', 'workspace-write']])
     // A switch responds with the COMPLETE refreshed state (the spec contract),
     // and the new current survives in the response of a second switch.
     const afterFullAccess = await client.setSessionConfigOption({
@@ -125,7 +126,7 @@ describe('default sandbox composition keyless smoke (real cordis.yml via the Loa
       sessionId: created.sessionId, configId: 'permission', value: 'danger-full-access',
     })
     expect((again.configOptions ?? []).map(option => [option.id, 'currentValue' in option ? option.currentValue : undefined]))
-      .toEqual([['permission', 'danger-full-access']])
+      .toEqual([['model', modelValue], ['permission', 'danger-full-access']])
     // An out-of-vocabulary value is a protocol error, never a silent default.
     await expect(client.setSessionConfigOption({
       sessionId: created.sessionId, configId: 'permission', value: 'plan',

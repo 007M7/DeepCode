@@ -1,13 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -19,11 +14,7 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
  */
 async function harness(adapter: MockAdapter): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(ToolTodo)
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -65,7 +56,7 @@ describe('todo_write tool through the agent loop', () => {
       textResponse('Plan recorded.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('it-todo'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-todo'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'plan a two-step task' }])
     await waitForIdle(ctx, agent)
@@ -93,7 +84,7 @@ describe('todo_write tool through the agent loop', () => {
       textResponse('Done planning.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('it-todo-2'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-todo-2'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'plan then update' }])
     await waitForIdle(ctx, agent)

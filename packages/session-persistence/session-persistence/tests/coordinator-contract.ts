@@ -9,7 +9,7 @@
  * @module @deepseek-ai/dsh-session-persistence/tests/coordinator-contract
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from 'cordis'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -401,7 +401,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
-    it('does NOT reclaim an id whose abandoned owner still has buffered (unflushed) events', async () => {
+    it('session disposal drains buffered events before retiring ownership', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
@@ -413,13 +413,20 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         // Append a turn but do NOT flush — events sit in the write-behind buffer.
         first.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         first.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-        await firstFiber.dispose() // disposed before flush; not materialized, buffer pending
+        await firstFiber.dispose()
+
+        // Disposal is an observe-only notification. Poll storage rather than
+        // assuming the owning fiber awaits the coordinator's detached drain.
+        await vi.waitFor(async () => {
+          expect((await ctx.sessionPersistence.list()).map(meta => meta.id)).toContain(SessionId('buffered'))
+        })
+        expect((await ctx.sessionPersistence.load(SessionId('buffered'))).events.map(event => event.seq)).toEqual([0, 1])
 
         let reuse!: Session
         await ctx.plugin(Object.assign((inner: Context) => {
           reuse = inner.sessions.create(SessionId('buffered'), { meta: { cwd: WORK } })
         }, { inject: ['sessions'] }))
-        await expect(ctx.sessions.flush(reuse)).rejects.toThrow(/already bound to a different live session/)
+        await expect(ctx.sessions.flush(reuse)).rejects.toThrow(/persisted log|id collision/)
       } finally {
         await fiber.dispose()
         await fix.cleanup()
