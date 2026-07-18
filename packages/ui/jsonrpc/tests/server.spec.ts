@@ -70,7 +70,7 @@ async function makeHarness(storageDir: string) {
 async function settleSubagent(
   ctx: Context,
   parent: Agent,
-  info: SubagentRunEndInfo,
+  info: Omit<SubagentRunEndInfo, 'runId' | 'local'> & { localAgent: Agent | undefined },
   beforeSettle?: () => Promise<void>,
 ): Promise<void> {
   const result = Promise.withResolvers<SubagentResult>()
@@ -81,6 +81,7 @@ async function settleSubagent(
     async start() {
       return {
         id: info.id,
+        localAgent: info.localAgent,
         result: result.promise,
         dispose: () => Promise.resolve(),
       }
@@ -294,12 +295,14 @@ describe('HarnessSdkServer', () => {
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'spawn',
         id: SessionId('child-session'),
+        localAgent: handle.agent,
         stopReason: 'completed',
         lastAssistantMessage: [{ type: 'text', text: 'child done' }],
       }, () => handle.dispose())
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'spawn',
         id: SessionId('parentless-child-session'),
+        localAgent: parentlessHandle.agent,
         stopReason: 'error',
       }, () => parentlessHandle.dispose())
 
@@ -335,7 +338,7 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('ignores a remote run id that collides with an unrelated local agent', async () => {
+  it('ignores a remote run id that collides with a local child of the same parent', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-remote-collision-'))
     const ctx = await makeHarness(storageDir)
     try {
@@ -346,24 +349,26 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
       })
-      const unrelatedHandle = await ctx.agents.create({
+      const collidingChild = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('remote-run-id'),
-        meta: { cwd: storageDir },
+        meta: { cwd: storageDir, parentSession: SessionId('collision-parent') },
         agentOptions: { model: 'deepseek' },
       })
 
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'remote',
         id: SessionId('remote-run-id'),
+        localAgent: undefined,
         stopReason: 'completed',
         lastAssistantMessage: [],
-      }, () => unrelatedHandle.dispose())
+      })
 
       expect(transport.notifications.some(notification =>
         notification.method === 'subagent.finished'
         && notification.params?.agentId === 'remote-run-id',
       )).toBe(false)
 
+      await collidingChild.dispose()
       await parentHandle.dispose()
       await server.shutdown()
     } finally {
@@ -392,12 +397,14 @@ describe('HarnessSdkServer', () => {
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'continuation',
         id: SessionId('continuation-child'),
+        localAgent: childHandle.agent,
         stopReason: 'completed',
         lastAssistantMessage: [{ type: 'text', text: 'first' }],
       })
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'continuation',
         id: SessionId('continuation-child'),
+        localAgent: childHandle.agent,
         stopReason: 'completed',
         lastAssistantMessage: [{ type: 'text', text: 'second' }],
       }, () => childHandle.dispose())
@@ -436,6 +443,7 @@ describe('HarnessSdkServer', () => {
       const replacement = Promise.withResolvers<SubagentResult>()
       const results = [first.promise, sameLifetime.promise, replacement.promise]
       let starts = 0
+      let currentLocalAgent = oldChild.agent
       const disposeProvider = ctx.subagents.registerProvider({
         name: 'reused',
         capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
@@ -444,7 +452,7 @@ describe('HarnessSdkServer', () => {
           const result = results[starts]
           starts += 1
           if (result === undefined) throw new Error('unexpected fourth reused-id run')
-          return Promise.resolve({ id: SessionId('reused-child'), result, dispose: () => Promise.resolve() })
+          return Promise.resolve({ id: SessionId('reused-child'), localAgent: currentLocalAgent, result, dispose: () => Promise.resolve() })
         },
       })
 
@@ -471,6 +479,7 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir, parentSession: SessionId('new-parent') },
         agentOptions: { model: 'deepseek' },
       })
+      currentLocalAgent = newChild.agent
       const secondRun = await ctx.subagents.start('reused', {
         parent: newParent.agent,
         prompt: [],
@@ -512,7 +521,99 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('falls back to live lineage and ignores runs without a local child session', async () => {
+  it('keeps locality bound to the accepted run across provider re-registration', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-provider-reuse-'))
+    const ctx = await makeHarness(storageDir)
+    try {
+      const transport = new FakeTransport()
+      const server = new HarnessSdkServer(ctx, transport)
+      const parent = await ctx.agents.create({
+        sessionId: SessionId('provider-reuse-parent'),
+        meta: { cwd: storageDir },
+        agentOptions: { model: 'deepseek' },
+      })
+      const child = await parent.agent.ctx.agents.create({
+        sessionId: SessionId('provider-reuse-child'),
+        meta: { cwd: storageDir, parentSession: SessionId('provider-reuse-parent') },
+        agentOptions: { model: 'deepseek' },
+      })
+      const localResult = Promise.withResolvers<SubagentResult>()
+      const remoteResult = Promise.withResolvers<SubagentResult>()
+      const unregisterLocal = ctx.subagents.registerProvider({
+        name: 'reused-provider',
+        capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+        inheritsParentContext: false,
+        start: () => Promise.resolve({
+          id: SessionId('provider-reuse-child'),
+          localAgent: child.agent,
+          result: localResult.promise,
+          dispose: () => Promise.resolve(),
+        }),
+      })
+      const localRun = await ctx.subagents.start('reused-provider', {
+        parent: parent.agent,
+        prompt: [],
+        signal: new AbortController().signal,
+      })
+      unregisterLocal()
+
+      const unregisterRemote = ctx.subagents.registerProvider({
+        name: 'reused-provider',
+        capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+        inheritsParentContext: false,
+        start: () => Promise.resolve({
+          id: SessionId('provider-reuse-child'),
+          localAgent: undefined,
+          result: remoteResult.promise,
+          dispose: () => Promise.resolve(),
+        }),
+      })
+      const remoteRun = await ctx.subagents.start('reused-provider', {
+        parent: parent.agent,
+        prompt: [],
+        signal: new AbortController().signal,
+      })
+
+      remoteResult.resolve({ output: [{ type: 'text', text: 'remote' }], stopReason: 'completed' })
+      await remoteRun.result
+      await Promise.resolve()
+      expect(transport.notifications.some(notification =>
+        notification.method === 'subagent.finished'
+        && notification.params?.lastAssistantMessage !== undefined,
+      )).toBe(false)
+
+      await child.dispose()
+      localResult.resolve({ output: [{ type: 'text', text: 'local' }], stopReason: 'completed' })
+      await localRun.result
+      await Promise.resolve()
+      expect(transport.notifications.filter(notification =>
+        notification.method === 'subagent.finished'
+        && notification.params?.childSessionId === 'provider-reuse-child',
+      )).toEqual([{
+        method: 'subagent.finished',
+        params: {
+          provider: 'reused-provider',
+          agentId: 'provider-reuse-child',
+          parentSessionId: 'provider-reuse-parent',
+          childSessionId: 'provider-reuse-child',
+          status: 'ok',
+          stopReason: 'completed',
+          lastAssistantMessage: [{ type: 'text', text: 'local' }],
+        },
+      }])
+
+      await localRun.dispose()
+      await remoteRun.dispose()
+      unregisterRemote()
+      await parent.dispose()
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('uses explicit local provenance when start was missed and ignores remote runs', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-fallback-'))
     const ctx = await makeHarness(storageDir)
     let parentHandle: AgentHandle | undefined
@@ -529,6 +630,7 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir, parentSession: SessionId('fallback-parent') },
         agentOptions: { provider: 'deepseek', model: 'deepseek' },
       })
+      const fallbackChild = handle.agent
       failedHandle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('failed-child-session'),
         meta: { cwd: storageDir },
@@ -541,12 +643,13 @@ describe('HarnessSdkServer', () => {
         inheritsParentContext: true,
         start: () => Promise.resolve({
           id: SessionId('fallback-child-session'),
+          localAgent: fallbackChild,
           result: missedStartResult.promise,
           dispose: () => Promise.resolve(),
         }),
       })
-      // Start before the server subscribes, so the terminal fallback must use
-      // the still-live registry entry rather than a cached start record.
+      // Start before the server subscribes. The terminal payload still carries
+      // this run's exact local child without reconstructing it from ids.
       const missedStartRun = await ctx.subagents.start('fork', {
         parent: parentHandle.agent,
         prompt: [],
@@ -560,22 +663,25 @@ describe('HarnessSdkServer', () => {
       await Promise.resolve()
       await missedStartRun.dispose()
       disposeMissedStartProvider()
-      // The server also missed this agent's creation, but observes the start;
-      // recover its lineage from the still-live registry entry.
+      // The server also missed this agent's creation but sees the exact child
+      // on the run lifecycle payload.
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'fork-live-fallback',
         id: SessionId('fallback-child-session'),
+        localAgent: fallbackChild,
         stopReason: 'completed',
         lastAssistantMessage: [],
       })
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'fork',
         id: SessionId('failed-child-session'),
+        localAgent: failedHandle.agent,
         stopReason: 'error',
       })
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'fork',
         id: SessionId('missing-child-agent'),
+        localAgent: undefined,
         stopReason: 'error',
       })
 
@@ -800,6 +906,6 @@ describe('HarnessSdkServer', () => {
     const server = new HarnessSdkServer(ctx, new FakeTransport())
 
     await expect(server.shutdown()).rejects.toBe(listenerFailure)
-    expect(on).toHaveBeenCalledTimes(4)
+    expect(on).toHaveBeenCalledTimes(3)
   })
 })

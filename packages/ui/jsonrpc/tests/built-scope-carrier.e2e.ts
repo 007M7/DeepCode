@@ -43,7 +43,7 @@ const [
 const storageRoot = await mkdtemp(join(tmpdir(), "jsonrpc-built-scope-"));
 const ctx = new Context();
 try {
-  await ctx.plugin(agentCore);
+  await ctx.plugin(agentCore, { workspaceContext: false });
   await ctx.plugin(SubagentService);
   await ctx.plugin(SessionPersistenceJsonl, { root: storageRoot });
   await new Promise((ready) => setTimeout(ready, 50));
@@ -71,6 +71,7 @@ try {
     start() {
       return Promise.resolve({
         id: child.agent.id,
+        localAgent: child.agent,
         result: result.promise,
         dispose() { return Promise.resolve(); },
       });

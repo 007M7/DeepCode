@@ -1,6 +1,6 @@
 /**
- * Shared launcher for ACP tests that drive an unbuilt agent subprocess over
- * JSON-RPC stdio. It owns the tsx loader, workspace-resolution environment,
+ * Shared launcher for ACP tests that drive an agent subprocess over JSON-RPC
+ * stdio. It owns source-or-built launch resolution, workspace environment,
  * stdout tee, SDK client, update collection, permission fallback, and process
  * shutdown so e2e and snapshot suites do not each reconstruct that boundary.
  *
@@ -9,7 +9,6 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { Readable, Writable } from 'node:stream'
 import {
   ClientSideConnection,
@@ -20,15 +19,14 @@ import {
   type RequestPermissionResponse,
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
+import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
-// The child runs from a temp directory outside the repo, where a bare
-// `--import tsx` cannot resolve. Resolve this package's loader once instead.
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
-
-/** The unbuilt agent entry, leaf config, and workspace tsconfig an ACP test boots. */
+/** The source/built agent entry, leaf config, and workspace tsconfig an ACP test boots. */
 export interface AgentUnderTest {
-  /** The agent bin entry (for example `packages/examples/acp-demo/src/bin.ts`). */
+  /** The agent source bin entry (for example `packages/examples/acp-demo/src/bin.ts`). */
   binScript: string
+  /** Explicit built-mode entry for fixtures whose source path is not under `src/`. */
+  libBinScript?: string | undefined
   /** The leaf `cordis.yml` loaded by the bin. */
   configPath: string
   /** The repo tsconfig whose paths resolve unbuilt workspace imports. */
@@ -77,18 +75,23 @@ export interface LaunchedAcpTestAgent {
  */
 export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTestAgent {
   const { agent, cwd } = options
+  const launch = resolveExampleLaunch({
+    srcBin: agent.binScript,
+    libBin: agent.libBinScript,
+    configArgs: ['--config', options.configPath ?? agent.configPath],
+    tsconfigPath: agent.tsconfigPath,
+    env: {
+      ...options.env,
+      DSH_HOME: join(cwd, '.dsh'),
+      DSH_AGENTS_HOME: join(cwd, '.agents'),
+    },
+  })
   const child = spawn(
-    process.execPath,
-    ['--import', tsxLoader, agent.binScript, '--config', options.configPath ?? agent.configPath],
+    launch.command,
+    launch.args,
     {
       cwd,
-      env: {
-        ...process.env,
-        ...options.env,
-        TSX_TSCONFIG_PATH: agent.tsconfigPath,
-        DSH_HOME: join(cwd, '.dsh'),
-        DSH_AGENTS_HOME: join(cwd, '.agents'),
-      },
+      env: { ...process.env, ...launch.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     },
   )

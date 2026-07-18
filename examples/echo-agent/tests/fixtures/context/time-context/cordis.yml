@@ -1,6 +1,6 @@
 # Test-only composition: keep time-context opt-in while exercising its real Loader/app path.
 - id: mock-llm
-  name: '../../../../../examples/echo-agent/src/mock-llm.ts'
+  name: '../../../../src/mock-llm.ts'
 
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'

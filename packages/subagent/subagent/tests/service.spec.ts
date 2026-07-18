@@ -48,6 +48,7 @@ class StubProvider implements SubagentProvider {
     this.startCount += 1
     return {
       id: SessionId(`child:${this.name}:${request.parent.id}`),
+      localAgent: undefined,
       result: Promise.resolve(this.outcome),
       async dispose() {},
     }
@@ -137,13 +138,14 @@ describe('SubagentService', () => {
     const parent = fakeParent('delegator')
     const events: string[] = []
     const keys: unknown[] = []
-    ctx.on('subagent/start', function () { events.push('start'); keys.push(carrierKeyOf(this)) })
-    ctx.on('subagent/end', function () { events.push('end'); keys.push(carrierKeyOf(this)) })
+    const runIds: string[] = []
+    ctx.on('subagent/start', function (info) { events.push('start'); keys.push(carrierKeyOf(this)); runIds.push(info.runId) })
+    ctx.on('subagent/end', function (info) { events.push('end'); keys.push(carrierKeyOf(this)); runIds.push(info.runId) })
 
     const starting = subagents.start('deferred', baseRequest({ parent }))
     await Promise.resolve()
     expect(events).toEqual([])
-    ready.resolve({ id: SessionId('child'), result: result.promise, async dispose() {} })
+    ready.resolve({ id: SessionId('child'), localAgent: undefined, result: result.promise, async dispose() {} })
     const run = await starting
     expect(events).toEqual(['start'])
     result.resolve({ output: [{ type: 'text', text: 'answer' }], stopReason: 'completed' })
@@ -151,6 +153,21 @@ describe('SubagentService', () => {
     await Promise.resolve()
     expect(events).toEqual(['start', 'end'])
     expect(keys).toEqual([parent, parent])
+    expect(runIds[0]).toBe(runIds[1])
+  })
+
+  it('mints distinct lifecycle identities when provider and child ids repeat', async () => {
+    const { ctx, subagents } = await service()
+    subagents.registerProvider(new StubProvider('reused'))
+    const runIds: string[] = []
+    ctx.on('subagent/start', info => void runIds.push(info.runId))
+
+    const first = await subagents.start('reused', baseRequest())
+    const second = await subagents.start('reused', baseRequest())
+    await Promise.all([first.result, second.result])
+
+    expect(runIds).toHaveLength(2)
+    expect(new Set(runIds).size).toBe(2)
   })
 
   it('emits no run lifecycle when provider startup rejects', async () => {
@@ -192,7 +209,7 @@ describe('SubagentService', () => {
       capabilities: NO_CAPS,
       inheritsParentContext: false,
       async start() {
-        return { id: SessionId('infra-child'), result: failure.promise, async dispose() {} }
+        return { id: SessionId('infra-child'), localAgent: undefined, result: failure.promise, async dispose() {} }
       },
     })
     const failedRun = await subagents.start('infra', baseRequest())
