@@ -9,6 +9,7 @@ import {
   ClackPromptPort,
   HeadlessPromptError,
   HeadlessPromptPort,
+  NodeCommandRunner,
   PromptCancelledError,
   type PackageManagerVersionProbe,
   type PromptPort,
@@ -45,6 +46,9 @@ export async function createProject(
   context: CreateCommandContext,
 ): Promise<ScaffoldResult | undefined> {
   const args = parseCreateArgs(argv)
+  // Under --json, stdout carries only NDJSON events: human-readable progress
+  // and package-manager child output move to stderr.
+  const progress = args.json === true ? context.stderr : context.stdout
   if (args.help) {
     context.stdout.write(CREATE_TEMPLATES.usage.render({}))
     return undefined
@@ -64,7 +68,7 @@ export async function createProject(
   })
   const resolved = await wizard.run()
   const result = await scaffoldProject(resolved.directory, resolved.request)
-  context.stdout.write(CREATE_TEMPLATES.created.render({
+  progress.write(CREATE_TEMPLATES.created.render({
     name: resolved.request.name,
     directory: resolved.directory,
   }))
@@ -72,8 +76,9 @@ export async function createProject(
     try {
       if (context.setup) await context.setup(resolved)
       else {
-        await resolved.request.packageManager.install(resolved.directory)
-        await resolved.request.packageManager.build(resolved.directory)
+        const runner = args.json === true ? new NodeCommandRunner(context.stderr) : new NodeCommandRunner()
+        await resolved.request.packageManager.install(resolved.directory, runner)
+        await resolved.request.packageManager.build(resolved.directory, runner)
       }
     } catch (error) {
       context.stderr.write(CREATE_TEMPLATES.setupFailure.render({
@@ -84,7 +89,7 @@ export async function createProject(
       throw error
     }
   }
-  context.stdout.write(CREATE_TEMPLATES.nextSteps.render({
+  progress.write(CREATE_TEMPLATES.nextSteps.render({
     directory: resolved.directory,
     setupRequired: !resolved.install,
     ...packageManagerTemplateModel(resolved.request.packageManager),

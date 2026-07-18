@@ -8,6 +8,7 @@ import {
   HeadlessPromptPort,
   LocalPluginBlueprint,
   featureId,
+  NodeCommandRunner,
   NpmPackageManager,
   type FeatureSelection,
   type NestedMultiSelectValue,
@@ -511,6 +512,12 @@ describe('create command composition', () => {
     const okSpec = JSON.stringify({ ...base, directory: 'done-agent', provider: 'deepseek', apiKey: 'key', features: [] })
     await expect(runCreateCommand(['--config-json', okSpec, '--json'], ok)).resolves.toBe(0)
     expect(ok.readStdout()).toContain('{"type":"done"}')
+    // stdout stays pure NDJSON: every line parses, human progress goes to stderr
+    for (const line of ok.readStdout().split('\n').filter(line => line.length > 0)) {
+      expect(() => { JSON.parse(line) }).not.toThrow()
+    }
+    expect(ok.readStderr()).toContain('Created done-agent')
+    expect(ok.readStderr()).toContain('Next: cd')
 
     const missing = commandContext(root)
     missing.stdin.isTTY = false
@@ -564,6 +571,17 @@ describe('create command composition', () => {
     await createProject(argv('agent', true), context)
     expect(install).toHaveBeenCalledOnce()
     expect(build).toHaveBeenCalledOnce()
+    const spec = JSON.stringify({
+      directory: 'json-agent', description: 'test', provider: 'deepseek', apiKey: 'key',
+      model: 'deepseek-v4-flash', interface: 'embed', pm: 'npm', install: true, features: [],
+    })
+    const json = commandContext(root)
+    json.stdin.isTTY = false
+    json.stdout.isTTY = false
+    await createProject(['--config-json', spec, '--json'], json)
+    // json mode hands install/build a runner that redirects child output to stderr
+    expect(install).toHaveBeenCalledTimes(2)
+    expect(install.mock.calls[1]?.[1]).toBeInstanceOf(NodeCommandRunner)
     install.mockRestore()
     build.mockRestore()
   })

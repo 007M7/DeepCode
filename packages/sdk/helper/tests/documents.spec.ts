@@ -1,6 +1,7 @@
 import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Writable } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CordisYamlFile, JsExpression } from '../src/documents/cordis-yaml-file.ts'
 import { EnvFile } from '../src/documents/env-file.ts'
@@ -325,6 +326,19 @@ describe('package manager strategies', () => {
     const runner = new NodeCommandRunner()
     await expect(runner.run(process.execPath, ['-e', ''], root)).resolves.toEqual({ exitCode: 0, signal: null })
     await expect(runner.run('missing-dsh-command', [], root)).rejects.toThrow()
+    let redirected = ''
+    const output = new Writable({
+      write(chunk, _encoding, callback) { redirected += String(chunk); callback() },
+    })
+    const redirecting = new NodeCommandRunner(output)
+    await expect(redirecting.run(
+      process.execPath,
+      ['-e', 'process.stdout.write("child-out"); process.stderr.write("child-err")'],
+      root,
+    )).resolves.toEqual({ exitCode: 0, signal: null })
+    expect(redirected).toContain('child-out')
+    expect(redirected).toContain('child-err')
+    await expect(redirecting.run('missing-dsh-command', [], root)).rejects.toThrow()
   })
 
   it('discovers and rewrites a repository-local NPM dependency closure', async () => {

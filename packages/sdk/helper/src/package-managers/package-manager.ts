@@ -58,17 +58,38 @@ export function scrubEnvironment(environment: NodeJS.ProcessEnv = process.env): 
 
 /** Node child-process command runner with inherited stdio and quiescent completion. */
 export class NodeCommandRunner implements CommandRunner {
-  /** Spawn one child and settle only after its exit. */
+  private readonly output: NodeJS.WritableStream | undefined
+
+  /**
+   * @param output - redirect target for child stdout+stderr; the child inherits
+   * this process's stdio when absent. Callers whose own stdout carries a machine
+   * protocol (create-sdk --json NDJSON) redirect child output to keep the
+   * protocol stream pure.
+   */
+  constructor(output?: NodeJS.WritableStream) {
+    this.output = output
+  }
+
+  /** Spawn one child and settle only after exit, with redirected stdio drained. */
   run(command: string, args: readonly string[], cwd: string): Promise<CommandResult> {
     return new Promise((resolve, reject) => {
+      const output = this.output
+      if (output === undefined) {
+        const child = spawn(command, [...args], { cwd, env: scrubEnvironment(), stdio: 'inherit', shell: false })
+        child.once('error', reject)
+        child.once('exit', (exitCode, signal) => { resolve({ exitCode, signal }) })
+        return
+      }
       const child = spawn(command, [...args], {
         cwd,
         env: scrubEnvironment(),
-        stdio: 'inherit',
+        stdio: ['inherit', 'pipe', 'pipe'],
         shell: false,
       })
+      child.stdout.pipe(output, { end: false })
+      child.stderr.pipe(output, { end: false })
       child.once('error', reject)
-      child.once('exit', (exitCode, signal) => { resolve({ exitCode, signal }) })
+      child.once('close', (exitCode, signal) => { resolve({ exitCode, signal }) })
     })
   }
 }
