@@ -1,0 +1,31 @@
+{
+  "name": "@deepseek-ai/dsh-desktop",
+  "description": "Electron desktop workbench plan and UI contracts for DeepSeek Harness development loops",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/main.mjs",
+  "types": "lib/types/index.d.ts",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite --host 127.0.0.1",
+    "start": "electron src/main.mjs",
+    "build:ui": "vite build",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "src"
+  ],
+  "license": "BSD-3-Clause"
+}
