@@ -633,40 +633,126 @@ body.layout-monitor .stream {
   background: color-mix(in oklab, var(--muted) 4%, transparent);
 }
 
-/* --- artifact card ------------------------------------------------------ */
+/* --- artifact card (density-spec §2 L0 row form, 2026-07-18) ------------ */
+/* Each artifact renders as a compact ~28px row (native <details>) with an
+ * L1 body that expands inline on click. Consecutive rows in the stream
+ * fuse into a visual group via `:has()` (see block below). No hero button:
+ * the L0 action is a tiny `open ↗` link; the ghost "Open in browser"
+ * button lives in the L1 body. */
 
 .artifact-card {
   align-self: flex-start; max-width: 780px; width: 100%;
-  background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px;
-  padding: 10px 12px;
-  display: flex; align-items: center; gap: 12px;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0;
+  /* <details> gets a UA margin (~12px in some Chromiums) that would
+   * fight the group's zero-gap layout. Zero it explicitly. */
+  margin: 0;
   transition: border-color 0.4s, background 0.4s;
 }
 .artifact-card.artifact-flash {
   border-color: var(--accent);
   background: color-mix(in oklab, var(--accent) 8%, var(--bg-elev));
 }
-.artifact-icon { font-size: 22px; line-height: 1; flex: 0 0 auto; }
-.artifact-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.artifact-name {
-  font-family: var(--mono); font-size: 12.5px; color: var(--text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.artifact-meta {
+
+.artifact-row {
   display: flex; align-items: center; gap: 8px;
-  font-size: 11px; color: var(--muted);
+  padding: 4px 12px; min-height: 28px;
+  cursor: pointer; list-style: none;
+  font-size: 12px; color: var(--text);
+}
+/* Hide the native <summary> marker; the row itself is the affordance. */
+.artifact-row::-webkit-details-marker { display: none; }
+.artifact-row::marker { content: ''; }
+.artifact-card:hover { background: var(--bg-elev-2); }
+
+.artifact-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; flex: 0 0 auto; color: var(--muted);
+}
+.artifact-icon svg { display: block; }
+.artifact-name {
+  font-family: var(--mono); font-size: 12px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 1 1 auto; min-width: 0;
 }
 .artifact-kind {
+  flex: 0 0 auto;
   text-transform: uppercase; letter-spacing: 0.05em;
-  padding: 1px 6px; border-radius: 3px;
+  font-size: 10px; padding: 1px 6px; border-radius: 3px;
   background: var(--bg-elev-2); color: var(--muted);
 }
-.artifact-version { color: var(--accent); font-family: var(--mono); }
+.artifact-version {
+  flex: 0 0 auto;
+  color: var(--accent); font-family: var(--mono); font-size: 11px;
+}
 .artifact-live-dot {
+  flex: 0 0 auto;
   width: 6px; height: 6px; border-radius: 50%; background: var(--ok);
   animation: pulse 1.4s ease-in-out infinite;
 }
-.artifact-open { flex: 0 0 auto; font-size: 12px; padding: 6px 12px; }
+.artifact-open-link {
+  flex: 0 0 auto;
+  font-size: 11px; color: var(--muted); text-decoration: none;
+  padding: 2px 4px; border-radius: 3px;
+}
+.artifact-open-link:hover { color: var(--accent); background: var(--accent-soft); }
+.artifact-open-link[aria-disabled="true"] { pointer-events: none; opacity: 0.6; }
+.artifact-open-link.is-busy { color: var(--accent); }
+
+/* L1 body — inline expansion below the row. */
+.artifact-body-l1 {
+  padding: 8px 12px 12px 34px; /* 34 = 12 + 14 icon + 8 gap */
+  display: flex; flex-direction: column; gap: 8px;
+  font-size: 11px; color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+.artifact-body-path { display: flex; align-items: baseline; gap: 8px; }
+.artifact-body-path-label {
+  text-transform: uppercase; letter-spacing: 0.05em; font-size: 10px;
+  color: var(--text-tertiary);
+}
+.artifact-body-path-val {
+  font-family: var(--mono); font-size: 11px; color: var(--text);
+  background: var(--bg-elev-2); padding: 1px 6px; border-radius: 3px;
+  overflow-wrap: anywhere;
+}
+.artifact-body-actions { display: flex; gap: 8px; }
+.artifact-open { font-size: 12px; padding: 4px 10px; }
+
+/* Auto-group: consecutive artifact cards get wrapped in an
+ * `.artifact-group` container by the renderer so the group owns its own
+ * zero-gap layout (the stream's 12px flex-gap would otherwise dominate).
+ * Cards inside a group share a single seam — the first keeps its top
+ * corners rounded, the last keeps bottom, middles are square. The
+ * cascade order here matters: reset all radii and top-border inside a
+ * group, then re-add radii to the true first-of-type / last-of-type. */
+.artifact-group {
+  align-self: flex-start; max-width: 780px; width: 100%;
+  display: flex; flex-direction: column; gap: 0;
+}
+.artifact-group > .artifact-card {
+  max-width: none; width: 100%;
+  border-radius: 0;
+  border-top: none;
+  /* Override the shared card-family `margin: var(--space-3) 0` rule
+   * (further down the sheet) so grouped cards actually sit flush. */
+  margin: 0;
+}
+.artifact-group > .artifact-card:first-child {
+  border-top: 1px solid var(--border);
+  border-top-left-radius: 8px; border-top-right-radius: 8px;
+}
+.artifact-group > .artifact-card:last-child {
+  border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;
+}
+/* Also fuse via `:has()` for the future where cards might sit as direct
+ * stream children (single-shot cases the wrapper doesn't touch). */
+.artifact-card + .artifact-card {
+  border-top-left-radius: 0; border-top-right-radius: 0;
+}
+.artifact-card:has(+ .artifact-card) {
+  border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+}
 
 /* --- tab nav (Chat / Plugins) ------------------------------------------- */
 
