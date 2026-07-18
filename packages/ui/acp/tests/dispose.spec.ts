@@ -229,10 +229,10 @@ describe('acp bridge — disposal & HMR safety', () => {
     // queryable, with its session still in the store.
     const harness = await makeBridgeHarness({ storageDir, script: [] })
     const handleA = await harness.ctx.agents.create({
-      sessionId: SessionId('sib-a'), agentOptions: { model: 'mock' },
+      sessionId: SessionId('sib-a'), agentOptions: { provider: 'mock', model: 'mock' },
     })
     const handleB = await harness.ctx.agents.create({
-      sessionId: SessionId('sib-b'), agentOptions: { model: 'mock' },
+      sessionId: SessionId('sib-b'), agentOptions: { provider: 'mock', model: 'mock' },
     })
     expect(harness.ctx.agents.get(SessionId('sib-a'))).toBe(handleA.agent)
     expect(harness.ctx.agents.get(SessionId('sib-b'))).toBe(handleB.agent)
@@ -261,7 +261,7 @@ describe('acp bridge — disposal & HMR safety', () => {
     const harness = await makeBridgeHarness({ storageDir, script: [textResponse('ok')] })
     harness.ctx.on('agent/disposed', () => { throw new Error('boom disposed listener') })
     const handle = await harness.ctx.agents.create({
-      sessionId: SessionId('guard-a'), agentOptions: { model: 'mock' },
+      sessionId: SessionId('guard-a'), agentOptions: { provider: 'mock', model: 'mock' },
     })
     handle.agent.send([{ type: 'text', text: 'go' }])
     await handle.agent.whenIdle()
@@ -282,7 +282,7 @@ describe('acp bridge — disposal & HMR safety', () => {
     // observe the same quiescence boundary.
     const harness = await makeBridgeHarness({ storageDir, script: ['hang'] })
     const handle = await harness.ctx.agents.create({
-      sessionId: SessionId('conc-a'), agentOptions: { model: 'mock' },
+      sessionId: SessionId('conc-a'), agentOptions: { provider: 'mock', model: 'mock' },
     })
     // Drive a turn that hangs in the model stream, so the loop is mid-turn when
     // disposed — its exit runs a final session/flush we can gate to hold the

@@ -33,7 +33,7 @@ describe('validateMeta', () => {
       description: 'migrate call sites',
       whenToUse: 'large mechanical sweeps',
       phases: [
-        { title: 'Discover' },
+        { title: 'Discover', provider: 'openai' },
         { title: 'Transform', detail: 'one agent per file', model: 'deepseek-v4-pro' },
       ],
     })
@@ -42,7 +42,7 @@ describe('validateMeta', () => {
       description: 'migrate call sites',
       whenToUse: 'large mechanical sweeps',
       phases: [
-        { title: 'Discover' },
+        { title: 'Discover', provider: 'openai' },
         { title: 'Transform', detail: 'one agent per file', model: 'deepseek-v4-pro' },
       ],
     })
@@ -73,6 +73,7 @@ describe('validateMeta', () => {
     expectInvalid({ name: 'x', description: 'd', phases: [{ title: '' }] }, 'meta.phases[0].title must be a non-empty string')
     expectInvalid({ name: 'x', description: 'd', phases: [{ title: 'Scan', order: 1 }] }, 'meta.phases[0].order is not a recognized field')
     expectInvalid({ name: 'x', description: 'd', phases: [{ title: 'Scan', detail: 9 }] }, 'meta.phases[0].detail must be a string')
+    expectInvalid({ name: 'x', description: 'd', phases: [{ title: 'Scan', provider: 9 }] }, 'meta.phases[0].provider must be a string')
     expectInvalid({ name: 'x', description: 'd', phases: [{ title: 'Scan', model: 9 }] }, 'meta.phases[0].model must be a string')
   })
 

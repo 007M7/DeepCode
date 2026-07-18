@@ -12,6 +12,8 @@ Extract a backend-agnostic `PersistenceCoordinator` into `dsh-session-persistenc
 
 Composition, not inheritance. The coordinator is a concrete class the backend holds, not a base class the backend extends. The RFC's risk — "a coordinator must not make unusual backends fight an inheritance hierarchy" — is avoided: a backend exposes only the hooks; it cannot reach the coordinator's private orchestration state, and the public `SessionPersistence` service shape is unchanged, so a third-party backend MAY still implement the abstract service directly without the coordinator at all.
 
+The coordinator retires each live session from its `session/disposed` notification: it waits for that exact Session object's initialization, serializes a final drain, and then removes the owned state, buffer, and init entries. Failed drains retain their buffers for backend teardown to retry. Settled per-id chain tails remove themselves only when they are still the current tail, so a completion cannot erase a newer operation for the same id. Backend teardown unregisters the write-path listeners before awaiting all admitted retirements, remaining buffers, and chains, then closes the backend.
+
 ### The hook interface (`PersistenceBackend<TornMarker>`)
 
 Six methods (five required + an optional lifecycle hook) — the only seam between the coordinator and storage:
@@ -30,7 +32,7 @@ The single design choice that keeps the seam clean: the crash-repair "where is t
 
 ## Testing
 
-The shared `runPersistenceContract` (public-API contract) keeps running for every backend. A new `runCoordinatorContract` (`tests/coordinator-contract.ts`) holds the write-path orchestration — adoption, HMR, collision, dispose-drain, crash-tail repair — and runs once per backend through a `CoordinatorFixture` (an in-memory reference + jsonl + sqlite). The per-backend specs shrank to storage mechanics only (JSONL: path safety, fsync rollback, bucket listing; SQLite: schema version, `scanRows`, transaction rollback). A through-coordinator torn-tail→load→`commitRepair` test per real backend (via a `corruptTail` fixture hook) keeps the coordinator's torn-marker repair branch covered under the 100% per-file gate — the contract crash test only produces synthetic closers, never a torn marker, so it could not reach that branch.
+The shared `runPersistenceContract` (public-API contract) keeps running for every backend. `runCoordinatorContract` (`tests/coordinator-contract.ts`) holds the write-path orchestration — adoption, HMR, collision, session and backend disposal drains, and crash-tail repair — and runs once per backend through a `CoordinatorFixture` (an in-memory reference + jsonl + sqlite). Coordinator-specific tests pin retirement map cleanup, same-id chain-tail races, failed-drain retry, and close ordering. The per-backend specs retain storage mechanics only (JSONL: path safety, fsync rollback, bucket listing; SQLite: schema version, `scanRows`, transaction rollback). A through-coordinator torn-tail→load→`commitRepair` test per real backend (via a `corruptTail` fixture hook) keeps the coordinator's torn-marker repair branch covered under the 100% per-file gate — the contract crash test only produces synthetic closers, never a torn marker, so it could not reach that branch.
 
 ## Alternatives considered
 
@@ -39,4 +41,4 @@ The shared `runPersistenceContract` (public-API contract) keeps running for ever
 
 ## Consequences
 
-The coordinator adds one indirection and an opaque torn marker, but centralizes correctness-heavy orchestration previously duplicated by every backend. Its hook surface stays narrow: collision checks reuse `loadStored`, materialization stays atomic inside `appendBatch`, and listing bypasses the coordinator. New backends implement storage primitives rather than copy the event-buffer-flush lifecycle.
+The coordinator adds one indirection, an opaque torn marker, and detached session-retirement tasks, but centralizes correctness-heavy orchestration previously duplicated by every backend. Session disposal remains an observe-only event, so the session owner does not await persistence retirement; the coordinator contains failures, preserves uncommitted buffers, and makes backend teardown the quiescence boundary. Its hook surface stays narrow: collision checks reuse `loadStored`, materialization stays atomic inside `appendBatch`, and listing bypasses the coordinator. New backends implement storage primitives rather than copy the event-buffer-flush lifecycle.

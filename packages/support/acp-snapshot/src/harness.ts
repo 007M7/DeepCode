@@ -157,9 +157,11 @@ export interface RunOptions {
 export async function runScenario(input: InputScript, opts: RunOptions): Promise<RunResult> {
   const cwd = await mkdtemp(join(tmpdir(), 'acp-snap-cwd-'))
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
-  // Everything past the temp-dir creation runs under a try/finally that always
-  // removes both dirs — so a failure in workspace seeding, spawn, or any step
-  // never leaks them (the "e2e tests own their resources" rule).
+  // Fixed path length: spill-policy budgets the preview against the REAL path
+  // before stdout normalization, so tmpdir() length differences churn goldens.
+  const spillRoot = '/tmp/dsh-acp-snapshot-spill'
+  // Everything past the temp-dir creation is followed by failure-safe cleanup,
+  // so a failure in workspace seeding, spawn, or any step never leaks resources.
   let launched: LaunchedAcpTestAgent | undefined
   let sessionId: string | undefined
   let sessionLogs: HarvestedLog[] = []
@@ -174,6 +176,9 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       DSH_SNAPSHOT: opts.mode,
       DSH_SNAPSHOT_FILE: opts.fixtureFile,
       DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
+      DSH_SNAPSHOT_SPILL_ROOT: spillRoot,
+      DSH_HOME: join(cwd, '.dsh'),
+      DSH_AGENTS_HOME: join(cwd, '.agents'),
       ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
       ...opts.childFiles !== undefined && opts.childFiles.length > 0
         ? { DSH_SNAPSHOT_CHILD_FILES: opts.childFiles.join(delimiter) }
@@ -240,11 +245,19 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     }
   })().then(
     value => ({ status: 'fulfilled', value } as const),
-    (error: unknown) => ({ status: 'rejected', error } as const),
+    (error: unknown) => {
+      const stderr = launched?.stderr() ?? ''
+      return {
+        status: 'rejected',
+        error: stderr === ''
+          ? error
+          : new Error(`snapshot-harness: scenario failed: ${String(error)}\nagent stderr:\n${stderr}`, { cause: error }),
+      } as const
+    },
   )
 
-  // Failure-safe teardown: wait for a still-running child, then attempt BOTH
-  // directory removals even when an earlier cleanup rejects. Report every
+  // Failure-safe teardown: wait for a still-running child, then attempt every
+  // owned-path removal even when an earlier cleanup rejects. Report every
   // teardown failure alongside a scenario failure so neither orthogonal
   // outcome hides the other.
   const cleanupResults: PromiseSettledResult<unknown>[] = []
@@ -255,6 +268,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   await cleanup(() => launched?.close('SIGKILL') ?? Promise.resolve())
   await cleanup(() => rm(cwd, { recursive: true, force: true }))
   await cleanup(() => rm(sessionsRoot, { recursive: true, force: true }))
+  await cleanup(() => rm(spillRoot, { recursive: true, force: true }))
 
   const cleanupFailures = cleanupResults
     .filter((result): result is PromiseRejectedResult => result.status === 'rejected')

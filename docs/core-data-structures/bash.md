@@ -4,9 +4,21 @@ The bash execution seam is split across interface ([dsh-bash](../../packages/bas
 
 Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
+## Managed shell environment namespace
+
+`DSH_*` variables are Harness-owned child-process facts. The model-facing bash tool collects them through `ctx.bashEnv` and passes them through `BashExecRequest.dshEnv`; executors remove inherited `DSH_*` names before merging the current snapshot.
+
+```ts type-equiv
+type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`
+```
+
+```ts type-equiv
+type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>
+```
+
 ## Request vs. spec: the `resolve()` split
 
-The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`, filled from config) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package seams" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory came from.
+The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`/`stdoutMaxBytes`, filled from config or request policy) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package seams" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory or output budget came from.
 
 ```ts type-equiv
 interface BashExecRequest {
@@ -15,6 +27,13 @@ interface BashExecRequest {
   workdir?: string | undefined
   /** Timeout override in milliseconds (implementations cap it). */
   timeoutMs?: number | undefined
+  /**
+   * Foreground stdout capture budget in bytes. Absent uses the executor's
+   * default output cap. Trusted in-process consumers use this when they must
+   * parse complete stdout up to their own bounded limit; the model-facing bash
+   * tool does not expose it as a parameter.
+   */
+  stdoutMaxBytes?: number | undefined
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
@@ -26,15 +45,20 @@ interface BashExecRequest {
    */
   stdin?: string | undefined
   /**
-   * Extra environment entries for the command, merged AFTER the
-   * implementation's credential scrub (so an explicit entry here is honored even
-   * when its name matches the scrub pattern — the caller named a value it holds,
-   * not the harness's ambient secret). Set by in-process plugins (the hooks
-   * bridges set `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing
-   * bash tool does not expose it as a parameter (a model that needs an env var
-   * uses shell syntax like `FOO=bar cmd`).
+   * Ordinary environment entries for the command, merged after the credential
+   * scrub. `DSH_*` is reserved for {@link dshEnv} and implementations reject it
+   * here. Set by in-process plugins (the hooks bridges set
+   * `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing bash tool
+   * does not expose it as a parameter.
    */
   env?: Record<string, string> | undefined
+  /**
+   * Harness-owned `DSH_*` variables for this execution. Executors discard
+   * ambient `DSH_*` entries before merging this snapshot, so an unavailable
+   * current fact cannot inherit a stale value from the harness process, and
+   * reject non-`DSH_*` names supplied through this managed channel.
+   */
+  dshEnv?: DshEnvironment | undefined
   /**
    * Explicit per-call sandbox-policy input, overriding the executor's
    * configured default mode for THIS call. Never a silent default: a
@@ -57,6 +81,11 @@ interface BashExecSpec {
   command: string
   workdir: string
   timeoutMs: number
+  /**
+   * Resolved foreground stdout capture budget in bytes. `run()` uses it for
+   * stdout; background tasks and stderr keep the executor's own output cap.
+   */
+  stdoutMaxBytes: number
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
@@ -73,6 +102,8 @@ interface BashExecSpec {
    * config default, absent means "no extra env".
    */
   env?: Record<string, string> | undefined
+  /** Managed `DSH_*` snapshot; implementations reject ordinary names. */
+  dshEnv?: DshEnvironment | undefined
   /**
    * The sandbox mode this call executes under, required-but-nullable so every
    * resolved spec states its policy. A sandboxing executor's `resolve()` stamps
@@ -87,6 +118,8 @@ interface BashExecSpec {
 ```
 
 `stdin` and `env` are trusted in-process plugin inputs and are not exposed by `dsh-tool-bash`. The local executor scrubs ambient credentials before merging explicit caller-supplied env. See [the bash-stdin-env RFC](../rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
+
+`stdoutMaxBytes` is also trusted-plugin-only. It lets a foreground consumer request complete stdout up to a bounded parser budget without changing stderr, background tasks, or the model-facing bash tool's ordinary output cap.
 
 ## Foreground runs: `BashRunResult`
 

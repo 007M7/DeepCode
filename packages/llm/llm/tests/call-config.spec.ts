@@ -9,14 +9,16 @@ import { callConfigEquals, deepFreeze } from '../src/call-config.ts'
 
 describe('callConfigEquals', () => {
   it('compares every field, including the stop list element-wise', () => {
-    expect(callConfigEquals({ model: 'm' }, { model: 'm' })).toBe(true)
-    expect(callConfigEquals({ model: 'm' }, { model: 'x' })).toBe(false)
-    expect(callConfigEquals({ model: 'm', temperature: 0.5 }, { model: 'm' })).toBe(false)
-    expect(callConfigEquals({ model: 'm', maxTokens: 1 }, { model: 'm', maxTokens: 2 })).toBe(false)
-    expect(callConfigEquals({ model: 'm', stop: ['a'] }, { model: 'm' })).toBe(false)
-    expect(callConfigEquals({ model: 'm', stop: ['a'] }, { model: 'm', stop: ['a', 'b'] })).toBe(false)
-    expect(callConfigEquals({ model: 'm', stop: ['a'] }, { model: 'm', stop: ['b'] })).toBe(false)
-    expect(callConfigEquals({ model: 'm', stop: ['a', 'b'] }, { model: 'm', stop: ['a', 'b'] })).toBe(true)
+    const base = { provider: 'p', model: 'm' }
+    expect(callConfigEquals(base, base)).toBe(true)
+    expect(callConfigEquals(base, { provider: 'x', model: 'm' })).toBe(false)
+    expect(callConfigEquals(base, { provider: 'p', model: 'x' })).toBe(false)
+    expect(callConfigEquals({ ...base, temperature: 0.5 }, base)).toBe(false)
+    expect(callConfigEquals({ ...base, maxTokens: 1 }, { ...base, maxTokens: 2 })).toBe(false)
+    expect(callConfigEquals({ ...base, stop: ['a'] }, base)).toBe(false)
+    expect(callConfigEquals({ ...base, stop: ['a'] }, { ...base, stop: ['a', 'b'] })).toBe(false)
+    expect(callConfigEquals({ ...base, stop: ['a'] }, { ...base, stop: ['b'] })).toBe(false)
+    expect(callConfigEquals({ ...base, stop: ['a', 'b'] }, { ...base, stop: ['a', 'b'] })).toBe(true)
   })
 })
 

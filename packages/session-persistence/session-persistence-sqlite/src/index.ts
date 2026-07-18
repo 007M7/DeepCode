@@ -1,7 +1,8 @@
 /**
  * SQLite durable session-persistence backend. It maps each session header and
  * event to rows, and delegates write-path orchestration to
- * {@link PersistenceCoordinator}.
+ * {@link PersistenceCoordinator}. It has no independent per-session artifact,
+ * so its locator returns `undefined`.
  * @module @deepseek-ai/dsh-session-persistence-sqlite
  */
 
@@ -12,7 +13,7 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type StoredPrefix,
+  type PersistenceBackend, type SessionLocation, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -94,6 +95,11 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   }
 
   // --- SessionPersistence service surface (delegated to the coordinator) ---
+
+  /** SQLite has one database, not an independent local artifact per session. */
+  locate(_meta: SessionHeader): SessionLocation | undefined {
+    return undefined
+  }
 
   create(meta: SessionHeader): Promise<void> {
     return this.coordinator.create(meta)
