@@ -67,23 +67,19 @@ export abstract class CompactService extends Service {
    * `start` and `end` name an inclusive span by surface position, not numeric seq
    * order; replacements can make visible seqs non-monotonic. Both edges must be
    * balanced so assistant tool calls remain paired with their results. A model-
-   * backed implementation forwards cancellation. The agent must own the exact
-   * target session object; implementations reject an ownership mismatch before
-   * model resolution, lock acquisition, summarization, or log mutation, and
-   * reject active, missing, reversed, or unbalanced ranges.
+   * backed implementation forwards cancellation and rejects active, missing,
+   * reversed, or unbalanced ranges. The target session is `agent.session`.
    * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}
    * for the edge checks.
    *
-   * @param session - session to mutate; must be identical to `agent.session`.
    * @param start - first surface seq, inclusive.
    * @param end - last surface seq, inclusive.
-   * @param agent - owner of the target session and summarizer context.
+   * @param agent - context whose session is mutated and whose routing options guide summarization.
    * @param signal - optional cancellation; model-backed implementations must forward it.
-   * @throws when the agent does not own `session`, compaction is active, or the range is missing, reversed, or unbalanced.
-   * @returns the replaced range and summary.
+   * @throws when compaction is active or the range is missing, reversed, or unbalanced.
+   * @returns the appended event seqs, summary, replaced range, and token accounting.
    */
   abstract compactRegion(
-    session: Session,
     start: number,
     end: number,
     agent: CompactAgentContext,

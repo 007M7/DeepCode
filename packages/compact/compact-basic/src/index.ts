@@ -21,7 +21,6 @@ import type {
   ResolvedConfig,
 } from './types.ts'
 
-export { resolveConfig } from './config.ts'
 export type {
   BasicCompactConfig,
   ResolvedConfig,
@@ -96,7 +95,7 @@ export class BasicCompactService extends CompactService {
    * @param signal - optional cancellation forwarded to the adapter.
    * @returns safe text summary blocks and exact auxiliary-call provenance.
    */
-  async summarize(
+  protected async summarize(
     text: string,
     agent: Agent,
     signal?: AbortSignal,
@@ -137,7 +136,7 @@ export class BasicCompactService extends CompactService {
         /* v8 ignore next -- paired with the defensive post-success branch above. */
         break
       }
-      result = await this.compactRegion(agent.session, range.start, range.end, agent, signal)
+      result = await this.compactRegion(range.start, range.end, agent, signal)
       measurement = meter.measure(agent.session, requestHeader)
       if (measurement.totalTokens < threshold) return result
     }
@@ -149,10 +148,8 @@ export class BasicCompactService extends CompactService {
   }
 
   /**
-   * Compact one inclusive positional surface range using the effective
-   * token meter for all retention and shrink pricing. Reject an agent that does
-   * not own the exact target before any mutation.
-   * @param session - session whose surface is mutated; must equal `agent.session`.
+   * Compact one inclusive positional range from the agent-owned surface using
+   * the effective token meter for all retention and shrink pricing.
    * @param start - inclusive first surface-node seq.
    * @param end - inclusive last surface-node seq.
    * @param agent - owner of the target session, used by the summarizer.
@@ -160,15 +157,12 @@ export class BasicCompactService extends CompactService {
    * @returns the successful durable compaction result.
    */
   override async compactRegion(
-    session: Session,
     start: number,
     end: number,
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
-    if (session !== agent.session) {
-      throw new Error('compactRegion: agent.session must be the exact target session')
-    }
+    const session = agent.session
     return compactSurfaceRegion({
       meter: this.ctx.tokenMeter,
       summarize: (text, owner, abort) => this.summarize(text, owner, abort),
