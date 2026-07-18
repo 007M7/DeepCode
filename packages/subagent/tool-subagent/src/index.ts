@@ -67,8 +67,9 @@ export const Config: z<Config> = z.object({
   enableRunInBackground: z.boolean().default(true),
   // Prevent Schemastery from materializing omitted agentOptions as `{}`.
   agentOptions: z.object({
+    provider: z.string(),
     model: z.string(),
-  }).default(undefined as unknown as { model: string }),
+  }).default(undefined as unknown as { provider: string; model: string }),
   persona: z.string(),
   // Preserve omission; Schemastery's `{ allow: [] }` default would deny every tool.
   toolFilter: z.object({

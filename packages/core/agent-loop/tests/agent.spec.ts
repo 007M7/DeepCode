@@ -56,10 +56,10 @@ describe('Agent', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('exclusive-driver'))
-    const prepared = prepareReactLoopAgent(ctx, SessionId('first-driver'), { model: 'mock' }, session)
+    const prepared = prepareReactLoopAgent(ctx, SessionId('first-driver'), { provider: 'mock', model: 'mock' }, session)
 
     expect(() => prepared.agent.ctx).toThrow('context is not bound')
-    expect(() => prepareReactLoopAgent(ctx, SessionId('second-driver'), { model: 'mock' }, session))
+    expect(() => prepareReactLoopAgent(ctx, SessionId('second-driver'), { provider: 'mock', model: 'mock' }, session))
       .toThrow('already has a concrete agent driver')
 
     await prepared.dispose()
@@ -68,7 +68,7 @@ describe('Agent', () => {
 
   it('borrows caller options and binds its scoped context exactly once', async () => {
     const ctx = await harness(new MockAdapter([textResponse('unused')]))
-    const options = { model: 'mock' }
+    const options = { provider: 'mock', model: 'mock' }
     const agent = ctx.agentLoop.create(SessionId('owned-bindings'), options)
 
     expect(agent.options).toBe(options)
@@ -84,7 +84,7 @@ describe('Agent', () => {
     const ctx = await harness(adapter)
     let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(SessionId('scoped'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
@@ -99,7 +99,7 @@ describe('Agent', () => {
     const ctx = await harness(adapter)
     let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(SessionId('scoped'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
@@ -114,7 +114,7 @@ describe('Agent', () => {
     const ctx = await harness(adapter)
     let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(SessionId('scoped'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
@@ -127,7 +127,7 @@ describe('Agent', () => {
   it('inject() decides enclosure from the LOG (open turn), not agent status', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     // Simulate an OPEN turn in the log while the agent is idle (status is not a
     // reliable open-turn signal). inject must append into that open turn, NOT
@@ -153,7 +153,7 @@ describe('Agent', () => {
     // A persistence-like listener whose flush rejects.
     ctx.on('session/flush', () => { throw new Error('disk gone') })
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     // inject() is synchronous and fires a fire-and-forget flush; a rejecting
     // flush must be contained (logged), never thrown into the caller.
@@ -166,7 +166,7 @@ describe('Agent', () => {
   it('idle inject() closes its one-shot turn AND still checkpoints even if the append throws', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
 
@@ -186,7 +186,7 @@ describe('Agent', () => {
   it('idle inject() still checkpoints when a listener throws on the synthetic turn/end', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
     // Session contains a throwing post-commit turn/end observer. The accepted
@@ -209,7 +209,7 @@ describe('Agent', () => {
     // A non-Error rejection exercises the String() normalization branch.
     ctx.on('session/flush', () => { throw 'disk gone' })
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     const errors: { turn: number; step: number; message: string }[] = []
     ctx.on('agent/error', (_a, turn, step, error) => void errors.push({ turn, step, message: error.message }))
 
@@ -228,7 +228,7 @@ describe('Agent', () => {
   it('idle inject() with a non-serializable source opens no turn (nothing to close)', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     // A non-serializable source makes the turn/start append throw BEFORE the
     // event is pushed (Session.append validates before push), so NO turn opens.
@@ -243,7 +243,7 @@ describe('Agent', () => {
   it('steer() when idle falls through to send() and starts a turn', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     // steer while idle delegates to send
     agent.steer([{ type: 'text', text: 'steer idle' }], { source: { kind: 'plugin', plugin: 'test' } })
@@ -261,7 +261,7 @@ describe('Agent', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('test'))
-    const prepared = prepareReactLoopAgent(ctx, SessionId('bare'), { model: 'mock' }, session)
+    const prepared = prepareReactLoopAgent(ctx, SessionId('bare'), { provider: 'mock', model: 'mock' }, session)
     const { agent } = prepared
 
     // Start the loop to get the disposer; the agent waits for messages
@@ -283,7 +283,7 @@ describe('Agent', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('pre-start-dispose'))
-    const prepared = prepareReactLoopAgent(ctx, SessionId('pre-start-dispose'), { model: 'mock' }, session)
+    const prepared = prepareReactLoopAgent(ctx, SessionId('pre-start-dispose'), { provider: 'mock', model: 'mock' }, session)
 
     await prepared.dispose()
     expect(prepared.agent.status).toBe('disposed')
@@ -297,7 +297,7 @@ describe('Agent', () => {
   it('setting the same status does not emit agent/status again', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const statuses: string[] = []
     ctx.on('agent/status', (subject, status) => {
@@ -316,7 +316,7 @@ describe('Agent', () => {
   it('whenIdle() resolves immediately when the agent is not running', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     // Fresh agent is idle — whenIdle() takes the not-running fast path and
     // resolves without subscribing. await must not hang.
@@ -327,7 +327,7 @@ describe('Agent', () => {
   it('whenIdle() waits for queued work that has not flipped status yet', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'queued')
     let settled = false
@@ -345,8 +345,8 @@ describe('Agent', () => {
   it('whenIdle() awaits the running→idle transition, ignoring other subjects/running events', async () => {
     const adapter = new MockAdapter([textResponse('ok'), textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
-    const other = ctx.agentLoop.create(SessionId('a2'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const other = ctx.agentLoop.create(SessionId('a2'), { provider: 'mock', model: 'mock' })
 
     // Drive `agent` into `running`, then await whenIdle() — it subscribes to
     // agent/status and resolves on the first transition out of running.
@@ -382,7 +382,7 @@ describe('Agent', () => {
     const adapter = new MockAdapter(['hang'])
     ctx.llm.registerAdapter(['mock'], adapter)
     const session = ctx.sessions.create(SessionId('bare'))
-    const prepared = prepareReactLoopAgent(ctx, SessionId('bare'), { model: 'mock' }, session)
+    const prepared = prepareReactLoopAgent(ctx, SessionId('bare'), { provider: 'mock', model: 'mock' }, session)
     const { agent } = prepared
     prepared.markPublished()
     const dispose = prepared.startDriver()
@@ -406,7 +406,7 @@ describe('Agent', () => {
     const ctx = await harness(adapter)
     let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(SessionId('scoped'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
@@ -427,7 +427,7 @@ describe('Agent', () => {
     const ctx = await harness(adapter)
     let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(SessionId('scoped'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
@@ -448,7 +448,7 @@ describe('Agent', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     ctx.on('agent/status', (_subject, status) => {
       if (status === 'running') throw new Error('bad running listener')
     })
@@ -466,7 +466,7 @@ describe('Agent', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     ctx.on('agent/status', (_subject, status) => {
       if (status === 'idle') throw new Error('bad idle listener')
     })
