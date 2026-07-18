@@ -2,7 +2,7 @@
  * Minimal MCP server over stdio for e2e testing of the dsh-mcp-client plugin.
  * Registers controlled tools with predictable behavior for asserting edge cases.
  *
- * Run: node --import tsx fixture-server.ts
+ * Run: node fixture-server.ts
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
