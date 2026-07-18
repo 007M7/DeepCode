@@ -1,18 +1,23 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
-import AgentRegistry, { AgentId, type Agent, type AgentStatus } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
+import AgentRegistry, { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import {
   createTuiChat,
   mountTui,
   resolveTuiConfig,
-  type Config,
   type TuiRuntime,
 } from '../src/index.ts'
+import {
+  appendAssistant,
+  appendUser,
+  createTuiTestHarness,
+  disposeTuiTestHarness,
+  type TuiHarnessOptions,
+} from './harness.ts'
 
 class FakeTerminal implements Terminal {
   columns = 88
@@ -84,97 +89,23 @@ class FakeTerminal implements Terminal {
   }
 }
 
-interface FakeAgent extends Agent {
-  status: AgentStatus
-  sent: ContentBlock[][]
-  steered: ContentBlock[][]
-  cancelled: string[]
-}
-
 async function tick(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 25))
 }
 
-async function setup(options: {
-  status?: AgentStatus
-  config?: Config
-  tools?: Record<string, ToolDefinition>
-  beforeMount?: (session: Session) => void
-  cwd?: string | null
-} = {}) {
-  const ctx = new Context()
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(AgentRegistry)
-  await ctx.plugin(UserInteractionService)
-  const tools = options.tools ?? {}
-  ctx.provide('tools', {
-    get(name: string) {
-      return tools[name]
-    },
-  } as never)
-  const session = ctx.sessions.create(
-    SessionId('main-session'),
-    options.cwd === null ? undefined : { meta: { cwd: options.cwd ?? process.cwd() } },
-  )
-  options.beforeMount?.(session)
-  const sent: ContentBlock[][] = []
-  const steered: ContentBlock[][] = []
-  const cancelled: string[] = []
-  const agent: FakeAgent = {
-    id: AgentId('main'),
-    options: { model: 'deepseek-v4-flash' },
-    session,
-    status: options.status ?? 'idle',
-    ctx,
-    sent,
-    steered,
-    cancelled,
-    send(content) {
-      sent.push(content)
-    },
-    steer(content) {
-      steered.push(content)
-    },
-    inject() {},
-    cancel(reason) {
-      cancelled.push(reason ?? '')
-    },
-    whenIdle() {
-      return Promise.resolve()
-    },
-  }
-  ctx.agents.register(agent)
+async function setup(options: TuiHarnessOptions = {}) {
   const terminal = new FakeTerminal()
   const exit = vi.fn()
-  const controller = createTuiChat(ctx, Object.assign({
-    welcome: 'Coding agent ready.',
-    agent: 'main',
-    color: false,
-  }, options.config), { terminal, exit })
+  const result = await createTuiTestHarness(terminal, exit, {
+    ...options,
+    cwd: options.cwd === undefined ? process.cwd() : options.cwd,
+  })
   await tick()
-  return { ctx, session, agent, terminal, exit, controller }
+  return result
 }
 
 async function dispose(setupResult: Awaited<ReturnType<typeof setup>>): Promise<void> {
-  await setupResult.controller.dispose()
-  await setupResult.ctx.fiber.dispose()
-}
-
-function appendUser(session: Session, text: string): void {
-  session.append('user/message', {
-    content: [{ type: 'text', text }],
-    source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
-}
-
-function appendAssistant(session: Session, content: ContentBlock[], usage?: { inputTokens: number; outputTokens: number }): void {
-  session.append('assistant/message', {
-    turn: 1,
-    step: 0,
-    provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
-    content,
-    ...usage === undefined ? {} : { usage },
-  }, { surfaceOp: 'append' })
+  await disposeTuiTestHarness(setupResult)
 }
 
 describe('TUI config', () => {

@@ -1,0 +1,75 @@
+terminal 96x36 buffer=normal length=43 base=7 viewport=7
+lifecycle started=1 stopped=0 progress=inactive
+title "DSH snapshot"
+cursor hidden column=1 viewportRow=33 bufferRow=40
+viewport
+7| "▌ You                                                                                           "
+  style 0-0 fg=bright-blue
+  style 2-4 fg=bright-blue bold
+8| "▌ Explain snapshot fidelity with cells.                                                         "
+  style 0-0 fg=bright-blue
+  style 10-26 bold
+  style 33-37 fg=cyan
+9| "▌ "
+  style 0-0 fg=bright-blue
+10| <blank>
+11| " Reasoning                                                                                      "
+  style 1-9 fg=bright-black italic
+12| " Compare the terminal state, not write fragments.                                               "
+  style 1-48 fg=bright-black italic
+13| <blank>
+14| " Assistant                                                                                      "
+  style 1-9 fg=bright-magenta bold
+15| " Result                                                                                         "
+  style 1-6 fg=bright-blue bold
+16| "                                                                                                "
+17| " - final viewport                                                                               "
+  style 1-2 fg=bright-blue
+18| " - semantic styles                                                                              "
+  style 1-2 fg=bright-blue
+19| "                                                                                                "
+20| " │ deterministic and reviewable                                                                 "
+  style 1-2 fg=bright-magenta
+  style 3-30 fg=bright-black italic
+21| <blank>
+22| "▌ "
+  style 0-0 fg=bright-blue
+23| "▌ You                                                                                           "
+  style 0-0 fg=bright-blue
+  style 2-4 fg=bright-blue bold
+24| "▌ Show the live update.                                                                         "
+  style 0-0 fg=bright-blue
+25| "▌ "
+  style 0-0 fg=bright-blue
+26| <blank>
+27| " Reasoning                                                                                      "
+  style 1-9 fg=bright-black italic
+28| " Inspecting width and styles.                                                                   "
+  style 1-28 fg=bright-black italic
+29| <blank>
+30| " Assistant                                                                                      "
+  style 1-9 fg=bright-magenta bold
+31| " Streaming visible state is complete.                                                           "
+  style 11-23 bold
+32| <blank>
+33| " The model reached its output-token limit.                                                      "
+  style 1-41 fg=yellow
+34| <blank>
+35| "Plan"
+  style 0-3 fg=bright-blue bold
+36| "  ✓ model the terminal"
+  style 2-2 fg=green
+  style 4-21 fg=bright-black
+37| "  ● capture advanced states"
+  style 2-2 fg=yellow
+38| "  ○ verify PTY cleanup"
+  style 2-2 dim
+39| "────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-95 dim
+40| "                                                                                                "
+  style 1-1 inverse
+41| "────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-95 dim
+42| "/workspace/project  ↑13k ↓760                                  idle  reasoning:on  tools:compact"
+  style 0-28 dim
+  style 63-95 dim

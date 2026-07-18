@@ -4,31 +4,32 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
+import { LOADER_SMOKE_TEST_TIMEOUT_MS, resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
 const binScript = fileURLToPath(new URL('../../../packages/examples/stdio-demo/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
+const scriptedConfigPath = fileURLToPath(new URL('./fixtures/tui-scripted.cordis.yml', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 
 const PTY_DRIVER = String.raw`
-import errno, os, pty, select, signal, sys, time
-node, tsx_loader, bin_script, config_path, tsconfig_path, cwd, resume_session_id = sys.argv[1:]
+import errno, json, os, pty, select, signal, sys, time
+node, launch_args_json, launch_env_json, cwd, resume_session_id, scenario = sys.argv[1:]
 env = os.environ.copy()
+env.update(json.loads(launch_env_json))
 env.update({
-    "DEEPSEEK_API_KEY": "keyless-tui-no-call",
-    "DSH_HOME": os.path.join(cwd, ".dsh"),
-    "DSH_AGENTS_HOME": os.path.join(cwd, ".agents"),
-    "TSX_TSCONFIG_PATH": tsconfig_path,
+    "COLUMNS": "100",
+    "LINES": "30",
 })
 if resume_session_id:
     env["RESUME_SESSION_ID"] = resume_session_id
 pid, fd = pty.fork()
 if pid == 0:
     os.chdir(cwd)
-    os.execvpe(node, [node, "--expose-internals", "--import", tsx_loader, bin_script, config_path], env)
+    os.execvpe(node, [node, *json.loads(launch_args_json)], env)
 
 output = bytearray()
+answered_question = False
+sent_prompt = False
 sent_exit = False
 deadline = time.monotonic() + 25
 status = None
@@ -43,7 +44,16 @@ while time.monotonic() < deadline:
             chunk = b""
         if chunk:
             output.extend(chunk)
-    if not sent_exit and b"agent REPL ready." in output:
+    if scenario == "conversation" and not sent_prompt and b"scripted TUI ready." in output:
+        os.write(fd, b"exercise the TUI\r")
+        sent_prompt = True
+    if scenario == "conversation" and sent_prompt and not answered_question and b"How should the scripted run proceed?" in output:
+        os.write(fd, b"\r")
+        answered_question = True
+    if scenario == "conversation" and answered_question and not sent_exit and b"Decision received. Scripted TUI run complete." in output:
+        os.write(fd, b"/exit\r")
+        sent_exit = True
+    if scenario == "boot" and not sent_exit and b"agent REPL ready." in output:
         os.write(fd, b"/exit\r")
         sent_exit = True
     waited, candidate = os.waitpid(pid, os.WNOHANG)
@@ -55,13 +65,26 @@ if status is None:
     os.kill(pid, signal.SIGKILL)
     _, status = os.waitpid(pid, 0)
 sys.stdout.buffer.write(output)
-if resume_session_id:
+if scenario == "resume-failure":
     if b'ui-tui: agent "main" failed to start:' not in output:
         sys.stderr.write("TUI did not render the startup failure before timeout\n")
         sys.exit(126)
     if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 1:
         sys.stderr.write("TUI startup failure did not exit with status 1\n")
         sys.exit(127)
+elif scenario == "conversation":
+    if not sent_prompt:
+        sys.stderr.write("TUI did not render the scripted welcome marker before timeout\n")
+        sys.exit(128)
+    if not answered_question:
+        sys.stderr.write("TUI did not render the user-question dialog before timeout\n")
+        sys.exit(129)
+    if not sent_exit:
+        sys.stderr.write("TUI did not finish the scripted tool round-trip before timeout\n")
+        sys.exit(130)
+    if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
+        sys.stderr.write("TUI scripted conversation did not exit cleanly\n")
+        sys.exit(131)
 else:
     if not sent_exit:
         sys.stderr.write("TUI did not render its welcome marker before timeout\n")
@@ -71,20 +94,36 @@ else:
         sys.exit(125)
 `
 
-async function runTuiLoaderSmoke(resumeSessionId = ''): Promise<string> {
+interface TuiLoaderSmokeOptions {
+  config?: string
+  resumeSessionId?: string
+  scenario?: 'boot' | 'conversation' | 'resume-failure'
+}
+
+async function runTuiLoaderSmoke(options: TuiLoaderSmokeOptions = {}): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), 'coding-tui-smoke-'))
   try {
+    const launch = resolveExampleLaunch({
+      srcBin: binScript,
+      configArgs: [options.config ?? configPath],
+      tsconfigPath,
+      exposeInternals: true,
+      env: {
+        DEEPSEEK_API_KEY: 'keyless-tui-no-call',
+        DSH_HOME: join(cwd, '.dsh'),
+        DSH_AGENTS_HOME: join(cwd, '.agents'),
+      },
+    })
     return await new Promise((resolve, reject) => {
       const child = spawn('python3', [
         '-c',
         PTY_DRIVER,
-        process.execPath,
-        tsxLoader,
-        binScript,
-        configPath,
-        tsconfigPath,
+        launch.command,
+        JSON.stringify(launch.args),
+        JSON.stringify(launch.env),
         cwd,
-        resumeSessionId,
+        options.resumeSessionId ?? '',
+        options.scenario ?? 'boot',
       ], { stdio: ['ignore', 'pipe', 'pipe'] })
       let stdout = ''
       let stderr = ''
@@ -108,10 +147,20 @@ describe('coding-agent TUI keyless smoke (real Loader tree in a PTY)', () => {
     const output = await runTuiLoaderSmoke()
     expect(output).toContain('DEEPSEEK')
     expect(output).toContain('agent REPL ready.')
+    expect(output).toContain('\u001B[?2004l')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('streams a response, answers a user-question dialog, completes the tool round-trip, and exits cleanly', async () => {
+    const output = await runTuiLoaderSmoke({ config: scriptedConfigPath, scenario: 'conversation' })
+    expect(output).toContain('I need one decision before I continue.')
+    expect(output).toContain('How should the scripted run proceed?')
+    expect(output).toContain('Safe')
+    expect(output).toContain('Decision received. Scripted TUI run complete.')
+    expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('prints a config-resume failure and exits instead of leaving a blank terminal', async () => {
-    const output = await runTuiLoaderSmoke('missing-session')
+    const output = await runTuiLoaderSmoke({ resumeSessionId: 'missing-session', scenario: 'resume-failure' })
     expect(output).toContain('ui-tui: agent "main" failed to start:')
     expect(output).toContain('missing-session')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)

@@ -10,6 +10,7 @@
     "examples": {
       "entry": [
         "echo-agent/src/*.ts",
+        "coding-agent/tests/fixtures/tui-scripted-llm.ts",
         "*/tests/**/*.e2e.ts",
         "*/tests/**/*.snapshot.ts"
       ],
@@ -111,6 +112,10 @@
     },
     "packages/ui/stdio": {
       "entry": ["tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/ui/tui": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.snapshot.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/examples/jsonrpc-demo": {
