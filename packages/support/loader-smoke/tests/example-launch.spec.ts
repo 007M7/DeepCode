@@ -73,7 +73,7 @@ describe('resolveExampleLaunch', () => {
   })
 
   it('lib mode: uses an explicit plain-Node bin when provided', () => {
-    const fixture = '/repo/packages/support/loader-smoke/tests/fixture.ts'
+    const fixture = '/repo/fixture.ts'
     const { args } = resolveExampleLaunch({ srcBin: fixture, libBin: fixture, mode: 'lib' })
     expect(args).toContain(fixture)
   })
