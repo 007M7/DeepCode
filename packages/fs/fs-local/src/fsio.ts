@@ -7,8 +7,8 @@
 
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { chmod, mkdir, open, readFile, realpath, readdir, rename, rm, stat } from 'node:fs/promises'
-import type { Dirent, Stats } from 'node:fs'
+import { chmod, lstat, mkdir, open, readFile, realpath, readdir, rename, rm, stat } from 'node:fs/promises'
+import type { BigIntStats, Dirent, Stats } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { TextDecoder } from 'node:util'
 import { FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
@@ -63,9 +63,9 @@ async function readFileAbortable(absolutePath: string, verb: 'read' | 'edit', si
   }
 }
 
-/** Opaque version token from a stat: mtime (ns precision) + size. */
-function versionOf(info: Stats): FsVersion {
-  return FsVersion(`${info.mtimeMs}:${info.size}`)
+/** Opaque version token from high-resolution identity and freshness metadata. */
+function versionOf(info: BigIntStats): FsVersion {
+  return FsVersion(`${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`)
 }
 
 /**
@@ -95,6 +95,14 @@ export interface PathInfo {
   version: FsVersion
   mode: number
   type: 'file' | 'directory' | 'other'
+  size: number
+}
+
+/** Result of probing a path without following the final symlink component. */
+export interface PathLinkInfo {
+  version: FsVersion
+  mode: number
+  type: 'file' | 'directory' | 'symlink' | 'other'
   size: number
 }
 
@@ -150,22 +158,62 @@ export async function resolveLocalTarget(cwd: string, path: string): Promise<Loc
   }
 }
 
+function pathType(info: Stats | BigIntStats): PathInfo['type'] {
+  if (info.isFile()) return 'file'
+  if (info.isDirectory()) return 'directory'
+  return 'other'
+}
+
+function pathLinkType(info: Stats | BigIntStats): PathLinkInfo['type'] {
+  if (info.isSymbolicLink()) return 'symlink'
+  return pathType(info)
+}
+
+async function probeStats<T extends Stats | BigIntStats>(
+  absolutePath: string,
+  readStats: (path: string) => Promise<T>,
+): Promise<T | null> {
+  try {
+    return await readStats(absolutePath)
+  } catch (error: unknown) {
+    // ENOENT (no such file) and ENOTDIR (a parent segment is a file) both mean
+    // the target is absent; any other metadata failure is a real permission/IO
+    // fault.
+    /* v8 ignore next -- a non-ENOENT/ENOTDIR metadata failure needs a permission/IO fault; surface it. */
+    if (!isENOENT(error) && !isENOTDIR(error)) throw error
+    return null
+  }
+}
+
 /**
  * Probe a path for its version, mode, type, and size. Null if absent.
  * @param absolutePath - the path to stat (typically a target key; symlinks are followed).
  * @returns the metadata, or null when the path — or a parent segment — does not exist.
  */
 export async function probe(absolutePath: string): Promise<PathInfo | null> {
-  try {
-    const info = await stat(absolutePath)
-    const type = info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other'
-    return { version: versionOf(info), mode: info.mode & 0o777, type, size: info.size }
-  } catch (error: unknown) {
-    // ENOENT (no such file) and ENOTDIR (a parent segment is a file) both mean
-    // the target is absent; any other stat failure is a real permission/IO fault.
-    /* v8 ignore next -- a non-ENOENT/ENOTDIR stat failure needs a permission/IO fault; surface it. */
-    if (!isENOENT(error) && !isENOTDIR(error)) throw error
-    return null
+  const info = await probeStats(absolutePath, path => stat(path, { bigint: true }))
+  if (!info) return null
+  return {
+    version: versionOf(info),
+    mode: Number(info.mode & 0o777n),
+    type: pathType(info),
+    size: Number(info.size),
+  }
+}
+
+/**
+ * Probe a path without following the final symlink component.
+ * @param absolutePath - the path entry to inspect with `lstat` semantics.
+ * @returns path-entry metadata, or null when the entry is absent.
+ */
+export async function probeNoFollow(absolutePath: string): Promise<PathLinkInfo | null> {
+  const info = await probeStats(absolutePath, path => lstat(path, { bigint: true }))
+  if (!info) return null
+  return {
+    version: versionOf(info),
+    mode: Number(info.mode & 0o777n),
+    type: pathLinkType(info),
+    size: Number(info.size),
   }
 }
 

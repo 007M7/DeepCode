@@ -26,7 +26,12 @@ An e2e assertion re-runs the command or re-reads the file externally; a keyword 
 - Product-visible plugins require a non-unit REAL-composition test. Hand-built `ctx.plugin(...)` suites are insufficient: boot test-only `cordis.yml` through Loader and app/process, mock only external/nondeterministic boundaries, and assert model-visible request/log, durable state, or user-visible output. Keep opt-ins out of shipped defaults.
 - A guard only guards if the regression actually fails it. For a plugin without `inject` (bundle/composition plugins), a Loader smoke stays green under a broken export shape — add an explicit `expect('default' in mod).toBe(false)` plus an `unwrapExports` round-trip assertion, and prove it: introduce the regression, watch red, revert.
 - "Real entry path" means the published artifact: the package `bin` points at built `lib/bin.js` under plain `node`, which tsx masks (settle races, module resolution, a swallowed load failure exiting 0). The same applies to any non-index runtime entry the built package resolves at run time (the worker-thread runtime's sibling `lib/worker.cjs`). Keep the built-artifact smokes green (`packages/ui/*/tests/built-bin.e2e.ts`, `packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts`), and assert a genuinely-missing config exits non-zero.
-- An e2e that spawns an example from a temp cwd sets `TSX_TSCONFIG_PATH` to the repo-root tsconfig, or it silently falls back to stale built `lib/` ([examples/AGENTS.md](../examples/AGENTS.md)).
+
+## Test subprocess launch modes
+
+- CI and build-having test lanes run every example or Cordis-config subprocess from built `lib/` through the shared dual-mode launcher. Do not hand-write `--import tsx` for these subprocesses.
+- Protocol and operating-system fixtures that do not load Cordis run erasable `.ts` directly with Node, without tsx or the root paths map.
+- Only a test whose subject is source-path resolution may select `src`; state that contract in the test.
 
 ## When a snapshot test is required
 

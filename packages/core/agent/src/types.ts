@@ -22,7 +22,7 @@ export type AgentId = Branded<'AgentId'>
 export function AgentId(id: string): AgentId {
   return id as AgentId
 }
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { ContextEnvelope, JsonValue, Session } from '@deepseek-ai/dsh-session'
 
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
@@ -33,13 +33,23 @@ declare module '@deepseek-ai/dsh-system-prompt' {
 
 /** Merge-extensible agent creation options. Persona belongs to system-prompt sections. */
 export interface AgentOptions {
-  /** Model name (must have a registered adapter at call time). */
+  /** Provider route (must have a registered adapter at call time). */
+  provider?: string
+  /** Model id interpreted by the selected provider adapter. */
   model?: string
 }
 
 /** Message options; an omitted source resolves to `{ kind: 'user' }`, so plugins must label their own content. */
 export interface SendOptions {
   source?: MessageSource
+}
+
+/** Options specific to durable synthetic context injection. */
+export interface InjectOptions extends SendOptions {
+  /** Keep the canonical context tag, or send caller-owned framing verbatim. */
+  envelope?: ContextEnvelope
+  /** Opaque JSON state retained in the session event but hidden from the model. */
+  meta?: JsonValue
 }
 
 /**
@@ -54,21 +64,25 @@ export type AgentStatus = 'idle' | 'running' | 'disposed'
 export interface HookContext {
   content: ContentBlock[]
   source: MessageSource
+  /** Keep the canonical context tag, or use caller-owned framing verbatim. */
+  envelope?: ContextEnvelope
+  /** Opaque JSON state retained in the session event but hidden from the model. */
+  meta?: JsonValue
 }
 
 /**
- * Prompt interception result. `allow.content` replaces the prompt and
- * `additionalContext` becomes a separate context message. `block` records a
+ * Prompt interception result. `allow.content` replaces the prompt and each
+ * `additionalContexts` entry becomes a separate context message. `block` records a
  * durable `prompt/blocked`; an all-blocked batch ends a zero-step rejected turn.
  */
 export type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
   | { kind: 'block'; reason: string }
 
 /** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */
 export type ContinuationDecision =
   | { action: 'stop' }
-  | { action: 'continue'; reason?: HookContext }
+  | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
 
 /**
  * The terminal subset of {@link ContinuationDecision}. A listener on
@@ -103,12 +117,13 @@ export interface Agent {
   steer(content: ContentBlock[], options?: SendOptions): void
 
   /**
-   * Append model-facing context without running the model. Idle injection uses
-   * a one-shot turn and durability checkpoint, while injection during an open
-   * turn joins it at the current log position. Disposal awaits idle checkpoints;
-   * flush failures are reported through `agent/error`, not thrown to the caller.
+   * Append detached model-facing context without running the model. An open-turn
+   * injection joins at the current log position unless the current tool batch is
+   * executing; then it waits FIFO until that batch settles and drains before turn
+   * close even when interrupted. Idle injection uses a one-shot turn and durability
+   * checkpoint. Disposal awaits idle checkpoints; flush failures report through `agent/error`.
    */
-  inject(content: ContentBlock[], options?: SendOptions): void
+  inject(content: ContentBlock[], options?: InjectOptions): void
 
   /**
    * Clear queued and steering work, including work waiting to start, and abort

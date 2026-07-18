@@ -91,7 +91,7 @@ Try a task:
 
 ## What happened
 
-echo-agent and coding-agent use the same application framework (`@deepseek-ai/dsh-stdio-agent`). Their `cordis.yml` files select different plugins and configuration. Custom agents use the same composition model.
+echo-agent and coding-agent use the same application framework (`@deepseek-ai/dsh-stdio-demo`). Their `cordis.yml` files select different plugins and configuration. Custom agents use the same composition model.
 
 ## Next steps
 

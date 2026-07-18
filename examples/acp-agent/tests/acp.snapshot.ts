@@ -25,7 +25,9 @@ const AGENT = {
 // The Code Mode overlay configs (include-patched variants of cordis.yml; the
 // replay swap resolves each one's sibling `*cordis.snapshot.yml`).
 const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
+const CODE_MODE_WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../code-mode-workspace-context.cordis.yml', import.meta.url))
 const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
+const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../workspace-context.cordis.yml', import.meta.url))
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 
@@ -51,6 +53,14 @@ const SCENARIOS: Scenario[] = [
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  {
+    name: 'parallel-tool-calls',
+    hasModelTurn: true,
+    recorded: false,
+    headerClass: 'fs',
+    configPath: FS_CONFIG,
+  },
+  { name: 'bash-spill', hasModelTurn: true, recorded: false, headerClass: 'fs', configPath: FS_CONFIG },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
@@ -62,12 +72,36 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-read-window', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
   { name: 'fs-policy-reject', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
+  // ACP exposes the adapter catalog as a session-scoped model select. This
+  // scenario pins the default flash request, the switch response, and the
+  // resulting changed request-header snapshot for pro.
+  {
+    name: 'model-switching',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    expectedHeaderChanges: 1,
+    headerClass: 'model-switching',
+  },
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
   // Keyless, authored (like error-finish/cancel): deterministically forcing a
   // LIVE model to repeat one call three times is not a stable recording, so
   // the fixture scripts five identical todo_write calls and pins BOTH reminder
   // tiers (gentle at 3, detailed at 5) as context/message in transcript and log.
   { name: 'repeat-tool-guard', hasModelTurn: true, recorded: false },
+  // Authored replay: a root AGENTS.md pins the session prefix, then a read in
+  // nested/ discovers its narrower AGENTS.md as a raw, metadata-bearing
+  // context/message. The scenario-specific config keeps home/root discovery
+  // hermetic, and the resulting prefix needs its own pinned header class.
+  {
+    name: 'workspace-context',
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    pinsHeader: true,
+    headerClass: 'workspace-context',
+    configPath: WORKSPACE_CONTEXT_CONFIG,
+  },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
   { name: 'subagent-spawn', hasModelTurn: true, recorded: true, childSessions: 1 },
   { name: 'subagent-multi', hasModelTurn: true, recorded: true, childSessions: 2 },
@@ -116,14 +150,25 @@ const SCENARIOS: Scenario[] = [
   // tools:sdk section rides in the prompt, and the program's tool calls land as
   // tool/code-dispatch events. Each overlay composes and pins its own header class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
+  // A nested fs dispatch inside run_code discovers workspace instructions. The
+  // context/message must follow the outer result while retaining workspace
+  // provenance, which proves Code Mode carries deferred tool context end to end.
+  {
+    name: 'code-mode-workspace-context',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    headerClass: 'code-workspace-context',
+    configPath: CODE_MODE_WORKSPACE_CONTEXT_CONFIG,
+  },
   { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
-  // The default tree owns the single Permissions select. Snapshot mode starts
-  // in danger-full-access so established fixtures stay runner-independent;
-  // these policy scenarios switch to workspace-write in their input scripts.
+  // The default tree also owns the Permissions select. Snapshot mode starts in
+  // danger-full-access so established fixtures stay runner-independent; these
+  // policy scenarios switch to workspace-write in their input scripts.
   // Real-kernel confinement remains in escalation.e2e.ts and the sandbox
   // packages' e2e suites.
   { name: 'config-options', hasModelTurn: false, recorded: false, headerClass: 'sandbox' },
-  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'sandbox' },
+  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'sandbox' },
   { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
   { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
 ]

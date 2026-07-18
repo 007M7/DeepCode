@@ -6,7 +6,8 @@
  */
 
 import type { Context } from 'cordis'
-import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
+import { isDeepStrictEqual } from 'node:util'
 import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
@@ -17,6 +18,7 @@ import type { TransmissionLog } from './request-log.ts'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
+import { executeToolCalls } from './tool-calls.ts'
 import type { ReactLoopAgent } from './agent.ts'
 import type { Inbox } from './inbox.ts'
 
@@ -72,6 +74,8 @@ function stepFinishReason(finish: FinishReason): TurnEndReason | undefined {
 export interface LoopHandle {
   /** Native-private agent inbox handed to the driver only at internal startup. */
   readonly inbox: Inbox
+  /** Maximum parallel-safe calls allowed in one step. */
+  readonly maxParallelToolCalls: number
   setStatus(status: 'idle' | 'running'): void
   setAbort(controller: AbortController | undefined): void
   /** Resolves when the agent is disposed — unblocks the idle wait. */
@@ -85,6 +89,8 @@ export interface LoopHandle {
   clearCancel(): void
   /** Settle idle waiters when pre-running cancellation skips a turn, without emitting `agent/status`. */
   settleIdle(): void
+  /** Run an active tool-call batch, accepting post-tool context into the FIFO drained before settlement. */
+  readonly withToolBatch: <T>(run: (acceptContext: (context: HookContext) => void) => Promise<T>) => Promise<T>
 }
 
 /**
@@ -234,10 +240,15 @@ async function runTurn(
       // `allow.content` REPLACES the prompt bytes (a rewrite); absent keeps them.
       const content = decision.content ?? message.content
       session.append('user/message', { content, source: message.source }, { surfaceOp: 'append' })
-      // `allow.additionalContext` is a SEPARATE context/message the next request
-      // also sees. The turn is open, so inject() appends it into THIS turn.
-      if (decision.additionalContext) {
-        agent.inject(decision.additionalContext.content, { source: decision.additionalContext.source })
+      // Every `allow.additionalContexts` entry is a separate context/message the
+      // next request also sees. The turn is open, so inject() appends each one
+      // into THIS turn without flattening provenance, framing, or metadata.
+      for (const context of decision.additionalContexts ?? []) {
+        agent.inject(context.content, {
+          source: context.source,
+          ...context.envelope !== undefined ? { envelope: context.envelope } : {},
+          ...context.meta !== undefined ? { meta: context.meta } : {},
+        })
       }
     }
 
@@ -325,7 +336,7 @@ async function runTurn(
       let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
         stepOutcome = await runStep(
-          ctx, events, agent, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
+          ctx, events, agent, handle, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
       } catch (error: unknown) {
         stepOutcome = { error: toError(error) }
       } finally {
@@ -462,6 +473,7 @@ async function runStep(
   ctx: Context,
   events: AgentEventDispatch,
   agent: ReactLoopAgent,
+  handle: LoopHandle,
   turn: number,
   step: number,
   assembly: PromptAssembly,
@@ -477,12 +489,12 @@ async function runStep(
   const seedConfig: LlmCallConfig = deepFreeze(structuredClone(transmission.loggedHeader
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- loggedHeader ⟹ a snapshot is in the log
     ? session.requestHeader()!.config
-    : { model: options.model ?? '' }))
+    : { provider: options.provider ?? '', model: options.model ?? '' }))
 
   // Listener replacements are recorded in the request header before dispatch.
   const config = await events.waterfall('agent/request', turn, step, seedConfig, () => Promise.resolve(seedConfig))
-  if (!config.model) {
-    throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
+  if (!config.provider || !config.model) {
+    throw new Error(`agent "${agent.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)
   }
 
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- runTurn composes the prefix before every runStep call
@@ -499,6 +511,7 @@ async function runStep(
 
   // Freeze the logged header plus boundary snapshot; the prefix precedes derived history.
   const request: GenerateOptions = deepFreeze({
+    provider: header.config.provider,
     model: header.config.model,
     messages: [...header.messagePrefix ?? [], ...boundaryMessages],
     ...header.system !== undefined ? { system: header.system } : {},
@@ -526,81 +539,108 @@ async function runStep(
   if (stepError) throw stepError
 
   if (assembler.finish.kind === 'max-tokens') {
-    let message: Message = withoutToolCalls(assembler.message())
-    message = withoutToolCalls(await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message)))
+    const assembled = assembler.message()
+    const assembledContent = structuredClone(assembled.content)
+    let message: Message = withoutToolCalls(assembled)
+    message = withoutToolCalls(await processStepResult(
+      events, session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs,
+    ))
     // Preserve usage even when max-token truncation produced no content.
-    if (message.content.length > 0 || assembler.usage) {
-      // The finish chunk guarantees non-empty provenance here.
-      session.append(
-        'assistant/message',
-        { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
-        { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
-      )
-    }
+    recordAssistantMessage(session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs)
     return { hadToolCalls: false, finish: assembler.finish }
   }
 
   // Record the post-waterfall message that tool dispatch uses.
-  let message: Message = assembler.message()
-  message = await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message))
+  const assembled = assembler.message()
+  const assembledContent = structuredClone(assembled.content)
+  let message: Message = assembled
+  message = await processStepResult(
+    events, session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs,
+  )
 
-  // Empty messages exist only to carry usage; omit empty provenance.
-  if (message.content.length > 0 || assembler.usage) {
-    session.append(
-      'assistant/message',
-      { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
-      { surfaceOp: 'append', ...(chunkSeqs.length > 0 ? { sourceEventSeqs: chunkSeqs } : {}) },
-    )
-  }
+  // Every successful call records its completion anchor, including explicit
+  // empty chunk provenance for a contentless, usage-less provider response.
+  recordAssistantMessage(session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs)
 
-  // Tool execution stays sequential; recheck abort around each normalized result.
+  // Dispatch may overlap; policy, durable results, and result context stay model-ordered.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
-  // Buffer context until all results are appended to preserve call/result adjacency.
-  const pendingContext: HookContext[] = []
-  for (const call of toolCalls) {
-    /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    const callEvent = session.append('tool/call', { turn, step, callId: call.id, name: call.name, arguments: call.arguments })
-    let parsedArguments: unknown
-    try {
-      parsedArguments = call.arguments ? JSON.parse(call.arguments) : {}
-    } catch {
-      parsedArguments = call.arguments
-    }
-    // TODO(pre-tool-input-rewrite): Keep logged history and live presentation aligned;
-    // see docs/rfc/proposed/feature/2026-06-30-pre-tool-input-rewrite.md.
-    const result = await ctx.tools.execute({
-      callId: call.id,
-      name: call.name,
-      arguments: parsedArguments,
-      agent,
-      signal,
-    })
-    session.append('tool/result', {
-      turn, step,
-      // Correlation comes from the immutable execution input; the result does
-      // not duplicate this authoritative transcript identity.
-      callId: call.id,
-      content: result.content,
-      isError: result.isError,
-      ...result.error ? { error: result.error } : {},
-      // Persist tool-owned presentation data for replay.
-      ...result.meta !== undefined ? { meta: result.meta } : {},
-    }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
-    if (result.additionalContext) pendingContext.push(result.additionalContext)
-    // The signal may flip while the tool is awaited.
-    /* v8 ignore start -- signal.reason default unreachable: cancel()/disposal always set it */
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    /* v8 ignore stop */
-  }
+  if (toolCalls.length === 0) return { hadToolCalls: false, finish: assembler.finish }
+  return handle.withToolBatch(async (acceptContext) => {
+    await executeToolCalls(
+      ctx, agent, turn, step, toolCalls, signal, handle.maxParallelToolCalls, acceptContext,
+    )
+    return { hadToolCalls: true, finish: assembler.finish }
+  })
+}
 
-  // Append buffered context after the complete result batch.
-  for (const context of pendingContext) {
-    agent.inject(context.content, { source: context.source })
+/** Preserve successful-call accounting without retaining output that result processing rejected. */
+async function processStepResult(
+  events: AgentEventDispatch,
+  session: Session,
+  turn: number,
+  step: number,
+  config: LlmCallConfig,
+  assembledContent: ContentBlock[],
+  message: Message,
+  assembler: BlockAssembler,
+  chunkSeqs: number[],
+): Promise<Message> {
+  try {
+    return await events.waterfall(
+      'agent/step-result', turn, step, message, () => Promise.resolve(message),
+    )
+  } catch (error: unknown) {
+    recordAssistantMessage(
+      session,
+      turn,
+      step,
+      config,
+      assembledContent,
+      { ...message, content: [] },
+      assembler,
+      chunkSeqs,
+      false,
+    )
+    throw error
   }
+}
 
-  return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
+/** Record one content-or-usage assistant message with replay-safe provenance. */
+function recordAssistantMessage(
+  session: Session,
+  turn: number,
+  step: number,
+  config: LlmCallConfig,
+  assembledContent: ContentBlock[],
+  message: Message,
+  assembler: BlockAssembler,
+  chunkSeqs: number[],
+  preserveReplayState = true,
+): void {
+  session.append(
+    'assistant/message',
+    {
+      turn,
+      step,
+      content: message.content,
+      provenance: assistantProvenance(
+        config,
+        assembler.replayState,
+        preserveReplayState && isDeepStrictEqual(message.content, assembledContent),
+      ),
+      ...assembler.usage === undefined ? {} : { usage: assembler.usage },
+    },
+    { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
+  )
+}
+
+/** Build durable assistant provenance, dropping replay state after any content rewrite. */
+function assistantProvenance(config: LlmCallConfig, replayState: unknown, contentUnchanged: boolean): NonNullable<Message['provenance']> {
+  return {
+    provider: config.provider,
+    model: config.model,
+    ...contentUnchanged && replayState !== undefined ? { replayState } : {},
+  }
 }
 
 function withoutToolCalls(message: Message): Message {

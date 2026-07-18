@@ -79,11 +79,16 @@ export function apply(ctx: Context) {
 
 To stop a plugin instance early:
 
-```ts ignore-check
+```ts
+import type { Context } from 'cordis'
+
+declare const ctx: Context
+declare function myPlugin(ctx: Context): void
+
 const fiber = ctx.plugin(myPlugin)
 
 // Dispose it manually later.
-fiber.dispose()
+await fiber.dispose()
 ```
 
 `dispose` guarantees:

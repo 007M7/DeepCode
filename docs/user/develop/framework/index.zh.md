@@ -79,11 +79,16 @@ export function apply(ctx: Context) {
 
 当你需要提前终止一个插件实例：
 
-```ts ignore-check
+```ts
+import type { Context } from 'cordis'
+
+declare const ctx: Context
+declare function myPlugin(ctx: Context): void
+
 const fiber = ctx.plugin(myPlugin)
 
 // Dispose it manually later.
-fiber.dispose()
+await fiber.dispose()
 ```
 
 `dispose` 保证：

@@ -23,7 +23,7 @@ Harness 使用 `cordis.yml` 描述 Agent 加载哪些插件以及每个插件的
       - deepseek-v4-flash
 
 - id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-agent'
+  name: '@deepseek-ai/dsh-stdio-demo'
   config:
     model: deepseek-v4-flash
 ```

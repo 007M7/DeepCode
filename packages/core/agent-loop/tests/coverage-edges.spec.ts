@@ -40,7 +40,7 @@ describe('inbox acceptance', () => {
   it('rejects non-serializable content or source synchronously before notification or enqueue', async () => {
     const adapter = new MockAdapter([textResponse('turn 1')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     let queued = 0
     ctx.on('agent/queued', () => { queued += 1 })
 
@@ -80,7 +80,7 @@ describe('tool JSON parse', () => {
         return [{ type: 'text', text: typeof args === 'string' ? `raw: ${args}` : JSON.stringify(args) }]
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'use tool')
     await waitForIdle(ctx, agent)
@@ -113,7 +113,7 @@ describe('tool JSON parse', () => {
         return [{ type: 'text', text: 'ran with empty args' }]
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'use tool')
     await waitForIdle(ctx, agent)
@@ -126,7 +126,7 @@ describe('toError normalization', () => {
   it('normalizes non-Error throws from pre-commit dispatch validation via the runLoop backstop', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
     ctx.on('internal/dispatch', (_mode, name, args) => {
@@ -152,7 +152,7 @@ describe('toError normalization', () => {
   it('normalizes non-Error throws from agent/request waterfall via inline toError in runStep catch', async () => {
     const adapter = new MockAdapter([textResponse('irrelevant')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
     ctx.on('agent/request', async (_agent, _turn, _step, _options, _next) => {
@@ -180,7 +180,7 @@ describe('coded error data emission', () => {
   it('errorData includes code when a coded error (LlmError) is thrown from a plugin', async () => {
     const adapter = new MockAdapter([textResponse('turn 1')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
     ctx.on('agent/request', async (_agent, _turn, _step, _options, next) => {
@@ -214,7 +214,7 @@ describe('disposed vs aborted branching', () => {
     const ctx = await harness(adapter)
     let agent!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(AgentId('scoped'), { model: 'mock' })
+      agent = inner.agentLoop.create(AgentId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
     const reasons: TurnEndReason[] = []
@@ -240,7 +240,7 @@ describe('structured tool error propagation (the runtime-validation RFC, part 2)
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     ctx.tools.register(defineTool({
       name: 'boom',
       description: 'always fails',

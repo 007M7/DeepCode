@@ -41,6 +41,7 @@ class StubCompactService extends CompactService {
       shadowedRange: { start, end },
       shadowedSeqs: [],
       shadowedTokenCount: 0,
+      provider: 'mock',
       model: 'stub',
     })
     const endEvent = session.append('compact/end', { turn: 0 })

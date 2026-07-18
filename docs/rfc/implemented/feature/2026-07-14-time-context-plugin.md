@@ -6,6 +6,8 @@ English | [中文](2026-07-14-time-context-plugin.zh.md)
 
 ## Problem
 
+The dynamic system-prompt storage and refresh decision in this record is superseded by [Durable per-step time context](2026-07-16-durable-per-step-time-context.md). The opt-in package, zoned formatting, and validation remain; the follow-up owns the current model-visible and durability contract.
+
 An agent request has no live clock unless a deployment puts one in prompt text or gives the model a query tool. Static text becomes stale, while a tool call adds overhead to ordinary reasoning about dates, deadlines, or idle time. Without elapsed time, the model cannot distinguish an immediate follow-up from one sent hours after the preceding message.
 
 Prompt assembly can derive both facts per step from durable session timestamps, and request-header logging can record the exact rendered value. Accumulating stale readings in conversation history or waking idle agents would violate the existing request lifecycle.
@@ -30,11 +32,11 @@ When `timeZone` is omitted, `Intl.DateTimeFormat` resolves the Node process's sy
 
 ### Logging and token shape
 
-The loop records the temporal block through `request/header` and `request/header-delta` before transmission, satisfying the [reconstructable-requests contract](../architecture/2026-07-05-reconstructable-requests.md). Each request carries one current block; earlier readings do not remain in conversation history. The plugin owns the fact and contributes it through the prompt registry, following the [prompt-variables RFC](../architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md) without a loop special case.
+The loop records the temporal block in full `request/header` snapshots before transmission, satisfying the [reconstructable-requests contract](../architecture/2026-07-05-reconstructable-requests.md). Each request carries one current block; earlier readings do not remain in conversation history. The plugin owns the fact and contributes it through the prompt registry, following the [prompt-variables RFC](../architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md) without a loop special case.
 
 ## Testing
 
-Unit tests pin formatting, baselines, refresh policy, validation, per-agent state, disposal, and load-time system-zone capture. A real agent-loop test pins the transmitted prompt and `request/header-delta`. A keyless subprocess e2e boots a test-only `cordis.yml` through the real Loader and stdio app, omits `timeZone` under a controlled `TZ`, drives two turns, and verifies the persisted request headers externally. Default snapshot compositions omit the plugin, so their transcript fixtures contain no temporal block.
+Unit tests pin formatting, baselines, refresh policy, validation, per-agent state, disposal, and load-time system-zone capture. A real agent-loop test pins the transmitted prompt and full `request/header` snapshots. A keyless subprocess e2e boots a test-only `cordis.yml` through the real Loader and stdio app, omits `timeZone` under a controlled `TZ`, drives two turns, and verifies the persisted request headers externally. Default snapshot compositions omit the plugin, so their transcript fixtures contain no temporal block.
 
 ## Alternatives considered
 
@@ -52,6 +54,6 @@ Unit tests pin formatting, baselines, refresh policy, validation, per-agent stat
 
 - Opted-in models receive a zoned clock and inter-turn duration without a tool call. The system-prompt cost is fixed per request instead of growing with the session.
 - An omitted `timeZone` follows the process's `TZ`, host, or container zone as observed at plugin load. Operators must configure an explicit zone when the deployment environment does not represent the intended user.
-- A refresh changes the request header and can add a `request/header-delta`. `refreshIntervalMs` trades freshness against durable deltas; `0` records a new value on every step whose whole-second rendering changes.
+- A refresh changes the request header and can add a full `request/header` snapshot with reason `change`. `refreshIntervalMs` trades freshness against the number and size of durable full snapshots; `0` records a new value on every step whose whole-second rendering changes.
 - No request exists solely to refresh time. A long-running tool leaves the prior reading until the next step assembles.
 - Duration reflects harness processing time at durable append boundaries, not client-network latency before logging. Preserving a client-origin timestamp requires a separate durable input contract.

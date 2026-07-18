@@ -91,12 +91,19 @@ The test is whether `cordis.yml` can change the value without a code edit.
 
 ### Fail loudly on invalid configuration
 
-If configuration refers to a missing model or another nonexistent resource, fail early instead of silently skipping it:
+If configuration refers to an unregistered LLM provider route or another nonexistent resource, fail early instead of silently skipping it:
 
-```ts ignore-check
-export function apply(ctx: Context, config: Config) {
-  if (!ctx.llm.models().includes(config.model)) {
-    throw new Error(`Model "${config.model}" is not registered by any LLM adapter`)
+```ts
+import type { Context } from 'cordis'
+import type {} from '@deepseek-ai/dsh-llm'
+
+export interface ModelConfig {
+  provider: string
+}
+
+export function apply(ctx: Context, config: ModelConfig) {
+  if (!ctx.llm.listProviders().some(provider => provider.id === config.provider)) {
+    throw new Error(`LLM provider "${config.provider}" is not registered`)
   }
 }
 ```

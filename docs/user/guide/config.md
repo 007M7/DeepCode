@@ -23,7 +23,7 @@ A minimal configuration is a list of plugin entries:
       - deepseek-v4-flash
 
 - id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-agent'
+  name: '@deepseek-ai/dsh-stdio-demo'
   config:
     model: deepseek-v4-flash
 ```

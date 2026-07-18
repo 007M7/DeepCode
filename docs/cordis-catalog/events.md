@@ -23,7 +23,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:139`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:154`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -35,7 +35,7 @@ An agent left the registry; AgentLoop emits this after driver quiescence but bef
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:148`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:163`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:283`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:298`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -59,7 +59,7 @@ Awaited serial checkpoint for session-surface mutation after prompt assembly and
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:202`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:217`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -71,7 +71,7 @@ Allow, rewrite, or block one drained prompt before it becomes a user message. Ca
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:212`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:227`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -83,7 +83,7 @@ Detached, frozen content entered the agent's inbox. Source defaults have already
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:167`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:182`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -95,7 +95,7 @@ Replace the frozen call configuration. Model-visible content must use logged cha
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:224`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:239`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -107,7 +107,7 @@ Compose request-only messages placed before derived history. The frozen result i
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:239`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:254`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -119,7 +119,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:180`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:195`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -131,7 +131,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does no
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:157`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:172`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -143,7 +143,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:265`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -155,7 +155,7 @@ Override whether the turn continues. The default continues after tool calls or s
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:260`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:275`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -167,7 +167,7 @@ Monotonic terminal-stop checkpoint after continuation and steering are folded; a
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:270`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:285`](../../packages/core/agent/src/types.ts)
 
 ## `approval/*`
 
@@ -195,7 +195,7 @@ Single-slot decision for the next FileSystem.editText. Calling `next()` yields a
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:59`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:61`](../../packages/fs/fs/src/index.ts)
 
 ### `fs/observed` — emit
 
@@ -207,7 +207,7 @@ Record a successful observation. Listeners must be synchronous recorders: throws
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:68`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:70`](../../packages/fs/fs/src/index.ts)
 
 ### `fs/write-intent` — waterfall
 
@@ -219,7 +219,7 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:51`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:53`](../../packages/fs/fs/src/index.ts)
 
 ## `llm/*`
 
@@ -233,7 +233,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:39`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:40`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -245,7 +245,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 'session/created'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:47`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:46`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
@@ -255,7 +255,7 @@ Emitted once when an announced session leaves the store, including publication r
 'session/disposed'(this: Scoped<Session>, session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:57`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:56`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -267,7 +267,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:69`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:68`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -277,7 +277,7 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:79`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:78`](../../packages/core/session/src/index.ts)
 
 ## `subagent/*`
 
@@ -289,7 +289,7 @@ A ready child settled. Scope-filtered dispatch uses the same delegating parent c
 'subagent/end'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:92`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:108`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -299,7 +299,7 @@ A provider became resolvable in the registry.
 'subagent/provider-added'(provider: SubagentProvider): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:66`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:82`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-removed` — emit
 
@@ -309,7 +309,7 @@ A provider left the registry. Accepted runs remain holder-owned.
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:72`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:88`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
@@ -319,7 +319,7 @@ A provider established a ready child. For in-process providers, `ctx.agents.get(
 'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:83`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:99`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 
@@ -469,14 +469,14 @@ Source: [`packages/workflow/workflow/src/index.ts:45`](../../packages/workflow/w
 
 The framework events every plugin also sees, beyond the harness vocabulary above. This is pinned vendor source ([vendoring policy](../../vendor/README.md)); it is summarized here so the page is a complete picture of the event bus, without elevating framework internals to the harness tier's prominence.
 
-- `internal/plugin` — A plugin fiber was created. ([`vendor/cordis/src/events.ts:197`](../../vendor/cordis/src/events.ts))
-- `internal/status` — A fiber changed lifecycle state. ([`vendor/cordis/src/events.ts:198`](../../vendor/cordis/src/events.ts))
-- `internal/service` — Interception hook for a service binding (no core producer). ([`vendor/cordis/src/events.ts:199`](../../vendor/cordis/src/events.ts))
-- `internal/update` — Waterfall: a fiber config update is being applied. ([`vendor/cordis/src/events.ts:200`](../../vendor/cordis/src/events.ts))
-- `internal/get` — Waterfall: a service is being read from the store. ([`vendor/cordis/src/events.ts:201`](../../vendor/cordis/src/events.ts))
-- `internal/set` — Waterfall: a service is being written to the store. ([`vendor/cordis/src/events.ts:202`](../../vendor/cordis/src/events.ts))
-- `internal/listener` — A listener was registered. ([`vendor/cordis/src/events.ts:203`](../../vendor/cordis/src/events.ts))
-- `internal/dispatch` — An event is being dispatched to listeners. ([`vendor/cordis/src/events.ts:204`](../../vendor/cordis/src/events.ts))
+- `internal/plugin` — A plugin fiber was created. ([`vendor/cordis/src/events.ts:328`](../../vendor/cordis/src/events.ts))
+- `internal/status` — A fiber changed lifecycle state. ([`vendor/cordis/src/events.ts:330`](../../vendor/cordis/src/events.ts))
+- `internal/service` — Interception hook for a service binding (no core producer). ([`vendor/cordis/src/events.ts:332`](../../vendor/cordis/src/events.ts))
+- `internal/update` — Waterfall: a fiber config update is being applied. ([`vendor/cordis/src/events.ts:334`](../../vendor/cordis/src/events.ts))
+- `internal/get` — Waterfall: a service is being read from the store. ([`vendor/cordis/src/events.ts:336`](../../vendor/cordis/src/events.ts))
+- `internal/set` — Waterfall: a service is being written to the store. ([`vendor/cordis/src/events.ts:338`](../../vendor/cordis/src/events.ts))
+- `internal/listener` — A listener was registered. ([`vendor/cordis/src/events.ts:340`](../../vendor/cordis/src/events.ts))
+- `internal/dispatch` — An event is being dispatched to listeners. ([`vendor/cordis/src/events.ts:342`](../../vendor/cordis/src/events.ts))
 - `hmr/change` — A watched source file changed on disk. ([`vendor/hmr/src/index.ts:20`](../../vendor/hmr/src/index.ts))
 - `hmr/reload` — Plugins are being reloaded after a change. ([`vendor/hmr/src/index.ts:21`](../../vendor/hmr/src/index.ts))
 - `exit` — The process is exiting on a signal. ([`vendor/loader/src/index.ts:23`](../../vendor/loader/src/index.ts))

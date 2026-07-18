@@ -14,6 +14,7 @@ import type {
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
+  FsPathInfo,
   FsTarget,
   FsWriteIntent,
   FsWriteOutcome,
@@ -41,6 +42,11 @@ class FakeFs extends FileSystem {
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     this.throwIfArmed()
     const content = this.files.get(target.targetKey)
+    if (content === undefined) return undefined
+    return { version: FsVersion('v1'), type: 'file', size: content.length }
+  }
+  override async lstat(path: string): Promise<FsPathInfo | undefined> {
+    const content = this.files.get(`key:${path}`)
     if (content === undefined) return undefined
     return { version: FsVersion('v1'), type: 'file', size: content.length }
   }
@@ -100,6 +106,16 @@ describe('registration', () => {
   it('registers read, write, and edit', async () => {
     const { ctx } = await setup()
     expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['edit', 'read', 'write'])
+  })
+
+  it('declares read parallel-safe while write/edit remain exclusive', async () => {
+    const { ctx } = await setup()
+    expect(ctx.tools.executionMode({ callId: CallId('read-safe'), name: 'read', arguments: { file_path: 'a.txt' } }))
+      .toEqual({ kind: 'parallel' })
+    expect(ctx.tools.executionMode({ callId: CallId('write-exclusive'), name: 'write', arguments: { file_path: 'a.txt', content: 'x' } }))
+      .toEqual({ kind: 'exclusive' })
+    expect(ctx.tools.executionMode({ callId: CallId('edit-exclusive'), name: 'edit', arguments: { file_path: 'a.txt', old_string: 'x', new_string: 'y' } }))
+      .toEqual({ kind: 'exclusive' })
   })
 
   it('registers prompt sections for each tool', async () => {

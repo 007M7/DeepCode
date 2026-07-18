@@ -91,12 +91,19 @@ export interface Config {
 
 ### 配置错误要响亮
 
-如果配置引用了不存在的东西（比如一个不存在的模型名），应该尽早报错，而不是静默跳过：
+如果配置引用了未注册的 LLM 提供方路由或其他不存在的资源，应该尽早报错，而不是静默跳过：
 
-```ts ignore-check
-export function apply(ctx: Context, config: Config) {
-  if (!ctx.llm.models().includes(config.model)) {
-    throw new Error(`Model "${config.model}" is not registered by any LLM adapter`)
+```ts
+import type { Context } from 'cordis'
+import type {} from '@deepseek-ai/dsh-llm'
+
+export interface ModelConfig {
+  provider: string
+}
+
+export function apply(ctx: Context, config: ModelConfig) {
+  if (!ctx.llm.listProviders().some(provider => provider.id === config.provider)) {
+    throw new Error(`LLM provider "${config.provider}" is not registered`)
   }
 }
 ```

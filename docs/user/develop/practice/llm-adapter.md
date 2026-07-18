@@ -132,7 +132,7 @@ The first argument lists the model names handled by the adapter. If `cordis.yml`
       - my-model-v2
 
 - id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-agent'
+  name: '@deepseek-ai/dsh-stdio-demo'
   config:
     model: my-model-v1  # References the model registered above.
 ```

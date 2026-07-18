@@ -12,9 +12,6 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../../vendor/schemastery"
-    },
-    {
       "path": "../../../vendor/timer"
     },
     {
@@ -45,13 +42,25 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../context/workspace-context"
+    },
+    {
       "path": "../../core/agent-loop"
     },
     {
       "path": "../../support/invariants"
     },
     {
+      "path": "../../util/home"
+    },
+    {
       "path": "../../bash/tool-bash"
+    },
+    {
+      "path": "../../tasks/tasks"
+    },
+    {
+      "path": "../../tasks/tool-tasks"
     }
   ]
 }

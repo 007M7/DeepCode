@@ -35,7 +35,7 @@ This RFC decided the four-layer split, the provider contract, and the freshness 
 `@deepseek-ai/dsh-fs` shrinks to provider text IO plus guarded text mutation:
 
 ```ts ignore-check
-abstract resolve(path: string): Promise<FsTarget>
+abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>
 abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
 abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
 abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>

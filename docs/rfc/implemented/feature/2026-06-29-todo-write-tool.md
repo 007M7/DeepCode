@@ -20,7 +20,7 @@ The list is appended as a `todo/write` event carrying the full `{ todos }` snaps
 
 ### NOT a surface event
 
-`todo/write` is deliberately excluded from `SurfaceEventType`. The surface is the projection that produces the LLM message history (`deriveMessages()`); a todo write produces no conversation message. So it carries no `surfaceOp`, never joins the surface linked list, and never reaches `deriveMessages()` — it is durable, replayable *UI* state that travels alongside the conversation without being part of it. (The dev-mode invariants still require it to sit inside an open turn, which it always does: it is appended mid-step during a tool call.)
+`todo/write` is deliberately excluded from `SurfaceEventType`. The surface is the projection that produces the LLM message history (`deriveMessages()`); a todo write produces no conversation message. So it carries no `surfaceOp`, never joins the ordered surface, and never reaches `deriveMessages()` — it is durable, replayable *UI* state that travels alongside the conversation without being part of it. (The dev-mode invariants still require it to sit inside an open turn, which it always does: it is appended mid-step during a tool call.)
 
 ### Priority synthesized only at the ACP boundary
 

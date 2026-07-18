@@ -56,7 +56,7 @@ async function runTurn(registrationOrder: string[], toolOrder?: SystemPromptConf
   const adapter = new MockAdapter([textResponse('done')])
   const ctx = await harness(adapter, toolOrder)
   for (const name of registrationOrder) registerNamed(ctx, name)
-  const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+  const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
   agent.send([{ type: 'text', text: 'go' }])
   await waitForIdle(ctx, agent)
   return { ctx, agent, adapter }
@@ -98,7 +98,7 @@ describe('loop-level canonical tool order', () => {
     registerNamed(ctx, 'alpha')
     const errors: Error[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(0)
