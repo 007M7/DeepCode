@@ -1,13 +1,34 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
+import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { runScenario, type AgentUnderTest, type InputStep } from '../src/harness.ts'
+import { launchAcpTestAgent } from '../src/launcher.ts'
+
+const fsControl = vi.hoisted(() => ({ cleanupFailure: undefined as Error | undefined }))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    async rm(...args: Parameters<typeof actual.rm>): Promise<void> {
+      if (String(args[0]).includes('acp-snap-cwd-') && fsControl.cleanupFailure !== undefined) {
+        const failure = fsControl.cleanupFailure
+        fsControl.cleanupFailure = undefined
+        await actual.rm(...args)
+        throw failure
+      }
+      await actual.rm(...args)
+    },
+  }
+})
 
 /**
  * Unit tests for the subprocess harness, driven through the REAL spawn path
- * (tsx loader, temp cwd, env plumbing) against the scripted fake ACP bin in
+ * (mode-aware launcher, temp cwd, env plumbing) against the scripted fake ACP bin in
  * ./fixtures/fake-acp-agent.ts. Each case writes a `behavior.json` next to a
  * throwaway fixture path; the fake bin echoes observable facts (env, seeded
  * workspace, permission outcomes) into `agent_message_chunk` text, so the
@@ -40,12 +61,204 @@ async function scenario(behavior: object): Promise<{ dir: string; fixtureFile: s
 const boot: InputStep[] = [{ op: 'initialize' }, { op: 'newSession' }]
 
 describe('runScenario', () => {
+  it('surfaces an asynchronous child spawn failure through startup and close', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: join(dir, 'missing') })
+    let stdioClosed = false
+    let clientClosed = false
+    launched.child.once('close', () => { stdioClosed = true })
+    void launched.client.closed.then(
+      () => { clientClosed = true },
+      () => { clientClosed = true },
+    )
+    await expect(launched.spawned).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(launched.close()).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(stdioClosed).toBe(true)
+    expect(clientClosed).toBe(true)
+  })
+
+  it('centralizes ACP boot, captures, updates, fail-closed permissions, and shutdown', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({ permissionProbe: true, echoEnv: true, stderrNote: 'launcher stderr' })
+    const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-launcher-sessions-'))
+    tempDirs.push(sessionsRoot)
+    const launched = launchAcpTestAgent({
+      agent: AGENT,
+      cwd: dir,
+      configPath: AGENT.configPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        DSH_SNAPSHOT_FILE: fixtureFile,
+        DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
+      },
+    })
+    await launched.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await launched.client.newSession({ cwd: dir, mcpServers: [] })
+    const nextChunk = launched.waitForUpdate(update => update.sessionUpdate === 'agent_message_chunk')
+    const predicateFailure = new Error('predicate failed')
+    const failedPredicate = launched.waitForUpdate(() => { throw predicateFailure })
+      .catch((error: unknown): unknown => error)
+    await launched.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
+    expect(await failedPredicate).toBe(predicateFailure)
+    expect((await nextChunk).sessionUpdate).toBe('agent_message_chunk')
+    expect(launched.updates.some(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
+    expect(launched.rawStdout()).toContain('permission:{\\"outcome\\":\\"cancelled\\"}')
+    expect(launched.stderr()).toContain('launcher stderr')
+    const unmatched = expect(launched.waitForUpdate(() => false)).rejects.toThrow(/update stream closed/)
+    await launched.close()
+    await unmatched
+    await expect(launched.waitForUpdate(() => true)).rejects.toThrow(/update stream closed/)
+    await launched.close('SIGKILL')
+
+    // The minimal shape needs no environment or config override.
+    const minimal = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await minimal.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const childFailure = new Error('child process failed')
+    let exited = false
+    minimal.child.once('exit', () => { exited = true })
+    minimal.child.emit('error', childFailure)
+    await expect(minimal.close('SIGTERM')).rejects.toBe(childFailure)
+    // close rejects only after the fallback SIGKILL has produced an exit edge.
+    expect(exited).toBe(true)
+  })
+
+  it('waits for inherited stdio and buffered ACP parsing after the parent exits', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({ lateInheritedOutput: true })
+    const launched = launchAcpTestAgent({
+      agent: AGENT,
+      cwd: dir,
+      env: { DSH_SNAPSHOT_FILE: fixtureFile },
+    })
+    await launched.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await launched.client.newSession({ cwd: dir, mcpServers: [] })
+    const lateUpdate = launched.waitForUpdate(update =>
+      update.sessionUpdate === 'agent_message_chunk'
+      && update.content.type === 'text'
+      && update.content.text === 'late inherited stdout')
+
+    await launched.close()
+
+    await expect(lateUpdate).resolves.toMatchObject({ sessionUpdate: 'agent_message_chunk' })
+    expect(launched.rawStdout()).toContain('late inherited stdout')
+    expect(launched.stderr()).toContain('late inherited stderr')
+  })
+
+  it('rejects promptly when fallback termination is refused', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('signal refused'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockReturnValue(false)
+    const closed = new Promise<void>(resolve => launched.child.once('close', () => { resolve() }))
+    try {
+      launched.child.emit('error', childFailure)
+      const rejection = await launched.close('SIGTERM').catch((error: unknown): unknown => error)
+      expect(rejection).toBeInstanceOf(AggregateError)
+      expect(rejection).toMatchObject({
+        message: 'ACP test agent failed and fallback termination was refused',
+        errors: [
+          childFailure,
+          expect.objectContaining({ message: 'Fallback SIGKILL was not accepted by the child process' }),
+        ],
+      })
+      expect(kill).toHaveBeenNthCalledWith(1, 'SIGTERM')
+      expect(kill).toHaveBeenNthCalledWith(2, 'SIGKILL')
+    } finally {
+      kill.mockRestore()
+      originalKill('SIGKILL')
+      await closed
+    }
+  })
+
+  it('rejects promptly when fallback termination emits an error', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('signal refused'), { code: 'EPERM' })
+    const fallbackFailure = Object.assign(new Error('fallback signal refused'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockImplementation((signal) => {
+      if (signal === 'SIGKILL') queueMicrotask(() => launched.child.emit('error', fallbackFailure))
+      return signal === 'SIGKILL'
+    })
+    const closed = new Promise<void>(resolve => launched.child.once('close', () => { resolve() }))
+    try {
+      launched.child.emit('error', childFailure)
+      const rejection = await launched.close('SIGTERM').catch((error: unknown): unknown => error)
+      expect(rejection).toBeInstanceOf(AggregateError)
+      expect(rejection).toMatchObject({
+        message: 'ACP test agent failed and fallback termination was refused',
+        errors: [childFailure, fallbackFailure],
+      })
+      expect(kill).toHaveBeenNthCalledWith(1, 'SIGTERM')
+      expect(kill).toHaveBeenNthCalledWith(2, 'SIGKILL')
+    } finally {
+      kill.mockRestore()
+      originalKill('SIGKILL')
+      await closed
+    }
+  })
+
+  it('waits for in-flight client callbacks after the ACP stream closes', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({ permissionProbe: true })
+    let releasePermission: (() => void) | undefined
+    const permissionReleased = new Promise<void>((resolve) => { releasePermission = resolve })
+    let markPermissionStarted: (() => void) | undefined
+    const permissionStarted = new Promise<void>((resolve) => { markPermissionStarted = resolve })
+    let permissionFinished = false
+    const launched = launchAcpTestAgent({
+      agent: AGENT,
+      cwd: dir,
+      env: { DSH_SNAPSHOT_FILE: fixtureFile },
+      async requestPermission() {
+        markPermissionStarted?.()
+        await permissionReleased
+        permissionFinished = true
+        return { outcome: { outcome: 'cancelled' } }
+      },
+    })
+    await launched.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await launched.client.newSession({ cwd: dir, mcpServers: [] })
+    void launched.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }).catch(() => undefined)
+    await permissionStarted
+
+    const childClosed = once(launched.child, 'close')
+    let closeSettled = false
+    const closing = launched.close('SIGKILL').then(() => { closeSettled = true })
+    await childClosed
+    await launched.client.closed
+    expect(closeSettled).toBe(false)
+
+    releasePermission?.()
+    await closing
+    expect(permissionFinished).toBe(true)
+  })
+
   it('includes agent stderr when the ACP connection closes during startup', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({ failOnBoot: true, stderrNote: 'fake agent requested startup failure' })
     await expect(runScenario(
       { steps: [{ op: 'initialize' }] },
       { agent: AGENT, mode: 'replay', fixtureFile },
     )).rejects.toThrow(/agent stderr:\nfake agent requested startup failure/)
+  })
+
+  it('preserves launch-resolution errors when no child process exists', async () => {
+    const { dir, fixtureFile } = await scenario({})
+    vi.stubEnv('DSH_EXAMPLE_MODE', 'lib')
+    try {
+      await expect(runScenario(
+        { steps: [] },
+        {
+          agent: { ...AGENT, binScript: join(dir, 'outside-src.ts'), libBinScript: undefined },
+          mode: 'replay',
+          fixtureFile,
+        },
+      )).rejects.toThrow(/expected a "\/src\/" segment/)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('drives a full turn: initialize (terminal caps), session, prompt, permission stub, harvest', { timeout: 20_000 }, async () => {
@@ -136,6 +349,39 @@ describe('runScenario', () => {
       { steps: [...boot, { op: 'promptExpectError', text: 'fine' }] },
       { agent: AGENT, mode: 'replay', fixtureFile },
     )).rejects.toThrow(/expected the prompt to fail/)
+  })
+
+  it('reports scenario and cleanup failures together', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ prompt: 'respond' })
+    const cleanupFailure = new Error('cleanup failed')
+    fsControl.cleanupFailure = cleanupFailure
+
+    const failure = await runScenario(
+      { steps: [...boot, { op: 'promptExpectError', text: 'fine' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    ).catch((error: unknown): unknown => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    const failures = (failure as AggregateError).errors as unknown[]
+    expect(failures).toHaveLength(2)
+    expect(failures[0]).toBeInstanceOf(Error)
+    expect((failures[0] as Error).message).toMatch(/expected the prompt to fail/)
+    expect(failures[1]).toBe(cleanupFailure)
+  })
+
+  it('reports cleanup failure after an otherwise successful scenario', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({})
+    const cleanupFailure = new Error('cleanup failed')
+    fsControl.cleanupFailure = cleanupFailure
+
+    const failure = await runScenario(
+      { steps: boot },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    ).catch((error: unknown): unknown => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).message).toBe('snapshot cleanup failed')
+    expect((failure as AggregateError).errors as unknown[]).toEqual([cleanupFailure])
   })
 
   it('newSessionExpectError swallows the rejection, with and without extra dirs', { timeout: 20_000 }, async () => {

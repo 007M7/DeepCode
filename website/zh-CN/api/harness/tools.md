@@ -6,7 +6,7 @@
 
 Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L378)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L438)
 
 ### ctx.tools.register(definition)
 
@@ -20,7 +20,7 @@ Register globally or in the calling agent scope. Scoped tools shadow globals; du
 
 **Returns** the exact disposer that unregisters the tool.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L468)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L538)
 
 ### ctx.tools.restrict(filter)
 
@@ -34,7 +34,7 @@ Restrict global tools for the calling agent scope. Empty filters, unknown names,
 
 **Returns** the exact disposer that lifts this restriction.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L508)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L578)
 
 ### ctx.tools.guard(guard)
 
@@ -48,7 +48,7 @@ Register a monotonic guard after the extensible `tools/pre-execute` waterfall. A
 
 **Returns** the exact disposer that unregisters the guard.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L559)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L629)
 
 ### ctx.tools.get(name, scope?)
 
@@ -63,7 +63,7 @@ Look up a tool as one scope sees it (scoped shadows global; a restricted-away gl
 
 **Returns** the definition the scope resolves, or undefined when none is visible.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L661)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L731)
 
 ### ctx.tools.schemas(scope?)
 
@@ -77,7 +77,21 @@ Project visible definitions onto the allowlisted model-facing schema fields, exc
 
 **Returns** one deep-cloned schema per visible tool.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L671)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L741)
+
+### ctx.tools.executionMode(exec)
+
+```ts website-api
+executionMode(exec: ToolExecutionInput): ToolExecutionMode
+```
+
+Classify a pending call through the caller's visible tool definition. Only an exact `true` is parallel; unknown, hidden, undeclared, invalid, or throwing classifiers are exclusive.
+
+- `exec` — call name, parsed arguments, and optional agent scope.
+
+**Returns** the fail-closed scheduling mode.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L762)
 
 ### ctx.tools.execute(exec)
 
@@ -91,4 +105,4 @@ Execute through pre-policy, guards, around-dispatch, post-policy, and final noti
 
 **Returns** the materialized final result.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L694)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L782)

@@ -109,6 +109,8 @@ export function applyWebSearchTool(ctx: Context, maxResults: number, timeoutMs: 
       query: { type: 'string', required: true, description: 'The search query.' },
     },
     timeoutMs,
+    // Provider reads do not mutate parent-agent state.
+    isConcurrencySafe: () => true,
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseSearchArgs(args)
       const result = await ctx.web.search(

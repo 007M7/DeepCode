@@ -11,6 +11,8 @@ Each tool is registered independently; a product that wants only one disables th
 | `web_search` | `query` (string) | Discovery. Returns an optional answer plus source URLs. `max_results` is **not** model-facing — the tool sets the bound (the `searchMaxResults` config, default 8) and passes it to the seam. |
 | `web_fetch` | `url` (string) | Retrieves a specific URL. HTML bodies are rendered to markdown-ish text; text bodies pass through. A non-2xx status is reported, not an error. The tool-call timeout is deployment policy (`dsh-timeout-policy`), not a model argument. |
 
+Both tools opt into concurrent scheduling because provider reads return content without mutating parent-agent state.
+
 ## Config
 
 | Key | Default | Meaning |

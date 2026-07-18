@@ -20,7 +20,7 @@ Adopt `fast-check` (a root devDependency) with one `tests/properties.spec.ts` pe
 ## Consequences
 
 - Generator quality is the value lever — the generators bias toward small index pools and short strings so collisions and interleavings are common.
-- **It already paid off:** the BlockAssembler stream found a real bug — a duplicate `block-end` at the same index overwrote an already-flushed block, so the streamed prefix disagreed with final `blocks()`. Fixed (first close wins, matching the existing straggler rule) with a dedicated regression test.
+- **It already paid off:** the BlockAssembler stream found a real bug — a duplicate `block-end` at the same index rewrote a completed block. Fixed (first close wins, matching the existing straggler rule) with a dedicated regression test.
 - A property flake from a timeout is a finding, not something to retry away. The loop properties are deterministic by construction (settle on `agent/status`), so a hang is a real defect.
 - Property tests supplement, not replace, the example tests that pin specific branches for the 100%-coverage gate.
 
