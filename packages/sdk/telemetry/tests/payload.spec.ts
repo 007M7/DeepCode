@@ -47,8 +47,18 @@ describe('buildTelemetryPayload', () => {
     expect('packageJsonContent' in payload).toBe(false)
   })
 
+  it('withholds package.json when cordis.yml is absent (not an SDK project)', async () => {
+    const dir = await projectDir({ 'package.json': '{ "name": "unrelated-repo" }' })
+    const payload = await buildTelemetryPayload({ command: 'build', durationMs: 3, success: false, projectDir: dir })
+    expect('cordisYmlContent' in payload).toBe(false)
+    expect('packageJsonContent' in payload).toBe(false)
+  })
+
   it('uses a supplied redactor', async () => {
-    const dir = await projectDir({ 'package.json': '{ "password": "hunter2" }' })
+    const dir = await projectDir({
+      'cordis.yml': '- id: llm\n  name: \'@deepseek-ai/dsh-llm-deepseek\'\n',
+      'package.json': '{ "password": "hunter2" }',
+    })
     const redactor = new SecretRedactor({ placeholder: '<<hidden>>' })
     const payload = await buildTelemetryPayload({
       command: 'config', durationMs: 5, success: true, projectDir: dir, redactor,

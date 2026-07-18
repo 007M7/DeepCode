@@ -5,7 +5,9 @@
  * the project `cordis.yml` and `package.json`. It NEVER reads or includes `.env`
  * — secrets live only in `.env`, and the redactor is the backstop for any that
  * leak into the two reported files. A file that does not exist (the first
- * `create` run) simply omits its field.
+ * `create` run) simply omits its field, and `package.json` ships only when
+ * `cordis.yml` is present: without it the directory is not an SDK project, and
+ * its manifest belongs to whatever unrelated project the command ran in.
  *
  * @module @deepseek-ai/dsh-telemetry/payload
  */
@@ -27,7 +29,7 @@ export interface TelemetryPayload {
   success: boolean
   /** Redacted full text of the project `cordis.yml`, absent when the file does not exist. */
   cordisYmlContent?: string
-  /** Redacted full text of the project `package.json`, absent when the file does not exist. */
+  /** Redacted full text of the project `package.json`, absent when it or `cordis.yml` does not exist. */
   packageJsonContent?: string
 }
 
@@ -70,6 +72,11 @@ export async function buildTelemetryPayload(input: BuildTelemetryPayloadInput): 
     durationMs: input.durationMs,
     success: input.success,
     ...cordisYml !== undefined ? { cordisYmlContent: redactor.redactText(cordisYml) } : {},
-    ...packageJson !== undefined ? { packageJsonContent: redactor.redactText(packageJson) } : {},
+    // package.json is an SDK-project manifest only alongside cordis.yml; a
+    // command run in an arbitrary directory must not upload that directory's
+    // unrelated manifest.
+    ...cordisYml !== undefined && packageJson !== undefined
+      ? { packageJsonContent: redactor.redactText(packageJson) }
+      : {},
   }
 }

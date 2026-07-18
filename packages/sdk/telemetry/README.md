@@ -6,7 +6,7 @@ Launcher-side telemetry primitives for the dsh-sdk toolchain. This is a plain li
 |---|---|
 | `SecretRedactor` | Conservative safety backstop: replaces secret-shaped values (secret-like keys, known token shapes, PEM blocks, URL credentials, high-entropy opaque tokens) with a placeholder in both parsed values (`redactValue`) and raw text (`redactText`). Never drops a field or line. |
 | `ConsentResolver` | Parses (never boots) a project `cordis.yml` and reads the telemetry entry's enabled/disabled state as consent; `DO_NOT_TRACK`/CI env force a hard opt-out. |
-| `buildTelemetryPayload` | Assembles `{command, durationMs, success, cordisYmlContent, packageJsonContent}`, running the redactor over the full `cordis.yml` and `package.json` text. Never reads `.env`. |
+| `buildTelemetryPayload` | Assembles `{command, durationMs, success, cordisYmlContent, packageJsonContent}`, running the redactor over the full `cordis.yml` and `package.json` text. Never reads `.env`; `package.json` ships only alongside a `cordis.yml`, so a command run in a non-SDK directory never uploads that directory's unrelated manifest. |
 | `getOrCreateAnonymousId` | Random UUID persisted in a per-user GLOBAL config file (never in the project, never derived from git). |
 | `TelemetryReporter` | Fire-and-forget send: `report()` never blocks or throws; delivery resolves on every path; `flush()` optionally drains in-flight sends within a cap. |
 
