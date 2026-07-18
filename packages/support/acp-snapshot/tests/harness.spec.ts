@@ -14,10 +14,12 @@ import { runScenario, type AgentUnderTest, type InputStep } from '../src/harness
  * assertions read plain `rawStdout`.
  */
 
+const fakeAgent = fileURLToPath(new URL('./fixtures/fake-acp-agent.ts', import.meta.url))
 const AGENT: AgentUnderTest = {
-  binScript: fileURLToPath(new URL('./fixtures/fake-acp-agent.ts', import.meta.url)),
+  binScript: fakeAgent,
+  libBinScript: fakeAgent,
   // The fake bin ignores its config argv; any real path documents the shape.
-  configPath: fileURLToPath(new URL('./fixtures/fake-acp-agent.ts', import.meta.url)),
+  configPath: fakeAgent,
   tsconfigPath: fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url)),
 }
 
