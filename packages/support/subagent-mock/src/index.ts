@@ -69,6 +69,7 @@ class MockSubagentProvider implements SubagentProvider {
     })
     return {
       id,
+      localAgent: undefined,
       result,
       dispose(): Promise<void> {
         flags.cancelled = true
