@@ -160,11 +160,13 @@ interface ToolExecutionResult {
   error?: ToolErrorInfo
   /**
    * Extra model-facing contexts deferred by a composite tool or attached by
-   * `tools/post-execute` listeners for the NEXT request. They are NOT part of
-   * this call's `content`: the loop buffers every context and appends them only
-   * AFTER all `tool/result`s for the step, preserving tool-call/result
-   * adjacency. The array preserves each context's source, envelope, metadata,
-   * and production order instead of flattening mixed plugin provenance.
+   * `tools/post-execute` listeners for the NEXT request. They are not part of
+   * this call's `content`: the loop accepts them into the active-batch FIFO and
+   * appends them after every recorded `tool/result` when the batch settles, even
+   * when execution is interrupted. The array preserves each context's source,
+   * envelope, metadata, and production order. An accepted outer call keeps
+   * deferred contexts before decision contexts; a block retains only contexts
+   * supplied by the blocking decision.
    */
   additionalContexts?: HookContext[]
   /**
