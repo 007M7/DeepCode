@@ -50,13 +50,13 @@ The app is repository-bound. On startup it treats the package root as the Harnes
 
 ## Main surfaces
 
-`Sessions/Runs` is the left navigation. It lists new and persisted runs, supports search, opens or resumes a session, pins a baseline, and starts replay from a historical prompt or turn.
+`Sessions` is the left navigation. It lists and searches live or persisted sessions, groups child sessions under their parent, opens or resumes a session, and can reveal the selected JSONL in Finder. Baseline pinning and replay remain part of the product shape below rather than shipped controls.
 
-`Chat` is the reading and driving surface. It renders user messages, assistant text, and lightweight collapsed `Thinking` and `Tool use` rows. Clicking a message or activity opens the inspector. The composer is always available for the selected live session.
+`Chat` is the reading and driving surface. One user turn has one assistant response shell containing ordered, independently selectable `Thinking`, paired `Tool`, and visible text blocks. Clicking a block opens its inspector target; the block's trailing arrow only expands or collapses its inline preview. The composer is always available for the selected live session.
 
-`Trajectory` is the structural surface. It is a mixed navigation view over `session -> turn -> step -> request / assistant / tool / context` with status, duration, token counts, tool names, errors, and short previews. It must not expand full raw payloads, complete system prompts, full tool schemas, or raw chunk streams inline. Clicking any node opens the inspector.
+`Trajectory` is the structural surface. A structure tree (turn -> step with durations, tool summaries, and error marks) navigates a step-grouped logical-object table; lifecycle events become tree nodes and sticky group headers instead of rows. A model response owns its effective request input and assistant output. A Tool row pairs `tool/call` with `tool/result`, so one row and inspector target own both Input and Output. Clicking the row opens the inspector; the trailing arrow only expands the inline payload.
 
-`Waterfall` is the time surface. It answers where latency went across turns, steps, model calls, tool calls, background work, and failures. It contains labels, timings, and critical-path cues only. Clicking a bar opens the inspector.
+`Waterfall` is the time surface. It answers where latency went across turns, steps, model calls, tool calls, and failures: a summary strip (total / LLM time / tool time / errors / slowest step / tokens) over an aligned time track. Clicking any bar, label, or stat keeps Waterfall active and opens the shared inspector; the inspector's explicit `→ Trajectory` action performs cross-view navigation.
 
 `Context` is the request-anatomy surface. It answers what the model saw at a selected request boundary: config, system prompt, session prefix, derived conversation surface, injected `context/message` entries, compaction summaries, visible tools, and request-header deltas. It may show section summaries and bounded previews, but the full raw data still belongs in the inspector.
 
@@ -67,13 +67,13 @@ The app is repository-bound. On startup it treats the package root as the Harnes
 | Surface | Primary job | Inline content | Inspector trigger |
 |---|---|---|---|
 | `Chat` | Drive and read the conversation | User messages, assistant messages, collapsed thinking rows, collapsed tool-use rows | Message or activity click |
-| `Trajectory` | Navigate run structure | `session -> turn -> step -> request / assistant / tool / context`, statuses, counts, durations, short previews | Any node click |
+| `Trajectory` | Navigate run structure | Turn/step tree plus User / Thinking / Model / paired Tool / Context logical records, statuses, durations, short previews | Logical row click |
 | `Waterfall` | Diagnose latency | Spans, critical path, status, start/duration | Bar click |
 | `Context` | Explain request anatomy | Config summary, system summary, prefix summary, derived-history summary, context-message summary, tool-schema list summary, deltas | Section click |
 | `Compare` | Compare two run artifacts | Baseline/candidate diffs for output, context, tools, events, usage, duration, errors | Diff hunk click |
 | `Dev` | Support repo-bound modification loop | Runtime state, dirty state, watched paths, suggested agent prompts, restart-needed flag | Config/plugin/path click |
 
-Only `Chat` owns the composer. The other middle surfaces are inspection modes over the selected run or selected request boundary.
+The session shell keeps one composer mounted while `Chat`, `Trajectory`, and `Waterfall` switch in the middle pane, so a developer can continue the selected live session without losing a draft or leaving an inspection view. Non-session modules do not show it.
 
 ## Information ownership
 
@@ -81,7 +81,7 @@ Middle surfaces locate and explain. The inspector preserves the complete facts.
 
 `Trajectory` and `Context` should not duplicate inspector responsibilities. Trajectory shows where the user is in the run. Context shows which context sources contributed to a request. Inspector shows the selected object's complete input, output, metadata, and feedback.
 
-The same selected object can be entered from multiple surfaces. A `tool/call` selected from Trajectory, a `Tool use` row selected from Chat, or a tool segment selected from Waterfall should resolve to one inspector target. This keeps feedback and copying attached to the event, not to the view that opened it.
+The same selected object can be entered from multiple surfaces. A paired Tool selected from Trajectory, a Tool row selected from Chat, or a tool segment selected from Waterfall resolves to the same `tool:<callId>` target. Thinking uses `reasoning:<turn>:<step>` and model output uses `assistant:<seq>`. This keeps Input, Output, feedback, selection, and copying attached to the logical object, not to the view that opened it.
 
 ### Why Trajectory still needs Inspector
 
@@ -92,7 +92,7 @@ Trajectory answers orientation questions:
 - Did the run fail, cancel, or continue?
 - What is the rough shape of this step before I inspect raw data?
 
-Trajectory should not expand full request headers, full tool schemas, full system prompts, or raw chunk streams inline because that turns the navigator into a raw JSON viewer. Instead, every row has a stable target id. Clicking a row opens Inspector, where full `Input`, `Output`, `Metadata`, and `Feedback` are available.
+Inline expansion answers those questions in place, but every row resolves to the same logical target used by Chat and Waterfall. `Input`/`Output`/`Metadata` format switching and `Feedback` history stay attached to that target, and the drawer stays open while switching between `Chat`, `Trajectory`, and `Waterfall`.
 
 ### Why Context still needs Inspector
 
@@ -190,5 +190,5 @@ Start with a desktop package that defines shared UI contracts, then build the El
 - **Development build only** — this package ships a usable Electron/Vite app and a real ACP subprocess bridge, but it is not yet packaged as a signed distributable.
 - **ACP is the first runtime channel** — direct in-process embedding could make context queries and restarts richer, but would make isolation, teardown, and hot reload harder.
 - **Develop is read-first** — it exposes prompts, tools, plugins, config, runtime state, and the change loop as a source browser; direct graphical plugin/config editing is deferred.
-- **Trace refresh is mixed live/persisted** — chat streams from ACP live updates, while Trajectory and Waterfall currently read persisted JSONL after turns complete.
-- **Compare and replay remain skeletal** — the product contract is documented, but semantic evaluation and dataset-level analysis belong to later work.
+- **Trace refresh is mixed live/persisted** — chat streams from ACP live updates (rendered incrementally, so composer input, fold state, and scroll survive streaming), while Trajectory and Waterfall read persisted JSONL after turns complete.
+- **Context and Compare surfaces are unimplemented** — the session view ships `Chat`, `Trajectory`, and `Waterfall`; the `Context`/`Compare` contracts above and replay remain documented product shape for later work.

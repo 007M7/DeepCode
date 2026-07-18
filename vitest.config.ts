@@ -16,7 +16,10 @@ export default defineConfig({
       include: ['packages/*/*/src/**/*.ts'],
       // Types-only files have no runtime coverage. Importing self-executing bins/workers would boot
       // them inside the unit process, so real subprocess/Worker tests cover their thin entry glue.
-      exclude: ['packages/*/*/src/types.ts', 'packages/*/*/src/bin.ts', 'packages/*/*/src/worker.ts'],
+      // The desktop renderer entry is the same shape: a self-executing DOM bootstrap whose behavior
+      // is exercised by jsdom lifecycle specs; its extractable logic lives in covered modules
+      // (trace-graph.ts, renderer-content.ts) and grows there, not in the entry.
+      exclude: ['packages/*/*/src/types.ts', 'packages/*/*/src/bin.ts', 'packages/*/*/src/worker.ts', 'packages/ui/desktop/src/app.ts'],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
       // Per-file so a well-covered big file can't subsidize a bare one.
       // Every v8 ignore comment must carry a reason — see the quality-gates RFC

@@ -1,14 +1,8 @@
-/* eslint-disable @typescript-eslint/no-base-to-string, @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unnecessary-type-conversion, @stylistic/max-len */
-import {
-  DEFAULT_FEEDBACK_AUTHOR,
-  INSPECTOR_TABS,
-  createInspectorTargetId,
-  defaultInspectorTabForTarget,
-  type DesktopSurface,
-  type InspectorTab,
-  type InspectorTarget,
-} from './index.ts'
+/* eslint-disable @typescript-eslint/no-base-to-string, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unnecessary-type-conversion, @stylistic/max-len */
+import { DEFAULT_FEEDBACK_AUTHOR, INSPECTOR_TABS, type InspectorTab } from './index.ts'
 import { translate, type I18nKey, type Locale } from './i18n.ts'
+import { assistantText, contentText } from './renderer-content.ts'
+import { buildTraceGraph, type ChatActivity, type ChatTurn, type TraceTarget, type TrajectoryGroup as GraphTrajectoryGroup } from './trace-graph.ts'
 import './styles.css'
 
 const PATH_SYSTEM_PROMPT = 'packages/core/system-prompt/src/index.ts'
@@ -18,6 +12,7 @@ const PATH_TOOL_SUBAGENT = 'packages/subagent/tool-subagent/src/index.ts'
 
 interface SessionSummary {
   readonly id: string
+  readonly parentSession?: string
   readonly title: string
   readonly cwd?: string
   readonly relativePath?: string
@@ -48,7 +43,9 @@ interface TracePayload {
   readonly rawText: string
   readonly path?: string
   readonly relativePath?: string
-  readonly feedback?: FeedbackRecord[]
+  feedback?: FeedbackRecord[]
+  readonly parent?: SessionSummary
+  readonly children?: SessionSummary[]
 }
 
 interface FeedbackRecord {
@@ -70,67 +67,32 @@ interface SessionUpdatePayload {
   readonly update: Record<string, unknown>
 }
 
-interface ChatRow {
-  readonly target: InspectorTarget
-  readonly role: 'user' | 'assistant' | 'thinking' | 'tool' | 'context' | 'system'
-  readonly title: string
-  readonly body: string
-  readonly eventSeqs: readonly number[]
-  readonly collapsed?: boolean
-  readonly badge?: string
+/** One in-flight turn rendered incrementally while ACP updates stream in. */
+interface LiveTurn {
+  userText?: string
+  thinking: string
+  answer: string
+  tools: LiveTool[]
+  expectedCompletedTurns: number
+  status: 'sending' | 'streaming' | 'complete' | 'error'
+  errorText?: string
 }
 
-interface TreeRow {
-  readonly target: InspectorTarget
-  readonly depth: number
-  readonly kind: 'session' | 'turn' | 'step' | 'request' | 'message' | 'thinking' | 'tool' | 'context' | 'error'
-  readonly title: string
-  readonly subtitle: string
-  readonly meta: string
-  readonly tone?: 'blue' | 'green' | 'amber' | 'red'
+interface LiveTool {
+  readonly callId: string
+  title: string
+  status: string
+  detail: string
 }
 
-interface SpanRow {
-  readonly target: InspectorTarget
-  readonly title: string
-  readonly subtitle: string
-  readonly startMs: number
-  readonly durationMs: number
-  readonly tone?: 'blue' | 'green' | 'amber' | 'red'
-}
-
-interface ContextRow {
-  readonly target: InspectorTarget
-  readonly title: string
-  readonly subtitle: string
-  readonly preview: string
-  readonly kind: 'system' | 'tools' | 'messages' | 'config' | 'raw'
-  readonly changed?: boolean
-}
-
-interface TargetPayload {
-  readonly input: unknown
-  readonly output: unknown
-  readonly metadata: unknown
-}
-
-interface RequestContextSnapshot {
-  readonly event: SessionEvent | undefined
-  readonly seq: number
-  readonly header: Record<string, unknown>
-  readonly delta: Record<string, unknown>
-  readonly system: string
-  readonly tools: unknown[]
-  readonly config: unknown
-  readonly messagePrefix: unknown
-}
+type PayloadFormat = 'plain' | 'json' | 'jsonl' | 'yaml'
 
 interface DevArtifact {
   readonly id: string
   readonly group: 'Prompts' | 'Tools' | 'Plugins / Context Providers' | 'Config / Runtime' | 'Change Loop'
   readonly title: string
   readonly subtitle: string
-  readonly kind: 'prompt' | 'tool' | 'plugin' | 'config' | 'runtime' | 'change'
+  readonly kind: 'prompt' | 'tool' | 'plugin' | 'config' | 'runtime' | 'change' | 'source'
   readonly status?: string
   readonly source?: string
   readonly owner?: string
@@ -144,9 +106,25 @@ interface DevArtifactGroup {
   readonly artifacts: DevArtifact[]
 }
 
+interface RequestContextSnapshot {
+  readonly event: SessionEvent | undefined
+  readonly seq: number
+  readonly header: Record<string, unknown>
+  readonly system: string
+  readonly tools: unknown[]
+  readonly messagePrefix: unknown
+}
+
+type PluginRole = 'tool' | 'prompt' | 'context-policy' | 'model' | 'plugin'
+
 type AppModule = 'sessions' | 'develop'
 
-const SESSION_SURFACES: readonly DesktopSurface[] = ['chat', 'trajectory', 'waterfall']
+type SessionSurface = 'chat' | 'trajectory' | 'waterfall'
+
+const SESSION_SURFACES: readonly SessionSurface[] = ['chat', 'trajectory', 'waterfall']
+const DRAFT_SESSION_ID = '__draft-session__'
+const AUTHOR_KEY = 'dsh.author'
+const PANE_WIDTH_KEY = 'dsh.pane-widths'
 const initialLocale: Locale = localStorage.getItem('dsh.locale') === 'en-US' ? 'en-US' : 'zh-CN'
 
 const state = {
@@ -156,63 +134,275 @@ const state = {
   selectedSessionId: undefined as string | undefined,
   trace: undefined as TracePayload | undefined,
   activeModule: 'sessions' as AppModule,
-  activeSurface: 'chat' as DesktopSurface,
+  activeSurface: 'chat' as SessionSurface,
   locale: initialLocale,
   activeDevArtifactId: undefined as string | undefined,
-  selectedTarget: undefined as InspectorTarget | undefined,
+  selectedTargetId: undefined as string | undefined,
   activeInspectorTab: 'input' as InspectorTab,
-  busy: false,
+  inspectorFormats: { input: 'plain', output: 'plain', metadata: 'json' } as Record<'input' | 'output' | 'metadata', PayloadFormat>,
+  busySessionId: undefined as string | undefined,
   error: '',
-  stderr: '',
   query: '',
   draftChat: false,
-  liveRows: new Map<string, ChatRow[]>(),
-  pendingAssistant: new Map<string, string>(),
-  pendingThinking: new Map<string, string>(),
+  live: new Map<string, LiveTurn>(),
+  pendingSessionTitles: new Map<string, string>(),
+  feedbackDrafts: new Map<string, { author: string; text: string }>(),
+  expandedTrajectoryIds: new Set<string>(),
+  annotateOpenIds: new Set<string>(),
+  stickToBottom: true,
+  seqMap: new Map<number, SessionEvent>(),
+  graph: buildTraceGraph('', []),
+  expandedActivityIds: new Set<string>(),
+  traceLoadRevision: 0,
 }
 
 function t(key: I18nKey): string {
   return translate(state.locale, key)
 }
 
-const appEl = document.querySelector<HTMLDivElement>('#app')
+const appEl = document.querySelector<HTMLElement>('#app')
+
+/* ── Static shell: built once; regions are patched in place afterwards ────── */
+
+interface ShellRefs {
+  sessionList: HTMLElement
+  searchInput: HTMLInputElement
+  footerRepo: HTMLElement
+  footerRuntime: HTMLElement
+  runtimeDot: HTMLElement
+  topbarTitle: HTMLElement
+  revealButton: HTMLButtonElement
+  errorNotice: HTMLElement
+  chatView: HTMLElement
+  conversation: HTMLElement
+  liveTurn: HTMLElement
+  liveJump: HTMLButtonElement
+  trajTree: HTMLElement
+  trajectory: HTMLElement
+  trajMain: HTMLElement
+  waterfall: HTMLElement
+  devCanvas: HTMLElement
+  sessionCanvas: HTMLElement
+  composerForm: HTMLFormElement
+  composerInput: HTMLTextAreaElement
+  composerHint: HTMLElement
+  sendButton: HTMLButtonElement
+  cancelButton: HTMLButtonElement
+  inspector: HTMLElement
+  inspectorKind: HTMLElement
+  inspectorTitle: HTMLElement
+  inspectorSubtitle: HTMLElement
+  inspectorTabs: HTMLElement
+  inspectorBody: HTMLElement
+  toast: HTMLElement
+}
+
+let el: ShellRefs
+
+function buildShell(): void {
+  if (appEl === null) return
+  appEl.innerHTML = `
+    <div class="harness-shell" id="shell">
+      <aside class="source-list">
+        <header class="app-brand">
+          <button class="brand-title" data-module="sessions">DeepSeek Harness</button>
+          <span class="runtime-dot starting" id="runtimeDot"></span>
+        </header>
+        <section class="primary-actions">
+          <button class="primary-action" data-action="new-session"><span data-text="app.newChat"></span><kbd>⌘N</kbd></button>
+        </section>
+        <nav class="product-nav" aria-label="DeepSeek Harness modules">
+          <button class="module-button selected" data-module="sessions"><span><strong data-text="app.sessions"></strong><small data-text="app.sessionsSubtitle"></small></span></button>
+          <button class="module-button" data-module="develop"><span><strong data-text="app.develop"></strong><small data-text="app.developSubtitle"></small></span></button>
+        </nav>
+        <label class="session-search">
+          <span data-text="app.sessions"></span>
+          <input id="sessionSearch" type="search" />
+        </label>
+        <section class="session-group">
+          <div class="group-title" data-text="app.recentSessions"></div>
+          <div class="session-list" id="sessionList"></div>
+        </section>
+        <footer class="source-footer">
+          <span id="footerRepo"></span>
+          <strong id="footerRuntime"></strong>
+        </footer>
+      </aside>
+      <div class="pane-divider" id="dividerLeft" role="separator" aria-orientation="vertical"></div>
+      <main class="harness-main">
+        <header class="topbar">
+          <div class="title-area"><h1 id="topbarTitle"></h1></div>
+          <nav class="surface-switcher" id="surfaceSwitcher" aria-label="Session surfaces">
+            ${SESSION_SURFACES.map(surface => `<button class="${surface === 'chat' ? 'active' : ''}" data-surface="${surface}" data-text="surface.${surface}"></button>`).join('')}
+          </nav>
+          <div class="toolbar-actions">
+            <button class="reveal-button" id="revealButton" data-action="reveal-session" type="button" data-text="app.revealSession" hidden></button>
+            <button class="language-toggle" data-action="toggle-locale" type="button" data-text="app.language"></button>
+          </div>
+        </header>
+        <div class="notice" id="errorNotice" hidden></div>
+        <section class="session-canvas" id="sessionCanvas">
+          <section class="view chat-view active" id="chatView">
+            <div class="chat-surface conversation">
+              <div id="conversation"></div>
+              <div id="liveTurn"></div>
+            </div>
+            <button class="chat-live-jump" id="liveJump" type="button" hidden data-text="chat.jumpToLive"></button>
+          </section>
+          <section class="view traj-view" id="trajView">
+            <div class="traj-split">
+              <nav class="traj-tree" id="trajTree" aria-label="Session structure"></nav>
+              <div class="traj-main" id="trajMain">
+                <div class="trajectory-toolbar">
+                  <span data-text="trace.title"></span>
+                  <div>
+                    <button data-action="expand-traj" data-text="trace.expandAll"></button>
+                    <button data-action="collapse-traj" data-text="trace.collapse"></button>
+                  </div>
+                </div>
+                <div class="trajectory-table" id="trajectory"></div>
+              </div>
+            </div>
+          </section>
+          <section class="view wf-view" id="wfView">
+            <div class="waterfall-surface" id="waterfall"></div>
+          </section>
+        </section>
+        <section class="module-canvas develop-canvas" id="devCanvas" hidden></section>
+        <form class="composer" id="composerForm">
+          <textarea id="composerInput" name="prompt" rows="1"></textarea>
+          <div class="composer-meta">
+            <span class="composer-hint" id="composerHint"></span>
+            <button type="button" class="cancel-button" id="cancelButton" hidden data-text="chat.cancel"></button>
+            <button type="submit" class="send-button" id="sendButton" disabled>↑</button>
+          </div>
+        </form>
+      </main>
+      <div class="pane-divider" id="dividerInspector" role="separator" aria-orientation="vertical" hidden></div>
+      <aside class="inspector" id="inspector" hidden>
+        <header class="inspector-head">
+          <div>
+            <span id="inspectorKind"></span>
+            <strong id="inspectorTitle"></strong>
+            <small id="inspectorSubtitle"></small>
+          </div>
+          <div class="inspector-head-actions">
+            <button data-action="jump-traj" data-text="inspector.jumpTraj" type="button"></button>
+            <button data-action="close-inspector" data-text="inspector.close" type="button"></button>
+          </div>
+        </header>
+        <nav class="inspector-tabs" id="inspectorTabs">
+          ${INSPECTOR_TABS.map(tab => `<button class="${tab === 'input' ? 'active' : ''}" data-inspector-tab="${tab}" data-text="inspector.${tab}"></button>`).join('')}
+        </nav>
+        <section class="inspector-body" id="inspectorBody"></section>
+      </aside>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  `
+  const pick = (id: string): HTMLElement => appEl.querySelector<HTMLElement>(`#${id}`)!
+  el = {
+    sessionList: pick('sessionList'),
+    searchInput: pick('sessionSearch') as HTMLInputElement,
+    footerRepo: pick('footerRepo'),
+    footerRuntime: pick('footerRuntime'),
+    runtimeDot: pick('runtimeDot'),
+    topbarTitle: pick('topbarTitle'),
+    revealButton: pick('revealButton') as HTMLButtonElement,
+    errorNotice: pick('errorNotice'),
+    chatView: pick('chatView'),
+    conversation: pick('conversation'),
+    liveTurn: pick('liveTurn'),
+    liveJump: pick('liveJump') as HTMLButtonElement,
+    trajTree: pick('trajTree'),
+    trajectory: pick('trajectory'),
+    trajMain: pick('trajMain'),
+    waterfall: pick('waterfall'),
+    devCanvas: pick('devCanvas'),
+    sessionCanvas: pick('sessionCanvas'),
+    composerForm: pick('composerForm') as HTMLFormElement,
+    composerInput: pick('composerInput') as HTMLTextAreaElement,
+    composerHint: pick('composerHint'),
+    sendButton: pick('sendButton') as HTMLButtonElement,
+    cancelButton: pick('cancelButton') as HTMLButtonElement,
+    inspector: pick('inspector'),
+    inspectorKind: pick('inspectorKind'),
+    inspectorTitle: pick('inspectorTitle'),
+    inspectorSubtitle: pick('inspectorSubtitle'),
+    inspectorTabs: pick('inspectorTabs'),
+    inspectorBody: pick('inspectorBody'),
+    toast: pick('toast'),
+  }
+}
+
+/** Re-applies locale-dependent text to the static chrome (elements are never rebuilt). */
+function applyStaticText(): void {
+  if (appEl === null) return
+  for (const node of appEl.querySelectorAll<HTMLElement>('[data-text]')) {
+    node.textContent = t(node.dataset.text as I18nKey)
+  }
+  el.searchInput.placeholder = t('app.searchPlaceholder')
+  el.composerInput.placeholder = state.selectedSessionId === undefined
+    ? t('composer.placeholderDraft')
+    : t('composer.placeholderSession')
+  el.sendButton.setAttribute('aria-label', t('composer.send'))
+  updateComposerState()
+}
+
+function toast(text: string): void {
+  el.toast.textContent = text
+  el.toast.classList.add('show')
+  window.setTimeout(() => {
+    el.toast.classList.remove('show')
+  }, 1600)
+}
+
+function showError(message: string): void {
+  state.error = message
+  el.errorNotice.hidden = message.length === 0
+  el.errorNotice.textContent = message
+}
+
+/* ── Boot ─────────────────────────────────────────────────────────────────── */
 
 void boot()
 
 async function boot(): Promise<void> {
+  buildShell()
+  applyStaticText()
+  wireStaticEvents()
+  initPaneResizers()
+  renderFooter()
   if (!hasDesktopApi()) {
-    state.error = `${t('error.noDesktopApi')} pnpm --dir packages/ui/desktop run dev`
-    render()
+    showError(`${t('error.noDesktopApi')} pnpm --dir packages/ui/desktop run dev`)
+    renderSessionList()
+    renderTopbar()
     return
   }
-
   window.dshDesktop.runtime.onStatus((payload) => {
     state.runtime = payload
-    render()
+    renderFooter()
+    if (state.activeModule === 'develop') renderDevelop()
   })
-  window.dshDesktop.runtime.onStderr((payload) => {
-    state.stderr = String(asRecord(payload).tail ?? asRecord(payload).text ?? '')
-    render()
+  window.dshDesktop.runtime.onStderr(() => {
+    // stderr is diagnostic-only; the Develop panel re-reads it on demand.
   })
   window.dshDesktop.sessions.onUpdate((payload) => {
     handleSessionUpdate(asSessionUpdate(payload))
   })
-
-  await Promise.all([refreshRuntime(), refreshDevStatus(), refreshSessions()])
+  await Promise.all([refreshRuntime(), refreshDevStatus()])
+  await refreshSessions()
 }
 
 async function refreshRuntime(): Promise<void> {
-  if (!hasDesktopApi()) return
   try {
     state.runtime = await window.dshDesktop.runtime.status()
   } catch (error) {
-    state.error = String(error)
+    showError(String(error))
   }
-  render()
+  renderFooter()
 }
 
 async function refreshDevStatus(): Promise<void> {
-  if (!hasDesktopApi()) return
   try {
     state.dev = await window.dshDesktop.dev.status()
   } catch {
@@ -221,494 +411,1401 @@ async function refreshDevStatus(): Promise<void> {
 }
 
 async function refreshSessions(preferredId?: string): Promise<void> {
-  if (!hasDesktopApi()) return
   try {
     const result = asRecord(await window.dshDesktop.sessions.list())
-    state.sessions = Array.isArray(result.sessions) ? result.sessions as SessionSummary[] : []
-    state.selectedSessionId = preferredId ?? state.selectedSessionId ?? state.sessions[0]?.id
-    if (state.selectedSessionId !== undefined) await loadTrace(state.selectedSessionId, false)
+    const sessions = Array.isArray(result.sessions) ? result.sessions as SessionSummary[] : []
+    state.sessions = sessions.map((session) => {
+      const pendingTitle = state.pendingSessionTitles.get(session.id)
+      if (pendingTitle === undefined || session.eventCount > 0) return session
+      return { ...session, title: pendingTitle }
+    })
+    renderSessionList()
+    const id = preferredId ?? state.selectedSessionId ?? (state.draftChat ? undefined : state.sessions[0]?.id)
+    if (id !== undefined && id !== state.selectedSessionId) {
+      await loadTrace(id)
+    } else if (id !== undefined) {
+      state.selectedSessionId = id
+      renderSessionList()
+      renderTopbar()
+    }
   } catch (error) {
-    state.error = String(error)
+    showError(String(error))
   }
-  render()
 }
 
-async function loadTrace(sessionId: string, rerender = true): Promise<void> {
+async function loadTrace(sessionId: string): Promise<void> {
+  captureFeedbackDraft()
+  const revision = ++state.traceLoadRevision
   state.selectedSessionId = sessionId
-  state.selectedTarget = undefined
-  if (!hasDesktopApi()) return
+  state.draftChat = false
+  let trace: TracePayload
   try {
-    state.trace = asRecord(await window.dshDesktop.trace.read(sessionId)) as unknown as TracePayload
+    trace = asRecord(await window.dshDesktop.trace.read(sessionId)) as unknown as TracePayload
   } catch (error) {
-    state.trace = { found: false, sessionId, header: { id: sessionId }, events: [], rawText: '', feedback: [] }
-    state.error = String(error)
+    if (revision !== state.traceLoadRevision || state.selectedSessionId !== sessionId) return
+    trace = { found: false, sessionId, header: { id: sessionId }, events: [], rawText: '', feedback: [] }
+    showError(String(error))
   }
-  if (rerender) render()
+  if (revision !== state.traceLoadRevision || state.selectedSessionId !== sessionId) return
+  applyTrace(trace, true)
 }
+
+function applyTrace(trace: TracePayload, resetExpansion: boolean): void {
+  state.trace = trace
+  const sessionId = trace.sessionId
+  const live = state.live.get(sessionId)
+  if (state.busySessionId !== sessionId && live !== undefined && completedTurnCount(trace) >= live.expectedCompletedTurns) {
+    state.live.delete(sessionId)
+  }
+  if (resetExpansion) {
+    state.expandedTrajectoryIds = new Set()
+    state.annotateOpenIds = new Set()
+  }
+  updateSessionSummaryFromTrace(trace)
+  rebuildTraceIndexes()
+  if (state.selectedTargetId !== undefined && !state.graph.targets.has(state.selectedTargetId)) closeInspector()
+  renderSessionList()
+  renderTopbar()
+  renderConversation()
+  renderLiveTurn()
+  renderTrajectory()
+  renderTrajTree()
+  renderWaterfall()
+  renderInspector()
+  scrollChatToBottom(true)
+}
+
+function updateSessionSummaryFromTrace(trace: TracePayload): void {
+  const events = trace.events
+  const index = state.sessions.findIndex(session => session.id === trace.sessionId)
+  if (index < 0) return
+  const firstUser = events.find(event => event.type === 'user/message')
+  const title = contentText(asRecord(firstUser?.data).content).slice(0, 120)
+  const lastActivity = [...events].reverse().find(event => typeof event.time === 'number')?.time
+  const current = state.sessions[index]!
+  state.sessions[index] = {
+    ...current,
+    ...(title.length > 0 ? { title } : {}),
+    ...(lastActivity === undefined ? {} : { lastActivity }),
+    eventCount: events.length,
+    turnCount: events.filter(event => event.type === 'turn/start').length,
+    stepCount: events.filter(event => event.type === 'step/start').length,
+    toolCallCount: events.filter(event => event.type === 'tool/call').length,
+  }
+}
+
+function rebuildTraceIndexes(): void {
+  const events = state.trace?.events ?? []
+  state.graph = buildTraceGraph(state.trace?.sessionId ?? '', events)
+  state.seqMap = new Map()
+  for (const event of events) {
+    if (event.seq !== undefined) state.seqMap.set(event.seq, event)
+  }
+}
+
+function completedTurnCount(trace: TracePayload | undefined): number {
+  return (trace?.events ?? []).filter(event => event.type === 'turn/end').length
+}
+
+/* ── Live streaming: patch-only updates, never a full re-render ───────────── */
 
 function handleSessionUpdate(payload: SessionUpdatePayload): void {
   const update = payload.update
-  const rows = state.liveRows.get(payload.sessionId) ?? []
   const kind = String(update.sessionUpdate ?? '')
-
+  const live = state.live.get(payload.sessionId) ?? { thinking: '', answer: '', tools: [], expectedCompletedTurns: completedTurnCount(state.trace) + 1, status: 'streaming' as const }
   if (kind === 'agent_message_chunk') {
-    const text = contentText(update.content)
-    state.pendingAssistant.set(payload.sessionId, `${state.pendingAssistant.get(payload.sessionId) ?? ''}${text}`)
+    live.answer += contentText(update.content)
+    live.status = 'streaming'
   } else if (kind === 'agent_thought_chunk') {
-    const text = contentText(update.content)
-    state.pendingThinking.set(payload.sessionId, `${state.pendingThinking.get(payload.sessionId) ?? ''}${text}`)
+    live.thinking += contentText(update.content)
+    live.status = 'streaming'
   } else if (kind === 'tool_call' || kind === 'tool_call_update') {
-    const toolCallId = String(update.toolCallId ?? `tool-${rows.length}`)
-    const existing = rows.findIndex(row => row.target.id.endsWith(`synthetic:${toolCallId}`))
-    const row = makeSyntheticRow(payload.sessionId, 'tool', String(update.title ?? 'Tool use'), renderValue(update), toolCallId, true)
-    if (existing >= 0) rows.splice(existing, 1, row)
-    else rows.push(row)
-    state.liveRows.set(payload.sessionId, rows)
+    const callId = String(update.toolCallId ?? `tool-${live.tools.length}`)
+    const existing = live.tools.find(tool => tool.callId === callId)
+    const title = String(update.title ?? existing?.title ?? t('chat.toolUse'))
+    const status = String(update.status ?? existing?.status ?? '')
+    const detail = update.rawInput === undefined ? existing?.detail ?? '' : renderValue(update.rawInput)
+    if (existing === undefined) live.tools.push({ callId, title, status, detail })
+    else Object.assign(existing, { title, status, detail })
+    live.status = 'streaming'
   } else if (kind === 'user_message_chunk') {
-    rows.push(makeSyntheticRow(payload.sessionId, 'user', t('chat.user'), contentText(update.content), `user-${rows.length}`))
-    state.liveRows.set(payload.sessionId, rows)
+    if (live.userText === undefined) live.userText = contentText(update.content)
+  } else {
+    return
   }
-
-  render()
+  state.live.set(payload.sessionId, live)
+  if (payload.sessionId === state.selectedSessionId || (state.selectedSessionId === undefined && state.draftChat)) {
+    renderLiveTurn()
+    scrollChatToBottom()
+  }
 }
 
-function render(): void {
-  if (appEl === null) return
-  const session = currentSession()
-  appEl.innerHTML = `
-    <div class="harness-shell ${state.selectedTarget === undefined ? '' : 'inspector-open'}">
-      ${renderSidebar()}
-      <main class="harness-main">
-        ${renderTopbar(session)}
-        ${renderMainContent(session)}
-        ${renderBottomArea(session)}
-      </main>
-      ${state.selectedTarget === undefined ? '' : renderInspector()}
-    </div>
-  `
-  syncSelectionAfterRender()
+function currentLiveTurn(): LiveTurn | undefined {
+  return state.live.get(state.selectedSessionId ?? DRAFT_SESSION_ID)
 }
 
-function renderSidebar(): string {
-  const sessions = filteredSessions()
-  return `
-    <aside class="source-list">
-      <div class="traffic-lights" aria-hidden="true">
-        <span class="red"></span><span class="yellow"></span><span class="green"></span>
-      </div>
-
-      <header class="app-brand">
-        <button class="brand-title" data-module="sessions">Deepseek Harness</button>
-        <span class="runtime-dot ${runtimeStateClass()}"></span>
-      </header>
-
-      <section class="primary-actions">
-        <button class="primary-action" data-action="new-session" ${hasDesktopApi() ? '' : 'disabled'}>
-          <span>${escapeHtml(t('app.newChat'))}</span>
-          <kbd>⌘N</kbd>
-        </button>
-      </section>
-
-      <nav class="product-nav" aria-label="Deepseek Harness modules">
-        ${renderModuleButton('sessions', t('app.sessions'), t('app.sessionsSubtitle'))}
-        ${renderModuleButton('develop', t('app.develop'), t('app.developSubtitle'))}
-      </nav>
-
-      <label class="session-search">
-        <span>${escapeHtml(t('app.sessions'))}</span>
-        <input data-search="true" value="${escapeHtml(state.query)}" placeholder="${escapeHtml(t('app.searchPlaceholder'))}" />
-      </label>
-
-      ${renderSessionGroup(t('app.recentSessions'), sessions.slice(0, 22))}
-
-      <footer class="source-footer">
-        <span>${escapeHtml(shortPath(runtimeRepoRoot()))}</span>
-        <strong>${escapeHtml(runtimeLabel())}</strong>
-      </footer>
-    </aside>
-  `
+/** Rebuild-or-patch the live turn region. Structure is keyed so streaming text updates touch text nodes only. */
+function renderLiveTurn(): void {
+  const live = currentLiveTurn()
+  if (live === undefined) {
+    el.liveTurn.innerHTML = ''
+    updateLiveJump()
+    return
+  }
+  ensureLiveSkeleton(live)
+  const thinking = el.liveTurn.querySelector<HTMLElement>('[data-live="thinking"]')
+  if (thinking !== null) {
+    thinking.hidden = live.thinking.length === 0
+    const summaryText = thinking.querySelector<HTMLElement>('summary strong')
+    if (summaryText !== null) summaryText.textContent = truncate(live.thinking, 112)
+    const body = thinking.querySelector<HTMLElement>('.activity-body')
+    if (body !== null) body.textContent = live.thinking
+  }
+  for (const tool of live.tools) {
+    const row = el.liveTurn.querySelector<HTMLElement>(`[data-live-call="${CSS.escape(tool.callId)}"]`)
+    if (row === null) continue
+    const label = row.querySelector<HTMLElement>('summary strong')
+    if (label !== null) label.textContent = tool.title
+    const statusEl = row.querySelector<HTMLElement>('summary span')
+    if (statusEl !== null) statusEl.textContent = tool.status === 'failed' ? t('chat.toolFailed') : t('chat.toolUse')
+    const body = row.querySelector<HTMLElement>('.activity-body pre')
+    if (body !== null) body.textContent = tool.detail
+    row.classList.toggle('failed', tool.status === 'failed')
+  }
+  const answer = el.liveTurn.querySelector<HTMLElement>('[data-live="answer"]')
+  if (answer !== null) {
+    answer.hidden = live.answer.length === 0
+    answer.innerHTML = renderMarkdown(live.answer)
+  }
+  const status = el.liveTurn.querySelector<HTMLElement>('[data-live="status"]')
+  if (status !== null) {
+    status.hidden = live.status !== 'sending' && live.status !== 'streaming' && live.errorText === undefined
+    status.textContent = live.errorText ?? (live.status === 'sending' ? t('chat.sending') : t('chat.working'))
+    status.classList.toggle('error', live.errorText !== undefined)
+  }
+  updateLiveJump()
 }
 
-function renderModuleButton(module: AppModule, title: string, subtitle: string): string {
-  return `
-    <button class="module-button ${state.activeModule === module ? 'selected' : ''}" data-module="${module}">
-      <span>
-        <strong>${escapeHtml(title)}</strong>
-        <small>${escapeHtml(subtitle)}</small>
-      </span>
-    </button>
-  `
-}
-
-function renderSessionGroup(title: string, sessions: SessionSummary[]): string {
-  return `
-    <section class="session-group">
-      <div class="group-title">${escapeHtml(title)}</div>
-      <div class="session-list">
-        ${sessions.map(renderSessionItem).join('') || `<div class="empty-list">${escapeHtml(t('app.emptySessions'))}</div>`}
-      </div>
-    </section>
-  `
-}
-
-function renderSessionItem(session: SessionSummary): string {
-  const age = formatRelativeTime(session.lastActivity)
-  return `
-    <button class="session-item ${session.id === state.selectedSessionId ? 'selected' : ''}" data-session="${escapeHtml(session.id)}">
-      <span class="session-glyph">${session.live ? '●' : '○'}</span>
-      <span class="session-copy">
-        <strong>${escapeHtml(session.title || shortId(session.id))}</strong>
-        <small>${session.turnCount} turns · ${session.toolCallCount} tools · ${escapeHtml(age)}</small>
-      </span>
-    </button>
-  `
-}
-
-function renderTopbar(session: SessionSummary | undefined): string {
-  if (state.activeModule === 'sessions' && state.activeSurface === 'chat') {
-    return `
-      <header class="topbar chat-topbar">
-        <div class="title-area">
-          <h1>${escapeHtml(topbarTitle(session))}</h1>
+/** Creates the live turn DOM skeleton when the turn starts or a new tool appears. */
+function ensureLiveSkeleton(live: LiveTurn): void {
+  el.conversation.querySelector('.empty-thread')?.remove()
+  let root = el.liveTurn.querySelector<HTMLElement>('.message.live')
+  if (root === null) {
+    el.liveTurn.innerHTML = `
+      ${live.userText === undefined ? '' : `
+        <article class="message user">
+          <div class="message-card"><div class="user-bubble">${escapeHtml(live.userText)}</div></div>
+        </article>
+      `}
+      <article class="message assistant live">
+        <div class="avatar">A</div>
+        <div class="message-card">
+          <div class="activity-list">
+            <details class="chat-activity thinking" data-live="thinking" hidden>
+              <summary><span>${escapeHtml(t('chat.thinking'))}</span><strong></strong></summary>
+              <div class="activity-body"></div>
+            </details>
+            <div data-live="tools"></div>
+          </div>
+          <div class="assistant-prose" data-live="answer" hidden></div>
+          <div class="live-status" data-live="status">${escapeHtml(t('chat.sending'))}</div>
         </div>
-        ${renderSurfaceSwitcher()}
-        <div class="toolbar-actions">${renderLanguageToggle()}</div>
-      </header>
-    `
-  }
-  return `
-    <header class="topbar">
-      <div class="title-area">
-        <div class="crumb">Deepseek Harness / ${escapeHtml(moduleTitle())}</div>
-        <h1>${escapeHtml(topbarTitle(session))}</h1>
-      </div>
-      ${state.activeModule === 'sessions' ? renderSurfaceSwitcher() : ''}
-      <div class="toolbar-actions">${renderLanguageToggle()}</div>
-    </header>
-  `
-}
-
-function renderLanguageToggle(): string {
-  return `<button class="language-toggle" data-action="toggle-locale" type="button">${escapeHtml(t('app.language'))}</button>`
-}
-
-function renderSurfaceSwitcher(): string {
-  return `
-    <nav class="surface-switcher" aria-label="Session surfaces">
-      ${SESSION_SURFACES.map(surface => `
-        <button class="${state.activeSurface === surface ? 'active' : ''}" data-surface="${surface}">
-          ${escapeHtml(surfaceLabel(surface))}
-        </button>
-      `).join('')}
-    </nav>
-  `
-}
-
-function renderMainContent(session: SessionSummary | undefined): string {
-  if (state.activeModule === 'develop') return renderDevelopModule()
-
-  if (session === undefined) return state.draftChat ? renderDraftChat() : renderEmptySession()
-  return `
-    <section class="session-canvas">
-      ${state.error ? `<div class="notice"><strong>${escapeHtml(t('app.errorTitle'))}</strong><span>${escapeHtml(state.error)}</span></div>` : ''}
-      ${state.activeSurface === 'chat' ? '' : renderSessionHeader(session)}
-      ${renderActiveSurface()}
-    </section>
-  `
-}
-
-function renderSessionHeader(session: SessionSummary): string {
-  const trace = state.trace
-  return `
-    <section class="run-strip">
-      <button class="run-identity ${selectedClass(makeTarget('session', `Session ${session.id}`, 0, trace?.relativePath ?? 'session'))}" data-target="${makeTarget('session', `Session ${session.id}`, 0, trace?.relativePath ?? 'session').id}">
-        <strong>${escapeHtml(shortId(session.id))}</strong>
-        <span>${escapeHtml(trace?.relativePath ?? session.relativePath ?? 'live ACP session')}</span>
-      </button>
-      <div class="run-metrics">
-        ${renderMetric('Turns', session.turnCount)}
-        ${renderMetric('Steps', session.stepCount)}
-        ${renderMetric('Tools', session.toolCallCount)}
-        ${renderMetric('Events', session.eventCount)}
-      </div>
-    </section>
-  `
-}
-
-function renderMetric(label: string, value: number): string {
-  return `<span><strong>${value}</strong><small>${escapeHtml(label)}</small></span>`
-}
-
-function renderActiveSurface(): string {
-  if (state.activeSurface === 'trajectory') return renderTrajectorySurface()
-  if (state.activeSurface === 'waterfall') return renderWaterfallSurface()
-  return renderChatSurface()
-}
-
-function renderChatSurface(): string {
-  const rows = chatRows()
-  return `
-    <section class="surface chat-surface">
-      ${rows.map(renderChatRow).join('') || renderEmptyConversation()}
-    </section>
-  `
-}
-
-function renderChatRow(row: ChatRow): string {
-  if (row.role === 'user') {
-    return `
-      <article class="chat-row user-row ${selectedClass(row.target)}">
-        <span class="message-bubble">
-          ${renderMarkdown(row.body)}
-        </span>
-        <button class="message-details" data-target="${row.target.id}" type="button">${escapeHtml(t('chat.details'))}</button>
       </article>
     `
+    root = el.liveTurn.querySelector<HTMLElement>('.message.live')
   }
-  if (row.role === 'assistant') {
-    return `
-      <article class="chat-row assistant-row ${selectedClass(row.target)}">
-        <span class="assistant-message">${renderMarkdown(row.body)}</span>
-        <button class="message-details" data-target="${row.target.id}" type="button">${escapeHtml(t('chat.details'))}</button>
-      </article>
-    `
+  const toolHost = root?.querySelector<HTMLElement>('[data-live="tools"]')
+  if (toolHost === undefined || toolHost === null) return
+  for (const tool of live.tools) {
+    if (toolHost.querySelector(`[data-live-call="${CSS.escape(tool.callId)}"]`) !== null) continue
+    const details = document.createElement('details')
+    details.className = 'chat-activity tool-use'
+    details.dataset.liveCall = tool.callId
+    details.innerHTML = '<summary><span></span><strong></strong></summary><div class="activity-body"><pre></pre></div>'
+    toolHost.appendChild(details)
   }
-  return `
-    <details class="fold-row ${row.role} ${selectedClass(row.target)}" ${row.collapsed ? '' : 'open'}>
-      <summary>
-        <span class="fold-kind">${escapeHtml(row.title)}</span>
-        <span class="fold-preview">${escapeHtml(truncate(row.body, 150))}</span>
-      </summary>
-      <div class="fold-body">
-        ${renderFoldBody(row)}
-      </div>
-    </details>
-  `
 }
 
-function renderFoldBody(row: ChatRow): string {
-  if (row.role === 'tool') {
-    const payload = parseMaybeJson(row.body)
-    const record = asRecord(payload)
-    const hasStructured = record.input !== undefined || record.output !== undefined || record.error !== undefined
-    if (hasStructured) {
-      return `
-        ${renderActivitySection(t('chat.input'), record.input ?? record.arguments ?? record.rawInput ?? {})}
-        ${record.error !== undefined ? renderActivitySection(t('chat.errorOutput'), record.error) : ''}
-        ${record.output !== undefined ? renderActivitySection(t('chat.output'), record.output) : ''}
-        <button class="fold-inspect" data-target="${row.target.id}" type="button">${escapeHtml(t('chat.details'))}</button>
-      `
+function scrollChatToBottom(force = false): void {
+  if (!force && !state.stickToBottom) return
+  el.chatView.scrollTop = el.chatView.scrollHeight
+  state.stickToBottom = true
+  updateLiveJump()
+}
+
+function updateLiveJump(): void {
+  const live = currentLiveTurn()
+  el.liveJump.hidden = live === undefined || state.stickToBottom
+}
+
+/* ── Composer: element is never rebuilt, so typing is never lost ──────────── */
+
+function updateComposerState(): void {
+  const busy = state.busySessionId !== undefined
+  el.sendButton.disabled = busy || !hasDesktopApi() || el.composerInput.value.trim().length === 0
+  el.cancelButton.hidden = !busy
+  el.composerHint.textContent = busy ? t('chat.working') : t('composer.hint')
+  el.composerForm.classList.toggle('busy', busy)
+}
+
+function autosizeComposer(): void {
+  el.composerInput.style.height = '0px'
+  el.composerInput.style.height = `${Math.min(132, Math.max(42, el.composerInput.scrollHeight))}px`
+}
+
+async function sendPrompt(prompt: string): Promise<void> {
+  if (!hasDesktopApi()) {
+    showError(t('error.noDesktopApi'))
+    return
+  }
+  const draftKey = state.selectedSessionId ?? DRAFT_SESSION_ID
+  state.live.set(draftKey, {
+    userText: prompt,
+    thinking: '',
+    answer: '',
+    tools: [],
+    expectedCompletedTurns: completedTurnCount(state.trace) + 1,
+    status: 'sending',
+  })
+  state.busySessionId = draftKey
+  el.composerInput.value = ''
+  autosizeComposer()
+  updateComposerState()
+  showError('')
+  renderLiveTurn()
+  scrollChatToBottom(true)
+  el.composerInput.focus()
+
+  let sessionId = state.selectedSessionId
+  try {
+    if (sessionId === undefined) {
+      const created = asRecord(await window.dshDesktop.sessions.create())
+      sessionId = String(created.sessionId)
+      const live = state.live.get(DRAFT_SESSION_ID)
+      state.live.delete(DRAFT_SESSION_ID)
+      if (live !== undefined) state.live.set(sessionId, live)
+      state.selectedSessionId = sessionId
+      state.draftChat = false
+      state.busySessionId = sessionId
+      ensureSessionListed(sessionId, prompt)
+    }
+    state.pendingSessionTitles.set(sessionId, prompt)
+    renderSessionList()
+    renderTopbar()
+    const result = asRecord(await window.dshDesktop.sessions.prompt(sessionId, prompt))
+    const returnedTrace = asRecord(result.trace) as unknown as TracePayload
+    const completedLive = state.live.get(sessionId)
+    if (completedLive !== undefined) completedLive.status = 'complete'
+    state.busySessionId = undefined
+    updateComposerState()
+    if (state.selectedSessionId === sessionId) renderLiveTurn()
+    await refreshSessions()
+    if (state.selectedSessionId === sessionId && returnedTrace.sessionId === sessionId && completedTurnCount(returnedTrace) >= (completedLive?.expectedCompletedTurns ?? 1)) {
+      applyTrace(returnedTrace, false)
+    } else if (state.selectedSessionId === sessionId) {
+      await loadTrace(sessionId)
+    }
+    else state.live.delete(sessionId)
+  } catch (error) {
+    state.busySessionId = undefined
+    const live = sessionId === undefined ? state.live.get(DRAFT_SESSION_ID) : state.live.get(sessionId)
+    if (live !== undefined) {
+      live.status = 'error'
+      live.errorText = `${t('chat.sendFailed')}: ${String(error)}`
+      if (state.selectedSessionId === sessionId || (sessionId === undefined && state.draftChat)) renderLiveTurn()
+    }
+    showError(String(error))
+    if ((state.selectedSessionId === sessionId || (sessionId === undefined && state.draftChat)) && el.composerInput.value.trim().length === 0) {
+      el.composerInput.value = prompt
+      autosizeComposer()
+    }
+    updateComposerState()
+  } finally {
+    el.composerInput.focus()
+  }
+}
+
+/** Makes a just-created session visible in the sidebar before the next full refresh. */
+function ensureSessionListed(sessionId: string, title: string): void {
+  if (state.sessions.some(session => session.id === sessionId)) return
+  state.sessions = [{
+    id: sessionId,
+    title,
+    createdAt: Date.now(),
+    lastActivity: Date.now(),
+    eventCount: 0,
+    turnCount: 0,
+    stepCount: 0,
+    toolCallCount: 0,
+    live: true,
+  }, ...state.sessions]
+}
+
+async function cancelActiveTurn(): Promise<void> {
+  const sessionId = state.busySessionId
+  if (sessionId === undefined || sessionId === DRAFT_SESSION_ID || !hasDesktopApi()) return
+  try {
+    await window.dshDesktop.sessions.cancel(sessionId)
+    toast(t('chat.cancelRequested'))
+  } catch (error) {
+    showError(String(error))
+  }
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────────────── */
+
+function filteredSessions(): SessionSummary[] {
+  const query = state.query.trim().toLowerCase()
+  if (query.length === 0) return state.sessions
+  return state.sessions.filter(session => [session.id, session.title, session.cwd ?? '', session.relativePath ?? '', session.model ?? ''].join('\n').toLowerCase().includes(query))
+}
+
+function renderSessionList(): void {
+  const matches = new Set(filteredSessions().map(session => session.id))
+  const ids = new Set(state.sessions.map(session => session.id))
+  const children = new Map<string, SessionSummary[]>()
+  const roots: SessionSummary[] = []
+  for (const session of state.sessions) {
+    if (session.parentSession !== undefined && ids.has(session.parentSession)) {
+      const siblings = children.get(session.parentSession) ?? []
+      siblings.push(session)
+      children.set(session.parentSession, siblings)
+    } else {
+      roots.push(session)
     }
   }
-  return `
-    <button class="fold-inspect" data-target="${row.target.id}" type="button">${escapeHtml(t('chat.details'))}</button>
-    <pre>${escapeHtml(row.body)}</pre>
-  `
-}
-
-function renderActivitySection(title: string, value: unknown): string {
-  return `
-    <section class="activity-section">
-      <strong>${escapeHtml(title)}</strong>
-      <pre>${escapeHtml(formatDevValue(value))}</pre>
-    </section>
-  `
-}
-
-function renderTrajectorySurface(): string {
-  const rows = trajectoryRows()
-  return `
-    <section class="surface trace-surface">
-      <header class="surface-intro">
-        <strong>${escapeHtml(t('trace.title'))}</strong>
-        <span>${escapeHtml(t('trace.body'))}</span>
-      </header>
-      <div class="tree-view">
-        ${rows.map(renderTreeRow).join('') || renderEmptyTrace()}
-      </div>
-    </section>
-  `
-}
-
-function renderTreeRow(row: TreeRow): string {
-  const detail = renderTrajectoryInlineDetail(row)
-  if (detail.length > 0) {
-    return `
-      <details class="tree-item">
-        <summary class="tree-row depth-${row.depth} ${row.tone ?? ''} ${selectedClass(row.target)}">
-          <span class="tree-rail"></span>
-          <span class="tree-kind">${escapeHtml(row.kind)}</span>
-          <span class="tree-copy">
-            <strong>${escapeHtml(row.title)}</strong>
-            <small>${escapeHtml(row.subtitle)}</small>
-          </span>
-          <em>${escapeHtml(row.meta)}</em>
-        </summary>
-        <div class="traj-body">
-          ${detail}
-          <button class="fold-inspect" data-target="${row.target.id}" type="button">${escapeHtml(t('chat.details'))}</button>
-        </div>
-      </details>
-    `
+  const rows: string[] = []
+  for (const root of roots) {
+    const nested = (children.get(root.id) ?? []).sort((a, b) => a.createdAt - b.createdAt)
+    const matchingChildren = nested.filter(session => matches.has(session.id))
+    if (!matches.has(root.id) && matchingChildren.length === 0) continue
+    rows.push(renderSessionItem(root, false, nested.length))
+    const visibleChildren = matches.has(root.id) ? nested : matchingChildren
+    rows.push(...visibleChildren.map(session => renderSessionItem(session, true, 0)))
+    if (rows.length >= 40) break
   }
+  el.sessionList.innerHTML = rows.join('') || `<div class="empty-list">${escapeHtml(t('app.emptySessions'))}</div>`
+}
+
+function renderSessionItem(session: SessionSummary, child: boolean, childCount: number): string {
   return `
-    <button class="tree-row depth-${row.depth} ${row.tone ?? ''} ${selectedClass(row.target)}" data-target="${row.target.id}">
-      <span class="tree-rail"></span>
-      <span class="tree-kind">${escapeHtml(row.kind)}</span>
-      <span class="tree-copy">
-        <strong>${escapeHtml(row.title)}</strong>
-        <small>${escapeHtml(row.subtitle)}</small>
+    <button class="session-item ${child ? 'child' : ''} ${session.id === state.selectedSessionId ? 'selected' : ''}" data-session="${escapeHtml(session.id)}">
+      <span class="session-glyph">${child ? '↳' : session.id === state.busySessionId ? '●' : '○'}</span>
+      <span class="session-copy">
+        <strong>${escapeHtml(session.title || shortId(session.id))}</strong>
+        <small>${session.turnCount} ${t('metric.turns')} · ${session.toolCallCount} ${t('metric.tools')}${childCount > 0 ? ` · ${childCount} ${t('app.subagents')}` : ''} · ${escapeHtml(formatRelativeTime(session.lastActivity))}</small>
       </span>
-      <em>${escapeHtml(row.meta)}</em>
     </button>
   `
 }
 
-function renderTrajectoryInlineDetail(row: TreeRow): string {
-  const seq = targetSeq(row.target)
-  const event = (state.trace?.events ?? []).find(candidate => candidate.seq === seq)
-  if (event === undefined) return ''
-  const data = asRecord(event.data)
-  if (event.type === 'request/header' || event.type === 'request/header-delta') {
-    const header = asRecord(data.header)
-    const delta = event.type === 'request/header-delta' ? data : {}
-    const system = String(header.system ?? delta.system ?? '')
-    const tools = header.tools ?? delta.tools ?? []
-    return `
-      ${renderTrajectoryCard(t('trace.systemPrompt'), `${system.length} chars`, system || t('trace.noSystem'))}
-      ${renderTrajectoryCard(t('trace.toolSchemas'), `${Array.isArray(tools) ? tools.length : 0} tools`, tools)}
-      <details class="metadata-line">
-        <summary>${escapeHtml(t('trace.configPrefix'))}</summary>
-        <pre>${escapeHtml(formatDevValue({ config: header.config ?? delta.config, messagePrefix: header.messagePrefix ?? delta.messagePrefix }))}</pre>
-      </details>
-    `
+function renderFooter(): void {
+  el.footerRepo.textContent = shortPath(runtimeRepoRoot())
+  el.footerRuntime.textContent = runtimeLabel()
+  el.runtimeDot.className = `runtime-dot ${runtimeStateClass()}`
+}
+
+function renderTopbar(): void {
+  const session = state.sessions.find(item => item.id === state.selectedSessionId)
+  const parentTitle = state.trace?.parent?.title
+  el.topbarTitle.textContent = state.activeModule === 'develop'
+    ? t('app.develop')
+    : [parentTitle, session?.title || state.pendingSessionTitles.get(state.selectedSessionId ?? '') || t('app.sessions')].filter(Boolean).join(' / ')
+  document.querySelector<HTMLElement>('#surfaceSwitcher')?.toggleAttribute('hidden', state.activeModule !== 'sessions')
+  el.revealButton.hidden = state.activeModule !== 'sessions' || state.trace?.found !== true
+  el.composerInput.placeholder = state.selectedSessionId === undefined
+    ? t('composer.placeholderDraft')
+    : t('composer.placeholderSession')
+}
+
+/* ── Module and surface switching: views stay mounted, so scroll survives ─── */
+
+function showModule(module: AppModule): void {
+  state.activeModule = module
+  for (const button of document.querySelectorAll<HTMLElement>('[data-module]')) {
+    button.classList.toggle('selected', button.dataset.module === module && button.classList.contains('module-button'))
   }
-  if (event.type === 'tool/call') {
-    const callId = String(data.callId ?? '')
-    const result = (state.trace?.events ?? []).find(candidate => candidate.type === 'tool/result' && asRecord(candidate.data).callId === callId)
-    return `
-      ${renderTrajectoryCard(String(data.name ?? 'tool'), callId, data.arguments ?? data.rawInput ?? data)}
-      ${result === undefined ? '' : renderTrajectoryCard(asRecord(result.data).isError ? t('chat.errorOutput') : t('chat.output'), callId, asRecord(result.data).content ?? result.data)}
-    `
+  el.sessionCanvas.hidden = module !== 'sessions'
+  el.devCanvas.hidden = module !== 'develop'
+  el.composerForm.hidden = module !== 'sessions'
+  if (module === 'develop') renderDevelop()
+  renderTopbar()
+}
+
+function showSurface(surface: SessionSurface): void {
+  state.activeSurface = surface
+  for (const button of document.querySelectorAll<HTMLElement>('[data-surface]')) {
+    button.classList.toggle('active', button.dataset.surface === surface)
   }
-  if (event.type === 'tool/result') {
-    return renderTrajectoryCard(asRecord(data).isError ? t('chat.errorOutput') : t('chat.output'), String(data.callId ?? ''), data.content ?? data)
+  el.chatView.classList.toggle('active', surface === 'chat')
+  document.querySelector('#trajView')?.classList.toggle('active', surface === 'trajectory')
+  document.querySelector('#wfView')?.classList.toggle('active', surface === 'waterfall')
+  if (surface !== 'chat' && state.selectedSessionId !== undefined && state.busySessionId !== state.selectedSessionId) {
+    void loadTrace(state.selectedSessionId)
+  }
+}
+
+/* ── Chat (persisted conversation) ────────────────────────────────────────── */
+
+function renderConversation(): void {
+  const turns = state.graph.chatTurns
+  if (turns.length === 0) {
+    el.conversation.innerHTML = currentLiveTurn() === undefined
+      ? `<div class="empty-thread"><h2>${escapeHtml(t('chat.emptyTitle'))}</h2><p>${escapeHtml(t('chat.emptyBody'))}</p></div>`
+      : ''
+    return
+  }
+  el.conversation.innerHTML = turns.map(renderConversationTurn).join('')
+  updateSelectionHighlight()
+}
+
+function renderConversationTurn(turn: ChatTurn): string {
+  const userTarget = turn.userTargetId === undefined ? undefined : state.graph.targets.get(turn.userTargetId)
+  const user = userTarget === undefined ? '' : `
+    <article class="message user ${selectedTargetClass(userTarget.id)}" data-target-id="${escapeHtml(userTarget.id)}">
+      <div class="message-card"><div class="user-bubble">${escapeHtml(contentText(userTarget.output))}</div></div>
+    </article>
+  `
+  if (turn.activities.length === 0) return user
+  return `${user}
+    <article class="message assistant">
+      <div class="avatar">A</div>
+      <div class="message-card"><div class="activity-list">${turn.activities.map(renderConversationActivity).join('')}</div></div>
+    </article>
+  `
+}
+
+function renderConversationActivity(activity: ChatActivity): string {
+  const target = state.graph.targets.get(activity.targetId)
+  if (target === undefined) return ''
+  if (activity.kind === 'tool') return renderChatToolActivity(target)
+  if (activity.kind === 'text') {
+    return `<section class="assistant-prose assistant-segment ${selectedTargetClass(target.id)}" data-target-id="${escapeHtml(target.id)}">${renderMarkdown(assistantText(target.output) || contentText(target.output))}</section>`
+  }
+  const expanded = state.expandedActivityIds.has(target.id)
+  return `
+    <section class="chat-activity thinking ${selectedTargetClass(target.id)}">
+      <div class="activity-row">
+        <button class="activity-select" type="button" data-target-id="${escapeHtml(target.id)}"><span>${escapeHtml(t('chat.thinking'))}</span><strong>${escapeHtml(truncate(contentText(target.output), 112))}</strong></button>
+        <button class="activity-toggle" type="button" data-toggle-activity="${escapeHtml(target.id)}" aria-label="${escapeHtml(t(expanded ? 'trace.collapseRow' : 'trace.expandRow'))}">${expanded ? '⌃' : '⌄'}</button>
+      </div>
+      <div class="activity-body" ${expanded ? '' : 'hidden'} data-target-id="${escapeHtml(target.id)}"><div>${escapeHtml(contentText(target.output))}</div></div>
+    </section>
+  `
+}
+
+function renderChatToolActivity(target: TraceTarget): string {
+  const failed = target.status === 'error'
+  const preview = toolCallPreview(target.input)
+  const expanded = state.expandedActivityIds.has(target.id)
+  const inputHtml = `<div class="activity-section-title">${escapeHtml(t('chat.input'))}</div><pre>${escapeHtml(formatPayload(target.input, 'json'))}</pre>`
+  const outputHtml = target.output === '' ? '' : `<div class="activity-section-title">${escapeHtml(failed ? t('chat.errorOutput') : t('chat.output'))}</div><pre>${escapeHtml(formatPayload(target.output, 'plain'))}</pre>`
+  const callEvent = target.eventSeqs.map(seq => state.seqMap.get(seq)).find(event => event?.type === 'tool/call')
+  const spawnedHtml = callEvent === undefined ? '' : renderSpawnedSessions(callEvent)
+  return `
+    <section class="chat-activity tool-use ${failed ? 'failed' : ''} ${selectedTargetClass(target.id)}">
+      <div class="activity-row">
+        <button class="activity-select" type="button" data-target-id="${escapeHtml(target.id)}"><span>${escapeHtml(failed ? t('chat.toolFailed') : t('chat.toolUse'))}</span><strong>${escapeHtml(target.title)}${preview.length > 0 ? `<span class="activity-preview"> · ${escapeHtml(preview)}</span>` : ''}</strong></button>
+        <button class="activity-toggle" type="button" data-toggle-activity="${escapeHtml(target.id)}" aria-label="${escapeHtml(t(expanded ? 'trace.collapseRow' : 'trace.expandRow'))}">${expanded ? '⌃' : '⌄'}</button>
+      </div>
+      <div class="activity-body" ${expanded ? '' : 'hidden'} data-target-id="${escapeHtml(target.id)}">${inputHtml}${outputHtml}${spawnedHtml}</div>
+    </section>
+  `
+}
+
+function renderSpawnedSessions(event: SessionEvent): string {
+  const spawned = spawnedSessionsFor(event)
+  if (spawned.length === 0) return ''
+  return `
+    <section class="spawn-list">
+      <strong>${escapeHtml(t('chat.spawnedSessions'))} · ${spawned.length}</strong>
+      ${spawned.map(session => `
+        <button class="spawn-link" type="button" data-session="${escapeHtml(session.id)}">
+          <span>↳</span>
+          <span>${escapeHtml(truncate(session.title || session.id, 72))}</span>
+          <small>${session.stepCount} ${escapeHtml(t('metric.steps'))} · ${session.toolCallCount} ${escapeHtml(t('metric.tools'))}</small>
+        </button>
+      `).join('')}
+    </section>
+  `
+}
+
+function spawnedSessionsFor(event: SessionEvent): SessionSummary[] {
+  if (event.type !== 'tool/call') return []
+  const tool = state.graph.targets.get(`tool:${String(asRecord(event.data).callId ?? '')}`)
+  const result = asRecord(tool?.metadata).result as SessionEvent | undefined
+  const start = (event.time ?? 0) - 2000
+  const end = (result?.time ?? (event.time ?? 0) + 600_000) + 2000
+  return (state.trace?.children ?? []).filter(session => session.createdAt >= start && session.createdAt <= end)
+}
+
+function toolCallPreview(value: unknown): string {
+  const args = parseMaybeJson(value)
+  if (args !== null && typeof args === 'object') {
+    const record = asRecord(args)
+    const preferred = record.description ?? record.command ?? record.file_path ?? record.path ?? record.name ?? record.url ?? record.query
+    if (typeof preferred === 'string' && preferred.length > 0) return truncate(preferred, 90)
+    const firstString = Object.values(record).find(candidate => typeof candidate === 'string' && candidate.length > 0)
+    if (typeof firstString === 'string') return truncate(firstString, 90)
   }
   return ''
 }
 
-function renderTrajectoryCard(title: string, meta: string, value: unknown): string {
-  return `
-    <section class="traj-card">
-      <header><strong>${escapeHtml(title)}</strong><span>${escapeHtml(meta)}</span></header>
-      <pre>${escapeHtml(formatDevValue(value))}</pre>
-    </section>
-  `
-}
+/* ── Trajectory: logical graph rows shared with Chat, Waterfall, Inspector ── */
 
-function renderWaterfallSurface(): string {
-  const spans = waterfallRows()
-  const total = Math.max(1, ...spans.map(span => span.startMs + span.durationMs))
-  return `
-    <section class="surface waterfall-surface">
-      <header class="surface-intro">
-        <strong>${escapeHtml(t('waterfall.title'))}</strong>
-        <span>${escapeHtml(t('waterfall.body'))}</span>
-      </header>
-      ${renderWaterfallSummary(spans, total)}
-      <div class="waterfall">
-        ${spans.map(span => renderSpanRow(span, total)).join('') || renderEmptyTrace()}
+function renderTrajectory(): void {
+  if (state.graph.trajectoryRows.length === 0) {
+    el.trajectory.innerHTML = `<div class="empty-thread compact"><h2>${escapeHtml(t('empty.traceTitle'))}</h2><p>${escapeHtml(t('empty.traceBody'))}</p></div>`
+    return
+  }
+  const header = `
+    <div class="traj-head-row" aria-hidden="true">
+      <span>${escapeHtml(t('trace.columnNumber'))}</span>
+      <span>${escapeHtml(t('trace.columnEvent'))}</span>
+      <span>${escapeHtml(t('trace.columnContent'))}</span>
+      <span class="num">${escapeHtml(t('trace.columnInput'))}</span>
+      <span class="num">${escapeHtml(t('trace.columnOutput'))}</span>
+      <span class="num">${escapeHtml(t('trace.columnThink'))}</span>
+      <span class="num">${escapeHtml(t('trace.columnTime'))}</span>
+      <span></span>
+    </div>
+  `
+  const body = state.graph.trajectoryGroups.map((group) => {
+    const groupTargets = group.rowTargetIds.map(id => state.graph.targets.get(id)).filter((target): target is TraceTarget => target !== undefined)
+    const toolSummary = groupTargets.filter(target => target.kind === 'tool').map(target => target.title).join(' · ')
+    const head = `
+      <div class="traj-group-head ${group.status === 'error' ? 'error' : ''}" data-group-anchor="${escapeHtml(group.id)}">
+        <span>${escapeHtml(graphGroupLabel(group))}</span>
+        <span class="g-dur">${escapeHtml(formatMs(group.endTime - group.startTime))}</span>
+        ${toolSummary.length > 0 ? `<span class="g-meta">${escapeHtml(toolSummary)}</span>` : ''}
       </div>
-    </section>
+    `
+    return head + group.rowTargetIds.map(targetId => renderGraphTrajectoryRow(targetId)).join('')
+  }).join('')
+  el.trajectory.innerHTML = header + body
+  updateSelectionHighlight()
+}
+
+function graphGroupLabel(group: GraphTrajectoryGroup): string {
+  return group.step === null ? `${t('trace.turn')} ${group.turn} · ${t('trace.message')}` : `${t('trace.step')} ${group.step}`
+}
+
+function renderGraphTrajectoryRow(targetId: string): string {
+  const target = state.graph.targets.get(targetId)
+  if (target === undefined) return ''
+  const index = state.graph.trajectoryRows.findIndex(row => row.targetId === targetId) + 1
+  const expanded = state.expandedTrajectoryIds.has(targetId)
+  const fbCount = feedbackFor(targetId).length
+  const usage = target.kind === 'assistant' ? usageOfTarget(target) : { input: '', output: '', think: '' }
+  const statusChip = target.status === 'error'
+    ? `<span class="event-chip error">${escapeHtml(t('trace.error'))}</span>`
+    : target.status === 'running' ? `<span class="event-chip">${escapeHtml(t('trace.running'))}</span>` : ''
+  return `
+    <article class="traj-row ${escapeHtml(target.kind)} ${target.status === 'error' ? 'error' : ''} ${expanded ? 'expanded' : ''} ${selectedTargetClass(target.id)}" data-traj-row="${escapeHtml(target.id)}" data-target-id="${escapeHtml(target.id)}">
+      <div class="traj-summary" role="button" tabindex="0" data-target-id="${escapeHtml(target.id)}">
+        <span class="traj-index">#${index}</span>
+        <span class="role-chip ${escapeHtml(target.kind)}">${escapeHtml(kindLabel(target.kind))}</span>
+        <span class="traj-content">${statusChip}<span class="traj-title">${escapeHtml(trajectoryRowTitle(target))}</span>${fbCount > 0 ? `<span class="fb-chip">✎${fbCount}</span>` : ''}</span>
+        <span class="token-cell">${escapeHtml(usage.input)}</span>
+        <span class="token-cell">${escapeHtml(usage.output)}</span>
+        <span class="token-cell">${escapeHtml(usage.think)}</span>
+        <span class="token-cell offset">+${escapeHtml(formatMs(target.startTime - state.graph.startTime))}</span>
+        <button class="chevron traj-expand" type="button" data-toggle-traj="${escapeHtml(target.id)}" aria-label="${escapeHtml(t(expanded ? 'trace.collapseRow' : 'trace.expandRow'))}">${expanded ? '▾' : '▸'}</button>
+      </div>
+      ${expanded ? renderGraphTrajectoryBody(target) : ''}
+    </article>
   `
 }
 
-function renderWaterfallSummary(spans: SpanRow[], total: number): string {
-  const events = state.trace?.events ?? []
-  const slowest = [...spans].sort((a, b) => b.durationMs - a.durationMs)[0]
+function kindLabel(kind: TraceTarget['kind']): string {
+  return t(`kind.${kind}`)
+}
+
+/** Content preview beats the kind name: the chip already says what a row is. */
+function trajectoryRowTitle(target: TraceTarget): string {
+  if (target.kind === 'assistant') {
+    const preview = truncate(assistantText(target.output) || contentText(target.output), 120)
+    if (preview.length > 0) return preview
+  }
+  if (target.kind === 'user' || target.kind === 'reasoning' || target.kind === 'context') {
+    const preview = truncate(contentText(target.output), 120)
+    if (preview.length > 0) return preview
+  }
+  if (target.kind === 'tool') {
+    const preview = toolCallPreview(target.input)
+    return preview.length > 0 ? `${target.title} · ${preview}` : `${target.title} · ${target.subtitle}`
+  }
+  return `${target.title} · ${target.subtitle}`
+}
+
+function rerenderTrajRow(id: string): void {
+  const existing = el.trajectory.querySelector(`[data-traj-row="${CSS.escape(id)}"]`)
+  if (!state.graph.targets.has(id) || existing === null) {
+    renderTrajectory()
+    return
+  }
+  existing.outerHTML = renderGraphTrajectoryRow(id)
+  updateSelectionHighlight()
+}
+
+function renderGraphTrajectoryBody(target: TraceTarget): string {
+  const tools = graphTargetTools(target)
   return `
+    <div class="traj-body" data-target-id="${escapeHtml(target.id)}">
+      <section class="traj-card ${target.status === 'error' ? 'error' : ''}"><header><strong>${escapeHtml(t('chat.input'))}</strong><span>${escapeHtml(target.subtitle)}</span></header><pre>${escapeHtml(formatPayload(target.input, 'json'))}</pre></section>
+      <section class="traj-card ${target.status === 'error' ? 'error' : ''}"><header><strong>${escapeHtml(target.status === 'error' ? t('chat.errorOutput') : t('chat.output'))}</strong><span>${escapeHtml(formatMs(target.endTime - target.startTime))}</span></header><pre>${escapeHtml(formatPayload(target.output, 'plain'))}</pre></section>
+      <details class="metadata-line"><summary>${escapeHtml(t('trace.metadata'))}</summary><pre>${escapeHtml(formatPayload(target.metadata, 'json'))}</pre></details>
+      ${tools}
+    </div>
+  `
+}
+
+function usageOfTarget(target: TraceTarget): { input: string; output: string; think: string } {
+  const event = target.eventSeqs.map(seq => state.seqMap.get(seq)).find(candidate => candidate?.type === 'assistant/message')
+  return event === undefined ? { input: '', output: '', think: '' } : usageOfEvent(event)
+}
+
+/** Inline row utilities attached to one logical graph target. */
+function graphTargetTools(target: TraceTarget): string {
+  const feedback = feedbackFor(target.id)
+  const annotateOpen = state.annotateOpenIds.has(target.id)
+  const author = localStorage.getItem(AUTHOR_KEY) ?? DEFAULT_FEEDBACK_AUTHOR
+  const feedbackList = feedback.length === 0 ? '' : `
+    <div class="inline-fb-list">
+      ${feedback.map(item => `
+        <article class="feedback-entry">
+          <header><strong>${escapeHtml(item.data.author)}</strong><time>${escapeHtml(new Date(item.time).toLocaleString())}</time></header>
+          <p>${escapeHtml(item.data.text)}</p>
+        </article>
+      `).join('')}
+    </div>
+  `
+  const feedbackForm = !annotateOpen ? '' : `
+    <form class="inline-fb" data-fb-row="${escapeHtml(target.id)}" data-session-id="${escapeHtml(state.selectedSessionId ?? '')}">
+      <textarea name="text" placeholder="${escapeHtml(t('feedback.placeholder'))}" required></textarea>
+      <div class="inline-fb-row">
+        <input name="author" type="text" value="${escapeHtml(author)}" placeholder="${escapeHtml(t('feedback.author'))}">
+        <span class="fb-hint">${escapeHtml(target.kind)} · ${escapeHtml(target.title)}</span>
+        <button class="fb-send" type="submit">${escapeHtml(t('feedback.add'))}</button>
+      </div>
+    </form>
+  `
+  const rawEvents = target.eventSeqs.map(seq => state.seqMap.get(seq)).filter((event): event is SessionEvent => event !== undefined)
+  return `
+    <div class="row-tools">
+      <button type="button" data-copy-target="${escapeHtml(target.id)}">${escapeHtml(t('trace.copyJson'))}</button>
+      <button type="button" data-annotate-row="${escapeHtml(target.id)}">${annotateOpen ? escapeHtml(t('trace.annotateClose')) : `${escapeHtml(t('trace.annotate'))}${feedback.length > 0 ? ` (${feedback.length})` : ''}`}</button>
+      <button type="button" data-target-id="${escapeHtml(target.id)}">${escapeHtml(t('chat.openInspector'))}</button>
+    </div>
+    ${feedbackForm}${feedbackList}<details class="metadata-line"><summary>${escapeHtml(t('trace.rawEvent'))}</summary><pre>${escapeHtml(formatPayload(rawEvents, 'jsonl'))}</pre></details>
+  `
+}
+
+/* Tree + scroll-spy */
+
+function renderTrajTree(): void {
+  const turns = new Map<number, GraphTrajectoryGroup[]>()
+  for (const group of state.graph.trajectoryGroups) {
+    const list = turns.get(group.turn) ?? []
+    list.push(group)
+    turns.set(group.turn, list)
+  }
+  el.trajTree.innerHTML = [...turns.entries()].map(([turn, groups]) => {
+    const turnTarget = state.graph.targets.get(`turn:${turn}`)
+    const duration = turnTarget === undefined ? '' : formatMs(turnTarget.endTime - turnTarget.startTime)
+    const steps = groups.map((group) => {
+      const sub = group.rowTargetIds.map(id => state.graph.targets.get(id)).filter((target): target is TraceTarget => target?.kind === 'tool').map(target => target.title).join(' · ')
+      return `
+        <button class="tree-step ${group.status === 'error' ? 'error' : ''}" type="button" data-jump-group="${escapeHtml(group.id)}">
+          <span class="t-name">${escapeHtml(graphGroupLabel(group))}</span>
+          <span class="t-dur">${escapeHtml(formatMs(group.endTime - group.startTime))}</span>
+          ${sub.length > 0 ? `<span class="t-sub">${escapeHtml(sub)}</span>` : ''}
+        </button>
+      `
+    }).join('')
+    return `
+      <details class="tree-turn" open>
+        <summary class="tree-turn-head"><span class="tt-label">${escapeHtml(t('trace.turn'))} ${turn}${turnTarget === undefined ? '' : ` · ${escapeHtml(turnTarget.status)}`}</span><span class="t-dur">${escapeHtml(duration)}</span></summary>
+        <div class="tree-steps">${steps}</div>
+      </details>
+    `
+  }).join('') || `<div class="empty-list">${escapeHtml(t('empty.traceTitle'))}</div>`
+}
+
+function markActiveGroup(groupKey: string): void {
+  let activeStep: HTMLElement | null = null
+  for (const step of el.trajTree.querySelectorAll<HTMLElement>('.tree-step')) {
+    const on = step.dataset.jumpGroup === groupKey
+    step.classList.toggle('active', on)
+    if (on) activeStep = step
+  }
+  for (const turn of el.trajTree.querySelectorAll<HTMLElement>('.tree-turn')) {
+    turn.querySelector('.tree-turn-head')?.classList.toggle('active', turn.querySelector('.tree-step.active') !== null)
+  }
+  if (activeStep !== null) {
+    const stepRect = activeStep.getBoundingClientRect()
+    const treeRect = el.trajTree.getBoundingClientRect()
+    if (stepRect.top < treeRect.top || stepRect.bottom > treeRect.bottom) activeStep.scrollIntoView({ block: 'nearest' })
+  }
+}
+
+function updateScrollSpy(): void {
+  const anchors = [...el.trajMain.querySelectorAll<HTMLElement>('[data-group-anchor]')]
+  if (anchors.length === 0) return
+  const topEdge = el.trajMain.getBoundingClientRect().top + 70
+  let current = anchors[0]!
+  for (const anchor of anchors) {
+    if (anchor.getBoundingClientRect().top <= topEdge) current = anchor
+    else break
+  }
+  markActiveGroup(current.dataset.groupAnchor ?? '')
+}
+
+function jumpToGroup(groupKey: string): void {
+  showSurface('trajectory')
+  flashAndScroll(`[data-group-anchor="${CSS.escape(groupKey)}"]`, 'start')
+  markActiveGroup(groupKey)
+}
+
+function jumpToTrajectoryTarget(targetId: string): void {
+  showSurface('trajectory')
+  const target = state.graph.targets.get(targetId)
+  if (target?.kind === 'step') {
+    jumpToGroup(target.id)
+    return
+  }
+  if (target?.kind === 'turn') {
+    const group = state.graph.trajectoryGroups.find(candidate => candidate.turn === target.turn)
+    if (group !== undefined) jumpToGroup(group.id)
+    return
+  }
+  const row = state.graph.trajectoryRows.find(item => item.targetId === targetId)
+  if (row === undefined) return
+  if (!state.expandedTrajectoryIds.has(targetId)) {
+    state.expandedTrajectoryIds.add(targetId)
+    rerenderTrajRow(targetId)
+  }
+  flashAndScroll(`[data-traj-row="${CSS.escape(targetId)}"]`)
+}
+
+function flashAndScroll(selector: string, block: ScrollLogicalPosition = 'center'): void {
+  const target = document.querySelector<HTMLElement>(selector)
+  if (target === null) return
+  target.scrollIntoView({ block })
+  target.classList.remove('flash')
+  void target.offsetWidth
+  target.classList.add('flash')
+}
+
+/* ── Waterfall: graph timing spans sharing targets with every view ───────── */
+
+function renderWaterfall(): void {
+  const spans = state.graph.waterfallSpans
+  if (spans.length === 0) {
+    el.waterfall.innerHTML = `<div class="empty-thread compact"><h2>${escapeHtml(t('empty.traceTitle'))}</h2><p>${escapeHtml(t('empty.traceBody'))}</p></div>`
+    return
+  }
+  const totalMs = Math.max(1, state.graph.endTime - state.graph.startTime)
+  const total = state.graph.targets.get('summary:total')!
+  const llm = state.graph.targets.get('summary:llm')!
+  const tools = state.graph.targets.get('summary:tools')!
+  const errors = state.graph.targets.get('summary:errors')!
+  const slowest = state.graph.targets.get('summary:slowest')!
+  const summary = `
     <section class="wf-summary">
-      ${renderWfStat(t('waterfall.total'), formatMs(total))}
-      ${renderWfStat(t('waterfall.turns'), String(uniqueTurns().length))}
-      ${renderWfStat(t('waterfall.steps'), String(events.filter(event => event.type === 'step/start').length))}
-      ${renderWfStat(t('waterfall.tools'), String(events.filter(event => event.type === 'tool/call').length))}
-      ${renderWfStat(t('waterfall.errors'), String(events.filter(event => event.type === 'tool/result' && asRecord(event.data).isError).length))}
-      ${renderWfStat(t('waterfall.slowest'), slowest === undefined ? '-' : `${slowest.title} · ${formatMs(slowest.durationMs)}`)}
+      ${renderWaterfallStat(total, t('waterfall.total'), formatMs(Number(total.output)))}
+      ${renderWaterfallStat(llm, t('waterfall.llmTime'), formatMs(Number(llm.output)))}
+      ${renderWaterfallStat(tools, t('waterfall.toolTime'), formatMs(Number(tools.output)))}
+      ${renderWaterfallStat(errors, t('waterfall.errors'), String(errors.output), Number(errors.output) > 0)}
+      ${renderWaterfallStat(slowest, t('waterfall.slowestStep'), formatMs(Number(slowest.output)))}
+      ${renderWaterfallStat(state.graph.targets.get(`session:${state.graph.sessionId}`)!, t('waterfall.tokens'), `${sumTokens('input')}/${sumTokens('output')}`)}
     </section>
   `
-}
-
-function renderWfStat(labelText: string, value: string): string {
-  return `<div class="wf-stat"><span>${escapeHtml(labelText)}</span><strong>${escapeHtml(value)}</strong></div>`
-}
-
-function renderSpanRow(span: SpanRow, total: number): string {
-  const left = (span.startMs / total) * 100
-  const width = Math.max(1.5, (span.durationMs / total) * 100)
-  return `
-    <button class="span-row ${span.tone ?? ''} ${selectedClass(span.target)}" data-target="${span.target.id}">
-      <span class="span-title">
-        <strong>${escapeHtml(span.title)}</strong>
-        <small>${escapeHtml(span.subtitle)}</small>
-      </span>
-      <span class="span-track">
-        <span style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%"></span>
-      </span>
-      <em>${escapeHtml(formatMs(span.durationMs))}</em>
-    </button>
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(part => `<span>${escapeHtml(formatMs(totalMs * part))}</span>`).join('')
+  el.waterfall.innerHTML = summary + `
+    <div class="wf">
+      <div class="wf-row wf-head-row"><div class="wf-label-col"></div><div class="wf-axis">${ticks}</div></div>
+      ${spans.map((span) => {
+        const target = state.graph.targets.get(span.targetId)
+        if (target === undefined) return ''
+        const left = Math.max(0, ((target.startTime - state.graph.startTime) / totalMs) * 100)
+        const width = Math.max(0.35, ((target.endTime - target.startTime) / totalMs) * 100)
+        return `
+          <div class="wf-row">
+            <button class="wf-label-col ${selectedTargetClass(target.id)}" type="button" data-target-id="${escapeHtml(target.id)}" style="--depth:${span.depth}">
+              <span class="wf-glyph ${target.kind} ${target.status === 'error' ? 'error' : ''}">${nodeGlyph(target.kind)}</span>
+              <span class="wf-name">${escapeHtml(waterfallLabel(target))}</span>
+              <span class="wf-dur">${escapeHtml(formatMs(target.endTime - target.startTime))}</span>
+            </button>
+            <div class="wf-track">
+              <button class="wf-bar ${target.kind} ${target.status === 'error' ? 'error' : ''} ${selectedTargetClass(target.id)}" type="button" data-target-id="${escapeHtml(target.id)}" style="left:${left.toFixed(2)}%;width:${Math.min(width, 100 - left).toFixed(2)}%" title="${escapeHtml(`${target.title} · ${formatMs(target.endTime - target.startTime)}`)}"></button>
+            </div>
+          </div>
+        `
+      }).join('')}
+    </div>
   `
 }
 
-function renderDevelopModule(): string {
+function renderWaterfallStat(target: TraceTarget, label: string, value: string, error = false): string {
+  return `<button class="wf-stat link ${error ? 'error' : ''} ${selectedTargetClass(target.id)}" type="button" data-target-id="${escapeHtml(target.id)}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></button>`
+}
+
+function nodeGlyph(kind: string): string {
+  if (kind === 'turn') return 'T'
+  if (kind === 'step') return 'ST'
+  if (kind === 'tool') return 'TL'
+  if (kind === 'assistant' || kind === 'reasoning' || kind === 'request') return 'AI'
+  return 'EV'
+}
+
+/* ── Inspector: one drawer shared by every surface through graph target ids ── */
+
+function openInspectorForTarget(targetId: string): void {
+  const target = state.graph.targets.get(targetId)
+  if (target === undefined) return
+  captureFeedbackDraft()
+  state.selectedTargetId = targetId
+  state.activeInspectorTab = target.kind === 'tool' || target.kind === 'request'
+    ? 'input'
+    : target.kind === 'user' || target.kind === 'reasoning' || target.kind === 'assistant' || target.kind === 'context'
+      ? 'output'
+      : 'metadata'
+  openInspector()
+}
+
+function openInspector(): void {
+  el.inspector.hidden = false
+  document.querySelector('#dividerInspector')?.toggleAttribute('hidden', false)
+  document.querySelector('#shell')?.classList.add('inspector-open')
+  renderInspector()
+  updateSelectionHighlight()
+}
+
+function closeInspector(): void {
+  captureFeedbackDraft()
+  state.selectedTargetId = undefined
+  el.inspector.hidden = true
+  document.querySelector('#dividerInspector')?.toggleAttribute('hidden', true)
+  document.querySelector('#shell')?.classList.remove('inspector-open')
+  updateSelectionHighlight()
+}
+
+function currentTargetId(): string {
+  return state.selectedTargetId ?? `session:${state.selectedSessionId ?? ''}`
+}
+
+interface InspectorPayloads {
+  kindLabel: string
+  title: string
+  subtitle: string
+  input: unknown
+  output: unknown
+  metadata: unknown
+}
+
+function inspectorPayloads(): InspectorPayloads {
+  const target = state.graph.targets.get(currentTargetId())
+  if (target === undefined) return { kindLabel: t('app.sessionLabel'), title: state.selectedSessionId ?? '', subtitle: '', input: '', output: '', metadata: {} }
+  const metadata = target.kind === 'session'
+    ? { ...asRecord(target.metadata), header: state.trace?.header, path: state.trace?.relativePath, children: state.trace?.children, parent: state.trace?.parent }
+    : target.metadata
+  return { kindLabel: kindLabel(target.kind), title: waterfallLabel(target), subtitle: `${target.subtitle} · ${formatMs(target.endTime - target.startTime)}`, input: target.input, output: target.output, metadata }
+}
+
+/** Localized display name for a graph target (turn/step numbers, kind names, tool titles). */
+function waterfallLabel(target: TraceTarget): string {
+  if (target.kind === 'turn') return `${t('kind.turn')} ${target.turn ?? ''}`
+  if (target.kind === 'step') return `${t('kind.step')} ${target.step ?? ''}`
+  if (target.kind === 'assistant') return t('kind.assistant')
+  if (target.kind === 'reasoning') return t('kind.reasoning')
+  if (target.kind === 'user') return t('kind.user')
+  if (target.kind === 'request') return t('kind.request')
+  return target.title
+}
+
+function renderInspector(): void {
+  if (el.inspector.hidden) return
+  const payloads = inspectorPayloads()
+  const jumpButton = document.querySelector<HTMLButtonElement>('[data-action="jump-traj"]')
+  if (jumpButton !== null) jumpButton.hidden = state.selectedTargetId === undefined || !state.graph.trajectoryRows.some(row => row.targetId === state.selectedTargetId) && !['turn', 'step'].includes(state.graph.targets.get(state.selectedTargetId)?.kind ?? '')
+  el.inspectorKind.textContent = payloads.kindLabel
+  el.inspectorTitle.textContent = payloads.title
+  el.inspectorSubtitle.textContent = payloads.subtitle
+  for (const button of el.inspectorTabs.querySelectorAll<HTMLElement>('[data-inspector-tab]')) {
+    button.classList.toggle('active', button.dataset.inspectorTab === state.activeInspectorTab)
+  }
+  if (state.activeInspectorTab === 'feedback') {
+    renderInspectorFeedback()
+    return
+  }
+  const key = state.activeInspectorTab
+  const value = payloads[key]
+  const format = state.inspectorFormats[key]
+  el.inspectorBody.innerHTML = `
+    <div class="format-row">
+      <strong>${escapeHtml(t(`inspector.${key}`))}</strong>
+      <select data-format-target="${key}">
+        ${(['plain', 'json', 'jsonl', 'yaml'] as const).map(option => `<option value="${option}" ${option === format ? 'selected' : ''}>${option.toUpperCase()}</option>`).join('')}
+      </select>
+    </div>
+    <pre class="code-block">${escapeHtml(formatPayload(value, format))}</pre>
+  `
+}
+
+function renderInspectorFeedback(): void {
+  const targetId = currentTargetId()
+  const feedback = feedbackFor(targetId)
+  const draft = state.feedbackDrafts.get(feedbackDraftKey(state.selectedSessionId, targetId))
+  const author = draft?.author ?? localStorage.getItem(AUTHOR_KEY) ?? DEFAULT_FEEDBACK_AUTHOR
+  const text = draft?.text ?? ''
+  const title = inspectorPayloads().title
+  el.inspectorBody.innerHTML = `
+    <div class="feedback-list">
+      ${feedback.map(record => `
+        <article class="feedback-entry">
+          <header><strong>${escapeHtml(record.data.author)}</strong><span>${escapeHtml(new Date(record.time).toLocaleString())}</span></header>
+          <p>${escapeHtml(record.data.text)}</p>
+        </article>
+      `).join('') || `<p class="empty-panel">${escapeHtml(t('feedback.empty'))}</p>`}
+    </div>
+    <form class="feedback-form" data-feedback-form="true" data-session-id="${escapeHtml(state.selectedSessionId ?? '')}" data-target-id="${escapeHtml(targetId)}" data-target-title="${escapeHtml(title)}">
+      <input name="author" value="${escapeHtml(author)}" aria-label="${escapeHtml(t('feedback.author'))}" />
+      <textarea name="text" rows="4" placeholder="${escapeHtml(t('feedback.placeholder'))}">${escapeHtml(text)}</textarea>
+      <button type="submit">${escapeHtml(t('feedback.add'))}</button>
+    </form>
+  `
+}
+
+function feedbackDraftKey(sessionId: string | undefined, targetId: string): string {
+  return `${sessionId ?? ''}:${targetId}`
+}
+
+function captureFeedbackDraft(): void {
+  const form = el?.inspectorBody?.querySelector<HTMLFormElement>('[data-feedback-form="true"]')
+  if (form === null || form === undefined) return
+  const data = new FormData(form)
+  const sessionId = form.dataset.sessionId ?? ''
+  const targetId = form.dataset.targetId ?? ''
+  if (targetId.length === 0) return
+  state.feedbackDrafts.set(feedbackDraftKey(sessionId, targetId), {
+    author: String(data.get('author') ?? ''),
+    text: String(data.get('text') ?? ''),
+  })
+}
+
+function feedbackFor(targetId: string): FeedbackRecord[] {
+  return (state.trace?.feedback ?? []).filter(record => record.data?.targetId === targetId)
+}
+
+async function submitFeedback(form: HTMLFormElement, sessionId: string, targetId: string, targetTitle: string): Promise<boolean> {
+  if (!hasDesktopApi() || sessionId.length === 0) return false
+  const data = new FormData(form)
+  const text = String(data.get('text') ?? '').trim()
+  const author = String(data.get('author') ?? '').trim() || DEFAULT_FEEDBACK_AUTHOR
+  if (text.length === 0) return false
+  localStorage.setItem(AUTHOR_KEY, author)
+  try {
+    const record = await window.dshDesktop.feedback.add({
+      sessionId,
+      targetId,
+      targetTitle,
+      targetKind: state.graph.targets.get(targetId)?.kind ?? 'event',
+      author,
+      text,
+    }) as FeedbackRecord
+    if (state.selectedSessionId === sessionId && state.trace?.sessionId === sessionId) {
+      state.trace.feedback = [...(state.trace.feedback ?? []), record]
+    }
+    state.feedbackDrafts.delete(feedbackDraftKey(sessionId, targetId))
+    toast(t('feedback.saved'))
+    return true
+  } catch (error) {
+    toast(`${t('feedback.failed')}: ${String(error)}`)
+    return false
+  }
+}
+
+function updateSelectionHighlight(): void {
+  for (const node of document.querySelectorAll<HTMLElement>('[data-target-id]')) {
+    node.classList.toggle('is-selected', state.selectedTargetId !== undefined && node.dataset.targetId === state.selectedTargetId)
+  }
+}
+
+function selectedTargetClass(targetId: string): string {
+  return state.selectedTargetId === targetId ? 'is-selected' : ''
+}
+
+/* ── Static event wiring ──────────────────────────────────────────────────── */
+
+function wireStaticEvents(): void {
+  el.searchInput.addEventListener('input', () => {
+    state.query = el.searchInput.value
+    renderSessionList()
+  })
+
+  el.composerInput.addEventListener('input', () => {
+    autosizeComposer()
+    updateComposerState()
+  })
+  el.composerInput.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+    event.preventDefault()
+    el.composerForm.requestSubmit()
+  })
+  el.composerForm.addEventListener('submit', (event) => {
+    event.preventDefault()
+    const prompt = el.composerInput.value.trim()
+    if (prompt.length === 0 || state.busySessionId !== undefined) return
+    void sendPrompt(prompt)
+  })
+  el.cancelButton.addEventListener('click', () => {
+    void cancelActiveTurn()
+  })
+
+  el.chatView.addEventListener('scroll', () => {
+    state.stickToBottom = el.chatView.scrollTop + el.chatView.clientHeight >= el.chatView.scrollHeight - 48
+    updateLiveJump()
+  })
+  el.liveJump.addEventListener('click', () => {
+    scrollChatToBottom(true)
+  })
+  el.trajMain.addEventListener('scroll', () => {
+    window.requestAnimationFrame(updateScrollSpy)
+  })
+
+  document.addEventListener('keydown', (event) => {
+    if (event.metaKey && event.key.toLowerCase() === 'n') {
+      event.preventDefault()
+      startDraftChat()
+      return
+    }
+    if (event.key === 'Escape' && !el.inspector.hidden) {
+      closeInspector()
+      return
+    }
+    if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof HTMLElement && event.target.matches('.traj-summary')) {
+      event.preventDefault()
+      openInspectorForTarget(event.target.dataset.targetId ?? '')
+    }
+  })
+
+  document.addEventListener('change', (event) => {
+    const select = event.target instanceof HTMLSelectElement ? event.target : undefined
+    const formatTarget = select?.dataset.formatTarget as 'input' | 'output' | 'metadata' | undefined
+    if (select !== undefined && formatTarget !== undefined) {
+      state.inspectorFormats[formatTarget] = select.value as PayloadFormat
+      renderInspector()
+    }
+  })
+
+  document.addEventListener('submit', (event) => {
+    const form = event.target instanceof HTMLFormElement ? event.target : undefined
+    if (form === undefined) return
+    if (form.dataset.feedbackForm === 'true') {
+      event.preventDefault()
+      const sessionId = form.dataset.sessionId ?? ''
+      const targetId = form.dataset.targetId ?? ''
+      const targetTitle = form.dataset.targetTitle ?? targetId
+      void submitFeedback(form, sessionId, targetId, targetTitle).then((saved) => {
+        if (saved && state.selectedSessionId === sessionId && currentTargetId() === targetId) renderInspectorFeedback()
+      })
+    } else if (form.classList.contains('inline-fb')) {
+      event.preventDefault()
+      const rowId = form.dataset.fbRow ?? ''
+      const graphTarget = state.graph.targets.get(rowId)
+      const sessionId = form.dataset.sessionId ?? state.selectedSessionId ?? ''
+      void submitFeedback(form, sessionId, rowId, graphTarget?.title ?? rowId).then((saved) => {
+        if (saved && state.selectedSessionId === sessionId) rerenderTrajRow(rowId)
+      })
+    }
+  })
+
+  document.addEventListener('click', (event) => {
+    void handleDelegatedClick(event)
+  })
+}
+
+async function handleDelegatedClick(event: MouseEvent): Promise<void> {
+  if (!(event.target instanceof Element)) return
+  const target = event.target
+
+  const moduleButton = target.closest<HTMLElement>('[data-module]')
+  if (moduleButton !== null) {
+    showModule(moduleButton.dataset.module as AppModule)
+    return
+  }
+  const surfaceButton = target.closest<HTMLElement>('[data-surface]')
+  if (surfaceButton !== null) {
+    showSurface(surfaceButton.dataset.surface as SessionSurface)
+    return
+  }
+  const sessionButton = target.closest<HTMLElement>('[data-session]')
+  if (sessionButton !== null) {
+    showModule('sessions')
+    await loadTrace(sessionButton.dataset.session ?? '')
+    return
+  }
+  const devArtifact = target.closest<HTMLElement>('[data-dev-artifact]')
+  if (devArtifact !== null) {
+    selectDevArtifact(devArtifact.dataset.devArtifact ?? '')
+    return
+  }
+
+  const action = target.closest<HTMLElement>('[data-action]')?.dataset.action
+  if (action !== undefined) {
+    await handleAction(action)
+    return
+  }
+
+  const copyTarget = target.closest<HTMLElement>('[data-copy-target]')
+  if (copyTarget !== null) {
+    const graphTarget = state.graph.targets.get(copyTarget.dataset.copyTarget ?? '')
+    if (graphTarget !== undefined) {
+      await navigator.clipboard.writeText(JSON.stringify({ input: graphTarget.input, output: graphTarget.output, metadata: graphTarget.metadata }, null, 2))
+      toast(t('toast.copied'))
+    }
+    return
+  }
+  const annotateRow = target.closest<HTMLElement>('[data-annotate-row]')
+  if (annotateRow !== null) {
+    const id = annotateRow.dataset.annotateRow ?? ''
+    if (state.annotateOpenIds.has(id)) state.annotateOpenIds.delete(id)
+    else state.annotateOpenIds.add(id)
+    rerenderTrajRow(id)
+    return
+  }
+  const jumpGroup = target.closest<HTMLElement>('[data-jump-group]')
+  if (jumpGroup !== null) {
+    jumpToGroup(jumpGroup.dataset.jumpGroup ?? '')
+    return
+  }
+  const activityToggle = target.closest<HTMLElement>('[data-toggle-activity]')
+  if (activityToggle !== null) {
+    const id = activityToggle.dataset.toggleActivity ?? ''
+    if (state.expandedActivityIds.has(id)) state.expandedActivityIds.delete(id)
+    else state.expandedActivityIds.add(id)
+    renderConversation()
+    return
+  }
+  if (target.closest('#conversation a') !== null) return
+  const trajToggle = target.closest<HTMLElement>('[data-toggle-traj]')
+  if (trajToggle !== null) {
+    if (window.getSelection()?.toString()) return
+    toggleTrajRow(trajToggle.dataset.toggleTraj ?? '')
+    return
+  }
+  const graphTarget = target.closest<HTMLElement>('[data-target-id]')
+  if (graphTarget !== null) {
+    if (window.getSelection()?.toString()) return
+    openInspectorForTarget(graphTarget.dataset.targetId ?? '')
+    return
+  }
+  const inspectorTab = target.closest<HTMLElement>('[data-inspector-tab]')
+  if (inspectorTab !== null) {
+    captureFeedbackDraft()
+    state.activeInspectorTab = inspectorTab.dataset.inspectorTab as InspectorTab
+    renderInspector()
+    return
+  }
+
+  // Expanded trajectory bodies and their <details> handle their own clicks.
+  if (target.closest('.traj-body') !== null || target.closest('.traj-row details') !== null) return
+
+}
+
+async function handleAction(action: string): Promise<void> {
+  if (action === 'toggle-locale') {
+    state.locale = state.locale === 'zh-CN' ? 'en-US' : 'zh-CN'
+    localStorage.setItem('dsh.locale', state.locale)
+    applyStaticText()
+    renderSessionList()
+    renderTopbar()
+    renderConversation()
+    renderLiveTurn()
+    renderTrajectory()
+    renderTrajTree()
+    renderWaterfall()
+    renderInspector()
+    if (state.activeModule === 'develop') renderDevelop()
+  } else if (action === 'close-inspector') {
+    closeInspector()
+  } else if (action === 'jump-traj') {
+    if (state.selectedTargetId !== undefined) jumpToTrajectoryTarget(state.selectedTargetId)
+  } else if (action === 'new-session') {
+    startDraftChat()
+  } else if (action === 'expand-traj') {
+    state.expandedTrajectoryIds = new Set(state.graph.trajectoryRows.map(row => row.targetId))
+    renderTrajectory()
+  } else if (action === 'collapse-traj') {
+    state.expandedTrajectoryIds = new Set()
+    renderTrajectory()
+  } else if (action === 'restart-runtime') {
+    if (!hasDesktopApi()) return
+    await window.dshDesktop.runtime.restart()
+    await refreshRuntime()
+  } else if (action === 'reveal-session') {
+    if (!hasDesktopApi() || state.selectedSessionId === undefined) return
+    try {
+      await window.dshDesktop.sessions.reveal(state.selectedSessionId)
+    } catch (error) {
+      showError(String(error))
+    }
+  }
+}
+
+function toggleTrajRow(id: string): void {
+  if (id.length === 0) return
+  if (state.expandedTrajectoryIds.has(id)) state.expandedTrajectoryIds.delete(id)
+  else state.expandedTrajectoryIds.add(id)
+  rerenderTrajRow(id)
+}
+
+function startDraftChat(): void {
+  captureFeedbackDraft()
+  state.traceLoadRevision += 1
+  state.activeModule = 'sessions'
+  state.selectedSessionId = undefined
+  state.trace = undefined
+  state.draftChat = true
+  closeInspector()
+  showModule('sessions')
+  showSurface('chat')
+  rebuildTraceIndexes()
+  renderSessionList()
+  renderTopbar()
+  renderConversation()
+  renderLiveTurn()
+  renderTrajectory()
+  renderTrajTree()
+  renderWaterfall()
+  applyStaticText()
+  el.composerInput.focus()
+}
+
+/* ── Pane resizers: clamped drag on CSS variables, widths persist ─────────── */
+
+function initPaneResizers(): void {
+  const shell = document.querySelector<HTMLElement>('#shell')
+  if (shell === null) return
+  let saved: Record<string, number> = {}
+  try {
+    saved = JSON.parse(localStorage.getItem(PANE_WIDTH_KEY) ?? '{}') as Record<string, number>
+  } catch {
+    // Corrupt localStorage entry: fall back to defaults; the next drag rewrites it.
+  }
+  if (saved.left !== undefined) shell.style.setProperty('--left-w', `${saved.left}px`)
+  if (saved.inspector !== undefined) shell.style.setProperty('--inspector-w', `${saved.inspector}px`)
+  const clamp = (value: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, value))
+  const persist = (): void => {
+    localStorage.setItem(PANE_WIDTH_KEY, JSON.stringify({
+      left: parseInt(shell.style.getPropertyValue('--left-w')) || undefined,
+      inspector: parseInt(shell.style.getPropertyValue('--inspector-w')) || undefined,
+    }))
+  }
+  const attach = (divider: HTMLElement | null, apply: (event: PointerEvent) => void): void => {
+    if (divider === null) return
+    divider.addEventListener('pointerdown', (down) => {
+      down.preventDefault()
+      divider.classList.add('dragging')
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+      const move = (event: PointerEvent): void => {
+        apply(event)
+      }
+      const up = (): void => {
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', up)
+        window.removeEventListener('pointercancel', up)
+        divider.classList.remove('dragging')
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+        persist()
+      }
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', up)
+      window.addEventListener('pointercancel', up)
+    })
+  }
+  attach(document.querySelector('#dividerLeft'), (event) => {
+    const rect = shell.getBoundingClientRect()
+    shell.style.setProperty('--left-w', `${clamp(event.clientX - rect.left, 200, Math.min(440, rect.width * 0.4))}px`)
+  })
+  attach(document.querySelector('#dividerInspector'), (event) => {
+    const rect = shell.getBoundingClientRect()
+    shell.style.setProperty('--inspector-w', `${clamp(rect.right - event.clientX, 300, Math.min(680, rect.width * 0.6))}px`)
+  })
+}
+
+/* ── Develop module (unchanged product shape; rendered into its own canvas) ── */
+
+function renderDevelop(): void {
   const groups = developArtifactGroups()
   const artifacts = groups.flatMap(group => group.artifacts)
-  const selected = artifacts.find(artifact => artifact.id === state.activeDevArtifactId) ?? artifacts[0]
-  return `
-    <section class="module-canvas develop-canvas">
-      <div class="develop-shell">
-        <div class="develop-browser">
-          <aside class="develop-artifact-rail" aria-label="Agent artifacts">
-            ${groups.map(group => renderDevArtifactGroup(group, selected?.id)).join('')}
-          </aside>
-          <section class="develop-artifact-detail">
-            ${selected === undefined ? renderEmptyDevBrowser() : renderDevArtifactDetail(selected)}
+  const selected = selectedDevArtifact(artifacts)
+  el.devCanvas.innerHTML = `
+    <div class="develop-browser">
+      <aside class="develop-artifact-rail" aria-label="${escapeHtml(t('dev.agentArtifacts'))}">
+        ${groups.map(group => `
+          <section class="dev-artifact-group">
+            <h3>${escapeHtml(devGroupLabel(group.title))}</h3>
+            <div>
+              ${group.artifacts.map(artifact => `
+                <button class="dev-artifact-row ${artifact.id === selected?.id ? 'selected' : ''} ${artifact.kind}" data-dev-artifact="${artifact.id}">
+                  <div>
+                    <strong>${escapeHtml(artifact.title)}</strong>
+                    <span>${escapeHtml(devListSubtitle(artifact))}</span>
+                  </div>
+                  <em>${escapeHtml(artifact.status ?? artifact.kind)}</em>
+                </button>
+              `).join('')}
+            </div>
           </section>
-        </div>
-      </div>
-    </section>
+        `).join('')}
+      </aside>
+      <section class="develop-artifact-detail">
+        ${selected === undefined
+          ? `<section class="dev-empty"><strong>${escapeHtml(t('dev.emptyTitle'))}</strong><span>${escapeHtml(t('dev.emptyBody'))}</span></section>`
+          : renderDevArtifactDetail(selected)}
+      </section>
+    </div>
   `
 }
 
-function renderEmptyDevBrowser(): string {
-  return `
-    <section class="dev-empty">
-      <strong>${escapeHtml(t('dev.emptyTitle'))}</strong>
-      <span>${escapeHtml(t('dev.emptyBody'))}</span>
-    </section>
-  `
+function selectDevArtifact(id: string): void {
+  const artifacts = developArtifactGroups().flatMap(group => group.artifacts)
+  const selected = artifacts.find(artifact => artifact.id === id)
+  if (selected === undefined) return
+  state.activeDevArtifactId = id
+  for (const row of el.devCanvas.querySelectorAll<HTMLElement>('[data-dev-artifact]')) {
+    row.classList.toggle('selected', row.dataset.devArtifact === id)
+  }
+  const detail = el.devCanvas.querySelector<HTMLElement>('.develop-artifact-detail')
+  if (detail !== null) detail.innerHTML = renderDevArtifactDetail(selected)
 }
 
-function renderDevArtifactGroup(group: DevArtifactGroup, selectedId: string | undefined): string {
-  return `
-    <section class="dev-artifact-group">
-      <h3>${escapeHtml(group.title)}</h3>
-      <div>
-        ${group.artifacts.map(artifact => renderDevArtifactButton(artifact, selectedId)).join('')}
-      </div>
-    </section>
-  `
+function selectedDevArtifact(artifacts: DevArtifact[]): DevArtifact | undefined {
+  const explicit = artifacts.find(artifact => artifact.id === state.activeDevArtifactId)
+  if (explicit !== undefined) return explicit
+  return artifacts.find(artifact => artifact.id === 'prompt:request-system' && artifact.status === t('dev.statusActive'))
+    ?? artifacts.find(artifact => artifact.id === 'prompt:persona' && artifact.status === t('dev.statusActive'))
+    ?? artifacts.find(artifact => artifact.id === 'prompt:assembly')
+    ?? artifacts[0]
 }
 
-function renderDevArtifactButton(artifact: DevArtifact, selectedId: string | undefined): string {
-  return `
-    <button class="dev-artifact-row ${artifact.id === selectedId ? 'selected' : ''} ${artifact.kind}" data-dev-artifact="${artifact.id}">
-      <div>
-        <strong>${escapeHtml(artifact.title)}</strong>
-        <span>${escapeHtml(artifact.subtitle)}</span>
-      </div>
-      <em>${escapeHtml(artifact.status ?? artifact.kind)}</em>
-    </button>
-  `
+function devGroupLabel(group: DevArtifact['group']): string {
+  if (group === 'Prompts') return t('dev.group.prompts')
+  if (group === 'Tools') return t('dev.group.tools')
+  if (group === 'Plugins / Context Providers') return t('dev.group.plugins')
+  if (group === 'Config / Runtime') return t('dev.group.config')
+  return t('dev.group.changeLoop')
+}
+
+function devListSubtitle(artifact: DevArtifact): string {
+  if (artifact.kind === 'tool') return `${t('dev.toolSchema')} · ${shortPath(artifact.source ?? '')}`
+  if (artifact.kind === 'plugin') return artifact.source ?? t('dev.cordisConfigEntry')
+  if (artifact.kind === 'source') return `${t('dev.sourceFile')} · ${shortPath(artifact.source ?? '')}`
+  return artifact.subtitle
 }
 
 function renderDevArtifactDetail(artifact: DevArtifact): string {
@@ -716,7 +1813,7 @@ function renderDevArtifactDetail(artifact: DevArtifact): string {
     <article class="dev-detail-card ${artifact.kind}">
       <header class="dev-detail-head">
         <div>
-          <span>${escapeHtml(artifact.group)}</span>
+          <span>${escapeHtml(devGroupLabel(artifact.group))}</span>
           <h3>${escapeHtml(artifact.title)}</h3>
           <p>${escapeHtml(artifact.subtitle)}</p>
         </div>
@@ -728,8 +1825,9 @@ function renderDevArtifactDetail(artifact: DevArtifact): string {
         ${renderDevFact(t('dev.recentlyUsed'), artifact.recent ?? t('dev.noRecentEvidence'))}
         ${renderDevFact(t('dev.reload'), reloadLabelForArtifact(artifact))}
       </section>
+      ${renderDevRelationshipPanel(artifact)}
       ${renderDevCodePanel(contentTitleForArtifact(artifact), contentMetaForArtifact(artifact), artifact.value ?? '')}
-      ${artifact.id === 'prompt:persona' ? renderDevRegistrySnapshot() : ''}
+      ${artifact.kind === 'prompt' ? renderDevRegistrySnapshot() : ''}
       ${artifact.metadata === undefined ? '' : renderDevCodePanel(t('dev.metadata'), t('dev.metadataSubtitle'), artifact.metadata)}
       ${artifact.kind === 'runtime' ? renderRuntimePanel() : ''}
       ${artifact.kind === 'change' ? renderChangeLoopPanel() : ''}
@@ -738,50 +1836,44 @@ function renderDevArtifactDetail(artifact: DevArtifact): string {
 }
 
 function renderDevFact(labelText: string, value: string): string {
-  return `
-    <div class="dev-fact">
-      <span>${escapeHtml(labelText)}</span>
-      <strong>${escapeHtml(value)}</strong>
-    </div>
-  `
+  return `<div class="dev-fact"><span>${escapeHtml(labelText)}</span><strong>${escapeHtml(value)}</strong></div>`
 }
 
 function renderDevRegistrySnapshot(): string {
   const groups = developArtifactGroups()
-  const plugins = groups.find(group => group.title === 'Plugins / Context Providers')?.artifacts ?? []
-  const tools = groups.find(group => group.title === 'Tools')?.artifacts ?? []
+  const plugins = (groups.find(group => group.title === 'Plugins / Context Providers')?.artifacts ?? []).filter(artifact => artifact.kind === 'plugin')
+  const tools = (groups.find(group => group.title === 'Tools')?.artifacts ?? []).filter(artifact => artifact.kind === 'tool')
   return `
     <section class="dev-registry-snapshot">
-      <div>
-        <h4>${escapeHtml(t('dev.registeredPlugins'))}</h4>
-        ${renderDevPillList(plugins, t('dev.noPlugins'))}
-      </div>
-      <div>
-        <h4>${escapeHtml(t('dev.registeredTools'))}</h4>
-        ${renderDevPillList(tools, t('dev.noTools'))}
-      </div>
+      <div><h4>${escapeHtml(t('dev.registeredPlugins'))}</h4>${renderDevPillList(plugins, t('dev.noPlugins'))}</div>
+      <div><h4>${escapeHtml(t('dev.registeredTools'))}</h4>${renderDevPillList(tools, t('dev.noTools'))}</div>
     </section>
   `
 }
 
+function renderDevRelationshipPanel(artifact: DevArtifact): string {
+  if (artifact.kind !== 'plugin' && artifact.kind !== 'source' && artifact.kind !== 'prompt') return ''
+  const metadata = asRecord(artifact.metadata)
+  const rows = [
+    metadata.injectsPrompt === true ? t('dev.injectsPrompt') : '',
+    metadata.registersTool === true ? t('dev.registersTool') : '',
+    metadata.injectsContext === true ? t('dev.injectsContext') : '',
+    artifact.kind === 'source' ? t('dev.sourceOwnsArtifact') : '',
+  ].filter(Boolean)
+  if (rows.length === 0) return ''
+  return `<section class="dev-relationship-strip">${rows.map(row => `<span>${escapeHtml(row)}</span>`).join('')}</section>`
+}
+
 function renderDevPillList(artifacts: DevArtifact[], empty: string): string {
   if (artifacts.length === 0) return `<p>${escapeHtml(empty)}</p>`
-  return `
-    <ul>
-      ${artifacts.map(artifact => `
-        <li>
-          <strong>${escapeHtml(artifact.title)}</strong>
-          <span>${escapeHtml(artifact.status ?? artifact.kind)}</span>
-        </li>
-      `).join('')}
-    </ul>
-  `
+  return `<ul>${artifacts.map(artifact => `<li><strong>${escapeHtml(artifact.title)}</strong><span>${escapeHtml(artifact.status ?? artifact.kind)}</span></li>`).join('')}</ul>`
 }
 
 function contentTitleForArtifact(artifact: DevArtifact): string {
   if (artifact.kind === 'prompt') return t('dev.effectivePromptContent')
   if (artifact.kind === 'tool') return t('dev.toolSchema')
   if (artifact.kind === 'plugin') return t('dev.pluginContribution')
+  if (artifact.kind === 'source') return t('dev.sourceFileContent')
   if (artifact.kind === 'config') return t('dev.activeConfiguration')
   if (artifact.kind === 'runtime') return t('dev.runtimeState')
   return t('dev.suggestedLoop')
@@ -791,6 +1883,7 @@ function contentMetaForArtifact(artifact: DevArtifact): string {
   if (artifact.kind === 'prompt') return t('dev.promptMeta')
   if (artifact.kind === 'tool') return t('dev.toolMeta')
   if (artifact.kind === 'plugin') return t('dev.pluginMeta')
+  if (artifact.kind === 'source') return t('dev.sourceMeta')
   if (artifact.kind === 'config') return t('dev.configMeta')
   if (artifact.kind === 'runtime') return t('dev.runtimeMeta')
   return t('dev.loopMeta')
@@ -799,8 +1892,7 @@ function contentMetaForArtifact(artifact: DevArtifact): string {
 function reloadLabelForArtifact(artifact: DevArtifact): string {
   if (artifact.kind === 'runtime') return t('dev.manualRestart')
   if (artifact.kind === 'change') return String(asRecord(state.dev).restartNeeded ?? false) === 'true' ? t('dev.restartRecommended') : t('dev.noRestartSignal')
-  if (artifact.kind === 'config' || artifact.kind === 'prompt' || artifact.kind === 'tool' || artifact.kind === 'plugin') return t('dev.restartAfterEdit')
-  return t('dev.unknown')
+  return t('dev.restartAfterEdit')
 }
 
 function renderChangeLoopPanel(): string {
@@ -817,28 +1909,70 @@ function renderChangeLoopPanel(): string {
   `
 }
 
+function renderRuntimePanel(): string {
+  return `
+    <section class="module-card dev-status">
+      <dl>${renderKeyValue(t('app.repo'), shortPath(runtimeRepoRoot()))}${renderKeyValue(t('app.branch'), gitField('branch'))}${renderKeyValue(t('app.commit'), gitField('commit'))}${renderKeyValue(t('app.dirty'), gitField('dirty'))}${renderKeyValue(t('app.acp'), runtimeLabel())}${renderKeyValue(t('app.restartNeeded'), String(asRecord(state.dev).restartNeeded ?? false))}</dl>
+      <button data-action="restart-runtime" ${hasDesktopApi() ? '' : 'disabled'}>${escapeHtml(t('dev.restartRuntime'))}</button>
+    </section>
+  `
+}
+
+function renderDevCodePanel(title: string, meta: string, value: unknown): string {
+  return `
+    <section class="dev-section">
+      <header class="dev-section-head"><div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(meta)}</p></div></header>
+      <pre class="dev-code"><code>${escapeHtml(formatDevValue(value))}</code></pre>
+    </section>
+  `
+}
+
+function renderKeyValue(key: string, value: unknown): string {
+  return `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(String(value))}</dd></div>`
+}
+
 function developArtifactGroups(): DevArtifactGroup[] {
   const dev = asRecord(state.dev)
   const composition = asRecord(dev.appComposition)
   const sourceFiles = Array.isArray(composition.sourceFiles) ? composition.sourceFiles : []
-  const plugins = Array.isArray(composition.plugins) ? composition.plugins : []
+  const configPath = String(composition.configPath ?? 'examples/acp-agent/cordis.yml')
+  const configText = String(composition.configText ?? '')
+  const plugins = Array.isArray(composition.plugins) && composition.plugins.length > 0
+    ? composition.plugins
+    : pluginsFromConfigText(configText, configPath)
   const recentPromptUses = Array.isArray(dev.recentPromptUses) ? dev.recentPromptUses : []
   const recentToolCalls = Array.isArray(dev.recentToolCalls) ? dev.recentToolCalls : []
   const request = latestRequestContext()
-  const persona = extractPersonaFromConfig(String(composition.configText ?? ''))
+  const persona = extractPersonaFromConfig(configText)
   const promptOwner = sourceFiles.find(file => asRecord(file).label === 'System prompt service')
   const toolRegistryOwner = sourceFiles.find(file => asRecord(file).label === 'Tool registry')
+  const promptSources = sourceFiles.filter(file => asRecord(file).label === 'System prompt service').map(sourceFileToArtifact)
+  const compositionSources = sourceFiles.filter(file => asRecord(file).label === 'Agent spine' || asRecord(file).label === 'ACP front door').map(sourceFileToArtifact)
+  const toolSources = sourceFiles.filter(file => asRecord(file).label === 'Tool registry').map(sourceFileToArtifact)
   const promptArtifacts: DevArtifact[] = [
+    {
+      id: 'prompt:request-system',
+      group: 'Prompts',
+      kind: 'prompt',
+      title: t('dev.requestSystemPrompt'),
+      subtitle: t('dev.requestSystemPromptSubtitle'),
+      status: request.system.length > 0 ? t('dev.statusActive') : t('dev.statusMissing'),
+      source: request.event === undefined ? t('dev.noRequestEvidence') : `${t('dev.sourceRequestHeader')} · ${t('common.seq')} ${request.seq}`,
+      owner: '@deepseek-ai/dsh-system-prompt',
+      value: request.system || t('dev.noRequestSystemPrompt'),
+      metadata: request.event?.data ?? request.header,
+      recent: recentPromptSummary(recentPromptUses, request),
+    },
     {
       id: 'prompt:persona',
       group: 'Prompts',
       kind: 'prompt',
-      title: 'System persona',
-      subtitle: 'Current deployment persona forwarded from cordis.yml',
-      status: persona.length > 0 ? 'active' : 'missing',
-      source: String(composition.configPath ?? 'examples/acp-agent/cordis.yml'),
+      title: t('dev.systemPersona'),
+      subtitle: t('dev.systemPersonaSubtitle'),
+      status: persona.length > 0 ? t('dev.statusActive') : t('dev.statusMissing'),
+      source: configPath,
       owner: '@deepseek-ai/dsh-acp-demo -> @deepseek-ai/dsh-system-prompt',
-      value: persona || 'No persona block found in the active config.',
+      value: persona || t('dev.noPersona'),
       metadata: promptOwner ?? { path: PATH_SYSTEM_PROMPT },
       recent: recentPromptSummary(recentPromptUses, request),
     },
@@ -846,13 +1980,14 @@ function developArtifactGroups(): DevArtifactGroup[] {
       id: 'prompt:assembly',
       group: 'Prompts',
       kind: 'prompt',
-      title: 'Prompt assembly service',
-      subtitle: 'Owns persona, steering sections, and tool-order assembly',
-      status: 'source',
+      title: t('dev.promptAssemblyService'),
+      subtitle: t('dev.promptAssemblySubtitle'),
+      status: t('dev.statusSource'),
       source: String(asRecord(promptOwner).path ?? PATH_SYSTEM_PROMPT),
       owner: '@deepseek-ai/dsh-system-prompt',
-      value: promptOwner ?? { path: PATH_SYSTEM_PROMPT },
+      value: sourceFileText(promptOwner) || promptOwner || { path: PATH_SYSTEM_PROMPT },
       metadata: {
+        sourceFile: promptOwner ?? { path: PATH_SYSTEM_PROMPT },
         lastSeenSystemPromptChars: request.system.length,
         messagePrefix: request.messagePrefix,
         recentPromptUses,
@@ -867,15 +2002,15 @@ function developArtifactGroups(): DevArtifactGroup[] {
       id: 'config:cordis',
       group: 'Config / Runtime',
       kind: 'config',
-      title: 'Active cordis.yml',
-      subtitle: 'Process-start Cordis composition loaded by the desktop ACP runtime',
-      status: 'active',
-      source: String(composition.configPath ?? 'examples/acp-agent/cordis.yml'),
+      title: t('dev.activeCordis'),
+      subtitle: t('dev.activeCordisSubtitle'),
+      status: t('dev.statusActive'),
+      source: configPath,
       owner: 'packages/examples/acp-demo/src/bin.ts',
-      value: composition.configText ?? 'No config text reported by dev backend.',
+      value: configText || t('dev.noConfigText'),
       metadata: {
         entrypoint: composition.entrypoint ?? 'packages/examples/acp-demo/src/bin.ts',
-        model: modelFromConfigText(String(composition.configText ?? '')),
+        model: modelFromConfigText(configText),
         watchedPaths: dev.watchedPaths ?? [],
       },
       recent: runtimeLabel(),
@@ -884,11 +2019,11 @@ function developArtifactGroups(): DevArtifactGroup[] {
       id: 'runtime:acp',
       group: 'Config / Runtime',
       kind: 'runtime',
-      title: 'ACP runtime',
-      subtitle: 'Managed backend process used by Chat and trace capture',
+      title: t('dev.acpRuntime'),
+      subtitle: t('dev.acpRuntimeSubtitle'),
       status: runtimeLabel(),
       source: 'packages/ui/desktop/src/main.mjs',
-      owner: 'Electron main process',
+      owner: 'Electron main',
       value: { runtime: state.runtime, dev: state.dev },
       metadata: {
         repo: runtimeRepoRoot(),
@@ -896,7 +2031,7 @@ function developArtifactGroups(): DevArtifactGroup[] {
         branch: gitField('branch'),
         commit: gitField('commit'),
       },
-      recent: String(asRecord(state.runtime).pid ?? 'No pid'),
+      recent: String(asRecord(state.runtime).pid ?? t('dev.noPid')),
     },
   ]
   const changeArtifacts: DevArtifact[] = [
@@ -904,15 +2039,15 @@ function developArtifactGroups(): DevArtifactGroup[] {
       id: 'change:loop',
       group: 'Change Loop',
       kind: 'change',
-      title: 'Modify, reload, rerun',
-      subtitle: 'The product loop after editing Harness, plugins, prompts, tools, or config',
-      status: String(dev.restartNeeded ?? false) === 'true' ? 'restart needed' : 'ready',
+      title: t('dev.modifyReloadRerun'),
+      subtitle: t('dev.modifyReloadRerunSubtitle'),
+      status: String(dev.restartNeeded ?? false) === 'true' ? t('dev.statusRestartNeeded') : t('dev.statusReady'),
       source: runtimeRepoRoot(),
-      owner: 'Deepseek Harness desktop',
+      owner: 'DeepSeek Harness desktop',
       value: {
         git: dev.git,
         restartNeeded: dev.restartNeeded ?? false,
-        suggestedNextRun: state.selectedSessionId === undefined ? 'Start a chat task, then inspect its trajectory/waterfall.' : `Rerun or continue session ${state.selectedSessionId}`,
+        suggestedNextRun: state.selectedSessionId === undefined ? t('dev.startChatThenInspect') : `${t('dev.rerunOrContinue')} ${state.selectedSessionId}`,
       },
       metadata: {
         selectedSessionId: state.selectedSessionId,
@@ -922,12 +2057,86 @@ function developArtifactGroups(): DevArtifactGroup[] {
     },
   ]
   return [
-    { title: 'Prompts', artifacts: promptArtifacts },
-    { title: 'Tools', artifacts: toolArtifacts },
-    { title: 'Plugins / Context Providers', artifacts: pluginArtifacts },
+    { title: 'Prompts', artifacts: [...promptArtifacts, ...promptSources] },
+    { title: 'Tools', artifacts: [...toolArtifacts, ...toolSources] },
+    { title: 'Plugins / Context Providers', artifacts: [...pluginArtifacts, ...compositionSources] },
     { title: 'Config / Runtime', artifacts: configArtifacts },
     { title: 'Change Loop', artifacts: changeArtifacts },
   ]
+}
+
+function sourceFileToArtifact(file: unknown): DevArtifact {
+  const record = asRecord(file)
+  const label = String(record.label ?? t('dev.sourceFile'))
+  const path = String(record.path ?? '')
+  return {
+    id: `source:${path || label}`,
+    group: sourceFileGroup(label),
+    kind: 'source',
+    title: sourceFileLabel(label),
+    subtitle: sourceFilePurpose(label, String(record.purpose ?? t('dev.sourceFilePurposeFallback'))),
+    status: t('dev.statusSource'),
+    source: path,
+    owner: sourceFileOwner(label),
+    value: sourceFileText(file) || record,
+    metadata: {
+      ...record,
+      injectsPrompt: label === 'System prompt service' || label === 'Agent spine',
+      registersTool: label === 'Tool registry' || label === 'Agent spine',
+      injectsContext: label === 'Agent spine',
+    },
+    recent: t('dev.loadedFromRuntimeComposition'),
+  }
+}
+
+function sourceFileGroup(label: string): DevArtifact['group'] {
+  if (label === 'System prompt service') return 'Prompts'
+  if (label === 'Tool registry') return 'Tools'
+  return 'Plugins / Context Providers'
+}
+
+function sourceFileText(file: unknown): string {
+  const text = asRecord(file).text
+  return typeof text === 'string' ? text : ''
+}
+
+function sourceFileLabel(label: string): string {
+  if (label === 'ACP front door') return t('dev.sourceAcpFrontDoor')
+  if (label === 'Agent spine') return t('dev.sourceAgentSpine')
+  if (label === 'System prompt service') return t('dev.sourceSystemPromptService')
+  if (label === 'Tool registry') return t('dev.sourceToolRegistry')
+  return label
+}
+
+function sourceFilePurpose(label: string, fallback: string): string {
+  if (label === 'ACP front door') return t('dev.sourceAcpFrontDoorPurpose')
+  if (label === 'Agent spine') return t('dev.sourceAgentSpinePurpose')
+  if (label === 'System prompt service') return t('dev.sourceSystemPromptServicePurpose')
+  if (label === 'Tool registry') return t('dev.sourceToolRegistryPurpose')
+  return fallback
+}
+
+function sourceFileOwner(label: string): string {
+  if (label === 'ACP front door') return '@deepseek-ai/dsh-acp-demo'
+  if (label === 'Agent spine') return '@deepseek-ai/dsh-agent-spine-demo'
+  if (label === 'System prompt service') return '@deepseek-ai/dsh-system-prompt'
+  if (label === 'Tool registry') return '@deepseek-ai/dsh-tools'
+  return 'DeepSeek Harness'
+}
+
+function pluginsFromConfigText(configText: string, source: string): unknown[] {
+  const blocks = configText.split(/\n(?=-\s+id:\s*)/)
+  return blocks.map((block) => {
+    const id = block.match(/-\s+id:\s*['"]?([^'"\n]+)['"]?/)?.[1]?.trim()
+    const name = block.match(/\n\s*name:\s*['"]?([^'"\n]+)['"]?/)?.[1]?.trim()
+    if (id === undefined && name === undefined) return undefined
+    return {
+      id: id ?? name ?? '',
+      name: name ?? id ?? '',
+      source,
+      configPreview: block.trim(),
+    }
+  }).filter(plugin => plugin !== undefined)
 }
 
 function buildToolArtifacts(request: RequestContextSnapshot, plugins: unknown[], owner: unknown, recentToolCalls: unknown[]): DevArtifact[] {
@@ -943,18 +2152,18 @@ function buildToolArtifacts(request: RequestContextSnapshot, plugins: unknown[],
         group: 'Tools',
         kind: 'tool',
         title: name,
-        subtitle: String(record.description ?? record.summary ?? 'Registered model-facing tool'),
-        status: 'registered',
+        subtitle: String(record.description ?? record.summary ?? t('dev.registeredModelTool')),
+        status: t('dev.statusRegistered'),
         source: toolImplementationSource(name, plugin),
         owner: String(asRecord(plugin).name ?? asRecord(owner).path ?? '@deepseek-ai/dsh-tools'),
         value: schema,
         metadata: {
           fullTool: tool,
-          ownerPlugin: plugin ?? 'No matching plugin inferred from active config',
+          ownerPlugin: plugin ?? t('dev.noMatchingPlugin'),
           registry: owner ?? { path: PATH_TOOL_REGISTRY },
-          recentToolCall: recent ?? 'No persisted call evidence found',
+          recentToolCall: recent ?? t('dev.noPersistedCall'),
         },
-        recent: recentToolSummary(recent) || (request.event === undefined ? 'No request evidence yet' : `Schema last seen in request seq ${request.seq}`),
+        recent: recentToolSummary(recent) || (request.event === undefined ? t('dev.noRequestEvidence') : `${t('dev.schemaLastSeen')} ${request.seq}`),
       } satisfies DevArtifact
     })
   }
@@ -976,67 +2185,75 @@ function buildToolArtifacts(request: RequestContextSnapshot, plugins: unknown[],
       group: 'Tools',
       kind: 'tool',
       title: id,
-      subtitle: String(record.name ?? 'Tool provider plugin'),
-      status: 'provider',
+      subtitle: String(record.name ?? t('dev.toolProviderPlugin')),
+      status: t('dev.statusProvider'),
       source: toolImplementationSource(id, plugin),
       owner: String(record.name ?? '@deepseek-ai/dsh-tools'),
-      value: String(record.configPreview ?? '').trim() || 'Tool schema will appear here after the first model request captures the registered tool list.',
+      value: String(record.configPreview ?? '').trim() || t('dev.toolSchemaAfterRequest'),
       metadata: {
         plugin,
         registry: owner ?? { path: PATH_TOOL_REGISTRY },
-        recentToolCall: recent ?? 'No persisted call evidence found',
+        recentToolCall: recent ?? t('dev.noPersistedCall'),
       },
-      recent: recentToolSummary(recent) || 'No request schema loaded',
+      recent: recentToolSummary(recent) || t('dev.noRequestSchema'),
     }
   })
 }
 
 function recentPromptSummary(recentPromptUses: unknown[], request: RequestContextSnapshot): string {
   const latest = asRecord(recentPromptUses[0])
-  if (latest.sessionId !== undefined) return `Last used in ${shortId(String(latest.sessionId))} · seq ${String(latest.seq ?? '?')}`
-  if (request.event !== undefined) return `Observed in selected trace · seq ${request.seq}`
-  return 'No request evidence yet'
+  if (latest.sessionId !== undefined) return `${t('dev.lastUsedIn')} ${shortId(String(latest.sessionId))} · ${t('common.seq')} ${String(latest.seq ?? '?')}`
+  if (request.event !== undefined) return `${t('dev.observedInSelectedTrace')} · ${t('common.seq')} ${request.seq}`
+  return t('dev.noRequestEvidence')
 }
 
 function recentToolSummary(call: unknown): string {
   const record = asRecord(call)
   if (record.name === undefined) return ''
-  return `${String(record.count ?? 0)} calls · last ${shortId(String(record.lastSessionId ?? 'session'))} seq ${String(record.lastSeq ?? '?')}`
+  return `${String(record.count ?? 0)} ${t('dev.calls')} · ${t('dev.last')} ${shortId(String(record.lastSessionId ?? 'session'))} ${t('common.seq')} ${String(record.lastSeq ?? '?')}`
 }
 
 function pluginToArtifact(plugin: unknown): DevArtifact {
   const record = asRecord(plugin)
   const id = String(record.id ?? 'plugin')
   const name = String(record.name ?? '')
-  const role = pluginRole(record)
+  const role = pluginRoleKind(record)
   return {
     id: `plugin:${id}`,
     group: 'Plugins / Context Providers',
     kind: 'plugin',
     title: id,
-    subtitle: name || 'Cordis config entry',
-    status: role,
+    subtitle: name || t('dev.cordisConfigEntry'),
+    status: pluginRoleLabel(role),
     source: String(record.source ?? 'examples/acp-agent/cordis.yml'),
     owner: name || id,
     value: String(record.configPreview ?? '').trim() || { id, name },
     metadata: {
-      injectsPrompt: role.includes('prompt'),
-      registersTool: role.includes('tool'),
-      injectsContext: role.includes('context') || id.includes('hooks') || id.includes('repeat'),
-      dependencyNote: 'Derived from the active Cordis config order; exact runtime graph can be added when the backend exposes Cordis fibers.',
+      injectsPrompt: role === 'prompt',
+      registersTool: role === 'tool',
+      injectsContext: role === 'context-policy' || id.includes('hooks') || id.includes('repeat'),
+      dependencyNote: t('dev.dependencyNote'),
     },
-    recent: 'Loaded from active config',
+    recent: t('dev.loadedFromConfig'),
   }
 }
 
-function pluginRole(plugin: Record<string, unknown>): string {
+function pluginRoleKind(plugin: Record<string, unknown>): PluginRole {
   const id = String(plugin.id ?? '')
   const name = String(plugin.name ?? '')
-  if (id.includes('tool') || name.includes('tool') || id === 'bash' || id.includes('workflow') || id.includes('subagent')) return 'registers tool'
-  if (id.includes('prompt') || name.includes('prompt') || id === 'acp-agent') return 'injects prompt'
-  if (id.includes('hooks') || id.includes('guard') || id.includes('permission')) return 'context / policy provider'
-  if (id.includes('llm')) return 'model provider'
+  if (id.includes('tool') || name.includes('tool') || id === 'bash' || id.includes('workflow') || id.includes('subagent')) return 'tool'
+  if (id.includes('prompt') || name.includes('prompt') || id === 'acp-agent') return 'prompt'
+  if (id.includes('hooks') || id.includes('guard') || id.includes('permission')) return 'context-policy'
+  if (id.includes('llm')) return 'model'
   return 'plugin'
+}
+
+function pluginRoleLabel(role: PluginRole): string {
+  if (role === 'tool') return t('dev.registersTool')
+  if (role === 'prompt') return t('dev.injectsPrompt')
+  if (role === 'context-policy') return t('dev.contextPolicyProvider')
+  if (role === 'model') return t('dev.modelProvider')
+  return t('dev.plugin')
 }
 
 function toolLikelyOwnedByPlugin(toolName: string, plugin: Record<string, unknown>): boolean {
@@ -1061,382 +2278,7 @@ function modelFromConfigText(text: string): string {
 function extractPersonaFromConfig(text: string): string {
   const match = text.match(/persona:\s*\|\n([\s\S]*?)(?:\n\S|\n\s*#|$)/)
   if (match === null) return ''
-  return (match[1] ?? '')
-    .split('\n')
-    .map(line => line.replace(/^ {6}/, ''))
-    .join('\n')
-    .trim()
-}
-
-function renderRuntimePanel(): string {
-  return `
-    <section class="module-card dev-status">
-      <dl>${renderKeyValue(t('app.repo'), shortPath(runtimeRepoRoot()))}${renderKeyValue(t('app.branch'), gitField('branch'))}${renderKeyValue(t('app.commit'), gitField('commit'))}${renderKeyValue(t('app.dirty'), gitField('dirty'))}${renderKeyValue(t('app.acp'), runtimeLabel())}${renderKeyValue(t('app.restartNeeded'), String(asRecord(state.dev).restartNeeded ?? false))}</dl>
-      <button data-action="restart-runtime" ${hasDesktopApi() ? '' : 'disabled'}>${escapeHtml(t('dev.restartRuntime'))}</button>
-    </section>
-  `
-}
-
-function renderDevCodePanel(title: string, meta: string, value: unknown): string {
-  return `
-    <section class="dev-section">
-      <header class="dev-section-head">
-        <div>
-          <h3>${escapeHtml(title)}</h3>
-          <p>${escapeHtml(meta)}</p>
-        </div>
-      </header>
-      <pre class="dev-code"><code>${escapeHtml(formatDevValue(value))}</code></pre>
-    </section>
-  `
-}
-
-function renderBottomArea(session: SessionSummary | undefined): string {
-  if (state.activeModule !== 'sessions') {
-    return `<footer class="status-bar"><span>${escapeHtml(runtimeLabel())}</span><span>${escapeHtml(gitSummary())}</span></footer>`
-  }
-  return `
-    <form class="composer" data-prompt-form="true">
-      <textarea name="prompt" placeholder="${escapeHtml(session === undefined ? t('composer.placeholderDraft') : t('composer.placeholderSession'))}"></textarea>
-      <div class="composer-meta">
-        <button type="submit" disabled aria-label="${escapeHtml(t('composer.send'))}">↑</button>
-      </div>
-    </form>
-  `
-}
-
-function renderInspector(): string {
-  const target = state.selectedTarget!
-  const feedbackCount = feedbackForTarget().length
-  return `
-    <aside class="inspector">
-      <header class="inspector-head">
-        <div>
-          <span>${escapeHtml(target.kind)}</span>
-          <strong>${escapeHtml(target.title)}</strong>
-          <small>${escapeHtml(target.subtitle ?? '')}</small>
-        </div>
-        <button data-action="close-selection">${escapeHtml(t('inspector.close'))}</button>
-      </header>
-      <nav class="inspector-tabs">
-        ${renderInspectorTabs(feedbackCount)}
-      </nav>
-      <section class="inspector-body">
-        ${renderInspectorBody()}
-      </section>
-    </aside>
-  `
-}
-
-function renderInspectorTabs(feedbackCount = feedbackForTarget().length): string {
-  return INSPECTOR_TABS.map(tab => `
-    <button class="${tab === state.activeInspectorTab ? 'active' : ''}" data-inspector-tab="${tab}">
-      ${inspectorTabLabel(tab)}${tab === 'feedback' && feedbackCount > 0 ? ` ${feedbackCount}` : ''}
-    </button>
-  `).join('')
-}
-
-function renderInspectorBody(): string {
-  const selected = state.selectedTarget
-  if (selected === undefined) return ''
-  if (state.activeInspectorTab === 'feedback') {
-    const feedback = feedbackForTarget()
-    return `
-      <div class="feedback-list">
-        ${feedback.map(record => `
-          <article class="feedback-entry">
-            <header><strong>${escapeHtml(record.data.author)}</strong><span>${escapeHtml(new Date(record.time).toLocaleString())}</span></header>
-            <p>${escapeHtml(record.data.text)}</p>
-          </article>
-        `).join('') || `<p class="empty-panel">${escapeHtml(t('feedback.empty'))}</p>`}
-      </div>
-      <form class="feedback-form" data-feedback-form="true">
-        <input name="author" value="${DEFAULT_FEEDBACK_AUTHOR}" aria-label="${escapeHtml(t('feedback.author'))}" />
-        <textarea name="text" rows="5" placeholder="${escapeHtml(t('feedback.placeholder'))}"></textarea>
-        <button type="submit">${escapeHtml(t('feedback.add'))}</button>
-      </form>
-    `
-  }
-  const payload = payloadForTarget(selected)
-  const value = state.activeInspectorTab === 'input' ? payload.input : state.activeInspectorTab === 'output' ? payload.output : payload.metadata
-  return `<pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>`
-}
-
-function renderInspectorOnly(): void {
-  const tabs = document.querySelector<HTMLElement>('.inspector-tabs')
-  const body = document.querySelector<HTMLElement>('.inspector-body')
-  if (tabs === null || body === null) {
-    render()
-    return
-  }
-  tabs.innerHTML = renderInspectorTabs()
-  body.innerHTML = renderInspectorBody()
-}
-
-function renderEmptySession(): string {
-  return `
-    <section class="empty-state">
-      <h2>${escapeHtml(t('chat.startTitle'))}</h2>
-      <p>${escapeHtml(t('chat.startBody'))}</p>
-      <button data-action="new-session" ${hasDesktopApi() ? '' : 'disabled'}>${escapeHtml(t('app.newChat'))}</button>
-    </section>
-  `
-}
-
-function renderDraftChat(): string {
-  return `
-    <section class="session-canvas">
-      <section class="surface chat-surface">
-        <div class="empty-thread">
-          <h2>${escapeHtml(t('chat.newTitle'))}</h2>
-          <p>${escapeHtml(t('chat.newBody'))}</p>
-        </div>
-      </section>
-    </section>
-  `
-}
-
-function renderEmptyConversation(): string {
-  return `
-    <div class="empty-thread">
-      <h2>${escapeHtml(t('chat.emptyTitle'))}</h2>
-      <p>${escapeHtml(t('chat.emptyBody'))}</p>
-    </div>
-  `
-}
-
-function renderEmptyTrace(): string {
-  return `<div class="empty-thread compact"><h2>${escapeHtml(t('empty.traceTitle'))}</h2><p>${escapeHtml(t('empty.traceBody'))}</p></div>`
-}
-
-function renderKeyValue(key: string, value: unknown): string {
-  return `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(String(value))}</dd></div>`
-}
-
-function filteredSessions(): SessionSummary[] {
-  const query = state.query.trim().toLowerCase()
-  if (query.length === 0) return state.sessions
-  return state.sessions.filter(session => [
-    session.id,
-    session.title,
-    session.cwd ?? '',
-    session.relativePath ?? '',
-    session.model ?? '',
-  ].join('\n').toLowerCase().includes(query))
-}
-
-function chatRows(): ChatRow[] {
-  const sessionId = state.selectedSessionId
-  if (sessionId === undefined) return []
-  const fromTrace = rowsFromEvents(state.trace?.events ?? [])
-  const live = flushLiveDrafts(sessionId)
-  if (fromTrace.length === 0) return live
-  return [...fromTrace, ...live.filter(row => row.eventSeqs.length === 0)]
-}
-
-function rowsFromEvents(events: readonly SessionEvent[]): ChatRow[] {
-  const rows: ChatRow[] = []
-  const reasoningByStep = new Map<string, { text: string; seq: number }>()
-  const seenReasoningStep = new Set<string>()
-  const toolResults = new Map<string, SessionEvent>()
-
-  for (const event of events) {
-    if (event.type === 'tool/result') {
-      const callId = String(asRecord(event.data).callId ?? '')
-      if (callId.length > 0) toolResults.set(callId, event)
-    }
-  }
-
-  for (const event of events) {
-    if (event.type === 'assistant/chunk') {
-      const chunk = asRecord(asRecord(event.data).chunk)
-      if (chunk.type === 'reasoning-delta') {
-        const key = `${asRecord(event.data).turn}:${asRecord(event.data).step}`
-        const previous = reasoningByStep.get(key)
-        reasoningByStep.set(key, {
-          text: `${previous?.text ?? ''}${String(chunk.text ?? '')}`,
-          seq: previous?.seq ?? event.seq ?? 0,
-        })
-      }
-    }
-  }
-
-  for (const event of events) {
-    const seq = event.seq ?? rows.length
-    const data = asRecord(event.data)
-    if (event.type === 'user/message') {
-      rows.push({ target: makeTarget('message', t('chat.userMessage'), seq, `seq ${seq}`), role: 'user', title: t('chat.user'), body: contentText(data.content), eventSeqs: [seq] })
-    } else if (event.type === 'assistant/message') {
-      const key = `${data.turn}:${data.step}`
-      const reasoning = reasoningByStep.get(key)
-      if (reasoning !== undefined && !seenReasoningStep.has(key)) {
-        seenReasoningStep.add(key)
-        rows.push({
-          target: makeTarget('assistant-stream', t('chat.thinking'), reasoning.seq, `turn ${String(data.turn)} step ${String(data.step)}`),
-          role: 'thinking',
-          title: t('chat.thinking'),
-          body: reasoning.text,
-          eventSeqs: [reasoning.seq],
-          collapsed: true,
-          badge: 'folded',
-        })
-      }
-      rows.push({ target: makeTarget('message', t('chat.assistantMessage'), seq, `seq ${seq}`), role: 'assistant', title: t('chat.assistant'), body: contentText(data.content), eventSeqs: [seq] })
-    } else if (event.type === 'tool/call') {
-      const callId = String(data.callId ?? '')
-      const result = toolResults.get(callId)
-      const resultData = asRecord(result?.data)
-      rows.push({
-        target: makeTarget('tool-call', `Tool · ${String(data.name ?? 'tool')}`, seq, `seq ${seq}`),
-        role: 'tool',
-        title: `${t('chat.toolUse')} · ${String(data.name ?? 'tool')}`,
-        body: renderValue({
-          input: data.arguments ?? data.rawInput ?? data,
-          output: resultData.content ?? resultData.output,
-          error: resultData.isError ? resultData.error ?? resultData : undefined,
-        }),
-        eventSeqs: [seq],
-        collapsed: true,
-        badge: 'tool',
-      })
-    } else if (event.type === 'context/message' || event.type === 'steering/message') {
-      rows.push({
-        target: makeTarget('context-section', event.type, seq, `seq ${seq}`),
-        role: 'context',
-        title: event.type,
-        body: contentText(data.content),
-        eventSeqs: [seq],
-        collapsed: true,
-        badge: 'context',
-      })
-    }
-  }
-  return rows
-}
-
-function flushLiveDrafts(sessionId: string): ChatRow[] {
-  const rows = [...(state.liveRows.get(sessionId) ?? [])]
-  const thinking = state.pendingThinking.get(sessionId)
-  if (thinking !== undefined && thinking.length > 0) {
-    rows.push(makeSyntheticRow(sessionId, 'thinking', t('chat.thinking'), thinking, 'thinking-live', true))
-  }
-  const assistant = state.pendingAssistant.get(sessionId)
-  if (assistant !== undefined && assistant.length > 0) {
-    rows.push(makeSyntheticRow(sessionId, 'assistant', t('chat.assistant'), assistant, 'assistant-live'))
-  }
-  return rows
-}
-
-function makeSyntheticRow(
-  sessionId: string,
-  role: ChatRow['role'],
-  title: string,
-  body: string,
-  syntheticId: string,
-  collapsed = false,
-): ChatRow {
-  const targetKind = role === 'tool' ? 'tool-call' : role === 'thinking' ? 'assistant-stream' : 'message'
-  return {
-    target: {
-      id: createInspectorTargetId({ sessionId, kind: targetKind, syntheticId }),
-      kind: targetKind,
-      title,
-      subtitle: 'live ACP update',
-    },
-    role,
-    title,
-    body,
-    eventSeqs: [],
-    collapsed,
-    ...(collapsed ? { badge: 'live' } : {}),
-  }
-}
-
-function trajectoryRows(): TreeRow[] {
-  const events = state.trace?.events ?? []
-  const rows: TreeRow[] = []
-  const sessionId = state.selectedSessionId
-  if (sessionId !== undefined) {
-    rows.push({
-      target: makeTarget('session', `Session ${sessionId}`, 0, state.trace?.relativePath ?? 'session root'),
-      depth: 0,
-      kind: 'session',
-      title: `Session ${shortId(sessionId)}`,
-      subtitle: `${events.length} events · ${state.trace?.found ? 'persisted JSONL' : 'live session'}`,
-      meta: state.trace?.found ? 'saved' : 'live',
-      tone: 'blue',
-    })
-  }
-
-  for (const event of events) {
-    const seq = event.seq ?? 0
-    const data = asRecord(event.data)
-    if (event.type === 'turn/start') rows.push(treeRow('turn', `Turn ${String(data.turn)}`, summarizeTrigger(data.trigger), seq, 1, undefined, 'blue'))
-    else if (event.type === 'step/start') rows.push(treeRow('step', `Step ${String(data.step)}`, `turn ${String(data.turn)}`, seq, 2))
-    else if (event.type === 'request/header' || event.type === 'request/header-delta') rows.push(treeRow('request', event.type, summarizeHeaderEvent(event), seq, 3, 'request', 'amber'))
-    else if (event.type === 'assistant/message') rows.push(treeRow('message', 'Assistant message', truncate(contentText(data.content), 130), seq, 3, 'message'))
-    else if (event.type === 'tool/call') rows.push(treeRow('tool', `Tool · ${String(data.name ?? 'tool')}`, truncate(renderValue(data.arguments ?? data.rawInput ?? data), 140), seq, 3, 'tool-call', 'green'))
-    else if (event.type === 'tool/result') rows.push(treeRow(data.isError ? 'error' : 'tool', 'Tool result', truncate(contentText(data.content), 140), seq, 3, 'tool-result', data.isError ? 'red' : 'green'))
-    else if (event.type === 'context/message' || event.type === 'steering/message') rows.push(treeRow('context', event.type, truncate(contentText(data.content), 140), seq, 3, 'context-section', 'blue'))
-  }
-  return rows
-}
-
-function treeRow(
-  kind: TreeRow['kind'],
-  title: string,
-  subtitle: string,
-  seq: number,
-  depth: number,
-  targetKind: InspectorTarget['kind'] = kind === 'tool' ? 'tool-call' : kind === 'thinking' ? 'assistant-stream' : kind === 'context' ? 'context-section' : kind === 'error' ? 'tool-result' : kind,
-  tone?: TreeRow['tone'],
-): TreeRow {
-  return {
-    target: makeTarget(targetKind, title, seq, `seq ${seq}`),
-    depth,
-    kind,
-    title,
-    subtitle,
-    meta: `seq ${seq}`,
-    ...(tone === undefined ? {} : { tone }),
-  }
-}
-
-function waterfallRows(): SpanRow[] {
-  const events = state.trace?.events ?? []
-  const first = events.find(event => typeof event.time === 'number')?.time ?? Date.now()
-  const starts = new Map<string, SessionEvent>()
-  const spans: SpanRow[] = []
-  for (const event of events) {
-    const data = asRecord(event.data)
-    if (event.type === 'turn/start') starts.set(`turn:${String(data.turn)}`, event)
-    if (event.type === 'step/start') starts.set(`step:${String(data.turn)}:${String(data.step)}`, event)
-    if (event.type === 'turn/end') {
-      const start = starts.get(`turn:${String(data.turn)}`)
-      if (start) spans.push(timedRow(`Turn ${String(data.turn)}`, start, event, 'turn', first, 'blue'))
-    }
-    if (event.type === 'step/end') {
-      const start = starts.get(`step:${String(data.turn)}:${String(data.step)}`)
-      if (start) spans.push(timedRow(`Step ${String(data.step)}`, start, event, 'step', first))
-    }
-    if (event.type === 'tool/call') {
-      const result = events.find(candidate => candidate.type === 'tool/result' && asRecord(candidate.data).callId === data.callId)
-      spans.push(timedRow(`Tool · ${String(data.name ?? data.callId ?? 'tool')}`, event, result ?? event, 'tool-call', first, 'green'))
-    }
-  }
-  return spans.sort((a, b) => a.startMs - b.startMs)
-}
-
-function timedRow(title: string, start: SessionEvent, end: SessionEvent, kind: InspectorTarget['kind'], zero: number, tone?: SpanRow['tone']): SpanRow {
-  const durationMs = Math.max(0, (end.time ?? start.time ?? 0) - (start.time ?? 0))
-  return {
-    target: makeTarget(kind, title, start.seq ?? 0, `seq ${start.seq ?? 0}`),
-    title,
-    subtitle: `${eventTime(start)} → ${eventTime(end)}`,
-    startMs: Math.max(0, (start.time ?? 0) - zero),
-    durationMs,
-    ...(tone === undefined ? {} : { tone }),
-  }
+  return (match[1] ?? '').split('\n').map(line => line.replace(/^ {6}/, '')).join('\n').trim()
 }
 
 function latestRequestContext(): RequestContextSnapshot {
@@ -1450,482 +2292,73 @@ function latestRequestContext(): RequestContextSnapshot {
     event,
     seq: event?.seq ?? 0,
     header,
-    delta,
     system: typeof systemValue === 'string' ? systemValue : renderValue(systemValue),
     tools: Array.isArray(toolsValue) ? toolsValue : [],
-    config: header.config ?? delta.config ?? {},
     messagePrefix: header.messagePrefix ?? delta.messagePrefix ?? [],
   }
 }
 
-function contextRows(): ContextRow[] {
-  const events = state.trace?.events ?? []
-  const request = latestRequestContext()
-  const rows: ContextRow[] = []
-  if (request.event !== undefined) {
-    rows.push(contextRow(t('context.systemPrompt'), `${request.system.length} chars`, request.system || t('context.noSystem'), 'system', 'request', request.seq, Boolean(request.delta.system)))
-    rows.push(contextRow(t('context.toolSchemas'), `${request.tools.length} ${t('waterfall.tools')}`, request.tools.length > 0 ? request.tools.map(tool => String(asRecord(tool).name ?? 'tool')).join(', ') : t('context.noTools'), 'tools', 'request', request.seq, Boolean(request.delta.tools)))
-    rows.push(contextRow(t('context.callConfig'), request.config === undefined ? t('context.empty') : t('context.available'), renderValue(request.config), 'config', 'request', request.seq, Boolean(request.delta.config)))
-    rows.push(contextRow(t('context.messagePrefix'), Array.isArray(request.messagePrefix) ? `${request.messagePrefix.length} ${t('context.messages')}` : t('context.derived'), renderValue(request.messagePrefix), 'messages', 'request', request.seq, Boolean(request.delta.messagePrefix)))
-  }
-  const modelVisible = rowsFromEvents(events).filter(row => row.role === 'user' || row.role === 'assistant' || row.role === 'context')
-  rows.push(contextRow(t('context.derivedHistory'), `${modelVisible.length} ${t('context.visibleRows')}`, modelVisible.map(row => `${row.title}: ${truncate(row.body, 80)}`).join('\n'), 'messages', 'context-section', 0))
-  rows.push(contextRow(t('context.rawJsonl'), `${events.length} ${t('context.events')}`, state.trace?.rawText ?? '', 'raw', 'session', 0))
-  return rows
-}
+/* ── Shared event/value helpers ───────────────────────────────────────────── */
 
-function contextRow(
-  title: string,
-  subtitle: string,
-  preview: string,
-  kind: ContextRow['kind'],
-  targetKind: InspectorTarget['kind'],
-  seq: number,
-  changed = false,
-): ContextRow {
+function usageOfEvent(event: SessionEvent): { input: string; output: string; think: string } {
+  const usage = asRecord(asRecord(event.data).usage)
+  const cell = (value: unknown): string => {
+    const numberValue = Number(value)
+    return Number.isFinite(numberValue) && numberValue > 0 ? numberValue.toLocaleString() : ''
+  }
   return {
-    target: makeTarget(targetKind, title, seq, `seq ${seq}`),
-    title,
-    subtitle,
-    preview: truncate(preview, 240),
-    kind,
-    changed,
+    input: cell(usage.inputTokens ?? usage.input_tokens),
+    output: cell(usage.outputTokens ?? usage.output_tokens),
+    think: cell(usage.reasoningTokens ?? usage.reasoning_tokens),
   }
 }
 
-function payloadForTarget(target: InspectorTarget): TargetPayload {
-  const events = state.trace?.events ?? []
-  const seq = Number(target.id.match(/seq:(\d+)/)?.[1] ?? Number.NaN)
-  const event = Number.isFinite(seq) ? events.find(candidate => candidate.seq === seq) : undefined
-  const data = asRecord(event?.data)
-  return {
-    input: inspectorInput(target, event),
-    output: inspectorOutput(target, event),
-    metadata: {
-      target,
-      session: state.trace?.header,
-      event,
-      eventWindow: Number.isFinite(seq) ? events.filter(candidate => Math.abs((candidate.seq ?? 0) - seq) <= 4) : events.slice(0, 20),
-      rawJsonlPath: state.trace?.relativePath ?? state.trace?.path,
-      runtime: state.runtime,
-      dev: state.dev,
-      surface: state.activeSurface,
-      module: state.activeModule,
-      dataKeys: Object.keys(data),
-    },
-  }
-}
-
-function inspectorInput(target: InspectorTarget, event: SessionEvent | undefined): unknown {
-  if (target.kind === 'request') return latestRequestHeader()
-  if (target.kind === 'dev-object') return devObjectPayload(target)
-  return event?.data ?? target
-}
-
-function inspectorOutput(target: InspectorTarget, event: SessionEvent | undefined): unknown {
-  if (target.kind === 'session') return { trace: state.trace, feedback: state.trace?.feedback ?? [] }
-  if (target.kind === 'context-section' || target.kind === 'request') return contextRows()
-  if (target.kind === 'dev-object') return devObjectPayload(target)
-  return event ?? target
-}
-
-function latestRequestHeader(): unknown {
-  const request = latestRequestContext()
-  return request.event?.data ?? {}
-}
-
-function devObjectPayload(target: InspectorTarget): unknown {
-  const request = latestRequestContext()
-  const syntheticId = target.id.match(/synthetic:(.+)$/)?.[1] ?? ''
-  if (syntheticId === 'system-prompt') return request.system
-  if (syntheticId === 'message-prefix') return request.messagePrefix
-  if (syntheticId === 'derived-history') {
-    return rowsFromEvents(state.trace?.events ?? [])
-      .filter(row => row.role === 'user' || row.role === 'assistant' || row.role === 'context')
-      .map(row => ({ role: row.role, title: row.title, body: row.body, eventSeqs: row.eventSeqs }))
-  }
-  if (syntheticId === 'raw-jsonl') return state.trace?.rawText ?? ''
-  if (syntheticId === 'request-header') return request.header
-  if (syntheticId === 'call-config') return request.config
-  if (syntheticId.startsWith('tool-')) {
-    const index = Number(syntheticId.match(/^tool-(\d+)-/)?.[1] ?? Number.NaN)
-    if (Number.isFinite(index)) return request.tools[index] ?? target
-  }
-  if (syntheticId === 'config-path') return asRecord(state.runtime).configPath
-  if (syntheticId === 'watched-paths') return asRecord(state.dev).watchedPaths
-  if (syntheticId === 'dev-status') return state.dev
-  if (syntheticId === 'runtime-status') return { runtime: state.runtime, dev: state.dev }
-  return {
-    target,
-    repoRoot: runtimeRepoRoot(),
-    configPath: asRecord(state.runtime).configPath,
-    watchedPaths: asRecord(state.dev).watchedPaths,
-    note: 'The first implementation exposes the backend status. File-level editing surfaces can bind here next.',
-  }
-}
-
-function feedbackForTarget(): FeedbackRecord[] {
-  const selected = state.selectedTarget
-  if (selected === undefined) return []
-  return (state.trace?.feedback ?? []).filter(record => record.data?.targetId === selected.id)
-}
-
-document.addEventListener('click', (event) => {
-  const element = event.target instanceof Element ? event.target : undefined
-
-  const module = element?.closest<HTMLButtonElement>('[data-module]')?.dataset.module as AppModule | undefined
-  if (module !== undefined) {
-    state.activeModule = module
-    state.selectedTarget = undefined
-    render()
-    return
-  }
-
-  const surface = element?.closest<HTMLButtonElement>('[data-surface]')?.dataset.surface as DesktopSurface | undefined
-  if (surface !== undefined) {
-    state.activeSurface = surface
-    render()
-    return
-  }
-
-  const sessionId = element?.closest<HTMLButtonElement>('[data-session]')?.dataset.session
-  if (sessionId !== undefined) {
-    state.activeModule = 'sessions'
-    state.draftChat = false
-    void loadTrace(sessionId)
-    return
-  }
-
-  const devArtifactId = element?.closest<HTMLButtonElement>('[data-dev-artifact]')?.dataset.devArtifact
-  if (devArtifactId !== undefined) {
-    state.activeDevArtifactId = devArtifactId
-    render()
-    return
-  }
-
-  const targetId = element?.closest<HTMLElement>('[data-target]')?.dataset.target
-  if (targetId !== undefined) {
-    const target = findTarget(targetId)
-    state.selectedTarget = target
-    state.activeInspectorTab = target === undefined ? 'input' : defaultInspectorTabForTarget(target)
-    render()
-    return
-  }
-
-  const inspectorTab = element?.closest<HTMLButtonElement>('[data-inspector-tab]')?.dataset.inspectorTab
-  if (inspectorTab !== undefined) {
-    state.activeInspectorTab = inspectorTab as InspectorTab
-    renderInspectorOnly()
-    return
-  }
-
-  const action = element?.closest<HTMLElement>('[data-action]')?.dataset.action
-  if (action === 'toggle-locale') {
-    state.locale = state.locale === 'zh-CN' ? 'en-US' : 'zh-CN'
-    localStorage.setItem('dsh.locale', state.locale)
-    render()
-    return
-  }
-
-  if (action === 'close-selection') {
-    state.selectedTarget = undefined
-    render()
-  } else if (action === 'new-session') {
-    startDraftChat()
-  } else if (action === 'reload-trace' && state.selectedSessionId !== undefined) {
-    void loadTrace(state.selectedSessionId).then(() => refreshSessions(state.selectedSessionId))
-  } else if (action === 'restart-runtime') {
-    if (!hasDesktopApi()) {
-      state.error = t('error.noDesktopApi')
-      render()
-      return
-    }
-    void window.dshDesktop.runtime.restart().then(refreshRuntime)
-  }
-})
-
-document.addEventListener('input', (event) => {
-  const input = event.target instanceof HTMLInputElement ? event.target : undefined
-  if (input?.dataset.search === 'true') {
-    state.query = input.value
-    render()
-    return
-  }
-  const textarea = event.target instanceof HTMLTextAreaElement ? event.target : undefined
-  if (textarea !== undefined && textarea.closest<HTMLFormElement>('[data-prompt-form="true"]') !== null) {
-    autosizeComposer(textarea)
-    updateComposerSubmit(textarea)
-  }
-})
-
-document.addEventListener('submit', (event) => {
-  const form = event.target instanceof HTMLFormElement ? event.target : undefined
-  if (form?.dataset.promptForm === 'true') {
-    event.preventDefault()
-    if (state.busy) return
-    const prompt = String(new FormData(form).get('prompt') ?? '').trim()
-    if (prompt.length > 0) void sendPrompt(prompt, form)
-  } else if (form?.dataset.feedbackForm === 'true') {
-    event.preventDefault()
-    void addFeedback(form)
-  }
-})
-
-document.addEventListener('keydown', (event) => {
-  const textarea = event.target instanceof HTMLTextAreaElement ? event.target : undefined
-  if (textarea !== undefined && textarea.closest<HTMLFormElement>('[data-prompt-form="true"]') !== null) {
-    if (event.key !== 'Enter' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
-    event.preventDefault()
-    const form = textarea.closest<HTMLFormElement>('[data-prompt-form="true"]')
-    if (form !== null) form.requestSubmit()
-    return
-  }
-
-})
-
-function autosizeComposer(textarea: HTMLTextAreaElement): void {
-  textarea.style.height = '0px'
-  textarea.style.height = `${Math.min(132, Math.max(42, textarea.scrollHeight))}px`
-}
-
-function updateComposerSubmit(textarea: HTMLTextAreaElement): void {
-  const form = textarea.closest<HTMLFormElement>('[data-prompt-form="true"]')
-  const button = form?.querySelector<HTMLButtonElement>('button[type="submit"]')
-  if (button !== undefined && button !== null) {
-    button.disabled = state.busy || !hasDesktopApi() || textarea.value.trim().length === 0
-  }
-}
-
-function startDraftChat(): void {
-  state.activeModule = 'sessions'
-  state.activeSurface = 'chat'
-  state.selectedSessionId = undefined
-  state.trace = undefined
-  state.selectedTarget = undefined
-  state.draftChat = true
-  state.error = ''
-  render()
-  focusComposer()
-}
-
-async function createBackendSession(): Promise<string | undefined> {
-  if (!hasDesktopApi()) {
-    state.error = t('error.noDesktopApi')
-    render()
-    return undefined
-  }
-  try {
-    const result = asRecord(await window.dshDesktop.sessions.create())
-    state.selectedSessionId = String(result.sessionId)
-    state.trace = result.trace as TracePayload
-    state.draftChat = false
-    return state.selectedSessionId
-  } catch (error) {
-    state.error = String(error)
-    render()
-    return undefined
-  }
-}
-
-async function sendPrompt(prompt: string, form: HTMLFormElement): Promise<void> {
-  if (!hasDesktopApi()) {
-    state.error = t('error.noDesktopApi')
-    render()
-    return
-  }
-  if (state.selectedSessionId === undefined) await createBackendSession()
-  if (state.selectedSessionId === undefined) return
-  const sessionId = state.selectedSessionId
-  form.reset()
-  const textarea = form.querySelector<HTMLTextAreaElement>('textarea[name="prompt"]')
-  if (textarea !== null) autosizeComposer(textarea)
-  const rows = state.liveRows.get(sessionId) ?? []
-  rows.push(makeSyntheticRow(sessionId, 'user', t('chat.user'), prompt, `user-${Date.now()}`))
-  state.liveRows.set(sessionId, rows)
-  state.pendingAssistant.delete(sessionId)
-  state.pendingThinking.delete(sessionId)
-  state.busy = true
-  state.error = ''
-  render()
-  try {
-    const result = asRecord(await window.dshDesktop.sessions.prompt(sessionId, prompt))
-    state.trace = result.trace as TracePayload
-    state.liveRows.delete(sessionId)
-    state.pendingAssistant.delete(sessionId)
-    state.pendingThinking.delete(sessionId)
-    await refreshSessions(sessionId)
-  } catch (error) {
-    state.error = String(error)
-  } finally {
-    state.busy = false
-    render()
-    focusComposer()
-  }
-}
-
-function focusComposer(): void {
-  window.requestAnimationFrame(() => {
-    document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus()
-  })
-}
-
-async function addFeedback(form: HTMLFormElement): Promise<void> {
-  if (!hasDesktopApi()) return
-  if (state.selectedSessionId === undefined || state.selectedTarget === undefined) return
-  const data = new FormData(form)
-  const text = String(data.get('text') ?? '').trim()
-  if (text.length === 0) return
-  await window.dshDesktop.feedback.add({
-    sessionId: state.selectedSessionId,
-    targetId: state.selectedTarget.id,
-    targetTitle: state.selectedTarget.title,
-    targetKind: state.selectedTarget.kind,
-    author: String(data.get('author') ?? DEFAULT_FEEDBACK_AUTHOR),
-    text,
-  })
-  await loadTrace(state.selectedSessionId, false)
-  state.activeInspectorTab = 'feedback'
-  render()
-}
-
-function findTarget(id: string): InspectorTarget | undefined {
-  const targets = [
-    ...chatRows().map(row => row.target),
-    ...trajectoryRows().map(row => row.target),
-    ...waterfallRows().map(row => row.target),
-    ...contextRows().map(row => row.target),
-  ]
-  return targets.find(target => target.id === id) ?? targetFromId(id)
-}
-
-function selectedClass(target: InspectorTarget): string {
-  return isSelectedTarget(target) ? 'is-selected' : ''
-}
-
-function isSelectedTarget(target: InspectorTarget): boolean {
-  const selected = state.selectedTarget
-  if (selected === undefined) return false
-  if (selected.id === target.id) return true
-  const selectedSeq = selected.id.match(/seq:(\d+)/)?.[1]
-  const targetSeq = target.id.match(/seq:(\d+)/)?.[1]
-  return selectedSeq !== undefined && selectedSeq === targetSeq
-}
-
-function syncSelectionAfterRender(): void {
-  if (state.selectedTarget === undefined) return
-  window.requestAnimationFrame(() => {
-    const selected = document.querySelector<HTMLElement>('.is-selected[data-target], .is-selected [data-target]')
-    selected?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  })
-}
-
-function targetFromId(id: string): InspectorTarget | undefined {
-  const kind = id.match(/kind:([^:]+)/)?.[1] as InspectorTarget['kind'] | undefined
-  if (kind === undefined) return undefined
-  return { id, kind, title: label(kind), subtitle: 'derived target' }
-}
-
-function makeTarget(kind: InspectorTarget['kind'], title: string, seq: number, subtitle?: string): InspectorTarget {
-  const sessionId = state.selectedSessionId ?? state.trace?.sessionId ?? 'unknown'
-  return {
-    id: createInspectorTargetId({ sessionId, kind, eventSeq: seq }),
-    kind,
-    title,
-    subtitle: subtitle ?? `seq ${seq}`,
-  }
-}
-
-function currentSession(): SessionSummary | undefined {
-  return state.sessions.find(session => session.id === state.selectedSessionId)
-}
-
-function uniqueTurns(): number[] {
-  const turns = new Set<number>()
+function sumTokens(kind: 'input' | 'output'): string {
+  let total = 0
   for (const event of state.trace?.events ?? []) {
-    const turn = Number(asRecord(event.data).turn)
-    if (Number.isFinite(turn)) turns.add(turn)
+    if (event.type !== 'assistant/message') continue
+    const usage = asRecord(asRecord(event.data).usage)
+    const value = kind === 'input' ? usage.inputTokens ?? usage.input_tokens : usage.outputTokens ?? usage.output_tokens
+    const numberValue = Number(value)
+    if (Number.isFinite(numberValue)) total += numberValue
   }
-  return [...turns].sort((a, b) => a - b)
+  return total.toLocaleString()
 }
 
-function moduleTitle(): string {
-  if (state.activeModule === 'sessions') return t('app.sessions')
-  return t('app.develop')
-}
-
-function topbarTitle(session: SessionSummary | undefined): string {
-  if (state.activeModule !== 'sessions') return moduleTitle()
-  return session?.title || t('app.sessions')
-}
-
-function surfaceLabel(surface: DesktopSurface): string {
-  if (surface === 'chat') return t('surface.chat')
-  if (surface === 'trajectory') return t('surface.trajectory')
-  if (surface === 'waterfall') return t('surface.waterfall')
-  if (surface === 'context') return t('surface.context')
-  if (surface === 'compare') return t('surface.compare')
-  return t('surface.dev')
-}
-
-function inspectorTabLabel(tab: InspectorTab): string {
-  if (tab === 'input') return t('inspector.input')
-  if (tab === 'output') return t('inspector.output')
-  if (tab === 'metadata') return t('inspector.metadata')
-  return t('inspector.feedback')
+function runtimeStateLabel(value: string): string {
+  if (value === 'running') return t('runtime.running')
+  if (value === 'error') return t('runtime.error')
+  if (value === 'starting') return t('runtime.starting')
+  return value
 }
 
 function runtimeLabel(): string {
-  const runtime = asRecord(state.runtime)
-  return `ACP ${String(runtime.state ?? 'starting')}`
+  return `ACP ${runtimeStateLabel(String(asRecord(state.runtime).state ?? 'starting'))}`
 }
 
 function runtimeStateClass(): string {
-  const runtime = asRecord(state.runtime)
-  const value = String(runtime.state ?? 'starting')
+  const value = String(asRecord(state.runtime).state ?? 'starting')
   if (value === 'running') return 'running'
   if (value === 'error') return 'error'
   return 'starting'
 }
 
 function runtimeRepoRoot(): string {
-  return String(asRecord(state.runtime).repoRoot ?? '/Users/tn.shen/Documents/deepseek-harness-master')
+  return String(asRecord(state.runtime).repoRoot ?? '')
 }
 
 function gitField(key: string): string {
   const git = asRecord(asRecord(state.dev).git)
-  return String(git[key] ?? 'unknown')
+  return String(git[key] ?? t('dev.unknown'))
 }
 
 function gitSummary(): string {
-  return `${gitField('branch')} @ ${gitField('commit')}${gitField('dirty') === 'true' ? ' · dirty' : ''}`
-}
-
-function summarizeHeaderEvent(event: SessionEvent): string {
-  const data = asRecord(event.data)
-  const header = asRecord(data.header)
-  if (event.type === 'request/header') {
-    const tools = Array.isArray(header.tools) ? header.tools.length : 0
-    return `system ${String(header.system ?? '').length} chars · ${tools} tools`
-  }
-  return truncate(renderValue(data), 160)
-}
-
-function summarizeTrigger(value: unknown): string {
-  const text = renderValue(value)
-  return text === '{}' ? 'user prompt' : truncate(text, 120)
-}
-
-function eventTime(event: SessionEvent): string {
-  if (typeof event.time !== 'number') return 'unknown'
-  return new Date(event.time).toLocaleTimeString()
+  return `${gitField('branch')} @ ${gitField('commit')}${gitField('dirty') === 'true' ? ` · ${t('app.dirty')}` : ''}`
 }
 
 function asSessionUpdate(value: unknown): SessionUpdatePayload {
   const record = asRecord(value)
-  return {
-    sessionId: String(record.sessionId ?? ''),
-    update: asRecord(record.update),
-  }
+  return { sessionId: String(record.sessionId ?? ''), update: asRecord(record.update) }
 }
 
 function hasDesktopApi(): boolean {
@@ -1934,16 +2367,6 @@ function hasDesktopApi(): boolean {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' ? value as Record<string, unknown> : {}
-}
-
-function contentText(value: unknown): string {
-  if (!Array.isArray(value)) return ''
-  return value.map((block) => {
-    const record = asRecord(block)
-    if (record.type === 'text' || record.type === 'reasoning') return String(record.text ?? '')
-    if (record.type === 'resource_link') return `[resource ${String(record.name ?? '')}] ${String(record.uri ?? '')}`
-    return JSON.stringify(record)
-  }).filter(Boolean).join('\n')
 }
 
 function renderValue(value: unknown): string {
@@ -1962,32 +2385,55 @@ function parseMaybeJson(value: unknown): unknown {
 
 function formatDevValue(value: unknown): string {
   if (typeof value === 'string') return value
-  if (value === undefined) return 'undefined'
+  if (value === undefined) return t('dev.unknown')
   return renderValue(value)
 }
 
-function targetSeq(target: InspectorTarget): number {
-  return Number(target.id.match(/seq:(\d+)/)?.[1] ?? Number.NaN)
+/** Formats an inspector payload as plain text, pretty JSON, JSONL rows, or YAML. */
+function formatPayload(value: unknown, format: PayloadFormat): string {
+  if (value === undefined || value === null || value === '') return ''
+  if (format === 'json') return JSON.stringify(value, null, 2)
+  if (format === 'jsonl') {
+    const rows = Array.isArray(value) ? value : [value]
+    return rows.map(row => typeof row === 'string' ? row : JSON.stringify(row)).join('\n')
+  }
+  if (format === 'yaml') return toYaml(value)
+  if (typeof value === 'string') return value
+  if (Array.isArray(value) && value.every(item => asRecord(item).type !== undefined)) return contentText(value)
+  return JSON.stringify(value, null, 2)
 }
 
-function label(value: string): string {
-  return value
-    .split(/[-_]/)
-    .map(part => part.length === 0 ? part : `${part[0]!.toUpperCase()}${part.slice(1)}`)
-    .join(' ')
+function toYaml(value: unknown, indent = 0): string {
+  const pad = ' '.repeat(indent)
+  if (value === null) return 'null'
+  if (typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (item !== null && typeof item === 'object') return `${pad}-\n${toYaml(item, indent + 2)}`
+      return `${pad}- ${toYaml(item)}`
+    }).join('\n')
+  }
+  return Object.entries(value).map(([key, item]) => {
+    if (item !== null && typeof item === 'object') return `${pad}${key}:\n${toYaml(item, indent + 2)}`
+    return `${pad}${key}: ${toYaml(item)}`
+  }).join('\n')
 }
 
-function formatMs(ms: number): string {
-  return ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`
+function formatMs(milliseconds: number): string {
+  if (!Number.isFinite(milliseconds)) return '0ms'
+  return milliseconds >= 1000 ? `${(milliseconds / 1000).toFixed(2)}s` : `${Math.round(milliseconds)}ms`
 }
 
 function formatRelativeTime(time: number): string {
   const diff = Date.now() - time
-  if (!Number.isFinite(diff) || diff < 0) return 'now'
-  if (diff < 60_000) return 'now'
-  if (diff < 3_600_000) return `${Math.round(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}h ago`
-  return `${Math.round(diff / 86_400_000)}d ago`
+  if (!Number.isFinite(diff) || diff < 60_000) return t('common.now')
+  if (diff < 3_600_000) return relativeTime(Math.round(diff / 60_000), t('common.minutesAgo'))
+  if (diff < 86_400_000) return relativeTime(Math.round(diff / 3_600_000), t('common.hoursAgo'))
+  return relativeTime(Math.round(diff / 86_400_000), t('common.daysAgo'))
+}
+
+function relativeTime(value: number, unit: string): string {
+  return state.locale === 'zh-CN' ? `${value}${unit}前` : `${value} ${unit}${value === 1 ? '' : 's'} ago`
 }
 
 function truncate(value: string, limit = 180): string {
@@ -2014,9 +2460,117 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;')
 }
 
+/* ── Markdown (ported from trace-workbench): escape first, then structure ─── */
+
+function mdInline(escaped: string): string {
+  return escaped
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(\S(?:[^*\n]*\S)?)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+}
+
+function mdSplitRow(line: string): string[] {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim())
+}
+
+const MD_TABLE_ROW = /^\s*\|.*\|\s*$/
+const MD_TABLE_SEP = /^\s*\|?[\s:|-]+\|[\s:|-]*$/
+
 function renderMarkdown(text: string): string {
-  return escapeHtml(text)
-    .split(/\n{2,}/)
-    .map(part => `<p>${part.replaceAll('\n', '<br>')}</p>`)
-    .join('')
+  const lines = escapeHtml(text).split('\n')
+  const out: string[] = []
+  let inCode = false
+  let listType: 'ul' | 'ol' | null = null
+  const closeList = (): void => {
+    if (listType !== null) {
+      out.push(`</${listType}>`)
+      listType = null
+    }
+  }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    if (line.trim().startsWith('```')) {
+      closeList()
+      out.push(inCode ? '</pre>' : '<pre class="md-code">')
+      inCode = !inCode
+      continue
+    }
+    if (inCode) {
+      out.push(line)
+      continue
+    }
+    if (MD_TABLE_ROW.test(line) && i + 1 < lines.length && MD_TABLE_SEP.test(lines[i + 1]!) && lines[i + 1]!.includes('-')) {
+      closeList()
+      const header = mdSplitRow(line)
+      const aligns = mdSplitRow(lines[i + 1]!).map((cell) => {
+        if (cell.startsWith(':') && cell.endsWith(':')) return 'center'
+        if (cell.endsWith(':')) return 'right'
+        return ''
+      })
+      i += 1
+      const tableRows: string[][] = []
+      while (i + 1 < lines.length && MD_TABLE_ROW.test(lines[i + 1]!)) {
+        i += 1
+        tableRows.push(mdSplitRow(lines[i]!))
+      }
+      const cellHtml = (tag: string, cells: string[]): string => cells.map((cell, k) =>
+        `<${tag}${aligns[k] !== undefined && aligns[k] !== '' ? ` style="text-align:${aligns[k]}"` : ''}>${mdInline(cell)}</${tag}>`).join('')
+      out.push('<div class="md-table-wrap"><table class="md-table">')
+      out.push(`<thead><tr>${cellHtml('th', header)}</tr></thead>`)
+      out.push(`<tbody>${tableRows.map(row => `<tr>${cellHtml('td', row)}</tr>`).join('')}</tbody>`)
+      out.push('</table></div>')
+      continue
+    }
+    if (/^\s*&gt;\s?/.test(line)) {
+      closeList()
+      const quote: string[] = []
+      while (i < lines.length && /^\s*&gt;\s?/.test(lines[i]!)) {
+        quote.push(lines[i]!.replace(/^\s*&gt;\s?/, ''))
+        i += 1
+      }
+      i -= 1
+      out.push(`<blockquote>${quote.map(entry => mdInline(entry)).join('<br>')}</blockquote>`)
+      continue
+    }
+    const heading = line.match(/^(#{1,4})\s+(.*)$/)
+    if (heading !== null) {
+      closeList()
+      const level = Math.min(heading[1]!.length + 2, 5)
+      out.push(`<h${level} class="md-h">${mdInline(heading[2]!)}</h${level}>`)
+      continue
+    }
+    if (/^\s*(---+|\*\*\*+)\s*$/.test(line)) {
+      closeList()
+      out.push('<hr>')
+      continue
+    }
+    if (/^\s*[-*]\s+/.test(line)) {
+      if (listType !== 'ul') {
+        closeList()
+        out.push('<ul>')
+        listType = 'ul'
+      }
+      out.push(`<li>${mdInline(line.replace(/^\s*[-*]\s+/, ''))}</li>`)
+      continue
+    }
+    const ordered = line.match(/^\s*(\d+)[.)]\s+(.*)$/)
+    if (ordered !== null) {
+      if (listType !== 'ol') {
+        closeList()
+        out.push('<ol>')
+        listType = 'ol'
+      }
+      out.push(`<li value="${ordered[1]}">${mdInline(ordered[2]!)}</li>`)
+      continue
+    }
+    if (line.trim().length === 0) {
+      closeList()
+      continue
+    }
+    out.push(`<p>${mdInline(line)}</p>`)
+  }
+  if (inCode) out.push('</pre>')
+  closeList()
+  return out.join('\n')
 }

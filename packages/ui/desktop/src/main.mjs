@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, appendFileS
 import { dirname, join, relative, resolve } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
@@ -28,8 +28,9 @@ let runtimeProcess
 let acpClient
 let initializeResult
 let stderrTail = ''
-/** @type {Map<string, {sessionId: string, loaded: boolean, cwd: string}>} */
+/** @type {Map<string, {sessionId: string, loaded: boolean, cwd: string, title?: string}>} */
 const activeSessions = new Map()
+const replayingSessions = new Set()
 
 function broadcast(channel, payload) {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -101,6 +102,12 @@ async function startRuntime() {
 
   acpClient = new ClientSideConnection(() => ({
     sessionUpdate(params) {
+      if (replayingSessions.has(String(params.sessionId))) return Promise.resolve()
+      const session = activeSessions.get(String(params.sessionId))
+      if (session !== undefined && session.title === undefined && params.update?.sessionUpdate === 'user_message_chunk') {
+        const title = textOfContent(params.update.content).trim()
+        if (title.length > 0) session.title = title.slice(0, 120)
+      }
       broadcast('sessions:update', params)
       return Promise.resolve()
     },
@@ -212,6 +219,7 @@ function summarizeSession(file) {
   const last = events.at(-1)
   return {
     id: String(header.id),
+    parentSession: header.parentSession === undefined ? undefined : String(header.parentSession),
     cwd: header.cwd,
     path: file,
     relativePath: relative(repoRoot, file),
@@ -244,7 +252,7 @@ function listSessions() {
       stepCount: 0,
       toolCallCount: 0,
       model: undefined,
-      title: 'New live session',
+      title: session.title ?? 'New live session',
       live: true,
     }))
   return [...liveOnly, ...persisted].sort((a, b) => b.lastActivity - a.lastActivity)
@@ -267,6 +275,8 @@ function readTrace(sessionId) {
     return { found: false, sessionId, header: { id: sessionId, cwd: repoRoot }, events: [], rawText: '' }
   }
   const trace = readJsonl(file)
+  const sessions = listSessions()
+  const summary = sessions.find(session => session.id === sessionId)
   return {
     found: true,
     sessionId,
@@ -276,6 +286,8 @@ function readTrace(sessionId) {
     path: file,
     relativePath: relative(repoRoot, file),
     feedback: readFeedback(sessionId),
+    parent: summary?.parentSession === undefined ? undefined : sessions.find(session => session.id === summary.parentSession) ?? { id: summary.parentSession },
+    children: sessions.filter(session => session.parentSession === sessionId),
   }
 }
 
@@ -326,8 +338,13 @@ async function ensureSessionLoaded(sessionId) {
   if (activeSessions.has(sessionId)) return
   const summary = listSessions().find(session => session.id === sessionId)
   const client = await ensureRuntime()
-  await client.loadSession({ sessionId, cwd: summary?.cwd ?? repoRoot, mcpServers: [] })
-  activeSessions.set(sessionId, { sessionId, loaded: true, cwd: summary?.cwd ?? repoRoot })
+  replayingSessions.add(sessionId)
+  try {
+    await client.loadSession({ sessionId, cwd: summary?.cwd ?? repoRoot, mcpServers: [] })
+    activeSessions.set(sessionId, { sessionId, loaded: true, cwd: summary?.cwd ?? repoRoot })
+  } finally {
+    replayingSessions.delete(sessionId)
+  }
 }
 
 function devStatus() {
@@ -351,7 +368,7 @@ function devStatus() {
     recentPromptUses: recentEvidence.promptUses,
     recentToolCalls: recentEvidence.toolCalls,
     appComposition: {
-      name: 'Deepseek Harness ACP agent',
+      name: 'DeepSeek Harness ACP agent',
       entrypoint: 'packages/examples/acp-demo/src/bin.ts',
       configPath: relative(repoRoot, acpConfigPath),
       configText,
@@ -361,21 +378,25 @@ function devStatus() {
           label: 'ACP front door',
           path: 'packages/examples/acp-demo/src/index.ts',
           purpose: 'Loads the agent spine, JSONL persistence, user interaction service, and ACP bridge.',
+          text: readTextSafe(join(repoRoot, 'packages/examples/acp-demo/src/index.ts')),
         },
         {
           label: 'Agent spine',
           path: 'packages/examples/agent-spine-demo/src/index.ts',
           purpose: 'Composes system prompt, tool registry, skills, agent registry, tasks, invariants, tool plugins, and agent loop.',
+          text: readTextSafe(join(repoRoot, 'packages/examples/agent-spine-demo/src/index.ts')),
         },
         {
           label: 'System prompt service',
           path: 'packages/core/system-prompt/src/index.ts',
           purpose: 'Owns persona, tool order, and assembled model-facing prompt sections.',
+          text: readTextSafe(join(repoRoot, 'packages/core/system-prompt/src/index.ts')),
         },
         {
           label: 'Tool registry',
           path: 'packages/core/tools/src/index.ts',
           purpose: 'Owns model-facing tool registration, schema validation, and tool presentation mode.',
+          text: readTextSafe(join(repoRoot, 'packages/core/tools/src/index.ts')),
         },
       ],
     },
@@ -502,6 +523,12 @@ function registerIpc() {
     await client.cancel({ sessionId: String(sessionId) })
     return { ok: true }
   })
+  ipcMain.handle('sessions:reveal', (_event, { sessionId }) => {
+    const file = findSessionFile(String(sessionId))
+    if (file === undefined) throw new Error(`session not found: ${String(sessionId)}`)
+    shell.showItemInFolder(file)
+    return { ok: true, path: file }
+  })
   ipcMain.handle('trace:read', (_event, { sessionId }) => readTrace(String(sessionId)))
   ipcMain.handle('feedback:list', (_event, { sessionId, targetId }) => readFeedback(String(sessionId), targetId === undefined ? undefined : String(targetId)))
   ipcMain.handle('feedback:add', (_event, entry) => appendFeedback(entry))
@@ -515,6 +542,7 @@ async function createWindow() {
     minWidth: 1080,
     minHeight: 720,
     title: 'DeepSeek Harness Desktop',
+    titleBarStyle: 'hiddenInset',
     backgroundColor: '#f5f5f7',
     webPreferences: {
       preload: join(here, 'preload.cjs'),
@@ -525,7 +553,7 @@ async function createWindow() {
 
   if (process.env.VITE_DEV_SERVER_URL !== undefined) {
     await mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
+    if (process.env.DSH_DESKTOP_OPEN_DEVTOOLS === '1') mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
     const builtIndex = join(packageRoot, 'dist/index.html')
     if (!existsSync(builtIndex)) {
@@ -536,16 +564,18 @@ async function createWindow() {
   }
 }
 
-registerIpc()
-
-app.whenReady().then(async () => {
+async function openWindowAndRuntime() {
   await createWindow()
   try {
     await startRuntime()
   } catch (error) {
     setRuntimeState('error', { error: String(error) })
   }
-})
+}
+
+registerIpc()
+
+app.whenReady().then(openWindowAndRuntime)
 
 app.on('window-all-closed', () => {
   void stopRuntime().finally(() => {
@@ -554,5 +584,5 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) void createWindow()
+  if (BrowserWindow.getAllWindows().length === 0) void openWindowAndRuntime()
 })

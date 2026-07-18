@@ -48,9 +48,9 @@ describe('desktop surface policies', () => {
     })
   })
 
-  it('keeps the composer scoped to chat only', () => {
+  it('keeps the session composer across the three live views', () => {
     for (const surface of DESKTOP_SURFACES) {
-      expect(ownsComposer(surface)).toBe(surface === 'chat')
+      expect(ownsComposer(surface)).toBe(['chat', 'trajectory', 'waterfall'].includes(surface))
     }
   })
 
@@ -71,6 +71,11 @@ describe('desktop inspector contracts', () => {
       kind: 'tool-call',
       eventSeq: 42,
     })).toBe('session:s1:run:r1:kind:tool-call:seq:42')
+    expect(createInspectorTargetId({
+      sessionId: 's1',
+      kind: 'message',
+      syntheticId: 'draft',
+    })).toBe('session:s1:kind:message:synthetic:draft')
   })
 
   it('opens output by default for produced data and metadata for structural targets', () => {
@@ -85,6 +90,21 @@ describe('desktop inspector contracts', () => {
       kind: 'step',
       title: 'step 1',
     }).activeTab).toBe('metadata')
+
+    const expected = new Map<InspectorTarget['kind'], string>([
+      ['assistant-stream', 'output'],
+      ['tool-result', 'output'],
+      ['session', 'metadata'],
+      ['run', 'metadata'],
+      ['turn', 'metadata'],
+      ['step', 'metadata'],
+      ['waterfall-span', 'metadata'],
+      ['dev-object', 'input'],
+      ['message', 'input'],
+    ])
+    for (const [kind, tab] of expected) {
+      expect(openInspectorState({ ...target, kind }).activeTab).toBe(tab)
+    }
   })
 
   it('keeps inspector tabs ordered with feedback last', () => {
@@ -108,5 +128,13 @@ describe('desktop i18n', () => {
     expect(translate('en-US', 'app.newChat')).toBe('New chat')
     expect(translate('zh-CN', 'app.language')).toBe('EN')
     expect(translate('en-US', 'app.language')).toBe('中文')
+  })
+
+  it('keeps core Chinese labels localized rather than falling back to English', () => {
+    expect(translate('zh-CN', 'app.develop')).toBe('开发')
+    expect(translate('zh-CN', 'surface.trajectory')).toBe('轨迹')
+    expect(translate('zh-CN', 'chat.thinking')).toBe('思考')
+    expect(translate('zh-CN', 'dev.requestSystemPrompt')).toBe('当前请求的系统提示词')
+    expect(translate('zh-CN', 'inspector.feedback')).toBe('反馈')
   })
 })

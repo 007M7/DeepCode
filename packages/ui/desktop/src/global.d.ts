@@ -17,6 +17,7 @@ declare global {
         load(sessionId: string): Promise<unknown>
         prompt(sessionId: string, text: string): Promise<unknown>
         cancel(sessionId: string): Promise<unknown>
+        reveal(sessionId: string): Promise<unknown>
         onUpdate(callback: (payload: unknown) => void): () => void
       }
       trace: {

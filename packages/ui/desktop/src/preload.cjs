@@ -23,6 +23,7 @@ const api = {
     load: (sessionId) => ipcRenderer.invoke('sessions:load', { sessionId }),
     prompt: (sessionId, text) => ipcRenderer.invoke('sessions:prompt', { sessionId, text }),
     cancel: (sessionId) => ipcRenderer.invoke('sessions:cancel', { sessionId }),
+    reveal: (sessionId) => ipcRenderer.invoke('sessions:reveal', { sessionId }),
     onUpdate: (callback) => {
       const listener = (_event, payload) => { callback(payload) }
       ipcRenderer.on('sessions:update', listener)

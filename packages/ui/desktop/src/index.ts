@@ -1,5 +1,5 @@
 /**
- * Shared contracts for the Deepseek Harness desktop app.
+ * Shared contracts for the DeepSeek Harness desktop app.
  *
  * The package starts with view and lifecycle contracts so Electron main,
  * preload, and renderer code can evolve without copying product decisions from
@@ -8,10 +8,10 @@
  * @module @deepseek-ai/dsh-desktop
  */
 
-/** Main analysis surfaces in the Deepseek Harness session view. */
+/** Main analysis surfaces in the DeepSeek Harness session view. */
 export const DESKTOP_SURFACES = ['chat', 'trajectory', 'waterfall', 'context', 'compare', 'dev'] as const
 
-/** Main analysis surfaces in the Deepseek Harness session view. */
+/** Main analysis surfaces in the DeepSeek Harness session view. */
 export type DesktopSurface = (typeof DESKTOP_SURFACES)[number]
 
 /** Right-side inspector tabs, ordered as rendered. */
@@ -221,7 +221,7 @@ export const SURFACE_DEFINITIONS: Record<DesktopSurface, SurfaceDefinition> = {
     label: 'Trajectory',
     purpose: 'navigate',
     primaryQuestion: 'Where am I in the session, turn, step, request, assistant, tool, and context structure?',
-    ownsComposer: false,
+    ownsComposer: true,
     summaryFirst: true,
     inlinePreview: true,
     fullDetailInInspector: true,
@@ -231,7 +231,7 @@ export const SURFACE_DEFINITIONS: Record<DesktopSurface, SurfaceDefinition> = {
     label: 'Waterfall',
     purpose: 'timing',
     primaryQuestion: 'Where did time go across model requests, tool calls, and failures?',
-    ownsComposer: false,
+    ownsComposer: true,
     summaryFirst: true,
     inlinePreview: false,
     fullDetailInInspector: true,
@@ -282,9 +282,9 @@ export function opensInspector(surface: DesktopSurface, target: InspectorTarget 
 }
 
 /**
- * Returns whether the surface is allowed to show the chat composer.
+ * Returns whether the surface participates in the live session composer.
  * @param surface - The active middle surface.
- * @returns True only for the driving chat surface.
+ * @returns True for the three live session surfaces.
  */
 export function ownsComposer(surface: DesktopSurface): boolean {
   return SURFACE_DEFINITIONS[surface].ownsComposer
