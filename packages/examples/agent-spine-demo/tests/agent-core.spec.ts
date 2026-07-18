@@ -86,10 +86,10 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-function waitForMainIdle(ctx: Context): Promise<void> {
+function waitForIdle(ctx: Context, target: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (agent, status) => {
-      if (agent.id === 'main' && status === 'idle') {
+      if (agent === target && status === 'idle') {
         dispose()
         resolve()
       }
@@ -177,7 +177,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       const agent = handle.agent
 
       agent.send([{ type: 'text', text: 'hi' }])
-      await waitForMainIdle(ctx)
+      await waitForIdle(ctx, agent)
 
       const sentText = adapter.requests[0]?.messages.map(messageText).join('\n')
       expect(sentText).toContain('hi')
@@ -206,7 +206,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       })
 
       handle.agent.send([{ type: 'text', text: 'hi' }])
-      await waitForMainIdle(ctx)
+      await waitForIdle(ctx, handle.agent)
 
       expect(adapter.requests[0]?.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
       await handle.dispose()
@@ -295,7 +295,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       })
 
       handle.agent.send([{ type: 'text', text: 'hi' }])
-      await waitForMainIdle(ctx)
+      await waitForIdle(ctx, handle.agent)
 
       expect(messageText(adapter.requests[0]?.messages[0])).toContain('workspace rule before skills')
       expect(messageText(adapter.requests[0]?.messages[1])).toContain('prefix-order-skill')
