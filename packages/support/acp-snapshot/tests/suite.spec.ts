@@ -32,9 +32,11 @@ import {
  * spec once with `ACP_SNAPSHOT_SPEC_BOOTSTRAP=1`, then review and commit the resulting tree.
  */
 
+const fakeAgent = fileURLToPath(new URL('./fixtures/fake-acp-agent.ts', import.meta.url))
 const AGENT = {
-  binScript: fileURLToPath(new URL('./fixtures/fake-acp-agent.ts', import.meta.url)),
-  configPath: fileURLToPath(new URL('./fixtures/fake-acp-agent.ts', import.meta.url)),
+  binScript: fakeAgent,
+  libBinScript: fakeAgent,
+  configPath: fakeAgent,
   tsconfigPath: fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url)),
 }
 

@@ -5,15 +5,16 @@
   "ignoreWorkspaces": ["vendor/*", "python/sdk-runtime", "website"],
   "workspaces": {
     ".": {
+      "project": ["scripts/**/*.ts"]
+    },
+    "examples": {
       "entry": [
-        "examples/echo-agent/src/*.ts",
-        "examples/echo-agent/tests/**/*.e2e.ts",
-        "examples/coding-agent/tests/**/*.e2e.ts",
-        "examples/cordis-agent/tests/**/*.e2e.ts",
-        "examples/acp-agent/tests/**/*.e2e.ts",
-        "examples/*/tests/**/*.snapshot.ts"
+        "echo-agent/src/*.ts",
+        "*/tests/**/*.e2e.ts",
+        "*/tests/**/*.snapshot.ts"
       ],
-      "project": ["scripts/**/*.ts", "examples/**/*.ts"]
+      "project": ["**/*.ts"],
+      "ignoreDependencies": ["@deepseek-ai/.+", "@cordisjs/.+"]
     },
     "packages/*/*": {
       "entry": ["tests/**/*.spec.ts"],
@@ -52,8 +53,7 @@
     },
     "packages/support/acp-snapshot": {
       "entry": ["tests/**/*.spec.ts", "tests/fixtures/fake-acp-agent.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"],
-      "ignoreDependencies": ["cordis"]
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/support/loader-smoke": {
       "entry": ["tests/**/*.spec.ts", "tests/fixtures/*.ts"],

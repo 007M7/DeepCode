@@ -4,12 +4,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { type SessionEvent } from '@deepseek-ai/dsh-session'
+import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
+// Keep the Loader config under examples so both modes exercise the same deployable
+// topology: local fixture source plus bare plugins owned by the examples workspace.
 const binScript = fileURLToPath(new URL('../../../examples/stdio-demo/src/bin.ts', import.meta.url))
-const configPath = fileURLToPath(new URL('./fixtures/cordis.yml', import.meta.url))
+const configPath = fileURLToPath(new URL(
+  '../../../../examples/echo-agent/tests/fixtures/context/time-context/cordis.yml',
+  import.meta.url,
+))
 const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 const PROCESS_TIMEOUT_MS = 30_000
 const TEST_TIMEOUT_MS = PROCESS_TIMEOUT_MS + 15_000
 const FIRST_REPLY = '[main turn 1] You said: "Time sampled while preparing turn 1, step 1:'
@@ -39,21 +44,22 @@ async function runTwoTurns(): Promise<{ stdout: string; stderr: string }> {
   workdir = await mkdtemp(join(tmpdir(), 'time-context-e2e-'))
   const cwd = workdir
   return new Promise((resolve, reject) => {
-    const proc = spawn(
-      process.execPath,
-      ['--expose-internals', '--import', tsxLoader, binScript, configPath],
-      {
-        cwd,
-        env: {
-          ...process.env,
-          TZ: 'Asia/Shanghai',
-          TSX_TSCONFIG_PATH: repoTsconfig,
-          DSH_HOME: join(cwd, '.dsh'),
-          DSH_AGENTS_HOME: join(cwd, '.agents'),
-        },
-        stdio: ['pipe', 'pipe', 'pipe'],
+    const launch = resolveExampleLaunch({
+      srcBin: binScript,
+      configArgs: [configPath],
+      tsconfigPath: repoTsconfig,
+      exposeInternals: true,
+      env: {
+        TZ: 'Asia/Shanghai',
+        DSH_HOME: join(cwd, '.dsh'),
+        DSH_AGENTS_HOME: join(cwd, '.agents'),
       },
-    )
+    })
+    const proc = spawn(launch.command, launch.args, {
+      cwd,
+      env: { ...process.env, ...launch.env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
     child = proc
     let stdout = ''
     let stderr = ''
