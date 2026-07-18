@@ -395,6 +395,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       // than letting load or collision checks proceed under false absence.
       // Windows reports ENOENT, not ENOTDIR, for `regular-file/child`; verify
       // the immediate parent so a blocked cwd bucket remains a storage fault.
+      /* v8 ignore else -- Windows reports file-valued parents as ENOENT; POSIX covers direct ENOTDIR. */
       if (isENOENT(error)) {
         await this.assertLogParentAllowsAbsence(path)
         return false

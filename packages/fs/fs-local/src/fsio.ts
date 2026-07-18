@@ -133,6 +133,7 @@ export async function resolveLocalTarget(cwd: string, path: string): Promise<Loc
     // A path component is a file, not a directory (e.g. "afile/child.txt" where
     // "afile" is a regular file): the target can neither exist nor be created,
     // so surface the structured taxonomy instead of a raw Node ENOTDIR.
+    /* v8 ignore next -- Windows reports this case as ENOENT and repairs it in the ancestor walk below. */
     if (isENOTDIR(error)) throw new FsError(`cannot resolve "${displayPath}": a parent path segment is not a directory`, 'FS_NOT_FOUND')
     /* v8 ignore next -- non-ENOENT realpath failure needs a permission/IO fault; ENOENT falls through to ancestor resolution. */
     if (!isENOENT(error)) throw error
@@ -174,8 +175,9 @@ export async function resolveLocalTarget(cwd: string, path: string): Promise<Loc
 
 function pathType(info: Stats | BigIntStats): PathInfo['type'] {
   if (info.isFile()) return 'file'
+  /* v8 ignore else -- Windows has no special-entry fixture for the non-directory branch. */
   if (info.isDirectory()) return 'directory'
-  /* v8 ignore next -- Windows does not expose Unix-domain socket paths as special filesystem entries. */
+  /* v8 ignore next -- the corresponding special-entry return is covered on POSIX. */
   return 'other'
 }
 
@@ -239,6 +241,7 @@ function listingIoError(displayPath: string, error: unknown): FsError {
   if (error instanceof FsError) return error
   /* v8 ignore next -- requires the listed target/parent to disappear between successful preflight and listing/child resolution. */
   if (isENOENT(error) || isENOTDIR(error)) return new FsError(`cannot list "${displayPath}": not found`, 'FS_NOT_FOUND', { cause: error })
+  /* v8 ignore next -- Windows chmod does not deny directory listing; POSIX covers permission translation. */
   if (isPermissionError(error)) return new FsError(`cannot list "${displayPath}": permission denied`, 'FS_PERMISSION_DENIED', { cause: error })
   return new FsError(`cannot list "${displayPath}": ${errorMessage(error)}`, 'FS_IO_ERROR', { cause: error })
 }
