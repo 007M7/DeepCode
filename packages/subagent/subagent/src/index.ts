@@ -121,7 +121,7 @@ export interface SubagentRunInfo {
   readonly provider: string
   /** The child agent's id. */
   readonly id: SessionId
-  /** Whether the provider exposed an exact published in-process child. */
+  /** Snapshot of whether `SubagentRun.localAgent` was present when start fulfilled. */
   readonly local: boolean
 }
 
@@ -133,7 +133,7 @@ export interface SubagentRunEndInfo {
   readonly provider: string
   /** The child agent's id. */
   readonly id: SessionId
-  /** Whether the provider exposed an exact published in-process child. */
+  /** Snapshot of whether `SubagentRun.localAgent` was present when start fulfilled. */
   readonly local: boolean
   /** The terminal stop reason. */
   readonly stopReason: SubagentResult['stopReason']
