@@ -1,6 +1,6 @@
 # coding-agent
 
-The coding-agent demo wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + `todo_write` + terminal chat + JSONL persistence, loaded from `cordis.yml`. Interactive runs use the pi-tui coding interface; piped runs use readline.
+The coding-agent REPL wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + `todo_write` + readline chat + JSONL persistence, loaded from `cordis.yml`. The sibling [`tui-agent`](../tui-agent/README.md) fixes the same agent composition to the full-screen terminal front door.
 
 ## Run it
 
@@ -13,7 +13,7 @@ pnpm run demo:repl
 
 Type a coding task. The agent works through the `read`/`write`/`edit` filesystem tools for ordinary file operations and `bash` (+ the generic `task_output` / `task_list` / `task_kill` for background tasks) for shell commands, searches, and test runs, each in a fresh `bash -c` (the system prompt tells the model to pass `workdir` instead of `cd`). Both the fs tools and bash resolve relative paths against the session workspace. It can also delegate with `subagent`/`subagent_fork` and track multi-step work with `todo_write`.
 
-The TUI renders resumed Markdown history, reasoning, tool-owned terminal/diff/generic cards, token totals, and the latest todo list. Enter submits or steers while the agent is running; Ctrl+O expands cards, Ctrl+R toggles reasoning, Escape cancels, and `/help` lists commands. `ask_user_question` opens a keyboard-driven overlay rather than taking over the editor.
+The REPL renders reasoning, tool calls/results, and the latest todo list as line-oriented output suitable for terminals and pipes. Use `pnpm run demo:tui` for the interactive Markdown/card interface.
 
 ### Resuming a prior session
 
@@ -42,14 +42,14 @@ and watch the transcript: one `run_code` call, a program looping over tools, and
 
 ## What each leaf entry demonstrates
 
-This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads one app package, and adds product tools that are intentionally outside the shared spine. The spine (sessions, system-prompt, tools, agents, invariants, `agent-loop`) and the front-door cluster (JSONL persistence, TTY-selected `dsh-tui`/`dsh-stdio` channels, the pre-created `main` agent) live inside the [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo) app and the [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) bundle it loads; the leaf wires the backends and model-facing optional tools:
+This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads one app package, and adds product tools that are intentionally outside the shared spine. The spine (sessions, system-prompt, tools, agents, invariants, `agent-loop`) and the front-door cluster (JSONL persistence, the selected terminal channel, the pre-created `main` agent) live inside the [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo) app and the [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) bundle it loads; the leaf wires the backends and model-facing optional tools:
 
 | Entry | Demonstrates |
 |---|---|
 | `hmr` (`@cordisjs/plugin-hmr`) | the dev/demo edit-reload loop — a **leaf** entry (not baked into the app) because it is Loader-only and needs `node --expose-internals`, which `demo:repl` passes |
 | `llm-deepseek` | real `LlmAdapter` via config (`!!js process.env.…` secrets); swap one line to `@deepseek-ai/dsh-llm-pi-ai` for the library-backed twin |
 | `bash` (`dsh-bash-local`) | the executor implementation — the swappable half of the bash seam. The model-facing `bash` schema (`tool-bash`) and generic `task_*` controls (`tool-tasks`) come from `dsh-agent-spine-demo`, so only the executor is a leaf choice |
-| `stdio-agent` (`@deepseek-ai/dsh-stdio-demo`) | the app bundle: the agent-spine demo + JSONL persistence + TTY-selected `dsh-tui`/`dsh-stdio` channels + a pre-created `main` agent. Its config carries the model, system prompt, `persistenceRoot` (`./.sessions`), `resumeSessionId`, and optional `ui` presentation settings |
+| `stdio-agent` (`@deepseek-ai/dsh-stdio-demo`) | the app bundle: the agent-spine demo + JSONL persistence + the configured terminal channel + a pre-created `main` agent. This leaf fixes `ui.mode` to `readline`; `tui-agent` owns the corresponding TUI leaf |
 | `subagent`, `subagent-spawn`, `subagent-fork` | the subagent provider registry plus the two in-process backends: a fresh child and a child seeded with the parent's completed-turn prefix |
 | `tool-subagent`, `tool-subagent-fork` | two model-facing `dsh-tool-subagent` loads, each bound to a different provider and exposed under a distinct tool name (`subagent`, `subagent_fork`) |
 | `tool-todo` | the model-facing `todo_write` tool; writes the whole task list to the session log and renders as a persistent TUI plan or readline checklist |

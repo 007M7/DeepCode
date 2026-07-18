@@ -38,8 +38,13 @@
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-system-prompt": "workspace:^",
+    "@deepseek-ai/dsh-tool-cordis": "workspace:^",
+    "@deepseek-ai/dsh-tool-workflow": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-user-interaction": "workspace:^",
+    "@deepseek-ai/dsh-workflow": "workspace:^",
+    "@xterm/headless": "5.5.0",
     "cordis": "^4.0.0-rc.6"
   }
 }
