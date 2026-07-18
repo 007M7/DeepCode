@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
+import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 import * as acp from '../src/index.ts'
 
 /**
@@ -17,8 +18,21 @@ import * as acp from '../src/index.ts'
 // The real acp-agent example: its bin + cordis.yml (the live DeepSeek config).
 const binScript = fileURLToPath(new URL('../../../examples/acp-demo/src/bin.ts', import.meta.url))
 const exampleConfig = fileURLToPath(new URL('../../../../examples/acp-agent/cordis.yml', import.meta.url))
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
+
+// How to launch the child acp-agent (src via tsx / lib via plain node, per DSH_EXAMPLE_MODE).
+// buildChildEnv scrubs ambient creds but keeps these extras, so the model key is
+// forwarded explicitly; TSX_TSCONFIG_PATH is added by the resolver in src mode only.
+const childLaunch = resolveExampleLaunch({
+  srcBin: binScript,
+  configArgs: ['--config', exampleConfig],
+  tsconfigPath: repoTsconfig,
+  env: {
+    ...process.env.DEEPSEEK_API_KEY !== undefined ? { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY } : {},
+    ...process.env.DEEPSEEK_BASE_URL !== undefined ? { DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL } : {},
+    DSH_PERMISSION_MODE: 'danger-full-access',
+  },
+})
 
 /** The ACP backend ignores the parent, but the seam requires one. */
 const fakeParent = { id: 'parent', session: { header: {} } } as unknown as Agent
@@ -40,18 +54,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
     await ctx.plugin(SubagentService)
     await ctx.plugin(acp, {
       providerName: 'acp',
-      command: process.execPath,
-      args: ['--import', tsxLoader, binScript, '--config', exampleConfig],
+      command: childLaunch.command,
+      args: childLaunch.args,
       cwd: workdir,
       permission: 'reject',
-      // The child harness needs the key to reach the model; forward it
-      // explicitly (buildChildEnv scrubs ambient creds but keeps these extras).
-      env: {
-        ...process.env.DEEPSEEK_API_KEY !== undefined ? { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY } : {},
-        ...process.env.DEEPSEEK_BASE_URL !== undefined ? { DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL } : {},
-        TSX_TSCONFIG_PATH: repoTsconfig,
-        DSH_PERMISSION_MODE: 'danger-full-access',
-      },
+      env: childLaunch.env as Record<string, string>,
     })
 
     const run = await ctx.subagents.start('acp', {
@@ -76,17 +83,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
     await ctx.plugin(SubagentService)
     await ctx.plugin(acp, {
       providerName: 'acp',
-      command: process.execPath,
-      args: ['--import', tsxLoader, binScript, '--config', exampleConfig],
+      command: childLaunch.command,
+      args: childLaunch.args,
       cwd: workdir,
       // The child needs to act (run bash), so approve its permission prompts.
       permission: 'allow',
-      env: {
-        ...process.env.DEEPSEEK_API_KEY !== undefined ? { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY } : {},
-        ...process.env.DEEPSEEK_BASE_URL !== undefined ? { DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL } : {},
-        TSX_TSCONFIG_PATH: repoTsconfig,
-        DSH_PERMISSION_MODE: 'danger-full-access',
-      },
+      env: childLaunch.env as Record<string, string>,
     })
 
     const run = await ctx.subagents.start('acp', {
