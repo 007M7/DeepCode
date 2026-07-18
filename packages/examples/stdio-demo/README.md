@@ -27,6 +27,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 |---|---|---|
 | `provider` | (required) | the pre-created `main` agent's registered provider route |
 | `model` | (required) | the pre-created `main` agent's model |
+| `maxParallelToolCalls` | agent-loop default | positive-integer concurrent tool-call cap shared by the bundled loop's agents; `1` is serial |
 | `persona` | — | the deployment persona template (may reference `{{provider}}`/`{{model}}`/`{{cwd}}`), routed to `dsh-system-prompt` |
 | `toolOrder` | — | explicit model-facing tool order (a name list with one `'<unlisted-tools>'` rest entry; absent — lexicographic; an unregistered name fails each turn at prompt assembly), routed to `dsh-system-prompt` |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness home exposed to model bash and used by local skill discovery |
