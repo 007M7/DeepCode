@@ -64,6 +64,7 @@ buffer
   style 1-1 inverse
 29| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-30| "/workspace/project  ↑2"
-  style 0-99 dim
+30| "/workspace/project  ↑2.9k ↓41    idle  reasoning:on  tools:compact"
+  style 0-62 dim
+  style 67-99 dim
 31-35| <blank>

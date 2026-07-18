@@ -1,7 +1,7 @@
-terminal 100x36 buffer=normal length=41 base=5 viewport=5
+terminal 100x36 buffer=normal length=39 base=3 viewport=3
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH TUI snapshot"
-cursor hidden column=1 viewportRow=33 bufferRow=38
+cursor hidden column=1 viewportRow=33 bufferRow=36
 buffer
 0| "╭──────────────────────────────────────────────────────────────────────────────────────────────────╮"
   style 0-99 fg=bright-blue
@@ -37,58 +37,55 @@ buffer
   style 0-0 fg=green
   style 2-2 fg=green bold
   style 3-13 bold
-13| "▌ <path>/workspace/project"
+13| "▌ <path>/workspace/project/a.txt</path>                               "
   style 0-0 fg=green
-14| "▌ /a.txt</path>                                                                                     "
+14| "▌ <type>file</type>                                                                                 "
   style 0-0 fg=green
-15| "▌ <type>file</type>                                                                                 "
+15| "▌ <content>                                                                                         "
   style 0-0 fg=green
-16| "▌ <content>                                                                                         "
+16| "▌ 1: alpha                                                                                          "
   style 0-0 fg=green
-17| "▌ 1: alpha                                                                                          "
+17| "▌                                                                                                   "
   style 0-0 fg=green
-18| "▌                                                                                                   "
+18| "▌ (End of file - total 1 lines)                                                                     "
   style 0-0 fg=green
-19| "▌ (End of file - total 1 lines)                                                                     "
+19| "▌ </content>                                                                                        "
   style 0-0 fg=green
-20| "▌ </content>                                                                                        "
+20| "▌ "
   style 0-0 fg=green
-21| "▌ "
+21| <blank>
+22| "▌ "
   style 0-0 fg=green
-22| <blank>
-23| "▌ "
-  style 0-0 fg=green
-24| "▌ ✓ Read b.txt                                                                                      "
+23| "▌ ✓ Read b.txt                                                                                      "
   style 0-0 fg=green
   style 2-2 fg=green bold
   style 3-13 bold
-25| "▌ <path>/workspace/project"
+24| "▌ <path>/workspace/project/b.txt</path>                               "
   style 0-0 fg=green
-26| "▌ /b.txt</path>                                                                                     "
+25| "▌ <type>file</type>                                                                                 "
   style 0-0 fg=green
-27| "▌ <type>file</type>                                                                                 "
+26| "▌ <content>                                                                                         "
   style 0-0 fg=green
-28| "▌ <content>                                                                                         "
+27| "▌ 1: beta                                                                                           "
   style 0-0 fg=green
-29| "▌ 1: beta                                                                                           "
+28| "▌                                                                                                   "
   style 0-0 fg=green
-30| "▌                                                                                                   "
+29| "▌ (End of file - total 1 lines)                                                                     "
   style 0-0 fg=green
-31| "▌ (End of file - total 1 lines)                                                                     "
+30| "▌ </content>                                                                                        "
   style 0-0 fg=green
-32| "▌ </content>                                                                                        "
+31| "▌ "
   style 0-0 fg=green
-33| "▌ "
-  style 0-0 fg=green
-34| <blank>
-35| " Assistant                                                                                          "
+32| <blank>
+33| " Assistant                                                                                          "
   style 1-9 fg=bright-magenta bold
-36| " DONE                                                                                               "
+34| " DONE                                                                                               "
+35| "────────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-99 dim
+36| "                                                                                                    "
+  style 1-1 inverse
 37| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-38| "                                                                                                    "
-  style 1-1 inverse
-39| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-40| "/workspace/project  ↑20 ↓6"
-  style 0-99 dim
+38| "/workspace/project  ↑20 ↓6           idle  reasoning:on  tools:compact"
+  style 0-55 dim
+  style 67-99 dim

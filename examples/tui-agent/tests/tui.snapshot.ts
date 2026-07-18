@@ -28,6 +28,8 @@ import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
 import { HeadlessTerminal } from '../../../packages/ui/tui/tests/headless-terminal.ts'
 
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
+// Keep pre-normalization layout widths identical across macOS and Linux.
+const SNAPSHOT_TMP_ROOT = process.platform === 'win32' ? tmpdir() : '/tmp'
 const PROVIDERS = [{ id: 'deepseek', models: [{ id: 'deepseek-v4-flash' }] }]
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 
@@ -204,7 +206,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
   const prompts = userPrompts(fixture)
   expect(prompts.length, `${scenario.name} must carry at least one recorded user prompt`).toBeGreaterThan(0)
 
-  const cwd = await mkdtemp(join(tmpdir(), `dsh-tui-snapshot-${scenario.name}-`))
+  const cwd = await mkdtemp(join(SNAPSHOT_TMP_ROOT, `dsh-tui-snapshot-${scenario.name}-`))
   let ctx: Context | undefined
   let controller: ReturnType<typeof createTuiChat> | undefined
   const terminal = new HeadlessTerminal(100, 36)

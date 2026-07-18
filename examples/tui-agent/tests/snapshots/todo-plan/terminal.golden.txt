@@ -76,6 +76,6 @@ buffer
   style 1-1 inverse
 34| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-35| "/workspace/project  ↑3.1k ↓145  idle"
-  style 0-93 dim
-  style 96-99 dim
+35| "/workspace/project  ↑3.1k ↓145                 idle  reasoning:on  tools:compact"
+  style 0-49 dim
+  style 67-99 dim
