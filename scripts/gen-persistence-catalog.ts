@@ -1,7 +1,7 @@
 /**
  * Generate `docs/persistence-catalog.md` from every `SessionEventMap` merge and
- * the owning `SurfaceEventType` union. This is the durable-record vocabulary,
- * not the live Cordis bus. Event declarations must be unique, explicitly typed,
+ * the owning event-envelope types. This is the durable-record vocabulary, not
+ * the live Cordis bus. Event declarations must be unique, explicitly typed,
  * documented, inheritance-free, and free of Cordis-only `@mode` tags; every
  * surface-union member must resolve to one. `--check` verifies the artifact.
  */
@@ -14,12 +14,22 @@ import { parseJsDoc, pointer, rawJsDoc, reportViolations } from './jsdoc.ts'
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/persistence-catalog.md'
 
-/** The fenced-block info string for generated payload blocks (skipped by
- * doc-typecheck, since a bare payload fragment is not standalone-compilable). */
+/** The fenced-block info string for generated declaration blocks (skipped by
+ * doc-typecheck, since their imported types are not standalone-compilable). */
 const FENCE = 'ts persistence-catalog'
 
 /** The package whose module id plugin merges augment (`declare module '…'`). */
 const SESSION_MODULE = '@deepseek-ai/dsh-session'
+
+/** Event-envelope declarations rendered before the per-event vocabulary. */
+const EVENT_ENVELOPE_TYPE_NAMES = [
+  'SessionEventType',
+  'SurfaceEventType',
+  'SurfaceOp',
+  'SessionEvent',
+] as const
+
+type EventEnvelopeTypeName = typeof EVENT_ENVELOPE_TYPE_NAMES[number]
 
 /** Primary core-data-structures page for linked payload types. */
 const LINK_MAP: Record<string, string> = {
@@ -41,6 +51,8 @@ export interface LogEventEntry {
   scope: string
   /** Payload type text (the member's type annotation, whitespace-collapsed). */
   payload: string
+  /** Source member declaration and complete JSDoc, dedented from its container. */
+  declaration: string
   /** Description prose (the member's JSDoc), one line per paragraph. */
   doc: string
   /** Source pointer `packages/…/file.ts:line` of the declaration. */
@@ -51,6 +63,16 @@ export interface LogEventEntry {
 export interface AnnotatedLogEventEntry extends LogEventEntry {
   /** Whether the type is a `SurfaceEventType` member (may carry `surfaceOp`). */
   surface: boolean
+}
+
+/** One owning event-envelope declaration pasted into the generated catalog. */
+export interface EventEnvelopeTypeEntry {
+  /** Exported declaration name. */
+  name: EventEnvelopeTypeName
+  /** Verbatim type declaration, including its complete leading JSDoc. */
+  declaration: string
+  /** Source pointer `packages/…/file.ts:line` of the declaration. */
+  source: string
 }
 
 const printer = ts.createPrinter({ removeComments: true })
@@ -65,6 +87,24 @@ function payloadText(type: ts.TypeNode, sf: ts.SourceFile): string {
     .replace(/\s+/g, ' ')
     .replace(/;\s*\}/g, ' }')
     .trim()
+}
+
+/**
+ * Copy a declaration from its leading JSDoc through its closing token while
+ * removing only the indentation imposed by its containing interface/module.
+ */
+function declarationText(text: string, sf: ts.SourceFile, node: ts.Node): string {
+  const raw = rawJsDoc(text, node)
+  const nodeStart = node.getStart(sf)
+  const start = raw ? text.lastIndexOf(raw, nodeStart) : nodeStart
+  const { line } = sf.getLineAndCharacterOfPosition(start)
+  const lineStart = sf.getPositionOfLineAndCharacter(line, 0)
+  const indent = text.slice(lineStart, start)
+  return text.slice(lineStart, node.end)
+    .split('\n')
+    .map(lineText => lineText.startsWith(indent) ? lineText.slice(indent.length) : lineText)
+    .join('\n')
+    .trimEnd()
 }
 
 /**
@@ -177,12 +217,58 @@ export function collectLogEvents(scanRoot: string = root): LogEventEntry[] {
         if (!doc) {
           violations.push(`${where} has no description prose. Say what the event records and what its payload means — the JSDoc becomes the catalog entry.`)
         }
-        entries.push({ name, scope: name.split('/')[0] ?? name, payload, doc, source: src })
+        const declaration = declarationText(text, sf, member)
+        entries.push({ name, scope: name.split('/')[0] ?? name, payload, declaration, doc, source: src })
       }
     }
   }
   reportViolations('gen-persistence-catalog', violations)
   return entries
+}
+
+/**
+ * Collect the exported declarations that compose the persisted event envelope,
+ * preserving their source JSDoc and declaration text.
+ */
+export function collectEventEnvelopeTypes(scanRoot: string = root): EventEnvelopeTypeEntry[] {
+  const found = new Map<EventEnvelopeTypeName, EventEnvelopeTypeEntry>()
+  const violations: string[] = []
+  const wanted = new Set<string>(EVENT_ENVELOPE_TYPE_NAMES)
+  for (const rel of globSync('packages/*/*/src/**/*.ts', { cwd: scanRoot }).map(s => s.split(sep).join('/')).sort()) {
+    const abs = resolve(scanRoot, rel)
+    const text = readFileSync(abs, 'utf8')
+    if (!EVENT_ENVELOPE_TYPE_NAMES.some(name => text.includes(name))) continue
+    if (packageNameFor(rel, scanRoot) !== SESSION_MODULE) continue
+    const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true)
+    for (const stmt of sf.statements) {
+      if (!ts.isTypeAliasDeclaration(stmt) || !wanted.has(stmt.name.text)) continue
+      const name = stmt.name.text as EventEnvelopeTypeName
+      const src = pointer(rel, sf, stmt)
+      const where = `event-envelope type '${name}' (${src})`
+      const prior = found.get(name)
+      if (prior) {
+        violations.push(`${where} is already declared at ${prior.source}; the persisted envelope type has exactly one owner.`)
+        continue
+      }
+      if (!(stmt.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword) ?? false)) {
+        violations.push(`${where} is not exported.`)
+      }
+      const { doc, hasMode } = parseJsDoc(rawJsDoc(text, stmt))
+      if (hasMode) violations.push(`${where} carries an @mode tag, but a persisted type has no dispatch mode.`)
+      if (!doc) violations.push(`${where} has no description prose. The full JSDoc is part of the generated catalog.`)
+      found.set(name, { name, declaration: declarationText(text, sf, stmt), source: src })
+    }
+  }
+  const missing = EVENT_ENVELOPE_TYPE_NAMES.filter(name => !found.has(name))
+  if (missing.length > 0) {
+    violations.push(`missing event-envelope declaration(s): ${missing.join(', ')}.`)
+  }
+  reportViolations('gen-persistence-catalog', violations)
+  return EVENT_ENVELOPE_TYPE_NAMES.map((name) => {
+    const entry = found.get(name)
+    if (!entry) throw new Error(`gen-persistence-catalog: missing checked event-envelope declaration '${name}'.`)
+    return entry
+  })
 }
 
 /**
@@ -246,8 +332,7 @@ function typeLinks(payload: string): string {
 /** Render one log event entry. */
 function renderEvent(e: AnnotatedLogEventEntry): string[] {
   const out = [`#### \`${e.name}\` — ${e.surface ? 'surface' : 'log-only'}`, '']
-  if (e.doc) out.push(e.doc, '')
-  out.push('```' + FENCE, `'${e.name}': ${e.payload}`, '```', '')
+  out.push('```' + FENCE, e.declaration, '```', '')
   const links = typeLinks(e.payload)
   if (links) out.push(links, '')
   out.push(`Source: [\`${e.source}\`](../${e.source.split(':')[0]})`, '')
@@ -255,18 +340,26 @@ function renderEvent(e: AnnotatedLogEventEntry): string[] {
 }
 
 /** Render the full catalog (pure, deterministic given the collected inputs). */
-export function render(events: AnnotatedLogEventEntry[]): string {
+export function render(events: AnnotatedLogEventEntry[], envelopeTypes: EventEnvelopeTypeEntry[]): string {
   const lines: string[] = [
     '<!-- Generated by scripts/gen-persistence-catalog.ts — do not edit by hand.',
     '     Run `pnpm run gen-persistence-catalog` to regenerate. -->',
     '',
-    '# Persistence Log Event Catalog',
+    '# Session Persistence Event Catalog',
     '',
-    'Every event type that can appear in a session\'s durable event log: each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with the payload it carries, its surface badge, and the declaration it comes from. It complements [session.md](core-data-structures/session.md) (the `SessionEvent` envelope, surface list, and `deriveMessages()` projection), [persistence.md](core-data-structures/persistence.md) (how the log is made durable), and the [cordis events catalog](cordis-catalog/events.md) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).',
+    'Every event type that can appear in a session\'s durable event log: the complete persisted `SessionEvent` envelope and each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with source JSDoc, full payload declaration, surface badge, and declaration site. It complements [session.md](core-data-structures/session.md) (surface ordering and the `deriveMessages()` projection), [persistence.md](core-data-structures/persistence.md) (how the log is made durable), and the [cordis events catalog](cordis-catalog/events.md) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).',
     '',
-    'This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Payload blocks use a `ts persistence-catalog` fence (skipped by doc-typecheck, since a bare payload fragment is not standalone-compilable). Type names in a payload link to the page that documents them. See [the persistence-log-catalog RFC](rfc/implemented/process/2026-07-04-persistence-log-catalog.md).',
+    'This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks retain the source declaration and nested property JSDoc, removing only the indentation imposed by a containing interface/module, and use a `ts persistence-catalog` fence (skipped by doc-typecheck because declarations reference types from their owning modules). Type names in a payload link to the page that documents them. See [the persistence-log-catalog RFC](rfc/implemented/process/2026-07-04-persistence-log-catalog.md).',
     '',
-    'The on-disk envelope around every payload is `SessionEvent` — `type`, monotonic `seq`, epoch-ms `time`, the `data` documented here, plus `surfaceOp`/`sourceEventSeqs` on **surface** events only ([envelope](core-data-structures/session.md#sessioneventt--one-log-entry)). **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](core-data-structures/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.',
+    'The envelope declarations below compose each event\'s `type`, monotonic `seq`, epoch-ms `time`, `data`, and the conditional `surfaceOp`/`sourceEventSeqs` fields. **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: a durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](core-data-structures/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.',
+    '',
+    '## Event envelope',
+    '',
+    '```' + FENCE,
+    envelopeTypes.map(entry => entry.declaration).join('\n\n'),
+    '```',
+    '',
+    `Sources: ${envelopeTypes.map(entry => `[\`${entry.source}\`](../${entry.source.split(':')[0]})`).join(' · ')}`,
     '',
     '## Events',
     '',
@@ -285,7 +378,7 @@ export function render(events: AnnotatedLogEventEntry[]): string {
  * is stale. Guarded behind an entry-point check so importing this module for
  * tests neither regenerates the committed file nor calls process.exit. */
 function main(): void {
-  const content = render(annotateSurface(collectLogEvents(), collectSurfaceEventTypes()))
+  const content = render(annotateSurface(collectLogEvents(), collectSurfaceEventTypes()), collectEventEnvelopeTypes())
   if (process.argv.includes('--check')) {
     let committed: string | null = null
     try {
