@@ -6,6 +6,7 @@
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { readdirSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
@@ -40,6 +41,8 @@ interface Behavior {
   echoWorkspace?: boolean
   /** Write a line to stderr on boot (spec-side stderr-capture assertions). */
   stderrNote?: string
+  /** Let a short-lived descendant retain stdio and emit one final ACP update plus stderr line after this parent exits. */
+  lateInheritedOutput?: boolean
   /** Session logs to persist on stdin EOF. */
   logs?: ScriptedLog[]
   /** Leave a stray FILE directly under the sessions root (harvest must skip it). */
@@ -247,6 +250,24 @@ function flushLogsAndExit(): void {
     writeFileSync(join(sessionsRoot, 'bucket-noise', 'notes.txt'), 'not a session log\n')
   }
   if (behavior.deleteSessionsRoot === true) rmSync(sessionsRoot, { recursive: true, force: true })
+  if (behavior.lateInheritedOutput === true) {
+    const frame = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'late inherited stdout' },
+        },
+      },
+    })
+    const code = [
+      `setTimeout(() => process.stdout.write(${JSON.stringify(`${frame}\n`)}), 50)`,
+      `setTimeout(() => process.stderr.write(${JSON.stringify('late inherited stderr\n')}), 75)`,
+    ].join(';')
+    spawn(process.execPath, ['-e', code], { stdio: ['ignore', 1, 2] }).unref()
+  }
   process.exit(0)
 }
 

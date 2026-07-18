@@ -260,6 +260,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'guard(guard: ToolGuard): () => void',
       'get(name: string, scope?: ScopeKey): ToolDefinition | undefined',
       'schemas(scope?: ScopeKey): ToolSchema[]',
+      'executionMode(exec: ToolExecutionInput): ToolExecutionMode',
       'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
     ],
   },
@@ -1124,7 +1125,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>;\n    timeoutMs?: number;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolErrorInfo',
@@ -1141,6 +1142,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolExecutionInput',
     declaration: 'export interface ToolExecutionInput {\n    readonly callId: CallId;\n    readonly name: string;\n    readonly arguments: unknown;\n    readonly agent?: Agent;\n    readonly parent?: ToolExecutionToken;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'ToolExecutionMode',
+    declaration: 'export type ToolExecutionMode = {\n    kind: \'parallel\';\n} | {\n    kind: \'exclusive\';\n};',
   },
   {
     name: 'ToolExecutionResult',

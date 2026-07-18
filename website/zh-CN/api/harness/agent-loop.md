@@ -6,7 +6,7 @@
 
 Concrete ReactLoopAgent factory and driver service.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L335)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L352)
 
 ### ctx.agentLoop.create(id, options?, meta?)
 
@@ -22,7 +22,7 @@ Create an agent on a fresh per-run session, owned by the accessing fiber. Constr
 
 **Returns** the published running agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L391)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L412)
 
 ### ctx.agentLoop.createAgent(ownerCtx, options)
 
@@ -37,7 +37,7 @@ Create an owned agent on a caller-supplied session id.
 
 **Returns** the published handle.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L414)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L435)
 
 ### ctx.agentLoop.resume(ownerCtx, options)
 
@@ -52,4 +52,4 @@ Resume an owned agent from the configured persistence service.
 
 **Returns** the published handle.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L445)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L467)

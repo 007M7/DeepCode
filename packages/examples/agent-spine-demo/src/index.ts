@@ -57,6 +57,8 @@ export interface SkillConfig {
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
   agents?: AgentLoopConfig['agents']
+  /** Agent-loop concurrency cap; `1` is serial. */
+  maxParallelToolCalls?: AgentLoopConfig['maxParallelToolCalls']
   /** The deployment persona (see dsh-system-prompt's `Config`). */
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
@@ -109,6 +111,7 @@ export const Config = z.intersect([
  */
 export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'agents'> {
   return {
+    ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
     ...config.tools !== undefined ? { tools: config.tools } : {},
@@ -160,5 +163,8 @@ export function apply(ctx: Context, config: Config): void {
   // rendered order, so workspace instructions must precede the skill catalog.
   ctx.plugin(toolSkill, config.skills?.tool ?? {})
   ctx.plugin(toolTasks, config.toolTasks ?? {})
-  ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
+  ctx.plugin(AgentLoop, {
+    agents: config.agents ?? [],
+    ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},
+  })
 }

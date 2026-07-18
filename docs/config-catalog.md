@@ -46,6 +46,8 @@ export interface Config {
   provider: string
   /** Model name for ACP-created agents (must have a registered adapter). */
   model: string
+  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
+  maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
@@ -76,8 +78,13 @@ Source: [`packages/examples/acp-demo/src/index.ts:32`](../packages/examples/acp-
 Requires: `agents` · `sessions` · `llm` · `tools` · `systemPrompt`
 
 ```ts config-catalog
-/** Plugin configuration for declarative startup agents. */
+/** Agent-loop plugin configuration. */
 export interface Config {
+  /**
+   * Maximum parallel-safe calls in flight per agent step. `1` is serial;
+   * omission defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
+   */
+  maxParallelToolCalls?: number
   /** Agents created or resumed at plugin startup. */
   agents: (AgentOptions & {
     /** Registry identity for the live agent. */
@@ -92,7 +99,7 @@ export interface Config {
 
 Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
-Source: [`packages/core/agent-loop/src/index.ts:322`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:334`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-spine-demo`
 
@@ -115,6 +122,8 @@ Source: [`packages/core/agent-loop/src/index.ts:322`](../packages/core/agent-loo
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
   agents?: AgentLoopConfig['agents']
+  /** Agent-loop concurrency cap; `1` is serial. */
+  maxParallelToolCalls?: AgentLoopConfig['maxParallelToolCalls']
   /** The deployment persona (see dsh-system-prompt's `Config`). */
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
@@ -783,6 +792,8 @@ export interface Config {
   provider: string
   /** Model name for the `main` agent (must have a registered adapter). */
   model: string
+  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
+  maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
@@ -1191,7 +1202,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:322`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:382`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 

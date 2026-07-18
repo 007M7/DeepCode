@@ -72,6 +72,7 @@
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionToken", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionInput", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecution", "source": "packages/core/tools/src/index.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionMode", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolRunContext", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolGuard", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolRestriction", "source": "packages/core/tools/src/index.ts" },
