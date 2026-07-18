@@ -45,6 +45,8 @@ sequenceDiagram
   Driver-->>SDK: <code>agent/status</code> idle
 ```
 
+The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.
+
 SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.
 
 Maintenance mode: curated Mermaid sequence; exact event signatures live in the generated Cordis catalog.

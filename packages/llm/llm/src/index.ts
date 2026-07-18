@@ -7,8 +7,9 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { GenerateOptions, StreamChunk } from './types.ts'
+import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, Message, StreamChunk } from './types.ts'
 import { HarnessError } from './error.ts'
+import { deepFreeze } from './call-config.ts'
 
 export * from './attribution.ts'
 export * from './brand.ts'
@@ -55,11 +56,31 @@ export class LlmError extends HarnessError {
 
 /**
  * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
- * with `ctx.llm.registerAdapter(models, adapter)`. Every provider HTTP request must include
+ * with `ctx.llm.registerAdapter(providers, adapter)`. Every provider HTTP request must include
  * `attributionHeaders()`; prove that at the wire or library header-hook boundary. The hand-rolled
  * DeepSeek and pi-ai adapters intentionally exercise this contract through different internals.
  */
 export abstract class LlmAdapter {
+  /**
+   * Describe one provider route owned by this adapter.
+   * @param provider - a route passed to `registerAdapter()` for this instance.
+   * @returns detached display metadata whose id must equal `provider`.
+   */
+  providerInfo(provider: string): LlmProviderInfo {
+    return { id: provider, name: provider }
+  }
+
+  /**
+   * List models this adapter can currently advertise for one owned provider.
+   * The result is advisory: an adapter may accept unlisted model ids, and
+   * consumers must not turn absence into request rejection.
+   * @param _provider - one provider route owned by this adapter.
+   * @returns discoverable models in adapter-preferred order.
+   */
+  listModels(_provider: string): Promise<readonly LlmModelInfo[]> {
+    return Promise.resolve([])
+  }
+
   /**
    * Stream one model call as raw chunks. The only required method.
    * @param options - the fully-assembled request; implementations must honor `options.signal`.
@@ -73,30 +94,40 @@ export abstract class LlmAdapter {
  * surface, interceptable via the `llm/stream` waterfall.
  */
 export class LlmService extends Service {
-  private adapters = new Map<string, LlmAdapter>()
+  private adapters = new Map<string, { adapter: LlmAdapter; provider: LlmProviderInfo }>()
 
   constructor(ctx: Context) {
     super(ctx, 'llm')
   }
 
   /**
-   * Register an adapter for the given model names. Throws `LlmError` with code
-   * `DUPLICATE_ADAPTER` if any model already has an adapter (all-or-nothing).
+   * Register an adapter for the given provider routes. Throws `LlmError` with code
+   * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).
    * Disposed with the fiber.
-   * @param models - every model name this adapter should serve.
-   * @param adapter - the adapter that streams calls for those models.
+   * @param providers - every provider route this adapter should serve.
+   * @param adapter - the adapter that streams calls for those providers.
    * @returns the disposer that unregisters all of them.
    */
-  registerAdapter(models: string[], adapter: LlmAdapter): () => void {
+  registerAdapter(providers: string[], adapter: LlmAdapter): () => void {
     const dispose = this.ctx.effect(function* (this: LlmService) {
-      for (const model of models) {
-        if (this.adapters.has(model)) {
-          throw new LlmError(`an adapter for model "${model}" is already registered`, 'DUPLICATE_ADAPTER')
+      if (providers.length === 0) throw new LlmError('an adapter must register at least one provider', 'INVALID_ADAPTER')
+      const unique = new Set<string>()
+      const registrations: { adapter: LlmAdapter; provider: LlmProviderInfo }[] = []
+      for (const provider of providers) {
+        if (provider.length === 0) throw new LlmError('adapter provider names must be non-empty', 'INVALID_ADAPTER')
+        if (unique.has(provider) || this.adapters.has(provider)) {
+          throw new LlmError(`an adapter for provider "${provider}" is already registered`, 'DUPLICATE_ADAPTER')
         }
+        const info = adapter.providerInfo(provider)
+        if (typeof info.id !== 'string' || info.id !== provider || typeof info.name !== 'string' || info.name.length === 0) {
+          throw new LlmError(`adapter metadata for provider "${provider}" must preserve its id and have a non-empty name`, 'INVALID_ADAPTER')
+        }
+        unique.add(provider)
+        registrations.push({ adapter, provider: { id: info.id, name: info.name } })
       }
-      for (const model of models) this.adapters.set(model, adapter)
+      for (const registration of registrations) this.adapters.set(registration.provider.id, registration)
       yield () => {
-        for (const model of models) this.adapters.delete(model)
+        for (const provider of providers) this.adapters.delete(provider)
       }
     }.bind(this), 'llm.registerAdapter()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
@@ -105,29 +136,81 @@ export class LlmService extends Service {
   }
 
   /**
-   * Model names with a registered adapter.
-   * @returns the registered names, in registration order.
+   * Describe provider routes with a registered adapter.
+   * @returns detached provider metadata in registration order.
    */
-  models(): string[] {
-    return [...this.adapters.keys()]
+  listProviders(): LlmProviderInfo[] {
+    return [...this.adapters.values()].map(({ provider }) => ({ ...provider }))
   }
 
-  private adapter(model: string): LlmAdapter {
-    const adapter = this.adapters.get(model)
-    if (!adapter) throw new LlmError(`no adapter registered for model "${model}"`, 'NO_ADAPTER')
-    return adapter
+  /**
+   * Discover models advertised by one registered provider. Catalog membership
+   * is advisory and never changes routing or request validation.
+   * @param provider - registered provider route to inspect.
+   * @returns detached model metadata in adapter-preferred order.
+   */
+  async listModels(provider: string): Promise<LlmModelInfo[]> {
+    const adapter = this.registration(provider).adapter
+    const models = await adapter.listModels(provider)
+    const seen = new Set<string>()
+    return models.map((model) => {
+      if (
+        typeof model.provider !== 'string'
+        || model.provider !== provider
+        || typeof model.id !== 'string'
+        || model.id.length === 0
+        || typeof model.name !== 'string'
+        || model.name.length === 0
+        || (model.description !== undefined && typeof model.description !== 'string')
+        || seen.has(model.id)
+      ) {
+        throw new LlmError(`adapter returned invalid or duplicate model metadata for provider "${provider}"`, 'INVALID_CATALOG')
+      }
+      seen.add(model.id)
+      return {
+        provider: model.provider,
+        id: model.id,
+        name: model.name,
+        ...model.description === undefined ? {} : { description: model.description },
+      }
+    })
+  }
+
+  private registration(provider: string): { adapter: LlmAdapter; provider: LlmProviderInfo } {
+    const registration = this.adapters.get(provider)
+    if (!registration) throw new LlmError(`no adapter registered for provider "${provider}"`, 'NO_ADAPTER')
+    return registration
+  }
+
+  /** Remove replay state whose historical route is owned by another adapter. */
+  private forAdapter(options: GenerateOptions, adapter: LlmAdapter): GenerateOptions {
+    const messages: Message[] = options.messages.map((message) => {
+      const provenance = message.provenance
+      if (message.role !== 'assistant' || provenance?.replayState === undefined) return message
+      if (this.adapters.get(provenance.provider)?.adapter === adapter) return message
+      return {
+        ...message,
+        provenance: { provider: provenance.provider, model: provenance.model },
+      }
+    })
+    if (messages.every((message, index) => message === options.messages[index])) return options
+    const filtered = { ...options, messages }
+    return Object.isFrozen(options) ? deepFreeze(filtered) : filtered
   }
 
   /**
    * Stream one model call as raw chunks (token-level deltas). Throws
    * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
-   * `options.model`. Dispatches through the `llm/stream` waterfall.
-   * @param options - the full request; `options.model` selects the adapter.
+   * `options.provider`. Replay state is retained only when the same adapter
+   * instance owns its historical provider and the target provider. Dispatches
+   * through the `llm/stream` waterfall.
+   * @param options - the full request; `options.provider` selects the adapter.
    * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
    */
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     return this.ctx.waterfall(this, 'llm/stream', options, () => {
-      return this.adapter(options.model).stream(options)
+      const adapter = this.registration(options.provider).adapter
+      return adapter.stream(this.forAdapter(options, adapter))
     })
   }
 }

@@ -4,6 +4,14 @@ The in-memory, event-sourced model of [dsh-session](../../packages/core/session)
 
 Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
+## Context framing
+
+`ContextEnvelope` selects the standard tagged projection or preserves a producer-owned complete frame. The latter changes framing only; the event remains a user-role `context/message` in chronological history.
+
+```ts type-equiv
+type ContextEnvelope = 'context' | 'raw'
+```
+
 ## `SessionEventMap` — the event vocabulary
 
 The append-only event types. Merge-extensible: a plugin declares extra event types via declaration merging — e.g. the [compaction seam](compaction.md) adds `compact/start` / `compact/summary` / `compact/end`, and `@deepseek-ai/dsh-hook-protocol` adds log-only `hook/invoked` / `hook/result` provenance for a hook bridge. Like `compact/*`, these are NOT `SurfaceEventType`s (no `surfaceOp`). The generated [persistence log event catalog](../persistence-catalog.md) enumerates every member — core and merged — with its payload, surface badge, and declaration site.
@@ -30,9 +38,16 @@ interface SessionEventMap {
   /**
    * In-session context injection (file-change notices, subdir AGENTS.md,
    * skill content, cron notifications, …). Rendered into the derived history
-   * as tagged synthetic context — NOT a user prompt.
+   * as synthetic context — NOT a user prompt. `envelope: 'raw'` lets a caller
+   * supply its own complete framing; `meta` is persisted JSON hidden from the
+   * model.
    */
-  'context/message': { content: ContentBlock[]; source: MessageSource }
+  'context/message': {
+    content: ContentBlock[]
+    source: MessageSource
+    envelope?: ContextEnvelope
+    meta?: JsonValue
+  }
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**
@@ -41,7 +56,7 @@ interface SessionEventMap {
    * the model output and its accounting travel together (there is no separate
    * usage record). `usage` is absent when the adapter reported none.
    */
-  'assistant/message': { turn: number; step: number; content: ContentBlock[]; usage?: TokenUsage }
+  'assistant/message': { turn: number; step: number; content: ContentBlock[]; provenance: AssistantProvenance; usage?: TokenUsage }
   'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
   'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string }; meta?: unknown }
   /** Steering content injected between steps of a running turn. */
@@ -92,7 +107,7 @@ The request envelope — the `EpochHeader` (call config + rendered system prompt
 
 ```ts type-equiv
 export interface EpochHeader {
-  /** The conversation's call configuration (model + sampling scalars). */
+  /** The conversation's call configuration (provider + model + sampling scalars). */
   config: LlmCallConfig
   /** Rendered system prompt text; absent for a system-less request. */
   system?: string
@@ -139,6 +154,8 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 `SessionEventType = keyof SessionEventMap`. Because `SessionEventMap` is merge-extensible, switches over `SessionEvent` must NOT use `assertNever` — a plugin-added variant is a valid unknown value; handle the known cases and fall through `default`.
 
+For `assistant/message`, a present `sourceEventSeqs: []` is a complete known-empty provider stream, while an absent field means legacy or otherwise unrecorded provenance. The loop writes the field for every successful model call; every other surface event requires a non-empty list when the field is present.
+
 ## Surface types
 
 The five message-producing types (`SurfaceEventType` — `user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`) carry surface metadata declaring how they join the ordered derived surface. See the [session surface RFC](../rfc/implemented/architecture/2026-06-18-session-surface.md).
@@ -175,9 +192,11 @@ export interface SurfaceIntent {
 
 Required for `SurfaceEventType` events — every message-producing event must declare how it joins the surface, the sole source of derived history. Non-surface types reject it at compile time.
 
+The same provenance distinction applies here: only `assistant/message` may carry a present empty `sourceEventSeqs`; omission does not assert that its source stream was empty.
+
 ### `SurfaceFoldReplacement` and `SurfaceFoldResult` — a complete surface replay
 
-`foldSurface(events)` returns detached current event sequences together with the actual sequences shadowed by each declared replacement range. `SurfaceManager` uses the same transitions for its incremental cache without retaining replacement history.
+`foldSurface(events)` returns detached current event sequences together with the actual sequences shadowed by each declared replacement range. `SurfaceManager` uses the same transitions for its incremental cache without retaining replacement history. Its `replaceGeneration` increments for each replacement so incremental consumers can distinguish pure tail growth from a rewrite.
 
 ```ts type-equiv
 export interface SurfaceFoldReplacement {
@@ -200,11 +219,12 @@ export interface SurfaceFoldResult {
 `Session.deriveMessages()` projects the event log into the `Message[]` the model sees — cached (each surface node projected once, when first seen; a surface rewrite rebuilds) and frozen (a fresh array per call over shared, deep-frozen messages, so mutating logged history through a projection is unrepresentable). `deriveEventMessage(event)` is the per-node pure function the fold applies — public so external reconstructors and the dev invariant project a log prefix with exactly the same rules and cannot disagree with the cache. The projection rules:
 
 - `user/message` → a user message.
-- `assistant/message` → an assistant message. Raw `assistant/chunk` events are replay/UI data and are **skipped** in derivation (the assembled message is authoritative). An **empty-content** `assistant/message` is also skipped — a max-tokens step cut off with no content still records an `assistant/message` to host its `usage`, but a content-less assistant turn must not enter the provider transcript.
+- `assistant/message` → an assistant message with the event's provider/model provenance and optional adapter-private replay state. Raw `assistant/chunk` events are replay/UI data and are **skipped** in derivation (the assembled message is authoritative). An **empty-content** `assistant/message` is also skipped — a max-tokens step cut off with no content still records an `assistant/message` to host its usage/provenance, but a content-less assistant turn must not enter the provider transcript.
 - `tool/result` → a user message carrying a `tool-result` block.
-- `context/message`, `steering/message` → user-role messages wrapped in a tagged envelope (`<context source="…">…</context>`) at their chronological position — the "system-reminder" pattern; the model distinguishes them from real prompts by the envelope.
+- `context/message` → a user-role message at its chronological position. The default `envelope` is `context`, which wraps content as `<context source="…">…</context>`; `envelope: 'raw'` uses caller-owned framing verbatim. Optional JSON `meta` remains in the event log and is never rendered.
+- `steering/message` → a user-role message wrapped in `<steering source="…">…</steering>` at its chronological position.
 
-Everything else (`turn/*`, `step/*`) is structural and does not project into a message. Token usage is observed on `assistant/message.usage` (the step that produced it); an operational error's step number is on `turn/end.reason` for `kind: 'error'`.
+Everything else (`turn/*`, `step/*`) is structural and does not project into a message. Token usage is observed on `assistant/message.usage` (the step that produced it); an operational error's step number is on `turn/end.reason` for `kind: 'error'`. Because this unreleased format intentionally has no compatibility promise, seed/load validation rejects request headers without provider+model and assistant messages without provider/model provenance instead of guessing a route for historical data.
 
 ## Live-session fork API
 

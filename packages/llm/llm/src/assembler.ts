@@ -36,6 +36,7 @@ export class BlockAssembler {
   private order: number[] = []
   private _usage: TokenUsage | undefined
   private _finish: FinishReason | undefined
+  private _replayState: unknown = undefined
 
   /**
    * Feed one chunk. Returns the completed block when the chunk closes one
@@ -85,6 +86,7 @@ export class BlockAssembler {
       }
       case 'finish': {
         this._finish = chunk.reason
+        this._replayState = chunk.replayState
         return
       }
       default: return assertNever(chunk, 'BlockAssembler.push')
@@ -140,6 +142,11 @@ export class BlockAssembler {
   /** Finish reason from the `finish` chunk; `{kind: 'stop'}` when the stream ended without one. */
   get finish(): FinishReason {
     return this._finish ?? { kind: 'stop' }
+  }
+
+  /** Adapter-private replay state from the terminal finish chunk, if any. */
+  get replayState(): unknown {
+    return this._replayState
   }
 
   /**

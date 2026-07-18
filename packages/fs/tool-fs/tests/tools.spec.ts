@@ -14,6 +14,7 @@ import type {
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
+  FsPathInfo,
   FsTarget,
   FsWriteIntent,
   FsWriteOutcome,
@@ -41,6 +42,11 @@ class FakeFs extends FileSystem {
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     this.throwIfArmed()
     const content = this.files.get(target.targetKey)
+    if (content === undefined) return undefined
+    return { version: FsVersion('v1'), type: 'file', size: content.length }
+  }
+  override async lstat(path: string): Promise<FsPathInfo | undefined> {
+    const content = this.files.get(`key:${path}`)
     if (content === undefined) return undefined
     return { version: FsVersion('v1'), type: 'file', size: content.length }
   }

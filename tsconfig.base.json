@@ -41,6 +41,7 @@
       // explicit — TS project references have no wildcard form.
       "@deepseek-ai/dsh-*": [
         "./packages/core/*/src",
+        "./packages/prompt/*/src",
         "./packages/llm/*/src",
         "./packages/bash/*/src",
         "./packages/code-runtime/*/src",
@@ -53,6 +54,7 @@
         "./packages/tasks/*/src",
         "./packages/workflow/*/src",
         "./packages/web/*/src",
+        "./packages/spill/*/src",
         "./packages/timeout/*/src",
         "./packages/todo/*/src",
         "./packages/cordis/*/src",

@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-
+import { CallId } from '@deepseek-ai/dsh-llm'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as RepeatToolGuard from '@deepseek-ai/dsh-repeat-tool-guard'
 import type { Config } from '@deepseek-ai/dsh-repeat-tool-guard'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -22,11 +20,7 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
 /** Boot the core spine + the guard; the caller registers adapters and extra listeners. */
 async function harness(config: Config = {}): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(RepeatToolGuard, config)
   ctx.tools.register(defineTool({ name: 'probe', description: 'p', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
@@ -58,7 +52,7 @@ describe('threshold escalation', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -79,7 +73,7 @@ describe('threshold escalation', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -101,7 +95,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -125,7 +119,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -143,7 +137,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -164,7 +158,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -180,7 +174,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -196,7 +190,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -216,8 +210,8 @@ describe('chain semantics', () => {
       toolCallResponse('b3', 'probe', { q: 1 }),
       textResponse('done'),
     ]))
-    const agentA = ctx.agentLoop.create(SessionId('a'), { model: 'mock-a' })
-    const agentB = ctx.agentLoop.create(SessionId('b'), { model: 'mock-b' })
+    const agentA = ctx.agentLoop.create(SessionId('a'), { provider: 'mock-a', model: 'model-a' })
+    const agentB = ctx.agentLoop.create(SessionId('b'), { provider: 'mock-b', model: 'model-b' })
     agentA.send([{ type: 'text', text: 'go' }])
     agentB.send([{ type: 'text', text: 'go' }])
     await Promise.all([waitForIdle(ctx, agentA), waitForIdle(ctx, agentB)])
@@ -236,7 +230,7 @@ describe('chain semantics', () => {
       textResponse('turn two done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     agent.send([{ type: 'text', text: 'again' }])
@@ -257,14 +251,14 @@ describe('chain semantics', () => {
     // (the loop.spec pattern): a child plugin fiber owns `first`.
     let first!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      first = inner.agentLoop.create(SessionId('reused'), { model: 'mock' })
+      first = inner.agentLoop.create(SessionId('reused'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
     first.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, first)
     await fiber.dispose()
     await first.done
 
-    const second = ctx.agentLoop.create(SessionId('reused'), { model: 'mock' })
+    const second = ctx.agentLoop.create(SessionId('reused'), { provider: 'mock', model: 'mock' })
     second.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, second)
 
@@ -280,7 +274,7 @@ describe('chain semantics', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -296,7 +290,7 @@ describe('chain semantics', () => {
       toolCallResponse('c1', 'probe', { q: 1 }), // if the direct call had counted, this would be #2
       textResponse('done'),
     ]))
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -310,7 +304,7 @@ describe('fold onto the downstream decision', () => {
     ctx.on('tools/post-execute', async () => ({
       kind: 'block' as const,
       feedback: [{ type: 'text' as const, text: 'nope' }],
-      additionalContext: { content: [{ type: 'text' as const, text: 'downstream-ctx' }], source: { kind: 'plugin' as const, plugin: 'test' } },
+      additionalContexts: [{ content: [{ type: 'text' as const, text: 'downstream-ctx' }], source: { kind: 'plugin' as const, plugin: 'test' } }],
     }))
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'probe', { q: 1 }),
@@ -318,19 +312,19 @@ describe('fold onto the downstream decision', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     const found = reminders(agent)
-    expect(found).toHaveLength(2)
+    expect(found).toHaveLength(3)
     // Call 1: below threshold — the downstream context passes through untouched.
     expect(found[0]!.text).toBe('downstream-ctx')
     expect(found[0]!.source).toEqual({ kind: 'plugin', plugin: 'test' })
-    // Call 2: reminder folded in front, single merged context, the guard's source.
+    // Call 2: reminder and downstream context retain separate provenance.
     expect(found[1]!.text).toContain('repeating the exact same tool call')
-    expect(found[1]!.text).toContain('|downstream-ctx')
     expect(found[1]!.source).toEqual(GUARD_SOURCE)
+    expect(found[2]).toEqual({ text: 'downstream-ctx', source: { kind: 'plugin', plugin: 'test' } })
     // The block's feedback reached the tool result unchanged.
     const results = [...agent.session.events].filter((e): e is SessionEvent<'tool/result'> => e.type === 'tool/result')
     expect(results.every(r => r.data.isError)).toBe(true)
@@ -349,7 +343,7 @@ describe('fold onto the downstream decision', () => {
       textResponse('done'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -364,11 +358,7 @@ describe('fold onto the downstream decision', () => {
 describe('config validation fails loud', () => {
   async function spine(): Promise<Context> {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(AgentRegistry)
+    await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
     return ctx
   }

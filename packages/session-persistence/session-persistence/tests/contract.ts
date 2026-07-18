@@ -36,7 +36,7 @@ export function oneTurnLog(): SessionEvent[] {
     { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
     { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, surfaceOp: 'append' },
     { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } },
-    { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] }, surfaceOp: 'append' },
+    { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append' },
     { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } },
     { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
   ]
@@ -136,7 +136,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
           { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
           { type: 'assistant/message', seq: 8, time: 9, data: { turn: 2, step: 1, content: [
             { type: 'tool-call', id: CallId('call-x'), name: 'bash', arguments: '{}' },
-          ] } },
+          ], provenance: { provider: 'mock', model: 'mock' } } },
         ])
 
         const loaded = await persistence.load(m.id)

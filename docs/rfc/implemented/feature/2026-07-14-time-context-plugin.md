@@ -6,6 +6,8 @@ English | [中文](2026-07-14-time-context-plugin.zh.md)
 
 ## Problem
 
+The dynamic system-prompt storage and refresh decision in this record is superseded by [Durable per-step time context](2026-07-16-durable-per-step-time-context.md). The opt-in package, zoned formatting, and validation remain; the follow-up owns the current model-visible and durability contract.
+
 An agent request has no live clock unless a deployment puts one in prompt text or gives the model a query tool. Static text becomes stale, while a tool call adds overhead to ordinary reasoning about dates, deadlines, or idle time. Without elapsed time, the model cannot distinguish an immediate follow-up from one sent hours after the preceding message.
 
 Prompt assembly can derive both facts per step from durable session timestamps, and request-header logging can record the exact rendered value. Accumulating stale readings in conversation history or waking idle agents would violate the existing request lifecycle.

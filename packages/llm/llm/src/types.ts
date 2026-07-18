@@ -53,10 +53,29 @@ export type ContentBlockType = keyof ContentBlockMap
 /** Any known content block, derived from {@link ContentBlockMap}; switch on `type` and fall through unknowns (merge-extensible). */
 export type ContentBlock = ContentBlockMap[ContentBlockType]
 
-/** A single message in a conversation history. */
+/** Provider ownership and adapter-private replay data for an assistant message. */
+export interface AssistantProvenance {
+  /** Provider route that produced the message. */
+  provider: string
+  /** Provider model id that produced the message. */
+  model: string
+  /**
+   * Lossless-JSON adapter state needed to replay the provider response.
+   * `LlmService` exposes it to a target adapter only when that adapter instance
+   * currently owns both this historical provider and the target provider.
+   */
+  replayState?: unknown
+}
+
+/**
+ * A single message in a conversation history. Loop-derived assistant messages
+ * always carry provenance; callers may omit it on hand-built foreign history.
+ */
 export interface Message {
   role: 'system' | 'user' | 'assistant'
   content: ContentBlock[]
+  /** Present only on assistant messages produced by a routed adapter. */
+  provenance?: AssistantProvenance
 }
 
 /**
@@ -102,6 +121,26 @@ export interface TokenUsage {
   reasoningTokens?: number
 }
 
+/** Display metadata for one registered provider route. */
+export interface LlmProviderInfo {
+  /** Provider route key used by {@link GenerateOptions.provider}. */
+  id: string
+  /** Human-readable provider name for selectors and diagnostics. */
+  name: string
+}
+
+/** One adapter-discovered model; catalog membership is advisory, not request validation. */
+export interface LlmModelInfo {
+  /** Provider route that owns this model entry. */
+  provider: string
+  /** Model id passed to {@link GenerateOptions.model}. */
+  id: string
+  /** Human-readable model name for selectors. */
+  name: string
+  /** Optional user-facing distinction from otherwise similar models. */
+  description?: string
+}
+
 /**
  * Raw streaming protocol emitted by adapters.
  * Block indexes correlate interleaved deltas, and `block-end` carries the
@@ -116,7 +155,12 @@ export type StreamChunk =
   | { type: 'tool-call-delta'; index: number; id: CallId; name?: string; argumentsDelta: string }
   | { type: 'block-end'; index: number; block: ContentBlock }
   | { type: 'usage'; usage: TokenUsage }
-  | { type: 'finish'; reason: FinishReason }
+  | {
+    type: 'finish'
+    reason: FinishReason
+    /** Adapter-private lossless-JSON state for replaying a successful response. */
+    replayState?: unknown
+  }
 
 /**
  * JSON-schema description of a tool, as sent to the model.
@@ -134,6 +178,8 @@ export interface ToolSchema {
 
 /** A single model request, fully assembled. */
 export interface GenerateOptions {
+  /** Registered provider route selecting the adapter instance. */
+  provider: string
   model: string
   /**
    * Ordered conversation messages, exactly as the provider sees them (after
