@@ -38,6 +38,7 @@ export const LINK_MAP: Record<string, string> = {
   TurnEndReason: 'session.md',
   ToolDefinition: 'tools.md',
   ToolExecution: 'tools.md',
+  ToolExecutionMode: 'tools.md',
   ToolExecutionInput: 'tools.md',
   ToolExecutionResult: 'tools.md',
   ToolExecutionToken: 'tools.md',
