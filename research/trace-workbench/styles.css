@@ -1290,6 +1290,9 @@ h4 {
   border-radius: 12px;
   background: #f7fbf7;
   overflow: hidden;
+  /* Inside .activity-body (white-space: pre-wrap) the template's own
+     newlines must not render. */
+  white-space: normal;
 }
 
 .spawn-list-head {

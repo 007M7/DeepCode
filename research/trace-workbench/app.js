@@ -988,11 +988,13 @@ function renderChatToolActivity(call) {
   const outputHtml = result
     ? `<div class="activity-section-title">${failed ? 'Error output' : 'Output'}</div><pre>${escapeHtml(resultText)}</pre>`
     : ''
+  const callEvent = state.callPairs.get(call.id)?.call
+  const spawnHtml = callEvent ? spawnedSessionsHtml(callEvent).trim() : ''
   const openBtn = `<button class="activity-open-inspector" type="button" data-inspect-call="${escapeHtml(call.id ?? '')}">在检查器中打开 →</button>`
   return `
     <details class="chat-activity tool-use ${failed ? 'failed' : ''}" data-call-id="${escapeHtml(call.id ?? '')}">
       <summary><span>${failed ? 'Tool failed' : 'Tool use'}</span><strong>${escapeHtml(call.name)}${preview ? `<span class="activity-preview"> · ${escapeHtml(preview)}</span>` : ''}</strong></summary>
-      <div class="activity-body">${inputHtml}${outputHtml}${openBtn}</div>
+      <div class="activity-body">${inputHtml}${outputHtml}${spawnHtml}${openBtn}</div>
     </details>
   `
 }
