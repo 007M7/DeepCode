@@ -110,6 +110,7 @@ declare module 'cordis' {
  */
 export abstract class SandboxProvider extends Service {
   constructor(ctx: Context) {
+    /* v8 ignore next -- Windows has no sandbox backend to instantiate this service. */
     super(ctx, 'sandbox')
   }
 

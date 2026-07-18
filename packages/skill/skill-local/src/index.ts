@@ -317,6 +317,7 @@ async function nodeEntryKind(fullPath: string, entry: { isDirectory(): boolean; 
     const info = await stat(fullPath)
     if (info.isDirectory()) return 'directory'
     if (info.isFile()) return 'file'
+    /* v8 ignore next -- The special-file symlink fixture relies on POSIX /dev/null. */
     return undefined
   } catch (error) {
     ctx.logger.warn(`skill entry ${fullPath} ignored: failed to follow symbolic link: ${errorMessage(error)}`)

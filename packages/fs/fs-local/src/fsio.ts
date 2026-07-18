@@ -175,6 +175,7 @@ export async function resolveLocalTarget(cwd: string, path: string): Promise<Loc
 function pathType(info: Stats | BigIntStats): PathInfo['type'] {
   if (info.isFile()) return 'file'
   if (info.isDirectory()) return 'directory'
+  /* v8 ignore next -- Windows does not expose Unix-domain socket paths as special filesystem entries. */
   return 'other'
 }
 

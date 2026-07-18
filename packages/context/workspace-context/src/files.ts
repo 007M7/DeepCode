@@ -459,6 +459,7 @@ export async function readScopeInstruction(
   signal?: AbortSignal,
 ): Promise<LoadedInstructionFile | undefined> {
   const content = await readBounded(file, maxSourceBytes, fileSystem, signal)
+  /* v8 ignore next -- Windows cannot reproduce a post-probe unreadable file with POSIX mode bits. */
   if (content === undefined) return undefined
   return {
     absolutePath: file.absolutePath,

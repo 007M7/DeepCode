@@ -180,6 +180,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     return header + '\n' + body + '\n'
   }
 
+  /* v8 ignore start -- Windows uses the Win32 durable-publish path; POSIX coverage exercises this peer. */
   private async materializePosix(dir: string, finalPath: string, id: SessionId, content: string): Promise<void> {
     await mkdir(this.root, { recursive: true, mode: 0o700 })
     await this.syncDirPosix(dirname(this.root))
@@ -213,6 +214,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       /* v8 ignore next -- redundant temp link; publish already durable, rm failure is an unreachable IO edge */
     }
   }
+  /* v8 ignore stop */
 
   /* v8 ignore start -- native Windows coverage exercises this integration path */
   private async materializeWin32(dir: string, finalPath: string, id: SessionId, content: string): Promise<void> {
@@ -254,6 +256,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /** fsync a POSIX directory so a just-created/renamed entry is crash-durable. */
+  /* v8 ignore start -- Windows uses write-through namespace operations; POSIX coverage exercises directory fsync. */
   private async syncDirPosix(dir: string): Promise<void> {
     const handle = await open(dir, 'r')
     try {
@@ -262,6 +265,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       await handle.close()
     }
   }
+  /* v8 ignore stop */
 
   /**
    * Append and fsync event lines. On a partial write or sync failure, restore the
@@ -395,6 +399,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
         await this.assertLogParentAllowsAbsence(path)
         return false
       }
+      /* v8 ignore next -- Windows repairs ENOTDIR from ENOENT above; POSIX covers direct ENOTDIR. */
       throw error
     }
   }
