@@ -98,10 +98,10 @@ export class DeepSeekAdapter extends LlmAdapter {
         const parsed = await response.json() as WireError
         if (parsed.error?.message) message = parsed.error.message
       } catch {
-        // Only swallow error-body parsing: status and code are already captured,
-        // so malformed gateway JSON must not mask the actionable HTTP failure.
+        // Only swallow error-body parsing: the stable code and status-line message
+        // are already captured, so malformed gateway JSON must not mask the failure.
       }
-      throw new LlmError(message, code, response.status)
+      throw new LlmError(message, code)
     }
     if (!response.body) {
       throw new LlmError('DeepSeek API returned no response body', 'EMPTY_RESPONSE')
