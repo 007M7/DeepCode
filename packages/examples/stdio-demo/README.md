@@ -18,7 +18,7 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 | `@deepseek-ai/dsh-stdio` | the line-oriented terminal channel, bound to `main` for pipes and automation; matching `agent/start-failed` errors print and exit nonzero |
 | `@deepseek-ai/dsh-tui` | the interactive pi-tui channel, bound to `main` for TTY pairs; matching `agent/start-failed` startup errors are printed before fullscreen mode and exit nonzero |
 
-`@cordisjs/plugin-hmr` (the dev/demo edit-reload loop) is deliberately a **leaf** entry, not baked in here: it is a Loader-only, subprocess-only dev plugin whose constructor needs `node --expose-internals` plus a live `loader`. The `demo:echo` / `demo:repl` leaves load it and pass `--expose-internals`.
+`@cordisjs/plugin-hmr` (the dev/demo edit-reload loop) is deliberately a **leaf** entry, not baked in here: it is a Loader-only, subprocess-only dev plugin whose constructor needs `node --expose-internals` plus a live `loader`. The repository's terminal demo trees load it and their scripts pass `--expose-internals`.
 
 The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapter (`llm-deepseek` for the real model, or the mock `mock-llm` for a demo) and a bash executor (`bash-local`) — `hmr`, plus this app's [`Config`](#config). The whole plugin tree a run loads is therefore: this app's cluster, the spine inside `agent-spine-demo`, `hmr`, and the two leaf backends.
 
@@ -45,7 +45,7 @@ Fresh stdio sessions use the process launch directory as `session.header.cwd`, s
 
 ## The bin
 
-`dsh-stdio-demo [path-to-cordis.yml]` (default `./cordis.yml`) loads a gitignored `.env` from the cwd (`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`), then drives the cordis Loader against the config and awaits the whole plugin tree before returning. Run it under `node --expose-internals`, or install the Loader's optional `node-addon-require-builtin` fallback, so the Loader can resolve the config's bare plugin specifiers (`@deepseek-ai/dsh-*`, npm packages). The `demo:echo` / `demo:repl` scripts use `--expose-internals`.
+`dsh-stdio-demo [path-to-cordis.yml]` (default `./cordis.yml`) loads a gitignored `.env` from the cwd (`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`), then drives the cordis Loader against the config and awaits the whole plugin tree before returning. Run it under `node --expose-internals`, or install the Loader's optional `node-addon-require-builtin` fallback, so the Loader can resolve the config's bare plugin specifiers (`@deepseek-ai/dsh-*`, npm packages). The repository's demo scripts using this bin pass `--expose-internals`.
 
 ## Example leaf `cordis.yml`
 
