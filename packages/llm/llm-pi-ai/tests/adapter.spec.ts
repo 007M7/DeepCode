@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { LlmError, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
-import { PiAiAdapter, resolveProfiles } from '@deepseek-ai/dsh-llm-pi-ai'
+import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { resolveProfiles } from '../src/config.ts'
 import { assemble } from './assemble.ts'
 
 interface MockServer {
@@ -180,6 +181,18 @@ describe('PiAiAdapter provider routing', () => {
 })
 
 describe('provider profile lifecycle', () => {
+  it('keeps adapter helpers off the package root', () => {
+    for (const helper of [
+      'resolveProfiles',
+      'toPiContext',
+      'toPiReplayState',
+      'toPiAssistant',
+      'mapStopReason',
+      'mapUsage',
+      'toStreamChunks',
+    ]) expect(LlmPiAi).not.toHaveProperty(helper)
+  })
+
   it('registers every profile atomically and unregisters on dispose', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)

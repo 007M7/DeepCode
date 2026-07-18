@@ -154,7 +154,7 @@ The available tools:
 
 - **Concurrency policy is not an event seam** — `executionMode()` reads the resolved tool definition directly; plugins can only declare a classifier on definitions they own.
 - **`tools/pre-execute` deliberately cannot rewrite `exec.arguments`** — logged and rendered args would desync from what ran; the rewrite design is [a proposed RFC](../../../docs/rfc/proposed/feature/2026-06-30-pre-tool-input-rewrite.md).
-- **`defineTool`'s schema DSL is a deliberate subset** — string/number/boolean/object/array with string-only `enum`; `validateArgs` tolerates extra keys and never applies `default` (`XXX(unused-default)` flags removing that field); raw-registered JSON-Schema tools validate their own input.
+- **`defineTool`'s schema DSL is a deliberate subset** — string/number/boolean/object/array with string-only `enum`; `validateArgs` tolerates extra keys and preserves `default` as a model-visible JSON Schema annotation without applying it during validation; dynamic Cordis mounts may supply defaults even though first-party definitions do not, while raw-registered JSON-Schema tools validate their own input.
 - **`timeoutMs` on a definition is declarative only** — the registry never enforces deadlines; enforcement requires the `@deepseek-ai/dsh-timeout-policy` wrapper.
 - **Code Mode is TypeScript-only and the presentation mode is service-wide** — `mode: code`/`both` rejects prompt assembly unless `ctx.codeRuntime.language === 'typescript'`; scoped restrictions/shadows still choose each agent's visible bindings, but one tool cannot be native-only while another is code-only.
 - **Code Mode bindings return text only** — non-text content blocks in a sub-call result collapse to `[<type> content]` placeholders.

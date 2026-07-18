@@ -20,7 +20,7 @@ import { LlmAdapter, LlmError, assertNever } from '@deepseek-ai/dsh-llm'
  */
 export type ReplayEntry =
   | { kind: 'chunks'; chunks: StreamChunk[] }
-  | { kind: 'throw'; chunks: StreamChunk[]; message: string; code: string; status?: number }
+  | { kind: 'throw'; chunks: StreamChunk[]; message: string; code: string }
   | { kind: 'hang' }
 
 /** One model exposed by a replay-only provider catalog. */
@@ -283,7 +283,7 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
         if (signal?.aborted) throw new Error('aborted')
         yield chunk
       }
-      throw new LlmError(entry.message, entry.code, entry.status)
+      throw new LlmError(entry.message, entry.code)
     case 'hang':
       // Replay a stream that stalls until cancelled (mirrors MockAdapter): one
       // chunk, then wait for abort and surface it as the consumer expects.
