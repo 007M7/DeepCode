@@ -14,9 +14,9 @@ Add `stdin?: string` and `env?: Record<string, string>` to **both** `BashExecReq
 
 Three deliberate choices:
 
-1. **The model-facing tool omits `stdin` and `env`.** Shell syntax already covers those needs, so duplicate parameters would add surface without authority separation. The tool builds requests only from declared model arguments, signal, and owner; trusted in-process callers may set the seam fields directly.
+1. **The model-facing tool omits `stdin` and `env`.** Shell syntax already covers those needs, so duplicate parameters would add surface without authority separation. The tool builds requests only from declared model arguments, signal, and owner; trusted in-process callers may set the seam fields directly. Harness-owned variables use the separate `dshEnv` channel from the [managed environment decision](../feature/2026-07-10-agent-session-identity-and-log-location.md), so ordinary `env` cannot replace them.
 
-2. **`env` merges AFTER the credential scrub, so an explicit caller entry always wins** — even a credential-shaped name. This is correct because the scrub's job is narrow: stop the harness's *ambient* `process.env` credentials from leaking into a spawned command. A caller that explicitly sets a var has named a value it already holds (not the ambient secret), so the scrub is not a constraint on it. `childEnv(extra?)` layers `scrub(process.env)` → `ENV_OVERRIDES` (the model-friendly `TERM=dumb` etc.) → `extra`, last-wins.
+2. **`env` merges AFTER the credential scrub, so an explicit caller entry wins even on a credential-shaped name.** The later managed-namespace decision reserves `DSH_*`: ambient entries are removed, ordinary `env` cannot set them, and trusted `dshEnv` merges last. The complete order is `scrub(process.env, including DSH_*)` → `ENV_OVERRIDES` → ordinary `env` → `dshEnv`.
 
 3. **`stdin`/`env` are required-absent-OK (plain optional) on the resolved spec, NOT required-but-nullable like `owner`.** `owner` is required-but-nullable because a *silently* missing owner yields an unowned, cross-session-readable task — a security footgun that a visible `undefined` guards against. `stdin`/`env` have no such hazard: a missing one means "no stdin / no extra env", which is the safe, ordinary case (every model-driven call). So they stay plain optionals, matching `signal`.
 

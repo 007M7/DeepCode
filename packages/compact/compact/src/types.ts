@@ -24,6 +24,8 @@ declare module '@deepseek-ai/dsh-session' {
       shadowedRange: { start: number; end: number }
       shadowedSeqs: number[]
       shadowedTokenCount: number
+      /** The provider route that wrote the summary. */
+      provider: string
       /**
        * The model that wrote the summary — the summarize call's envelope,
        * reported by the backend that made the call, logged so the one-shot

@@ -6,15 +6,15 @@ This package is the interface tier of the compaction capability, split so each c
 
 | Package | Role |
 |---|---|
-| `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + the shared transcript renderer (`renderTranscript`/`renderContentBlocks`) |
-| `@deepseek-ai/dsh-compact-basic` | a backend: chars-per-token estimation (`charsPerToken`, default 4) + token-budget retention + `llm.stream()` summarization |
+| `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + tool-pairing boundary helpers + the shared transcript renderer (`renderTranscript`/`renderContentBlocks`) |
+| `@deepseek-ai/dsh-compact-basic` | a backend: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-tool-compact` (deferred) | the model-facing `/compact` tool over `ctx.compact` |
 
-Unlike the bash seam, this interface depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session`, and its durable `compact/summary` event uses the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "interface depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
+Unlike the bash seam, this interface depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "interface depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
 
 ## Service API (`ctx.compact`)
 
-Both methods are **abstract** — the backend owns the entire strategy (token estimation, retention policy, event sequencing, summarization).
+Both methods are **abstract** — the backend owns trigger policy, retention, event sequencing, and summarization. Reusable request measurement is a separate service, [`ctx.tokenMeter`](../../llm/token-meter/README.md), rather than part of this interface.
 
 | Member | Semantics |
 |---|---|
@@ -23,7 +23,13 @@ Both methods are **abstract** — the backend owns the entire strategy (token es
 
 `CompactionResult` keeps the raw summary and bookkeeping-event seqs available to callers alongside the shadowed range and token accounting; its drift-checked shape lives in the [compaction data-structure reference](../../../docs/core-data-structures/compaction.md#compactionresult).
 
-`compactIfNeeded` takes a required `signal`; `compactRegion`'s is optional. A backend that summarizes via `ctx.llm.stream()` **must** forward it into the call's `GenerateOptions.signal`, so an abort or fiber dispose tears down the in-flight summarization instead of leaving an orphaned model call running past the cancellation. The session being compacted comes from the agent context; the turn that the `compact/*` events belong to is recoverable from the log (the currently-open turn), so the backend stamps it from the log rather than trusting a caller-supplied value.
+`compactIfNeeded` takes a required `signal`; `compactRegion`'s is optional. A backend that summarizes via `ctx.llm.stream()` **must** forward it into the call's `GenerateOptions.signal`, so an abort or fiber dispose tears down the in-flight summarization instead of leaving an orphaned model call running past the cancellation. The turn that the `compact/*` events belong to is recoverable from the owned session's log (the currently-open turn), so the backend stamps it from the log rather than trusting a caller-supplied value.
+
+## Tool-pairing boundaries
+
+The interface exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for snapping and validating compaction edges. A safe edge has no unanswered assistant tool call crossing it. Each helper validates that the event sequence is in the current surface and answers from balances cached per cut in surface order.
+
+The private per-session cache is keyed by `session.surface.replaceGeneration` and the processed surface-entry count. An unchanged generation extends the fold with unseen tail entries only; a log-only append with no new surface entry does no event reads, while a replacement generation rebuilds current membership and balances. Missing event seqs and a `tool/result` without a preceding open call reject as corrupt surface state.
 
 ## Surface contract
 
@@ -31,7 +37,7 @@ Both methods are **abstract** — the backend owns the entire strategy (token es
 
 1. appends `compact/start` (log-only) — acquires the lock,
 2. summarizes the range,
-3. appends `compact/summary` (log-only) — provenance: summary, range, shadowed seqs, token count,
+3. appends `compact/summary` (log-only) — provenance: summary, range, shadowed seqs, token count, and provider/model call envelope,
 4. appends a single `user/message` with `surfaceOp: { op: 'replace', start, end }` carrying the summary — **the only surface mutation**,
 5. appends `compact/end` (log-only) — releases the lock.
 
@@ -49,7 +55,7 @@ The `compact/*` events extend `SessionEventMap` (merge-extensible) via declarati
 
 ## Implementing a backend
 
-Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and load the subclass as a plugin — it registers as `ctx.compact`. A tokenizer-, template-, or model-backed implementation can live as a sibling package without changing callers.
+Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and load the subclass as a plugin — it registers as `ctx.compact`. A template- or model-backed implementation can live as a sibling package without changing callers or the shared token meter.
 
 ## Model Experience
 

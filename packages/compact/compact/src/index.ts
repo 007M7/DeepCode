@@ -14,6 +14,7 @@ import type { CompactionResult } from './types.ts'
 
 export type { CompactionResult } from './types.ts'
 export { renderContentBlocks, renderTranscript } from './render.ts'
+export { toolPairingBalancedAfter, toolPairingBalancedBefore } from './tool-pairing.ts'
 
 /** Minimal agent context compaction needs without depending on the agent package. */
 export interface CompactAgentContext {
@@ -28,10 +29,11 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract compaction service. Implementations own token estimation, retention,
- * and summarization, but a successful run must replace the selected surface span
- * with one summary node and prevent concurrent compaction of the same session.
- * Load one implementation per context as `ctx.compact`.
+ * Abstract compaction service. Implementations own trigger policy, retention,
+ * and summarization, and may consume a separate measurement service. A
+ * successful run replaces the selected surface span with one summary node and
+ * prevents concurrent compaction of the same session. Load one implementation
+ * per context as `ctx.compact`.
  */
 export abstract class CompactService extends Service {
   constructor(ctx: Context) {
@@ -66,7 +68,9 @@ export abstract class CompactService extends Service {
    * order; replacements can make visible seqs non-monotonic. Both edges must be
    * balanced so assistant tool calls remain paired with their results. A model-
    * backed implementation forwards cancellation and rejects active, missing,
-   * reversed, or unbalanced ranges.
+   * reversed, or unbalanced ranges. The target session is `agent.session`.
+   * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}
+   * for the edge checks.
    *
    * @param start - first surface seq, inclusive.
    * @param end - last surface seq, inclusive.

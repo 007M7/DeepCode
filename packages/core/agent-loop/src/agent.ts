@@ -8,7 +8,7 @@
 
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { AgentId, AgentOptions, AgentStatus, SendOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentId, AgentOptions, AgentStatus, InjectOptions, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -225,14 +225,20 @@ export class ReactLoopAgent implements Agent {
     agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
   }
 
-  inject(content: ContentBlock[], options?: SendOptions): void {
+  inject(content: ContentBlock[], options?: InjectOptions): void {
     this.assertNotDisposed()
     const source = this.resolveSource(options)
+    const context = {
+      content,
+      source,
+      ...options?.envelope !== undefined ? { envelope: options.envelope } : {},
+      ...options?.meta !== undefined ? { meta: options.meta } : {},
+    }
     if (isTurnOpen(this.session)) {
       // A turn is open in the LOG (decided from the log, not agent status —
       // status can be `running` with no turn open): the context/message is
       // turn-enclosed by that turn, so append it directly.
-      this.session.append('context/message', { content, source }, { surfaceOp: 'append' })
+      this.session.append('context/message', context, { surfaceOp: 'append' })
       return
     }
     // No turn open: wrap the injection in a one-shot turn so every event stays
@@ -244,7 +250,7 @@ export class ReactLoopAgent implements Agent {
     // are contained by Session and cannot create a false append failure.
     try {
       this.session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-      this.session.append('context/message', { content, source }, { surfaceOp: 'append' })
+      this.session.append('context/message', context, { surfaceOp: 'append' })
     } finally {
       // Close the turn if turn/start made it into the log. A pre-commit veto
       // must escape rather than being mistaken for a committed turn/end.

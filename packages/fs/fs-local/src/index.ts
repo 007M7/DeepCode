@@ -5,6 +5,7 @@
  */
 
 import { Context } from 'cordis'
+import { resolve } from 'node:path'
 import z from 'schemastery'
 import { FileSystem, FsError, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -12,6 +13,7 @@ import type {
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
+  FsPathInfo,
   FsTarget,
   FsWriteIntent,
   FsWriteOutcome,
@@ -21,6 +23,7 @@ import {
   listDirectory,
   normalizeLineEndings,
   probe,
+  probeNoFollow,
   readForEdit,
   readTextForDiff,
   readWholeText,
@@ -80,14 +83,26 @@ export class LocalFileSystem extends FileSystem {
     }
   }
 
-  override async resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget> {
+  override async resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget> {
+    if (opts?.signal?.aborted) throw new FsError('resolve aborted', 'FS_ABORTED')
     const local = await resolveLocalTarget(opts?.cwd ?? this.config.cwd, path)
+    if (opts?.signal?.aborted) throw new FsError('resolve aborted', 'FS_ABORTED')
     return { targetKey: local.targetKey, displayPath: local.displayPath }
   }
 
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     if (signal?.aborted) throw new FsError('stat aborted', 'FS_ABORTED')
     const info = await probe(target.targetKey)
+    if (signal?.aborted) throw new FsError('stat aborted', 'FS_ABORTED')
+    if (!info) return undefined
+    return { version: info.version, type: info.type, size: info.size }
+  }
+
+  override async lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined> {
+    if (signal?.aborted) throw new FsError('lstat aborted', 'FS_ABORTED')
+    if (path.trim().length === 0) throw new FsError('file_path must be a non-empty string', 'FS_NOT_FOUND')
+    const info = await probeNoFollow(resolve(opts?.cwd ?? this.config.cwd, path))
+    if (signal?.aborted) throw new FsError('lstat aborted', 'FS_ABORTED')
     if (!info) return undefined
     return { version: info.version, type: info.type, size: info.size }
   }
