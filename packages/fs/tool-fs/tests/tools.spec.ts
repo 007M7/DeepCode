@@ -108,6 +108,16 @@ describe('registration', () => {
     expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['edit', 'read', 'write'])
   })
 
+  it('declares read parallel-safe while write/edit remain exclusive', async () => {
+    const { ctx } = await setup()
+    expect(ctx.tools.executionMode({ callId: CallId('read-safe'), name: 'read', arguments: { file_path: 'a.txt' } }))
+      .toEqual({ kind: 'parallel' })
+    expect(ctx.tools.executionMode({ callId: CallId('write-exclusive'), name: 'write', arguments: { file_path: 'a.txt', content: 'x' } }))
+      .toEqual({ kind: 'exclusive' })
+    expect(ctx.tools.executionMode({ callId: CallId('edit-exclusive'), name: 'edit', arguments: { file_path: 'a.txt', old_string: 'x', new_string: 'y' } }))
+      .toEqual({ kind: 'exclusive' })
+  })
+
   it('registers prompt sections for each tool', async () => {
     const { ctx } = await setup()
     const prompt = renderPrompt(await ctx.systemPrompt.assemble())
