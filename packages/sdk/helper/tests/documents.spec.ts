@@ -282,6 +282,7 @@ describe('package manager strategies', () => {
       section: 'devDependencies', spec: '^4.0.0-rc.7',
     })
     expect(resolveNpmDependency('@cordisjs/plugin-hmr', 'dependencies', '0.0.1').spec).toBe('^1.0.15')
+    expect(resolveNpmDependency('tsdown', 'devDependencies', '0.0.1').spec).toBe('0.22.2')
     expect(resolveNpmDependency('@deepseek-ai/dsh-tools', 'dependencies', '1.2.3').spec).toBe('^1.2.3')
     expect(() => resolveNpmDependency('unknown', 'dependencies', '0.0.1')).toThrow('no generated-project')
   })
