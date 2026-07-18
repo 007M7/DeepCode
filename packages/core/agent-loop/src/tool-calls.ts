@@ -176,6 +176,8 @@ async function runGroup(
   }
 
   // Ordered pre-execute may await; only dispatch/body overlaps.
+  // TODO: Drain every started call before rethrowing a scheduler error; tool
+  // bodies must not outlive the failed turn.
   await fillPool()
   while (inFlight.size > 0) {
     const settledIndex = await Promise.race(inFlight.values())
