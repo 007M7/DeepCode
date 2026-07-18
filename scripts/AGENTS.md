@@ -1,3 +1,3 @@
 # AGENTS.md — Repository scripts
 
-Gate-related scripts follow the [CI gate rules](../.github/AGENTS.md).
+Gate scripts invoke pnpm shell-free, normalize repository-relative glob paths to `/` at ingestion, and keep platform adaptation at the owning gate boundary instead of a shared platform layer.

@@ -1,3 +1,3 @@
-# AGENTS.md — CI gates
+# AGENTS.md — GitHub Actions
 
-Run Windows gates from native `pwsh`, invoke pnpm shell-free, and normalize repo-relative glob paths to `/` at ingestion. Keep platform fixes at each gate boundary; do not add a shared platform layer.
+Run Windows jobs under native `pwsh`.
