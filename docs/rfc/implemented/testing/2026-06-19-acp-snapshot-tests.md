@@ -28,7 +28,7 @@ Each scenario's `session.jsonl` is harvested from a real run. `assistant/chunk` 
 
 ```
 { kind: 'chunks', chunks: StreamChunk[] }
-| { kind: 'throw', chunks: StreamChunk[], message: string, code: string, status?: number }
+| { kind: 'throw', chunks: StreamChunk[], message: string, code: string }
 | { kind: 'hang' }
 ```
 

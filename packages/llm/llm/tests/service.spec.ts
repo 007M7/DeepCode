@@ -255,11 +255,12 @@ describe('LlmService', () => {
 
   it('LlmError extends the shared HarnessError base', async () => {
     const { HarnessError, isHarnessError } = await import('@deepseek-ai/dsh-llm')
-    const err = new LlmError('boom', 'AUTH', 401)
+    const cause = new Error('root cause')
+    const err = new LlmError('boom', 'AUTH', { cause })
     expect(err).toBeInstanceOf(HarnessError)
     expect(isHarnessError(err)).toBe(true)
     expect(err.code).toBe('AUTH')
-    expect(err.status).toBe(401)
+    expect(err.cause).toBe(cause)
   })
 
   it('HarnessError carries a code, names itself by subclass, and chains cause', async () => {
