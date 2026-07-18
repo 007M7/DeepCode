@@ -9,6 +9,9 @@
 # Agent spine; the SDK server creates agents per sessionId.
 - id: agent-core
   name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    workspaceContext:
+      maxBytes: 65536
 
 # Stock DeepSeek adapters. Loading requires an API key; initialize and shutdown
 # may use a dummy key because they do not call the model.
@@ -17,9 +20,6 @@
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
-    models:
-      - deepseek-v4-flash
-      - deepseek-v4-pro
 
 # JSONL persistence; $DSH_SESSION_ROOT wins over ./.sessions in the process cwd.
 - id: sessions
@@ -30,5 +30,12 @@
 # Local bash executor; $DSH_CWD wins over the process cwd.
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
+  config:
+    cwd: !!js process.env.DSH_CWD ?? process.cwd()
+
+# Local filesystem provider for workspace instruction loading. This does not
+# expose model-facing file tools by itself.
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
   config:
     cwd: !!js process.env.DSH_CWD ?? process.cwd()

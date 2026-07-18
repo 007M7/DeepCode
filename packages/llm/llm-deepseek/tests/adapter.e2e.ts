@@ -16,11 +16,11 @@ const FLASH = 'deepseek-v4-flash'
 const PRO = 'deepseek-v4-pro'
 const contexts: Context[] = []
 
-async function harness(model: string, config: Partial<Config> = {}) {
+async function harness(_model: string, config: Partial<Config> = {}) {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(LlmService)
-  await ctx.plugin(LlmDeepSeek, { models: [model], ...config })
+  await ctx.plugin(LlmDeepSeek, config)
   return ctx
 }
 
@@ -134,6 +134,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
     const ctx = await harness(FLASH, { thinking: 'disabled' })
     const kinds: string[] = []
     for await (const chunk of ctx.llm.stream({
+      provider: 'deepseek',
       model: FLASH,
       messages: ask('Count from 1 to 5, digits only.'),
       maxTokens: 50,

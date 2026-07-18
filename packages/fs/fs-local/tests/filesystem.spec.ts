@@ -6,8 +6,8 @@
  * `dsh-fs-policy`, so it is not exercised here.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile, unlink } from 'node:fs/promises'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
@@ -73,6 +73,18 @@ describe('resolve', () => {
     const target = await fs.resolve(join(dir, 'abs.txt'), { cwd: '/nonexistent-base' })
     expect(await fs.readText(target)).toBe('absolute')
   })
+
+  it('honors a pre-aborted signal', async () => {
+    await expect(fs.resolve('a.txt', { signal: AbortSignal.abort() })).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
+
+  it('honors a signal aborted while resolution is in flight', async () => {
+    const controller = new AbortController()
+    const pending = fs.resolve('a.txt', { signal: controller.signal })
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
 })
 
 describe('stat', () => {
@@ -87,8 +99,101 @@ describe('stat', () => {
     expect(await fs.stat(await fs.resolve('missing.txt'))).toBeUndefined()
   })
 
+  it('changes version after a same-size rewrite even when mtime is restored', async () => {
+    const path = join(dir, 'same-size.txt')
+    await writeFile(path, 'first')
+    const target = await fs.resolve(path)
+    const beforeInfo = await stat(path)
+    const beforeVersion = await versionOf(target)
+
+    await fs.writeText(target, 'other')
+    await utimes(path, beforeInfo.atime, beforeInfo.mtime)
+
+    expect((await stat(path)).size).toBe(beforeInfo.size)
+    expect(await versionOf(target)).not.toBe(beforeVersion)
+  })
+
   it('honors a pre-aborted signal', async () => {
     await expect(fs.stat(await fs.resolve('a.txt'), AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
+})
+
+describe('lstat', () => {
+  it('reports path metadata without following the final symlink component', async () => {
+    await writeFile(join(dir, 'real.txt'), 'hello')
+    await symlink(join(dir, 'real.txt'), join(dir, 'link.txt'))
+
+    expect((await fs.lstat('real.txt'))?.type).toBe('file')
+    expect((await fs.lstat('link.txt'))?.type).toBe('symlink')
+    expect(await fs.lstat('missing.txt')).toBeUndefined()
+  })
+
+  it('resolves relative paths against opts.cwd and honors a pre-aborted signal', async () => {
+    const other = await mkdtemp(join(tmpdir(), 'dsh-fs-other-'))
+    try {
+      await writeFile(join(other, 'x.txt'), 'in other')
+      expect((await fs.lstat('x.txt', { cwd: other }))?.type).toBe('file')
+      await expect(fs.lstat('x.txt', { cwd: other }, AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
+      await expect(fs.lstat('   ')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+    } finally {
+      await rm(other, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('metadata cancellation', () => {
+  it('rejects stat and lstat when their signals abort while the metadata probes are in flight', async () => {
+    await writeFile(join(dir, 'slow.txt'), 'hello')
+    const statStarted = Promise.withResolvers<undefined>()
+    const statRelease = Promise.withResolvers<undefined>()
+    const lstatStarted = Promise.withResolvers<undefined>()
+    const lstatRelease = Promise.withResolvers<undefined>()
+    let isolatedCtx: Context | undefined
+    vi.resetModules()
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>()
+      return {
+        ...actual,
+        async stat(path: string) {
+          statStarted.resolve(undefined)
+          await statRelease.promise
+          return actual.stat(path, { bigint: true })
+        },
+        async lstat(path: string) {
+          lstatStarted.resolve(undefined)
+          await lstatRelease.promise
+          return actual.lstat(path, { bigint: true })
+        },
+      }
+    })
+
+    try {
+      const { LocalFileSystem: IsolatedLocalFileSystem } = await import('../src/index.ts')
+      isolatedCtx = new Context()
+      await isolatedCtx.plugin(IsolatedLocalFileSystem, { cwd: dir })
+      const isolatedFs = isolatedCtx.fs as InstanceType<typeof IsolatedLocalFileSystem>
+      const target = await isolatedFs.resolve('slow.txt')
+      const statController = new AbortController()
+      const lstatController = new AbortController()
+      const pendingStat = isolatedFs.stat(target, statController.signal)
+      const pendingLstat = isolatedFs.lstat('slow.txt', undefined, lstatController.signal)
+
+      await Promise.all([statStarted.promise, lstatStarted.promise])
+      statController.abort()
+      lstatController.abort()
+      const statRejected = expect(pendingStat).rejects.toMatchObject({ code: 'FS_ABORTED' })
+      const lstatRejected = expect(pendingLstat).rejects.toMatchObject({ code: 'FS_ABORTED' })
+      statRelease.resolve(undefined)
+      lstatRelease.resolve(undefined)
+
+      await Promise.all([statRejected, lstatRejected])
+    } finally {
+      statRelease.resolve(undefined)
+      lstatRelease.resolve(undefined)
+      await isolatedCtx?.fiber.dispose()
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
+    }
   })
 })
 
@@ -292,9 +397,6 @@ describe('writeText', () => {
     await writeFile(join(dir, 'a.txt'), 'v1')
     const target = await fs.resolve('a.txt')
     const before = await versionOf(target)
-    // Change the byte length so the mtimeMs:size token provably differs (a
-    // same-size same-tick rewrite can collide — the documented version-token
-    // limitation; not what this test is about).
     const outcome = await fs.writeText(target, 'a much longer replacement body', { kind: 'replaceIfVersion', version: before })
     expect(outcome.version).not.toBe(before)
     expect(outcome.version).toBe(await versionOf(target))

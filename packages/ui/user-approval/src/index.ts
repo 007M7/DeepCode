@@ -63,7 +63,7 @@ declare module '@deepseek-ai/dsh-session' {
      * from the prompt section and the narrator's notices). The LAST such
      * event is the session's override ({@link effectiveApprovalPolicy});
      * who asked for it is derivable from position (an event after the log's
-     * last `request/header*` was a runtime switch by the user).
+     * last `request/header` was a runtime switch by the user).
      */
     'approval/policy': { policy: ApprovalPolicy }
   }
@@ -258,7 +258,7 @@ export class ApprovalService extends Service {
     // narrated no later than the next step. What each session was last told
     // is in-memory with a log-derived fallback (the folded header's system
     // text), so restarts lose nothing. Attribution is positional: an
-    // override event after the log's last `request/header*` was a runtime
+    // override event after the log's last `request/header` was a runtime
     // switch by the user; otherwise the configured default moved under the
     // session (operator/config).
     const narrated = new WeakMap<Agent['session'], ApprovalPolicy>()
@@ -271,7 +271,7 @@ export class ApprovalService extends Service {
         const event = events[index] as (typeof events)[number]
         if (overrideIndex < 0 && event.type === 'approval/policy') {
           overrideIndex = index
-        } else if (headerIndex < 0 && (event.type === 'request/header' || event.type === 'request/header-delta')) {
+        } else if (headerIndex < 0 && event.type === 'request/header') {
           headerIndex = index
         }
       }

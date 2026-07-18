@@ -24,6 +24,8 @@ interface ScriptedLog {
 
 /** The whole scripted behavior for one run. Every field defaults to the least surprising choice. */
 interface Behavior {
+  /** Exit during startup after writing any configured stderr note. */
+  failOnBoot?: boolean
   /** Reject every `session/new` (exercises the expect-error step without extra dirs). */
   rejectNewSession?: boolean
   /** Reject `session/new` only when `additionalDirectories` is non-empty (the real bridge's rule). */
@@ -62,6 +64,7 @@ const behavior: Behavior = fixtureFile === ''
   : JSON.parse(readFileSync(join(dirname(fixtureFile), 'behavior.json'), 'utf8')) as Behavior
 
 if (behavior.stderrNote !== undefined) process.stderr.write(`${behavior.stderrNote}\n`)
+if (behavior.failOnBoot === true) process.exit(7)
 
 let nextOutboundId = 1000
 let sessionId = ''

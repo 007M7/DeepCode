@@ -125,7 +125,7 @@ export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta
 
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
-  execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
+  execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
    * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
@@ -207,6 +207,21 @@ export interface ToolExecution extends ToolExecutionInput {
   readonly token: ToolExecutionToken
 }
 
+/**
+ * Runtime context handed to a tool implementation after the registry has
+ * accepted a {@link ToolExecution}. A composite tool uses
+ * {@link deferContext} to ferry context produced by nested dispatches back to
+ * the outer result; the loop appends it only after the outer `tool/result`.
+ */
+export interface ToolRunContext extends ToolExecution {
+  /**
+   * Defer one nested-dispatch context until this tool's final result reaches
+   * the agent loop. Contexts retain their individual source, envelope, and
+   * metadata and are emitted in call order.
+   */
+  deferContext(context: HookContext): void
+}
+
 /** Structured error metadata for a failed tool call (alongside the model-facing text). */
 export interface ToolErrorInfo {
   name: string
@@ -240,7 +255,7 @@ export interface ToolExecutionResult {
    * Model-facing context for the next request, separate from this tool result.
    * The loop buffers it until all step results are logged, preserving pairing.
    */
-  additionalContext?: HookContext
+  additionalContexts?: HookContext[]
   /**
    * The tool-private presentation payload from a successful `execute` (the object
    * return form). Threaded onto the `tool/result` session event and back into
@@ -266,8 +281,8 @@ export type PreToolDecision =
  * request, or block by turning corrective feedback into an error result.
  */
 export type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; additionalContext?: HookContext }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'accept'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: HookContext[] }
 
 /**
  * Best-effort human-readable message from an arbitrary thrown value: Error
@@ -677,6 +692,7 @@ export class ToolRegistry extends Service {
    * @returns the materialized final result.
    */
   async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult> {
+    const deferredContexts: HookContext[] = []
     const token = createExecutionToken()
     const callId = exec.callId
     const name = exec.name
@@ -690,8 +706,11 @@ export class ToolRegistry extends Service {
       ...agent !== undefined ? { agent } : {},
       ...parent !== undefined ? { parent } : {},
       ...signal !== undefined ? { signal } : {},
+      deferContext(context: HookContext): void {
+        deferredContexts.push(context)
+      },
     }
-    let execution: ToolExecution
+    let execution: ToolRunContext
     try {
       const detached = snapshotJsonValue(exec.arguments)
       if (detached === undefined) {
@@ -709,7 +728,7 @@ export class ToolRegistry extends Service {
     }
     let result: ToolExecutionResult
     try {
-      result = this.materializeFinalResult(await this.executePipeline(execution))
+      result = this.materializeFinalResult(await this.executePipeline(execution, deferredContexts))
     } catch (error: unknown) {
       // Outer backstop: a throwing pre/post-execute listener, guard, or the
       // waterfall machinery becomes an isError result, never a turn failure.
@@ -720,7 +739,7 @@ export class ToolRegistry extends Service {
   }
 
   /** Run the transformable pipeline; {@link execute} owns final normalization and notification. */
-  private async executePipeline(exec: ToolExecution): Promise<ToolExecutionResult> {
+  private async executePipeline(exec: ToolRunContext, deferredContexts: HookContext[]): Promise<ToolExecutionResult> {
     // --- Gate: tools/pre-execute. An `ask` resolves through the optional
     // approval seam (or degrades to deny) before the monotonic guards run. The
     // carrier keys dispatch by exec.agent, so an `agent.ctx` listener gates only
@@ -774,7 +793,16 @@ export class ToolRegistry extends Service {
         }
       },
     )
-    return await this.postExecute(exec, result)
+    const resultWithDeferredContexts: ToolExecutionResult = deferredContexts.length === 0
+      ? result
+      : {
+        ...result,
+        additionalContexts: [
+          ...deferredContexts,
+          ...result.additionalContexts ?? [],
+        ],
+      }
+    return await this.postExecute(exec, resultWithDeferredContexts)
   }
 
   /** Notify final-result observers without giving them a mutation/error channel into the outcome. */
@@ -836,8 +864,11 @@ export class ToolRegistry extends Service {
    * Run the `tools/post-execute` waterfall over a dispatched `result` and apply
    * its {@link PostToolDecision}: `accept` keeps the call successful (replacing
    * `content` when given), `block` turns it into an `isError` whose content is
-   * the corrective `feedback`. Either decision may attach `additionalContext`,
-   * which is ferried on the returned result for the loop's per-step buffer.
+   * the corrective `feedback`. Either decision may attach `additionalContexts`,
+   * which are ferried on the returned result for the loop's per-step buffer.
+   * Context deferred by the tool body survives an accepted result but is
+   * discarded when the outer call is blocked; a block exposes only context the
+   * blocking decision explicitly supplied.
    * Runs inside `execute`'s outer try/catch (a throwing listener → isError).
    */
   private async postExecute(exec: ToolExecution, result: ToolExecutionResult): Promise<ToolExecutionResult> {
@@ -845,19 +876,24 @@ export class ToolRegistry extends Service {
       scopeTarget(this, exec.agent), 'tools/post-execute', exec, result,
       () => Promise.resolve<PostToolDecision>({ kind: 'accept' }),
     )
-    const additionalContext = decision.additionalContext
+    const decisionContexts = decision.additionalContexts ?? []
     if (decision.kind === 'block') {
       return {
         content: decision.feedback,
         isError: true,
-        ...additionalContext ? { additionalContext } : {},
+        ...decisionContexts.length > 0 ? { additionalContexts: decisionContexts } : {},
       }
     }
-    // Accept: replace content if supplied and preserve the dispatched outcome.
+    // Accept: replace content if supplied, preserve the dispatched outcome, and
+    // append decision contexts after contexts deferred by the tool body.
+    const additionalContexts = [
+      ...result.additionalContexts ?? [],
+      ...decisionContexts,
+    ]
     return {
       ...result,
       ...decision.content ? { content: decision.content } : {},
-      ...additionalContext ? { additionalContext } : {},
+      ...additionalContexts.length > 0 ? { additionalContexts } : {},
     }
   }
 
