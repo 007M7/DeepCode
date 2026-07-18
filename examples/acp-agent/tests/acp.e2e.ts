@@ -15,6 +15,7 @@ import {
   type RequestPermissionResponse,
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
+import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
 /**
  * Boots examples/acp-agent as an ACP subprocess. The key-gated prompt leg
@@ -25,8 +26,6 @@ import {
 // The child runs from a temp cwd, so its bin and config path are absolute.
 const binScript = fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
-// Resolve tsx absolutely because the subprocess runs outside the repo.
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // The root tsconfig supplies unbuilt workspace `paths`; making it explicit
 // avoids accidental resolution through stale built output.
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
@@ -38,24 +37,21 @@ interface Spawned {
   stderr: string[]
 }
 
-// TODO(acp-test-harness): this subprocess/client boot glue is duplicated with
-// hooks.e2e.ts and partly with dsh-acp-snapshot's harness. Migrate both e2e
-// files onto that launcher before the TSX/env/permission-stub details drift.
 function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawned {
-  const child = spawn(
-    process.execPath,
-    ['--import', tsxLoader, binScript, '--config', configPath],
-    {
-      cwd,
-      env: {
-        ...env,
-        TSX_TSCONFIG_PATH: repoTsconfig,
-        DSH_PERMISSION_MODE: 'danger-full-access',
-        DSH_HOME: join(cwd, '.dsh'),
-        DSH_AGENTS_HOME: join(cwd, '.agents'),
-      },
-      stdio: ['pipe', 'pipe', 'pipe'],
+  const launch = resolveExampleLaunch({
+    srcBin: binScript,
+    configArgs: ['--config', configPath],
+    tsconfigPath: repoTsconfig,
+    env: {
+      DSH_PERMISSION_MODE: 'danger-full-access',
+      DSH_HOME: join(cwd, '.dsh'),
+      DSH_AGENTS_HOME: join(cwd, '.agents'),
     },
+  })
+  const child = spawn(
+    launch.command,
+    launch.args,
+    { cwd, env: { ...env, ...launch.env }, stdio: ['pipe', 'pipe', 'pipe'] },
   )
   const stderr: string[] = []
   child.stderr.setEncoding('utf8')
@@ -138,16 +134,20 @@ describe('acp-agent over real stdio (no key required)', () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
     // Collect raw stdout bytes directly (bypass the SDK framing) to inspect.
     // A dummy key boots the adapter; this purity test sends no prompt and makes no model call.
-    const child = spawn(process.execPath, ['--import', tsxLoader, binScript, '--config', configPath], {
-      cwd: workdir,
+    const launch = resolveExampleLaunch({
+      srcBin: binScript,
+      configArgs: ['--config', configPath],
+      tsconfigPath: repoTsconfig,
       env: {
-        ...process.env,
         DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
-        TSX_TSCONFIG_PATH: repoTsconfig,
         DSH_PERMISSION_MODE: 'danger-full-access',
         DSH_HOME: join(workdir, '.dsh'),
         DSH_AGENTS_HOME: join(workdir, '.agents'),
       },
+    })
+    const child = spawn(launch.command, launch.args, {
+      cwd: workdir,
+      env: { ...process.env, ...launch.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     const out: string[] = []

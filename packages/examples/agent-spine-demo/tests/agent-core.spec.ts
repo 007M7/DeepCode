@@ -145,6 +145,16 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('forwards the global maxParallelToolCalls config to agent-loop', async () => {
+    const ctx = await mount({
+      agents: [{ id: AgentId('main'), provider: 'mock', model: 'mock' }],
+      maxParallelToolCalls: 3,
+      workspaceContext: false,
+    })
+    expect(ctx.get('agentLoop')?.config.maxParallelToolCalls).toBe(3)
+    await ctx.fiber.dispose()
+  })
+
   it('tolerates a schema-bypassing direct apply (the ?? fallbacks fire)', async () => {
     // ctx.plugin validates + defaults the bundle config first; a direct apply
     // skips the schema, so the forwarding `?? []` / `?? ''` are what fire.

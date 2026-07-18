@@ -27,6 +27,7 @@ Because the package wires no logger entry, an ACP leaf has **nothing to get wron
 |---|---|---|
 | `provider` | (required) | the initial provider route for each per-session agent the bridge creates; ACP model selection may replace it per session |
 | `model` | (required) | the initial model for each per-session agent; ACP clients may switch among adapter-advertised models |
+| `maxParallelToolCalls` | agent-loop default | positive-integer concurrent tool-call cap shared by the bundled loop's agents; `1` is serial |
 | `persona` | — | the deployment persona template (may reference `{{provider}}`/`{{model}}`/`{{cwd}}`), routed to `dsh-system-prompt` |
 | `toolOrder` | — | explicit model-facing tool order (a name list with one `'<unlisted-tools>'` rest entry; absent — lexicographic; an unregistered name fails each turn at prompt assembly), routed to `dsh-system-prompt` |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness home exposed to model bash and used by local skill discovery |
