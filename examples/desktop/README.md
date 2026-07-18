@@ -9,9 +9,9 @@ can stay strict.
 
 ![](docs/readme-shots/01-overview.png)
 
-![Demo walkthrough poster](docs/readme-shots/video-poster.png)
+[![Demo walkthrough poster](docs/readme-shots/video-poster.png)](docs/demo-shots/showcase-2026-07-18/demo-walkthrough.mp4)
 
-*Demo walkthrough video: coming in a follow-up commit.*
+*[Demo walkthrough](docs/demo-shots/showcase-2026-07-18/demo-walkthrough.mp4) — 3.6 MB mp4, click poster to play.*
 
 ## Quick start
 
