@@ -410,22 +410,30 @@ describe('agent loop', () => {
     expect(requestText).not.toContain('<context source=')
   })
 
-  it('inject() while running appends into the open turn (no extra synthetic turn)', async () => {
+  it('defers inject() during tool execution until after the tool result', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'noticer', {}, 'calling'),
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
-    // A tool that injects mid-execution: at this point the agent is running, so
-    // inject must append the context/message into the ALREADY-open turn rather
-    // than wrap it in its own one-shot turn.
+    let visibleDuringTool = false
+    const meta = { kind: 'deferred-test', version: 1 }
     ctx.tools.register(defineTool({
       name: 'noticer',
       description: 'injects a notice',
       parameters: {},
       async execute() {
-        agent.inject([{ type: 'text', text: 'mid-turn notice' }], { source: { kind: 'plugin', plugin: 'x' } })
+        await Promise.resolve()
+        const first = { type: 'text' as const, text: 'mid-turn notice' }
+        agent.inject([first], {
+          source: { kind: 'plugin', plugin: 'x' },
+          envelope: 'raw',
+          meta,
+        })
+        first.text = 'mutated after inject'
+        agent.inject([{ type: 'text', text: 'second notice' }], { source: { kind: 'plugin', plugin: 'x' } })
+        visibleDuringTool = agent.session.events.some(e => e.type === 'context/message')
         return [{ type: 'text', text: 'ok' }]
       },
     }))
@@ -433,13 +441,67 @@ describe('agent loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // Exactly ONE turn ran (no synthetic injection turn), and the mid-turn
-    // context/message sits inside it.
+    expect(visibleDuringTool).toBe(false)
+
+    // The injection stays in the open turn, but its user-role context cannot
+    // split the assistant tool call from the provider's tool-result message.
     const turnStarts = agent.session.events.filter(e => e.type === 'turn/start')
     expect(turnStarts).toHaveLength(1)
     const ts0 = turnStarts[0]!
     expect(ts0.type === 'turn/start' && ts0.data.trigger.kind).toBe('message')
-    expect(agent.session.events.some(e => e.type === 'context/message')).toBe(true)
+    const result = agent.session.events.find(e => e.type === 'tool/result')!
+    const contexts = agent.session.events.filter(e => e.type === 'context/message')
+    expect(contexts).toHaveLength(2)
+    expect(result.seq).toBeLessThan(contexts[0]!.seq)
+    expect(contexts[0]?.type === 'context/message' && contexts[0].data).toMatchObject({
+      envelope: 'raw',
+      meta,
+    })
+    expect(contexts.flatMap(event => event.type === 'context/message' ? event.data.content : []))
+      .toEqual([
+        { type: 'text', text: 'mid-turn notice' },
+        { type: 'text', text: 'second notice' },
+      ])
+
+    const secondRequest = adapter.requests[1]!.messages
+    const resultIndex = secondRequest.findIndex(message =>
+      message.content.some(block => block.type === 'tool-result'))
+    const contextIndexes = secondRequest.flatMap((message, index) =>
+      message.content.some(block => block.type === 'text'
+        && (block.text.includes('mid-turn notice') || block.text.includes('second notice')))
+        ? [index]
+        : [])
+    expect(resultIndex).toBeGreaterThanOrEqual(0)
+    expect(contextIndexes).toHaveLength(2)
+    expect(contextIndexes.every(index => index > resultIndex)).toBe(true)
+  })
+
+  it('rejects non-JSON context before it enters the active tool-batch FIFO', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'invalid-injector', {}, 'calling'),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('invalid-context'), { provider: 'mock', model: 'mock' })
+    ctx.tools.register(defineTool({
+      name: 'invalid-injector',
+      description: 'attempts an invalid context injection',
+      parameters: {},
+      async execute() {
+        expect(() => {
+          agent.inject([{ type: 'text', text: 'invalid' }], {
+            source: { kind: 'plugin', plugin: 'test' },
+            meta: { bigint: 1n } as never,
+          })
+        }).toThrow('agent context must be losslessly JSON-serializable')
+        return [{ type: 'text', text: 'rejected invalid context' }]
+      },
+    }))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(agent.session.events.some(event => event.type === 'context/message')).toBe(false)
   })
 
   it('agent/turn-continuation can force-continue (/loop pattern) and force-stop', async () => {
