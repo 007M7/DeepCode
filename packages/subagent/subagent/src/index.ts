@@ -34,7 +34,8 @@ import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertSupportedOutputSchema } from '@deepseek-ai/dsh-tools'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {
   SubagentCapabilities,
   SubagentProvider,
@@ -114,7 +115,7 @@ export interface SubagentRunInfo {
   /** The provider that established the run. */
   readonly provider: string
   /** The child agent's id. */
-  readonly id: AgentId
+  readonly id: SessionId
 }
 
 /** Observe-only outcome detail for a settled subagent run. */
@@ -122,7 +123,7 @@ export interface SubagentRunEndInfo {
   /** The provider that ran it. */
   readonly provider: string
   /** The child agent's id. */
-  readonly id: AgentId
+  readonly id: SessionId
   /** The terminal stop reason. */
   readonly stopReason: SubagentResult['stopReason']
   /** The child's final assistant output, absent on infrastructure rejection. */

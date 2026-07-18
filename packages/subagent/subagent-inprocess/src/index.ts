@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
-import { AgentId, type Agent, type AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent'
@@ -104,7 +104,7 @@ export async function startInProcessRun(
     throw new SubagentDepthError(childDepth, request.maxDepth)
   }
 
-  const childId = AgentId(randomUUID())
+  const childId = SessionId(randomUUID())
   const seedLength = options.seed?.length ?? 0
   const parentHeader = parent.session.header
   const parentProvider = parent.options.provider
@@ -129,8 +129,7 @@ export async function startInProcessRun(
 
   const flags = { cancelled: false }
   const handle = await parent.ctx.agents.create({
-    agentId: childId,
-    sessionId: SessionId(randomUUID()),
+    sessionId: childId,
     meta: {
       ...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
       parentSession: parentHeader.id,

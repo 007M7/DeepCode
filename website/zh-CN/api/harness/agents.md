@@ -6,7 +6,7 @@
 
 Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package. Agent *creation* is provided by whichever plugin implements the AgentFactory (`@deepseek-ai/dsh-agent-loop`), registered via setFactory.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L133)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L201)
 
 ### ctx.agents.setFactory(factory)
 
@@ -14,13 +14,13 @@ Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator 
 setFactory(factory: AgentFactory): () => void
 ```
 
-Register the effect-scoped creation factory, rejecting a duplicate. Service factories are retraced through each create/resume caller for ownership.
+Register the agent-creation factory (the loop calls this on construction, effect-scoped). A traced Cordis service is canonicalized to its concrete target; each create/resume call is then traced through that caller's context so ownership follows the caller without stacking proxy layers. Throws if a factory is already registered. Returns the disposer; on dispose the factory slot is cleared.
 
 - `factory` — the loop-owned factory `create`/`resume` delegate to.
 
-**Returns** the exact Cordis effect disposer.
+**Returns** the disposer that clears the factory slot. The exact Cordis effect disposer (single-shot): composite (generator) effects may yield it directly — exact identity nests the teardown in order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L149)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L228)
 
 ### ctx.agents.create(options)
 
@@ -28,13 +28,13 @@ Register the effect-scoped creation factory, rejecting a duplicate. Service fact
 async create(options: CreateAgentOptions): Promise<AgentHandle>
 ```
 
-Create and publish an owned agent and session through the active factory. Rejects if no factory is registered or creation, setup, or publication fails.
+Create and publish a new agent through the registered factory. Distinct from register (which records an already-constructed agent): this constructs the agent and its session. Rejects if no factory is registered or creation/setup fails. The resolved AgentHandle lets the owner tear down exactly this agent.
 
-- `options` — agent id, session id/seed/metadata, and agent options.
+- `options` — shared identity, session seed/metadata, and agent options.
 
 **Returns** the handle after setup, rollback-covered publication, and loop start complete.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L174)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L261)
 
 ### ctx.agents.resume(options)
 
@@ -48,7 +48,7 @@ Load a persisted session and resume an agent on it through the registered factor
 
 **Returns** the handle after setup, rollback-covered publication, and loop start complete.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L190)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L280)
 
 ### ctx.agents.register(agent)
 
@@ -56,27 +56,28 @@ Load a persisted session and resume an agent on it through the registered factor
 register(agent: Agent): () => void
 ```
 
-Register a live agent in the calling effect scope, with scope-filtered creation and disposal events. Duplicate ids throw.
+Register a live agent. Throws if an agent with the same id is already registered. Emits `agent/created` on registration and `agent/disposed` when the calling fiber is disposed — both with the agent's scope carrier (`scopeTarget(agent, agent)`): the subject is the agent in hand, so the emits are scope-filtered regardless of which context invoked `register` (calling through `agent.ctx` scopes EFFECTS; dispatch scoping always requires passing the carrier). Returns the disposer.
 
 - `agent` — the already-constructed agent to record in the store.
 
-**Returns** the exact Cordis effect disposer for nested teardown ordering.
+**Returns** the EXACT Cordis effect disposer (single-shot; a repeat call returns undefined without awaiting an in-flight teardown). Exact identity is load-bearing: a composite (generator) effect that owns a teardown ORDER — the agent factory's lifecycle chain — must yield THIS function so Cordis nests the unregistration at that yield position; yielding a wrapper would leave it disposing as a concurrent sibling on owner unload, unregistering the agent (and emitting `agent/disposed`) while its final turn is still draining.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L204)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L306)
 
-### ctx.agents.enter(agent)
+### ctx.agents.enter(agent, owner)
 
 ```ts website-api
-enter(agent: Agent): () => void
+enter(agent: Agent, owner: Agent | undefined): () => void
 ```
 
-Insert an unpublished agent for an ordered factory transaction.
+Insert an already-constructed agent without announcing it. This is the advanced ordered-lifecycle primitive used by the async agent factory: it first completes setup while the agent is unpublished, then assigns the returned detach closure into its pre-installed composite teardown before calling announce. Ordinary callers use register.
 
 - `agent` — the prepared, unpublished agent.
+- `owner` — live agent whose scoped context created this agent, or undefined for a top-level runtime root. This is runtime ownership, not the resumed session's durable parent lineage.
 
-**Returns** an idempotent closure that removes this exact entry and emits the paired disposal edge; detachment during creation dispatch is deferred.
+**Returns** an idempotent closure that removes this exact entry and emits `agent/disposed` with listener failures contained. When called from a synchronous `agent/created` listener, removal and disposal wait until that creation dispatch unwinds.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L219)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L330)
 
 ### ctx.agents.announce(agent)
 
@@ -88,21 +89,21 @@ Announce an agent previously inserted with enter.
 
 - `agent` — the live inserted agent to announce.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L286)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L405)
 
 ### ctx.agents.get(id)
 
 ```ts website-api
-get(id: AgentId): Agent | undefined
+get(id: SessionId): Agent | undefined
 ```
 
 Look up a live agent.
 
-- `id` — the agent id to look up.
+- `id` — the shared agent/session id to look up.
 
 **Returns** the agent, or undefined when no live agent has that id.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L320)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L439)
 
 ### ctx.agents.list()
 
@@ -114,4 +115,16 @@ All live agents, in registration order.
 
 **Returns** a fresh array; mutating it does not affect the registry.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L328)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L447)
+
+### ctx.agents.roots()
+
+```ts website-api
+roots(): Agent[]
+```
+
+All live top-level agents in registration order. A top-level agent was created without an owning agent context; durable session lineage does not affect this runtime relation, so a resumed fork may still be a root.
+
+**Returns** a fresh array; mutating it does not affect the registry.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L457)

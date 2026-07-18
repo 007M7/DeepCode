@@ -68,7 +68,7 @@ interface SubagentStopReasonMap {
 
 ```ts type-equiv
 interface SubagentRun {
-  readonly id: AgentId
+  readonly id: SessionId
   readonly result: Promise<SubagentResult>
   dispose(): Promise<void>
   sendMessage?(content: ContentBlock[]): void

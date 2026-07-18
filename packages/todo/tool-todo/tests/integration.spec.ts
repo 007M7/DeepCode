@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
@@ -57,7 +56,7 @@ describe('todo_write tool through the agent loop', () => {
       textResponse('Plan recorded.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-todo'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-todo'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'plan a two-step task' }])
     await waitForIdle(ctx, agent)
@@ -85,7 +84,7 @@ describe('todo_write tool through the agent loop', () => {
       textResponse('Done planning.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-todo-2'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-todo-2'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'plan then update' }])
     await waitForIdle(ctx, agent)

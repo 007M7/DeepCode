@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as stdioAgent from '../src/index.ts'
@@ -73,10 +74,30 @@ describe('dsh-stdio-demo app', () => {
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(ctx.get('userInteraction')).toBeDefined()
     expect(ctx.get('tools')?.get('ask_user_question')).toBeDefined()
-    // The pre-created `main` agent the UI drives.
-    const agent = ctx.get('agents')?.get(AgentId('main'))
+    // The sole pre-created agent the UI drives. `main` is its stable config
+    // label; each fresh process mints a durable combined agent/session id.
+    await expect.poll(() => ctx.get('agents')?.list()).toHaveLength(1)
+    const agent = ctx.get('agents')?.list()[0]
     expect(agent).toBeDefined()
+    expect(agent?.id).toBe(agent?.session.id)
+    expect(agent?.id).toMatch(/^main-session-/)
     expect(agent?.session.header.cwd).toBe(process.cwd())
+    await ctx.fiber.dispose()
+  })
+
+  it('normalizes an empty resume id to a fresh exact app identity', async () => {
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      resumeSessionId: '',
+      persistenceRoot: '/tmp/dsh-stdio-agent-spec-empty-resume',
+      skills: await isolatedSkillsConfig(),
+      workspaceContext: false,
+    })
+    await expect.poll(() => ctx.get('agents')?.list()).toHaveLength(1)
+    const agent = ctx.get('agents')?.list()[0]
+    expect(agent?.id).toMatch(/^main-session-[0-9a-f-]{36}$/)
+    expect(agent?.id).toBe(agent?.session.id)
     await ctx.fiber.dispose()
   })
 
@@ -88,9 +109,9 @@ describe('dsh-stdio-demo app', () => {
     const ctx = new Context()
     // No persona: covers the omitted-persona forwarding branch too.
     stdioAgent.apply(ctx, { provider: 'mock', model: 'mock', skills: await isolatedSkillsConfig(), workspaceContext: false })
-    await new Promise(resolve => setTimeout(resolve, 80))
+    await expect.poll(() => ctx.get('agents')?.list()).toHaveLength(1)
     expect(ctx.get('sessionPersistence')).toBeDefined()
-    expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
+    expect(ctx.get('agents')?.list()[0]?.id).toMatch(/^main-session-/)
     await ctx.fiber.dispose()
   })
 
@@ -102,7 +123,8 @@ describe('dsh-stdio-demo app', () => {
       persistenceRoot: '/tmp/dsh-stdio-demo-spec-workspace-context',
       workspaceContext: false,
     })
-    expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
+    await expect.poll(() => ctx.get('agents')?.list()).toHaveLength(1)
+    expect(ctx.get('agents')?.list()[0]?.id).toMatch(/^main-session-/)
     await ctx.fiber.dispose()
   })
 
@@ -119,7 +141,7 @@ describe('dsh-stdio-demo app', () => {
 
   it('forwards resumeSessionId onto the pre-created agent when set', async () => {
     // A resume id defers agent creation until persistence loads; with no backing
-    // session the resume is contained + logged, so no `main` agent registers —
+    // session the resume is contained + logged, so no agent registers —
     // the branch that maps resumeSessionId through is what this covers.
     const ctx = await mount({
       provider: 'mock',
@@ -130,7 +152,7 @@ describe('dsh-stdio-demo app', () => {
       skills: await isolatedSkillsConfig(),
       workspaceContext: false,
     })
-    expect(ctx.get('agents')?.get(AgentId('main'))).toBeUndefined()
+    expect(ctx.get('agents')?.list()).toEqual([])
     await ctx.fiber.dispose()
   })
 

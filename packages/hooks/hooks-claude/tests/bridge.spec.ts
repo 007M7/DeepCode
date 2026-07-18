@@ -4,9 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
@@ -14,8 +13,11 @@ import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /**
- * Full-loop Claude bridge tests with a mock model, the real loop and bash
- * executor, and shell hooks from a temporary config.
+ * Full-loop bridge tests: a scripted mock MODEL drives the REAL agent loop + REAL
+ * bash executor, and the REAL `dsh-hooks-claude` bridge runs REAL shell hook
+ * scripts written to a temp dir — only the model is mocked (the "prefer the real
+ * implementation" rule). Each test writes a `hooks.json` + executable scripts,
+ * loads the bridge pointed at them, and asserts the hook's effect on the loop.
  */
 
 const dirs: string[] = []
@@ -87,7 +89,7 @@ describe('hooks-claude bridge — UserPromptSubmit', () => {
 
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(dir, adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'do something' }])
     await waitForIdle(ctx, agent)
 
@@ -110,7 +112,7 @@ describe('hooks-claude bridge — UserPromptSubmit', () => {
 
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(dir, adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -135,7 +137,7 @@ describe('hooks-claude bridge — PreToolUse', () => {
     const ctx = await harness(dir, adapter)
     let ran = false
     ctx.tools.register(defineTool({ name: 'danger', description: 'd', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'should not run' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'use danger' }])
     await waitForIdle(ctx, agent)
 
@@ -158,7 +160,7 @@ describe('hooks-claude bridge — PreToolUse', () => {
     const ctx = await harness(dir, adapter)
     let ran = false
     ctx.tools.register(defineTool({ name: 'safe', description: 's', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ran ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'use safe' }])
     await waitForIdle(ctx, agent)
 
@@ -180,11 +182,12 @@ describe('hooks-claude bridge — PostToolUse', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(dir, adapter)
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'raw output' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
     const result = events(agent).find(e => e.type === 'tool/result')
+    // PostToolUse blocks AFTER the tool ran: the result is rewritten to isError + feedback.
     expect(result?.type === 'tool/result' && result.data.isError).toBe(true)
     expect(result?.type === 'tool/result' && result.data.content.some(b => b.type === 'text' && b.text.includes('output rejected, retry'))).toBe(true)
   })
@@ -200,7 +203,7 @@ describe('hooks-claude bridge — PostToolUse', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(dir, adapter)
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -224,7 +227,7 @@ describe('hooks-claude bridge — PostToolUse', () => {
     const ctx = await harness(dir, adapter)
     let ran = false
     ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'x' }] } }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -248,7 +251,7 @@ describe('hooks-claude bridge — SessionStart', () => {
 
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(dir, adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     // session-start fires async (detached .then → agent.inject); wait for the
     // injected context/message to actually land before sending, rather than a
     // fixed sleep that flakes under load.
@@ -284,17 +287,21 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     const { ctx, hooks } = await harnessWithFiber(dir, adapter)
     // Drive the observe-only lifecycle events directly (no real child needed — the
     // bridge just listens). No child agent is registered, so SubagentStart's
-    // child lookup yields undefined and it runs the hook.
-    ctx.emit('subagent/start', { provider: 'inproc', id: AgentId('child-1') })
-    ctx.emit('subagent/end', { provider: 'inproc', id: AgentId('child-1'), stopReason: 'completed', lastAssistantMessage: [{ type: 'text', text: 'done' }] })
+    // child lookup yields undefined and it simply runs the hook.
+    ctx.emit('subagent/start', { provider: 'inproc', id: SessionId('child-1') })
+    ctx.emit('subagent/end', { provider: 'inproc', id: SessionId('child-1'), stopReason: 'completed', lastAssistantMessage: [{ type: 'text', text: 'done' }] })
 
     // Both hooks run async (detached .then); poll for their marker files rather
     // than a fixed sleep that flakes under load.
     await waitFor(() => existsSync(startMarker) && existsSync(stopMarker))
     expect(existsSync(startMarker)).toBe(true)
     expect(existsSync(stopMarker)).toBe(true)
-    // A marker proves only that the process ran. Disposal drains its detached continuation so the
-    // no-context branch completes before the per-file coverage snapshot instead of racing CI.
+    // The markers prove the hook PROCESSES ran, not that the detached `.then`
+    // continuations did (`touch` lands before the process exits). Dispose drains
+    // them, so the no-context arm of the SubagentStart continuation — covered
+    // only here — executes before this file's coverage snapshot instead of
+    // racing it (the arm went uncovered on a loaded CI runner and failed the
+    // per-file 100% branch gate).
     await hooks.dispose()
   })
 
@@ -304,8 +311,10 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     const pidFile = join(dir, 'pid')
     const marker = join(dir, 'started')
     const slowHook = join(dir, 'slow.sh')
-    // Record the PID and marker before sleeping past the suite timeout. Disposal must abort and
-    // kill the process rather than await its exit or the default ten-minute hook timeout.
+    // Record the hook shell's PID and touch the marker FIRST so the test can
+    // tell "the hook is genuinely mid-run", then sleep far past the suite
+    // timeout. Dispose must KILL the process (the tracker's abort signal), not
+    // await its exit or its 10-minute default hook timeout.
     writeFileSync(slowHook, `#!/usr/bin/env bash\necho $$ > "${pidFile}"\ntouch "${marker}"\nsleep 30\n`)
     chmodSync(slowHook, 0o755)
     writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: {
@@ -315,15 +324,18 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     const { ctx, hooks } = await harnessWithFiber(dir, new MockAdapter([]))
     const warn = vi.fn()
     ctx.logger.warn = warn as never
-    ctx.emit('subagent/start', { provider: 'inproc', id: AgentId('child-1') })
+    ctx.emit('subagent/start', { provider: 'inproc', id: SessionId('child-1') })
     await waitFor(() => existsSync(marker))
     const pid = Number(readFileSync(pidFile, 'utf8').trim())
     await hooks.dispose()
-    // Disposal reaches quiescence: it returns only after the aborted run settles and the process
-    // is reaped, so `kill(pid, 0)` must report ESRCH. Untracked fire-and-forget work would remain.
+    // Quiescence, not just promptness: the drain resolves only after the run
+    // settled, and the run settles only after the killed process was reaped —
+    // so by the time dispose returns, the PID must be GONE (kill(pid, 0)
+    // throws ESRCH). An untracked fire-and-forget regression would leave the
+    // process alive (or unreaped) and fail this deterministically.
     expect(() => process.kill(pid, 0)).toThrow()
-    // runHook resolves an aborted run as a non-blocking error, so draining must
-    // not log a rejected continuation.
+    // The aborted run resolves as a non-blocking error (runHook never rejects),
+    // so the drained continuation must NOT have logged a failure.
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('SubagentStart hook failed'))
   })
 })
@@ -337,7 +349,7 @@ describe('hooks-claude bridge — load resilience', () => {
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
     await ctx.plugin(HooksClaude, { configPath: '/nonexistent/hooks.json' })
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     // The turn ran normally — no hooks, no crash.
@@ -345,8 +357,11 @@ describe('hooks-claude bridge — load resilience', () => {
   })
 
   it('disposing the bridge fiber removes its listeners (HMR safety)', async () => {
-    // This is the only bridge mount, and its blocking hook would veto the prompt and log an event
-    // if its listener leaked after disposal. A no-op hook would not expose that leak.
+    // A BLOCKING UserPromptSubmit hook: if the listener leaked past dispose it
+    // would veto the prompt (0 model requests) and log a hook/invoked. Build the
+    // ctx WITHOUT the harness's own bridge mount so this is the ONLY mount, then
+    // dispose it — a leaked listener fails the test (a no-op `true` hook would
+    // pass even leaked, so it proved nothing).
     const dir = writeConfig({ UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] })
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = new Context()
@@ -356,7 +371,7 @@ describe('hooks-claude bridge — load resilience', () => {
     const fiber = await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json') })
     await fiber.dispose()
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1) // not blocked → the listener is gone
@@ -364,8 +379,10 @@ describe('hooks-claude bridge — load resilience', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/apply', () => {
-    // A default export would make `unwrapExports` collapse the namespace and drop `inject`, causing
-    // load to fail. Guard the shape from postmortem 0001 directly.
+    // Postmortem 0001 guard: this plugin HAS `inject = ['bash']`, so a stray
+    // `export default apply` would collapse the module via `unwrapExports`
+    // (`exports.default ?? exports`), DROP `inject`, and crash at load with
+    // "cannot get property … without inject". Guard the shape directly.
     expect('default' in HooksClaude).toBe(false)
     expect(HooksClaude.name).toBe('hooks-claude')
     expect(HooksClaude.inject).toEqual(['bash'])

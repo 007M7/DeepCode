@@ -3,10 +3,9 @@ import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync, readFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
@@ -65,7 +64,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
         const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
         const ctx = await harness(path, adapter, { ...sessionRoot !== undefined ? { sessionRoot } : {} })
         ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-        const agent = ctx.agentLoop.create(AgentId('transcript'), { provider: 'mock', model: 'mock' })
+        const agent = ctx.agentLoop.create(SessionId('transcript'), { provider: 'mock', model: 'mock' })
         agent.send([{ type: 'text', text: 'go' }])
         await waitForIdle(ctx, agent)
         return {
@@ -95,7 +94,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const ctx = await harness(path, adapter, { pluginRoot: d, projectDir: d })
       ctx.logger.warn = warn as never
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       expect(existsSync(marker)).toBe(true) // substituted command ran
@@ -111,7 +110,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       ctx.logger.warn = warn as never
       let sawArgs: unknown
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: { command: { type: 'string' } }, async execute(args) { sawArgs = args; return [{ type: 'text', text: 'ok' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       // updatedInput is NOT honored — the tool ran with the ORIGINAL args.
@@ -127,7 +126,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: s }] }] })
       const adapter = new MockAdapter([textResponse('ran')])
       const ctx = await harness(path, adapter)
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       // The prompt proceeded unchanged; no context/message injected.
@@ -157,7 +156,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
       const ctx = await harness(path, adapter)
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
@@ -182,7 +181,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
       const ctx = await harness(path, adapter, { stderrSummaryMaxChars: 40 })
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
@@ -198,7 +197,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const path = hooks(d, { Stop: [{ hooks: [{ type: 'command', command: s }] }] })
       const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
       const ctx = await harness(path, adapter)
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       expect(adapter.requests).toHaveLength(2)
@@ -214,7 +213,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const path = hooks(d, { Stop: [{ hooks: [{ type: 'command', command: s }] }] })
       const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
       const ctx = await harness(path, adapter)
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       // A second model request ran → the empty-reason block forced continuation.
@@ -230,9 +229,9 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const ctx = await harness(path, new MockAdapter([]))
       // Register a fake child agent under the id the event carries.
       const injected: string[] = []
-      const child = { id: AgentId('child-x'), inject: (content: { type: string; text?: string }[]) => { injected.push(content.map(b => b.text ?? '').join('')) }, session: { header: { id: 'child-x' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
+      const child = { id: SessionId('child-x'), inject: (content: { type: string; text?: string }[]) => { injected.push(content.map(b => b.text ?? '').join('')) }, session: { id: SessionId('child-x'), header: { id: 'child-x' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
       ctx.agents.register(child)
-      ctx.emit('subagent/start', { provider: 'p', id: AgentId('child-x') })
+      ctx.emit('subagent/start', { provider: 'p', id: SessionId('child-x') })
       await waitFor(() => injected.includes('child guidance'))
       expect(injected).toContain('child guidance')
     })
@@ -246,9 +245,9 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const path = hooks(d, { SubagentStart: [{ hooks: [{ type: 'command', command: s }] }] })
       const ctx = await harness(path, new MockAdapter([]))
       const warn = vi.fn(); ctx.logger.warn = warn as never
-      const child = { id: AgentId('child-y'), inject: () => { throw new Error('inject boom') }, session: { header: { id: 'child-y' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
+      const child = { id: SessionId('child-y'), inject: () => { throw new Error('inject boom') }, session: { id: SessionId('child-y'), header: { id: 'child-y' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
       ctx.agents.register(child)
-      ctx.emit('subagent/start', { provider: 'p', id: AgentId('child-y') })
+      ctx.emit('subagent/start', { provider: 'p', id: SessionId('child-y') })
       await waitFor(() => warn.mock.calls.some(c => String(c[0]).includes('SubagentStart hook failed')))
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('SubagentStart hook failed'))
     })
@@ -262,7 +261,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
       const ctx = await harness(path, adapter)
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'x' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       const result = events(agent).find(e => e.type === 'tool/result')
@@ -276,7 +275,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
       const ctx = await harness(path, adapter)
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       const result = events(agent).find(e => e.type === 'tool/result')
@@ -292,7 +291,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const s = sh(d, 'stop.sh', `#!/usr/bin/env bash\ntouch "${marker}"\n`)
       const path = hooks(d, { SubagentStop: [{ hooks: [{ type: 'command', command: s }] }] })
       const ctx = await harness(path, new MockAdapter([]))
-      ctx.emit('subagent/end', { provider: 'p', id: AgentId('child-z'), stopReason: 'completed' })
+      ctx.emit('subagent/end', { provider: 'p', id: SessionId('child-z'), stopReason: 'completed' })
       await waitFor(() => existsSync(marker))
       expect(existsSync(marker)).toBe(true)
     })
@@ -305,7 +304,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: s }] }] })
       const adapter = new MockAdapter([textResponse('no')])
       const ctx = await harness(path, adapter)
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
@@ -320,7 +319,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const ctx = await harness(path, adapter)
       let ran = false
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'x' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       // ask (no reason) → degrades to deny with the registry's generic message.
@@ -335,7 +334,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
       const ctx = await harness(path, adapter)
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
@@ -360,7 +359,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // the protocol lib's reference default, not a config knob).
       HooksClaude.apply(ctx, { configPath: join(d, 'hooks.json') })
       ctx.llm.registerAdapter(['mock'], adapter)
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       expect(existsSync(marker)).toBe(true)
@@ -375,7 +374,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const ctx = await harness(path, adapter)
       let ran = false
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       expect(ran).toBe(true)
@@ -390,7 +389,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
       const ctx = await harness(path, adapter)
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       const result = events(agent).find(e => e.type === 'tool/result')
@@ -409,7 +408,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const ctx = await harness(path, adapter)
       let ran = false
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
@@ -426,7 +425,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
       const ctx = await harness(path, adapter)
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       const result = events(agent).find(e => e.type === 'tool/result')
@@ -446,7 +445,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const ctx = await harness(path, adapter)
       let ran = false
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       expect(ran).toBe(true) // the mismatched deny was discarded → the tool ran
@@ -464,7 +463,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const ctx = await harness(path, adapter) // NB: no projectDir
       // The factory create() path honors meta.cwd (the plain agentLoop.create() does not).
       const { SessionId } = await import('@deepseek-ai/dsh-session')
-      const handle = await ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: workspace }, agentOptions: { provider: 'mock', model: 'mock' } })
+      const handle = await ctx.agents.create({ sessionId: SessionId('s1'), meta: { cwd: workspace }, agentOptions: { provider: 'mock', model: 'mock' } })
       handle.agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, handle.agent as ReactLoopAgent)
       expect(events(handle.agent as ReactLoopAgent).some(e => e.type === 'context/message'
@@ -481,9 +480,8 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([textResponse('should not run')])
       const ctx = await harness(path, adapter)
       // A later listener that blocks every prompt (registered AFTER the bridge).
-      const { AgentId: AId } = await import('@deepseek-ai/dsh-agent')
       ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'policy veto' }))
-      const agent = ctx.agentLoop.create(AId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       // the downstream block won: the model was never called, no user/message was
@@ -512,7 +510,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
           meta: { owner: 'policy' },
         }],
       }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       const req = JSON.stringify(adapter.requests[0]!.messages)
@@ -541,7 +539,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const ctx = await harness(path, adapter)
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       ctx.on('tools/post-execute', async () => ({ kind: 'accept' as const, content: [{ type: 'text' as const, text: 'rewritten-result' }] }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       const result = events(agent).find(e => e.type === 'tool/result')
@@ -565,7 +563,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
           meta: { owner: 'policy' },
         }],
       }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
 
@@ -589,7 +587,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const ctx = await harness(path, adapter)
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       ctx.on('tools/post-execute', async () => ({ kind: 'block' as const, feedback: [{ type: 'text' as const, text: 'downstream-block' }] }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       const result = events(agent).find(e => e.type === 'tool/result')
@@ -613,7 +611,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const bash = ctx.bash
       bash.run = (() => Promise.reject(new Error('executor down')))
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
@@ -629,7 +627,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const path = hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: s }] }] })
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(path, adapter)
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       // Make inject throw, forcing the SessionStart .catch path.
       const original = agent.inject.bind(agent)
       let threw = false
@@ -663,7 +661,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
 
       const { SessionId } = await import('@deepseek-ai/dsh-session')
-      const handle = await ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: sessionDir }, agentOptions: { provider: 'mock', model: 'mock' } })
+      const handle = await ctx.agents.create({ sessionId: SessionId('s1'), meta: { cwd: sessionDir }, agentOptions: { provider: 'mock', model: 'mock' } })
       handle.agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, handle.agent as ReactLoopAgent)
 
@@ -692,7 +690,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
 
       // Register a live child on its own session cwd; emit subagent/end with its id.
       const { SessionId } = await import('@deepseek-ai/dsh-session')
-      const childHandle = await ctx.agents.create({ agentId: AgentId('child-stop'), sessionId: SessionId('child-stop-session'), meta: { cwd: childDir }, agentOptions: { provider: 'mock', model: 'mock' } })
+      const childHandle = await ctx.agents.create({ sessionId: SessionId('child-stop-session'), meta: { cwd: childDir }, agentOptions: { provider: 'mock', model: 'mock' } })
       ctx.emit('subagent/end', { provider: 'inproc', id: childHandle.agent.id, stopReason: 'completed' })
 
       await waitFor(() => existsSync(marker))
@@ -713,7 +711,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(path, adapter)
       const warn = vi.fn(); ctx.logger.warn = warn as never
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('systemMessage'))
@@ -731,7 +729,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const path = hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: s }] }] })
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(path, adapter)
-      const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       // Send immediately — do NOT wait for the session-start inject.
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)

@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import SubagentService from '@deepseek-ai/dsh-subagent'
@@ -62,7 +63,6 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('worker workflow engine with-key 
   it('runs a two-phase script in a worker thread over real children, one through the structured runtime', async () => {
     ctx = await harness()
     const parentHandle = await ctx.agents.create({
-      agentId: AgentId('wf-worker-e2e-parent'),
       sessionId: 'wf-worker-e2e-session' as never,
       agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     })
@@ -95,7 +95,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('worker workflow engine with-key 
     expect(childIds.length).toBe(2)
     // The children were disposed to quiescence after collection.
     for (const childId of childIds) {
-      expect(ctx.agents.get(AgentId(childId))).toBeUndefined()
+      expect(ctx.agents.get(SessionId(childId))).toBeUndefined()
     }
     await parentHandle.dispose()
   }, 240_000)

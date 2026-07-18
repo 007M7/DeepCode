@@ -8,7 +8,8 @@ import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
@@ -83,11 +84,10 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     ctx.on('session/created', () => throwUnknown(failure))
 
     await expect(ctx.agents.resume({
-      agentId: AgentId('unknown-resume-failure'),
       resumeSessionId: sessionId,
     })).rejects.toBe(failure)
 
-    expect(ctx.agents.get(AgentId('unknown-resume-failure'))).toBeUndefined()
+    expect(ctx.agents.get(SessionId('unknown-resume-failure'))).toBeUndefined()
     expect(ctx.sessions.get(sessionId)).toBeUndefined()
     await ctx.fiber.dispose()
   })
@@ -95,27 +95,26 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
   it('createAgent uses the caller-supplied sessionId (not ${id}-session)', async () => {
     const adapter = new MockAdapter([textResponse('hi')])
     const { ctx } = await persistentHarness(adapter)
-    const { agent } = await ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('custom-session'), meta: { cwd: '/w' } })
+    const { agent } = await ctx.agents.create({ sessionId: SessionId('custom-session'), meta: { cwd: '/w' } })
     expect(agent.session.id).toBe('custom-session')
     expect(agent.session.header.cwd).toBe('/w')
     await ctx.fiber.dispose()
   })
 
-  it('createAgent rejects a duplicate agent id BEFORE creating the session (no orphan)', async () => {
+  it('createAgent rejects a duplicate identity without orphaning a session', async () => {
     const adapter = new MockAdapter([textResponse('hi')])
     const { ctx } = await persistentHarness(adapter)
-    await ctx.agents.create({ agentId: AgentId('dup'), sessionId: SessionId('sess-a') })
-    // A second create with the SAME agent id but a fresh session id must reject
-    // up front — and must NOT leave an orphaned 'sess-b' session behind.
-    await expect(ctx.agents.create({ agentId: AgentId('dup'), sessionId: SessionId('sess-b') })).rejects.toThrow(/already registered/)
-    expect(ctx.sessions.get(SessionId('sess-b'))).toBeUndefined()
+    const sessionId = SessionId('sess-a')
+    await ctx.agents.create({ sessionId })
+    await expect(ctx.agents.create({ sessionId })).rejects.toThrow(/already exists/)
+    expect(ctx.sessions.list()).toHaveLength(1)
     await ctx.fiber.dispose()
   })
 
   it('createAgent works without meta (no cwd)', async () => {
     const adapter = new MockAdapter([textResponse('hi')])
     const { ctx } = await persistentHarness(adapter)
-    const { agent } = await ctx.agents.create({ agentId: AgentId('a-nometa'), sessionId: SessionId('nometa-session') })
+    const { agent } = await ctx.agents.create({ sessionId: SessionId('nometa-session') })
     expect(agent.session.id).toBe('nometa-session')
     expect(agent.session.header.cwd).toBeUndefined()
     await ctx.fiber.dispose()
@@ -125,7 +124,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     // Lifecycle 1: create a no-cwd session and run a turn.
     const adapter1 = new MockAdapter([textResponse('a')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = (await ctx1.agents.create({ agentId: AgentId('m'), sessionId: SessionId('nocwd-sess') })).agent as ReactLoopAgent
+    const a1 = (await ctx1.agents.create({ sessionId: SessionId('nocwd-sess') })).agent as ReactLoopAgent
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
@@ -141,7 +140,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
-    const a2 = (await ctx2.agents.resume({ agentId: AgentId('m'), resumeSessionId: SessionId('nocwd-sess') })).agent as ReactLoopAgent
+    const a2 = (await ctx2.agents.resume({ resumeSessionId: SessionId('nocwd-sess') })).agent as ReactLoopAgent
     expect(a2.session.header.cwd).toBeUndefined()
     await ctx2.fiber.dispose()
   })
@@ -152,7 +151,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const sources1: string[] = []
     ctx1.on('agent/session-start', (_agent, source) => void sources1.push(source))
-    const a1 = (await ctx1.agents.create({ agentId: AgentId('s'), sessionId: SessionId('start-sess') })).agent as ReactLoopAgent
+    const a1 = (await ctx1.agents.create({ sessionId: SessionId('start-sess') })).agent as ReactLoopAgent
     expect(sources1).toEqual(['startup'])
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
@@ -171,7 +170,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     ctx2.llm.registerAdapter(['mock'], adapter2)
     const sources2: string[] = []
     ctx2.on('agent/session-start', (_agent, source) => void sources2.push(source))
-    await ctx2.agents.resume({ agentId: AgentId('s'), resumeSessionId: SessionId('start-sess') })
+    await ctx2.agents.resume({ resumeSessionId: SessionId('start-sess') })
     expect(sources2).toEqual(['resume'])
     await ctx2.fiber.dispose()
   })
@@ -186,7 +185,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
 
     ctx.on('session/created', (session) => {
       expect(ctx.sessions.get(session.id)).toBe(session)
-      expect(ctx.agents.get(AgentId('resumed-atomic'))?.session).toBe(session)
+      expect(ctx.agents.get(sessionId)?.session).toBe(session)
       order.push('session/created')
     })
     ctx.on('agent/created', (agent) => {
@@ -199,11 +198,10 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     })
 
     const resuming = ctx.agents.resume({
-      agentId: AgentId('resumed-atomic'),
       resumeSessionId: sessionId,
       agentOptions: { provider: 'mock', model: 'mock' },
       setup: async (agentCtx) => {
-        expect(agentCtx.agent?.id).toBe(AgentId('resumed-atomic'))
+        expect(agentCtx.agent?.id).toBe(sessionId)
         expect(agentCtx.agent?.session.events).toHaveLength(2)
         agentCtx.on('session/created', () => void order.push('setup-listener:session/created'))
         agentCtx.on('agent/created', () => void order.push('setup-listener:agent/created'))
@@ -215,7 +213,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     })
 
     await setupStarted.promise
-    expect(ctx.agents.get(AgentId('resumed-atomic'))).toBeUndefined()
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
     expect(ctx.sessions.get(sessionId)).toBeUndefined()
     expect(order).toEqual(['setup:start'])
 
@@ -236,17 +234,15 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
 
   it('successful resume disposal retires its caller-owned transaction effects', async () => {
     const sessionId = SessionId('resume-retired-effects-s')
-    const agentId = AgentId('resume-retired-effects')
     const root = await persistSession(sessionId)
     const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('next')]))
     const handle = await ctx.agents.resume({
-      agentId,
       resumeSessionId: sessionId,
       agentOptions: { provider: 'mock', model: 'mock' },
     })
     const transactionLabels = [
-      `agentLoop.owner(${agentId})`,
-      `agentLoop.lifecycle(${agentId})`,
+      `agentLoop.owner(${sessionId})`,
+      `agentLoop.lifecycle(${sessionId})`,
     ]
 
     expect(ctx.fiber.getEffects().map(effect => effect.label)).toEqual(expect.arrayContaining(transactionLabels))
@@ -255,7 +251,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx.fiber.dispose()
   })
 
-  it('resume setup rejection publishes nothing, unwinds, and releases both identities', async () => {
+  it('resume setup rejection publishes nothing, unwinds, and releases the identity', async () => {
     const sessionId = SessionId('resume-setup-reject')
     const root = await persistSession(sessionId)
     const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('next')]))
@@ -265,7 +261,6 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     ctx.on('agent/session-start', () => void published.push('agent/session-start'))
 
     await expect(ctx.agents.resume({
-      agentId: AgentId('resume-reject'),
       resumeSessionId: sessionId,
       agentOptions: { provider: 'mock', model: 'mock' },
       setup: async () => {
@@ -275,10 +270,9 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     })).rejects.toThrow('resume setup failed')
 
     expect(published).toEqual([])
-    expect(ctx.agents.get(AgentId('resume-reject'))).toBeUndefined()
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
     expect(ctx.sessions.get(sessionId)).toBeUndefined()
     const retry = await ctx.agents.resume({
-      agentId: AgentId('resume-reject'),
       resumeSessionId: sessionId,
       agentOptions: { provider: 'mock', model: 'mock' },
     })
@@ -299,7 +293,6 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     let resuming!: ReturnType<typeof ctx.agents.resume>
     const owner = await ctx.plugin(Object.assign((inner: Context) => {
       resuming = inner.agents.resume({
-        agentId: AgentId('resume-owner-race'),
         resumeSessionId: sessionId,
         agentOptions: { provider: 'mock', model: 'mock' },
         setup: async () => {
@@ -313,7 +306,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await owner.dispose()
     await expect(resuming).rejects.toThrow(/owner disposed during setup/)
     expect(published).toEqual([])
-    expect(ctx.agents.get(AgentId('resume-owner-race'))).toBeUndefined()
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
     expect(ctx.sessions.get(sessionId)).toBeUndefined()
 
     gate.resolve(undefined)
@@ -322,9 +315,8 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx.fiber.dispose()
   })
 
-  it('owner unload aborts a never-settling persistence load, releases identities, and blocks late publication', async () => {
+  it('owner unload aborts a never-settling persistence load, releases the identity, and blocks late publication', async () => {
     const sessionId = SessionId('resume-load-owner-unload')
-    const agentId = AgentId('resume-load-race')
     const root = await persistSession(sessionId)
     const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('next')]))
     const snapshot = await ctx.sessionPersistence.load(sessionId)
@@ -348,19 +340,19 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
 
     let resuming!: ReturnType<typeof ctx.agents.resume>
     const owner = await ctx.plugin(Object.assign((inner: Context) => {
-      resuming = inner.agents.resume({ agentId, resumeSessionId: sessionId, agentOptions: { provider: 'mock', model: 'mock' } })
+      resuming = inner.agents.resume({ resumeSessionId: sessionId, agentOptions: { provider: 'mock', model: 'mock' } })
     }, { inject: ['agents'] }))
     await loadStarted.promise
 
     const rejection = expect(promptly(resuming)).rejects.toThrow(/owner disposed during setup/)
     await promptly(owner.dispose())
     expect(published).toEqual([])
-    expect(ctx.agents.get(agentId)).toBeUndefined()
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
     expect(ctx.sessions.get(sessionId)).toBeUndefined()
 
     // owner.dispose() awaited transaction settlement, so the same identities
     // can be reused before awaiting the public rejection.
-    const retry = await promptly(ctx.agents.resume({ agentId, resumeSessionId: sessionId, agentOptions: { provider: 'mock', model: 'mock' } }))
+    const retry = await promptly(ctx.agents.resume({ resumeSessionId: sessionId, agentOptions: { provider: 'mock', model: 'mock' } }))
     await rejection
     expect(loads).toBe(2)
     expect(published).toEqual(['session/created', 'agent/created', 'agent/session-start'])
@@ -370,7 +362,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     lateLoad.resolve(structuredClone(snapshot))
     await Promise.resolve()
     await Promise.resolve()
-    expect(ctx.agents.get(agentId)).toBe(retry.agent)
+    expect(ctx.agents.get(sessionId)).toBe(retry.agent)
     expect(ctx.sessions.get(sessionId)).toBe(retry.agent.session)
     expect(published).toEqual(['session/created', 'agent/created', 'agent/session-start'])
 
@@ -380,7 +372,6 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
 
   it('AgentLoop unload aborts persistence load and awaits wrapper settlement', async () => {
     const sessionId = SessionId('resume-load-factory-unload')
-    const agentId = AgentId('resume-load-factory-race')
     const root = await persistSession(sessionId)
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -404,14 +395,14 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     ctx.on('session/created', () => void published.push('session/created'))
     ctx.on('agent/created', () => void published.push('agent/created'))
 
-    const resuming = ctx.agents.resume({ agentId, resumeSessionId: sessionId, agentOptions: { provider: 'mock', model: 'mock' } })
+    const resuming = ctx.agents.resume({ resumeSessionId: sessionId, agentOptions: { provider: 'mock', model: 'mock' } })
     await loadStarted.promise
     const rejection = expect(promptly(resuming)).rejects.toThrow(/agent loop is not active/)
     await promptly(loopFiber.dispose())
     await rejection
 
     expect(published).toEqual([])
-    expect(ctx.agents.get(agentId)).toBeUndefined()
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
     expect(ctx.sessions.get(sessionId)).toBeUndefined()
     lateLoad.resolve(structuredClone(snapshot))
     await Promise.resolve()
@@ -452,7 +443,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
-    const a2 = (await ctx2.agents.resume({ agentId: AgentId('m'), resumeSessionId: SessionId('forked-sess') })).agent as ReactLoopAgent
+    const a2 = (await ctx2.agents.resume({ resumeSessionId: SessionId('forked-sess') })).agent as ReactLoopAgent
     expect(a2.session.header.parentSession).toBe('parent-sess')
     expect(a2.session.header.cwd).toBe('/w')
     expect(a2.session.header.seedLength).toBe(seed.length)
@@ -464,7 +455,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     // clean disposal follows, so disk presence proves its own checkpoint ran.
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = (await ctx1.agents.create({ agentId: AgentId('m'), sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent as ReactLoopAgent
+    const a1 = (await ctx1.agents.create({ sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent as ReactLoopAgent
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
@@ -487,7 +478,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     // survive persistence and resume.
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = (await ctx1.agents.create({ agentId: AgentId('m'), sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent as ReactLoopAgent
+    const a1 = (await ctx1.agents.create({ sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent as ReactLoopAgent
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
@@ -505,7 +496,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
-    const a2 = (await ctx2.agents.resume({ agentId: AgentId('m'), resumeSessionId: SessionId('inject-sess') })).agent as ReactLoopAgent
+    const a2 = (await ctx2.agents.resume({ resumeSessionId: SessionId('inject-sess') })).agent as ReactLoopAgent
     const flat = JSON.stringify(a2.session.deriveMessages())
     expect(flat).toContain('background task 42 finished')
     await ctx2.fiber.dispose()
@@ -515,7 +506,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     // Lifecycle 1: run one full turn, persisting it.
     const adapter1 = new MockAdapter([textResponse('first answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = (await ctx1.agents.create({ agentId: AgentId('main'), sessionId: SessionId('sess-resume'), meta: { cwd: '/w' } })).agent as ReactLoopAgent
+    const a1 = (await ctx1.agents.create({ sessionId: SessionId('sess-resume'), meta: { cwd: '/w' } })).agent as ReactLoopAgent
     a1.send([{ type: 'text', text: 'first question' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     const events1 = [...a1.session.events]
@@ -535,7 +526,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
 
-    const a2 = (await ctx2.agents.resume({ agentId: AgentId('main'), resumeSessionId: SessionId('sess-resume') })).agent as ReactLoopAgent
+    const a2 = (await ctx2.agents.resume({ resumeSessionId: SessionId('sess-resume') })).agent as ReactLoopAgent
     // The resumed session carries the prior history…
     expect(a2.session.id).toBe('sess-resume')
     expect(a2.session.events.length).toBe(events1.length)
@@ -563,7 +554,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
     ctx.llm.registerAdapter(['mock'], adapter)
-    await expect(ctx.agents.resume({ agentId: AgentId('m'), resumeSessionId: SessionId('nope') }))
+    await expect(ctx.agents.resume({ resumeSessionId: SessionId('nope') }))
       .rejects.toThrow(/session persistence is not configured/)
     await ctx.fiber.dispose()
   })

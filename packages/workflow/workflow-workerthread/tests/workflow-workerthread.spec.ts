@@ -3,7 +3,6 @@ import { fileURLToPath } from 'node:url'
 import type { Worker } from 'node:worker_threads'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentCapabilities, SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
@@ -11,10 +10,11 @@ import type { WorkflowMeta, WorkflowResult, WorkflowResultInfo, WorkflowRunInfo 
 import * as workerEngineModule from '../src/index.ts'
 import WorkerWorkflowEngine, { type Config } from '../src/index.ts'
 import { HostToWorkerType, WorkerToHostType } from '../src/protocol.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 /** A minimal parent stand-in: the engine only threads it through to the provider. */
 function fakeParent(): Agent {
-  return { id: AgentId('workflow-parent'), options: {} } as unknown as Agent
+  return { id: SessionId('workflow-parent'), options: {} } as unknown as Agent
 }
 
 // Allow cold worker startup on contended CI runners.
@@ -104,7 +104,7 @@ class StubProvider implements SubagentProvider {
     }
     if (request.signal.aborted) throw new Error('child start aborted before publication')
     return {
-      id: AgentId(`stub-child-${index}`),
+      id: SessionId(`stub-child-${index}`),
       result: terminal.promise,
       dispose: () => {
         controlled.disposeCalls += 1
@@ -361,7 +361,7 @@ describe('dsh-workflow-workerthread', () => {
         capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
         inheritsParentContext: false,
         start: async () => ({
-          id: AgentId('reject-child'),
+          id: SessionId('reject-child'),
           result: Promise.reject(new Error('backend exploded')),
           dispose: () => Promise.resolve(),
         }),
@@ -395,7 +395,7 @@ describe('dsh-workflow-workerthread', () => {
         stopReason: 'completed',
       } as unknown as SubagentResult
       const start = vi.spyOn(ctx.subagents, 'start').mockResolvedValue({
-        id: AgentId('raw-invalid-child'),
+        id: SessionId('raw-invalid-child'),
         result: Promise.resolve(invalid),
         dispose: () => Promise.resolve(),
       })
@@ -418,7 +418,7 @@ describe('dsh-workflow-workerthread', () => {
         capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
         inheritsParentContext: false,
         start: async () => ({
-          id: AgentId('bad-dispose-child'),
+          id: SessionId('bad-dispose-child'),
           result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
           cancel: () => { /* settled already */ },
           dispose: () => { throw new Error('dispose exploded') },
@@ -439,7 +439,7 @@ describe('dsh-workflow-workerthread', () => {
         capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
         inheritsParentContext: false,
         start: async () => ({
-          id: AgentId('trap-child'),
+          id: SessionId('trap-child'),
           result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
           cancel: () => { /* settled already */ },
           // The rejection VALUE's own coercion throws: a warn built with bare
@@ -766,7 +766,7 @@ describe('dsh-workflow-workerthread', () => {
             settle({ output: [], stopReason: 'aborted' })
           }, { once: true })
           return {
-            id: AgentId('signal-only-child'),
+            id: SessionId('signal-only-child'),
             result,
             dispose: () => Promise.resolve(),
           }
@@ -1087,7 +1087,7 @@ describe('dsh-workflow-workerthread', () => {
       expect(request.signal.reason).toBe('workflow worker gone')
 
       ready.resolve({
-        id: AgentId('late-ready-child'),
+        id: SessionId('late-ready-child'),
         result: Promise.resolve({ output: [], stopReason: 'aborted' }),
         dispose: () => {
           disposeCalls += 1
@@ -1123,7 +1123,7 @@ describe('dsh-workflow-workerthread', () => {
             handle.cancel('reentered from worker-death signal cleanup')
           }, { once: true })
           return {
-            id: AgentId('doomed-child'),
+            id: SessionId('doomed-child'),
             result: new Promise(() => { /* never settles; the reap is the teardown */ }),
             dispose: () => Promise.reject(new Error('dispose exploded during reap')),
           }

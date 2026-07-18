@@ -15,7 +15,7 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by confirmation tools |
 | `@deepseek-ai/dsh-tool-ask-user` | the model-facing `ask_user_question` tool |
-| `@deepseek-ai/dsh-stdio` | the readline UI, bound to the `main` agent |
+| `@deepseek-ai/dsh-stdio` | the readline UI, bound to the exact app-owned agent/session identity and rendering it as `main` |
 
 `@cordisjs/plugin-hmr` (the dev/demo edit-reload loop) is deliberately a **leaf** entry, NOT baked in here: it is a Loader-only, subprocess-only dev plugin — its constructor throws without `node --expose-internals` + a live `loader`, and the in-process test tier cannot even import it (so a package whose `apply` statically pulled it in could never carry the per-file coverage gate). Unlike the console logger, a stray `hmr` is not a stdout-purity footgun, so leaving it at the leaf costs no safety. The `demo:echo` / `demo:repl` leaves load it and pass `--expose-internals`.
 
@@ -39,7 +39,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | `welcome` | `ready.` | the stdin-chat banner |
 | `resumeSessionId` | — | resume a persisted session id instead of starting fresh (sourced from an env var in the leaf) |
 
-Fresh stdio sessions use the process launch directory as `session.header.cwd`, so project-scoped features such as skill discovery and default bash workdir follow the directory where `dsh-stdio-demo` was started. Resumed sessions keep the cwd stored in the persisted session header.
+Fresh stdio sessions use the process launch directory as `session.header.cwd` and mint one combined `main-session-<uuid>` agent/session id, so durable restarts cannot collide. The app passes that exact opaque id to both its config-created agent and UI; an AgentLoop-only reload resumes materialized history under that id, while the UI's `main` text remains only a display label and never selects another registry root by prefix or insertion order. Readline buffers nonblank startup input for that identity until `agent/session-start`, so piped stdin cannot outrun asynchronous exact-id restoration or let EOF discard the queued prompt; `agent-loop/config-start-failed` instead drains and reports buffered input so a missing or corrupt persisted session cannot hang EOF. A resumed run binds both components to the exact `resumeSessionId` and keeps the cwd stored in the persisted session header.
 
 ## The bin
 

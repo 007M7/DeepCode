@@ -23,8 +23,8 @@ import {
   type SessionNotification,
   type StopReason,
 } from '@agentclientprotocol/sdk'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 import { buildChildEnv, disposeChildProcess, spawnFailure } from '@deepseek-ai/dsh-subagent-subprocess'
 
@@ -149,9 +149,11 @@ function toError(value: unknown): Error {
  * @returns the ready run handle for the child subprocess.
  */
 export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Promise<SubagentRun> {
-  const id = AgentId(randomUUID())
-
   if (request.signal.aborted) throw new Error('subagent request was aborted before the ACP child started')
+  // ACP session ids are unique only within the child server. The lifecycle id
+  // is minted in the parent namespace so fresh processes cannot collide with
+  // each other or with a local agent that happens to use the same session id.
+  const id = SessionId(randomUUID())
 
   // Keep diagnostics on parent stderr; only ACP output contributes to the result.
   const child = spawn(spec.command, spec.args, {
@@ -241,7 +243,9 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
           clientCapabilities: {},
         })
         const session = await conn.newSession({ cwd: spec.cwd, mcpServers: [] })
-        sessionId = session.sessionId
+        const returnedSessionId: unknown = Reflect.get(session, 'sessionId')
+        if (typeof returnedSessionId !== 'string') throw new Error('ACP child published without a session id')
+        sessionId = returnedSessionId
         if (flags.cancelled) throw new Error('subagent cancelled before the ACP session started')
       })(),
       spawnFailed.then((err): never => { throw err }),
@@ -253,13 +257,18 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
     if (flags.cancelled) throw new Error('subagent request was aborted before the ACP child started')
     throw toError(error)
   }
+  // The startup transaction validates the returned id before it can fulfill.
+  // This assertion carries that cross-closure invariant into TypeScript.
+  /* v8 ignore next */
+  if (sessionId === undefined) throw new Error('unreachable: ACP startup fulfilled without a session id')
+  const remoteSessionId = sessionId
 
   const result: Promise<SubagentResult> = (async (): Promise<SubagentResult> => {
     try {
       // Race the remote turn against local cancellation.
       const prompt = async (): Promise<SubagentResult> => {
         // The startup phase cannot fulfill without assigning the session id.
-        const promptResult = await conn.prompt({ sessionId: sessionId as string, prompt: toAcpPrompt(request.prompt) })
+        const promptResult = await conn.prompt({ sessionId: remoteSessionId, prompt: toAcpPrompt(request.prompt) })
         return { output: collectOutput(), stopReason: acpStopReason(promptResult.stopReason) }
       }
       return await Promise.race([

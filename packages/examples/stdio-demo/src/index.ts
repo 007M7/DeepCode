@@ -2,7 +2,8 @@
  * The stdio chat app: the default agent spine ({@link @deepseek-ai/dsh-agent-spine-demo}) plus the
  * coupled front-door cluster a terminal chat needs — a console logger, the independently
  * packaged readline UI, JSONL session persistence, the user-interaction seam with its
- * `ask_user_question` tool, and a pre-created `main` agent the UI drives.
+ * `ask_user_question` tool, and one pre-created agent whose exact shared
+ * agent/session identity the UI drives under its `main` display label.
  * Swappable adapters, executors, optional tools, and HMR stay in the leaf. This
  * Loader plugin intentionally exposes named exports only; a default export
  * would hide its `Config` schema (see docs/postmortem/0001).
@@ -10,9 +11,9 @@
  */
 
 import type { Context } from 'cordis'
+import { randomUUID } from 'node:crypto'
 import ConsoleExporter from '@cordisjs/plugin-logger-console'
 import z from 'schemastery'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
@@ -60,7 +61,7 @@ export interface Config {
   /** Generic background-task control-tool config forwarded through agent-core. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /**
-   * If set, the `main` agent RESUMES this persisted session id instead of
+   * If set, the pre-created agent RESUMES this persisted session id instead of
    * starting fresh. Sourced from an env var in the leaf `cordis.yml`
    * (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`).
    */
@@ -92,26 +93,32 @@ export const Config: z<Config> = z.object({
 })
 
 /**
- * Compose the spine with the stdio front door. The console logger comes first
- * (infra), then the agent-spine-demo bundle pre-creating the `main` agent from this
- * app's `model`/`resumeSessionId` with the deployment `persona`, then the JSONL
- * backend, then the readline UI bound to `main`. The `hmr` dev-reload plugin is
- * a leaf concern (see the module doc), so it is not mounted here.
+ * Compose the spine with the stdio front door. Console logging, persistence,
+ * and user interaction mount first; the readline UI then waits on the agent
+ * registry and subscribes to config-start failures before agent-core can start
+ * the configured identity. The ask-user tool waits on the completed spine.
+ * The `hmr` dev-reload plugin is a leaf concern (see the module doc), so it is
+ * not mounted here.
  */
 export function apply(ctx: Context, config: Config): void {
+  const resumeSessionId = config.resumeSessionId === '' ? undefined : config.resumeSessionId
+  const sessionId = SessionId(resumeSessionId ?? `main-session-${randomUUID()}`)
   ctx.plugin(ConsoleExporter)
+  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
+  ctx.plugin(UserInteractionService)
+  ctx.plugin(uiStdio, {
+    welcome: config.welcome ?? 'ready.',
+    sessionId,
+  })
   ctx.plugin(agentCore, {
     ...agentCore.pickSpineConfig(config),
     agents: [{
-      id: AgentId('main'),
+      id: SessionId('main'),
       provider: config.provider,
       model: config.model,
       cwd: process.cwd(),
-      ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
+      ...resumeSessionId === undefined ? { sessionId } : { resumeSessionId: sessionId },
     }],
   })
-  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
-  ctx.plugin(UserInteractionService)
   ctx.plugin(toolAskUser)
-  ctx.plugin(uiStdio, { welcome: config.welcome ?? 'ready.', agent: 'main' })
 }

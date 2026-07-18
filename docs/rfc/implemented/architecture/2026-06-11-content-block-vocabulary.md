@@ -23,4 +23,4 @@ In-session context injection (`context/message`, `steering/message`) renders as 
 - Multimodal blocks return only with coordinated adapter, UI, and compaction support; see [the drop-image RFC](../simplification/2026-07-04-drop-image-content-block.md).
 - Cache hints and assistant prefill remain absent until a shipping adapter can honor them; see the [producer-less variants](../simplification/2026-07-04-prune-producerless-vocabulary-variants.md) and [inert request knobs](../simplification/2026-07-04-drop-inert-request-knobs.md) RFCs.
 - Every adapter pays a translation cost; the first real adapters have since validated the streaming protocol, and new adapters should continue proving their provider-specific mapping in adapter-local tests.
-- IDs that cross package boundaries are branded (`CallId`, `SessionId`, `AgentId`) — nominal typing at zero runtime cost.
+- IDs that cross package boundaries are branded (`CallId`, the shared agent/session `SessionId`) — nominal typing at zero runtime cost.

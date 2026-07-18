@@ -2,15 +2,16 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context, Service, symbols } from 'cordis'
 import type { Events } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { AgentId, agentEvents } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
+
 import type { Agent, AgentFactory, ContinuationStop, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 
 function stubAgent(rawId: string): Agent {
-  const id = AgentId(rawId)
+  const id = SessionId(rawId)
   return {
     id,
     options: {},
-    session: new Session(SessionId(`${id}-session`)),
+    session: new Session(id),
     status: 'idle',
     ctx: new Context(),
     send() {},
@@ -41,11 +42,39 @@ describe('AgentRegistry', () => {
     const dispose = ctx.agents.register(agent)
     expect(ctx.agents.get(agent.id)).toBe(agent)
     expect(ctx.agents.list()).toEqual([agent])
+    expect(ctx.agents.roots()).toEqual([agent])
     expect(() => ctx.agents.register(stubAgent('a1'))).toThrow(/already registered/)
 
     dispose()
     expect(ctx.agents.get(agent.id)).toBeUndefined()
     expect(lifecycle).toEqual(['created:a1', 'disposed:a1'])
+  })
+
+  it('rejects an agent whose registry and session identities differ', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const agent = { ...stubAgent('agent-id'), session: new Session(SessionId('session-id')) }
+
+    expect(() => ctx.agents.enter(agent, undefined))
+      .toThrow('agent id "agent-id" does not match session id "session-id"')
+    expect(ctx.agents.list()).toEqual([])
+  })
+
+  it('tracks runtime creator ownership separately from registry order', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const root = stubAgent('root')
+    const child = stubAgent('child')
+    const detachRoot = ctx.agents.enter(root, undefined)
+    ctx.agents.announce(root)
+    const detachChild = ctx.agents.enter(child, root)
+    ctx.agents.announce(child)
+
+    expect(ctx.agents.list()).toEqual([root, child])
+    expect(ctx.agents.roots()).toEqual([root])
+
+    detachChild()
+    detachRoot()
   })
 
   it('rolls an entry back and pairs a partially delivered creation when a listener throws', async () => {
@@ -57,7 +86,7 @@ describe('AgentRegistry', () => {
     ctx.on('agent/disposed', agent => void lifecycle.push(`disposed:${agent.id}`))
 
     expect(() => ctx.agents.register(stubAgent('vetoed'))).toThrow('creation veto')
-    expect(ctx.agents.get(AgentId('vetoed'))).toBeUndefined()
+    expect(ctx.agents.get(SessionId('vetoed'))).toBeUndefined()
     expect(lifecycle).toEqual(['created:vetoed', 'disposed:vetoed'])
   })
 
@@ -93,7 +122,7 @@ describe('AgentRegistry', () => {
     ctx.on('agent/disposed', agent => void lifecycle.push(`disposed:${agent.id}`))
 
     const first = stubAgent('split')
-    const detachFirst = ctx.agents.enter(first)
+    const detachFirst = ctx.agents.enter(first, undefined)
     expect(lifecycle).toEqual([])
     ctx.agents.announce(first)
     expect(() => { ctx.agents.announce(first) }).toThrow(/already announced/)
@@ -101,7 +130,7 @@ describe('AgentRegistry', () => {
     detachFirst()
 
     const replacement = stubAgent('split')
-    const detachReplacement = ctx.agents.enter(replacement)
+    const detachReplacement = ctx.agents.enter(replacement, undefined)
     detachFirst()
     expect(ctx.agents.get(replacement.id)).toBe(replacement)
     expect(() => { ctx.agents.announce(first) }).toThrow(/not live/)
@@ -121,7 +150,7 @@ describe('AgentRegistry', () => {
     })
     ctx.on('agent/created', () => void order.push(`second:${ctx.agents.get(agent.id) === agent}`))
     ctx.on('agent/disposed', () => void order.push('disposed'))
-    const detach = ctx.agents.enter(agent)
+    const detach = ctx.agents.enter(agent, undefined)
     ctx.agents.announce(agent)
     expect(order).toEqual(['first:true', 'after-detach:true', 'second:true', 'disposed'])
     expect(ctx.agents.get(agent.id)).toBeUndefined()
@@ -158,11 +187,11 @@ describe('AgentRegistry factory seam', () => {
     const factory: AgentFactory = {
       async createAgent(ownerCtx, options) {
         calls.create.push({ ownerCtx, options })
-        return { agent: stubAgent(options.agentId), dispose: () => Promise.resolve() }
+        return { agent: stubAgent(options.sessionId), dispose: () => Promise.resolve() }
       },
       async resume(ownerCtx, options) {
         calls.resume.push({ ownerCtx, options })
-        return { agent: stubAgent(options.agentId), dispose: () => Promise.resolve() }
+        return { agent: stubAgent(options.resumeSessionId), dispose: () => Promise.resolve() }
       },
     }
     return { factory, calls }
@@ -171,15 +200,15 @@ describe('AgentRegistry factory seam', () => {
   it('requires a factory and delegates through the calling context', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    await expect(ctx.agents.create({ agentId: AgentId('a'), sessionId: SessionId('s') })).rejects.toThrow(/no agent factory/)
+    await expect(ctx.agents.create({ sessionId: SessionId('s') })).rejects.toThrow(/no agent factory/)
     const { factory, calls } = stubFactory()
     ctx.agents.setFactory(factory)
 
     let callerFiber: Context['fiber'] | undefined
     await ctx.plugin(Object.assign(async (inner: Context) => {
       callerFiber = inner.fiber
-      await inner.agents.create({ agentId: AgentId('create'), sessionId: SessionId('create-s') })
-      await inner.agents.resume({ agentId: AgentId('resume'), resumeSessionId: SessionId('resume-s') })
+      await inner.agents.create({ sessionId: SessionId('create-s') })
+      await inner.agents.resume({ resumeSessionId: SessionId('resume-s') })
     }, { inject: ['agents'] }))
     expect(calls.create[0]?.ownerCtx.fiber).toBe(callerFiber)
     expect(calls.resume[0]?.ownerCtx.fiber).toBe(callerFiber)
@@ -192,9 +221,9 @@ describe('AgentRegistry factory seam', () => {
       inner.agents.setFactory(stubFactory().factory)
       expect(() => inner.agents.setFactory(stubFactory().factory)).toThrow(/already registered/)
     }, { inject: ['agents'] }))
-    await expect(ctx.agents.create({ agentId: AgentId('before'), sessionId: SessionId('before-s') })).resolves.toBeDefined()
+    await expect(ctx.agents.create({ sessionId: SessionId('before-s') })).resolves.toBeDefined()
     await owner.dispose()
-    await expect(ctx.agents.create({ agentId: AgentId('after'), sessionId: SessionId('after-s') })).rejects.toThrow(/no agent factory/)
+    await expect(ctx.agents.create({ sessionId: SessionId('after-s') })).rejects.toThrow(/no agent factory/)
   })
 
   it('canonicalizes an already traced Service before tracing it for the caller', async () => {
@@ -214,18 +243,18 @@ describe('AgentRegistry factory seam', () => {
       }
       async createAgent(_ownerCtx: Context, options: CreateAgentOptions) {
         this.calls().push('create')
-        return { agent: stubAgent(options.agentId), dispose: () => Promise.resolve() }
+        return { agent: stubAgent(options.sessionId), dispose: () => Promise.resolve() }
       }
       async resume(_ownerCtx: Context, options: ResumeAgentOptions) {
         this.calls().push('resume')
-        return { agent: stubAgent(options.agentId), dispose: () => Promise.resolve() }
+        return { agent: stubAgent(options.resumeSessionId), dispose: () => Promise.resolve() }
       }
     }
     await ctx.plugin(TracedFactory)
     const traced = (ctx as Context & { tracedFactory: TracedFactory }).tracedFactory
     ctx.agents.setFactory(traced)
-    await ctx.agents.create({ agentId: AgentId('create'), sessionId: SessionId('create-s') })
-    await ctx.agents.resume({ agentId: AgentId('resume'), resumeSessionId: SessionId('resume-s') })
+    await ctx.agents.create({ sessionId: SessionId('create-s') })
+    await ctx.agents.resume({ resumeSessionId: SessionId('resume-s') })
     const raw = (traced as unknown as { [symbols.original]?: TracedFactory })[symbols.original]
     expect(states.get(raw!)).toEqual(['create', 'resume'])
   })

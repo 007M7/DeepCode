@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import TaskService from '@deepseek-ai/dsh-tasks'
@@ -100,7 +99,6 @@ describe('bash tool through the agent loop', () => {
     ])
     const ctx = await harness(adapter, root, dshHome)
     const handle = await ctx.agents.create({
-      agentId: AgentId('session-env'),
       sessionId: SessionId('session-env-id'),
       agentOptions: { provider: 'mock', model: 'mock' },
     })
@@ -125,7 +123,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('The command printed integration-ok.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-fg'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-fg'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'run echo integration-ok' }])
     await waitForIdle(ctx, agent)
@@ -157,7 +155,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('It failed with code 9.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-exit'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-exit'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'run exit 9' }])
     await waitForIdle(ctx, agent)
@@ -177,7 +175,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('Background task finished.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-bg'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-bg'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'run echo bg-ok in the background' }])
     await waitForIdle(ctx, agent)

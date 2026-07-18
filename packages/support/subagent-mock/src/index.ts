@@ -7,8 +7,8 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type {
   SubagentCapabilities,
   SubagentProvider,
@@ -54,7 +54,7 @@ class MockSubagentProvider implements SubagentProvider {
 
     // A deterministic child id derived from the parent — no clock/random (both
     // banned in deterministic paths here, and unnecessary for a scripted run).
-    const id = AgentId(`mock-subagent:${this.name}:${request.parent.id}`)
+    const id = SessionId(`mock-subagent:${this.name}:${request.parent.id}`)
 
     const resultFor = (): SubagentResult => ({
       output,

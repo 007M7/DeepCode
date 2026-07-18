@@ -14,12 +14,12 @@ The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary
 Concrete ReactLoopAgent factory and driver service.
 
 ```ts cordis-catalog
-create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent
+create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent
 async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>
 async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:352`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:408`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -30,15 +30,16 @@ setFactory(factory: AgentFactory): () => void
 async create(options: CreateAgentOptions): Promise<AgentHandle>
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 register(agent: Agent): () => void
-enter(agent: Agent): () => void
+enter(agent: Agent, owner: Agent | undefined): () => void
 announce(agent: Agent): void
-get(id: AgentId): Agent | undefined
+get(id: SessionId): Agent | undefined
 list(): Agent[]
+roots(): Agent[]
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:133`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:201`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -220,7 +221,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:580`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:585`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -262,7 +263,7 @@ list(): string[]
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:141`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:142`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 

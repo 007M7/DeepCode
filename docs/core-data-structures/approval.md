@@ -6,7 +6,7 @@ Source: [`packages/ui/user-approval/src/index.ts`](../../packages/ui/user-approv
 
 ## Identity and outcome
 
-Every request receives a fresh `ApprovalRequestId`. The brand pairs the `approval/asked` and `approval/decided` audit events without making approval ids interchangeable with tool-call, session, or agent ids.
+Every request receives a fresh `ApprovalRequestId`. The brand pairs the `approval/asked` and `approval/decided` audit events without making approval ids interchangeable with tool-call or agent/session ids.
 
 ```ts type-equiv
 type ApprovalRequestId = Branded<'ApprovalRequestId'>

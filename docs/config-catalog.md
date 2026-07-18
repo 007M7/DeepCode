@@ -27,7 +27,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:208`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:207`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
@@ -87,8 +87,10 @@ export interface Config {
   maxParallelToolCalls?: number
   /** Agents created or resumed at plugin startup. */
   agents: (AgentOptions & {
-    /** Registry identity for the live agent. */
-    id: AgentId
+    /** Stable config label used in logs and as the fresh combined-id prefix. */
+    id: string
+    /** Optional stable identity; remounts resume its materialized history, while first use creates it fresh. */
+    sessionId?: SessionId
     /** Optional workspace for a fresh session. */
     cwd?: string
     /** Persisted session to resume instead of creating a fresh session. */
@@ -97,9 +99,9 @@ export interface Config {
 }
 ```
 
-Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
+Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
-Source: [`packages/core/agent-loop/src/index.ts:334`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:370`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-spine-demo`
 
@@ -597,7 +599,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/guard/repeat-tool-guard/src/index.ts:27`](../packages/guard/repeat-tool-guard/src/index.ts)
+Source: [`packages/guard/repeat-tool-guard/src/index.ts:26`](../packages/guard/repeat-tool-guard/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-local`
 
@@ -767,12 +769,12 @@ Requires: `agents` · `userInteraction`
 export interface Config {
   /** Banner printed once on start, before the first `> ` prompt. */
   welcome?: string
-  /** Id of the agent stdin drives (`send`/`steer`) and whose status gates the EOF exit; rendering is global. Defaults to `'main'`. */
-  agent?: string
+  /** Exact shared agent/session identity stdin drives. Defaults to `'main'`. */
+  sessionId?: string
 }
 ```
 
-Source: [`packages/ui/stdio/src/index.ts:30`](../packages/ui/stdio/src/index.ts)
+Source: [`packages/ui/stdio/src/index.ts:33`](../packages/ui/stdio/src/index.ts)
 
 ## `@deepseek-ai/dsh-stdio-demo`
 
@@ -813,7 +815,7 @@ export interface Config {
   /** Generic background-task control-tool config forwarded through agent-core. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /**
-   * If set, the `main` agent RESUMES this persisted session id instead of
+   * If set, the pre-created agent RESUMES this persisted session id instead of
    * starting fresh. Sourced from an env var in the leaf `cordis.yml`
    * (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`).
    */
@@ -825,7 +827,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/stdio-demo/src/index.ts:37`](../packages/examples/stdio-demo/src/index.ts)
+Source: [`packages/examples/stdio-demo/src/index.ts:38`](../packages/examples/stdio-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-acp`
 

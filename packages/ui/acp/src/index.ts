@@ -45,7 +45,6 @@ import {
 import type { ContentBlock, LlmCallConfig, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 // Side-effect type import: resolves `ctx.get('permission')` to the service.
 import type {} from '@deepseek-ai/dsh-permission'
@@ -677,7 +676,6 @@ export function apply(ctx: Context, config: AcpConfig): void {
         const directory = modelDirectory(await readModelCatalog(), target.current)
         assertOpen()
         const handle = await agents.create({
-          agentId: AgentId(sessionId),
           sessionId,
           meta: { cwd: params.cwd },
           agentOptions: agentOptions(config),
@@ -753,7 +751,6 @@ export function apply(ctx: Context, config: AcpConfig): void {
           assertOpen()
           const target: LlmTargetRef = { current: configuredTarget(), assembled: undefined }
           const handle = await agents.resume({
-            agentId: AgentId(sessionId),
             resumeSessionId: sessionId,
             agentOptions: agentOptions(config),
             setup: (agentCtx) => { installTarget(agentCtx, target) },

@@ -9,11 +9,12 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore, { foldRequestHeader } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import type { Config as SystemPromptConfig } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
@@ -56,7 +57,7 @@ async function runTurn(registrationOrder: string[], toolOrder?: SystemPromptConf
   const adapter = new MockAdapter([textResponse('done')])
   const ctx = await harness(adapter, toolOrder)
   for (const name of registrationOrder) registerNamed(ctx, name)
-  const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+  const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
   agent.send([{ type: 'text', text: 'go' }])
   await waitForIdle(ctx, agent)
   return { ctx, agent, adapter }
@@ -98,7 +99,7 @@ describe('loop-level canonical tool order', () => {
     registerNamed(ctx, 'alpha')
     const errors: Error[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(0)
