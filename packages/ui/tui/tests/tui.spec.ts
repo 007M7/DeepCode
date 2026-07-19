@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
@@ -360,6 +360,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const unsetResult = await setup({ cwd: null })
     expect(unsetResult.terminal.output).toContain('cwd unset')
     await dispose(unsetResult)
+
+    const homeParent = resolve(home, '..')
+    const parentResult = await setup({ cwd: homeParent })
+    expect(parentResult.terminal.output).toContain(homeParent)
+    await dispose(parentResult)
 
     const outsideResult = await setup({ cwd: '/opt' })
     expect(outsideResult.terminal.output).toContain('/opt')
