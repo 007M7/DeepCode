@@ -19,7 +19,7 @@ const ERROR_FILE_EXISTS = 80
 const ERROR_INVALID_NAME = 123
 const ERROR_ALREADY_EXISTS = 183
 
-type MoveFileExW = (existing: string, replacement: string, flags: number, setLastError: (code: number) => void) => boolean
+type MoveFileExW = (existing: string, replacement: string, flags: number, setLastError: (code: number) => void) => number
 
 const roots: string[] = []
 
@@ -42,14 +42,15 @@ async function importWithMove(moveFileExW: MoveFileExW): Promise<typeof import('
     const setLastError = (code: number): void => { lastError = code }
     const move: MoveFileExW = (existing, replacement, flags, setError) => {
       const ok = moveFileExW(existing, replacement, flags, setError)
-      lastError = ok ? 0 : lastError
+      lastError = ok === 0 ? lastError : 0
       return ok
     }
     return {
       default: {
         load: () => ({
-          func: (_convention: string, name: string) => {
+          func: (_convention: string, name: string, result: string) => {
             if (name === 'MoveFileExW') return (existing: string, replacement: string, flags: number) => {
+              expect(result).toBe('int')
               const ok = move(existing, replacement, flags, setLastError)
               return ok
             }
@@ -68,7 +69,7 @@ async function importWithError(code: number): Promise<typeof import('../src/win3
     default: {
       load: () => ({
         func: (_convention: string, name: string) => {
-          if (name === 'MoveFileExW') return () => false
+          if (name === 'MoveFileExW') return () => 0
           return () => code
         },
       }),
@@ -82,10 +83,10 @@ async function importWithFilesystemMove(): Promise<typeof import('../src/win32.t
     expect(flags).toBe(MOVEFILE_WRITE_THROUGH)
     const from = stripNamespace(existing)
     const to = stripNamespace(replacement)
-    if (!existsSync(from)) { setLastError(ERROR_FILE_NOT_FOUND); return false }
-    if (existsSync(to)) { setLastError(ERROR_ALREADY_EXISTS); return false }
+    if (!existsSync(from)) { setLastError(ERROR_FILE_NOT_FOUND); return 0 }
+    if (existsSync(to)) { setLastError(ERROR_ALREADY_EXISTS); return 0 }
     renameSync(from, to)
-    return true
+    return 1
   })
 }
 
@@ -135,12 +136,12 @@ describe('Windows durable namespace helpers', () => {
       if (to === raced) {
         mkdirSync(to)
         setLastError(ERROR_ALREADY_EXISTS)
-        return false
+        return 0
       }
-      if (!existsSync(from)) { setLastError(ERROR_FILE_NOT_FOUND); return false }
-      if (existsSync(to)) { setLastError(ERROR_ALREADY_EXISTS); return false }
+      if (!existsSync(from)) { setLastError(ERROR_FILE_NOT_FOUND); return 0 }
+      if (existsSync(to)) { setLastError(ERROR_ALREADY_EXISTS); return 0 }
       renameSync(from, to)
-      return true
+      return 1
     })
 
     await ensureDurableDirectoryWin32(join(root, 'a', 'b'))

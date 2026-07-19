@@ -14,7 +14,7 @@
 import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { basename, join, parse, resolve, toNamespacedPath } from 'node:path'
 
-type MoveFileExW = (existing: string, replacement: string, flags: number) => boolean
+type MoveFileExW = (existing: string, replacement: string, flags: number) => number
 type GetLastError = () => number
 
 interface Win32Bindings {
@@ -44,7 +44,7 @@ async function win32(): Promise<Win32Bindings> {
   const koffi = (await import('koffi')).default
   const kernel32 = koffi.load('kernel32.dll')
   bindings = {
-    moveFileExW: kernel32.func('__stdcall', 'MoveFileExW', 'bool', ['str16', 'str16', 'uint']) as MoveFileExW,
+    moveFileExW: kernel32.func('__stdcall', 'MoveFileExW', 'int', ['str16', 'str16', 'uint']) as MoveFileExW,
     getLastError: kernel32.func('__stdcall', 'GetLastError', 'uint', []) as GetLastError,
   }
   return bindings
@@ -113,7 +113,7 @@ async function assertDirectory(path: string): Promise<boolean> {
 export async function publishNewFileWin32(existing: string, replacement: string): Promise<void> {
   const api = await win32()
   const ok = api.moveFileExW(toNamespacedPath(existing), toNamespacedPath(replacement), MOVEFILE_WRITE_THROUGH)
-  if (!ok) throw win32Error('MoveFileExW', api.getLastError(), existing, replacement)
+  if (ok === 0) throw win32Error('MoveFileExW', api.getLastError(), existing, replacement)
 }
 
 /**
