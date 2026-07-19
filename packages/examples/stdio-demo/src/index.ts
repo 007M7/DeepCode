@@ -24,6 +24,8 @@ import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as uiStdio from '@deepseek-ai/dsh-stdio'
 
 export const name = 'stdio-demo'
+const DEFAULT_PERSISTENCE_ROOT = './.sessions'
+const DEFAULT_WELCOME = 'ready.'
 
 /**
  * App config: the swappable per-demo values, each routed to where the app wires
@@ -81,10 +83,8 @@ export const Config: z<Config> = z.object({
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
   dshHome: z.string(),
-  // TODO(single-default-literal): share these schema defaults and defensive
-  // apply() fallbacks through named constants while retaining both boundaries.
-  persistenceRoot: z.string().default('./.sessions'),
-  welcome: z.string().default('ready.'),
+  persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
+  welcome: z.string().default(DEFAULT_WELCOME),
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: agentCore.ToolTasksConfigSchema,
@@ -104,10 +104,10 @@ export function apply(ctx: Context, config: Config): void {
   const resumeSessionId = config.resumeSessionId === '' ? undefined : config.resumeSessionId
   const sessionId = SessionId(resumeSessionId ?? `main-session-${randomUUID()}`)
   ctx.plugin(ConsoleExporter)
-  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
+  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT })
   ctx.plugin(UserInteractionService)
   ctx.plugin(uiStdio, {
-    welcome: config.welcome ?? 'ready.',
+    welcome: config.welcome ?? DEFAULT_WELCOME,
     sessionId,
   })
   ctx.plugin(agentCore, {

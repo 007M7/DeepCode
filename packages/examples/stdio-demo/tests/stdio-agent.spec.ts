@@ -103,7 +103,7 @@ describe('dsh-stdio-demo app', () => {
 
   it('defaults persistenceRoot and welcome when omitted', async () => {
     // Direct apply (NOT via ctx.plugin, which validates+defaults the config
-    // first) so the runtime `?? './.sessions'` / `?? 'ready.'` fallbacks on
+    // first) so the runtime `DEFAULT_PERSISTENCE_ROOT` / `DEFAULT_WELCOME` fallbacks on
     // apply()'s last two lines are the ones that fire — covering a
     // schema-bypassing direct-mount caller.
     const ctx = new Context()
