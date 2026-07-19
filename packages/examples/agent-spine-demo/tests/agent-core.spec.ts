@@ -48,7 +48,14 @@ async function mount(config: agentCore.Config, withBash = false): Promise<Contex
   process.env.DSH_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-home-'))
   process.env.DSH_AGENTS_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-agents-'))
   const ctx = new Context()
-  if (withBash) ctx.provide('bash', { sandboxMode: undefined })
+  if (withBash) {
+    ctx.provide('bash', {
+      sandboxMode: undefined,
+      resolve() { throw new Error('composition test does not execute bash') },
+      run() { throw new Error('composition test does not execute bash') },
+      start() { throw new Error('composition test does not execute bash') },
+    })
+  }
   try {
     await ctx.plugin(agentCore, config)
     // The bundle mounts its children inside apply() (not awaited there); let their

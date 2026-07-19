@@ -15,19 +15,9 @@ import type { ContinuationStop } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { ToolArgsError, validateStructuredValue, type StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
+import { STRUCTURED_OUTPUT_INSTRUCTION, STRUCTURED_OUTPUT_TOOL } from './structured-protocol.ts'
 
-/** The model-facing tool name a structured child must call to finish. */
-export const STRUCTURED_OUTPUT_TOOL = 'structured_output'
-
-/**
- * The instruction registered as the child's trailing (order-190, the end of
- * the tool-guidance band) scoped prompt section: the demand travels with the
- * tool, as ordinary prompt state of exactly one agent.
- */
-export const STRUCTURED_OUTPUT_INSTRUCTION
-  = 'When you have your final answer, you MUST report it by calling the '
-    + `\`${STRUCTURED_OUTPUT_TOOL}\` tool with arguments matching its parameter schema exactly. `
-    + 'Do not finish with a plain text answer: only the tool call counts as your result.'
+export { STRUCTURED_OUTPUT_INSTRUCTION, STRUCTURED_OUTPUT_TOOL } from './structured-protocol.ts'
 
 /** One structured run's live handle: read the captured value once the child settles. */
 export interface StructuredAttachment {

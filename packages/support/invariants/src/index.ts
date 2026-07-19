@@ -1,14 +1,13 @@
 /**
  * Configurable registry for package-owned runtime invariant contributions.
- * Every workspace package registers its name from a `./invariant` companion;
- * ordinary package entrypoints stay independent of diagnostics, and packages
- * without relational checks use an ownership-only installer.
+ * Every workspace package registers checks from a `./invariant` companion;
+ * ordinary package entrypoints stay independent of diagnostics.
  *
  * @module @deepseek-ai/dsh-invariants
  */
 
-import { Context, Service } from 'cordis'
-import type { Inject } from 'cordis'
+import { Context, FiberState, Service } from 'cordis'
+import type { Fiber, Inject, Plugin } from 'cordis'
 import z from 'schemastery'
 import type Schema from 'schemastery'
 
@@ -40,6 +39,173 @@ export interface InvariantInstaller {
   (ctx: Context, fail: InvariantFailure): void
   /** Services the child installer fiber may access. */
   readonly inject?: Inject
+}
+
+/** Runtime facts one package expects from its Cordis plugin fiber. */
+export interface PluginInvariantContract {
+  /** Exact plugin value when checking it does not preload an unrelated runtime; otherwise matching uses `name`. */
+  readonly plugin?: Plugin
+  /** Exact Cordis display name for the plugin fiber. */
+  readonly name: string
+  /** Required service injections that must be present when the fiber activates. */
+  readonly inject?: readonly string[]
+  /** Required owned effect labels; an inner array means at least one alternative must exist. */
+  readonly effects?: readonly (string | readonly string[])[]
+  /** Services the active fiber must provide. */
+  readonly services?: readonly string[]
+  /** Optional package-owned validation after the structural checks pass. */
+  readonly validate?: (fiber: Fiber, effectLabels: ReadonlySet<string>) => string | undefined
+}
+
+/** Collect all live effect labels below a plugin fiber. */
+function collectEffectLabels(fiber: Fiber): ReadonlySet<string> {
+  const labels = new Set<string>()
+  const visit = (effects: ReturnType<Fiber['getEffects']>): void => {
+    for (const effect of effects) {
+      labels.add(effect.label)
+      visit(effect.children)
+    }
+  }
+  visit(fiber.getEffects())
+  return labels
+}
+
+/**
+ * Observe one package plugin and fail whenever an active fiber violates its
+ * declared name, dependency, effect, service, or package-specific contract.
+ * Existing fibers are checked immediately; later starts and HMR activations
+ * are checked through Cordis lifecycle events.
+ * @param ctx - invariant child context that owns the observers.
+ * @param fail - reporter bound to the package that owns the plugin.
+ * @param contract - expected runtime facts for the package plugin.
+ * @returns nothing after lifecycle observers are installed.
+ */
+export function observePluginInvariant(
+  ctx: Context,
+  fail: InvariantFailure,
+  contract: PluginInvariantContract,
+): void {
+  const callback = contract.plugin === undefined ? undefined : ctx.registry.resolve(contract.plugin)
+  if (contract.plugin !== undefined && callback === undefined) {
+    fail('invariant contract does not identify a Cordis plugin')
+  }
+
+  const inspect = (fiber: Fiber): void => {
+    const matches = callback === undefined
+      ? fiber.runtime?.name === contract.name
+      : fiber.runtime?.callback === callback
+    if (!matches || fiber.state !== FiberState.ACTIVE) return
+    if (callback !== undefined && fiber.name !== contract.name) {
+      fail(`active plugin name must be ${JSON.stringify(contract.name)}, got ${JSON.stringify(fiber.name)}`)
+    }
+    const injections = new Set(Object.keys(fiber.inject))
+    for (const service of contract.inject ?? []) {
+      if (!injections.has(service)) fail(`active plugin must inject ${JSON.stringify(service)}`)
+    }
+
+    const effectLabels = collectEffectLabels(fiber)
+    for (const requirement of contract.effects ?? []) {
+      const alternatives = typeof requirement === 'string' ? [requirement] : requirement
+      if (!alternatives.some(label => effectLabels.has(label))) {
+        fail(`active plugin must own effect ${alternatives.map(label => JSON.stringify(label)).join(' or ')}`)
+      }
+    }
+    for (const service of contract.services ?? []) {
+      const provided = Reflect.ownKeys(fiber.ctx.reflect.store).some((key) => {
+        const implementation = fiber.ctx.reflect.store[key as symbol]
+        return implementation?.fiber === fiber && implementation.name === service
+      })
+      if (!provided) fail(`active plugin must provide service ${JSON.stringify(service)}`)
+    }
+    const message = contract.validate?.(fiber, effectLabels)
+    if (message !== undefined) fail(message)
+  }
+
+  if (contract.plugin === undefined) {
+    for (const runtime of ctx.registry.values()) {
+      for (const fiber of runtime.fibers) inspect(fiber)
+    }
+  } else {
+    for (const fiber of ctx.registry.get(contract.plugin)?.fibers ?? []) inspect(fiber)
+  }
+  ctx.on('internal/plugin', inspect, { global: true })
+  ctx.on('internal/status', inspect, { global: true })
+}
+
+/**
+ * Validate every current and future implementation bound to one Cordis service.
+ * @param ctx - invariant child context that owns the service observer.
+ * @param fail - reporter bound to the package that owns the service seam.
+ * @param serviceName - Cordis service name to observe.
+ * @param validate - returns the violated contract, or `undefined` for a valid implementation.
+ * @returns nothing after the current binding is checked and the observer is installed.
+ */
+export function observeServiceInvariant(
+  ctx: Context,
+  fail: InvariantFailure,
+  serviceName: string,
+  validate: (value: unknown) => string | undefined,
+): void {
+  const inspect = (value: unknown): void => {
+    if (value === undefined) return
+    const message = validate(value)
+    if (message !== undefined) fail(message)
+  }
+  const current: unknown = ctx.get(serviceName)
+  inspect(current)
+  ctx.on('internal/service', (name, value: unknown) => {
+    if (name === serviceName) inspect(value)
+  }, { global: true })
+}
+
+/** Structural runtime surface required from a Cordis service implementation. */
+export interface ServiceShapeInvariant {
+  /** Members that must be callable. */
+  readonly methods: readonly string[]
+  /** Members that must be non-empty strings. */
+  readonly stringProperties?: readonly string[]
+}
+
+/**
+ * Describe the first missing member in a structural service implementation.
+ * This deliberately accepts test doubles and third-party implementations that
+ * satisfy the seam without inheriting the first-party abstract service class.
+ * @param value - candidate service implementation.
+ * @param shape - callable and string members owned by the service package.
+ * @returns the violated shape, or `undefined` when the candidate conforms.
+ */
+export function serviceShapeViolation(
+  value: unknown,
+  shape: ServiceShapeInvariant,
+): string | undefined {
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
+    return 'service implementation must be an object'
+  }
+  const record = value as Record<string, unknown>
+  for (const method of shape.methods) {
+    if (typeof record[method] !== 'function') return `service implementation must expose method ${JSON.stringify(method)}`
+  }
+  for (const property of shape.stringProperties ?? []) {
+    if (typeof record[property] !== 'string' || record[property].length === 0) {
+      return `service implementation must expose non-empty string ${JSON.stringify(property)}`
+    }
+  }
+  return undefined
+}
+
+/**
+ * Report a failed package-owned synchronous invariant.
+ * @param fail - reporter bound to the package that owns the assertion.
+ * @param condition - condition that must hold.
+ * @param message - violated contract when `condition` is false.
+ * @returns nothing when the condition holds.
+ */
+export function assertInvariant(
+  fail: InvariantFailure,
+  condition: unknown,
+  message: string,
+): void {
+  if (!condition) fail(message)
 }
 
 /** Internal effect shape used to join child startup before a companion loads. */

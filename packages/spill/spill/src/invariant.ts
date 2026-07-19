@@ -1,14 +1,7 @@
-/**
- * Generated invariant ownership companion for `@deepseek-ai/dsh-spill`.
- * Replace this file with package-owned checks while preserving its registration.
- *
- * @generated scripts/gen-package-invariants.ts
- * @module @deepseek-ai/dsh-spill/invariant
- */
+/** Package-owned runtime contract checks for `@deepseek-ai/dsh-spill`. @module @deepseek-ai/dsh-spill/invariant */
 
-/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { observeServiceInvariant, serviceShapeViolation, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-spill'
 
@@ -17,8 +10,12 @@ export const name = 'spill-invariant'
 /** Services required before the companion can register. */
 export const inject = ['invariants']
 
-/** Reserve this package's invariant ownership until it adds relational checks. */
-const install: InvariantInstaller = () => {}
+/** Validate every implementation bound to this package's service seam. */
+const install: InvariantInstaller = (ctx, fail) => {
+  observeServiceInvariant(ctx, fail, 'spillStore', value => serviceShapeViolation(value, {
+    methods: ['saveText'],
+  }))
+}
 
 /**
  * Register this package's invariant companion.
@@ -27,4 +24,3 @@ const install: InvariantInstaller = () => {}
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
-/* jscpd:ignore-end */

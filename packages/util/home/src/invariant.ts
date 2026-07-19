@@ -1,14 +1,9 @@
-/**
- * Generated invariant ownership companion for `@deepseek-ai/dsh-home`.
- * Replace this file with package-owned checks while preserving its registration.
- *
- * @generated scripts/gen-package-invariants.ts
- * @module @deepseek-ai/dsh-home/invariant
- */
+/** Package-owned runtime contracts for @deepseek-ai/dsh-home. @module @deepseek-ai/dsh-home/invariant */
 
 /* jscpd:ignore-start */
+import { resolve } from 'node:path'
 import type { Context } from 'cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-home'
 
@@ -17,8 +12,19 @@ export const name = 'home-invariant'
 /** Services required before the companion can register. */
 export const inject = ['invariants']
 
-/** Reserve this package's invariant ownership until it adds relational checks. */
-const install: InvariantInstaller = () => {}
+/** Assert the canonical environment key and configured-path precedence. */
+const install: InvariantInstaller = (ctx, fail) => {
+  ctx.effect(async () => {
+    const { DSH_HOME_ENV, resolveDshHome } = await import('./index.ts')
+    const environmentKey: string = DSH_HOME_ENV
+    assertInvariant(fail, environmentKey === ['DSH', 'HOME'].join('_'),
+      'the canonical Harness home environment key must remain DSH_HOME')
+    const configured = 'relative-invariant-home'
+    assertInvariant(fail, resolveDshHome(configured) === resolve(configured),
+      'an explicitly configured Harness home must normalize to an absolute path')
+    return () => {}
+  }, 'home: validate canonical DSH home resolution')
+}
 
 /**
  * Register this package's invariant companion.

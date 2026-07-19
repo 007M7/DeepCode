@@ -1,14 +1,7 @@
-/**
- * Generated invariant ownership companion for `@deepseek-ai/dsh-invariants`.
- * Replace this file with package-owned checks while preserving its registration.
- *
- * @generated scripts/gen-package-invariants.ts
- * @module @deepseek-ai/dsh-invariants/invariant
- */
+/** Package-owned runtime contract checks for `@deepseek-ai/dsh-invariants`. @module @deepseek-ai/dsh-invariants/invariant */
 
-/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import type { InvariantInstaller } from './index.ts'
+import InvariantService, { observePluginInvariant, type InvariantInstaller } from './index.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-invariants'
 
@@ -17,8 +10,19 @@ export const name = 'invariants-invariant'
 /** Services required before the companion can register. */
 export const inject = ['invariants']
 
-/** Reserve this package's invariant ownership until it adds relational checks. */
-const install: InvariantInstaller = () => {}
+/** Install checks for this package's active plugin fibers. */
+const install: InvariantInstaller = (ctx, fail) => {
+  observePluginInvariant(ctx, fail, {
+    plugin: InvariantService,
+    name: 'InvariantService',
+    effects: [
+      'ctx.provide("invariants")',
+    ],
+    services: [
+      'invariants',
+    ],
+  })
+}
 
 /**
  * Register this package's invariant companion.
@@ -27,4 +31,3 @@ const install: InvariantInstaller = () => {}
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
-/* jscpd:ignore-end */

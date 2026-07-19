@@ -1,14 +1,7 @@
-/**
- * Generated invariant ownership companion for `@deepseek-ai/dsh-code-runtime`.
- * Replace this file with package-owned checks while preserving its registration.
- *
- * @generated scripts/gen-package-invariants.ts
- * @module @deepseek-ai/dsh-code-runtime/invariant
- */
+/** Package-owned runtime contract checks for `@deepseek-ai/dsh-code-runtime`. @module @deepseek-ai/dsh-code-runtime/invariant */
 
-/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { observeServiceInvariant, serviceShapeViolation, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-code-runtime'
 
@@ -17,8 +10,20 @@ export const name = 'code-runtime-invariant'
 /** Services required before the companion can register. */
 export const inject = ['invariants']
 
-/** Reserve this package's invariant ownership until it adds relational checks. */
-const install: InvariantInstaller = () => {}
+/** Validate every implementation bound to this package's service seam. */
+const install: InvariantInstaller = (ctx, fail) => {
+  observeServiceInvariant(ctx, fail, 'codeRuntime', (value) => {
+    const violation = serviceShapeViolation(value, {
+      methods: ['run'],
+      stringProperties: ['language', 'isolation'],
+    })
+    if (violation !== undefined) return violation
+    const service = value as { language: string; isolation: string }
+    return /^[a-z][a-z0-9-]*$/.test(service.language) && /^[a-z][a-z0-9-]*$/.test(service.isolation)
+      ? undefined
+      : 'code runtime language and isolation must be lowercase identifiers'
+  })
+}
 
 /**
  * Register this package's invariant companion.
@@ -27,4 +32,3 @@ const install: InvariantInstaller = () => {}
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
-/* jscpd:ignore-end */

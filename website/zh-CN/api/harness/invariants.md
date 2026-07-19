@@ -6,7 +6,7 @@
 
 Package-owned invariant registry with global and regex-based selection.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/support/invariants/src/index.ts#L95)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/support/invariants/src/index.ts#L261)
 
 ### ctx.invariants.register(packageName, installer)
 
@@ -29,4 +29,4 @@ Register one package's invariant installer. The package name is reserved even wh
 
 **Returns** an effect-scoped disposer for the registration.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/support/invariants/src/index.ts#L137)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/support/invariants/src/index.ts#L303)

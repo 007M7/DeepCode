@@ -24,9 +24,17 @@ The service owns every registration fiber, while the returned disposer also belo
 
 ## Package companions
 
-An ownership-only generated baseline installs no listeners but still reserves its package name through the real service boundary. A package replaces that marked file when it gains a relational check, retaining the same registration. `pnpm run verify-package-invariants` checks every package's source registration, export, published files, dependencies, TypeScript reference, and bundle entry.
+Every companion installs at least one executable, package-specific contract and reports failure through its bound reporter. There is no generated or ownership-only baseline. `pnpm run verify-package-invariants` rejects generated markers, empty installers, installers that ignore the reporter, duplicate name-based plugin observers, incorrect registration names, and incomplete export, publication, dependency, TypeScript-reference, or bundle wiring.
 
-Four companions currently install stateful checks:
+Packages select the narrowest runtime form that protects their public contract:
+
+| Package shape | Companion check |
+|---|---|
+| Cordis plugin | `observePluginInvariant` validates the plugin's own declared name, required injections, owned effect group, provided services, and optional package-specific relation for existing, late, and HMR-activated fibers. |
+| Cordis service seam | `observeServiceInvariant` plus `serviceShapeViolation` validates current and future structural implementations, including conforming third-party backends and test doubles. |
+| Pure library, bin, or support package | `assertInvariant` checks stable protocol algebra, parser mapping, path/timeout/retention rules, normalization, or entrypoint shape in a child effect. |
+
+Four companions additionally install stateful event and request checks:
 
 | Companion | Registration | Checks |
 |---|---|---|
@@ -35,7 +43,7 @@ Four companions currently install stateful checks:
 | `@deepseek-ai/dsh-scope/invariant` | `@deepseek-ai/dsh-scope` | scoped-event carrier presence and subject consistency |
 | `@deepseek-ai/dsh-agent-loop/invariant` | `@deepseek-ai/dsh-agent-loop` | loop-built model-request reconstruction from the session log |
 
-The root entrypoint of each owner remains independent of diagnostics. Loading the service alone installs no checks; loading a companion without the service remains pending on its declared `invariants` dependency.
+The root entrypoint of each owner remains independent of diagnostics. Loading the service alone installs no checks; loading a companion without the service remains pending on its declared `invariants` dependency. Name-based plugin observers match only a fiber's own declared runtime name, not anonymous child fibers that inherit a parent display name. They avoid importing the product entrypoint before it is loaded; pure-library checks likewise defer owner imports into the installer child so Vitest mocks and deployment loaders establish their module boundary first.
 
 ## Composition
 
@@ -54,7 +62,7 @@ ctx.plugin(InvariantService, {
 ctx.plugin(SessionInvariant)
 ```
 
-The standard agent spine mounts the service and the four stateful companions. Custom compositions choose the companions they want and may disable or filter them without changing package entrypoints. Vitest mounts every package companion against an explicitly enabled service for ordinary Cordis roots, so baseline ownership and stateful checks execute across unit, snapshot, and e2e suites; focused invariant-service tests construct their own topology to exercise filtering and lifecycle behavior.
+The standard agent spine mounts the service and the four stateful companions. Custom compositions explicitly add the companions for the packages whose contracts they want checked and may disable or filter them without changing package entrypoints. Vitest mounts every package companion against an explicitly enabled service for ordinary Cordis roots, so all package checks execute across unit, snapshot, and e2e suites; focused invariant-service tests construct their own topology to exercise filtering and lifecycle behavior.
 
 ## Model Experience
 
@@ -62,6 +70,7 @@ None, as the service and companions observe runtime events and requests but neve
 
 ## Known Limitations and Deferred Work
 
-- Stateful checks cover only the four listed package contracts; other companions reserve ownership but add no listeners until their packages gain relational assertions.
+- A name-based plugin observer assumes Cordis plugin names are unique within one root; a package can provide the exact callback when importing it does not preload an unrelated runtime.
+- Pure-library contracts are sampled when their companion child activates rather than observed continuously; mutable package behavior belongs on an event, service, or plugin-fiber observer.
 - Request reconstruction covers frozen loop-built requests with a live session id; direct one-shot calls remain outside that companion's marker contract.
 - Regular-expression filters are fixed for the service lifetime; changing them requires ordinary Cordis plugin reload.

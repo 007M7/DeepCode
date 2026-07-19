@@ -1,15 +1,12 @@
 /**
- * Package-invariant companion discovery, generation, and structural checks.
+ * Package-invariant companion discovery and structural checks.
  * The runtime registry stays product-independent; this gate makes ownership
  * exhaustive across packages without centralizing package checks.
  */
 
 import { existsSync, globSync, readFileSync } from 'node:fs'
-import { basename, dirname, relative, resolve, sep } from 'node:path'
+import { dirname, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
-
-/** Marker identifying baseline companions owned by this generator. */
-export const GENERATED_INVARIANT_MARKER = '@generated scripts/gen-package-invariants.ts'
 
 interface PackageManifest {
   name?: string
@@ -53,53 +50,26 @@ export function packageInvariantOwners(root: string): PackageInvariantOwner[] {
     })
 }
 
-/** Render the generated ownership-only companion for a package without custom checks. */
-export function renderBaselineInvariant(owner: PackageInvariantOwner): string {
-  const serviceImport = owner.packageName === '@deepseek-ai/dsh-invariants'
-    ? './index.ts'
-    : '@deepseek-ai/dsh-invariants'
-  const pluginName = `${basename(owner.dir)}-invariant`
-  return `/**
- * Generated invariant ownership companion for \`${owner.packageName}\`.
- * Replace this file with package-owned checks while preserving its registration.
- *
- * ${GENERATED_INVARIANT_MARKER}
- * @module ${owner.packageName}/invariant
- */
-
-/* jscpd:ignore-start */
-import type { Context } from 'cordis'
-import type { InvariantInstaller } from '${serviceImport}'
-
-const PACKAGE_NAME = '${owner.packageName}'
-
-/** Cordis companion plugin name. */
-export const name = '${pluginName}'
-/** Services required before the companion can register. */
-export const inject = ['invariants']
-
-/** Reserve this package's invariant ownership until it adds relational checks. */
-const install: InvariantInstaller = () => {}
-
-/**
- * Register this package's invariant companion.
- * @param ctx - Cordis context carrying the invariant service.
- * @returns the installed registration's disposer after setup succeeds.
- */
-export const apply = (ctx: Context): Promise<() => void> =>
-  Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
-/* jscpd:ignore-end */
-`
-}
-
 /** Return all violations of the package-invariant companion contract. */
 export function collectPackageInvariantViolations(root: string): PackageInvariantViolation[] {
   const violations: PackageInvariantViolation[] = []
+  const observedPluginNames = new Map<string, PackageInvariantOwner>()
   for (const owner of packageInvariantOwners(root)) {
     const manifest = readManifest(resolve(root, owner.manifestPath))
     checkManifest(owner, manifest, violations)
     checkBuild(owner, root, violations)
-    checkSource(owner, root, violations)
+    for (const pluginName of checkSource(owner, root, violations)) {
+      const existing = observedPluginNames.get(pluginName)
+      if (existing === undefined) {
+        observedPluginNames.set(pluginName, owner)
+      } else {
+        addViolation(
+          violations,
+          owner.sourcePath,
+          `name-based plugin invariant ${JSON.stringify(pluginName)} is already owned by ${JSON.stringify(existing.packageName)}`,
+        )
+      }
+    }
   }
   return violations
 }
@@ -181,19 +151,18 @@ function checkSource(
   owner: PackageInvariantOwner,
   root: string,
   violations: PackageInvariantViolation[],
-): void {
+): string[] {
   const absolutePath = resolve(root, owner.sourcePath)
   if (!existsSync(absolutePath)) {
     addViolation(violations, owner.sourcePath, 'missing package-owned invariant companion')
-    return
+    return []
   }
   const sourceText = readFileSync(absolutePath, 'utf8')
-  if (sourceText.includes(GENERATED_INVARIANT_MARKER)
-    && sourceText !== renderBaselineInvariant(owner)) {
+  if (sourceText.includes('@generated')) {
     addViolation(
       violations,
       owner.sourcePath,
-      'generated baseline is stale; run pnpm run gen-package-invariants',
+      'invariant companions must be hand-owned and may not carry @generated markers',
     )
   }
 
@@ -237,6 +206,87 @@ function checkSource(
       addViolation(violations, owner.sourcePath, `must named-export ${exportedName}`)
     }
   }
+  checkInstaller(owner, sourceFile, violations)
+  return nameOnlyObservedPlugins(sourceFile)
+}
+
+function nameOnlyObservedPlugins(sourceFile: ts.SourceFile): string[] {
+  const names: string[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === 'observePluginInvariant') {
+      const contract = node.arguments[2]
+      if (contract !== undefined && ts.isObjectLiteralExpression(contract)) {
+        let hasExactPlugin = false
+        let name: string | undefined
+        for (const property of contract.properties) {
+          if (!ts.isPropertyAssignment(property)) continue
+          const key = ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)
+            ? property.name.text
+            : undefined
+          if (key === 'plugin') hasExactPlugin = true
+          if (key === 'name') name = stringValue(property.initializer, new Map())
+        }
+        if (!hasExactPlugin && name !== undefined) names.push(name)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return names
+}
+
+function checkInstaller(
+  owner: PackageInvariantOwner,
+  sourceFile: ts.SourceFile,
+  violations: PackageInvariantViolation[],
+): void {
+  let initializer: ts.Expression | undefined
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name)
+        && declaration.name.text === 'install'
+        && declaration.initializer !== undefined) initializer = declaration.initializer
+    }
+  }
+  const installer = initializer === undefined ? undefined : installerFunction(initializer)
+  if (installer === undefined) {
+    addViolation(violations, owner.sourcePath, 'must declare a local install function for package-owned checks')
+    return
+  }
+  if (ts.isBlock(installer.body) && installer.body.statements.length === 0) {
+    addViolation(violations, owner.sourcePath, 'install function must contain a package-owned invariant check')
+  }
+  const reporter = installer.parameters[1]?.name
+  if (reporter === undefined || !ts.isIdentifier(reporter)) {
+    addViolation(violations, owner.sourcePath, 'install function must accept the bound failure reporter as its second parameter')
+    return
+  }
+  if (!usesIdentifier(installer.body, reporter.text)) {
+    addViolation(violations, owner.sourcePath, 'install function must use its bound failure reporter')
+  }
+}
+
+function usesIdentifier(node: ts.Node, name: string): boolean {
+  return ts.isIdentifier(node) && node.text === name
+    || node.getChildren().some(child => usesIdentifier(child, name))
+}
+
+function installerFunction(
+  initializer: ts.Expression,
+): ts.ArrowFunction | ts.FunctionExpression | undefined {
+  if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) return initializer
+  if (ts.isCallExpression(initializer)
+    && ts.isPropertyAccessExpression(initializer.expression)
+    && ts.isIdentifier(initializer.expression.expression)
+    && initializer.expression.expression.text === 'Object'
+    && initializer.expression.name.text === 'assign') {
+    const target = initializer.arguments[0]
+    if (target !== undefined && (ts.isArrowFunction(target) || ts.isFunctionExpression(target))) return target
+  }
+  return undefined
 }
 
 function topLevelStringConstants(sourceFile: ts.SourceFile): ReadonlyMap<string, string> {

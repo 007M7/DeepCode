@@ -1,14 +1,8 @@
-/**
- * Generated invariant ownership companion for `@deepseek-ai/dsh-timeout`.
- * Replace this file with package-owned checks while preserving its registration.
- *
- * @generated scripts/gen-package-invariants.ts
- * @module @deepseek-ai/dsh-timeout/invariant
- */
+/** Package-owned runtime contracts for @deepseek-ai/dsh-timeout. @module @deepseek-ai/dsh-timeout/invariant */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-timeout'
 
@@ -17,8 +11,21 @@ export const name = 'timeout-invariant'
 /** Services required before the companion can register. */
 export const inject = ['invariants']
 
-/** Reserve this package's invariant ownership until it adds relational checks. */
-const install: InvariantInstaller = () => {}
+/** Assert default-before-cap arithmetic and capability-code classification. */
+const install: InvariantInstaller = (ctx, fail) => {
+  ctx.effect(async () => {
+    const { clampTimeout, TimeoutReason, timeoutOf } = await import('./index.ts')
+    assertInvariant(fail,
+      clampTimeout(undefined, 50, 30) === 30 && clampTimeout(20, 50, 30) === 20,
+      'timeout resolution must apply the default before capping and preserve smaller requests')
+    const reason = new TimeoutReason('INVARIANT_TIMEOUT', 25)
+    assertInvariant(fail, timeoutOf({ reason }, 'INVARIANT_TIMEOUT') === reason,
+      'timeout classification must recover a matching capability-owned reason')
+    assertInvariant(fail, timeoutOf({ reason }, 'FOREIGN_TIMEOUT') === undefined,
+      'timeout classification must reject a reason owned by another capability')
+    return () => {}
+  }, 'timeout: validate resolution and reason classification')
+}
 
 /**
  * Register this package's invariant companion.

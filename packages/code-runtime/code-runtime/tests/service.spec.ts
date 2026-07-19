@@ -84,4 +84,18 @@ describe('CodeRuntime service seam', () => {
     const { ctx } = await setup()
     await expect(ctx.plugin(StubRuntime)).rejects.toThrow(/registered/)
   })
+
+  it.each([
+    [{ language: 'typescript', isolation: 'worker' }, /must expose method "run"/],
+    [{ language: 'TypeScript', isolation: 'worker', run() {} }, /must be lowercase identifiers/],
+  ])('rejects an invalid runtime implementation through the package invariant', async (value, message) => {
+    const ctx = new Context()
+    const invalidRuntime = {
+      name: 'invalid-code-runtime',
+      apply(child: Context) {
+        child.provide('codeRuntime', value as unknown as CodeRuntime)
+      },
+    }
+    await expect(ctx.plugin(invalidRuntime)).rejects.toThrow(message)
+  })
 })

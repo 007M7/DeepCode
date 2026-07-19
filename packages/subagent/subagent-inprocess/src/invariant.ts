@@ -1,14 +1,8 @@
-/**
- * Generated invariant ownership companion for `@deepseek-ai/dsh-subagent-inprocess`.
- * Replace this file with package-owned checks while preserving its registration.
- *
- * @generated scripts/gen-package-invariants.ts
- * @module @deepseek-ai/dsh-subagent-inprocess/invariant
- */
+/** Package-owned runtime contracts for @deepseek-ai/dsh-subagent-inprocess. @module @deepseek-ai/dsh-subagent-inprocess/invariant */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-subagent-inprocess'
 
@@ -17,8 +11,17 @@ export const name = 'subagent-inprocess-invariant'
 /** Services required before the companion can register. */
 export const inject = ['invariants']
 
-/** Reserve this package's invariant ownership until it adds relational checks. */
-const install: InvariantInstaller = () => {}
+/** Assert that structured-output guidance names the tool it actually installs. */
+const install: InvariantInstaller = (ctx, fail) => {
+  ctx.effect(async () => {
+    const { STRUCTURED_OUTPUT_INSTRUCTION, STRUCTURED_OUTPUT_TOOL } = await import('./structured-protocol.ts')
+    assertInvariant(fail, /^[a-z][a-z0-9_]*$/.test(STRUCTURED_OUTPUT_TOOL),
+      'the structured-output tool must retain a stable lowercase protocol name')
+    assertInvariant(fail, STRUCTURED_OUTPUT_INSTRUCTION.includes(STRUCTURED_OUTPUT_TOOL),
+      'the structured-output instruction must name the exact installed tool')
+    return () => {}
+  }, 'subagent-inprocess: validate structured-output protocol')
+}
 
 /**
  * Register this package's invariant companion.

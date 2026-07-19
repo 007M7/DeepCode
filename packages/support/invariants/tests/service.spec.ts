@@ -1,10 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context, Service } from 'cordis'
-import InvariantService, { InvariantError, type Config } from '@deepseek-ai/dsh-invariants'
+import InvariantService, {
+  InvariantError,
+  assertInvariant,
+  observePluginInvariant,
+  observeServiceInvariant,
+  serviceShapeViolation,
+  type Config,
+  type InvariantInstaller,
+  type PluginInvariantContract,
+} from '@deepseek-ai/dsh-invariants'
 
 declare module 'cordis' {
   interface Context {
     invariantProbe: InvariantProbeService
+    watchedInvariantProbe: WatchedInvariantProbeService
   }
 
   interface Events {
@@ -15,6 +25,12 @@ declare module 'cordis' {
 class InvariantProbeService extends Service {
   constructor(ctx: Context) {
     super(ctx, 'invariantProbe')
+  }
+}
+
+class WatchedInvariantProbeService extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'watchedInvariantProbe')
   }
 }
 
@@ -262,5 +278,209 @@ describe('InvariantService lifecycle', () => {
     const service = ctx.invariants
     await fiber.dispose()
     expect(() => service.register('@deepseek-ai/dsh-session', () => {})).toThrow(/inactive/i)
+  })
+})
+
+describe('package-owned invariant helpers', () => {
+  async function registerInstaller(
+    ctx: Context,
+    packageName: string,
+    installer: InvariantInstaller,
+  ): Promise<() => void> {
+    const registration = runtimeRegistration(ctx.invariants.register(packageName, installer))
+    const dispose = await Promise.resolve(registration)
+    return dispose
+  }
+
+  function effectPlugin(options: {
+    name?: string
+    inject?: string[]
+    effect?: string
+    service?: string
+  } = {}) {
+    return {
+      name: options.name ?? 'effect-probe',
+      inject: options.inject ?? [],
+      apply(ctx: Context) {
+        if (options.service !== undefined) ctx.provide(options.service, {})
+        if (options.effect !== undefined) {
+          ctx.effect(() => {
+            ctx.effect(() => () => {}, `${options.effect}.child`)
+            return () => {}
+          }, options.effect)
+        }
+      },
+    }
+  }
+
+  async function expectPluginViolation(
+    contract: PluginInvariantContract,
+    plugin: ReturnType<typeof effectPlugin>,
+    message: RegExp,
+  ): Promise<void> {
+    const { ctx } = await setup()
+    await registerInstaller(ctx, `@deepseek-ai/${contract.name}`, (child, fail) => {
+      observePluginInvariant(child, fail, contract)
+    })
+    await expect(Promise.resolve(ctx.plugin(plugin))).rejects.toThrow(message)
+  }
+
+  it('checks existing and later plugin fibers, including nested effects and alternatives', async () => {
+    const { ctx } = await setup()
+    await ctx.plugin(InvariantProbeService)
+    const plugin = effectPlugin({
+      inject: ['invariantProbe'],
+      effect: 'probe.effect',
+      service: 'pluginProbe',
+    })
+    await ctx.plugin(plugin)
+    const validated = vi.fn(() => undefined)
+    await registerInstaller(ctx, '@deepseek-ai/dsh-existing-probe', (child, fail) => {
+      observePluginInvariant(child, fail, {
+        plugin,
+        name: 'effect-probe',
+        inject: ['invariantProbe'],
+        effects: [['missing.effect', 'probe.effect.child']],
+        services: ['pluginProbe'],
+        validate: validated,
+      })
+    })
+    expect(validated).toHaveBeenCalledOnce()
+
+    const later = effectPlugin({ name: 'later-probe', effect: 'later.effect' })
+    await registerInstaller(ctx, '@deepseek-ai/dsh-later-probe', (child, fail) => {
+      observePluginInvariant(child, fail, {
+        plugin: later,
+        name: 'later-probe',
+        effects: ['later.effect'],
+      })
+    })
+    await ctx.plugin(later)
+  })
+
+  it('matches package plugins by Cordis name without importing their callback', async () => {
+    const { ctx } = await setup()
+    const plugin = {
+      name: 'name-only-probe',
+      apply(pluginCtx: Context) {
+        pluginCtx.effect(() => () => {}, 'name-only.effect')
+        pluginCtx.inject([], () => {})
+      },
+    }
+    await registerInstaller(ctx, '@deepseek-ai/dsh-name-only-probe', (child, fail) => {
+      observePluginInvariant(child, fail, {
+        name: 'name-only-probe',
+        effects: ['name-only.effect'],
+      })
+    })
+    await ctx.plugin(plugin)
+  })
+
+  it('rejects a contract that does not identify a plugin', async () => {
+    const { ctx } = await setup()
+    const registration = runtimeRegistration(ctx.invariants.register('@deepseek-ai/dsh-invalid-plugin', (child, fail) => {
+      observePluginInvariant(child, fail, {
+        plugin: {} as never,
+        name: 'invalid-plugin',
+      })
+    }))
+    await expect(Promise.resolve(registration)).rejects.toThrow(/does not identify a Cordis plugin/)
+  })
+
+  it('rejects wrong plugin names, missing injections, effects, services, and custom checks', async () => {
+    const wrongName = effectPlugin({ name: 'actual-name', effect: 'probe.effect' })
+    await expectPluginViolation({
+      plugin: wrongName,
+      name: 'expected-name',
+    }, wrongName, /plugin name must be "expected-name"/)
+
+    const missingInjection = effectPlugin({ effect: 'probe.effect' })
+    await expectPluginViolation({
+      plugin: missingInjection,
+      name: 'effect-probe',
+      inject: ['missingService'],
+    }, missingInjection, /must inject "missingService"/)
+
+    const missingEffect = effectPlugin()
+    await expectPluginViolation({
+      plugin: missingEffect,
+      name: 'effect-probe',
+      effects: [['first.effect', 'second.effect']],
+    }, missingEffect, /must own effect "first.effect" or "second.effect"/)
+
+    const missingService = effectPlugin({ effect: 'probe.effect' })
+    await expectPluginViolation({
+      plugin: missingService,
+      name: 'effect-probe',
+      services: ['missingService'],
+    }, missingService, /must provide service "missingService"/)
+
+    const invalidCustom = effectPlugin({ effect: 'probe.effect' })
+    await expectPluginViolation({
+      plugin: invalidCustom,
+      name: 'effect-probe',
+      validate: () => 'custom plugin contract failed',
+    }, invalidCustom, /custom plugin contract failed/)
+  })
+
+  it('checks existing and future service implementations while ignoring unrelated changes', async () => {
+    const existing = await setup()
+    await existing.ctx.plugin(WatchedInvariantProbeService)
+    await registerInstaller(existing.ctx, '@deepseek-ai/dsh-existing-service', (child, fail) => {
+      observeServiceInvariant(child, fail, 'watchedInvariantProbe', value => (
+        value instanceof WatchedInvariantProbeService ? undefined : 'wrong watched service'
+      ))
+    })
+
+    const future = await setup()
+    await registerInstaller(future.ctx, '@deepseek-ai/dsh-future-service', (child, fail) => {
+      observeServiceInvariant(child, fail, 'watchedInvariantProbe', value => (
+        value instanceof WatchedInvariantProbeService ? undefined : 'wrong watched service'
+      ))
+    })
+    await future.ctx.plugin(InvariantProbeService)
+    await future.ctx.plugin(WatchedInvariantProbeService)
+
+    const invalid = await setup()
+    await registerInstaller(invalid.ctx, '@deepseek-ai/dsh-invalid-service', (child, fail) => {
+      observeServiceInvariant(child, fail, 'watchedInvariantProbe', () => 'wrong watched service')
+    })
+    await expect(Promise.resolve(invalid.ctx.plugin(WatchedInvariantProbeService)))
+      .rejects.toThrow(/wrong watched service/)
+  })
+
+  it('reports synchronous package assertions through the bound failure reporter', async () => {
+    const { ctx } = await setup()
+    const valid = await registerInstaller(ctx, '@deepseek-ai/dsh-valid-assertion', (_child, fail) => {
+      assertInvariant(fail, true, 'must stay true')
+    })
+    valid()
+
+    const invalid = runtimeRegistration(ctx.invariants.register('@deepseek-ai/dsh-invalid-assertion', (_child, fail) => {
+      assertInvariant(fail, false, 'must stay true')
+    }))
+    await expect(Promise.resolve(invalid)).rejects.toThrow(/must stay true/)
+  })
+
+  it('accepts structural service implementations and test doubles', () => {
+    expect(serviceShapeViolation({ kind: 'probe', run() {} }, {
+      methods: ['run'],
+      stringProperties: ['kind'],
+    })).toBeUndefined()
+    expect(serviceShapeViolation(Object.assign(() => {}, { run() {} }), {
+      methods: ['run'],
+    })).toBeUndefined()
+  })
+
+  it.each([
+    { value: null, message: 'service implementation must be an object' },
+    { value: 42, message: 'service implementation must be an object' },
+    { value: {}, message: 'service implementation must expose method "run"' },
+    { value: { run() {}, kind: '' }, message: 'service implementation must expose non-empty string "kind"' },
+  ])('rejects invalid structural service implementations: $message', ({ value, message }) => {
+    expect(serviceShapeViolation(value, {
+      methods: ['run'],
+      stringProperties: ['kind'],
+    })).toBe(message)
   })
 })

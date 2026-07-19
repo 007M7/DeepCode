@@ -5,7 +5,7 @@ import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compact-basic/src/region.ts'
 import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
 import { resolveConfig } from '@deepseek-ai/dsh-compact-basic/src/config.ts'
-import type { CompactionResult } from '@deepseek-ai/dsh-compact'
+import type { CompactService, CompactionResult } from '@deepseek-ai/dsh-compact'
 import LlmService, { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -197,6 +197,29 @@ describe('compact configuration and defaults', () => {
     for (const [config, pattern] of bad) {
       expect(() => resolveConfig(config as BasicCompactConfig, ctx.tokenMeter)).toThrow(pattern)
     }
+  })
+
+  it.each([
+    [{ auto: true }, false, /must install both pressure and overflow listeners/],
+    [{ auto: false }, true, /must install neither automatic compaction listener/],
+  ])('rejects an inconsistent automatic-listener topology through the package invariant', async (config, installListener, message) => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(TokenMeterService)
+    const invalidCompact = {
+      name: 'BasicCompactService',
+      inject: ['llm', 'tokenMeter'],
+      apply(child: Context, _config: { auto?: boolean }) {
+        child.provide('compact', {
+          compactIfNeeded() {},
+          compactRegion() {},
+        } as unknown as CompactService)
+        if (installListener) {
+          child.effect(() => () => {}, 'ctx.on("agent/post-step")')
+        }
+      },
+    }
+    await expect(ctx.plugin(invalidCompact, config)).rejects.toThrow(message)
   })
 })
 

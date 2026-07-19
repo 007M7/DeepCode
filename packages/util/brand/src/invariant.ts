@@ -1,14 +1,8 @@
-/**
- * Generated invariant ownership companion for `@deepseek-ai/dsh-brand`.
- * Replace this file with package-owned checks while preserving its registration.
- *
- * @generated scripts/gen-package-invariants.ts
- * @module @deepseek-ai/dsh-brand/invariant
- */
+/** Package-owned runtime contract for @deepseek-ai/dsh-brand. @module @deepseek-ai/dsh-brand/invariant */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-brand'
 
@@ -17,8 +11,15 @@ export const name = 'brand-invariant'
 /** Services required before the companion can register. */
 export const inject = ['invariants']
 
-/** Reserve this package's invariant ownership until it adds relational checks. */
-const install: InvariantInstaller = () => {}
+/** Assert that the nominal-type primitive remains erased at runtime. */
+const install: InvariantInstaller = (ctx, fail) => {
+  ctx.effect(async () => {
+    const brandRuntime = await import('./index.ts')
+    assertInvariant(fail, Object.keys(brandRuntime).length === 0,
+      'the branded-id primitive must remain type-only with no runtime exports')
+    return () => {}
+  }, 'brand: validate type-only runtime erasure')
+}
 
 /**
  * Register this package's invariant companion.

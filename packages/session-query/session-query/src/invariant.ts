@@ -1,14 +1,7 @@
-/**
- * Generated invariant ownership companion for `@deepseek-ai/dsh-session-query`.
- * Replace this file with package-owned checks while preserving its registration.
- *
- * @generated scripts/gen-package-invariants.ts
- * @module @deepseek-ai/dsh-session-query/invariant
- */
+/** Package-owned runtime contract checks for `@deepseek-ai/dsh-session-query`. @module @deepseek-ai/dsh-session-query/invariant */
 
-/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-session-query'
 
@@ -17,8 +10,21 @@ export const name = 'session-query-invariant'
 /** Services required before the companion can register. */
 export const inject = ['invariants']
 
-/** Reserve this package's invariant ownership until it adds relational checks. */
-const install: InvariantInstaller = () => {}
+/** Install checks for this package's active plugin fibers. */
+const install: InvariantInstaller = (ctx, fail) => {
+  observePluginInvariant(ctx, fail, {
+    name: 'SessionQueryService',
+    inject: [
+      'sessions',
+    ],
+    effects: [
+      'ctx.provide("sessionQuery")',
+    ],
+    services: [
+      'sessionQuery',
+    ],
+  })
+}
 
 /**
  * Register this package's invariant companion.
@@ -27,4 +33,3 @@ const install: InvariantInstaller = () => {}
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
-/* jscpd:ignore-end */

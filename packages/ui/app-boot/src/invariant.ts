@@ -1,14 +1,9 @@
-/**
- * Generated invariant ownership companion for `@deepseek-ai/dsh-app-boot`.
- * Replace this file with package-owned checks while preserving its registration.
- *
- * @generated scripts/gen-package-invariants.ts
- * @module @deepseek-ai/dsh-app-boot/invariant
- */
+/** Package-owned runtime contracts for @deepseek-ai/dsh-app-boot. @module @deepseek-ai/dsh-app-boot/invariant */
 
 /* jscpd:ignore-start */
+import { resolve } from 'node:path'
 import type { Context } from 'cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-app-boot'
 
@@ -17,8 +12,20 @@ export const name = 'app-boot-invariant'
 /** Services required before the companion can register. */
 export const inject = ['invariants']
 
-/** Reserve this package's invariant ownership until it adds relational checks. */
-const install: InvariantInstaller = () => {}
+/** Assert ordinary and replay config-path selection. */
+const install: InvariantInstaller = (ctx, fail) => {
+  ctx.effect(async () => {
+    const { resolveConfigPath } = await import('./config-path.ts')
+    const cwd = '/tmp/dsh-app-boot-invariant'
+    const ordinary = resolveConfigPath('cordis.yml', undefined, cwd)
+    const replay = resolveConfigPath('cordis.yml', 'replay', cwd)
+    assertInvariant(fail, ordinary === resolve(cwd, 'cordis.yml'),
+      'ordinary app boot must retain the requested config basename')
+    assertInvariant(fail, replay === resolve(cwd, 'cordis.snapshot.yml'),
+      'snapshot replay must select cordis.snapshot.yml in the requested config directory')
+    return () => {}
+  }, 'app-boot: validate ordinary and replay config selection')
+}
 
 /**
  * Register this package's invariant companion.

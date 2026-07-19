@@ -18,7 +18,14 @@ import * as stdioAgent from '../src/index.ts'
  */
 async function mount(config: stdioAgent.Config, withBash = false): Promise<Context> {
   const ctx = new Context()
-  if (withBash) ctx.provide('bash', { sandboxMode: undefined })
+  if (withBash) {
+    ctx.provide('bash', {
+      sandboxMode: undefined,
+      resolve() { throw new Error('composition test does not execute bash') },
+      run() { throw new Error('composition test does not execute bash') },
+      start() { throw new Error('composition test does not execute bash') },
+    })
+  }
   await ctx.plugin(stdioAgent, config)
   // The app mounts its children inside apply() (not awaited there); let their
   // fibers settle so the spine services + the pre-created agent are ready.

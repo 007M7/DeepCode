@@ -1,14 +1,8 @@
-/**
- * Generated invariant ownership companion for `@deepseek-ai/dsh-retention`.
- * Replace this file with package-owned checks while preserving its registration.
- *
- * @generated scripts/gen-package-invariants.ts
- * @module @deepseek-ai/dsh-retention/invariant
- */
+/** Package-owned runtime contracts for @deepseek-ai/dsh-retention. @module @deepseek-ai/dsh-retention/invariant */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-retention'
 
@@ -17,8 +11,26 @@ export const name = 'retention-invariant'
 /** Services required before the companion can register. */
 export const inject = ['invariants']
 
-/** Reserve this package's invariant ownership until it adds relational checks. */
-const install: InvariantInstaller = () => {}
+/** Assert exact head-retention accounting after the budget is exceeded. */
+const install: InvariantInstaller = (ctx, fail) => {
+  ctx.effect(async () => {
+    const { ItemRetainer } = await import('./index.ts')
+    const retainer = new ItemRetainer<string>({ kind: 'head', maxItems: 2 })
+    retainer.push('first')
+    retainer.push('second')
+    retainer.push('third')
+    const result = retainer.finish()
+    assertInvariant(fail,
+      result.items.join(',') === 'first,second'
+        && result.seen === 3
+        && result.kept === 2
+        && result.truncated
+        && result.omitted.kind === 'exact'
+        && result.omitted.count === 1,
+      'head retention must keep the prefix and report exact seen, kept, and omitted counts')
+    return () => {}
+  }, 'retention: validate exact head accounting')
+}
 
 /**
  * Register this package's invariant companion.

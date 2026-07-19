@@ -94,7 +94,7 @@ async function disposeSnapshot(harness: SnapshotHarness): Promise<void> {
 async function configureAdvancedTools(ctx: Context): Promise<void> {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry, { mode: 'code' })
-  ctx.provide('workflows', {} as never)
+  ctx.provide('workflows', { start() {} } as never)
   await ctx.plugin(ToolWorkflow, { toolName: 'workflow', maxResultChars: 50_000 })
   await ctx.plugin(ToolCordis, { vmTimeoutMs: 5_000 })
 }
