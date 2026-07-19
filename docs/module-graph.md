@@ -100,7 +100,6 @@ flowchart TD
     pkg_invariants["invariants"]
     pkg_llm_replay["llm-replay"]
     pkg_loader_smoke["loader-smoke"]
-    pkg_subagent_mock["subagent-mock"]
   end
   subgraph group_ui["packages/ui"]
     pkg_acp["acp"]
@@ -369,10 +368,6 @@ flowchart TD
   pkg_hooks_claude --> pkg_session_persistence
   pkg_hooks_claude --> pkg_subagent
   pkg_hooks_claude --> pkg_tools
-  pkg_subagent_mock --> pkg_agent
-  pkg_subagent_mock --> pkg_llm
-  pkg_subagent_mock --> pkg_session
-  pkg_subagent_mock --> pkg_subagent
   pkg_jsonrpc --> pkg_agent
   pkg_jsonrpc --> pkg_llm
   pkg_jsonrpc --> pkg_llm_deepseek
@@ -521,7 +516,6 @@ flowchart TD
 | [`subagent-inprocess`](../packages/subagent/subagent-inprocess) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-subagent`](../packages/subagent/tool-subagent) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`tasks`](../packages/tasks/tasks), [`tools`](../packages/core/tools) |
 | [`hooks-claude`](../packages/hooks/hooks-claude) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
-| [`subagent-mock`](../packages/support/subagent-mock) | `support` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
 | [`jsonrpc`](../packages/ui/jsonrpc) | `ui` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`llm-deepseek`](../packages/llm/llm-deepseek), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
 | [`stdio`](../packages/ui/stdio) | `ui` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`user-interaction`](../packages/ui/user-interaction) |
 | [`tui`](../packages/ui/tui) | `ui` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |

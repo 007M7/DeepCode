@@ -65,7 +65,6 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/support/invariants': { kind: 'none', reason: 'The observer validates requests but never rewrites their context.' },
   'packages/support/loader-smoke': { kind: 'none', reason: 'The test harness observes child-process streams without changing live requests.' },
   'packages/support/llm-replay': { kind: 'none', reason: 'The keyless adapter invokes no provider model.' },
-  'packages/support/subagent-mock': { kind: 'indirect', reason: 'Only dsh-tool-subagent renders its configured test outcome.' },
   'packages/tasks/tasks': { kind: 'indirect', reason: 'Producer and control-surface plugins own all model rendering over the task registry.' },
   'packages/examples/acp-demo': { kind: 'indirect', reason: 'The app bundle delegates request composition to dsh-agent-spine-demo and dsh-acp.' },
   'packages/ui/app-boot': { kind: 'indirect', reason: 'Only the loaded plugin tree contributes model context.' },
