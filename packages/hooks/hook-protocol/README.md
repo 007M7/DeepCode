@@ -33,7 +33,9 @@ Like every event they must sit inside an open turn. The mid-turn points (`PreToo
 
 Indirectly, through `dsh-hooks-claude` and `dsh-hooks-codex`, which can turn parsed hook output into prompt context, blocked outcomes, or continuation feedback.
 
-**KV Cache effect**: No direct invalidation; the named consumer owns any request-prefix changes.
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

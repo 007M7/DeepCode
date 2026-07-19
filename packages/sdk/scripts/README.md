@@ -25,7 +25,9 @@ The root library exports `startSDK`, `runSDK`, and the `SdkBootArgs`/`SdkBootCon
 
 Indirectly, through the project `cordis.yml` tree loaded by `start` or `dev`.
 
-**KV Cache effect**: No direct invalidation; the named consumer owns any request-prefix changes.
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

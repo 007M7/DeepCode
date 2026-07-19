@@ -14,7 +14,9 @@ The provider choice is DeepSeek or a custom endpoint backed by `llm-pi-ai`. Deep
 
 Indirectly, through the generated project composition and its selected runtime plugins.
 
-**KV Cache effect**: No direct invalidation; the named consumer owns any request-prefix changes.
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

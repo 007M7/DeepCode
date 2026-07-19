@@ -22,7 +22,9 @@ Files land at `<root>/session-<hash>/​<random>-<safeName>`:
 
 Indirectly, through spill consumers that render the local path and `read`/`grep` retrieval guidance.
 
-**KV Cache effect**: No direct invalidation; the named consumer owns any request-prefix changes.
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

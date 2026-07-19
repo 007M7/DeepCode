@@ -56,7 +56,9 @@ Named `name` / `inject` / `Config` / `apply`, with **no default export**: the co
 
 None, as this keyless test adapter sends no request to a provider model; it only replays recorded assistant chunks into the test loop.
 
-**KV Cache effect**: None; this package neither assembles nor sends a provider request.
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 

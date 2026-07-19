@@ -29,7 +29,9 @@ Exa returns a flat `results[]` and no generated answer, so `content` is omitted.
 
 Indirectly, through [`dsh-tool-web`](../tool-web/README.md), which retains this provider's `maxResults`-bounded URLs, titles, first highlights, and publication dates or its exact `Exa search aborted`, `Exa search request failed: <error>`, and `Exa returned an unprocessable response body: <error>` failures under the consumer's error wrapper while generated answers and provider-private fields remain outside context.
 
-**KV Cache effect**: No direct invalidation; the named consumer owns any request-prefix changes.
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

@@ -58,7 +58,9 @@ Two adapters implement `LlmAdapter` on different internals: [`@deepseek-ai/dsh-l
 
 None, as this adapter registry forwards an already assembled request without adding or changing any model-bound text, schema, or message.
 
-**KV Cache effect**: Pass-through; the registry preserves the assembled request prefix, while the selected adapter and provider own cache reuse and routing boundaries.
+#### KV Cache effect
+
+Pass-through; the registry preserves the assembled request prefix, while the selected adapter and provider own cache reuse and routing boundaries.
 
 ## Known Limitations and Deferred Work
 

@@ -20,7 +20,9 @@ This package carries no loader hooks and no dev-mode surface: the `dsh-scripts` 
 
 Indirectly, through the plugin tree it loads, which determines the prompts, schemas, messages, and model adapter in the resulting application.
 
-**KV Cache effect**: No direct invalidation; the named consumer owns any request-prefix changes.
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
