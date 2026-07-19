@@ -12101,3 +12101,265 @@ details.devtools-row[open] > .devtools-row-summary::before { transform: rotate(9
   outline: 2px solid rgba(122, 90, 248, 0.8);
   outline-offset: -2px;
 }
+/* ==========================================================================
+ * Artifact panel — V2 (lane-artifact-v2, 2026-07-19)
+ *
+ * The panel wraps the artifact-group with a top tab bar (List/Board/
+ * Timeline). Keeps the L0 compact-row shape intact for List; Board and
+ * Timeline are computed projections that render inside the same body.
+ * The version-evolution strip is a sibling to `.artifact-body-l1`
+ * inside each card, toggled by clicking the `.artifact-version` chip.
+ *
+ * Design brief: on light/dark themes, keep the panel visually quiet —
+ * the tab bar sits on the same elevation as the card body so the panel
+ * reads as one surface, not a chrome-heavy widget. Board tiles reuse
+ * the shared card family variables so they don't stand out from the
+ * rest of the chat.
+ * ========================================================================== */
+
+.artifact-panel {
+  align-self: flex-start; max-width: 780px; width: 100%;
+  display: flex; flex-direction: column;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px;
+  overflow: hidden;
+}
+.artifact-panel-tabs {
+  display: flex; gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev-2);
+}
+.artifact-panel-tab {
+  padding: 3px 10px;
+  border-radius: 4px;
+  background: transparent; border: 1px solid transparent;
+  color: var(--muted); font-size: 11px; line-height: 1.4;
+  cursor: pointer; letter-spacing: 0.02em;
+}
+.artifact-panel-tab:hover { background: var(--bg-elev); color: var(--text); }
+.artifact-panel-tab[aria-selected="true"] {
+  background: var(--bg-elev); color: var(--text);
+  border-color: var(--border);
+}
+.artifact-panel-body {
+  display: flex; flex-direction: column;
+}
+/* When the panel hosts the group, the inner group loses its own outer
+ * shell — the panel already owns the border+radius. Grouped card rows
+ * still fuse via the existing `.artifact-group > .artifact-card` rules. */
+.artifact-panel .artifact-group {
+  max-width: none; width: 100%;
+  border-radius: 0;
+}
+.artifact-panel .artifact-group > .artifact-card {
+  border-radius: 0;
+  border-left: none; border-right: none;
+}
+.artifact-panel .artifact-group > .artifact-card:first-child {
+  border-top: none;
+  border-top-left-radius: 0; border-top-right-radius: 0;
+}
+.artifact-panel .artifact-group > .artifact-card:last-child {
+  border-bottom: none;
+  border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+}
+
+/* Version chip: promoted to a <button> in V2 so it can toggle the
+ * evolution strip. Keep the muted-accent look so it still reads as a
+ * chip, not a full button — a subtle underline on hover is the only
+ * hint that it's interactive. */
+button.artifact-version {
+  background: transparent; border: none; padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+button.artifact-version:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.artifact-card.has-evolution > .artifact-row .artifact-version {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Evolution strip: appended below `.artifact-body-l1` inside the card
+ * root. Visible only when the version chip is toggled on. */
+.artifact-evolution {
+  border-top: 1px solid var(--border);
+  padding: 8px 12px 12px 34px; /* match .artifact-body-l1 left inset */
+  background: var(--bg-elev-2);
+}
+.artifact-evolution-head {
+  display: flex; align-items: baseline; gap: 8px;
+  margin-bottom: 6px;
+}
+.artifact-evolution-label {
+  text-transform: uppercase; letter-spacing: 0.05em;
+  font-size: 10px; color: var(--text-tertiary);
+}
+.artifact-evolution-summary {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+}
+.artifact-evolution-chain {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.artifact-evolution-step {
+  border-left: 2px solid var(--border);
+  padding: 4px 0 4px 10px;
+}
+.artifact-evolution-step-head {
+  display: flex; align-items: baseline; gap: 8px;
+}
+.artifact-evolution-step-ver {
+  font-family: var(--mono); font-size: 11px; color: var(--accent);
+}
+.artifact-evolution-step-time { font-size: 10px; }
+.artifact-evolution-seed {
+  font-size: 11px; margin-top: 2px;
+}
+.artifact-evolution-diff {
+  margin-top: 4px;
+}
+.artifact-evolution-diff-summary {
+  font-size: 11px; color: var(--muted); cursor: pointer;
+  padding: 2px 6px; border-radius: 3px;
+  display: inline-block;
+}
+.artifact-evolution-diff-summary:hover { background: var(--bg-elev); color: var(--text); }
+.artifact-evolution-diff-summary::-webkit-details-marker { display: none; }
+.artifact-evolution-diff-summary::marker { content: ''; }
+.artifact-evolution-diff[open] .artifact-evolution-diff-summary {
+  background: var(--bg-elev); color: var(--text);
+}
+.artifact-evolution-diff-note {
+  padding: 6px 8px; font-size: 11px;
+  border: 1px dashed var(--border); border-radius: 4px;
+  margin-top: 4px;
+}
+.artifact-evolution-diff-body {
+  margin-top: 4px;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg-elev);
+  font-family: var(--mono); font-size: 11px;
+  overflow-x: auto; max-height: 260px; overflow-y: auto;
+}
+.artifact-evolution-diff-line {
+  display: flex; align-items: baseline; gap: 4px;
+  padding: 1px 6px;
+  white-space: pre;
+}
+.artifact-evolution-diff-line.kind-add { background: color-mix(in oklab, var(--ok, #22a06b) 12%, transparent); }
+.artifact-evolution-diff-line.kind-del { background: color-mix(in oklab, var(--danger, #e5484d) 12%, transparent); }
+.artifact-evolution-diff-gutter {
+  color: var(--text-tertiary); width: 10px; flex: 0 0 auto;
+  font-family: var(--mono);
+}
+.artifact-evolution-diff-text {
+  color: var(--text); word-break: break-all;
+}
+
+/* Board view: group tiles by kind bucket. */
+.artifact-board {
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 12px;
+}
+.artifact-board-group {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.artifact-board-group-head {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--muted);
+}
+.artifact-board-group-icon { display: inline-flex; color: var(--muted); }
+.artifact-board-group-title {
+  font-size: 12px; letter-spacing: 0.02em;
+  text-transform: uppercase; color: var(--text-tertiary);
+}
+.artifact-board-group-count {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  background: var(--bg-elev-2); border-radius: 3px;
+  padding: 0 6px;
+}
+.artifact-board-grid {
+  display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+.artifact-tile {
+  display: flex; flex-direction: column;
+  background: var(--bg-elev-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 0; overflow: hidden;
+  cursor: pointer; text-align: left;
+  color: var(--text); font: inherit;
+  transition: border-color 0.2s, transform 0.15s;
+}
+.artifact-tile:hover {
+  border-color: var(--accent); transform: translateY(-1px);
+  background: var(--bg-elev);
+}
+.artifact-thumb {
+  min-height: 84px; max-height: 84px;
+  padding: 8px 10px;
+  display: flex; align-items: flex-start; justify-content: flex-start;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+.artifact-thumb-text {
+  margin: 0;
+  font-family: var(--mono); font-size: 10.5px; line-height: 1.4;
+  color: var(--muted);
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 68px; overflow: hidden;
+}
+.artifact-thumb-icon {
+  color: var(--muted); display: inline-flex;
+}
+.artifact-tile-meta {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 6px; padding: 6px 10px;
+}
+.artifact-tile-name {
+  font-family: var(--mono); font-size: 11px; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1 1 auto; min-width: 0;
+}
+.artifact-tile-version {
+  color: var(--accent); font-family: var(--mono); font-size: 10.5px;
+  flex: 0 0 auto;
+}
+
+/* Timeline view: chronological rows. */
+.artifact-timeline {
+  display: flex; flex-direction: column;
+  padding: 4px 0;
+}
+.artifact-timeline-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 12px; min-height: 26px;
+  font-size: 11px; color: var(--text);
+  border-bottom: 1px dashed var(--border);
+}
+.artifact-timeline-row:last-child { border-bottom: none; }
+.artifact-timeline-time {
+  font-family: var(--mono); color: var(--text-tertiary);
+  width: 72px; flex: 0 0 auto;
+}
+.artifact-timeline-icon {
+  display: inline-flex; color: var(--muted); flex: 0 0 auto;
+}
+.artifact-timeline-name {
+  font-family: var(--mono); font-size: 11px;
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.artifact-timeline-version {
+  color: var(--accent); font-family: var(--mono); font-size: 10.5px;
+  flex: 0 0 auto;
+}
+.artifact-timeline-open {
+  font-size: 10.5px; color: var(--muted); text-decoration: none;
+  padding: 2px 4px; border-radius: 3px; flex: 0 0 auto;
+}
+.artifact-timeline-open:hover { color: var(--accent); background: var(--accent-soft); }
+

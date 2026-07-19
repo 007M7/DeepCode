@@ -1324,6 +1324,10 @@
        from any tab. -->
   <script src="./fork-compare.js"></script>
   <script src="./tool-cards.js"></script>
+  <!-- artifacts-board.js defines window.__dshArtifactsBoard (Board/Timeline/
+       Evolution renderers) and MUST load before artifacts.js so the L0 row
+       version-chip click handler + view switcher find the module ready. -->
+  <script src="./artifacts-board.js"></script>
   <script src="./artifacts.js"></script>
   <script src="./plugin-runtime-fold.js"></script>
   <script src="./mcp-tool-name.js"></script>

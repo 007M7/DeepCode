@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<!-- Reproducible fixture for the lane-artifact-v2 change (version
+     evolution strip + Board / Timeline views). Loads the fixture data
+     from docs/artifact-board-fixture.json and replays every entry
+     through window.__cb (the onArtifact bridge) in order, so:
+       * Auto-group + L0 rows populate the List view.
+       * Multi-version entries (session.md v1→v3, landing.html v1→v2,
+         config.json v1→v2) exercise the evolution strip diffs.
+       * Every kind bucket (md/html/svg/json/code/other) surfaces in the
+         Board view.
+     Screenshots for docs/qa-artifact-evolution/ are taken with the
+     panel in each of the three views + the evolution strip opened. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>lane-artifact-v2 fixture — Board + evolution</title>
+  <link rel="stylesheet" href="../../src/renderer/style.css">
+  <style>
+    /* Bare-minimum host chrome. */
+    html, body { height: 100%; margin: 0; }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+    .app { display: flex; height: 100vh; }
+    .main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+    .header {
+      padding: 10px 16px; border-bottom: 1px solid var(--border);
+      font-size: 13px; color: var(--muted);
+      display: flex; gap: 8px; align-items: center;
+    }
+    .header .fixture-controls button {
+      background: var(--bg-elev-2); color: var(--text);
+      border: 1px solid var(--border); padding: 3px 10px;
+      border-radius: 4px; font-size: 11px; cursor: pointer;
+    }
+    .header .fixture-controls button:hover { border-color: var(--accent); }
+    #stream {
+      flex: 1; padding: 12px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    /* Silence the pulse + arrival flash so screenshots capture the
+       resting state, matching the qa-artifact-compact convention. */
+    .artifact-live-dot { animation: none !important; }
+    .artifact-card.artifact-flash { border-color: var(--border) !important; background: var(--bg-elev) !important; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="main">
+      <div class="header">
+        <span>Fixture: 3 multi-version + 4 single-version artifacts across 5 kinds</span>
+        <span class="fixture-controls" style="margin-left: auto; display: flex; gap: 6px;">
+          <button data-view="list">List</button>
+          <button data-view="board">Board</button>
+          <button data-view="timeline">Timeline</button>
+          <button id="open-evolution">Open evolution: session.md</button>
+        </span>
+      </div>
+      <div id="stream" class="stream"></div>
+    </div>
+  </div>
+  <!-- Fake bridge — artifacts.js only touches window.dsh.onArtifact +
+       window.dsh.openArtifact + window.dsh.mockArtifact. -->
+  <script>
+    window.dsh = {
+      onArtifact: (cb) => { window.__cb = cb },
+      openArtifact: async () => ({ ok: true }),
+      mockArtifact: async () => {},
+    }
+  </script>
+  <script src="../../src/renderer/artifacts-board.js"></script>
+  <script src="../../src/renderer/artifacts.js"></script>
+  <script>
+    // Replay the fixture through the same onArtifact seam the real IPC
+    // event uses. Because the artifacts.js history tracker de-dups on
+    // version, feeding multi-version entries in order produces exactly
+    // the same chain a real session would.
+    async function main() {
+      const res = await fetch('../artifact-board-fixture.json')
+      const data = await res.json()
+      for (const entry of data.artifacts) {
+        window.__cb(entry)
+      }
+      // Wire the header buttons to the exposed switchView.
+      const api = window.__dshArtifacts
+      for (const btn of document.querySelectorAll('.fixture-controls button[data-view]')) {
+        btn.addEventListener('click', () => api.switchView(btn.dataset.view))
+      }
+      // Convenience: pop the version chip on session.md so QA can
+      // snap the evolution strip without a manual click search.
+      document.getElementById('open-evolution').addEventListener('click', () => {
+        const card = document.querySelector('.artifact-card[data-artifact-id="session.md"]')
+        if (!card) return
+        const chip = card.querySelector('.artifact-version')
+        if (chip) chip.click()
+      })
+    }
+    main()
+  </script>
+</body>
+</html>
