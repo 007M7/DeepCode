@@ -211,7 +211,7 @@ function buildShell(): void {
       <aside class="source-list">
         <header class="app-brand">
           <button class="brand-title" data-module="sessions">DeepSeek Harness</button>
-          <span class="runtime-dot starting" id="runtimeDot"></span>
+          <span class="runtime-dot starting" id="runtimeDot" aria-hidden="true"></span>
         </header>
         <section class="primary-actions">
           <button class="primary-action" data-action="new-session"><span data-text="app.newChat"></span><kbd>⌘N</kbd></button>
@@ -233,7 +233,7 @@ function buildShell(): void {
           <strong id="footerRuntime"></strong>
         </footer>
       </aside>
-      <div class="pane-divider" id="dividerLeft" role="separator" aria-orientation="vertical"></div>
+      <div class="pane-divider" id="dividerLeft" role="separator" aria-orientation="vertical" data-label="app.resizeSidebar"></div>
       <main class="harness-main">
         <header class="topbar">
           <div class="title-area"><h1 id="topbarTitle"></h1></div>
@@ -283,7 +283,7 @@ function buildShell(): void {
           </div>
         </form>
       </main>
-      <div class="pane-divider" id="dividerInspector" role="separator" aria-orientation="vertical" hidden></div>
+      <div class="pane-divider" id="dividerInspector" role="separator" aria-orientation="vertical" hidden data-label="app.resizeInspector"></div>
       <aside class="inspector" id="inspector" hidden>
         <header class="inspector-head">
           <div>
@@ -348,11 +348,16 @@ function applyStaticText(): void {
   for (const node of appEl.querySelectorAll<HTMLElement>('[data-title]')) {
     node.title = t(node.dataset.title as I18nKey)
   }
+  for (const node of appEl.querySelectorAll<HTMLElement>('[data-label]')) {
+    node.setAttribute('aria-label', t(node.dataset.label as I18nKey))
+  }
+  document.documentElement.lang = state.locale
   el.searchInput.placeholder = t('app.searchPlaceholder')
   el.composerInput.placeholder = state.selectedSessionId === undefined
     ? t('composer.placeholderDraft')
     : t('composer.placeholderSession')
   el.sendButton.setAttribute('aria-label', t('composer.send'))
+  el.composerInput.setAttribute('aria-label', t('composer.send'))
   updateComposerState()
 }
 
@@ -652,7 +657,7 @@ function ensureLiveSkeleton(live: LiveTurn): void {
             <div data-live="tools"></div>
           </div>
           <div class="assistant-prose" data-live="answer" hidden></div>
-          <div class="live-status" data-live="status">${escapeHtml(t('chat.sending'))}</div>
+          <div class="live-status" role="status" data-live="status">${escapeHtml(t('chat.sending'))}</div>
         </div>
       </article>
     `
@@ -670,11 +675,26 @@ function ensureLiveSkeleton(live: LiveTurn): void {
   }
 }
 
+let scrollToBottomQueued = false
+
+/** Direct user actions scroll immediately; streaming updates coalesce per frame. */
 function scrollChatToBottom(force = false): void {
-  if (!force && !state.stickToBottom) return
-  el.chatView.scrollTop = el.chatView.scrollHeight
-  state.stickToBottom = true
-  updateLiveJump()
+  if (force) {
+    scrollToBottomQueued = false
+    el.chatView.scrollTop = el.chatView.scrollHeight
+    state.stickToBottom = true
+    updateLiveJump()
+    return
+  }
+  if (!state.stickToBottom || scrollToBottomQueued) return
+  scrollToBottomQueued = true
+  window.requestAnimationFrame(() => {
+    if (!scrollToBottomQueued) return
+    scrollToBottomQueued = false
+    el.chatView.scrollTop = el.chatView.scrollHeight
+    state.stickToBottom = true
+    updateLiveJump()
+  })
 }
 
 function updateLiveJump(): void {
@@ -690,11 +710,7 @@ function updateComposerState(): void {
   el.cancelButton.hidden = !busy
   el.composerHint.textContent = busy ? t('chat.working') : t('composer.hint')
   el.composerForm.classList.toggle('busy', busy)
-}
-
-function autosizeComposer(): void {
-  el.composerInput.style.height = '0px'
-  el.composerInput.style.height = `${Math.min(132, Math.max(42, el.composerInput.scrollHeight))}px`
+  el.composerForm.setAttribute('aria-busy', String(busy))
 }
 
 async function sendPrompt(prompt: string): Promise<void> {
@@ -714,7 +730,6 @@ async function sendPrompt(prompt: string): Promise<void> {
   })
   state.busySessionId = draftKey
   el.composerInput.value = ''
-  autosizeComposer()
   updateComposerState()
   showError('')
   renderLiveTurn()
@@ -762,7 +777,6 @@ async function sendPrompt(prompt: string): Promise<void> {
     showError(String(error))
     if ((state.selectedSessionId === sessionId || (sessionId === undefined && state.draftChat)) && el.composerInput.value.trim().length === 0) {
       el.composerInput.value = prompt
-      autosizeComposer()
     }
     updateComposerState()
   } finally {
@@ -907,7 +921,7 @@ function renderConversation(): void {
 function renderConversationTurn(turn: ChatTurn): string {
   const userTarget = turn.userTargetId === undefined ? undefined : state.graph.targets.get(turn.userTargetId)
   const user = userTarget === undefined ? '' : `
-    <article class="message user ${selectedTargetClass(userTarget.id)}" data-target-id="${escapeHtml(userTarget.id)}">
+    <article class="message user ${selectedTargetClass(userTarget.id)}" role="button" tabindex="0" data-target-id="${escapeHtml(userTarget.id)}">
       <div class="message-card"><div class="user-bubble">${escapeHtml(contentText(userTarget.output))}</div></div>
     </article>
   `
@@ -932,9 +946,9 @@ function renderConversationActivity(activity: ChatActivity): string {
     <section class="chat-activity thinking ${selectedTargetClass(target.id)}">
       <div class="activity-row">
         <button class="activity-select" type="button" data-target-id="${escapeHtml(target.id)}"><span>${escapeHtml(t('chat.thinking'))}</span><strong>${escapeHtml(truncate(contentText(target.output), 112))}</strong></button>
-        <button class="activity-toggle" type="button" data-toggle-activity="${escapeHtml(target.id)}" aria-label="${escapeHtml(t(expanded ? 'trace.collapseRow' : 'trace.expandRow'))}">${expanded ? '⌃' : '⌄'}</button>
+        <button class="activity-toggle" type="button" data-toggle-activity="${escapeHtml(target.id)}" aria-expanded="${expanded}" aria-controls="act-${escapeHtml(target.id)}" aria-label="${escapeHtml(t(expanded ? 'trace.collapseRow' : 'trace.expandRow'))}">${expanded ? '⌃' : '⌄'}</button>
       </div>
-      <div class="activity-body" ${expanded ? '' : 'hidden'} data-target-id="${escapeHtml(target.id)}"><div>${escapeHtml(contentText(target.output))}</div></div>
+      <div class="activity-body" id="act-${escapeHtml(target.id)}" ${expanded ? '' : 'hidden'} data-target-id="${escapeHtml(target.id)}"><div>${escapeHtml(contentText(target.output))}</div></div>
     </section>
   `
 }
@@ -951,9 +965,9 @@ function renderChatToolActivity(target: TraceTarget): string {
     <section class="chat-activity tool-use ${failed ? 'failed' : ''} ${selectedTargetClass(target.id)}">
       <div class="activity-row">
         <button class="activity-select" type="button" data-target-id="${escapeHtml(target.id)}"><span>${escapeHtml(failed ? t('chat.toolFailed') : t('chat.toolUse'))}</span><strong>${escapeHtml(target.title)}${preview.length > 0 ? `<span class="activity-preview"> · ${escapeHtml(preview)}</span>` : ''}</strong></button>
-        <button class="activity-toggle" type="button" data-toggle-activity="${escapeHtml(target.id)}" aria-label="${escapeHtml(t(expanded ? 'trace.collapseRow' : 'trace.expandRow'))}">${expanded ? '⌃' : '⌄'}</button>
+        <button class="activity-toggle" type="button" data-toggle-activity="${escapeHtml(target.id)}" aria-expanded="${expanded}" aria-controls="act-${escapeHtml(target.id)}" aria-label="${escapeHtml(t(expanded ? 'trace.collapseRow' : 'trace.expandRow'))}">${expanded ? '⌃' : '⌄'}</button>
       </div>
-      <div class="activity-body" ${expanded ? '' : 'hidden'} data-target-id="${escapeHtml(target.id)}">${inputHtml}${outputHtml}${spawnedHtml}</div>
+      <div class="activity-body" id="act-${escapeHtml(target.id)}" ${expanded ? '' : 'hidden'} data-target-id="${escapeHtml(target.id)}">${inputHtml}${outputHtml}${spawnedHtml}</div>
     </section>
   `
 }
@@ -1055,7 +1069,7 @@ function renderGraphTrajectoryRow(targetId: string): string {
         <span class="token-cell">${escapeHtml(usage.output)}</span>
         <span class="token-cell">${escapeHtml(usage.think)}</span>
         <span class="token-cell offset">+${escapeHtml(formatMs(target.startTime - state.graph.startTime))}</span>
-        <button class="chevron traj-expand" type="button" data-toggle-traj="${escapeHtml(target.id)}" aria-label="${escapeHtml(t(expanded ? 'trace.collapseRow' : 'trace.expandRow'))}">${expanded ? '▾' : '▸'}</button>
+        <button class="chevron traj-expand" type="button" data-toggle-traj="${escapeHtml(target.id)}" aria-expanded="${expanded}" aria-label="${escapeHtml(t(expanded ? 'trace.collapseRow' : 'trace.expandRow'))}">${expanded ? '▾' : '▸'}</button>
       </div>
       ${expanded ? renderGraphTrajectoryBody(target) : ''}
     </article>
@@ -1463,10 +1477,19 @@ async function submitFeedback(form: HTMLFormElement, sessionId: string, targetId
       state.trace.feedback = [...(state.trace.feedback ?? []), record]
     }
     state.feedbackDrafts.delete(feedbackDraftKey(sessionId, targetId))
+    form.querySelector('.form-error')?.remove()
     toast(t('feedback.saved'))
     return true
   } catch (error) {
-    toast(`${t('feedback.failed')}: ${String(error)}`)
+    // The error belongs next to the form, not only in a transient toast.
+    let errorLine = form.querySelector<HTMLElement>('.form-error')
+    if (errorLine === null) {
+      errorLine = document.createElement('p')
+      errorLine.className = 'form-error'
+      errorLine.setAttribute('role', 'alert')
+      form.appendChild(errorLine)
+    }
+    errorLine.textContent = `${t('feedback.failed')}: ${String(error)}`
     return false
   }
 }
@@ -1490,7 +1513,6 @@ function wireStaticEvents(): void {
   })
 
   el.composerInput.addEventListener('input', () => {
-    autosizeComposer()
     updateComposerState()
   })
   el.composerInput.addEventListener('keydown', (event) => {
