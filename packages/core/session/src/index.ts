@@ -16,13 +16,14 @@ import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
 import type { ContextEnvelope, CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { SurfaceManager } from './surface.ts'
+import type { SessionSurface } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
 
 export * from './types.ts'
 export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
 export { interruptedTurnClosers } from './repair.ts'
-export type { SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
+export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
 export { foldSurface, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
@@ -251,22 +252,12 @@ export function renderContextContent(
  */
 export class Session {
   private log: SessionEvent[] = []
-  /** Incremental acceptance state, kept separate from the public lazy view. */
-  private readonly surfaceValidator = new SurfaceManager(this.log)
-
-  /**
-   * Derived surface — a cached order of message-producing event sequences.
-   * Lazily rebuilt from `surfaceOp` markers in the log; processes only new
-   * events (delta) on each access — the log is append-only, so prior events
-   * never change.
-   * Undefined until first accessed (including after fork/seed).
-   */
-  private _surface: SurfaceManager | undefined
+  /** Single incremental owner of surface acceptance and projection state. */
+  private readonly surfaceManager = new SurfaceManager(this.log)
 
   /** The ordered surface over this session's event log. */
-  get surface(): SurfaceManager {
-    if (!this._surface) this._surface = new SurfaceManager(this.log)
-    return this._surface
+  get surface(): SessionSurface {
+    return this.surfaceManager
   }
 
   /**
@@ -309,7 +300,7 @@ export class Session {
         // live append and a full-log fold. The candidate is planned before it
         // enters `log`, so a failure cannot partially mutate the surface.
         try {
-          this.surfaceValidator.validateNext(snapshot)
+          this.surfaceManager.validateNext(snapshot)
         } catch (error: unknown) {
           throw new Error(`invalid seed event at index ${index}: ${error instanceof Error ? error.message : 'invalid surface metadata'}`)
         }
@@ -402,7 +393,7 @@ export class Session {
       data: dataSnapshot,
       ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
     } as unknown as SessionEvent<T>)
-    this.surfaceValidator.validateNext(event as SessionEvent)
+    this.surfaceManager.validateNext(event as SessionEvent)
 
     if (entry !== undefined) entry.appending = true
     try {
@@ -468,7 +459,7 @@ export class Session {
    *
    * CACHED: each surface node is projected exactly once, when first seen — a
    * call costs O(new nodes), and a surface rewrite (a `replace`;
-   * {@link SurfaceManager.replaceGeneration}) rebuilds. The returned array is
+   * {@link SessionSurface.replaceGeneration}) rebuilds. The returned array is
    * a fresh snapshot per call (later appends never grow an array a caller
    * already holds); the `Message` objects in it are SHARED and **deep-frozen**.
    * Their content reuses the already frozen durable event data, so the cache
@@ -476,8 +467,9 @@ export class Session {
    * @returns a fresh array of the shared, frozen derived history.
    */
   deriveMessages(): Message[] {
-    const nodes = this.surface.nodes
-    const generation = this.surface.replaceGeneration
+    const surface = this.surface
+    const nodes = surface.nodes
+    const generation = surface.replaceGeneration
     if (generation !== this.derivedGeneration) {
       this.derived = []
       this.derivedNodes = 0
