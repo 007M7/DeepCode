@@ -398,6 +398,18 @@ describe('runOneShot and executeCli', () => {
     expect(disposalOutput.stderr).toContain('dispose exploded')
   })
 
+  it('reports disposal failure alongside an earlier run failure', async () => {
+    const ctx = new Context()
+    liveContexts.push(ctx)
+    const output = await invoke(ctx, ['task'], { failDispose: true })
+    expect(output).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'dsh-cli-demo: config must create exactly one top-level agent, found 0\n'
+        + 'dsh-cli-demo: dispose failed: dispose exploded\n',
+    })
+  })
+
   it('cancels startup work and queued work before the correlated turn begins', async () => {
     const startup = await harness(['hang'])
     let started!: () => void

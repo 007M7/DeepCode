@@ -361,7 +361,8 @@ export function formatTurnFailure(reason: TurnEndReason): string {
 
 /**
  * Execute one CLI invocation. Argument and boot failures never write stdout;
- * every booted context is disposed before this promise resolves.
+ * context disposal is awaited before return, and its failure does not replace
+ * an earlier diagnostic.
  * @param args - arguments after the executable name.
  * @param runtime - optional injected process boundaries for tests and embedding.
  * @returns the ordinary process exit code; the thin bin overrides it for Unix signals.
@@ -421,7 +422,7 @@ export async function executeCli(args: readonly string[], runtime: CliRuntime = 
       try {
         await disposeContext(ctx)
       } catch (error: unknown) {
-        diagnostic ??= `${CLI_NAME}: dispose failed: ${toError(error).message}\n`
+        diagnostic = `${diagnostic ?? ''}${CLI_NAME}: dispose failed: ${toError(error).message}\n`
         exitCode = 1
       }
     }
