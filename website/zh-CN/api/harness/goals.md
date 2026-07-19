@@ -47,6 +47,27 @@ Read the current goal for one exact live agent.
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L135)
 
+### ctx.goals.disarm(agent)
+
+```ts website-api
+/**
+ * Remove process-local continuation authority without changing durable goal
+ * phase or revision. Lifecycle owners use this before unloading a driver;
+ * a later human-authorized {@link resume} records the new activation edge.
+ * @param agent - owning live agent.
+ * @returns a fresh disarmed view, or `undefined` when no goal is current.
+ */
+disarm(agent: Agent): GoalView | undefined
+```
+
+Remove process-local continuation authority without changing durable goal phase or revision. Lifecycle owners use this before unloading a driver; a later human-authorized resume records the new activation edge.
+
+- `agent` — owning live agent.
+
+**Returns** a fresh disarmed view, or `undefined` when no goal is current.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L149)
+
 ### ctx.goals.create(agent, request)
 
 ```ts website-api
@@ -67,7 +88,7 @@ Create and arm a goal. A completed goal may be replaced; every other current pha
 
 **Returns** the created live view.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L149)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L164)
 
 ### ctx.goals.edit(agent, ref, request)
 
@@ -90,7 +111,7 @@ Edit objective and/or round cap without changing phase.
 
 **Returns** the edited view.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L174)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L189)
 
 ### ctx.goals.pause(agent, ref)
 
@@ -111,7 +132,7 @@ Pause an active goal and disarm automatic continuation.
 
 **Returns** the paused view.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L195)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L210)
 
 ### ctx.goals.resume(agent, ref)
 
@@ -133,7 +154,7 @@ Resume and arm a stopped goal, or rearm an active goal after a session-start edg
 
 **Returns** the active view.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L206)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L221)
 
 ### ctx.goals.complete(agent, ref)
 
@@ -154,7 +175,7 @@ Mark a current non-complete goal complete and disarm it.
 
 **Returns** the completed view.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L231)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L246)
 
 ### ctx.goals.block(agent, ref)
 
@@ -175,7 +196,7 @@ Mark an active goal blocked and disarm it.
 
 **Returns** the blocked view.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L248)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L263)
 
 ### ctx.goals.markUsageLimited(agent, ref)
 
@@ -196,7 +217,7 @@ Mark an active goal stopped by an external usage limit.
 
 **Returns** the usage-limited view.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L258)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L273)
 
 ### ctx.goals.markBudgetLimited(agent, ref)
 
@@ -217,7 +238,7 @@ Mark an active goal stopped at its configured round cap.
 
 **Returns** the budget-limited view.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L268)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L283)
 
 ### ctx.goals.clear(agent, ref)
 
@@ -238,4 +259,4 @@ Clear the current goal while retaining a durable tombstone and history.
 
 **Returns** the tombstone ref whose revision is one past the cleared snapshot.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L295)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/index.ts#L310)

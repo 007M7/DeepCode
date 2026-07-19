@@ -386,9 +386,10 @@ interface Agent {
 
   /**
    * Clear queued and steering work, including work waiting to start, and abort
-   * the active step. The supplied reason is preserved across pre-step and active
-   * cancellation windows, and `whenIdle()` resolves after cancellation reaches
-   * quiescence. Idle cancellation is a no-op and does not arm a later cancel.
+   * the active step. An effective call first emits `agent/cancel-requested` with
+   * the resolved reason. The supplied reason is preserved across pre-step and
+   * active cancellation windows, and `whenIdle()` resolves after cancellation
+   * reaches quiescence. Idle cancellation is a no-op and does not arm a later cancel.
    */
   cancel(reason?: string): void
 

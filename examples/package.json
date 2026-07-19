@@ -16,6 +16,7 @@
     "@deepseek-ai/dsh-fs-local": "workspace:*",
     "@deepseek-ai/dsh-fs-policy": "workspace:*",
     "@deepseek-ai/dsh-goal": "workspace:*",
+    "@deepseek-ai/dsh-goal-session": "workspace:*",
     "@deepseek-ai/dsh-hooks-claude": "workspace:*",
     "@deepseek-ai/dsh-hooks-codex": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",

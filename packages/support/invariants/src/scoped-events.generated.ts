@@ -28,6 +28,7 @@ function adapt<K extends ScopedEventName>(
 }
 
 const scopedSubjectResolvers = Object.freeze({
+  'agent/cancel-requested': adapt<'agent/cancel-requested'>(args => args[0]),
   'agent/created': adapt<'agent/created'>(args => args[0]),
   'agent/disposed': adapt<'agent/disposed'>(args => args[0]),
   'agent/error': adapt<'agent/error'>(args => args[0]),
