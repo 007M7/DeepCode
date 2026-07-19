@@ -21,6 +21,8 @@ import {
 } from '@agentclientprotocol/sdk'
 import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
+const EXIT_MARKER_GRACE_MS = 250
+
 /** The source/built agent entry, leaf config, and workspace tsconfig an ACP test boots. */
 export interface AgentUnderTest {
   /** The agent source bin entry (for example `packages/examples/acp-demo/src/bin.ts`). */
@@ -238,7 +240,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
       }
       // Windows implements the supported signal names as forced termination. The exit markers
       // may therefore arrive after the error wins the race above but before fallback begins.
-      if (!isRunning(child)) return propagateFailureAfterDrain()
+      if (!isRunning(child) || await exitMarkerWithinGrace(exited)) return propagateFailureAfterDrain()
 
       // An `error` after spawn is not an exit edge: in particular, a failed
       // signal can leave the subprocess live. Force termination, await the
@@ -252,7 +254,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
         // A successful earlier signal may win between the live check and this fallback call.
         // In that case `kill()` correctly reports no process to signal; the original child error
         // remains the shutdown result once inherited stdio and callbacks have drained.
-        if (!isRunning(child)) return propagateFailureAfterDrain()
+        if (!isRunning(child) || await exitMarkerWithinGrace(exited)) return propagateFailureAfterDrain()
         closeUpdateStream()
         throw new AggregateError(
           [failure, new Error('Fallback SIGKILL was not accepted by the child process')],
@@ -279,6 +281,17 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
 /** Resolve once a running child exits. */
 function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
   return new Promise<void>(resolve => child.once('exit', () => { resolve() }))
+}
+
+/** Give an accepted Windows termination request a bounded window to publish its exit marker. */
+function exitMarkerWithinGrace(exited: Promise<void>): Promise<boolean> {
+  return Promise.race([
+    exited.then(() => true),
+    new Promise<false>((resolve) => {
+      const timer = setTimeout(() => { resolve(false) }, EXIT_MARKER_GRACE_MS)
+      timer.unref()
+    }),
+  ])
 }
 
 /** Whether the child still lacks either OS termination marker. */
