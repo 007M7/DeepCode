@@ -8,7 +8,7 @@
 import type { Context } from 'cordis'
 import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
 import { isDeepStrictEqual } from 'node:util'
-import { BlockAssembler, HarnessError, deepFreeze, isLlmAdapterFailure } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, HarnessError, assertNever, deepFreeze, isLlmAdapterFailure } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
@@ -392,11 +392,17 @@ async function runTurn(
             : { kind: 'aborted', reason: String(abort.signal.reason) }
           break
         }
-        if (recoveryDecision.action === 'retry') {
-          requestRetryAttempt += 1
-          continue
+        switch (recoveryDecision.action) {
+          case 'retry':
+            requestRetryAttempt += 1
+            continue
+          case 'fail':
+            failTurn(stepOutcome.requestError)
+            break
+          /* v8 ignore next -- closed-union exhaustiveness guard */
+          default:
+            assertNever(recoveryDecision, 'agent request-error decision')
         }
-        failTurn(stepOutcome.requestError)
         break
       }
 

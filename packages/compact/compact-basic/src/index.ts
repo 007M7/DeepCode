@@ -9,7 +9,7 @@ import z from 'schemastery'
 import { CompactService } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compact'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { CONTEXT_WINDOW_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
+import { CONTEXT_WINDOW_EXCEEDED_CODE, assertNever } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { resolveConfig } from './config.ts'
@@ -152,11 +152,18 @@ export class BasicCompactService extends CompactService {
     const model = routedModel(agent.session)
     if (model === undefined) return null
     const meter = this.ctx.tokenMeter
-    if (trigger === 'context-overflow') {
-      const measurement = meter.measure(agent.session)
-      const range = selectCompactableRange(agent.session, measurement, 0)
-      if (range === null) return null
-      return this.compactRegion(range.start, range.end, agent, signal)
+    switch (trigger) {
+      case 'context-overflow': {
+        const measurement = meter.measure(agent.session)
+        const range = selectCompactableRange(agent.session, measurement, 0)
+        if (range === null) return null
+        return this.compactRegion(range.start, range.end, agent, signal)
+      }
+      case 'pressure':
+        break
+      /* v8 ignore next -- closed-union exhaustiveness guard */
+      default:
+        assertNever(trigger, 'compaction trigger')
     }
 
     const threshold = Math.floor(meter.contextWindow * this.config.thresholdRatio)
