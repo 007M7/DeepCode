@@ -22,6 +22,8 @@ The prompt tells the model that it may infer goal intent from a direct human req
 
 All three tools use exclusive execution so a model-ordered batch observes prior mutations and their new revisions. Results are compact JSON. ACP presentation is a pure function of arguments and uses generic read or mutation cards; activation is reported only as live observation and is never written into replay state.
 
+A successful update that leaves the goal stopped contributes the existing terminal `agent/turn-stop` decision for that physical turn, preventing an unnecessary follow-up request after pause, block, or completion. A later successful resume in the same turn removes that contribution.
+
 ### Execution authority
 
 Every call requires an `exec.agent` that is the exact running object in `AgentRegistry`, is the current inherited driver initiator, and has an open turn. These are execution-time checks and cannot be bypassed by prompt injection or hand-authored tool arguments.

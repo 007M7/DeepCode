@@ -287,6 +287,19 @@ describe('goal tool state transitions', () => {
       goal_id: goal['id'], revision: goal['revision'], action: 'resume',
     }, root.agent))
     expect(goal).toMatchObject({ phase: 'active', revision: 4 })
+    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', 1)).toBeUndefined()
+  })
+
+  it('stops the current turn after a successful stopped-state mutation', async () => {
+    const { ctx, root } = await harness()
+    openTurn(root, { kind: 'user' })
+    const created = ctx.goals.create(root.agent, { objective: 'pause cleanly' })
+    const paused = await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: created.revision, action: 'pause',
+    }, root.agent)
+    expect(resultGoal(paused)).toMatchObject({ phase: 'paused' })
+    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', 1)).toEqual({ action: 'stop' })
+    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', 1)).toBeUndefined()
   })
 
   it('rearms a restored active goal only after a new direct human prompt', async () => {
