@@ -16,7 +16,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages contribute service
 | `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
 | `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and prompt variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
-| `ctx.agents` | `dsh-agent` | live agent registry, public `Agent` handle, `agent/*` events |
+| `ctx.agents` | `dsh-agent` | live agents, creation delegation, `agent/*` events, and process-local initiating Agent scope |
 | `ctx.agentLoop` | `dsh-agent-loop` | concrete `Agent` driver |
 
 ### Capability Services
@@ -117,6 +117,10 @@ Every session event is turn-enclosed. Reloading preserves an interrupted tail an
 ### Agent Scope
 
 Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, receive only that agent's dispatches, and unwind with it; async effects such as background-task cleanup are awaited. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. Typed resolvers derive carrier checks from merged `Events` signatures and `scopeTarget` ([semantic-gates RFC](rfc/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See the [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition controls](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md).
+
+### Initiating Agent Scope
+
+`AgentLoop` runs each process-local driver inside `ctx.agents.withInitiator()`; the [decision](rfc/implemented/architecture/2026-07-15-agent-initiator-scope.md) owns boundary and explicit-identity rules.
 
 ## State
 

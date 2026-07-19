@@ -12,6 +12,7 @@ Subclasses call `super(ctx, name)` from their constructor. The service is regist
 ### service.name
 
 ```ts website-api
+/** The service name this instance is registered under. */
 public name!: string
 ```
 
@@ -24,6 +25,7 @@ The service name this instance is registered under.
 ### Service.init
 
 ```ts website-api
+/** Symbol key of an instance method run after construction (class plugins). */
 static readonly init: unique symbol
 ```
 
@@ -34,6 +36,7 @@ Symbol key of an instance method run after construction (class plugins).
 ### Service.check
 
 ```ts website-api
+/** Symbol key of the availability predicate passed to `ctx.provide()`. */
 static readonly check: unique symbol
 ```
 
@@ -44,6 +47,7 @@ Symbol key of the availability predicate passed to `ctx.provide()`.
 ### Service.config
 
 ```ts website-api
+/** Symbol key of the phantom intercept-config type parameter. */
 static readonly config: unique symbol
 ```
 
@@ -54,6 +58,7 @@ Symbol key of the phantom intercept-config type parameter.
 ### Service.invoke
 
 ```ts website-api
+/** Symbol key of the call body making a service callable (e.g. `ctx.logger()`). */
 static readonly invoke: unique symbol
 ```
 
@@ -64,6 +69,7 @@ Symbol key of the call body making a service callable (e.g. `ctx.logger()`).
 ### Service.extend
 
 ```ts website-api
+/** Symbol key of the helper deriving an extended service instance. */
 static readonly extend: unique symbol
 ```
 
@@ -74,6 +80,7 @@ Symbol key of the helper deriving an extended service instance.
 ### Service.tracker
 
 ```ts website-api
+/** Symbol key of the tracker metadata used for context tracing. */
 static readonly tracker: unique symbol
 ```
 
@@ -84,6 +91,7 @@ Symbol key of the tracker metadata used for context tracing.
 ### Service.resolveConfig
 
 ```ts website-api
+/** Symbol key of the intercept-config resolution helper below. */
 static readonly resolveConfig: unique symbol
 ```
 

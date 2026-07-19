@@ -11,6 +11,15 @@ Abstract filesystem provider. Targets must preserve identity across aliases; rea
 ### ctx.fs.resolve(path, opts?)
 
 ```ts website-api
+/**
+ * Resolve a model/plugin-supplied path into a stable {@link FsTarget}. May perform I/O (a
+ * remote/sandboxed backend may need a round-trip to map a path to a stable identity), hence
+ * async even though the local backend only normalizes + realpaths.
+ *
+ * @param path - the path to resolve; relative paths resolve against `opts.cwd`.
+ * @param opts - optional cwd override and cancellation signal.
+ * @returns the stable target; the same file yields the same `targetKey`.
+ */
 abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>
 ```
 
@@ -26,6 +35,12 @@ Resolve a model/plugin-supplied path into a stable FsTarget. May perform I/O (a 
 ### ctx.fs.stat(target, signal?)
 
 ```ts website-api
+/**
+ * Return target metadata, or `undefined` when the target does not exist.
+ * @param target - the resolved target to stat.
+ * @param signal - aborts the metadata round-trip.
+ * @returns metadata only, never content; undefined for an absent target.
+ */
 abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
 ```
 
@@ -41,6 +56,20 @@ Return target metadata, or `undefined` when the target does not exist.
 ### ctx.fs.lstat(path, opts?, signal?)
 
 ```ts website-api
+/**
+ * Return path metadata without following the final path component when it is a
+ * symbolic link. This is intentionally path-shaped, not target-shaped:
+ * {@link resolve} follows symlinks to produce the stable identity used by
+ * normal reads/writes, while `lstat` lets a consumer reject the path itself
+ * before that follow happens.
+ *
+ * `opts.cwd` follows {@link resolve}'s cwd rules. `undefined` means the path is
+ * absent.
+ * @param path - the path to inspect; relative paths resolve against `opts.cwd`.
+ * @param opts - `cwd` overrides the backend's default base for relative paths.
+ * @param signal - aborts the metadata round-trip.
+ * @returns metadata only, never content; undefined for an absent path.
+ */
 abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>
 ```
 
@@ -58,6 +87,12 @@ Return path metadata without following the final path component when it is a sym
 ### ctx.fs.readText(target, signal?)
 
 ```ts website-api
+/**
+ * Read the whole regular text file as a single decoded string.
+ * @param target - the resolved target to read.
+ * @param signal - aborts the read.
+ * @returns the full decoded UTF-8 content.
+ */
 abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
 ```
 
@@ -73,6 +108,15 @@ Read the whole regular text file as a single decoded string.
 ### ctx.fs.streamText(target, signal?)
 
 ```ts website-api
+/**
+ * Stream the whole regular text file as decoded text chunks (same text
+ * semantics as {@link readText}, for large files). The backend owns
+ * cross-chunk UTF-8 decoding and binary rejection so the policy layer never
+ * touches raw bytes.
+ * @param target - the resolved target to read.
+ * @param signal - aborts the stream, including between chunks.
+ * @returns the chunk iterable, decoded and validated like {@link readText}.
+ */
 abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
 ```
 
@@ -88,6 +132,13 @@ Stream the whole regular text file as decoded text chunks (same text semantics a
 ### ctx.fs.listDir(target, signal?)
 
 ```ts website-api
+/**
+ * List direct children of a directory in stable name order. Returns resolved
+ * child targets plus cheap metadata only; never reads file contents.
+ * @param target - the resolved directory target.
+ * @param signal - aborts the listing.
+ * @returns one entry per direct child, in stable name order.
+ */
 abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
 ```
 
@@ -103,6 +154,15 @@ List direct children of a directory in stable name order. Returns resolved child
 ### ctx.fs.writeText(target, content, expected?, signal?)
 
 ```ts website-api
+/**
+ * Atomically create or replace UTF-8 text. `expected` guards intent and
+ * staleness; omission allows unconditional overwrite.
+ * @param target - the resolved target to write.
+ * @param content - the full new file content.
+ * @param expected - the write intent guarding the write; omit for unconditional.
+ * @param signal - aborts before the atomic rename takes effect.
+ * @returns the outcome, including the version the write produced.
+ */
 abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
 ```
 
@@ -120,6 +180,16 @@ Atomically create or replace UTF-8 text. `expected` guards intent and staleness;
 ### ctx.fs.editText(target, edit, expected?, signal?)
 
 ```ts website-api
+/**
+ * Atomically edit literal text. When supplied, the version guard is checked
+ * before matching so stale content reports `FS_STALE_VERSION`; omission edits
+ * the current content without a freshness precondition.
+ * @param target - the resolved target to edit.
+ * @param edit - the literal search/replace request.
+ * @param expected - the version guard; omit for an unconditional edit.
+ * @param signal - aborts before the atomic rename takes effect.
+ * @returns the outcome, including the version the edit produced.
+ */
 abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
 ```
 
