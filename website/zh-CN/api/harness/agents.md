@@ -5,61 +5,103 @@
 `AgentRegistry` — provided by `@deepseek-ai/dsh-agent`.
 
 Agent service (`ctx.agents`): tracks live agents and carries the initiating Agent through one process-local asynchronous driver chain. Agent *creation* is provided by whichever plugin implements the AgentFactory (`@deepseek-ai/dsh-agent-loop`), registered via setFactory.
+Initiator methods provide same-process causal attribution only. Ambient presence is neither liveness proof nor authorization; subjects and owners remain explicit, as does identity at worker, process, persistence, and wire boundaries. Returned Promise boundaries drain during teardown, except a nested lineage that starts an owning-fiber unload is excluded from its own drain.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L211)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L217)
 
 ### ctx.agents.currentInitiator()
 
 ```ts website-api
+/**
+ * Read the Agent that initiated the inherited asynchronous driver chain.
+ * Use this optional form for logging, tracing, metrics, or host attribution
+ * that also supports agentless calls. When a parent creates a child, setup
+ * reports the causal parent while `agentCtx.agent` identifies the child.
+ * @returns the inherited Agent, or `undefined` outside an initiator boundary
+ *   and inside an explicit clearing boundary.
+ * @throws when this service instance has been disposed.
+ */
 currentInitiator(): Agent | undefined
 ```
 
-Read the Agent that initiated the inherited asynchronous driver chain.
+Read the Agent that initiated the inherited asynchronous driver chain. Use this optional form for logging, tracing, metrics, or host attribution that also supports agentless calls. When a parent creates a child, setup reports the causal parent while `agentCtx.agent` identifies the child.
 
-**Returns** the inherited Agent, or `undefined` outside a driver and inside an explicit clearing boundary.
+**Returns** the inherited Agent, or `undefined` outside an initiator boundary and inside an explicit clearing boundary.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L246)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L256)
 
 ### ctx.agents.requireInitiator()
 
 ```ts website-api
+/**
+ * Read the initiating Agent and fail when no initiator boundary is active.
+ * Use this for private helpers contractually below a driver, or for a
+ * deployment-owned outbound request whose contract forbids agentless calls.
+ * Generic or direct-call seams use optional lookup or explicit request fields.
+ * @returns the inherited Agent.
+ * @throws when no initiator is active or this service instance has been disposed.
+ */
 requireInitiator(): Agent
 ```
 
-Read the initiating Agent and fail when no driver boundary is active.
+Read the initiating Agent and fail when no initiator boundary is active. Use this for private helpers contractually below a driver, or for a deployment-owned outbound request whose contract forbids agentless calls. Generic or direct-call seams use optional lookup or explicit request fields.
 
 **Returns** the inherited Agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L256)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L269)
 
 ### ctx.agents.withInitiator(agent, operation)
 
 ```ts website-api
+/**
+ * Run an operation with one exact Agent as its process-local initiator. The
+ * exact synchronous value or Promise returned by the operation is preserved.
+ * Custom drivers and test harnesses wrap their complete returned foreground
+ * lifetime.
+ * A queue or wire receiver may establish this boundary only after validating
+ * explicit identity and resolving the exact live Agent; this method does neither.
+ * Detached work remains owned by the subsystem that starts it.
+ * @param agent - initiating Agent to inherit; presence is neither liveness proof nor authorization.
+ * @param operation - synchronous or asynchronous operation to invoke.
+ * @returns the exact value returned by `operation`.
+ * @throws when the initiator scope is closing/disposed, or when `operation` throws.
+ */
 withInitiator<T>(agent: Agent, operation: () => T): T
 ```
 
-Run an operation with one exact Agent as its process-local initiator. The exact synchronous value or Promise returned by the operation is preserved. If its inherited async chain starts an owning-fiber unload, the nested boundary lineage is excluded from the drain so teardown cannot wait on itself.
+Run an operation with one exact Agent as its process-local initiator. The exact synchronous value or Promise returned by the operation is preserved. Custom drivers and test harnesses wrap their complete returned foreground lifetime. A queue or wire receiver may establish this boundary only after validating explicit identity and resolving the exact live Agent; this method does neither. Detached work remains owned by the subsystem that starts it.
 
 - `agent` — initiating Agent to inherit; presence is neither liveness proof nor authorization.
 - `operation` — synchronous or asynchronous operation to invoke.
 
 **Returns** the exact value returned by `operation`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L272)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L288)
 
 ### ctx.agents.withoutInitiator(operation)
 
 ```ts website-api
+/**
+ * Run an operation inside a boundary that hides any inherited initiating
+ * Agent. The exact synchronous value or Promise is preserved.
+ * Use this while creating lazy shared timers, queue pumps, pool maintenance,
+ * watchers, or exporters so they do not inherit the first Agent that happens
+ * to initialize them. It clears only initiator attribution, not explicit
+ * fields, and does not own or drain detached resources.
+ * @param operation - synchronous or asynchronous operation to invoke without an initiator.
+ * @returns the exact value returned by `operation`.
+ * @throws when the initiator scope is closing/disposed, or when `operation` throws.
+ */
 withoutInitiator<T>(operation: () => T): T
 ```
 
-Run an operation inside a boundary that hides any inherited initiating Agent. The exact synchronous value or Promise is preserved. If its inherited async chain starts an owning-fiber unload, the nested boundary lineage is excluded from the drain so teardown cannot wait on itself.
+Run an operation inside a boundary that hides any inherited initiating Agent. The exact synchronous value or Promise is preserved. Use this while creating lazy shared timers, queue pumps, pool maintenance, watchers, or exporters so they do not inherit the first Agent that happens to initialize them. It clears only initiator attribution, not explicit fields, and does not own or drain detached resources.
 
 - `operation` — synchronous or asynchronous operation to invoke without an initiator.
 
 **Returns** the exact value returned by `operation`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L285)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L303)
 
 ### ctx.agents.setFactory(factory)
 
@@ -85,7 +127,7 @@ Register the agent-creation factory (the loop calls this on construction, effect
 
 **Returns** the disposer that clears the factory slot. The exact Cordis effect disposer (single-shot): composite (generator) effects may yield it directly — exact identity nests the teardown in order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L301)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L319)
 
 ### ctx.agents.create(options)
 
@@ -108,7 +150,7 @@ Create and publish a new agent through the registered factory. Distinct from reg
 
 **Returns** the handle after setup, rollback-covered publication, and loop start complete.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L334)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L352)
 
 ### ctx.agents.resume(options)
 
@@ -129,7 +171,7 @@ Load a persisted session and resume an agent on it through the registered factor
 
 **Returns** the handle after setup, rollback-covered publication, and loop start complete.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L353)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L371)
 
 ### ctx.agents.register(agent)
 
@@ -161,7 +203,7 @@ Register a live agent. Throws if an agent with the same id is already registered
 
 **Returns** the EXACT Cordis effect disposer (single-shot; a repeat call returns undefined without awaiting an in-flight teardown). Exact identity is load-bearing: a composite (generator) effect that owns a teardown ORDER — the agent factory's lifecycle chain — must yield THIS function so Cordis nests the unregistration at that yield position; yielding a wrapper would leave it disposing as a concurrent sibling on owner unload, unregistering the agent (and emitting `agent/disposed`) while its final turn is still draining.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L379)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L397)
 
 ### ctx.agents.enter(agent, owner)
 
@@ -191,7 +233,7 @@ Insert an already-constructed agent without announcing it. This is the advanced 
 
 **Returns** an idempotent closure that removes this exact entry and emits `agent/disposed` with listener failures contained. When called from a synchronous `agent/created` listener, removal and disposal wait until that creation dispatch unwinds.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L403)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L421)
 
 ### ctx.agents.announce(agent)
 
@@ -210,7 +252,7 @@ Announce an agent previously inserted with enter.
 
 - `agent` — the live inserted agent to announce.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L478)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L496)
 
 ### ctx.agents.get(id)
 
@@ -229,7 +271,7 @@ Look up a live agent.
 
 **Returns** the agent, or undefined when no live agent has that id.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L512)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L530)
 
 ### ctx.agents.isOwnedBy(id, owner)
 
@@ -252,7 +294,7 @@ Test whether a live agent was created through one exact parent agent's scoped co
 
 **Returns** true only while the exact child entry is live under that owner.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L524)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L542)
 
 ### ctx.agents.list()
 
@@ -268,7 +310,7 @@ All live agents, in registration order.
 
 **Returns** a fresh array; mutating it does not affect the registry.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L532)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L550)
 
 ### ctx.agents.roots()
 
@@ -286,4 +328,4 @@ All live top-level agents in registration order. A top-level agent was created w
 
 **Returns** a fresh array; mutating it does not affect the registry.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L542)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L560)
