@@ -176,7 +176,7 @@ describe('PiAiAdapter provider routing', () => {
         provider: 'openai',
         apiKey: 'test-key',
         baseURL: `${server.url}/api/projects/openai/openai/v1`,
-        headers: { 'api-key': 'test-key' },
+        headers: { 'api-key': 'test-key', Authorization: '' },
         maxRetries: 0,
       }],
     })
@@ -184,6 +184,7 @@ describe('PiAiAdapter provider routing', () => {
     expect(result.finish.kind).toBe('error')
     expect(server.paths).toEqual(['/api/projects/openai/openai/v1/responses'])
     expect(server.headers[0]?.['api-key']).toBe('test-key')
+    expect(server.headers[0]?.authorization).toBe('')
   })
 
   it.each([

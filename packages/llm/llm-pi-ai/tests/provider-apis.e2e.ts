@@ -23,7 +23,9 @@ const providerCases: ProviderCase[] = [
     provider: 'openai',
     api: 'openai-responses',
     model: process.env.DSH_PI_AI_OPENAI_MODEL ?? 'gpt-5.5',
-    ...azureOpenAIKey ? { apiKey: azureOpenAIKey, headers: { 'api-key': azureOpenAIKey } } : {},
+    ...azureOpenAIKey
+      ? { apiKey: azureOpenAIKey, headers: { 'api-key': azureOpenAIKey, Authorization: '' } }
+      : {},
     ...openAIBaseURL ? { baseURL: openAIBaseURL } : {},
   },
   {
