@@ -109,13 +109,13 @@ echo 演示不需要 API 凭证：
 pnpm run demo:echo
 ```
 
-coding-agent REPL 使用面向行的 readline 前端，并需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
+repl-agent 示例使用面向行的 readline 前端，并需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
 
 ```sh
 pnpm run demo:repl
 ```
 
-全屏 TUI 通过 pi-tui 前端复用 coding-agent 组装，并需要相同的凭证：
+全屏 TUI 通过 pi-tui 前端复用 repl-agent 组装，并需要相同的凭证：
 
 ```sh
 pnpm run demo:tui

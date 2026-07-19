@@ -174,7 +174,7 @@ export function composeTerminalApp(ctx: Context, config: Config, isTTY: boolean)
 
 /** Compose the configured terminal front door with the agent app. */
 /* v8 ignore start -- production stream capability wiring; composeTerminalApp is unit-covered,
-   and the coding-agent PTY smoke covers the interactive process path */
+   and the repl-agent PTY smoke covers the interactive process path */
 export function apply(ctx: Context, config: Config): void {
   composeTerminalApp(ctx, config, process.stdin.isTTY && process.stdout.isTTY)
 }

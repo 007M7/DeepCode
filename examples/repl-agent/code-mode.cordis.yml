@@ -23,7 +23,7 @@
           ui:
             mode: readline
           persona: |
-            You are coding-agent, a coding assistant powered by the {{model}} model.
+            You are a coding agent powered by the {{model}} model.
 
             You work by writing TypeScript programs for run_code: batch related
             tool work into one program, loop and branch where it helps, and print
