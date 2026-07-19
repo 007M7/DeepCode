@@ -11,6 +11,18 @@ Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator 
 ### ctx.agents.setFactory(factory)
 
 ```ts website-api
+/**
+ * Register the agent-creation factory (the loop calls this on construction,
+ * effect-scoped). A traced Cordis service is canonicalized to its concrete
+ * target; each create/resume call is then traced through that caller's
+ * context so ownership follows the caller without stacking proxy layers.
+ * Throws if a factory is already registered. Returns the disposer; on
+ * dispose the factory slot is cleared.
+ * @param factory - the loop-owned factory {@link create}/{@link resume} delegate to.
+ * @returns the disposer that clears the factory slot. The exact
+ *   Cordis effect disposer (single-shot): composite (generator) effects may
+ *   yield it directly — exact identity nests the teardown in order.
+ */
 setFactory(factory: AgentFactory): () => void
 ```
 
@@ -25,6 +37,15 @@ Register the agent-creation factory (the loop calls this on construction, effect
 ### ctx.agents.create(options)
 
 ```ts website-api
+/**
+ * Create and publish a new agent through the registered factory.
+ * Distinct from {@link register} (which records an already-constructed
+ * agent): this constructs the agent and its session. Rejects if no factory is
+ * registered or creation/setup fails. The resolved {@link AgentHandle} lets
+ * the owner tear down exactly this agent.
+ * @param options - shared identity, session seed/metadata, and agent options.
+ * @returns the handle after setup, rollback-covered publication, and loop start complete.
+ */
 async create(options: CreateAgentOptions): Promise<AgentHandle>
 ```
 
@@ -39,6 +60,13 @@ Create and publish a new agent through the registered factory. Distinct from reg
 ### ctx.agents.resume(options)
 
 ```ts website-api
+/**
+ * Load a persisted session and resume an agent on it through the registered
+ * factory. Rejects if no factory is registered; the factory rejects if
+ * session persistence is not configured or persistence/setup fails.
+ * @param options - persisted identity, configuration, and optional setup.
+ * @returns the handle after setup, rollback-covered publication, and loop start complete.
+ */
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
@@ -53,6 +81,24 @@ Load a persisted session and resume an agent on it through the registered factor
 ### ctx.agents.register(agent)
 
 ```ts website-api
+/**
+ * Register a live agent. Throws if an agent with the same id is already
+ * registered. Emits `agent/created` on registration and `agent/disposed`
+ * when the calling fiber is disposed — both with the agent's scope carrier
+ * (`scopeTarget(agent, agent)`): the subject is the agent in hand, so the
+ * emits are scope-filtered regardless of which context invoked `register`
+ * (calling through `agent.ctx` scopes EFFECTS; dispatch scoping always
+ * requires passing the carrier). Returns the disposer.
+ * @param agent - the already-constructed agent to record in the store.
+ * @returns the EXACT Cordis effect disposer (single-shot; a repeat call
+ *   returns undefined without awaiting an in-flight teardown). Exact
+ *   identity is load-bearing: a composite (generator) effect that owns a
+ *   teardown ORDER — the agent factory's lifecycle chain — must yield THIS
+ *   function so Cordis nests the unregistration at that yield position;
+ *   yielding a wrapper would leave it disposing as a concurrent sibling on
+ *   owner unload, unregistering the agent (and emitting `agent/disposed`)
+ *   while its final turn is still draining.
+ */
 register(agent: Agent): () => void
 ```
 
@@ -67,6 +113,21 @@ Register a live agent. Throws if an agent with the same id is already registered
 ### ctx.agents.enter(agent, owner)
 
 ```ts website-api
+/**
+ * Insert an already-constructed agent without announcing it. This is the
+ * advanced ordered-lifecycle primitive used by the async agent factory: it
+ * first completes setup while the agent is unpublished, then assigns the
+ * returned detach closure into its pre-installed composite teardown before
+ * calling {@link announce}. Ordinary callers use {@link register}.
+ * @param agent - the prepared, unpublished agent.
+ * @param owner - live agent whose scoped context created this agent, or
+ *   undefined for a top-level runtime root. This is runtime ownership, not
+ *   the resumed session's durable parent lineage.
+ * @returns an idempotent closure that removes this exact entry and emits
+ *   `agent/disposed` with listener failures contained. When called from a
+ *   synchronous `agent/created` listener, removal and disposal wait until
+ *   that creation dispatch unwinds.
+ */
 enter(agent: Agent, owner: Agent | undefined): () => void
 ```
 
@@ -82,6 +143,13 @@ Insert an already-constructed agent without announcing it. This is the advanced 
 ### ctx.agents.announce(agent)
 
 ```ts website-api
+/**
+ * Announce an agent previously inserted with {@link enter}.
+ * @param agent - the live inserted agent to announce.
+ * @throws if `agent` is not the exact live registry entry for its id, or its
+ *   creation announcement already began (including a reentrant call from a
+ *   creation listener).
+ */
 announce(agent: Agent): void
 ```
 
@@ -94,6 +162,11 @@ Announce an agent previously inserted with enter.
 ### ctx.agents.get(id)
 
 ```ts website-api
+/**
+ * Look up a live agent.
+ * @param id - the shared agent/session id to look up.
+ * @returns the agent, or undefined when no live agent has that id.
+ */
 get(id: SessionId): Agent | undefined
 ```
 
@@ -108,6 +181,14 @@ Look up a live agent.
 ### ctx.agents.isOwnedBy(id, owner)
 
 ```ts website-api
+/**
+ * Test whether a live agent was created through one exact parent agent's
+ * scoped context. Runtime ownership is independent of durable session
+ * lineage and remains unambiguous when unrelated providers reuse an id.
+ * @param id - the candidate child agent's shared agent/session id.
+ * @param owner - the expected runtime creator agent.
+ * @returns true only while the exact child entry is live under that owner.
+ */
 isOwnedBy(id: SessionId, owner: Agent): boolean
 ```
 
@@ -123,6 +204,10 @@ Test whether a live agent was created through one exact parent agent's scoped co
 ### ctx.agents.list()
 
 ```ts website-api
+/**
+ * All live agents, in registration order.
+ * @returns a fresh array; mutating it does not affect the registry.
+ */
 list(): Agent[]
 ```
 
@@ -135,6 +220,12 @@ All live agents, in registration order.
 ### ctx.agents.roots()
 
 ```ts website-api
+/**
+ * All live top-level agents in registration order. A top-level agent was
+ * created without an owning agent context; durable session lineage does not
+ * affect this runtime relation, so a resumed fork may still be a root.
+ * @returns a fresh array; mutating it does not affect the registry.
+ */
 roots(): Agent[]
 ```
 

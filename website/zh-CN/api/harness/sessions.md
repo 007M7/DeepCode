@@ -12,6 +12,27 @@ Persistence is intentionally not implemented here — persistence plugins subscr
 ### ctx.sessions.create(id?, options?)
 
 ```ts website-api
+/**
+ * Create a session owned by the calling fiber: disposing that fiber stops
+ * event notification and removes the session from the store. `options.seed`
+ * populates the session with a copy of those events (replay/fork);
+ * `options.meta` attaches creation metadata (validated absolute `cwd`,
+ * `parentSession` lineage) as the immutable {@link SessionHeader} (the store
+ * fills `version`/`id`/`createdAt`).
+ *
+ * For an agent whose session must be torn down IN ORDER with its loop (so the
+ * loop's final flush is captured before the store attachment ends), do NOT use this
+ * — fold the session lifecycle into the agent's own effect via
+ * {@link prepare} + {@link enter} + {@link announce} (see
+ * `dsh-agent-loop`'s creation transaction).
+ *
+ * @param id - the session id; omitted, the store mints `session-<n>`.
+ * @param options - seed events and/or creation metadata for the header.
+ * @returns the live session, already entered and announced.
+ * @throws if a session with `id` already exists, metadata is not a plain
+ *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a
+ *   non-absolute path (storage backends key directories off it).
+ */
 create(id?: SessionId, options?: CreateSessionOptions): Session
 ```
 
@@ -28,6 +49,22 @@ For an agent whose session must be torn down IN ORDER with its loop (so the loop
 ### ctx.sessions.prepare(id?, options?)
 
 ```ts website-api
+/**
+ * Build a session WITHOUT entering it into the store — validate the id/cwd and
+ * construct the {@link Session} (with its immutable {@link SessionHeader}).
+ * Pairs with {@link enter} + {@link announce}: a caller that owns a composite
+ * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE
+ * effect so a fiber unload tears the session + agent down as a single ORDERED
+ * chain rather than as racing sibling effects — which would remove the publication hooks
+ * before the loop's closing `session/flush`, dropping the closing events.
+ *
+ * @param id - the session id; omitted, the store mints `session-<n>`.
+ * @param options - seed events and/or creation metadata for the header.
+ * @returns the constructed session, NOT yet in the store.
+ * @throws if a session with `id` already exists, metadata is not a plain
+ *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a
+ *   non-absolute path.
+ */
 prepare(id?: SessionId, options?: CreateSessionOptions): Session
 ```
 
@@ -43,6 +80,28 @@ Build a session WITHOUT entering it into the store — validate the id/cwd and c
 ### ctx.sessions.enter(session)
 
 ```ts website-api
+/**
+ * Enter a {@link prepare}d session into the store: install the module-private
+ * append publication hooks and add it to the store. Returns the DETACH
+ * disposer (hooks + store removal). Does NOT emit `session/created` —
+ * the caller yields this disposer inside its effect and THEN calls
+ * {@link announce}, so a throwing `session/created` listener rolls the attach
+ * back instead of leaking it.
+ *
+ * Re-checks the id for a duplicate: `prepare` and `enter` are public
+ * cross-package primitives and a caller may interleave arbitrary work (or
+ * another create) between them, so a stale prepared session must NOT overwrite
+ * a live store entry of the same id — its detach disposer would later delete
+ * the REAL session. The {@link create} convenience and the agent factory call
+ * the two back-to-back so they never trip this, but the public seam cannot
+ * assume that.
+ *
+ * @param session - a {@link prepare}d session not yet in the store.
+ * @returns the detach disposer (publication hooks + store removal). When called from
+ *   a synchronous `session/created` listener, removal and disposal wait until
+ *   that creation dispatch unwinds.
+ * @throws if a session with this id is already in the store.
+ */
 enter(session: Session): () => void
 ```
 
@@ -58,6 +117,13 @@ Re-checks the id for a duplicate: `prepare` and `enter` are public cross-package
 ### ctx.sessions.announce(session)
 
 ```ts website-api
+/** Emit `session/created` exactly once for an {@link enter}ed session (with
+ * the carrier {@link enter} captured). Separate from {@link enter} so the
+ * caller can yield the detach disposer first (rollback safety — see
+ * {@link enter}).
+ * @param session - the entered session to announce to listeners.
+ * @throws if the session is not live or its announcement already began,
+ *   including a reentrant call from a creation listener. */
 announce(session: Session): void
 ```
 
@@ -70,6 +136,17 @@ Emit `session/created` exactly once for an entered session (with the carrier ent
 ### ctx.sessions.flush(session)
 
 ```ts website-api
+/**
+ * Dispatch the awaited `session/flush` durability checkpoint for `session`,
+ * with the carrier captured at {@link enter}. THE flush entry point: the
+ * store owns the carrier, so callers (the loop's turn-end checkpoint, idle
+ * injection, teardown drains) must come through here rather than dispatch a
+ * raw `ctx.parallel('session/flush', …)` — one owner, one spelling, and the
+ * scoped-dispatch invariant can pin it.
+ * @param session - the session whose buffered events must reach durable storage.
+ * @returns resolves when every flush listener has settled; after all settle,
+ *   rejects with the first registered listener failure if any listener failed.
+ */
 async flush(session: Session): Promise<void>
 ```
 
@@ -84,6 +161,11 @@ Dispatch the awaited `session/flush` durability checkpoint for `session`, with t
 ### ctx.sessions.get(id)
 
 ```ts website-api
+/**
+ * Look up a live session.
+ * @param id - the session id to look up.
+ * @returns the session, or undefined when no live session has that id.
+ */
 get(id: SessionId): Session | undefined
 ```
 
@@ -98,6 +180,10 @@ Look up a live session.
 ### ctx.sessions.list()
 
 ```ts website-api
+/**
+ * All live sessions, in creation order.
+ * @returns a fresh array; mutating it does not affect the store.
+ */
 list(): Session[]
 ```
 
@@ -110,6 +196,19 @@ All live sessions, in creation order.
 ### ctx.sessions.fork(source, boundary?, childSessionId?)
 
 ```ts website-api
+/**
+ * Create a live child session from a turn-enclosed prefix of a live source.
+ * `boundary` is an inclusive source event seq; omitted means the source's
+ * current last event. A non-empty selected slice must end at `turn/end`.
+ *
+ * @param source - Live source session object or id.
+ * @param boundary - Inclusive source event seq to fork through; omitted means
+ *   the source's current last event, and omitted on an empty source forks an
+ *   empty child.
+ * @param childSessionId - Optional child session id; omitted delegates to
+ *   `SessionStore`'s id policy.
+ * @returns The created live child session.
+ */
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
