@@ -139,6 +139,9 @@ describe('runScenario', () => {
       update.sessionUpdate === 'agent_message_chunk'
       && update.content.type === 'text'
       && update.content.text === 'late inherited stdout')
+    // Arm rejection handling before close may exhaust the stream; the later assertion still
+    // observes the original promise and turns a missing inherited frame into the test failure.
+    void lateUpdate.catch(() => undefined)
 
     await launched.close()
 
