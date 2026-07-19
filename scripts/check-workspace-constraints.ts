@@ -115,11 +115,33 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     'lib/invariant.js',
     ...manifest.bin ? ['lib/bin.js'] : [],
     ...manifest.exports?.['./worker'] ? ['lib/worker.cjs'] : [],
+    // UI plugin packages ship their browser bundle beside the node lib
+    // (single-artifact ruling: dist/ retired, ./client resolves lib/client.js).
+    // Keyed on the artifact path, not the subpath name: apiproxy's ./client is
+    // a browser-safe source channel, not a bundle.
+    ...manifest.exports?.['./client']?.default === './lib/client.js' ? ['lib/client.js'] : [],
+    // runtime's shell-held loader subpath ships as its own bundle beside the client half.
+    ...manifest.exports?.['./loader']?.default === './lib/loader.js' ? ['lib/loader.js'] : [],
+    // web-react's store subpath ships its own bundle (single-entry builds; no shared chunk).
+    ...manifest.exports?.['./store']?.default === './lib/store/index.js' ? ['lib/store/index.js'] : [],
     ...extras,
+    // Subpaths whose runtime default is the tsc-emitted tree (lib/types/*.js —
+    // browser-safe source channels rehomed off src so plain Node can import
+    // them without type stripping) publish the emitted JS alongside the
+    // declarations.
+    ...usesEmittedTreeDefaults(manifest) ? ['lib/types/**/*.js'] : [],
     'lib/types/**/*.d.ts',
     'lib/types/**/*.d.ts.map',
     'src',
   ]
+}
+
+/** Whether any export's runtime default points into the tsc-emitted lib/types tree. */
+function usesEmittedTreeDefaults(manifest: PackageManifest): boolean {
+  return Object.values(manifest.exports ?? {}).some(entry =>
+    typeof entry === 'object' && entry !== null
+    && typeof (entry as { default?: unknown }).default === 'string'
+    && ((entry as { default: string }).default).startsWith('./lib/types/'))
 }
 
 function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {

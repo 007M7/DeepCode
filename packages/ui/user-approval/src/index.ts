@@ -7,7 +7,6 @@
 import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CallId } from '@deepseek-ai/dsh-llm'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
@@ -69,26 +68,11 @@ declare module '@deepseek-ai/dsh-session' {
   }
 }
 
-/**
- * Pairs one `approval/asked` audit event with its `approval/decided`.
- * Service-issued (one fresh id per {@link ApprovalService.request} call).
- */
-export type ApprovalRequestId = Branded<'ApprovalRequestId'>
+import { ApprovalRequestId } from './types.ts'
+import type { ApprovalOutcome } from './types.ts'
 
-/**
- * Brand a string as an {@link ApprovalRequestId}.
- * @param id - the raw id string to brand.
- * @returns the same string carrying the brand.
- */
-export function ApprovalRequestId(id: string): ApprovalRequestId {
-  return id as ApprovalRequestId
-}
-
-/**
- * Closed approval outcomes: a one-shot grant, explicit rejection, withdrawn
- * request, or unavailable answerer. Callers fail closed on `unavailable`.
- */
-export type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
+export { ApprovalRequestId } from './types.ts'
+export type { ApprovalOutcome } from './types.ts'
 
 /** Every {@link ApprovalOutcome}, for runtime normalization of answerer returns. */
 const OUTCOMES: readonly ApprovalOutcome[] = ['allowed-once', 'rejected', 'cancelled', 'unavailable']

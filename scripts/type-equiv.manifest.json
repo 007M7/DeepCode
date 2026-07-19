@@ -1,98 +1,416 @@
 {
   "comment": "Maps each ` ```ts type-equiv ` or ` ```ts public-api ` block (by doc + declared symbol + projection) to the source declaration and original JSDoc it must match. Omit projection for the complete declaration; use public-api with a ` ```ts public-api ` block for a body-stripped public class declaration. verify-type-equiv.ts enforces a 1:1 correspondence: every source-equivalence block has exactly one entry here, and every entry resolves to exactly one block. Add an entry when you add a source-equivalence block; remove it when you remove the block.",
   "entries": [
-    { "doc": "docs/core-data-structures/core.md", "symbol": "Branded", "source": "packages/util/brand/src/index.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "ContentBlockMap", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "AssistantProvenance", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "Message", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "MessageSourceMap", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "FinishReasonMap", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "LlmProviderInfo", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "LlmModelInfo", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "LlmModelContext", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "GenerateOptions", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "ToolSchema", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "LlmCallConfig", "source": "packages/llm/llm/src/call-config.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "AgentCancelCause", "source": "packages/core/agent/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "InjectOptions", "source": "packages/core/agent/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "Agent", "source": "packages/core/agent/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "HookContext", "source": "packages/core/agent/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "PromptDecision", "source": "packages/core/agent/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "ContinuationDecision", "source": "packages/core/agent/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "RequestError", "source": "packages/core/agent/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "RequestErrorDecision", "source": "packages/core/agent/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "ContinuationStop", "source": "packages/core/agent/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "SessionStartSource", "source": "packages/core/agent/src/types.ts" },
-
-    { "doc": "docs/core-data-structures/scope.md", "symbol": "ScopeKey", "source": "packages/core/scope/src/index.ts" },
-    { "doc": "docs/core-data-structures/scope.md", "symbol": "Scoped", "source": "packages/core/scope/src/index.ts" },
-    { "doc": "docs/core-data-structures/scope.md", "symbol": "Scope", "source": "packages/core/scope/src/index.ts" },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "Branded",
+      "source": "packages/util/brand/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "ContentBlockMap",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "AssistantProvenance",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "Message",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "MessageSourceMap",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "FinishReasonMap",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmProviderInfo",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmModelInfo",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmModelContext",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "GenerateOptions",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "ToolSchema",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmCallConfig",
+      "source": "packages/llm/llm/src/call-config.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "SessionEvent",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "AgentCancelCause",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "InjectOptions",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "Agent",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "HookContext",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "PromptDecision",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "ContinuationDecision",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "RequestError",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "RequestErrorDecision",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "ContinuationStop",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "SessionStartSource",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/scope.md",
+      "symbol": "ScopeKey",
+      "source": "packages/core/scope/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/scope.md",
+      "symbol": "Scoped",
+      "source": "packages/core/scope/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/scope.md",
+      "symbol": "Scope",
+      "source": "packages/core/scope/src/index.ts"
+    },
     { "doc": "docs/core-data-structures/scope.md", "symbol": "ScopeLayer", "source": "packages/core/scope/src/store.ts" },
-
-    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalRef", "source": "packages/goal/goal/src/types.ts" },
-    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalPhase", "source": "packages/goal/goal/src/types.ts" },
-    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalBlockReason", "source": "packages/goal/goal/src/types.ts" },
-    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalSnapshot", "source": "packages/goal/goal/src/types.ts" },
-    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalView", "source": "packages/goal/goal/src/types.ts" },
-    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalSnapshotChangeMeta", "source": "packages/goal/goal/src/types.ts" },
-    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalClearChangeMeta", "source": "packages/goal/goal/src/types.ts" },
-    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalMessageSource", "source": "packages/goal/goal/src/types.ts" },
-    { "doc": "docs/core-data-structures/goal.md", "symbol": "CreateGoalRequest", "source": "packages/goal/goal/src/types.ts" },
-    { "doc": "docs/core-data-structures/goal.md", "symbol": "EditGoalRequest", "source": "packages/goal/goal/src/types.ts" },
-    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalChanged", "source": "packages/goal/goal/src/types.ts" },
-
-    { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandInputDescriptor", "source": "packages/ui/commands/src/index.ts" },
-    { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandDefinition", "source": "packages/ui/commands/src/index.ts" },
-    { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandInvocation", "source": "packages/ui/commands/src/index.ts" },
-    { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandResult", "source": "packages/ui/commands/src/index.ts" },
-    { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandDescriptor", "source": "packages/ui/commands/src/index.ts" },
-    { "doc": "docs/core-data-structures/commands.md", "symbol": "ParsedCommand", "source": "packages/ui/commands/src/index.ts" },
-
-    { "doc": "docs/core-data-structures/system-prompt.md", "symbol": "AssembleContext", "source": "packages/core/system-prompt/src/index.ts" },
-    { "doc": "docs/core-data-structures/system-prompt.md", "symbol": "PromptSection", "source": "packages/core/system-prompt/src/index.ts" },
-    { "doc": "docs/core-data-structures/system-prompt.md", "symbol": "ToolProviderResult", "source": "packages/core/system-prompt/src/index.ts" },
-
-    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "StreamChunk", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "LlmFailure", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "TokenUsage", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "ContentBlockMap", "source": "packages/llm/llm/src/types.ts" },
-    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "AppIdentity", "source": "packages/llm/llm/src/attribution.ts" },
-    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "BlockAssembler", "source": "packages/llm/llm/src/assembler.ts", "projection": "public-api" },
-    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "LlmAdapter", "source": "packages/llm/llm/src/index.ts", "projection": "public-api" },
-
-    { "doc": "docs/core-data-structures/token-meter.md", "symbol": "TokenMeasurement", "source": "packages/llm/token-meter/src/types.ts" },
-    { "doc": "docs/core-data-structures/token-meter.md", "symbol": "TokenSurfaceNode", "source": "packages/llm/token-meter/src/types.ts" },
-
-    { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEventMap", "source": "packages/core/session/src/types.ts" },
+    {
+      "doc": "docs/core-data-structures/goal.md",
+      "symbol": "GoalRef",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/goal.md",
+      "symbol": "GoalPhase",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/goal.md",
+      "symbol": "GoalBlockReason",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/goal.md",
+      "symbol": "GoalSnapshot",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/goal.md",
+      "symbol": "GoalView",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/goal.md",
+      "symbol": "GoalSnapshotChangeMeta",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/goal.md",
+      "symbol": "GoalClearChangeMeta",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/goal.md",
+      "symbol": "GoalMessageSource",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/goal.md",
+      "symbol": "CreateGoalRequest",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/goal.md",
+      "symbol": "EditGoalRequest",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/goal.md",
+      "symbol": "GoalChanged",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/commands.md",
+      "symbol": "CommandInputDescriptor",
+      "source": "packages/ui/commands/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/commands.md",
+      "symbol": "CommandDefinition",
+      "source": "packages/ui/commands/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/commands.md",
+      "symbol": "CommandInvocation",
+      "source": "packages/ui/commands/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/commands.md",
+      "symbol": "CommandResult",
+      "source": "packages/ui/commands/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/commands.md",
+      "symbol": "CommandDescriptor",
+      "source": "packages/ui/commands/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/commands.md",
+      "symbol": "ParsedCommand",
+      "source": "packages/ui/commands/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/system-prompt.md",
+      "symbol": "AssembleContext",
+      "source": "packages/core/system-prompt/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/system-prompt.md",
+      "symbol": "PromptSection",
+      "source": "packages/core/system-prompt/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/system-prompt.md",
+      "symbol": "ToolProviderResult",
+      "source": "packages/core/system-prompt/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.md",
+      "symbol": "StreamChunk",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.md",
+      "symbol": "LlmFailure",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.md",
+      "symbol": "TokenUsage",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.md",
+      "symbol": "ContentBlockMap",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.md",
+      "symbol": "AppIdentity",
+      "source": "packages/llm/llm/src/attribution.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.md",
+      "symbol": "BlockAssembler",
+      "source": "packages/llm/llm/src/assembler.ts",
+      "projection": "public-api"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.md",
+      "symbol": "LlmAdapter",
+      "source": "packages/llm/llm/src/index.ts",
+      "projection": "public-api"
+    },
+    {
+      "doc": "docs/core-data-structures/token-meter.md",
+      "symbol": "TokenMeasurement",
+      "source": "packages/llm/token-meter/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/token-meter.md",
+      "symbol": "TokenSurfaceNode",
+      "source": "packages/llm/token-meter/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "SessionEventMap",
+      "source": "packages/core/session/src/types.ts"
+    },
     { "doc": "docs/core-data-structures/session.md", "symbol": "OutOfBandSessionEventMap", "source": "packages/core/session/src/types.ts" },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "EpochHeader", "source": "packages/core/session/src/types.ts" },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "TodoItem", "source": "packages/core/session/src/types.ts" },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "TurnTriggerMap", "source": "packages/core/session/src/types.ts" },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "TurnEndReasonMap", "source": "packages/core/session/src/types.ts" },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceEventType", "source": "packages/core/session/src/types.ts" },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceOp", "source": "packages/core/session/src/types.ts" },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceIntent", "source": "packages/core/session/src/types.ts" },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "SessionSurface", "source": "packages/core/session/src/surface.ts" },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceFoldReplacement", "source": "packages/core/session/src/surface.ts" },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceFoldResult", "source": "packages/core/session/src/surface.ts" },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "Session", "source": "packages/core/session/src/index.ts", "projection": "public-api" },
-
-    { "doc": "docs/core-data-structures/persistence.md", "symbol": "SessionHeader", "source": "packages/core/session/src/types.ts" },
-    { "doc": "docs/core-data-structures/persistence.md", "symbol": "CreateSessionOptions", "source": "packages/core/session/src/types.ts" },
-    { "doc": "docs/core-data-structures/persistence.md", "symbol": "SessionLocation", "source": "packages/session-persistence/session-persistence/src/index.ts" },
-
-    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventSurface", "source": "packages/session-query/session-query/src/types.ts" },
-    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionRecord", "source": "packages/session-query/session-query/src/types.ts" },
-    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventRecord", "source": "packages/session-query/session-query/src/types.ts" },
-    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionLineageNode", "source": "packages/session-query/session-query/src/types.ts" },
-    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionLineageTrace", "source": "packages/session-query/session-query/src/types.ts" },
-    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionQueryErrorCode", "source": "packages/session-query/session-query/src/config.ts" },
-    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventReadRequest", "source": "packages/session-query/session-query/src/types.ts" },
-    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventWindow", "source": "packages/session-query/session-query/src/types.ts" },
-    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventTraceRequest", "source": "packages/session-query/session-query/src/types.ts" },
-    { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventTrace", "source": "packages/session-query/session-query/src/types.ts" },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "EpochHeader",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "TodoItem",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "SessionEvent",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "TurnTriggerMap",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "TurnEndReasonMap",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "SurfaceEventType",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "SurfaceOp",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "SurfaceIntent",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "SessionSurface",
+      "source": "packages/core/session/src/surface.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "SurfaceFoldReplacement",
+      "source": "packages/core/session/src/surface.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "SurfaceFoldResult",
+      "source": "packages/core/session/src/surface.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "Session",
+      "source": "packages/core/session/src/index.ts",
+      "projection": "public-api"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "SessionHeader",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "CreateSessionOptions",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "SessionLocation",
+      "source": "packages/session-persistence/session-persistence/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventSurface",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionRecord",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventRecord",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionLineageNode",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionLineageTrace",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionQueryErrorCode",
+      "source": "packages/session-query/session-query/src/config.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventReadRequest",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventWindow",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventTraceRequest",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventTrace",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
 
     { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProviderId", "source": "packages/session-title/session-title/src/index.ts" },
     { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleModelProvenance", "source": "packages/session-title/session-title/src/index.ts" },
@@ -105,132 +423,565 @@
     { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProviderRequest", "source": "packages/session-title/session-title/src/index.ts" },
     { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProviderResult", "source": "packages/session-title/session-title/src/index.ts" },
     { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProvider", "source": "packages/session-title/session-title/src/index.ts" },
-
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolDefinition", "source": "packages/core/tools/src/index.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "SchemaProp", "source": "packages/core/tools/src/schema.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "SchemaSpec", "source": "packages/core/tools/src/schema.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "InferArgs", "source": "packages/core/tools/src/schema.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionToken", "source": "packages/core/tools/src/index.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionInput", "source": "packages/core/tools/src/index.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecution", "source": "packages/core/tools/src/index.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolDispatchExecution", "source": "packages/core/tools/src/index.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionMode", "source": "packages/core/tools/src/index.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolRunContext", "source": "packages/core/tools/src/index.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolGuard", "source": "packages/core/tools/src/index.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolRestriction", "source": "packages/core/tools/src/index.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionResult", "source": "packages/core/tools/src/index.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "PreToolDecision", "source": "packages/core/tools/src/index.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "PostToolDecision", "source": "packages/core/tools/src/index.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "StructuredScalar", "source": "packages/core/tools/src/json-schema.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "StructuredSchemaType", "source": "packages/core/tools/src/json-schema.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "StructuredSchemaNode", "source": "packages/core/tools/src/json-schema.ts" },
-    { "doc": "docs/core-data-structures/tools.md", "symbol": "StructuredOutputSchema", "source": "packages/core/tools/src/json-schema.ts" },
-
-    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionOption", "source": "packages/ui/user-interaction/src/index.ts" },
-    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionItem", "source": "packages/ui/user-interaction/src/index.ts" },
-    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionRequest", "source": "packages/ui/user-interaction/src/index.ts" },
-    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionAnswerItem", "source": "packages/ui/user-interaction/src/index.ts" },
-    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionAnswer", "source": "packages/ui/user-interaction/src/index.ts" },
-    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "UserInteractionProvider", "source": "packages/ui/user-interaction/src/index.ts" },
-    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "UserInteractionError", "source": "packages/ui/user-interaction/src/index.ts" },
-
-    { "doc": "docs/core-data-structures/approval.md", "symbol": "ApprovalRequestId", "source": "packages/ui/user-approval/src/index.ts" },
-    { "doc": "docs/core-data-structures/approval.md", "symbol": "ApprovalOutcome", "source": "packages/ui/user-approval/src/index.ts" },
-    { "doc": "docs/core-data-structures/approval.md", "symbol": "ApprovalPolicy", "source": "packages/ui/user-approval/src/index.ts" },
-    { "doc": "docs/core-data-structures/approval.md", "symbol": "ApprovalRequest", "source": "packages/ui/user-approval/src/index.ts" },
-
-    { "doc": "docs/core-data-structures/bash.md", "symbol": "DshEnvironmentKey", "source": "packages/bash/bash/src/types.ts" },
-    { "doc": "docs/core-data-structures/bash.md", "symbol": "DshEnvironment", "source": "packages/bash/bash/src/types.ts" },
-    { "doc": "docs/core-data-structures/bash.md", "symbol": "BashExecRequest", "source": "packages/bash/bash/src/types.ts" },
-    { "doc": "docs/core-data-structures/bash.md", "symbol": "BashExecSpec", "source": "packages/bash/bash/src/types.ts" },
-    { "doc": "docs/core-data-structures/bash.md", "symbol": "BashRunResult", "source": "packages/bash/bash/src/types.ts" },
-    { "doc": "docs/core-data-structures/bash.md", "symbol": "BashSandboxInfo", "source": "packages/bash/bash/src/types.ts" },
-    { "doc": "docs/core-data-structures/bash.md", "symbol": "CollectedOutput", "source": "packages/bash/bash/src/types.ts" },
-    { "doc": "docs/core-data-structures/bash.md", "symbol": "BashProcess", "source": "packages/bash/bash/src/types.ts" },
-    { "doc": "docs/core-data-structures/bash.md", "symbol": "BashProcessRead", "source": "packages/bash/bash/src/types.ts" },
-
-    { "doc": "docs/core-data-structures/tasks.md", "symbol": "TaskKindMap", "source": "packages/tasks/tasks/src/types.ts" },
-    { "doc": "docs/core-data-structures/tasks.md", "symbol": "TaskStart", "source": "packages/tasks/tasks/src/types.ts" },
-    { "doc": "docs/core-data-structures/tasks.md", "symbol": "TaskHooks", "source": "packages/tasks/tasks/src/types.ts" },
-    { "doc": "docs/core-data-structures/tasks.md", "symbol": "TaskOutcome", "source": "packages/tasks/tasks/src/types.ts" },
-    { "doc": "docs/core-data-structures/tasks.md", "symbol": "TaskSnapshot", "source": "packages/tasks/tasks/src/types.ts" },
-    { "doc": "docs/core-data-structures/tasks.md", "symbol": "TaskRead", "source": "packages/tasks/tasks/src/types.ts" },
-
-    { "doc": "docs/core-data-structures/sandbox.md", "symbol": "SandboxMode", "source": "packages/sandbox/sandbox/src/index.ts" },
-    { "doc": "docs/core-data-structures/sandbox.md", "symbol": "ConfinedSandboxMode", "source": "packages/sandbox/sandbox/src/index.ts" },
-    { "doc": "docs/core-data-structures/sandbox.md", "symbol": "SandboxEnforcement", "source": "packages/sandbox/sandbox/src/index.ts" },
-    { "doc": "docs/core-data-structures/sandbox.md", "symbol": "SandboxPolicy", "source": "packages/sandbox/sandbox/src/index.ts" },
-    { "doc": "docs/core-data-structures/sandbox.md", "symbol": "ConfinedArgv", "source": "packages/sandbox/sandbox/src/index.ts" },
-
-    { "doc": "docs/core-data-structures/code-runtime.md", "symbol": "CodeRunRequest", "source": "packages/code-runtime/code-runtime/src/types.ts" },
-    { "doc": "docs/core-data-structures/code-runtime.md", "symbol": "CodeRunResult", "source": "packages/code-runtime/code-runtime/src/types.ts" },
-    { "doc": "docs/core-data-structures/code-runtime.md", "symbol": "CodeBindingNamespace", "source": "packages/code-runtime/code-runtime/src/types.ts" },
-    { "doc": "docs/core-data-structures/code-runtime.md", "symbol": "CodeBindingFunction", "source": "packages/code-runtime/code-runtime/src/types.ts" },
-    { "doc": "docs/core-data-structures/code-runtime.md", "symbol": "CodeRunFailure", "source": "packages/code-runtime/code-runtime/src/types.ts" },
-
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsTarget", "source": "packages/fs/fs/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsTargetKey", "source": "packages/fs/fs/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsVersion", "source": "packages/fs/fs/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsInfo", "source": "packages/fs/fs/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsPathInfo", "source": "packages/fs/fs/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsDirEntry", "source": "packages/fs/fs/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsWriteIntent", "source": "packages/fs/fs/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsWriteOutcome", "source": "packages/fs/fs/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsEditRequest", "source": "packages/fs/fs/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsEditOutcome", "source": "packages/fs/fs/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsErrorCode", "source": "packages/fs/fs/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsPolicyExec", "source": "packages/fs/fs-policy/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FileReadOutcome", "source": "packages/fs/tool-fs/src/read-render.ts" },
-
-    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillSource", "source": "packages/skill/skill/src/index.ts" },
-    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillResourceBase", "source": "packages/skill/skill/src/index.ts" },
-    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillSummary", "source": "packages/skill/skill/src/index.ts" },
-    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillCandidate", "source": "packages/skill/skill/src/index.ts" },
-    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillDefinition", "source": "packages/skill/skill/src/index.ts" },
-    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillRegistration", "source": "packages/skill/skill/src/index.ts" },
-    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillLookupOptions", "source": "packages/skill/skill/src/index.ts" },
-    { "doc": "docs/core-data-structures/skills.md", "symbol": "SkillProvider", "source": "packages/skill/skill/src/index.ts" },
-    { "doc": "docs/core-data-structures/skills.md", "symbol": "Config", "source": "packages/skill/skill/src/index.ts" },
-
-    { "doc": "docs/core-data-structures/compaction.md", "symbol": "CompactionResult", "source": "packages/compact/compact/src/types.ts" },
-    { "doc": "docs/core-data-structures/compaction.md", "symbol": "CompactionTrigger", "source": "packages/compact/compact/src/index.ts" },
-    { "doc": "docs/core-data-structures/compaction.md", "symbol": "PrunedEntry", "source": "packages/compact/compact-tool-result-prune/src/types.ts" },
-    { "doc": "docs/core-data-structures/compaction.md", "symbol": "PruneResult", "source": "packages/compact/compact-tool-result-prune/src/types.ts" },
-
-    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentCapabilities", "source": "packages/subagent/subagent/src/types.ts" },
-    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentStartRequest", "source": "packages/subagent/subagent/src/types.ts" },
-    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentResult", "source": "packages/subagent/subagent/src/types.ts" },
-    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentStopReasonMap", "source": "packages/subagent/subagent/src/types.ts" },
-    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentRun", "source": "packages/subagent/subagent/src/types.ts" },
-    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentProvider", "source": "packages/subagent/subagent/src/types.ts" },
-
-    { "doc": "docs/core-data-structures/web.md", "symbol": "WebSearchRequest", "source": "packages/web/web/src/types.ts" },
-    { "doc": "docs/core-data-structures/web.md", "symbol": "WebSearchResult", "source": "packages/web/web/src/types.ts" },
-    { "doc": "docs/core-data-structures/web.md", "symbol": "WebSearchSource", "source": "packages/web/web/src/types.ts" },
-    { "doc": "docs/core-data-structures/web.md", "symbol": "WebFetchRequest", "source": "packages/web/web/src/types.ts" },
-    { "doc": "docs/core-data-structures/web.md", "symbol": "WebFetchResult", "source": "packages/web/web/src/types.ts" },
-    { "doc": "docs/core-data-structures/web.md", "symbol": "WebFetchBody", "source": "packages/web/web/src/types.ts" },
-
-    { "doc": "docs/core-data-structures/spill.md", "symbol": "SaveTextSpill", "source": "packages/spill/spill/src/types.ts" },
-    { "doc": "docs/core-data-structures/spill.md", "symbol": "SpillOwner", "source": "packages/spill/spill/src/types.ts" },
-    { "doc": "docs/core-data-structures/spill.md", "symbol": "SpillSource", "source": "packages/spill/spill/src/types.ts" },
-    { "doc": "docs/core-data-structures/spill.md", "symbol": "SpillRef", "source": "packages/spill/spill/src/types.ts" },
-    { "doc": "docs/core-data-structures/spill.md", "symbol": "SpillLocator", "source": "packages/spill/spill/src/types.ts" },
-
-    { "doc": "docs/core-data-structures/workflow.md", "symbol": "WorkflowStartRequest", "source": "packages/workflow/workflow/src/types.ts" },
-    { "doc": "docs/core-data-structures/workflow.md", "symbol": "WorkflowMeta", "source": "packages/workflow/workflow/src/types.ts" },
-    { "doc": "docs/core-data-structures/workflow.md", "symbol": "WorkflowResult", "source": "packages/workflow/workflow/src/types.ts" },
-    { "doc": "docs/core-data-structures/workflow.md", "symbol": "WorkflowRun", "source": "packages/workflow/workflow/src/types.ts" },
-
-    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspOperation", "source": "packages/lsp/lsp/src/types.ts" },
-    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspPosition", "source": "packages/lsp/lsp/src/types.ts" },
-    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspRange", "source": "packages/lsp/lsp/src/types.ts" },
-    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspQueryRequest", "source": "packages/lsp/lsp/src/types.ts" },
-    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspProviderQuery", "source": "packages/lsp/lsp/src/types.ts" },
-    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspLocation", "source": "packages/lsp/lsp/src/types.ts" },
-    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspHover", "source": "packages/lsp/lsp/src/types.ts" },
-    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspQueryResult", "source": "packages/lsp/lsp/src/types.ts" },
-    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspProvider", "source": "packages/lsp/lsp/src/types.ts" },
-    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspService", "source": "packages/lsp/lsp/src/types.ts" }
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolDefinition",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "SchemaProp",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "SchemaSpec",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "InferArgs",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolExecutionToken",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolExecutionInput",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolExecution",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolDispatchExecution",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolExecutionMode",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolRunContext",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolGuard",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolRestriction",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolExecutionResult",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "PreToolDecision",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "PostToolDecision",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "StructuredScalar",
+      "source": "packages/core/tools/src/json-schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "StructuredSchemaType",
+      "source": "packages/core/tools/src/json-schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "StructuredSchemaNode",
+      "source": "packages/core/tools/src/json-schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "StructuredOutputSchema",
+      "source": "packages/core/tools/src/json-schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.md",
+      "symbol": "AskUserQuestionOption",
+      "source": "packages/ui/user-interaction/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.md",
+      "symbol": "AskUserQuestionItem",
+      "source": "packages/ui/user-interaction/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.md",
+      "symbol": "AskUserQuestionRequest",
+      "source": "packages/ui/user-interaction/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.md",
+      "symbol": "AskUserQuestionAnswerItem",
+      "source": "packages/ui/user-interaction/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.md",
+      "symbol": "AskUserQuestionAnswer",
+      "source": "packages/ui/user-interaction/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.md",
+      "symbol": "UserInteractionProvider",
+      "source": "packages/ui/user-interaction/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.md",
+      "symbol": "UserInteractionError",
+      "source": "packages/ui/user-interaction/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/approval.md",
+      "symbol": "ApprovalRequestId",
+      "source": "packages/ui/user-approval/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/approval.md",
+      "symbol": "ApprovalOutcome",
+      "source": "packages/ui/user-approval/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/approval.md",
+      "symbol": "ApprovalPolicy",
+      "source": "packages/ui/user-approval/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/approval.md",
+      "symbol": "ApprovalRequest",
+      "source": "packages/ui/user-approval/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.md",
+      "symbol": "DshEnvironmentKey",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.md",
+      "symbol": "DshEnvironment",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.md",
+      "symbol": "BashExecRequest",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.md",
+      "symbol": "BashExecSpec",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.md",
+      "symbol": "BashRunResult",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.md",
+      "symbol": "BashSandboxInfo",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.md",
+      "symbol": "CollectedOutput",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.md",
+      "symbol": "BashProcess",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/bash.md",
+      "symbol": "BashProcessRead",
+      "source": "packages/bash/bash/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tasks.md",
+      "symbol": "TaskKindMap",
+      "source": "packages/tasks/tasks/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tasks.md",
+      "symbol": "TaskStart",
+      "source": "packages/tasks/tasks/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tasks.md",
+      "symbol": "TaskHooks",
+      "source": "packages/tasks/tasks/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tasks.md",
+      "symbol": "TaskOutcome",
+      "source": "packages/tasks/tasks/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tasks.md",
+      "symbol": "TaskSnapshot",
+      "source": "packages/tasks/tasks/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tasks.md",
+      "symbol": "TaskRead",
+      "source": "packages/tasks/tasks/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.md",
+      "symbol": "SandboxMode",
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.md",
+      "symbol": "ConfinedSandboxMode",
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.md",
+      "symbol": "SandboxEnforcement",
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.md",
+      "symbol": "SandboxPolicy",
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.md",
+      "symbol": "ConfinedArgv",
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.md",
+      "symbol": "CodeRunRequest",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.md",
+      "symbol": "CodeRunResult",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.md",
+      "symbol": "CodeBindingNamespace",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.md",
+      "symbol": "CodeBindingFunction",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.md",
+      "symbol": "CodeRunFailure",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.md",
+      "symbol": "FsTarget",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.md",
+      "symbol": "FsTargetKey",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.md",
+      "symbol": "FsVersion",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.md",
+      "symbol": "FsInfo",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.md",
+      "symbol": "FsPathInfo",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.md",
+      "symbol": "FsDirEntry",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.md",
+      "symbol": "FsWriteIntent",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.md",
+      "symbol": "FsWriteOutcome",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.md",
+      "symbol": "FsEditRequest",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.md",
+      "symbol": "FsEditOutcome",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.md",
+      "symbol": "FsErrorCode",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.md",
+      "symbol": "FsPolicyExec",
+      "source": "packages/fs/fs-policy/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/filesystem.md",
+      "symbol": "FileReadOutcome",
+      "source": "packages/fs/tool-fs/src/read-render.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillSource",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillResourceBase",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillSummary",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillCandidate",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillDefinition",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillRegistration",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillLookupOptions",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillProvider",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "Config",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/compaction.md",
+      "symbol": "CompactionResult",
+      "source": "packages/compact/compact/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/compaction.md",
+      "symbol": "CompactionTrigger",
+      "source": "packages/compact/compact/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/compaction.md",
+      "symbol": "PrunedEntry",
+      "source": "packages/compact/compact-tool-result-prune/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/compaction.md",
+      "symbol": "PruneResult",
+      "source": "packages/compact/compact-tool-result-prune/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentCapabilities",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentStartRequest",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentResult",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentStopReasonMap",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentRun",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentProvider",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/web.md",
+      "symbol": "WebSearchRequest",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/web.md",
+      "symbol": "WebSearchResult",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/web.md",
+      "symbol": "WebSearchSource",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/web.md",
+      "symbol": "WebFetchRequest",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/web.md",
+      "symbol": "WebFetchResult",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/web.md",
+      "symbol": "WebFetchBody",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/spill.md",
+      "symbol": "SaveTextSpill",
+      "source": "packages/spill/spill/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/spill.md",
+      "symbol": "SpillOwner",
+      "source": "packages/spill/spill/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/spill.md",
+      "symbol": "SpillSource",
+      "source": "packages/spill/spill/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/spill.md",
+      "symbol": "SpillRef",
+      "source": "packages/spill/spill/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/spill.md",
+      "symbol": "SpillLocator",
+      "source": "packages/spill/spill/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/workflow.md",
+      "symbol": "WorkflowStartRequest",
+      "source": "packages/workflow/workflow/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/workflow.md",
+      "symbol": "WorkflowMeta",
+      "source": "packages/workflow/workflow/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/workflow.md",
+      "symbol": "WorkflowResult",
+      "source": "packages/workflow/workflow/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/workflow.md",
+      "symbol": "WorkflowRun",
+      "source": "packages/workflow/workflow/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/lsp.md",
+      "symbol": "LspOperation",
+      "source": "packages/lsp/lsp/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/lsp.md",
+      "symbol": "LspPosition",
+      "source": "packages/lsp/lsp/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/lsp.md",
+      "symbol": "LspRange",
+      "source": "packages/lsp/lsp/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/lsp.md",
+      "symbol": "LspQueryRequest",
+      "source": "packages/lsp/lsp/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/lsp.md",
+      "symbol": "LspProviderQuery",
+      "source": "packages/lsp/lsp/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/lsp.md",
+      "symbol": "LspLocation",
+      "source": "packages/lsp/lsp/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/lsp.md",
+      "symbol": "LspHover",
+      "source": "packages/lsp/lsp/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/lsp.md",
+      "symbol": "LspQueryResult",
+      "source": "packages/lsp/lsp/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/lsp.md",
+      "symbol": "LspProvider",
+      "source": "packages/lsp/lsp/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/lsp.md",
+      "symbol": "LspService",
+      "source": "packages/lsp/lsp/src/types.ts"
+    }
   ]
 }
