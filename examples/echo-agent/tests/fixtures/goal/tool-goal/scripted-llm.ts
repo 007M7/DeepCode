@@ -75,7 +75,7 @@ class GoalScriptAdapter extends LlmAdapter {
       if (goal === undefined) throw new Error('scripted goal state missing')
       return toolCall('update_goal', { goal_id: goal.id, revision: goal.revision, action: 'pause' })
     }
-    if (prompt.text === 'pause') return textReply('GOAL PAUSED')
+    if (prompt.text === 'pause') return textReply('UNEXPECTED CONTINUATION AFTER PAUSE')
     return textReply('UNEXPECTED PROMPT')
   }
 }
