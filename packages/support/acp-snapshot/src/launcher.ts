@@ -231,6 +231,15 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
         return
       }
 
+      const propagateFailureAfterDrain = async (): Promise<never> => {
+        await drained
+        closeUpdateStream()
+        throw failure
+      }
+      // Windows implements the supported signal names as forced termination. The exit markers
+      // may therefore arrive after the error wins the race above but before fallback begins.
+      if (!isRunning(child)) return propagateFailureAfterDrain()
+
       // An `error` after spawn is not an exit edge: in particular, a failed
       // signal can leave the subprocess live. Force termination, await the
       // already-observed exit edge, and only then propagate the child error so
@@ -240,6 +249,10 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
       child.once('error', observeFallbackError)
       if (!child.kill('SIGKILL')) {
         child.off('error', observeFallbackError)
+        // A successful earlier signal may win between the live check and this fallback call.
+        // In that case `kill()` correctly reports no process to signal; the original child error
+        // remains the shutdown result once inherited stdio and callbacks have drained.
+        if (!isRunning(child)) return propagateFailureAfterDrain()
         closeUpdateStream()
         throw new AggregateError(
           [failure, new Error('Fallback SIGKILL was not accepted by the child process')],
@@ -258,9 +271,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
           'ACP test agent failed and fallback termination was refused',
         )
       }
-      await drained
-      closeUpdateStream()
-      throw failure
+      return propagateFailureAfterDrain()
     },
   }
 }
