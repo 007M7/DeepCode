@@ -204,7 +204,7 @@ describe('successful provider completion survives agent/step-result failure', ()
 })
 
 describe('abort during tool execution ends the turn', () => {
-  it('aborting the in-flight step inside a tool prevents both remaining tools and the next model step', async () => {
+  it('balances an aborted tool batch through context, steering, and post-step before closing', async () => {
     const adapter = new MockAdapter([
       // model asks for two tool calls in one step
       [
@@ -223,15 +223,23 @@ describe('abort during tool execution ends the turn', () => {
       name: 'aborter',
       description: '',
       parameters: {},
-      async execute() {
+      async execute(_args, exec) {
         executed.push('aborter')
-        // Fire the in-flight step's AbortController directly (the loop registers
-        // it on the agent). This is the bare step-abort path — distinct from
-        // cancel(), which would also clear the inbox; here the subject is the
-        // loop's response to its running step being aborted mid-tool.
+        exec.agent?.steer(
+          [{ type: 'text', text: 'steering before abort' }],
+          { source: { kind: 'plugin', plugin: 'abort-test' } },
+        )
+        // Exercise bare step abort without `cancel()` clearing queued work.
         ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
         return [{ type: 'text', text: 'done' }]
       },
+    }))
+    ctx.on('tools/post-execute', async exec => ({
+      kind: 'accept',
+      additionalContexts: [{
+        content: [{ type: 'text', text: `context for ${exec.callId}` }],
+        source: { kind: 'plugin', plugin: 'abort-test' },
+      }],
     }))
     ctx.tools.register(defineTool({
       name: 'second',
@@ -244,14 +252,64 @@ describe('abort during tool execution ends the turn', () => {
     }))
 
     const reasons: TurnEndReason[] = []
-    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
+    const order: string[] = []
+    ctx.on('session/event', (session, event) => {
+      if (session !== agent.session) return
+      switch (event.type) {
+        case 'assistant/message': order.push('assistant/message'); break
+        case 'tool/call': order.push(`tool/call:${event.data.callId}`); break
+        case 'tool/result': {
+          const outcome = event.data.error?.code === 'ABORTED' ? 'synthetic-aborted' : 'real'
+          order.push(`tool/result:${event.data.callId}:${outcome}`)
+          break
+        }
+        case 'context/message': order.push('context/message'); break
+        case 'steering/message': order.push('steering/message'); break
+        case 'step/end': order.push('step/end'); break
+        case 'turn/end': {
+          reasons.push(event.data.reason)
+          order.push(`turn/end:${event.data.reason.kind}`)
+          break
+        }
+      }
+    })
+    let postSteps = 0
+    ctx.on('agent/post-step', (subject, turn, step, signal) => {
+      if (subject !== agent) return
+      postSteps += 1
+      expect({ turn, step, aborted: signal.aborted }).toEqual({ turn: 1, step: 1, aborted: true })
+      order.push('agent/post-step')
+    })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(executed).toEqual(['aborter'])           // second tool never ran
-    expect(adapter.requests).toHaveLength(1)        // no follow-up model call
+    expect(executed).toEqual(['aborter'])
+    expect(adapter.requests).toHaveLength(1)
+    expect(postSteps).toBe(1)
+    expect(order).toEqual([
+      'assistant/message',
+      'tool/call:c1',
+      'tool/result:c1:real',
+      'tool/call:c2',
+      'tool/result:c2:synthetic-aborted',
+      'context/message',
+      'steering/message',
+      'agent/post-step',
+      'step/end',
+      'turn/end:aborted',
+    ])
     expect(reasons).toEqual([{ kind: 'aborted', reason: 'user interrupt' }])
+    const calls = agent.session.events.filter(event => event.type === 'tool/call')
+    const results = agent.session.events.filter(event => event.type === 'tool/result')
+    expect(calls.map(event => event.data.callId)).toEqual([CallId('c1'), CallId('c2')])
+    expect(results).toHaveLength(2)
+    expect(results[0]!.data).toMatchObject({ callId: CallId('c1'), isError: false })
+    expect(results[1]!.data).toMatchObject({
+      callId: CallId('c2'),
+      isError: true,
+      error: { name: 'AbortError', code: 'ABORTED' },
+    })
   })
 
   it('records context accepted before a tool-step abort in the same turn', async () => {

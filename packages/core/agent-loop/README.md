@@ -54,7 +54,7 @@ The driver owns one agent for its lifetime and runs inside `ctx.agents.withIniti
 
 Every provider call that reaches a successful finish appends exactly one `assistant/message` completion anchor, including content-less calls and `max-tokens` finishes. A successful `agent/step-result` stores its transformed content; a rejected result records empty content before the original failure continues. The anchor retains exact chunk provenance (`[]` for a stream with no chunks) and usage when available, while empty content stays out of derived message history.
 
-Plugin failure ends the current turn, not the loop. Cancellation clears pending work and aborts the current step without leaking to the next prompt. Terminal continuation stops remain authoritative through turn close and durability flush.
+Plugin failure ends the current turn, not the loop. Only final adapter dispatch/iteration failures and terminal in-band error or aborted finishes enter `agent/request-error`; middleware, result processing, tools, and `agent/post-step` remain ordinary turn failures. Recovery observes a closed failed step, and a retry rebuilds the request from the durable log in a new numbered step. Cancellation clears pending work and aborts the current step without leaking to the next prompt; undispatched model tool calls receive synthetic `tool/call` and aborted result pairs. Terminal continuation stops remain authoritative through turn close and durability flush.
 
 Within a step, exclusive calls form barriers; parallel-safe calls use a bounded rolling pool and are reclassified before start. Only dispatch/body overlaps. Policy, durable results, and result context remain model-ordered. Abort stops new calls, drains started results, then drains accepted batch context before the turn closes through the normal abort path.
 
@@ -62,7 +62,7 @@ Within a step, exclusive calls form barriers; parallel-safe calls use a bounded 
 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
 - Hooks and policy: the relevant `agent/*` checkpoints plus the guarded `tools/pre-execute` → `tools/execute` → `tools/post-execute` → `tools/result` pipeline; exact signatures and modes live in the [generated event catalog](../../../docs/cordis-catalog/events.md)
-- Compaction: `agent/pre-step`
+- Compaction: pressure on `agent/post-step`; canonical context overflow on `agent/request-error`
 - Sandbox, permission, plan mode: `tools/pre-execute` for extensible deny/ask, `tools.guard()` for monotonic owner policy, `tools/post-execute` for result decisions, and `tools/result` for final observation
 - Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while generic [`ctx.tasks`](../../tasks/tasks/) plus [`dsh-tool-subagent`](../../subagent/tool-subagent/) own background collection.
 - Persistence: `session/event` + `session/flush`
@@ -81,6 +81,12 @@ Everything that goes beyond "call the model, run the tools, repeat" belongs to p
 **What the model sees**: Accepted user messages, assistant messages, tool calls and results, injected context, and steering are logged and sent on later steps. Raw stream chunks, lifecycle boundaries, and other log-only events are excluded.
 
 **Token effect**: Input grows with every surface message until a compaction replacement shadows older nodes; a multi-step tool turn resends the accumulated prefix and history each step.
+
+### Undispatched calls after cancellation
+
+**What the model sees**: If a later request replays an aborted step, each tool call that cancellation prevented from dispatching has the error result text `Error: tool call skipped because the step was aborted before execution`.
+
+**Token effect**: One fixed error result per skipped call remains in history until compaction shadows it.
 
 ## Known Limitations and Deferred Work
 

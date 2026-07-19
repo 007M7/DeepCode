@@ -8,8 +8,10 @@
 
 import { Context, Service } from 'cordis'
 import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, Message, StreamChunk } from './types.ts'
-import { HarnessError } from './error.ts'
 import { deepFreeze } from './call-config.ts'
+import { HarnessError } from './error.ts'
+import { bindAdapterFailureScope, markLlmAdapterFailure } from './adapter-failure.ts'
+import type { AdapterFailureScope } from './adapter-failure.ts'
 
 export * from './attribution.ts'
 export * from './brand.ts'
@@ -19,6 +21,7 @@ export * from './types.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, deepFreeze } from './call-config.ts'
 export type { LlmCallConfig } from './call-config.ts'
+export { isLlmAdapterFailure } from './adapter-failure.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -197,19 +200,71 @@ export class LlmService extends Service {
   }
 
   /**
+   * Final adapter boundary. It tags only failures from adapter selection,
+   * synchronous dispatch, iterator construction, or iteration while preserving
+   * the original Error object. Middleware outside this generator remains
+   * distinguishable as plugin work. An iteration failure skips adapter cleanup
+   * so it cannot suppress the primary provider error. A downstream close awaits
+   * adapter cleanup, whose failures remain ordinary untagged work.
+   */
+  private async * adapterStream(
+    options: GenerateOptions,
+    failures: AdapterFailureScope,
+  ): AsyncGenerator<StreamChunk> {
+    let iterator: AsyncIterator<StreamChunk>
+    try {
+      const adapter = this.registration(options.provider).adapter
+      const stream = adapter.stream(this.forAdapter(options, adapter))
+      iterator = stream[Symbol.asyncIterator]()
+    } catch (error: unknown) {
+      throw markLlmAdapterFailure(failures, error)
+    }
+
+    let completed = false
+    let iterationFailed = false
+    try {
+      while (true) {
+        let value: StreamChunk
+        try {
+          const item = await iterator.next()
+          if (item.done) {
+            completed = true
+            return
+          }
+          value = item.value
+        } catch (error: unknown) {
+          iterationFailed = true
+          throw markLlmAdapterFailure(failures, error)
+        }
+        // End the adapter-owned try before yielding: consumer/middleware
+        // failures resumed into this generator must remain untagged.
+        yield value
+      }
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the iteration catch sets its latch before entering finally.
+      if (!completed && !iterationFailed) {
+        const close = iterator.return?.bind(iterator)
+        if (close) await close()
+      }
+    }
+  }
+
+  /**
    * Stream one model call as raw chunks (token-level deltas). Throws
    * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
    * `options.provider`. Replay state is retained only when the same adapter
-   * instance owns its historical provider and the target provider. Dispatches
-   * through the `llm/stream` waterfall.
+   * instance owns its historical provider and the target provider. Final
+   * adapter selection, dispatch, and iteration failures retain their original
+   * Error identity and are tagged in a call-local scope for narrow agent-loop
+   * request recovery; middleware and nested-call failures remain untagged for
+   * the outer call.
    * @param options - the full request; `options.provider` selects the adapter.
    * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
    */
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    return this.ctx.waterfall(this, 'llm/stream', options, () => {
-      const adapter = this.registration(options.provider).adapter
-      return adapter.stream(this.forAdapter(options, adapter))
-    })
+    const failures: AdapterFailureScope = new WeakSet<Error>()
+    const stream = this.ctx.waterfall(this, 'llm/stream', options, () => this.adapterStream(options, failures))
+    return bindAdapterFailureScope(stream, failures)
   }
 }
 

@@ -43,7 +43,7 @@ If a listener rewrites assembled assistant content, the loop drops replay state 
 ## Vocabulary differences
 
 - pi-ai tool-call arguments are parsed objects; the harness stores raw JSON strings. The adapter parses input and re-stringifies output.
-- pi-ai reports failures as in-stream error events; these map to `finish {kind:'error'|'aborted'}` chunks.
+- pi-ai reports failures as in-stream error events; these map to `finish {kind:'error'|'aborted'}` chunks. Provider-specific error text and usage signals evaluated against the resolved model's context window normalize overflow to `CONTEXT_WINDOW_EXCEEDED`.
 - pi-ai folds reasoning tokens into output usage; there is no separate reasoning count to map.
 - `GenerateOptions.stop` is rejected with `UNSUPPORTED_OPTION` because pi-ai's common streaming surface cannot guarantee it across providers.
 
