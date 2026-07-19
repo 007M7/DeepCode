@@ -50,6 +50,7 @@ describe('runLoaderSmoke', () => {
       label: 'argv fixture',
       tempDirPrefix: 'loader-smoke-argv-',
       binScript: fixture('success'),
+      libBinScript: fixture('success'),
       configPath,
       binArgs: ['--config', configPath, '--output-format', 'json', 'task with spaces'],
       tsconfigPath,
