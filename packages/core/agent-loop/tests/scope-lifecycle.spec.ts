@@ -8,7 +8,7 @@ import AgentRegistry, { agentEvents, assembleContextFor } from '@deepseek-ai/dsh
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
@@ -28,7 +28,7 @@ async function harness(adapter: MockAdapter = new MockAdapter([textResponse('ok'
   return (await harnessWithLoop(adapter)).ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -736,7 +736,7 @@ describe('agent scope lifecycle', () => {
     const ctx = await harness()
     let ownerCtx!: Context
     let creating!: ReturnType<typeof ctx.agents.create>
-    let announced!: ReactLoopAgent
+    let announced!: Agent
     const statuses: string[] = []
     let scopeDisposed = false
     let observerSawLive = false
@@ -745,7 +745,7 @@ describe('agent scope lifecycle', () => {
     })
     ctx.on('agent/session-start', (agent) => {
       if (agent.id !== SessionId('session-start-dispose-s')) return
-      announced = agent as ReactLoopAgent
+      announced = agent
       disposeCurrentLifecycle(ownerCtx)
     })
     ctx.on('agent/session-start', (agent) => {

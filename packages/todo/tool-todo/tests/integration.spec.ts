@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -21,7 +22,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {

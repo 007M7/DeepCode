@@ -36,7 +36,7 @@ declare module '@deepseek-ai/dsh-agent' {
  * @param agent - the agent whose options carry the depth.
  * @returns its non-negative safe-integer depth.
  */
-export function depthOf(agent: Agent): number {
+function depthOf(agent: Agent): number {
   const depth = agent.options.subagentDepth
   if (depth === undefined) return 0
   if (!Number.isSafeInteger(depth) || depth < 0 || Object.is(depth, -0)) {
@@ -46,7 +46,7 @@ export function depthOf(agent: Agent): number {
 }
 
 /** Thrown when starting a child would exceed the requested depth cap. */
-export class SubagentDepthError extends Error {
+class SubagentDepthError extends Error {
   constructor(public readonly attemptedDepth: number, public readonly maxDepth: number) {
     super(`subagent depth ${attemptedDepth} exceeds maxDepth ${maxDepth}`)
     this.name = 'SubagentDepthError'

@@ -10,8 +10,8 @@ import SessionStore, { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmService from '@deepseek-ai/dsh-llm'
 import ToolRegistry, { defineTool, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 async function harness(adapter: MockAdapter, maxParallelToolCalls?: number) {
@@ -29,7 +29,7 @@ async function harness(adapter: MockAdapter, maxParallelToolCalls?: number) {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') { dispose(); resolve() }
@@ -37,7 +37,7 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function events(agent: ReactLoopAgent): SessionEvent[] {
+function events(agent: Agent): SessionEvent[] {
   return [...agent.session.events]
 }
 

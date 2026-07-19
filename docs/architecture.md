@@ -17,7 +17,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages contribute service
 | `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and prompt variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | live agent registry, public `Agent` handle, `agent/*` events |
-| `ctx.agentLoop` | `dsh-agent-loop` | shipped `ReactLoopAgent` driver |
+| `ctx.agentLoop` | `dsh-agent-loop` | concrete `Agent` driver |
 
 ### Capability Services
 

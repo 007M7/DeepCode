@@ -288,7 +288,7 @@ The fourteen event variants (`turn/start`, `turn/end`, `step/start`, `step/end`,
 
 ## The agent handle
 
-`Agent` is the surface every plugin (UI, hooks, orchestrators) programs against. The concrete implementation is `ReactLoopAgent` in dsh-agent-loop; nothing outside the loop depends on the implementation.
+`Agent` is the surface every plugin (UI, hooks, orchestrators) programs against. The concrete implementation is package-internal to dsh-agent-loop; nothing outside the loop depends on it.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 

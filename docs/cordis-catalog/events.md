@@ -179,7 +179,7 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 'agent-loop/config-start-failed'(sessionId: SessionId, error: unknown): void
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:363`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:362`](../../packages/core/agent-loop/src/index.ts)
 
 ## `approval/*`
 
