@@ -170,6 +170,62 @@
     }
   }
 
+  // Optional pages (lane-nav-optional). Render a checkbox row for each
+  // page listed in nav-config-model's OPTIONAL_PAGES. `checked=true`
+  // means the page is CURRENTLY VISIBLE (not in the hiddenPages array).
+  // On toggle, write the updated array back through window.dsh.nav.set
+  // and ask the renderer to re-apply the sidebar filter so the change
+  // takes effect without a reload.
+  async function readCurrentHidden() {
+    try {
+      if (window.dsh && window.dsh.nav && typeof window.dsh.nav.getHiddenPages === 'function') {
+        const res = await window.dsh.nav.getHiddenPages()
+        const M = window.__dshNavConfigModel
+        return M ? M.resolveHiddenPages(res || {}) : (Array.isArray(res && res.hiddenPages) ? res.hiddenPages : [])
+      }
+    } catch (_) { /* fall through */ }
+    const M = window.__dshNavConfigModel
+    return M ? M.DEFAULT_HIDDEN.slice() : []
+  }
+
+  function renderOptionalRow(page, isVisible) {
+    const li = document.createElement('li')
+    li.className = 'settings-optional-row'
+    li.dataset.pageId = page.id
+    const checkbox = document.createElement('input')
+    checkbox.type = 'checkbox'
+    checkbox.checked = !!isVisible
+    checkbox.id = `settings-optional-${page.id}`
+    checkbox.dataset.pageId = page.id
+    const label = document.createElement('label')
+    label.className = 'settings-optional-label'
+    label.setAttribute('for', checkbox.id)
+    const name = document.createElement('span')
+    name.className = 'settings-optional-name'
+    name.textContent = page.label
+    const hint = document.createElement('span')
+    hint.className = 'settings-optional-hint muted'
+    hint.textContent = page.hint
+    label.appendChild(name)
+    label.appendChild(hint)
+    li.appendChild(checkbox)
+    li.appendChild(label)
+    return li
+  }
+
+  async function renderOptionalPages(container) {
+    const list = container.querySelector('[data-settings-optional-list]')
+    if (!list) return
+    const M = window.__dshNavConfigModel
+    if (!M) return
+    const currentHidden = await readCurrentHidden()
+    const hiddenSet = new Set(currentHidden)
+    list.innerHTML = ''
+    for (const page of M.OPTIONAL_PAGES) {
+      list.appendChild(renderOptionalRow(page, !hiddenSet.has(page.id)))
+    }
+  }
+
   async function readKeyPresence() {
     // Only DEEPSEEK is knowable today because the main process spawns
     // stdio-deepseek with that key threaded through the profile. Other
@@ -202,6 +258,7 @@
     if (!root) return
     const priceContainer = root.querySelector('[data-settings-pricing]')
     const keysContainer = root.querySelector('[data-settings-keys]')
+    const optionalContainer = root.querySelector('[data-settings-optional-pages]')
     const model = window.__dshSettingsModel
     if (!model) return
     if (priceContainer) {
@@ -220,6 +277,9 @@
       const presence = await readKeyPresence()
       const rows = model.classifyKeys(presence)
       renderKeys(keysContainer, rows)
+    }
+    if (optionalContainer) {
+      await renderOptionalPages(optionalContainer)
     }
   }
 
@@ -258,6 +318,33 @@
         if (!model || !modelName) return
         model.setOverride(modelName, null)
         void refresh(root)
+      })
+    }
+    // Optional pages checkbox listener — one delegated handler for all
+    // rows. The bound flag guards a double-bind if show() runs twice
+    // (which happens when the researcher visits Settings after having
+    // opened it once already, since renderer.js:switchTo('settings')
+    // calls show() unconditionally).
+    const optionalList = root.querySelector('[data-settings-optional-list]')
+    if (optionalList && !optionalList.__dshBound) {
+      optionalList.__dshBound = true
+      optionalList.addEventListener('change', async (ev) => {
+        const t = ev.target
+        if (!(t instanceof HTMLInputElement) || t.type !== 'checkbox') return
+        const pageId = t.dataset.pageId
+        const M = window.__dshNavConfigModel
+        if (!pageId || !M) return
+        // Read current, compute next, persist, re-apply filter.
+        const current = await readCurrentHidden()
+        const next = M.toggleOptionalPage(current, pageId, t.checked)
+        try {
+          if (window.dsh && window.dsh.nav && typeof window.dsh.nav.setHiddenPages === 'function') {
+            await window.dsh.nav.setHiddenPages(next)
+          }
+        } catch (_) { /* IPC absent — the DOM class flip below still updates the sidebar for this session */ }
+        if (window.__dshNavFilter && typeof window.__dshNavFilter.apply === 'function') {
+          await window.__dshNavFilter.apply()
+        }
       })
     }
   }

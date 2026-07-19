@@ -7530,6 +7530,47 @@ async function bootUi() {
   })
   window.__dshTabs = { switchTo }
 
+  // Left-nav hidden-pages filter (lane-nav-optional). Reads the shell
+  // config's `hiddenPages` array through the nav IPC and toggles a
+  // `nav-item--hidden` class on every `.tab-btn[data-tab=id]` in the
+  // hidden set. Also hides the enclosing `.nav-group` when every button
+  // inside it is hidden so an empty group header doesn't linger. If the
+  // active tab has been hidden by the flip, we fall back to Chat so
+  // the shell never lands on a pane whose entry point is invisible.
+  async function applyNavHiddenPages() {
+    const M = window.__dshNavConfigModel
+    if (!M) return
+    let cfg = {}
+    try {
+      if (window.dsh && window.dsh.nav && typeof window.dsh.nav.getHiddenPages === 'function') {
+        cfg = await window.dsh.nav.getHiddenPages() || {}
+      }
+    } catch (_) { /* absent IPC (unit test / stripped preload) → fall through to defaults */ }
+    const hidden = M.resolveHiddenPages(cfg)
+    const hiddenSet = new Set(hidden)
+    for (const btn of document.querySelectorAll('.sidebar-nav .tab-btn')) {
+      const id = btn.dataset.tab
+      btn.classList.toggle('nav-item--hidden', hiddenSet.has(id))
+    }
+    for (const group of document.querySelectorAll('.sidebar-nav .nav-group')) {
+      const buttons = group.querySelectorAll('.tab-btn')
+      if (buttons.length === 0) continue
+      const everyHidden = Array.from(buttons).every((b) => b.classList.contains('nav-item--hidden'))
+      group.classList.toggle('nav-group--hidden', everyHidden)
+    }
+    // If a hidden tab was the active one, fall back to Chat so the
+    // main pane isn't left showing a surface whose button is gone.
+    const activeBtn = document.querySelector('.sidebar-nav .tab-btn.active')
+    if (activeBtn && activeBtn.classList.contains('nav-item--hidden')) {
+      switchTo('chat')
+    }
+    return hidden
+  }
+  window.__dshNavFilter = { apply: applyNavHiddenPages }
+  // Kick the filter after tab wiring lands so a fresh boot doesn't
+  // paint Playground/Missions before the hide toggles for one frame.
+  void applyNavHiddenPages()
+
   // Rate-trajectory button — opens the annotation drawer scoped
   // to the current chat session. Falls back to a fixture-session picker
   // when there is no active session (first-run demo shape).

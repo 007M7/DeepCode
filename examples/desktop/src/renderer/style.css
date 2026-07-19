@@ -12700,3 +12700,52 @@ button.artifact-version:hover {
 }
 .artifact-timeline-open:hover { color: var(--accent); background: var(--accent-soft); }
 
+
+/* ---- lane-nav-optional: hiddenPages filter + Optional pages Settings ----
+   `.nav-item--hidden` is added by renderer.js's applyNavHiddenPages() for
+   every left-nav button whose data-tab id appears in the shell config's
+   `hiddenPages` array (or the default set: playground-shim + mission).
+   `.nav-group--hidden` collapses the enclosing group header when every
+   button inside got hidden — otherwise a lonely "iteration" label would
+   sit above an empty column. */
+.sidebar .sidebar-nav .nav-item--hidden,
+.sidebar .sidebar-nav .nav-group--hidden {
+  display: none !important;
+}
+
+/* Optional pages checkbox list in Settings > Optional pages. Compact
+   two-line rows (label + hint) so the section stays skimmable and does
+   not fight the pricing/keys tables above it. */
+.settings-optional-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.settings-optional-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+.settings-optional-row:first-child { border-top: none; }
+.settings-optional-row input[type="checkbox"] {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+.settings-optional-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+}
+.settings-optional-name {
+  font-weight: 600;
+}
+.settings-optional-hint {
+  color: var(--text-tertiary);
+  font-size: var(--fs-small, 12px);
+}

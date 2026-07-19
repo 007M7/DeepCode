@@ -784,6 +784,30 @@ app.whenReady().then(async () => {
     return { ok: true }
   })
 
+  // -- left-nav hidden-pages config (lane-nav-optional) ---------------------
+  // Reads/writes the `hiddenPages` array on ~/.dsh-desktop/config.json so a
+  // researcher can hide any left-nav page by id (matches the `data-tab`
+  // attribute in index.html). Missing field falls through to the two-page
+  // default (Playground shim + Missions) so fresh installs surface fewer
+  // demo-tier pages up front. Renderer honors the returned list on init +
+  // whenever the Settings > Optional pages checkboxes flip.
+  ipcMain.handle('nav:getHiddenPages', () => {
+    const cfg = P.readShellConfig() || {}
+    return { hiddenPages: cfg.hiddenPages }
+  })
+  ipcMain.handle('nav:setHiddenPages', (_e, { hiddenPages } = {}) => {
+    if (!Array.isArray(hiddenPages)) {
+      return { ok: false, reason: 'hiddenPages must be an array of pageId strings' }
+    }
+    // Defensive filter — the caller should already have cleaned this, but
+    // dropping non-strings here means an accidental `null` in the payload
+    // can't corrupt the on-disk config for the next boot.
+    const cleaned = hiddenPages.filter((x) => typeof x === 'string' && x.length > 0)
+    const existing = P.readShellConfig() || {}
+    P.writeShellConfig({ ...existing, hiddenPages: cleaned })
+    return { ok: true, hiddenPages: cleaned }
+  })
+
   // Growth log — the append-only jsonl of runtime-shaping events that the
   // Growth page reads. Returns entries + a hint on the installedAt anchor
   // (config.json.createdAt, when onboarding wrote it) so the renderer can

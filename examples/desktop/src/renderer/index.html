@@ -1116,6 +1116,27 @@
               <tbody data-settings-keys-tbody></tbody>
             </table>
           </section>
+          <!-- Optional pages (lane-nav-optional). Playground + Missions
+               ship hidden out of the box to cut first-run cognitive load;
+               a researcher opts them back in here. Any custom
+               `hiddenPages` entries the user hand-edits into
+               ~/.dsh-desktop/config.json are honored by the renderer
+               filter but do not surface as checkboxes — this section
+               only lists the two demo-tier pages we hide by default. -->
+          <section class="settings-section" data-settings-optional-pages>
+            <div class="settings-section-head">
+              <h3 class="settings-section-title">Optional pages</h3>
+              <div class="settings-section-sub muted">
+                Enable extra pages in the left sidebar. Hidden by default
+                to reduce the first-run surface; toggles persist to
+                <code>~/.dsh-desktop/config.json</code> under
+                <code>hiddenPages</code>. Advanced users can hide any page
+                by adding its id to that array manually (e.g.
+                <code>["prs","growth"]</code>).
+              </div>
+            </div>
+            <ul class="settings-optional-list" data-settings-optional-list aria-label="Optional pages"></ul>
+          </section>
         </section>
       </section>
 
@@ -1418,7 +1439,11 @@
   <script src="./pr-page.js"></script>
   <!-- Lane-nav (task #189/#193): runtimes page + settings page + pure
        settings-model helpers. settings-model must load BEFORE
-       settings-page so the DOM controller finds the pure module. -->
+       settings-page so the DOM controller finds the pure module.
+       nav-config-model is loaded here too so settings-page can list
+       the Optional pages checkboxes and renderer.js can filter the
+       sidebar on init. -->
+  <script src="./nav-config-model.js"></script>
   <script src="./settings-model.js"></script>
   <script src="./runtimes-page.js"></script>
   <script src="./settings-page.js"></script>

@@ -142,6 +142,15 @@ contextBridge.exposeInMainWorld('dsh', {
     apply: (role, approvalMode) => ipcRenderer.invoke('onboarding:apply', { role, approvalMode }),
     reset: () => ipcRenderer.invoke('onboarding:reset'),
   },
+  // -- left-nav hidden-pages config (lane-nav-optional) ---------------------
+  // Read + write the `hiddenPages` array in ~/.dsh-desktop/config.json.
+  // Returned value follows the same three-state semantic the renderer
+  // filter honors: `undefined` = default (playground+mission hidden),
+  // `[]` = show everything, non-empty array = honored as-is.
+  nav: {
+    getHiddenPages: () => ipcRenderer.invoke('nav:getHiddenPages'),
+    setHiddenPages: (hiddenPages) => ipcRenderer.invoke('nav:setHiddenPages', { hiddenPages }),
+  },
   // -- growth log (self-evolution audit trail) -------------------------------
   // The main process appends jsonl entries at ~/.dsh-desktop/growth-log.jsonl
   // on runtime-shaping events (plugin add/toggle, overlay apply, vibe
