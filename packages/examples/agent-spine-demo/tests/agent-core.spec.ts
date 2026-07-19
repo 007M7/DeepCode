@@ -280,7 +280,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         workspaceContext: false,
         skills: { local: { dshHome: '/nested-dsh-home' } },
       })
-    }).toThrow(/must resolve to the same directory/)
+    }).toThrow('agent-spine-demo: dshHome and skills.local.dshHome must resolve to the same directory')
   })
 
   it('places workspace instructions before the skill catalog in the session prefix', async () => {
