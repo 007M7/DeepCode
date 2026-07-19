@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { globSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import ts from 'typescript'
+import { builtDeclarationPath } from './doc-typecheck-paths.ts'
 import { extractFences } from './md-fences.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -65,12 +66,7 @@ function builtTypeCompilerOptions(): ts.CompilerOptions {
   if (parsed.options.paths === undefined) throw new Error('doc-typecheck: root tsconfig has no workspace paths')
   const paths = Object.fromEntries(Object.entries(parsed.options.paths).map(([specifier, candidates]) => [
     specifier,
-    candidates.map((candidate) => {
-      if (!candidate.endsWith('/src')) {
-        throw new Error(`doc-typecheck: cannot map workspace source path to built declarations: ${candidate}`)
-      }
-      return `${candidate.slice(0, -'/src'.length)}/lib/types`
-    }),
+    candidates.map(builtDeclarationPath),
   ]))
   const options: ts.CompilerOptions = {
     ...parsed.options,
