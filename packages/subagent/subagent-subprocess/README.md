@@ -41,6 +41,10 @@ A per-run isolated config directory for an external CLI child (the target of `CL
 
 Indirectly, through process-based subagent backends, whose child composition is constrained by credential scrubbing and isolated config directories.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **The credential scrub is name-based** — only variables matching `KEY` / `SECRET` / `TOKEN` are removed; differently named secrets such as `PASSWORD` pass through unless the backend supplies a stricter environment.

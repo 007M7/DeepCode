@@ -49,7 +49,7 @@ Four tiers, designed up front:
 - **Real-Loader path** — the plugin run through `Loader.unwrapExports`, asserting the namespace export shape survives (it HAS `inject`, so a stray default would crash at load — postmortem/0001).
 - **Full-loop integration** — a scripted mock model calls `todo_write` through the real agent loop; the `todo/write` event lands and a second call replaces it.
 - **`session/load` replay** — a persisted `todo/write` re-emits the `plan` update when a fresh ACP bridge loads the session.
-- **With-key e2e + snapshot** — a real prompt induces a `todo_write`; the snapshot golden gains the `plan` notification and the log event.
+- **With-key e2e + snapshot** — a real prompt induces a `todo_write`; the snapshot expected output gains the `plan` notification and the log event.
 
 ## Alternatives considered
 

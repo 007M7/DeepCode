@@ -22,6 +22,7 @@ const BASIC_COMPACT_CONFIG_KEYS: ReadonlySet<string> = new Set([
   'summarizationModel',
   'maxTokens',
   'compactionRetries',
+  'maxOverflowRetries',
   'auto',
 ])
 
@@ -31,7 +32,8 @@ function validateConfigKeys(config: BasicCompactConfig): void {
     if (!BASIC_COMPACT_CONFIG_KEYS.has(key)) {
       throw new Error(
         `BasicCompactConfig: unknown key "${key}" `
-        + '(allowed: thresholdRatio, retainTokens, summarizationProvider, summarizationModel, maxTokens, compactionRetries, auto)',
+        + '(allowed: thresholdRatio, retainTokens, summarizationProvider, summarizationModel, '
+        + 'maxTokens, compactionRetries, maxOverflowRetries, auto)',
       )
     }
   }
@@ -58,6 +60,7 @@ export function resolveConfig(
     summarizationModel: config.summarizationModel ?? '',
     maxTokens: config.maxTokens ?? 8192,
     compactionRetries: config.compactionRetries ?? 1,
+    maxOverflowRetries: config.maxOverflowRetries ?? 1,
     auto: config.auto ?? true,
   }
 
@@ -71,6 +74,7 @@ export function resolveConfig(
   }
   assertPositiveInteger('maxTokens', resolved.maxTokens)
   assertNonNegativeInteger('compactionRetries', resolved.compactionRetries)
+  assertNonNegativeInteger('maxOverflowRetries', resolved.maxOverflowRetries)
   if (typeof resolved.summarizationProvider !== 'string') {
     throw new Error('BasicCompactConfig: summarizationProvider must be a string')
   }

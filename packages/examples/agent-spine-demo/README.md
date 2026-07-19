@@ -56,6 +56,10 @@ A YAML include can deduplicate config but cannot own a bin or provide front-door
 
 Indirectly, through `dsh-system-prompt`, `dsh-tool-skill`, `dsh-tool-bash`, and `dsh-tools`, which this bundle mounts without adding model-bound wrapper content.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **Most of the spine set is fixed in code** — `apply()` always mounts the core services and `tool-bash`; config can omit the bundled skills and task-control tools, but swapping the loop or dropping another spine member means composing a different bundle.

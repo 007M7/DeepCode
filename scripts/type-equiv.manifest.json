@@ -18,6 +18,8 @@
     { "doc": "docs/core-data-structures/core.md", "symbol": "HookContext", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "PromptDecision", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "ContinuationDecision", "source": "packages/core/agent/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "RequestError", "source": "packages/core/agent/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "RequestErrorDecision", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "ContinuationStop", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "SessionStartSource", "source": "packages/core/agent/src/types.ts" },
 
@@ -155,6 +157,7 @@
     { "doc": "docs/core-data-structures/skills.md", "symbol": "Config", "source": "packages/skill/skill/src/index.ts" },
 
     { "doc": "docs/core-data-structures/compaction.md", "symbol": "CompactionResult", "source": "packages/compact/compact/src/types.ts" },
+    { "doc": "docs/core-data-structures/compaction.md", "symbol": "CompactionTrigger", "source": "packages/compact/compact/src/index.ts" },
 
     { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentCapabilities", "source": "packages/subagent/subagent/src/types.ts" },
     { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentStartRequest", "source": "packages/subagent/subagent/src/types.ts" },

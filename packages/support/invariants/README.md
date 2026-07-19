@@ -56,6 +56,10 @@ A seeded or forked session arrives with events already in its log because constr
 
 None, as this observer only validates events and frozen requests and never rewrites prompts, schemas, messages, or streams.
 
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
 ## Known Limitations and Deferred Work
 
 - **The request-reconstructability assertion covers loop-built requests only** — hand-built one-shots (e.g. compaction's summarize call) carry no live `sessionId` marker and are skipped.
