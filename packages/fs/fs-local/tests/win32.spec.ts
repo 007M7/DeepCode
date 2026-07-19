@@ -1,5 +1,6 @@
 /** Host-independent binding tests for the Win32 DACL and replacement helpers. */
 
+import { toNamespacedPath } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 type GetFileSecurityW = (
@@ -92,7 +93,7 @@ describe('Windows file-security helpers', () => {
     await copyFileDaclWin32('source', 'temp')
     expect(native.installed).toEqual([descriptor])
     await replaceFileWin32('target', 'temp')
-    expect(native.replacements).toEqual([['target', 'temp']])
+    expect(native.replacements).toEqual([[toNamespacedPath('target'), toNamespacedPath('temp')]])
   })
 
   it('maps descriptor-size probe failures to Node-style codes', async () => {

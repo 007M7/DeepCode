@@ -372,6 +372,28 @@ describe('streamWholeText', () => {
 // bits, so mode assertions are POSIX-only; native DACL preservation is asserted separately.
 const posixModes = process.platform !== 'win32'
 
+function daclAcePolicy(descriptor: Buffer): string[] {
+  const daclOffset = descriptor.readUInt32LE(16)
+  if (daclOffset === 0) return []
+  const aceCount = descriptor.readUInt16LE(daclOffset + 4)
+  const policy: string[] = []
+  const seen = new Set<string>()
+  let offset = daclOffset + 8
+  for (let index = 0; index < aceCount; index++) {
+    const size = descriptor.readUInt16LE(offset + 2)
+    const ace = Buffer.from(descriptor.subarray(offset, offset + size))
+    // INHERITED_ACE records provenance, not the entry's access policy.
+    ace.writeUInt8(ace.readUInt8(1) & ~0x10, 1)
+    const key = ace.toString('hex')
+    if (!seen.has(key)) {
+      seen.add(key)
+      policy.push(key)
+    }
+    offset += size
+  }
+  return policy
+}
+
 describe('writeFileAtomic — temp-file safety', () => {
   it('writes through a private staging dir and owner-only temp file', async () => {
     const file = join(dir, 'a.txt')
@@ -409,7 +431,7 @@ describe('writeFileAtomic — temp-file safety', () => {
     })
 
     expect(await readFile(file, 'utf8')).toBe('new')
-    expect(await readFileDaclWin32(file)).toEqual(expectedDacl)
+    expect(daclAcePolicy(await readFileDaclWin32(file))).toEqual(daclAcePolicy(expectedDacl))
   })
 
   it('copies a Windows target DACL before content and publishes through secure replacement', async () => {

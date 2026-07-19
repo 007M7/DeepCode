@@ -10,9 +10,9 @@ On Windows, creating the staging directory and temp file under the target's pare
 
 ## Decision
 
-`dsh-fs-local` reads an existing target's DACL with `GetFileSecurityW`, applies it to the empty temp file with inheritance protected before writing content, and publishes the closed temp with `ReplaceFileW`. The protected staging descriptor prevents the temp directory's inherited entries from broadening access; `ReplaceFileW` preserves the original target security descriptor and other replacement metadata. New files have no prior descriptor to preserve and continue to inherit the destination directory's DACL.
+`dsh-fs-local` reads an existing target's DACL with `GetFileSecurityW`, applies it to the empty temp file with inheritance protected before writing content, and publishes the closed temp with `ReplaceFileW`. The protected staging descriptor prevents the temp directory's inherited entries from broadening access; `ReplaceFileW` preserves the original target access policy and other replacement metadata. Its ACL merge may reserialize auto-inheritance state or duplicate equivalent ACEs, so self-relative descriptor buffers are not a stable equality contract. New files have no prior descriptor to preserve and continue to inherit the destination directory's DACL.
 
-Native Windows coverage protects a target DACL, inspects the written staging file, and compares the final replacement descriptor. Host-independent binding tests cover Win32 error translation and every native call boundary.
+Native Windows coverage protects a target DACL, inspects the written staging file, and compares the final replacement's ordered, de-duplicated ACE policy. Host-independent binding tests cover Win32 error translation and every native call boundary.
 
 ## Alternatives considered
 
