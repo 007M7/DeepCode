@@ -53,5 +53,6 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | Event string | Dispatchers | Listeners |
 | --- | --- | --- |
 | `internal/dispatch` | - | [`invariants`](../packages/support/invariants) |
+| `internal/status` | - | [`agent`](../packages/core/agent) |
 
 Maintenance mode: generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program.

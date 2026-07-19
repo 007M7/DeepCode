@@ -1,5 +1,6 @@
 /**
- * Negative-path tests for the cordis catalog generator (`scripts/gen-cordis-catalog.ts`).
+ * Contract and negative-path tests for the cordis catalog generator
+ * (`scripts/gen-cordis-catalog.ts`).
  */
 
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -74,6 +75,33 @@ describe('gen-cordis-catalog collectEvents', () => {
       '    /**\n     * Flush.\n     * @mode parallel\n     */\n    \'fix/flush\'(): Promise<void> | void',
     ))
     expect(events[0]?.mode).toBe('parallel')
+  })
+
+  it('accepts linked, foundation, generic-parameter, and explicitly exempt signature types', () => {
+    const events = collectEvents(make(
+      '    /**\n     * Carry linked and foundation types.\n     * @param value - the linked value.\n     * @param preset - deployment metadata outside the core catalog.\n     * @param signal - cancellation.\n     * @mode parallel\n     */\n    \'fix/typed\'<T extends SessionEvent>(value: Readonly<T>, preset: PresetSpec, signal: AbortSignal): Promise<T>',
+    ))
+    expect(events).toHaveLength(1)
+    expect(renderEvents(events)).toContain('Types: [SessionEvent](../core-data-structures/core.md)')
+    expect(renderEvents(events)).not.toContain('[PresetSpec]')
+  })
+
+  it('aggregates every unclassified signature type with its source and remediation', () => {
+    const expected = new RegExp([
+      '2 signature type-link coverage violation\\(s\\)',
+      'fix/one',
+      'packages/group/fix/src/index.ts',
+      'MissingOne',
+      'fix/two',
+      'packages/group/fix/src/index.ts',
+      'missingTwo',
+      'Add it to LINK_MAP',
+      'FOUNDATION_TYPE_NAMES',
+      'TYPE_LINK_EXEMPTIONS',
+    ].join('[\\s\\S]*'))
+    expect(() => collectEvents(make(
+      '    /**\n     * First.\n     * @param value - first value.\n     * @mode emit\n     */\n    \'fix/one\'(value: MissingOne): void\n    /**\n     * Second.\n     * @param value - second value.\n     * @mode emit\n     */\n    \'fix/two\'(value: missingTwo): void',
+    ))).toThrow(expected)
   })
 
   it('hard-errors when an event is missing its @mode tag', () => {
@@ -165,6 +193,12 @@ export class FixService {
       jsDoc: '/**\n * Do the thing.\n * @param id - which thing to do.\n * @returns the outcome of doing it.\n */',
     })
     expect(renderServices(services)).toContain('```ts cordis-catalog\n/**\n * Do the thing.\n * @param id - which thing to do.\n * @returns the outcome of doing it.\n */\nrun(id: string): string\n\n/** Fire and forget (void needs no @returns). */\npoke(): void')
+  })
+
+  it('hard-errors on an unclassified service-method signature type', () => {
+    expect(() => collectServices(makeService(
+      '/** Fixture service. */\nexport class FixService {\n  /**\n   * Use an unknown value.\n   * @param value - the value.\n   */\n  run(value: MissingServiceType): void {}\n}',
+    ))).toThrow(/service method ctx\.fix\.run .* references unclassified type 'MissingServiceType'/)
   })
 
   it('hard-errors on a public method with no JSDoc at all', () => {

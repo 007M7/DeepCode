@@ -11,6 +11,10 @@ Owns the deployment's permission presets and their write path. Requires a confin
 ### ctx.permission.names
 
 ```ts website-api
+/**
+ * The advertised preset names, in the preset table's declaration order.
+ * @returns every switchable preset name.
+ */
 get names(): readonly string[]
 ```
 
@@ -21,6 +25,13 @@ The advertised preset names, in the preset table's declaration order.
 ### ctx.permission.current(events)
 
 ```ts website-api
+/**
+ * Resolve the preset matching the effective knob values. A still-matching
+ * last selection wins shared-bundle ties; otherwise the first table match
+ * wins, or {@link CUSTOM_PRESET} when no entry matches.
+ * @param events - the session's events in log order.
+ * @returns the effective preset name, or `custom` when nothing matches.
+ */
 current(events: readonly SessionEvent[]): string
 ```
 
@@ -35,6 +46,12 @@ Resolve the preset matching the effective knob values. A still-matching last sel
 ### ctx.permission.resolve(name)
 
 ```ts website-api
+/**
+ * Resolve a preset's knob bundle.
+ * @param name - the preset name to resolve.
+ * @returns the configured bundle.
+ * @throws when `name` is not in the table.
+ */
 resolve(name: string): PresetSpec
 ```
 
@@ -49,6 +66,13 @@ Resolve a preset's knob bundle.
 ### ctx.permission.optionOf(name)
 
 ```ts website-api
+/**
+ * Build the client option for a table entry or {@link CUSTOM_PRESET}. A
+ * missing label falls back to the table key.
+ * @param name - a table key, or `custom`.
+ * @returns the option a client renders.
+ * @throws when `name` is neither a table key nor `custom`.
+ */
 optionOf(name: string): PresetOption
 ```
 
@@ -63,6 +87,12 @@ Build the client option for a table entry or CUSTOM_PRESET. A missing label fall
 ### ctx.permission.set(session, name)
 
 ```ts website-api
+/**
+ * Record a changed preset, then update each changed knob through its own
+ * setter. Selecting the effective preset again appends nothing.
+ * @param session - the session the switch belongs to.
+ * @param name - the preset to switch to; unknown names throw.
+ */
 set(session: Session, name: string): void
 ```
 

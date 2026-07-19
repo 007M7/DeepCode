@@ -11,6 +11,14 @@ Registry service for the prompt inputs assembled before each model step.
 ### ctx.systemPrompt.section(section)
 
 ```ts website-api
+/**
+ * Register an ordered prompt section in the calling context's scope. A scoped
+ * section shadows a global section with the same name; duplicates within one
+ * layer and non-finite orders throw. Registration and disposal emit
+ * `system-prompt/change`.
+ * @param section - the section to register.
+ * @returns the exact Cordis effect disposer.
+ */
 section(section: PromptSection): () => void
 ```
 
@@ -25,6 +33,13 @@ Register an ordered prompt section in the calling context's scope. A scoped sect
 ### ctx.systemPrompt.tools(provider)
 
 ```ts website-api
+/**
+ * Register a tool-schema provider in the calling context's scope. Global and
+ * matching scoped providers both contribute; returning the reserved
+ * {@link TOOL_ORDER_REST} name makes assembly fail.
+ * @param provider - evaluated for each assembly with its context.
+ * @returns the exact Cordis effect disposer.
+ */
 tools(provider: (context: AssembleContext) => ToolProviderResult): () => void
 ```
 
@@ -39,6 +54,14 @@ Register a tool-schema provider in the calling context's scope. Global and match
 ### ctx.systemPrompt.variable(name, provider)
 
 ```ts website-api
+/**
+ * Register a prompt variable in the calling context's scope. Scoped values
+ * shadow globals; invalid or duplicate names throw. A provider may return
+ * `undefined`, but rendering a section that references that value then fails.
+ * @param name - the `[a-z][a-z0-9_]*` reference name.
+ * @param provider - evaluated for each assembly.
+ * @returns the exact Cordis effect disposer.
+ */
 variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void
 ```
 
@@ -54,6 +77,13 @@ Register a prompt variable in the calling context's scope. Scoped values shadow 
 ### ctx.systemPrompt.assemble(context?)
 
 ```ts website-api
+/**
+ * Assemble global and scoped providers, detach tool parameters, apply
+ * canonical ordering, then run the assembly waterfall. Scoped sections and
+ * variables shadow globals; the returned waterfall value is authoritative.
+ * @param context - the optional scope and plugin-defined assembly fields.
+ * @returns the authoritative post-waterfall assembly.
+ */
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 

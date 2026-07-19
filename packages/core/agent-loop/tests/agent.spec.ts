@@ -264,6 +264,7 @@ describe('Agent', () => {
     // early-return branch.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
     const session = ctx.sessions.create(SessionId('test'))
     const prepared = prepareReactLoopAgent(
       ctx, SessionId('bare'), { provider: 'mock', model: 'mock' }, session, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
