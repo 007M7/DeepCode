@@ -13,10 +13,14 @@ import LlmService, { type Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
+
+function driverDone(agent: Agent): Promise<void> {
+  return (agent as Agent & { done: Promise<void> }).done
+}
 
 async function harness(adapter: MockAdapter) {
   const ctx = new Context()
@@ -30,12 +34,12 @@ async function harness(adapter: MockAdapter) {
   return ctx
 }
 
-function send(agent: ReactLoopAgent, text: string) {
+function send(agent: Agent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
 /** Resolve on the agent's next idle transition (event-based, not status poll). */
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') { dispose(); resolve() }
@@ -44,7 +48,7 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
 }
 
 /** All user-message texts recorded in the log (to assert what actually ran). */
-function userTexts(agent: ReactLoopAgent): string[] {
+function userTexts(agent: Agent): string[] {
   return agent.session.events
     .filter(e => e.type === 'user/message')
     .flatMap(e => e.type === 'user/message' ? e.data.content : [])
@@ -202,7 +206,7 @@ describe('Agent.cancel()', () => {
       sessionId: SessionId('dispose-prefix-session'),
       agentOptions: { provider: 'mock', model: 'mock' },
     })
-    const agent = handle.agent as ReactLoopAgent
+    const agent = handle.agent
 
     let disposalDone: Promise<void> | undefined
     let streamed = false
@@ -215,7 +219,7 @@ describe('Agent.cancel()', () => {
     send(agent, 'go')
     await new Promise(resolve => setTimeout(resolve, 0))
     await disposalDone
-    await agent.done
+    await driverDone(agent)
 
     // No step opened, no model call ran, and the turn closed disposed.
     expect(streamed).toBe(false)
@@ -326,7 +330,7 @@ describe('Agent.cancel()', () => {
       sessionId: SessionId('dispose-step-start-session'),
       agentOptions: { provider: 'mock', model: 'mock' },
     })
-    const agent = handle.agent as ReactLoopAgent
+    const agent = handle.agent
 
     let disposalDone: Promise<void> | undefined
     let streamed = false
@@ -337,7 +341,7 @@ describe('Agent.cancel()', () => {
 
     send(agent, 'go')
     await disposalDone
-    await agent.done
+    await driverDone(agent)
 
     expect(streamed).toBe(false)
     expect(adapter.requests).toHaveLength(0)

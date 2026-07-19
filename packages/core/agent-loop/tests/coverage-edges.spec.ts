@@ -5,10 +5,14 @@ import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+
+function driverDone(agent: Agent): Promise<void> {
+  return (agent as Agent & { done: Promise<void> }).done
+}
 
 async function harness(adapter: MockAdapter) {
   const ctx = new Context()
@@ -22,7 +26,7 @@ async function harness(adapter: MockAdapter) {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -33,7 +37,7 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function send(agent: ReactLoopAgent, text: string) {
+function send(agent: Agent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
@@ -213,7 +217,7 @@ describe('disposed vs aborted branching', () => {
   it('handles dispose during model streaming producing reason "disposed"', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -224,7 +228,7 @@ describe('disposed vs aborted branching', () => {
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     await fiber.dispose() // dispose during hang
-    await agent.done
+    await driverDone(agent)
 
     // Disposal wins abort classification because the error path checks it first.
     expect(reasons).toContainEqual({ kind: 'disposed' })

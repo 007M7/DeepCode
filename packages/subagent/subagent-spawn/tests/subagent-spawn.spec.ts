@@ -9,7 +9,7 @@ import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as spawn from '../src/index.ts'
-import { depthOf, STRUCTURED_OUTPUT_TOOL, SubagentDepthError } from '@deepseek-ai/dsh-subagent-inprocess'
+import { STRUCTURED_OUTPUT_TOOL } from '@deepseek-ai/dsh-subagent-inprocess'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -110,11 +110,11 @@ describe('dsh-subagent-spawn', () => {
 
   it('stamps child depth = parent depth + 1 (via the merged AgentOptions field)', async () => {
     const { ctx, parent } = await setup([textResponse('x')])
-    expect(depthOf(parent)).toBe(0)
+    expect(parent.options.subagentDepth).toBeUndefined()
     const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'p' }], parent })
     await run.result
     const child = ctx.agents.get(run.id)!
-    expect(depthOf(child)).toBe(1)
+    expect(child.options.subagentDepth).toBe(1)
     await run.dispose()
   })
 
@@ -122,7 +122,7 @@ describe('dsh-subagent-spawn', () => {
     const { ctx, parent } = await setup([])
     // parent is depth 0, child would be depth 1 — cap at 0 forbids any child.
     await expect(start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'p' }], parent, maxDepth: 0 }))
-      .rejects.toThrow(SubagentDepthError)
+      .rejects.toThrow('subagent depth 1 exceeds maxDepth 0')
   })
 
   it('maps a child that hit its token ceiling to stopReason "max-tokens"', async () => {

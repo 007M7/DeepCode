@@ -6,7 +6,8 @@ import { Context, type Fiber } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import { SubagentRunId } from '@deepseek-ai/dsh-subagent'
@@ -52,7 +53,7 @@ async function harnessWithFiber(configDir: string, adapter: MockAdapter): Promis
   return { ctx, hooks }
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') { dispose(); resolve() }
@@ -60,7 +61,7 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function events(agent: ReactLoopAgent): SessionEvent[] {
+function events(agent: Agent): SessionEvent[] {
   return [...agent.session.events]
 }
 

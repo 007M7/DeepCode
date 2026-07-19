@@ -11,15 +11,17 @@ The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary
 
 ## `ctx.agentLoop` — `AgentLoop`
 
-Concrete ReactLoopAgent factory and driver service.
+Concrete agent factory and driver service.
 
 ```ts cordis-catalog
-create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent
+create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): Agent
 async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>
 async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:408`](../../packages/core/agent-loop/src/index.ts)
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/core/agent-loop/src/index.ts:407`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 

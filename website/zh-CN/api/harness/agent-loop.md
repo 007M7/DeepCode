@@ -4,14 +4,14 @@
 
 `AgentLoop` — provided by `@deepseek-ai/dsh-agent-loop`.
 
-Concrete ReactLoopAgent factory and driver service.
+Concrete agent factory and driver service.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L408)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L407)
 
 ### ctx.agentLoop.create(id, options?, meta?)
 
 ```ts website-api
-create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent
+create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): Agent
 ```
 
 Create an agent and session under one caller-supplied identity, owned by the accessing fiber. Constructor-driven config calls mint a fresh combined id before entering this boundary.
@@ -22,7 +22,7 @@ Create an agent and session under one caller-supplied identity, owned by the acc
 
 **Returns** the published running agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L543)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L542)
 
 ### ctx.agentLoop.createAgent(ownerCtx, options)
 
@@ -37,7 +37,7 @@ Create an owned agent on a caller-supplied session id.
 
 **Returns** the published handle.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L565)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L564)
 
 ### ctx.agentLoop.resume(ownerCtx, options)
 
@@ -52,4 +52,4 @@ Resume an owned agent from the configured persistence service.
 
 **Returns** the published handle.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L597)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L596)

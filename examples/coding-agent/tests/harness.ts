@@ -1,6 +1,7 @@
 import { Context } from 'cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
@@ -71,7 +72,7 @@ export async function codingHarness(workdir: string, options: CodingHarnessOptio
   return ctx
 }
 
-export function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+export function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {

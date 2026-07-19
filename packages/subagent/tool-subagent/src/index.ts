@@ -161,13 +161,13 @@ export async function settleRun(run: SubagentRun): Promise<TaskOutcome> {
  * A fresh child needs a standalone prompt; a forked child already sees the
  * conversation's completed turns — telling the model to restate everything
  * (or, worse, that the child "does not see this conversation") would be false
- * for a fork. Exported for tests.
+ * for a fork.
  * @param inheritsConversation - whether the child's conversation is seeded
  *   with the parent's completed turns; this says nothing about tool, service,
  *   scope, or authority inheritance.
  * @returns the tool `description` and the `prompt` parameter description.
  */
-export function providerWording(inheritsConversation: boolean): { description: string; promptDescription: string } {
+function providerWording(inheritsConversation: boolean): { description: string; promptDescription: string } {
   if (inheritsConversation) {
     return {
       description:

@@ -4,10 +4,14 @@ import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS, ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
-import { bindReactLoopAgentContext, prepareReactLoopAgent } from '../src/agent.ts'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
+import { bindReactLoopAgentContext, prepareReactLoopAgent, type ReactLoopAgent } from '../src/agent.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
+
+function driverDone(agent: Agent): Promise<void> {
+  return (agent as Agent & { done: Promise<void> }).done
+}
 
 async function harness(adapter: MockAdapter) {
   const ctx = new Context()
@@ -21,7 +25,7 @@ async function harness(adapter: MockAdapter) {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -32,7 +36,7 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function waitForStatus(ctx: Context, agent: ReactLoopAgent, expected: ReactLoopAgent['status']): Promise<void> {
+function waitForStatus(ctx: Context, agent: Agent, expected: Agent['status']): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === expected) {
@@ -43,11 +47,11 @@ function waitForStatus(ctx: Context, agent: ReactLoopAgent, expected: ReactLoopA
   })
 }
 
-function send(agent: ReactLoopAgent, text: string) {
+function send(agent: Agent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
-describe('ReactLoopAgent', () => {
+describe('Agent', () => {
   it('rejects access before context binding and a second driver for one session', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -74,7 +78,7 @@ describe('ReactLoopAgent', () => {
     expect(agent.options).toBe(options)
     expect(agent.id).toBe('owned-bindings')
     expect(agent.session.id).toBe(agent.id)
-    expect(() => { bindReactLoopAgentContext(agent, new Context()) }).toThrow(/context is already bound/)
+    expect(() => { bindReactLoopAgentContext(agent as ReactLoopAgent, new Context()) }).toThrow(/context is already bound/)
 
     await ctx.fiber.dispose()
   })
@@ -82,14 +86,14 @@ describe('ReactLoopAgent', () => {
   it('send() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     await fiber.dispose()
-    await agent.done
+    await driverDone(agent)
 
     expect(() => { agent.send([{ type: 'text', text: 'too late' }]) }).toThrow('disposed')
   })
@@ -97,14 +101,14 @@ describe('ReactLoopAgent', () => {
   it('steer() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     await fiber.dispose()
-    await agent.done
+    await driverDone(agent)
 
     expect(() => { agent.steer([{ type: 'text', text: 'too late' }]) }).toThrow('disposed')
   })
@@ -112,14 +116,14 @@ describe('ReactLoopAgent', () => {
   it('inject() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     await fiber.dispose()
-    await agent.done
+    await driverDone(agent)
 
     expect(() => { agent.inject([{ type: 'text', text: 'too late' }]) }).toThrow('disposed')
   })
@@ -170,8 +174,10 @@ describe('ReactLoopAgent', () => {
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
 
-    // Invalid injected content throws after turn/start. `finally` must still append turn/end and
-    // flush the balanced in-memory turn so a crash cannot lose it before the next checkpoint.
+    // Non-serializable injected content makes Session.append throw AFTER
+    // turn/start was recorded. The turn/end must still be appended (finally),
+    // AND the durability checkpoint must still fire — the balanced turn is in
+    // memory and a crash before the next turn/dispose would otherwise lose it.
     expect(() => {
       agent.inject([{ type: 'text', text: 'x', bad: 1n } as never], { source: { kind: 'plugin', plugin: 'p' } })
     }).toThrow(/non-JSON-serializable/)
@@ -253,7 +259,9 @@ describe('ReactLoopAgent', () => {
   })
 
   it('disposer is idempotent (double-stop)', async () => {
-    // The internal start seam exposes one idle driver's disposer for repeated invocation.
+    // Create a bare Agent and start it through the package-internal
+    // test seam. Then call its disposer twice — the second call hits the
+    // early-return branch.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('test'))
@@ -262,13 +270,17 @@ describe('ReactLoopAgent', () => {
     )
     const { agent } = prepared
 
+    // Start the loop to get the disposer; the agent waits for messages
+    // (idle, never-resolving cancel), so it will stay idle.
     prepared.markPublished()
     const dispose = prepared.startDriver()
 
+    // First dispose
     const firstDisposal = dispose()
     expect(agent.status).toBe('disposed')
     await firstDisposal
 
+    // Second dispose — idempotent, no throw
     await expect(dispose()).resolves.toBeUndefined()
     expect(agent.status).toBe('disposed')
   })
@@ -365,8 +377,10 @@ describe('ReactLoopAgent', () => {
   })
 
   it('whenIdle() subscribed while running resolves via done when the agent is then disposed', async () => {
-    // Queue the internal waiter while running, then dispose the bare driver. Its disposed branch
-    // must chain the loop's `done` promise rather than resolve before exit.
+    // Covers the waiter's disposed arm: whenIdle() queues an internal waiter
+    // while running (not the fast path), then the disposer settles it and chains
+    // `done` (loop exit), not an eager resolve. A bare Agent + direct
+    // internal driver disposer keeps the emit synchronous.
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(SessionStore)
@@ -394,11 +408,13 @@ describe('ReactLoopAgent', () => {
   })
 
   it('whenIdle() subscribed while running survives a FIBER dispose (no hung promise)', async () => {
-    // The waiter is agent-owned state, not an effect-scoped listener that owner disposal would
-    // remove before the disposed transition. Fiber teardown must still settle it.
+    // The waiter is internal agent state, NOT an effect-scoped ctx.on listener:
+    // disposing the OWNING fiber runs the agent's listener disposers, which would
+    // have dropped a ctx.on-based waiter before the 'disposed' transition and
+    // hung the promise. With internal waiters, the fiber disposer still settles it.
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -413,11 +429,13 @@ describe('ReactLoopAgent', () => {
   })
 
   it('whenIdle() on a disposed agent awaits the loop exit (done), not just the status flip', async () => {
-    // Disposed status is emitted before the driver unwinds. `whenIdle()` must chain `done` so it
-    // resolves only after true loop exit.
+    // The disposer emits agent/status('disposed') BEFORE the driver loop
+    // unwinds, so whenIdle() must chain `done` (true quiescence) on the
+    // disposed path. Dispose a running agent, then assert whenIdle() resolves
+    // only after `done` — i.e. the loop has actually exited.
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -425,7 +443,7 @@ describe('ReactLoopAgent', () => {
     await new Promise(r => setTimeout(r, 30))
 
     let doneResolved = false
-    void agent.done.then(() => { doneResolved = true })
+    void driverDone(agent).then(() => { doneResolved = true })
     await fiber.dispose() // sets status disposed, aborts, drains the loop
     expect(agent.status).toBe('disposed')
 
