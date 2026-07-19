@@ -11,6 +11,12 @@
 ### ctx.userInteraction.registerProvider(provider)
 
 ```ts website-api
+/**
+ * Register the UI provider. Only one provider may be active in a context.
+ *
+ * @param provider UI-side implementation that collects answers.
+ * @returns Disposer that unregisters this provider.
+ */
 registerProvider(provider: UserInteractionProvider): () => void
 ```
 
@@ -25,6 +31,12 @@ Register the UI provider. Only one provider may be active in a context.
 ### ctx.userInteraction.ask(request)
 
 ```ts website-api
+/**
+ * Ask the active UI provider and wait for the user's answer.
+ *
+ * @param request Questions, owner agent, and abort signal.
+ * @returns The answer chosen or typed by the human.
+ */
 async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 ```
 

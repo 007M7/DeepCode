@@ -82,8 +82,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'agents',
-    summary: 'Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package.',
+    summary: 'Agent service (`ctx.agents`): tracks live agents and carries the initiating Agent through one process-local asynchronous driver chain.',
     methods: [
+      {
+        signature: 'currentInitiator(): Agent | undefined',
+        jsDoc: '/**\n * Read the Agent that initiated the inherited asynchronous driver chain.\n * Use this optional form for logging, tracing, metrics, or host attribution\n * that also supports agentless calls. When a parent creates a child, setup\n * reports the causal parent while `agentCtx.agent` identifies the child.\n * @returns the inherited Agent, or `undefined` outside an initiator boundary\n *   and inside an explicit clearing boundary.\n * @throws when this service instance has been disposed.\n */',
+      },
+      {
+        signature: 'requireInitiator(): Agent',
+        jsDoc: '/**\n * Read the initiating Agent and fail when no initiator boundary is active.\n * Use this for private helpers contractually below a driver, or for a\n * deployment-owned outbound request whose contract forbids agentless calls.\n * Generic or direct-call seams use optional lookup or explicit request fields.\n * @returns the inherited Agent.\n * @throws when no initiator is active or this service instance has been disposed.\n */',
+      },
+      {
+        signature: 'withInitiator<T>(agent: Agent, operation: () => T): T',
+        jsDoc: '/**\n * Run an operation with one exact Agent as its process-local initiator. The\n * exact synchronous value or Promise returned by the operation is preserved.\n * Custom drivers and test harnesses wrap their complete returned foreground\n * lifetime.\n * A queue or wire receiver may establish this boundary only after validating\n * explicit identity and resolving the exact live Agent; this method does neither.\n * Detached work remains owned by the subsystem that starts it.\n * @param agent - initiating Agent to inherit; presence is neither liveness proof nor authorization.\n * @param operation - synchronous or asynchronous operation to invoke.\n * @returns the exact value returned by `operation`.\n * @throws when the initiator scope is closing/disposed, or when `operation` throws.\n */',
+      },
+      {
+        signature: 'withoutInitiator<T>(operation: () => T): T',
+        jsDoc: '/**\n * Run an operation inside a boundary that hides any inherited initiating\n * Agent. The exact synchronous value or Promise is preserved.\n * Use this while creating lazy shared timers, queue pumps, pool maintenance,\n * watchers, or exporters so they do not inherit the first Agent that happens\n * to initialize them. It clears only initiator attribution, not explicit\n * fields, and does not own or drain detached resources.\n * @param operation - synchronous or asynchronous operation to invoke without an initiator.\n * @returns the exact value returned by `operation`.\n * @throws when the initiator scope is closing/disposed, or when `operation` throws.\n */',
+      },
       {
         signature: 'setFactory(factory: AgentFactory): () => void',
         jsDoc: '/**\n * Register the agent-creation factory (the loop calls this on construction,\n * effect-scoped). A traced Cordis service is canonicalized to its concrete\n * target; each create/resume call is then traced through that caller\'s\n * context so ownership follows the caller without stacking proxy layers.\n * Throws if a factory is already registered. Returns the disposer; on\n * dispose the factory slot is cleared.\n * @param factory - the loop-owned factory {@link create}/{@link resume} delegate to.\n * @returns the disposer that clears the factory slot. The exact\n *   Cordis effect disposer (single-shot): composite (generator) effects may\n *   yield it directly — exact identity nests the teardown in order.\n */',

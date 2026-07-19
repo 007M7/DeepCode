@@ -11,6 +11,12 @@ Workflow execution seam. Invalid requests throw before publication; a live run i
 ### ctx.workflows.start(request)
 
 ```ts website-api
+/**
+ * Parse and execute a workflow script.
+ * @param request - the script, its `args`, the parent agent, and an
+ *   optional cancel signal.
+ * @returns the live run; its `result` resolves when the script settles.
+ */
 abstract start(request: WorkflowStartRequest): WorkflowRun
 ```
 

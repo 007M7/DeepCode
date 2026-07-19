@@ -387,7 +387,7 @@ export class ReactLoopAgent implements Agent {
   [startDriver](): void {
     if (this._status === 'disposed') return
     this.driverStarted = true
-    this.done = runLoop(this.loopCtx, this, {
+    this.done = this.loopCtx.agents.withInitiator(this, () => runLoop(this.loopCtx, this, {
       inbox: this.#inbox,
       maxParallelToolCalls: this.maxParallelToolCalls,
       setStatus: (status) => { this.setStatus(status) },
@@ -400,7 +400,7 @@ export class ReactLoopAgent implements Agent {
       withToolBatch: run => this.withToolBatch(run),
       // Pre-step cancellation re-parks without emitting a status transition.
       settleIdle: () => { this.settleIdleWaiters() },
-    })
+    }))
   }
 
   /**
