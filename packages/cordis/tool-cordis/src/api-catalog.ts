@@ -552,7 +552,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
-        jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy, and final\n * notification. Tool and listener failures resolve as materialized error\n * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is\n * the same lossless, frozen snapshot final observers receive. Cancellation\n * arriving after entry skips a not-yet-started body or replaces a successful\n * dispatch outcome with `ABORTED`; already-started work is still drained and\n * may retain a tool-owned structured error.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
+        jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy, and final\n * notification. Tool and listener failures resolve as materialized error\n * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is\n * the same lossless, frozen snapshot final observers receive. Cancellation\n * arriving after entry and before final result materialization skips a\n * not-yet-started body or replaces a successful pipeline outcome with\n * `ABORTED`; already-started work is still drained and may retain a\n * tool-owned structured error.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
       },
     ],
   },
@@ -841,7 +841,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'tools/post-execute',
     mode: 'waterfall',
     signature: '\'tools/post-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>',
-    jsDoc: '/**\n * Accept, replace, enrich, or block a normalized dispatch result. `next()`\n * accepts it unchanged; thrown tools still reach this seam as errors.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the call that just ran (name, parsed arguments, caller agent).\n * @param result - the dispatch outcome a listener may accept, replace, or block.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Accept, replace, enrich, or block a normalized dispatch result. `next()`\n * accepts it unchanged; thrown tools still reach this seam as errors. Async\n * listeners must observe `exec.signal`; after they settle, caller\n * cancellation replaces only a successful accepted outcome with `ABORTED`.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the call that just ran (name, parsed arguments, caller agent).\n * @param result - the dispatch outcome a listener may accept, replace, or block.\n * @mode waterfall\n */',
     summary: 'Accept, replace, enrich, or block a normalized dispatch result.',
   },
   {

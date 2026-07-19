@@ -93,7 +93,9 @@ declare module 'cordis' {
     'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
     /**
      * Accept, replace, enrich, or block a normalized dispatch result. `next()`
-     * accepts it unchanged; thrown tools still reach this seam as errors.
+     * accepts it unchanged; thrown tools still reach this seam as errors. Async
+     * listeners must observe `exec.signal`; after they settle, caller
+     * cancellation replaces only a successful accepted outcome with `ABORTED`.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
      * @param exec - the call that just ran (name, parsed arguments, caller agent).
      * @param result - the dispatch outcome a listener may accept, replace, or block.
@@ -804,9 +806,10 @@ export class ToolRegistry extends Service {
    * notification. Tool and listener failures resolve as materialized error
    * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
    * the same lossless, frozen snapshot final observers receive. Cancellation
-   * arriving after entry skips a not-yet-started body or replaces a successful
-   * dispatch outcome with `ABORTED`; already-started work is still drained and
-   * may retain a tool-owned structured error.
+   * arriving after entry and before final result materialization skips a
+   * not-yet-started body or replaces a successful pipeline outcome with
+   * `ABORTED`; already-started work is still drained and may retain a
+   * tool-owned structured error.
    * @param exec - the typed same-process call input. The registry assigns its
    *   correlation token before policy begins.
    * @returns the materialized final result.
@@ -1015,7 +1018,13 @@ export class ToolRegistry extends Service {
    */
   private async finalizeScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
     try {
-      return this.finishScheduledExecution(exec, await this.postExecute(exec, result))
+      const postResult = await this.postExecute(exec, result)
+      return this.finishScheduledExecution(
+        exec,
+        this.callerCancelledAfterEntry(exec) && !postResult.isError
+          ? toolAbortedResult(postResult)
+          : postResult,
+      )
     } catch (error: unknown) {
       return this.finishScheduledExecution(exec, toolErrorResult(error))
     }

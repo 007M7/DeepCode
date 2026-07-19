@@ -667,6 +667,52 @@ describe('ToolRegistry', () => {
     })
   })
 
+  it('replaces a late post-execute success with ABORTED and preserves contexts', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'completed-before-post',
+      async execute(_args, exec) {
+        exec.deferContext({
+          content: [{ type: 'text', text: 'completed child work' }],
+          source: { kind: 'plugin', plugin: 'child' },
+        })
+        return [{ type: 'text', text: 'body complete' }]
+      },
+    })
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.on('tools/post-execute', async (_exec, _result, next) => {
+      const decision = await next()
+      entered.resolve(undefined)
+      await release.promise
+      return {
+        ...decision,
+        additionalContexts: [{
+          content: [{ type: 'text', text: 'post context' }],
+          source: { kind: 'plugin', plugin: 'post' },
+        }],
+      }
+    })
+    const controller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('cancelled-in-post'), name: 'completed-before-post', arguments: {}, signal: controller.signal,
+    })
+    await entered.promise
+    controller.abort('cancelled while post policy waits')
+    release.resolve(undefined)
+
+    await expect(pending).resolves.toMatchObject({
+      content: [{ type: 'text', text: 'Error: tool call aborted' }],
+      isError: true,
+      error: { name: 'AbortError', code: 'ABORTED' },
+      additionalContexts: [
+        { source: { kind: 'plugin', plugin: 'child' } },
+        { source: { kind: 'plugin', plugin: 'post' } },
+      ],
+    })
+  })
+
   it('fuses caller cancellation back into a wrapper replacement for the running body', async () => {
     const ctx = await setup()
     const entered = Promise.withResolvers<undefined>()
