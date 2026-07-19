@@ -18,6 +18,14 @@ JSON-RPC 桥接层把两个端点都建模为对称的对等端，但实际协�
 
 在 `agent.whenIdle()` 完成后，由 `session/prompt` 直接返回 `{ status, reason }` 作为轮次结果。删除 `session.finished`、常量接纳响应以及 Python 中响应后的完成等待循环。`session.event` 与 subagent 通知仍在响应前流式发出，持久会话事件仍是最终响应重建的真源。
 
+## 实施计划
+
+1. 在 `packages/ui/jsonrpc/src/server.ts` 中，用 `status: 'ok' | 'error' | 'aborted'` 和捕获的 `TurnEndReason` 替换 `SessionPromptResult.accepted`。`HarnessSdkServer.prompt()` 把 `completed` 映射为 `ok`，把 `aborted` 映射为 `aborted`，把其他当前或可合并扩展的原因映射为 `error`；进入空闲状态却没有 `turn/end` 仍视为不变量错误。只删除 `session.finished`，保持 `session.event`、`subagent.started` 和 `subagent.finished` 不变。
+2. 在 `packages/ui/jsonrpc/src/transport.ts` 中，用服务端通知接口替换 `JsonRpcTransportPeer`，并保留 `onRequest()`、`notify()`、`start()`、`flush()` 和 `close()`。删除生成的请求 ID、待处理响应表、出站 `request()`、入站响应与通知分发，以及关闭时对待处理请求的拒绝逻辑。入站响应结构和通知结构将被忽略；请求结果、方法不存在与处理器错误响应保持原有行为，并继续排在被等待处理器发出的通知之后。
+3. 在 `python/sdk/src/deepseek_harness/client.py`、`models.py` 和 `__init__.py` 中，删除 `IncomingRequest`、`_requests`、`notify()`、`next_request()`、`respond()` 和 `respond_error()`。新增公开且经过校验的 `SessionPromptResponse` 来携带状态与原因，由 `session_prompt()` 返回该对象，并保留明确的读取保护：忽略意外的服务端请求帧，避免它们命中响应等待器。
+4. 在 `python/sdk/src/deepseek_harness/api.py` 中，根据 `SessionPromptResponse` 构造 `TurnResult.status` 和新增的 `TurnResult.reason`，再删除 `session.finished` 分支与第二个完成循环。请求期间保持订阅打开，并保留 `_request_raw()` 最后的通知排空步骤，确保写在响应前的最后一条 `turn/end` 事件与任何 subagent 通知，都会在 `Session.run()` 重建最终助手消息之前被收集。
+5. 用原始客户端输入与服务端输出覆盖替换 `packages/ui/jsonrpc/tests/transport.spec.ts` 中的对称传输对用例，并更新 `server.spec.ts`、`plugin-apply.spec.ts` 和 `built-scope-carrier.e2e.ts`，覆盖直接结果、顺序、重叠、关闭和收窄后的伪实现。更新 `python/sdk/tests/test_client.py`，覆盖基于响应的结束流程、意外请求帧处理、回调与并发行为，以及已删除的公开辅助方法。同步更新 JSON-RPC README、双语 Python SDK README、导出 JSDoc 与声明、`scripts/smoke-python-runtime.py` 和 Python 单可执行文件快照。
+
 ## 备选方案
 
 **为未来方法保留通用的对称 JSON-RPC 对等端。** 服务端发起的请求将来可能用于交互式权限，但当前没有类型化方法或生产消费方。该功能完成设计后，预发布协议可以增加所需的最小方向，无需提前保留未使用的对等端能力。

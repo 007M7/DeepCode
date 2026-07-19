@@ -16,6 +16,14 @@ Status: proposed
 
 `Session.surface` 只公开只读表层契约，候选事件校验仍由 `Session` 负责。保留 `foldSurface()`，用于离线校验与重建时执行分离的完整日志回放。
 
+## 实施计划
+
+1. 在 `packages/core/session/src/surface.ts` 中，导出结构化的 `SessionSurface` 契约，只包含只读的 `nodes` 与 `replaceGeneration`，并让 `SurfaceManager` 实现该契约。从 `packages/core/session/src/index.ts` 重新导出这个类型，使 `Session.surface` 的声明不再暴露 `validateNext()`。
+2. 在 `Session` 中，用一个主动创建的 `surfaceManager` 替换 `surfaceValidator` 与延迟创建的 `_surface`。种子事件与追加事件都通过该管理器校验，`get surface(): SessionSurface` 返回同一个对象，`deriveMessages()` 也读取同一份节点与代数。`validateNext()` 可以同步已提交的日志事件，但对尚未提交的候选事件只能制定变更计划。候选事件在 `log.push()` 之后、下一次增量同步时才进入管理器状态，因此表层校验拒绝或提交前 `internal/dispatch` 否决都不会留下虚假状态。
+3. 保持 `foldSurface()` 与 `surface.ts` 中的状态转换函数不变。编译并验证 `packages/compact/compact/src/tool-pairing.ts`、`packages/compact/compact-basic/src/region.ts` 和 `packages/context/workspace-context/src/state.ts` 中的直接消费方；它们仍然只读取节点与替换代数。
+4. 扩展 `packages/core/session/tests/surface.spec.ts`：先读取公共视图，再提交无效候选事件，证明拒绝后节点与代数仍停留在已接纳前缀；随后追加有效事件，并把每个结果前缀与 `foldSurface()` 比较。在 `session.spec.ts` 中新增 `internal/dispatch` 否决用例与类型层面的 `SessionSurface` 断言，同时保留种子回放、增量增长、替换、代数和派生缓存用例。
+5. 运行消费表层的请求重建、压缩工具配对、压缩范围与工作区上下文回归套件。在实现 PR 中，先更新 `packages/core/session/README.md`、`docs/core-data-structures/session.md`、已实现会话表层 RFC 及其中文对应文件、翻译记录、`scripts/type-equiv.manifest.json` 和生成的 RFC 索引，再把本 RFC 双语文件移入 `implemented/`。
+
 ## 备选方案
 
 **继续分离接纳状态与投影视图。** 两个独立实例看似能够隔离公共读取和校验，但普通调用方目前取得的就是借用的表层状态，无法通过声明的只读契约修改它。通过类型断言修改返回的节点数组，本就会破坏派生历史；复制管理器并不能构成可靠的运行时信任边界。
