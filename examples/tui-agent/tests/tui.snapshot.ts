@@ -1,6 +1,6 @@
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
@@ -106,6 +106,13 @@ function snapshotModeFromEnv(value: string | undefined): SnapshotMode {
 const MODE = snapshotModeFromEnv(process.env.DSH_SNAPSHOT)
 const observedScenarios = new Set<string>()
 
+function snapshotDisplayPath(displayPath: string, cwd: string, displayCwd: string): string {
+  const rel = relative(cwd, displayPath)
+  if (rel === '') return displayCwd
+  if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) return displayPath
+  return `${displayCwd}/${rel.split(sep).join('/')}`
+}
+
 function scenarioDir(scenario: Scenario): string {
   return join(SNAPSHOTS_DIR, scenario.name)
 }
@@ -136,9 +143,10 @@ function rawSessionLog(session: Session): string {
   ].join('\n')
 }
 
-function normalizeTerminalSnapshot(snapshot: string, cwd: string): string {
+function normalizeTerminalSnapshot(snapshot: string, cwd: string, displayCwd: string): string {
   return snapshot
     .split(`/private${cwd}`).join('/workspace/project')
+    .split(displayCwd).join('/workspace/project')
     .split(cwd).join('/workspace/project')
     .replace(UUID_RE, '{{uuid}}')
 }
@@ -157,9 +165,20 @@ async function settleTerminal(terminal: HeadlessTerminal): Promise<void> {
 async function mountScenarioContext(
   scenario: Scenario,
   cwd: string,
+  displayCwd: string,
   fixtureFile: string,
   childFiles: string[],
 ): Promise<Context> {
+  class SnapshotLocalFileSystem extends LocalFileSystem {
+    override async resolve(
+      path: string,
+      opts?: { cwd?: string; signal?: AbortSignal },
+    ): Promise<Awaited<ReturnType<LocalFileSystem['resolve']>>> {
+      const target = await super.resolve(path, opts)
+      return { ...target, displayPath: snapshotDisplayPath(target.displayPath, cwd, displayCwd) }
+    }
+  }
+
   const ctx = new Context()
   await ctx.plugin(AgentCore, {
     agents: [],
@@ -169,7 +188,7 @@ async function mountScenarioContext(
     skills: { local: { agentsHome: join(cwd, '.agents') } },
   })
   await ctx.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
-  await ctx.plugin(LocalFileSystem, { cwd: '/' })
+  await ctx.plugin(SnapshotLocalFileSystem, { cwd: '/' })
   await ctx.plugin(FsPolicy)
   await ctx.plugin(ToolFs)
   await ctx.plugin(UserInteractionService)
@@ -207,6 +226,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
   expect(prompts.length, `${scenario.name} must carry at least one recorded user prompt`).toBeGreaterThan(0)
 
   const cwd = await mkdtemp(join(SNAPSHOT_TMP_ROOT, `dsh-tui-snapshot-${scenario.name}-`))
+  const displayCwd = `/tmp/${basename(cwd)}`
   let ctx: Context | undefined
   let controller: ReturnType<typeof createTuiChat> | undefined
   const terminal = new HeadlessTerminal(100, 36)
@@ -215,7 +235,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       const source = join(scenarioDir(scenario), 'workspace')
       await cp(source, cwd, { recursive: true })
     }
-    ctx = await mountScenarioContext(scenario, cwd, fixtureFile, childFiles)
+    ctx = await mountScenarioContext(scenario, cwd, displayCwd, fixtureFile, childFiles)
     const disposedSessions: Session[] = []
     ctx.on('session/disposed', (session) => { disposedSessions.push(session) })
     const workflowEvents: string[] = []
@@ -235,7 +255,11 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       title: 'DSH TUI snapshot',
       welcome: `Recorded replay: ${scenario.name}`,
       maxToolOutputLines: 8,
-    }, { terminal, exit: () => {} })
+    }, {
+      terminal,
+      exit: () => {},
+      formatCwd: () => displayCwd,
+    })
     await settleTerminal(terminal)
 
     for (const prompt of prompts) {
@@ -266,6 +290,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     const snapshot = normalizeTerminalSnapshot(
       await terminal.snapshot({ includeScrollback: true }),
       cwd,
+      displayCwd,
     )
     await handle.dispose()
     const children = disposedSessions

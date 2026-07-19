@@ -6,7 +6,7 @@
  */
 
 import { homedir } from 'node:os'
-import { relative, resolve, sep } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import {
   CombinedAutocompleteProvider,
   Container,
@@ -135,6 +135,12 @@ export interface TuiRuntime {
   terminal: Terminal
   /** Exit hook used by terminal shutdown or a target-agent startup failure. */
   exit(code: number): void
+  /**
+   * Override the footer's logical working-directory label without changing the session directory used by tools.
+   * @param cwd - Operational working directory from the session header.
+   * @returns Unescaped label; the TUI makes terminal controls visible.
+   */
+  formatCwd?: (cwd: string | undefined) => string
 }
 
 /**
@@ -608,8 +614,10 @@ function formatCwd(cwd: string | undefined): string {
   const home = homedir()
   const rel = relative(resolve(home), resolve(cwd))
   if (rel === '') return '~'
-  if (rel !== '..' && !rel.startsWith(`..${sep}`)) return displayText(`~${sep}${rel}`)
-  return displayText(cwd)
+  /* v8 ignore next -- Windows cross-drive coverage; POSIX relative() cannot return an absolute path. */
+  if (isAbsolute(rel)) return cwd
+  if (rel !== '..' && !rel.startsWith(`..${sep}`)) return `~${sep}${rel}`
+  return cwd
 }
 
 function sessionTokens(session: Session): { input: number; output: number } {
@@ -630,13 +638,15 @@ class FooterComponent implements Component {
     private readonly toolsExpanded: () => boolean,
     private readonly showReasoning: () => boolean,
     private readonly tokens: () => { input: number; output: number },
+    private readonly cwdFormatter: TuiRuntime['formatCwd'],
   ) {}
 
   invalidate(): void {}
 
   render(width: number): string[] {
     const { input, output } = this.tokens()
-    const left = `${formatCwd(this.agent.session.header.cwd)}  ↑${formatTokens(input)} ↓${formatTokens(output)}`
+    const cwd = this.cwdFormatter?.(this.agent.session.header.cwd) ?? formatCwd(this.agent.session.header.cwd)
+    const left = `${displayText(cwd)}  ↑${formatTokens(input)} ↓${formatTokens(output)}`
     const right = `${this.agent.status}  reasoning:${this.showReasoning() ? 'on' : 'off'}  tools:${this.toolsExpanded() ? 'expanded' : 'compact'}`
     const leftStyled = this.palette.dim(left)
     const available = Math.max(0, width - visibleWidth(left) - 2)
@@ -843,7 +853,14 @@ export function createTuiChat(
 
   const welcome = config.welcome ?? 'ready.'
   const header = new HeaderComponent(agent, welcome, palette)
-  const footer = new FooterComponent(agent, palette, () => toolsExpanded, () => showReasoning, () => tokens)
+  const footer = new FooterComponent(
+    agent,
+    palette,
+    () => toolsExpanded,
+    () => showReasoning,
+    () => tokens,
+    runtime.formatCwd,
+  )
   ui.addChild(header)
   ui.addChild(chat)
   ui.addChild(statusContainer)

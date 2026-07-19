@@ -364,6 +364,13 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const outsideResult = await setup({ cwd: '/opt' })
     expect(outsideResult.terminal.output).toContain('/opt')
     await dispose(outsideResult)
+
+    const logicalResult = await setup({
+      cwd: '/host/worktree',
+      formatCwd: cwd => `logical:${cwd}\x1b`,
+    })
+    expect(logicalResult.terminal.output).toContain('logical:/host/worktree\\x1b')
+    await dispose(logicalResult)
   })
 
   it('sends, steers, handles commands, global keys, and disposed-agent input', async () => {
