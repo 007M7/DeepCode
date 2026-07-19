@@ -18,6 +18,10 @@ The collection endpoint is a fixed constant (`DSH_TELEMETRY_ENDPOINT`); its `.in
 
 None, as the reporter sends developer-cycle telemetry from the launcher and never reaches a model request.
 
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
 ## Known Limitations and Deferred Work
 
 - **Placeholder endpoint** — `DSH_TELEMETRY_ENDPOINT` points at `.invalid` until the real endpoint is set.
