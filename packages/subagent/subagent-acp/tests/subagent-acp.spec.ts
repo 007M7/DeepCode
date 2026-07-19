@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import { buildChildEnv, SENSITIVE_ENV_PATTERN } from '@deepseek-ai/dsh-subagent-subprocess'
+import { buildChildEnv } from '@deepseek-ai/dsh-subagent-subprocess'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as acp from '../src/index.ts'
 import { acpStopReason, acpContentText, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
@@ -108,7 +108,6 @@ describe('buildChildEnv', () => {
       // The explicitly-supplied key survives (an opt-in for the child's creds).
       expect(env.DEEPSEEK_API_KEY).toBe('explicit')
       // A normal ambient var is forwarded.
-      expect(SENSITIVE_ENV_PATTERN.test('PATH')).toBe(false)
       expect(env.PATH).toBe(process.env.PATH)
     } finally {
       delete process.env.DSH_ACP_TEST_SECRET_TOKEN
