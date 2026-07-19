@@ -22,7 +22,7 @@ As a smaller alternative, replace the current optional-field bag with one explic
 - `ToolCallPresentation`, `ToolResultPresentation`, `ToolTerminal`, and `ToolCallKind` disappear unless a minimal generic UI type still needs one.
 - ACP no longer keeps presenter pending state or calls tool callbacks during live streaming/load replay.
 - `dsh-tool-bash` no longer parses rendered text to recover exit status for a UI pill.
-- Snapshot goldens show generic tool cards and text results.
+- Snapshot expected outputs show generic tool cards and text results.
 
 ## What we give up
 

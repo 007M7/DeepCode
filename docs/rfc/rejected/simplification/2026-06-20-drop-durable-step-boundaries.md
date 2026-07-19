@@ -4,7 +4,7 @@ Status: rejected — `step/end` is the durable indication that a model step fini
 
 ## Problem
 
-The session log stores `step/start` and `step/end` events even though every step-scoped event already carries `{ turn, step }`: assistant chunks, assistant messages, tool calls, tool results, usage, and errors. `deriveMessages()` ignores step boundaries, ACP ignores them for UI, and the main consumers are invariants, tests, snapshot goldens, and crash repair.
+The session log stores `step/start` and `step/end` events even though every step-scoped event already carries `{ turn, step }`: assistant chunks, assistant messages, tool calls, tool results, usage, and errors. `deriveMessages()` ignores step boundaries, ACP ignores them for UI, and the main consumers are invariants, tests, snapshot expected outputs, and crash repair.
 
 The rejected argument was that boundary events make the log more ceremonial than informative. In practice, `step/end` is concrete information: a reader can tell whether a model request finished, crashed, or is being repaired without deriving that state from the next event. A bare `step/start` is likewise useful for a model request that began but produced no chunks before failing.
 

@@ -296,7 +296,7 @@ describe('TUI recorded-session terminal snapshots', () => {
     it(scenario.name, async () => {
       observedScenarios.add(scenario.name)
       const result = await runScenario(scenario)
-      const terminalFile = join(scenarioDir(scenario), 'terminal.golden.txt')
+      const terminalFile = join(scenarioDir(scenario), 'terminal.expected.txt')
       if (MODE === 'record' || MODE === 'refresh') {
         await mkdir(scenarioDir(scenario), { recursive: true })
         await writeFile(terminalFile, result.terminal)
@@ -317,7 +317,7 @@ afterAll(async () => {
   for (const scenario of SCENARIOS) {
     const expected = [
       'session.jsonl',
-      'terminal.golden.txt',
+      'terminal.expected.txt',
       ...scenario.seedWorkspace === true ? ['workspace'] : [],
       ...Array.from({ length: scenario.childSessions ?? 0 }, (_, index) => `session.${index + 1}.jsonl`),
     ].sort()

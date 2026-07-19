@@ -8,7 +8,7 @@ Status: implemented
 
 `agent/steering` duplicated the immediately preceding durable `steering/message` with the same payload. `agent/queued` remains the live-only signal because it fires before persistence and covers work that may be cancelled before entering the log.
 
-Steering carries real production traffic — the hook bridges' turn-continuation decisions inject their reasons through `inbox.steer()`, landing as durable `steering/message` events that the hook-matrix goldens pin — and every one of those consumers observes the durable event. Nothing observed the mirror.
+Steering carries real production traffic — the hook bridges' turn-continuation decisions inject their reasons through `inbox.steer()`, landing as durable `steering/message` events that the hook-matrix expected outputs pin — and every one of those consumers observes the durable event. Nothing observed the mirror.
 
 ## Decision
 

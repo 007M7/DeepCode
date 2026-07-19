@@ -48,6 +48,10 @@ This package declares three events (see the generated [events catalog](../../../
 
 Indirectly, through `dsh-tool-fs`, which renders provider text and errors as bounded, retained filesystem tool results.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **Text-only by contract** — backends reject binary/non-UTF-8 content with `FS_NOT_TEXT`; binary-safe operations are a deliberate deferral of [the tool-schemas RFC](../../../docs/rfc/implemented/feature/2026-06-17-filesystem-tool-schemas.md).
