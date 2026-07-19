@@ -23,6 +23,17 @@ async function harness(): Promise<{
   }
 }
 
+/** Fail a lifecycle regression promptly instead of waiting for Vitest's suite timeout. */
+async function promptly<T>(task: Promise<T>): Promise<T> {
+  const timeout = Promise.withResolvers<never>()
+  const timer = setTimeout(() => { timeout.reject(new Error('initiator teardown did not settle promptly')) }, 1000)
+  try {
+    return await Promise.race([task, timeout.promise])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 describe('AgentRegistry initiator scope', () => {
   it('reports an absent initiator and requires an active boundary', async () => {
     const { service, dispose } = await harness()
@@ -49,6 +60,44 @@ describe('AgentRegistry initiator scope', () => {
     expect(service.withInitiator(initiator, () => promise)).toBe(promise)
     await expect(promise).resolves.toBe(value)
     expect(service.currentInitiator()).toBeUndefined()
+    await dispose()
+  })
+
+  it('tracks a branded Promise without calling its overridable then property', async () => {
+    const { service, dispose } = await harness()
+    const initiator = agent('overridden-then')
+    const release = Promise.withResolvers<boolean>()
+    void Object.defineProperty(release.promise, 'then', {
+      value: () => { throw new Error('overridden then called') },
+    })
+
+    const pending = service.withInitiator(initiator, () => release.promise)
+    expect(pending).toBe(release.promise)
+
+    let disposed = false
+    const disposal = dispose().then(() => { disposed = true })
+    await Promise.resolve()
+    expect(disposed).toBe(false)
+
+    release.resolve(true)
+    await new Promise<void>((resolve, reject) => {
+      void Promise.prototype.then.call(pending, resolve, reject)
+    })
+    await disposal
+    expect(disposed).toBe(true)
+  })
+
+  it('preserves a settled branded Promise when its species blocks observer construction', async () => {
+    const { service, dispose } = await harness()
+    const initiator = agent('invalid-species')
+    const promise = Promise.resolve()
+    const constructor = {}
+    Object.defineProperty(constructor, Symbol.species, {
+      get: () => { throw new Error('invalid species') },
+    })
+    void Object.defineProperty(promise, 'constructor', { value: constructor })
+
+    expect(service.withInitiator(initiator, () => promise)).toBe(promise)
     await dispose()
   })
 
@@ -159,5 +208,58 @@ describe('AgentRegistry initiator scope', () => {
     await pending
     await disposal
     expect(disposed).toBe(true)
+  })
+
+  it('does not self-deadlock when a boundary returns service disposal', async () => {
+    const { service, dispose } = await harness()
+    const initiator = agent('service-disposer')
+
+    const returned = service.withInitiator(initiator, dispose)
+    await promptly(returned)
+
+    expect(() => service.currentInitiator()).toThrow('agent initiator scope is disposed')
+  })
+
+  it('does not self-deadlock when nested boundaries return ancestor disposal', async () => {
+    const { ctx, service } = await harness()
+    const parent = agent('parent-disposer')
+    const child = agent('child-disposer')
+    let disposal: Promise<void> | undefined
+
+    const returned = service.withInitiator(parent, () => service.withInitiator(child, () => {
+      disposal = ctx.fiber.dispose()
+      return disposal
+    }))
+    expect(returned).toBe(disposal)
+
+    await promptly(returned)
+    expect(() => service.currentInitiator()).toThrow('agent initiator scope is disposed')
+  })
+
+  it('excludes an asynchronous teardown initiator while draining unrelated boundaries', async () => {
+    const { ctx, service } = await harness()
+    const initiator = agent('async-disposer')
+    const unrelated = agent('unrelated')
+    const release = Promise.withResolvers<boolean>()
+    const pending = service.withInitiator(unrelated, async () => {
+      await release.promise
+      expect(service.requireInitiator()).toBe(unrelated)
+    })
+
+    const returned = service.withInitiator(initiator, async () => {
+      await Promise.resolve()
+      await ctx.fiber.dispose()
+    })
+    let disposed = false
+    void returned.then(() => { disposed = true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(disposed).toBe(false)
+
+    release.resolve(true)
+    await pending
+    await promptly(returned)
+
+    expect(() => service.currentInitiator()).toThrow('agent initiator scope is disposed')
   })
 })
