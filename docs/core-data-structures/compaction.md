@@ -51,8 +51,15 @@ interface CompactionResult {
 
 ## The service
 
-`CompactService` exposes `compactIfNeeded(...)` for pressure-triggered compaction, returning `null` when no compaction is needed, and `compactRegion(...)` for an explicit inclusive surface range. The pre-step caller supplies the agent, full prompt, session prefix, and abort signal; implementations must forward that signal to summarization. The seam owns no pricing API: [`ctx.tokenMeter`](token-meter.md) directly owns estimation and replay, while `dsh-compact-basic` owns retention, event sequencing, routed summarization calls, and their configuration.
+Automatic callers state why policy is running; implementations may treat confirmed overflow more aggressively than ordinary pressure.
 
-Auto-compaction runs at serial `agent/pre-step`, before the step and request derivation, so it can replace surface nodes while keeping trace events outside the step. Region boundaries preserve tool-call/result pairing but do not preserve whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compact-basic` owns the retention and failure details.
+```ts type-equiv
+/** Why automatic policy is asking a backend to consider compaction. */
+type CompactionTrigger = 'pressure' | 'context-overflow'
+```
+
+`CompactService` exposes `compactIfNeeded(agent, trigger, signal)` for automatic `pressure` or `context-overflow` policy, returning `null` when no safe work exists, and `compactRegion(...)` for an explicit inclusive surface range. Implementations must forward the supplied signal to summarization. The seam owns no pricing API: the singleton [`ctx.tokenMeter`](token-meter.md) directly owns estimation and replay, while `dsh-compact-basic` owns retention, event sequencing, routed summarization calls, and their configuration.
+
+Pressure compaction runs at serial `agent/post-step`, after successful assistant output, tool results, buffered context, and steering are durable but before `step/end`. Failed-request recovery runs through `agent/request-error` after the failed step closes, and authorizes a fresh numbered-step retry only when the surface replacement generation advances. Region boundaries preserve tool-call/result pairing but do not preserve whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compact-basic` owns thresholds, retained-tail policy, overflow caps, and failure handling.
 
 The seam exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for those edge checks. Both validate current surface membership and reject missing seqs and orphan results; the [package contract](../../packages/compact/compact/README.md#tool-pairing-boundaries) owns their cache semantics.

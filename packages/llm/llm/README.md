@@ -13,6 +13,8 @@ An adapter registry plus a single streaming call surface, interceptable via a wa
 - `ctx.llm.listModels(provider: string): Promise<LlmModelInfo[]>` Discover the models one registered provider currently advertises.
 - `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` Stream one model call as raw chunks (token-level deltas). Consumers assemble the chunks into blocks/messages with `BlockAssembler`.
 
+`LlmService` preserves errors from final adapter selection, synchronous dispatch, iterator construction, and iteration, and binds their provenance to the exact stream handle returned for that model call. `isLlmAdapterFailure(stream, value)` reports only errors from that call's final adapter boundary; nested model calls, `llm/stream` middleware, and downstream consumer failures remain unclassified for the outer call. Classification does not replace the adapter's original coded `Error`.
+
 Provider and model metadata is a discovery surface, not a routing whitelist. `registerAdapter()` still owns provider exclusivity, while an adapter may accept model ids absent from `listModels()`; consumers must not reject a request because its model is unlisted. Returned metadata is detached and invalid or duplicate adapter entries fail with `INVALID_ADAPTER` or `INVALID_CATALOG`.
 
 ### Events
@@ -46,6 +48,7 @@ Every product adapter sends application identity on provider HTTP requests. `att
 - `BlockAssembler` — incrementally assembles raw chunks into complete content blocks and an assistant message. The agent loop feeds it raw chunks (logging them for replay) while reading the assembled blocks/message for history.
 - `HarnessError` — base class for the harness error taxonomy: a stable `code` string (distinct from the human `message`) plus `cause` chaining. Lives here, in the leaf package every other imports, so a single base is shared without a new dependency edge. Per-package errors (`LlmError`, `ToolArgsError`, `InvariantError`, …) extend it. `isHarnessError(value)` narrows at seams.
 - `LlmError` — extends `HarnessError`; its stable `code` string (`NO_ADAPTER`, `DUPLICATE_ADAPTER`, and adapter codes like `AUTH`/`RATE_LIMIT`) is the programmatic failure contract.
+- `CONTEXT_WINDOW_EXCEEDED_CODE` — the provider-neutral code both DeepSeek adapters use when a request exceeds the model context window, regardless of thrown-HTTP versus in-band finish delivery. `isContextWindowExceededError(detail)` is their shared conservative classifier for OpenAI-compatible provider detail.
 
 ### Real adapters
 
@@ -57,7 +60,7 @@ None, as this adapter registry forwards an already assembled request without add
 
 ## Known Limitations and Deferred Work
 
-- **No retry/caching/rate-limit layer ships** — `llm/stream` is the intended wrap seam and has no production listener, so provider 429/5xx failures surface immediately.
+- **No default retry/caching/rate-limit policy ships in this service** — `llm/stream` remains the call-wrapper seam; the agent loop separately offers proven model-request failures to `agent/request-error`, whose default preserves the original failure.
 - **`GenerateOptions` sampling is `temperature`/`maxTokens`/`stop` only** — no `tool_choice`, `top_p`, or penalty fields; the vocabulary grows when a producer lands ([dropped inert knobs](../../../docs/rfc/implemented/simplification/2026-07-04-drop-inert-request-knobs.md)).
 - **Producer-gated variants stay out until produced** — `prefill`, per-tool `strict`, block `cache` hints, and the `agent` message-source variant were pruned as producerless ([RFC](../../../docs/rfc/implemented/simplification/2026-07-04-prune-producerless-vocabulary-variants.md)).
 - **`BlockAssembler` handles core block kinds only** — a plugin-added block type whose stream is never closed by `block-end` makes `blocks()` throw.

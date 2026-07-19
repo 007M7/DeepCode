@@ -51,8 +51,8 @@
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'
 
-# Summarize an older range when measured history approaches the context window.
-# Service-wide policy provides the ordinary threshold and retained-tail defaults.
+# Summarize an older range after measured pressure or a canonical provider overflow.
+# Service-wide policy provides pressure, retention, and one overflow-retry default.
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
 

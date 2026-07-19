@@ -346,21 +346,18 @@ Abstract compaction service. Implementations own trigger policy, retention, and 
 
 ```ts cordis-catalog
 /**
- * Check token pressure and compact if the conversation is too large.
- * Estimate the next request, including its session prefix, derived history,
- * and system prompt. Above threshold, compact a head-anchored range ending at
- * a balanced tool boundary and reconsolidate any prior automatic checkpoint.
- * Return `null` when no compaction is needed or an open tail leaves no safe
- * cutoff. A single oversized retained unit or prefix cannot be repaired here.
+ * Consider automatic compaction for one explicit trigger. Pressure policy
+ * uses the latest durable routed request, while context-overflow policy may
+ * force a useful balanced reduction even below the normal threshold. Return
+ * `null` when no safe range can be compacted. A single oversized retained
+ * unit or request envelope cannot be repaired through surface compaction.
  *
- * @param agent - agent context owning the session surface and model options.
- * @param fullSystemPrompt - assembled system prompt, counted toward the estimate.
- * @param sessionPrefix - the instance's composed session prefix, counted toward the
- *   estimate.
+ * @param agent - agent context owning the session surface and routing options.
+ * @param trigger - normal pressure or provider-confirmed context overflow.
  * @param signal - cancellation signal; model-backed implementations must forward it.
  * @returns the compaction result, or `null` if no compaction was needed.
  */
-abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>
+abstract compactIfNeeded( agent: CompactAgentContext, trigger: CompactionTrigger, signal: AbortSignal, ): Promise<CompactionResult | null>
 
 /**
  * Forcibly compact a range of surface nodes into a single summary node.
@@ -382,9 +379,9 @@ abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, 
 abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
-Types: [CompactionResult](../core-data-structures/compaction.md) · [Message](../core-data-structures/core.md)
+Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionTrigger](../core-data-structures/compaction.md)
 
-Source: [`packages/compact/compact/src/index.ts:38`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:40`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
@@ -515,8 +512,11 @@ async listModels(provider: string): Promise<LlmModelInfo[]>
  * Stream one model call as raw chunks (token-level deltas). Throws
  * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
  * `options.provider`. Replay state is retained only when the same adapter
- * instance owns its historical provider and the target provider. Dispatches
- * through the `llm/stream` waterfall.
+ * instance owns its historical provider and the target provider. Final
+ * adapter selection, dispatch, and iteration failures retain their original
+ * Error identity and are tagged in a call-local scope for narrow agent-loop
+ * request recovery; middleware and nested-call failures remain untagged for
+ * the outer call.
  * @param options - the full request; `options.provider` selects the adapter.
  * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
  */
@@ -525,7 +525,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:94`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:97`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 

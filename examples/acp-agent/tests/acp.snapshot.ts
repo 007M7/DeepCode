@@ -103,6 +103,7 @@ const SCENARIOS: Scenario[] = [
     configPath: WORKSPACE_CONTEXT_CONFIG,
   },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
+  { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true },
   // Children sit AT the default depth cap (maxDepth 1), so each child's header
   // legitimately omits the delegation tool that spawned it (schema hiding).
   { name: 'subagent-spawn', hasModelTurn: true, recorded: true, childToolOmissions: ['subagent'] },

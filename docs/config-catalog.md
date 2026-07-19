@@ -297,7 +297,9 @@ export interface BasicCompactConfig {
   maxTokens?: number
   /** Extra attempts after the first compaction when pressure remains above threshold. Defaults to `1`. */
   compactionRetries?: number
-  /** Enable the automatic `agent/pre-step` pressure listener. Defaults to `true`. */
+  /** Maximum retries after canonical context overflow; `0` disables recovery. Defaults to `1`. */
+  maxOverflowRetries?: number
+  /** Enable automatic post-step pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
 }
 ```
@@ -992,7 +994,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/time-context/src/index.ts:20`](../packages/context/time-context/src/index.ts)
+Source: [`packages/context/time-context/src/index.ts:19`](../packages/context/time-context/src/index.ts)
 
 ## `@deepseek-ai/dsh-token-meter`
 

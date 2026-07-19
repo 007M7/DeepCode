@@ -203,8 +203,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Abstract compaction service.',
     methods: [
       {
-        signature: 'abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>',
-        jsDoc: '/**\n * Check token pressure and compact if the conversation is too large.\n * Estimate the next request, including its session prefix, derived history,\n * and system prompt. Above threshold, compact a head-anchored range ending at\n * a balanced tool boundary and reconsolidate any prior automatic checkpoint.\n * Return `null` when no compaction is needed or an open tail leaves no safe\n * cutoff. A single oversized retained unit or prefix cannot be repaired here.\n *\n * @param agent - agent context owning the session surface and model options.\n * @param fullSystemPrompt - assembled system prompt, counted toward the estimate.\n * @param sessionPrefix - the instance\'s composed session prefix, counted toward the\n *   estimate.\n * @param signal - cancellation signal; model-backed implementations must forward it.\n * @returns the compaction result, or `null` if no compaction was needed.\n */',
+        signature: 'abstract compactIfNeeded( agent: CompactAgentContext, trigger: CompactionTrigger, signal: AbortSignal, ): Promise<CompactionResult | null>',
+        jsDoc: '/**\n * Consider automatic compaction for one explicit trigger. Pressure policy\n * uses the latest durable routed request, while context-overflow policy may\n * force a useful balanced reduction even below the normal threshold. Return\n * `null` when no safe range can be compacted. A single oversized retained\n * unit or request envelope cannot be repaired through surface compaction.\n *\n * @param agent - agent context owning the session surface and routing options.\n * @param trigger - normal pressure or provider-confirmed context overflow.\n * @param signal - cancellation signal; model-backed implementations must forward it.\n * @returns the compaction result, or `null` if no compaction was needed.\n */',
       },
       {
         signature: 'abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
@@ -268,7 +268,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
-        jsDoc: '/**\n * Stream one model call as raw chunks (token-level deltas). Throws\n * `LlmError` with code `NO_ADAPTER` if no adapter is registered for\n * `options.provider`. Replay state is retained only when the same adapter\n * instance owns its historical provider and the target provider. Dispatches\n * through the `llm/stream` waterfall.\n * @param options - the full request; `options.provider` selects the adapter.\n * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.\n */',
+        jsDoc: '/**\n * Stream one model call as raw chunks (token-level deltas). Throws\n * `LlmError` with code `NO_ADAPTER` if no adapter is registered for\n * `options.provider`. Replay state is retained only when the same adapter\n * instance owns its historical provider and the target provider. Final\n * adapter selection, dispatch, and iteration failures retain their original\n * Error identity and are tagged in a call-local scope for narrow agent-loop\n * request recovery; middleware and nested-call failures remain untagged for\n * the outer call.\n * @param options - the full request; `options.provider` selects the adapter.\n * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.\n */',
       },
     ],
   },
@@ -635,11 +635,18 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A step or turn errored.',
   },
   {
+    name: 'agent/post-step',
+    mode: 'serial',
+    signature: '\'agent/post-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void',
+    jsDoc: '/**\n * Awaited serial checkpoint after the response, real or synthetic tool\n * results, injected context, and steering are durable but before `step/end`.\n * A cancelled tool batch reaches this checkpoint with an aborted signal.\n * @param agent - the agent whose step is settling.\n * @param turn - the open turn number.\n * @param step - the open step number.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
+    summary: 'Awaited serial checkpoint after the response, real or synthetic tool results, injected context, and steering are durable but before `step/end`.',
+  },
+  {
     name: 'agent/pre-step',
     mode: 'serial',
-    signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void',
-    jsDoc: '/**\n * Awaited serial checkpoint for session-surface mutation after prompt\n * assembly and before `step/start`; appends land outside the pending step.\n * The loop derives history once afterward, so compaction records and\n * replacements are included without rewriting an assembled request. The\n * prompt and prefix are the exact pressure inputs for that request, and\n * `signal` cancels listener work.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - the agent opening the step.\n * @param turn - the open turn number.\n * @param step - the pending step number.\n * @param fullSystemPrompt - the assembled prompt.\n * @param sessionPrefix - the frozen request prefix.\n * @param signal - the turn abort signal.\n * @mode serial\n */',
-    summary: 'Awaited serial checkpoint for session-surface mutation after prompt assembly and before `step/start`; appends land outside the pending step.',
+    signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void',
+    jsDoc: '/**\n * Awaited serial checkpoint before `step/start`; appends land outside the\n * pending step and are included when the loop derives request history.\n * `signal` cancels listener work.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - the agent opening the step.\n * @param turn - the open turn number.\n * @param step - the pending step number.\n * @param signal - the turn abort signal.\n * @mode serial\n */',
+    summary: 'Awaited serial checkpoint before `step/start`; appends land outside the pending step and are included when the loop derives request history.',
   },
   {
     name: 'agent/prompt-submit',
@@ -663,10 +670,17 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Replace the frozen call configuration.',
   },
   {
+    name: 'agent/request-error',
+    mode: 'waterfall',
+    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, retryAttempt: number, signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>',
+    jsDoc: '/**\n * Recover a model-request failure after its failed step has closed. `retry`\n * opens a new numbered step; `fail` preserves the original request error.\n * Call `next()` to delegate to the next recovery listener or the default.\n * @param agent - the agent whose request failed.\n * @param turn - the open turn number.\n * @param step - the failed step number.\n * @param error - the original model-request failure.\n * @param retryAttempt - zero-based number of prior recovery retries.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    summary: 'Recover a model-request failure after its failed step has closed.',
+  },
+  {
     name: 'agent/session-prefix',
     mode: 'waterfall',
     signature: '\'agent/session-prefix\'(this: Scoped<Agent>, agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>',
-    jsDoc: '/**\n * Compose request-only messages placed before derived history. The frozen\n * result is computed once per loop instance, logged on its anchoring request\n * header, and reused so the provider prefix remains stable. Interrupted\n * composition is discarded. Composition precedes the first `agent/pre-step`\n * and request boundary, so listener appends join the current request and\n * pressure accounting sees the composed prefix. Changing context belongs in\n * history; contributors should prepend to `await next()` to preserve registration order.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - the agent whose session prefix is being composed.\n * @param prefix - the frozen seed; return an extended replacement.\n * @param signal - aborts composition when the step is torn down.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Compose request-only messages placed before derived history. The frozen\n * result is computed once per loop instance, logged on its anchoring request\n * header, and reused so the provider prefix remains stable. Interrupted\n * composition is discarded. Composition precedes the first `agent/pre-step`\n * and request boundary, so listener appends join the current request.\n * Changing context belongs in history; contributors should prepend to\n * `await next()` to preserve registration order.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - the agent whose session prefix is being composed.\n * @param prefix - the frozen seed; return an extended replacement.\n * @param signal - aborts composition when the step is torn down.\n * @mode waterfall\n */',
     summary: 'Compose request-only messages placed before derived history.',
   },
   {
@@ -1028,11 +1042,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CompactAgentContext',
-    declaration: 'export interface CompactAgentContext {\n    session: Session;\n    options: {\n        model?: string;\n    };\n}',
+    declaration: 'export interface CompactAgentContext {\n    session: Session;\n    options: {\n        provider?: string;\n        model?: string;\n    };\n}',
   },
   {
     name: 'CompactionResult',
     declaration: 'export interface CompactionResult {\n    startSeq: number;\n    summarySeq: number;\n    endSeq: number;\n    summary: ContentBlock[];\n    shadowedRange: {\n        start: number;\n        end: number;\n    };\n    shadowedSeqs: number[];\n    shadowedTokenCount: number;\n}',
+  },
+  {
+    name: 'CompactionTrigger',
+    declaration: 'export type CompactionTrigger = \'pressure\' | \'context-overflow\';',
   },
   {
     name: 'ConfinedArgv',
