@@ -480,15 +480,15 @@
     const cls = classes.find(c => !state.dismissedHints.has(c.id))
     if (!cls) return null
     return el('div', { className: 'rubric-hint-card', 'data-testid': 'rubric-hint-card', role: 'note' }, [
-      el('span', { className: 'rubric-hint-icon', text: '✦' }),
+      el('span', { className: 'rubric-hint-icon', text: '·' }),
       el('div', { className: 'rubric-hint-body' }, [
-        el('div', { className: 'rubric-hint-title', text: `Detected ${cls.count} similar sessions this week` }),
-        el('div', { className: 'rubric-hint-sub muted small', text: cls.promptSummary || 'These look like a repeated task class — a rubric would let you track it.' }),
+        el('span', { className: 'rubric-hint-title', text: `Detected ${cls.count} similar sessions this week` }),
+        el('span', { className: 'rubric-hint-sub', text: cls.promptSummary || 'These look like a repeated task class — a rubric would let you track it.' }),
       ]),
       el('button', {
-        className: 'primary small rubric-hint-cta',
+        className: 'ghost small rubric-hint-cta',
         type: 'button',
-        text: 'Enable a rubric for this task class',
+        text: 'Enable a rubric',
         onclick: () => {
           openCreateForm('llm-judge')
           if (state.createForm) {
