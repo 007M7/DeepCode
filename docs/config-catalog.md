@@ -860,8 +860,11 @@ export interface Config {
   /** Arguments passed to {@link command}. */
   args: string[]
   /**
-   * Working directory for the child process and its ACP session. Defaults to
-   * the parent process's cwd when omitted.
+   * Working directory override for the child process and its ACP session. A
+   * relative path resolves against the harness launch directory at load, and
+   * the result must be an existing directory. When omitted, each child
+   * inherits its delegating parent session's cwd — and starting one from a
+   * parent session that has no cwd fails.
    */
   cwd?: string
   /**
@@ -891,7 +894,7 @@ export interface Config {
 export type PermissionPolicy = 'allow' | 'reject'
 ```
 
-Source: [`packages/subagent/subagent-acp/src/index.ts:18`](../packages/subagent/subagent-acp/src/index.ts)
+Source: [`packages/subagent/subagent-acp/src/index.ts:21`](../packages/subagent/subagent-acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-fork`
 
