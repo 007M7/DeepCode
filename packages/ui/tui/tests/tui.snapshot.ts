@@ -52,7 +52,7 @@ async function checkpoint(
   observedCheckpoints.add(name)
   expect(terminal.themeViolations(), `${name} must remain theme-agnostic`).toEqual([])
   const snapshot = await terminal.snapshot(options)
-  const path = join(SNAPSHOTS_DIR, `${name}.golden.txt`)
+  const path = join(SNAPSHOTS_DIR, `${name}.expected.txt`)
   if (REFRESHING) {
     await mkdir(SNAPSHOTS_DIR, { recursive: true })
     await writeFile(path, snapshot)
@@ -493,7 +493,7 @@ describe('TUI terminal-state snapshots', () => {
 afterAll(async () => {
   expect([...observedCheckpoints].sort()).toEqual([...CHECKPOINTS].sort())
   const files = (await readdir(SNAPSHOTS_DIR))
-    .filter(file => file.endsWith('.golden.txt'))
+    .filter(file => file.endsWith('.expected.txt'))
     .sort()
-  expect(files).toEqual(CHECKPOINTS.map(name => `${name}.golden.txt`).sort())
+  expect(files).toEqual(CHECKPOINTS.map(name => `${name}.expected.txt`).sort())
 })
