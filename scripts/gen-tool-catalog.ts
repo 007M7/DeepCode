@@ -3,7 +3,7 @@
  * plugin. Runtime registration is the source of truth for computed schemas;
  * the manifest is checked against every on-disk `tool-*` package. `--check`
  * verifies the committed artifact. Rationale and ownership live in
- * `docs/rfc/implemented/process/2026-07-02-tool-schema-catalog.md`.
+ * `.agents/notes/implemented/process/2026-07-02-tool-schema-catalog.md`.
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
@@ -119,7 +119,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     toolsConfig: { mode: 'code' },
     async mount() {},
     note:
-      'Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode RFC). Under `code` it is the registry\'s only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.',
+      'Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry\'s only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-bash',
@@ -144,7 +144,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolCordis)
     },
     note:
-      'Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes.',
+      'Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs',
@@ -367,7 +367,7 @@ export function render(catalog: ToolCatalog): string {
     '',
     'Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the cordis [events](cordis-catalog/events.md) & [services](cordis-catalog/services.md) catalogs (the wiring a plugin listens to and calls) and [core-data-structures/](core-data-structures/core.md) (the types those signatures move) — this page is the *tools* the agent is offered.',
     '',
-    'This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator\'s boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog RFC](rfc/implemented/process/2026-07-02-tool-schema-catalog.md).',
+    'This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator\'s boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog Agent Note](../.agents/notes/implemented/process/2026-07-02-tool-schema-catalog.md).',
     '',
     'Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config. The registered tool NAME can be a load-time config (e.g. `tool-subagent`\'s `toolName`), so a deployment may surface a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog\'s packages-only scope.',
     '',

@@ -2,7 +2,7 @@
 
 The **basic compaction backend**: a `BasicCompactService` implementing the `@deepseek-ai/dsh-compact` seam with reusable `ctx.tokenMeter` pressure, token-budget retention, and summarization as a direct one-shot `ctx.llm.stream()` call (interceptable at `llm/stream`).
 
-This is the implementation tier of the compaction capability — see the [interface package](../compact/README.md) for the seam and the [capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md) for the design.
+This is the implementation tier of the compaction capability — see the [interface package](../compact/README.md) for the seam and the [capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) for the design.
 
 ## What it owns
 
@@ -147,4 +147,4 @@ Prefix-stable for auxiliary calls while this instruction and the summarizer rout
 - **Single-unit and envelope-only overflow remain outside surface compaction** — recovery cannot split one indivisible message/tool unit or shrink system/tools/prefix.
 - **`compactRegion` requires an open turn** — a manual call on a fully-closed session throws ("no open turn") rather than compacting.
 - **Summarization failure fails closed with full, over-budget history** — including truncation at the summarization `maxTokens`, which hidden reasoning tokens can consume; the auto path logs a warning and proceeds.
-- **The summarization call has no transcript-snapshot coverage** — `dsh-llm-replay` derives calls from `assistant/chunk` events, so this chunk-less direct `ctx.llm.stream()` call cannot replay (named deferred replay infrastructure in [the seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)).
+- **The summarization call has no transcript-snapshot coverage** — `dsh-llm-replay` derives calls from `assistant/chunk` events, so this chunk-less direct `ctx.llm.stream()` call cannot replay (named deferred replay infrastructure in [the seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)).

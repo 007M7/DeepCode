@@ -149,7 +149,7 @@ describe('session-log invariants', () => {
   it('rejects a message event appended outside any open turn (turn-enclosure)', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
-    // No turn open: every message-bearing event must be turn-enclosed (the turn-enclosure RFC).
+    // No turn open: every message-bearing event must be turn-enclosed (the turn-enclosure Agent Note).
     expect(() => session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' }))
       .toThrow(/outside any open turn/)
     expect(() => session.append('context/message', { content: [{ type: 'text', text: 'ctx' }], source: { kind: 'user' } }, { surfaceOp: 'append' }))
@@ -160,7 +160,7 @@ describe('session-log invariants', () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     // steering/message is turn-scoped: outside a turn it would land past the
-    // commit boundary and be dropped on resume (the turn-enclosure RFC).
+    // commit boundary and be dropped on resume (the turn-enclosure Agent Note).
     expect(() => session.append('steering/message', { turn: 1, content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }, { surfaceOp: 'append' }))
       .toThrow(/outside any open turn/)
     // A PLUGIN-added (merge-extensible) event type is caught by the default too.

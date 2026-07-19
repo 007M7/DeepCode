@@ -10,7 +10,7 @@ This package is the interface tier of the compaction capability, split so each c
 | `@deepseek-ai/dsh-compact-basic` | a backend: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-tool-compact` (deferred) | the model-facing `/compact` tool over `ctx.compact` |
 
-Unlike the bash seam, this interface depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "interface depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
+Unlike the bash seam, this interface depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "interface depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md).
 
 ## Service API (`ctx.compact`)
 

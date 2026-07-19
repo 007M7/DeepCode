@@ -14,7 +14,7 @@ import ts from 'typescript'
 const root = resolve(import.meta.dirname, '..')
 
 /** Scan doc-typecheck's full Markdown scope so unmanifested blocks also fail. */
-const MARKDOWN_GLOBS = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md', 'website/zh-CN/**/*.md']
+const MARKDOWN_GLOBS = ['README.md', '.agents/notes/**/*.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md', 'website/zh-CN/**/*.md']
 
 /** One manifest entry: a source-equivalence block and its source symbol. */
 interface ManifestEntry {

@@ -10,7 +10,7 @@ Registers one tool, `todo_write(todos: [{ content, status }])`, on `ctx.tools`. 
 
 ## Single owner
 
-The list belongs to the ONE agent session that called the tool. There is no subagent/shared/swarm scope: a non-agent caller (no `exec.agent`) has nowhere to write the list and is rejected. This is a deliberate scope limit — see the RFC.
+The list belongs to the ONE agent session that called the tool. There is no subagent/shared/swarm scope: a non-agent caller (no `exec.agent`) has nowhere to write the list and is rejected. This is a deliberate scope limit — see the Agent Note.
 
 ## Validation
 
