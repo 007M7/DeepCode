@@ -17,7 +17,7 @@ Record two scenarios against the real API, both replayed keyless in the default 
 
 ### Why a completed turn-1 is required
 
-The fork backend seeds the child with the parent's **balanced completed-turn prefix** ([`completedTurnPrefix`](../../../../packages/subagent/subagent-fork)). A parent that forks on its very first turn has no completed turn to inherit, so the seed is empty (≡ a fresh spawn, `seedLength` 0) — which would NOT exercise the slice. Both scenarios therefore use a two-prompt input: the first prompt completes a turn (establishing a codeword the child is later asked to recall), the second delegates the fork. The recalled codeword in the child's transcript is incidental to the model's behavior; the load-bearing artifact is the child fixture's recorded `seedLength`, which the replay slice consumes.
+The fork backend seeds the child with the parent's **balanced completed-turn prefix**. A parent that forks on its very first turn has no completed turn to inherit, so the seed is empty (≡ a fresh spawn, `seedLength` 0) — which would NOT exercise the slice. Both scenarios therefore use a two-prompt input: the first prompt completes a turn (establishing a codeword the child is later asked to recall), the second delegates the fork. The recalled codeword in the child's transcript is incidental to the model's behavior; the load-bearing artifact is the child fixture's recorded `seedLength`, which the replay slice consumes.
 
 ## Consequences
 

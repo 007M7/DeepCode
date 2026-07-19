@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { codingHarness, TODO_SYSTEM_PROMPT, waitForIdle } from './harness.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 /**
  * A REAL model drives the REAL todo_write tool: verify the WORLD (the session
@@ -26,7 +26,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('todo_write: real model records a
   it('appends a todo/write event with the model-produced task list', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-todo-write-e2e-'))
     ctx = await codingHarness(workdir, { persona: TODO_SYSTEM_PROMPT })
-    const agent = ctx.agentLoop.create(AgentId('e2e-todo'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('e2e-todo'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.send([{ type: 'text', text:
       'Use the todo_write tool to record a plan of exactly two steps: first '

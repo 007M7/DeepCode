@@ -25,20 +25,19 @@ Check token pressure and compact if the conversation is too large. Estimate the 
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L58)
 
-### ctx.compact.compactRegion(session, start, end, agent, signal?)
+### ctx.compact.compactRegion(start, end, agent, signal?)
 
 ```ts website-api
-abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
+abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
-Forcibly compact a range of surface nodes into a single summary node. `start` and `end` name an inclusive span by surface position, not numeric seq order; replacements can make visible seqs non-monotonic. Both edges must be balanced so assistant tool calls remain paired with their results. A model- backed implementation forwards cancellation. The agent must own the exact target session object; implementations reject an ownership mismatch before model resolution, lock acquisition, summarization, or log mutation, and reject active, missing, reversed, or unbalanced ranges. Use toolPairingBalancedBefore and toolPairingBalancedAfter for the edge checks.
+Forcibly compact a range of surface nodes into a single summary node. `start` and `end` name an inclusive span by surface position, not numeric seq order; replacements can make visible seqs non-monotonic. Both edges must be balanced so assistant tool calls remain paired with their results. A model- backed implementation forwards cancellation and rejects active, missing, reversed, or unbalanced ranges. The target session is `agent.session`. Use toolPairingBalancedBefore and toolPairingBalancedAfter for the edge checks.
 
-- `session` — session to mutate; must be identical to `agent.session`.
 - `start` — first surface seq, inclusive.
 - `end` — last surface seq, inclusive.
-- `agent` — owner of the target session and summarizer context.
+- `agent` — context whose session is mutated and whose routing options guide summarization.
 - `signal` — optional cancellation; model-backed implementations must forward it.
 
-**Returns** the replaced range and summary.
+**Returns** the appended event seqs, summary, replaced range, and token accounting.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L85)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L82)

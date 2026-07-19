@@ -8,11 +8,11 @@
 
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { AgentId, AgentOptions, AgentStatus, HookContext, InjectOptions, SendOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentOptions, AgentStatus, HookContext, InjectOptions, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import { snapshotJsonValue, type Session } from '@deepseek-ai/dsh-session'
+import { snapshotJsonValue, type Session, type SessionId } from '@deepseek-ai/dsh-session'
 import { Inbox, type InboxMessage } from './inbox.ts'
 import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
 
@@ -58,7 +58,11 @@ export interface PreparedReactLoopAgent {
  * @returns the agent and closures bound only to that exact instance.
  */
 export function prepareReactLoopAgent(
-  ctx: Context, id: AgentId, options: AgentOptions, session: Session, maxParallelToolCalls: number,
+  ctx: Context,
+  id: SessionId,
+  options: AgentOptions,
+  session: Session,
+  maxParallelToolCalls: number,
 ): PreparedReactLoopAgent {
   if (claimedDriverSessions.has(session)) {
     throw new Error(`session "${session.id}" already has a concrete agent driver`)
@@ -159,7 +163,7 @@ export class ReactLoopAgent implements Agent {
 
   constructor(
     private loopCtx: Context,
-    public readonly id: AgentId,
+    public readonly id: SessionId,
     public readonly options: AgentOptions,
     public readonly session: Session,
     maxParallelToolCalls: number,

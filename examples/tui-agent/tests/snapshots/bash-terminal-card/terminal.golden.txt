@@ -14,9 +14,9 @@ buffer
   style 0-0 fg=bright-blue
   style 2-36 fg=bright-black
   style 99-99 fg=bright-blue
-3| "│ main  •  deepseek-v4-flash  •  main-session                                                      │"
+3| "│ deepseek-v4-flash  •  main-session                                                               │"
   style 0-0 fg=bright-blue
-  style 2-44 dim
+  style 2-35 dim
   style 99-99 fg=bright-blue
 4| "╰──────────────────────────────────────────────────────────────────────────────────────────────────╯"
   style 0-99 fg=bright-blue

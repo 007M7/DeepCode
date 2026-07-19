@@ -4,7 +4,7 @@ import Loader from '@cordisjs/plugin-loader'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -38,7 +38,7 @@ async function mount(config: Config = {}) {
 
 function sessionAgent(session: Session, id = 'agent'): Agent {
   return {
-    id: AgentId(id),
+    id: SessionId(id),
     options: {},
     session,
     status: 'running',
@@ -370,7 +370,7 @@ describe('real agent-loop request history', () => {
       if (mode === 'throws') throw new Error('later pre-step failure')
       subject.cancel('later pre-step cancellation')
     })
-    const agent = ctx.agentLoop.create(AgentId(`late-${mode}`), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId(`late-${mode}`), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'start' }])
     await agent.whenIdle()
@@ -396,7 +396,7 @@ describe('real agent-loop request history', () => {
         return [{ type: 'text' as const, text: 'advanced' }]
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('loop'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('loop'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'start' }])
     await agent.whenIdle()

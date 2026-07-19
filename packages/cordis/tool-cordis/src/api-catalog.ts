@@ -54,9 +54,9 @@ export interface TypeApiEntry {
 export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'agentLoop',
-    summary: 'Concrete ReactLoopAgent factory and driver service.',
+    summary: 'Concrete agent factory and driver service.',
     methods: [
-      'create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, \'cwd\'> = {}): ReactLoopAgent',
+      'create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, \'cwd\'> = {}): Agent',
       'async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>',
       'async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>',
     ],
@@ -69,12 +69,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'async create(options: CreateAgentOptions): Promise<AgentHandle>',
       'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
       'register(agent: Agent): () => void',
-      'enter(agent: Agent): () => void',
+      'enter(agent: Agent, owner: Agent | undefined): () => void',
       'announce(agent: Agent): void',
-      'reportStartFailure(id: AgentId, error: Error): () => void',
-      'getStartFailure(id: AgentId): Error | undefined',
-      'get(id: AgentId): Agent | undefined',
+      'get(id: SessionId): Agent | undefined',
+      'isOwnedBy(id: SessionId, owner: Agent): boolean',
       'list(): Agent[]',
+      'roots(): Agent[]',
     ],
   },
   {
@@ -114,7 +114,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Abstract compaction service.',
     methods: [
       'abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>',
-      'abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
+      'abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
     ],
   },
   {
@@ -296,6 +296,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
 /** Every harness event, sorted by name. */
 export const EVENT_API: readonly EventApiEntry[] = [
   {
+    name: 'agent-loop/config-start-failed',
+    mode: 'emit',
+    signature: '\'agent-loop/config-start-failed\'(sessionId: SessionId, error: unknown): void',
+    summary: 'A declarative agent entry failed before it could publish a live agent.',
+  },
+  {
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, agent: Agent): void',
@@ -348,12 +354,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     mode: 'emit',
     signature: '\'agent/session-start\'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void',
     summary: 'The session lifecycle began, once before the first turn.',
-  },
-  {
-    name: 'agent/start-failed',
-    mode: 'emit',
-    signature: '\'agent/start-failed\'(agentId: AgentId, error: Error): void',
-    summary: 'Declarative startup failed before an agent could be published.',
   },
   {
     name: 'agent/status',
@@ -541,7 +541,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: AgentId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: InjectOptions): void;\n    cancel(reason?: string): void;\n    whenIdle(): Promise<void>;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: InjectOptions): void;\n    cancel(reason?: string): void;\n    whenIdle(): Promise<void>;\n}',
   },
   {
     name: 'AgentFactory',
@@ -550,10 +550,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentHandle',
     declaration: 'export interface AgentHandle {\n    agent: Agent;\n    dispose(): Promise<void>;\n}',
-  },
-  {
-    name: 'AgentId',
-    declaration: 'export type AgentId = Branded<\'AgentId\'>;',
   },
   {
     name: 'AgentOptions',
@@ -709,7 +705,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateAgentOptions',
-    declaration: 'export interface CreateAgentOptions {\n    readonly agentId: AgentId;\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
+    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
   {
     name: 'CreateSessionOptions',
@@ -861,7 +857,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResumeAgentOptions',
-    declaration: 'export interface ResumeAgentOptions {\n    readonly agentId: AgentId;\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
+    declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
   {
     name: 'SandboxEnforcement',
@@ -1033,7 +1029,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentRun',
-    declaration: 'export interface SubagentRun {\n    readonly id: AgentId;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    sendMessage?(content: ContentBlock[]): void;\n    resume?(content: ContentBlock[]): Promise<SubagentRun>;\n}',
+    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    sendMessage?(content: ContentBlock[]): void;\n    resume?(content: ContentBlock[]): Promise<SubagentRun>;\n}',
   },
   {
     name: 'SubagentStartRequest',

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
-import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import WorkerCodeRuntime from '@deepseek-ai/dsh-code-runtime-worker'
@@ -223,14 +223,13 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       ctx.on(name, () => { workflowEvents.push(name) })
     }
     const handle = await ctx.agents.create({
-      agentId: AgentId('main'),
       sessionId: SessionId('main-session'),
       meta: { cwd },
       agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     })
     const agent: Agent = handle.agent
     controller = createTuiChat(ctx, {
-      agent: 'main',
+      sessionId: 'main-session',
       color: true,
       showReasoning: true,
       title: 'DSH TUI snapshot',

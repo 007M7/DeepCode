@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
-import AgentRegistry, { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -441,7 +441,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     const events = await setup()
     const unrelatedSession = events.ctx.sessions.create(SessionId('unrelated-session'))
-    const unrelatedAgent = { ...events.agent, id: AgentId('unrelated'), session: unrelatedSession }
+    const unrelatedAgent = { ...events.agent, id: unrelatedSession.id, session: unrelatedSession }
     unrelatedSession.append('todo/write', { todos: [{ content: 'hidden', status: 'pending' }] })
     events.ctx.emit('agent/status', unrelatedAgent, 'running')
     events.ctx.emit('agent/error', unrelatedAgent, 1, 1, new Error('hidden error'))
@@ -810,9 +810,9 @@ describe('terminal mounting', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
-    const session = ctx.sessions.create(SessionId('mounted-session'))
+    const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
-      id: AgentId('main'), options: {}, session, status: 'idle', ctx,
+      id: session.id, options: {}, session, status: 'idle', ctx,
       send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
@@ -829,19 +829,19 @@ describe('terminal mounting', () => {
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const terminal = new FakeTerminal()
-    mountTui(ctx, { agent: 'main', color: false }, { terminal, exit: vi.fn() })
+    mountTui(ctx, { sessionId: 'late-session', color: false }, { terminal, exit: vi.fn() })
     expect(terminal.started).toBe(0)
 
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
-      id: AgentId('other'), options: {}, session: otherSession, status: 'idle', ctx,
+      id: otherSession.id, options: {}, session: otherSession, status: 'idle', ctx,
       send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
-      id: AgentId('main'), options: {}, session, status: 'idle', ctx,
+      id: session.id, options: {}, session, status: 'idle', ctx,
       send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
@@ -858,18 +858,18 @@ describe('terminal mounting', () => {
     ctx.provide('tools', { get: () => undefined } as never)
     const terminal = new FakeTerminal()
     const exit = vi.fn()
-    mountTui(ctx, { agent: 'main', color: false }, { terminal, exit })
+    mountTui(ctx, { sessionId: 'main-session', color: false }, { terminal, exit })
 
-    ctx.agents.reportStartFailure(AgentId('other'), new Error('other failed'))
+    ctx.emit('agent-loop/config-start-failed', SessionId('other-session'), new Error('other failed'))
     expect(terminal.output).toBe('')
     expect(exit).not.toHaveBeenCalled()
-    ctx.agents.reportStartFailure(AgentId('main'), new Error('resume \u001b]2;failure-controlled\u0007'))
-    expect(terminal.output).toBe('ui-tui: agent "main" failed to start: resume \\x1b]2;failure-controlled\\x07\n')
+    ctx.emit('agent-loop/config-start-failed', SessionId('main-session'), new Error('resume \u001b]2;failure-controlled\u0007'))
+    expect(terminal.output).toBe('ui-tui: session "main-session" failed to start: Error: resume \\x1b]2;failure-controlled\\x07\n')
     expect(exit).toHaveBeenCalledWith(1)
 
-    const session = ctx.sessions.create(SessionId('must-not-start'))
+    const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
-      id: AgentId('main'), options: {}, session, status: 'idle', ctx,
+      id: session.id, options: {}, session, status: 'idle', ctx,
       send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
@@ -877,20 +877,22 @@ describe('terminal mounting', () => {
     await ctx.fiber.dispose()
   })
 
-  it('prints a retained startup failure for a late-mounted TUI', async () => {
+  it('renders an uncoercible startup failure without escaping the display boundary', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
-    ctx.agents.reportStartFailure(AgentId('main'), new Error('already failed'))
     const terminal = new FakeTerminal()
     const exit = vi.fn()
 
-    mountTui(ctx, { agent: 'main', color: false }, { terminal, exit })
+    mountTui(ctx, { sessionId: 'main-session', color: false }, { terminal, exit })
+    ctx.emit('agent-loop/config-start-failed', SessionId('main-session'), {
+      toString(): string { throw new Error('coercion failed') },
+    })
 
     expect(terminal.started).toBe(0)
-    expect(terminal.output).toBe('ui-tui: agent "main" failed to start: already failed\n')
+    expect(terminal.output).toBe('ui-tui: session "main-session" failed to start: <unrenderable thrown value>\n')
     expect(exit).toHaveBeenCalledWith(1)
     await ctx.fiber.dispose()
   })
@@ -903,13 +905,13 @@ describe('terminal mounting', () => {
     ctx.provide('tools', { get: () => undefined } as never)
     const session = ctx.sessions.create(SessionId('failed-start-session'))
     ctx.agents.register({
-      id: AgentId('main'), options: {}, session, status: 'running', ctx,
+      id: session.id, options: {}, session, status: 'running', ctx,
       send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     terminal.start = () => { throw new Error('terminal startup failed') }
 
-    expect(() => createTuiChat(ctx, { color: false }, { terminal, exit: vi.fn() }))
+    expect(() => createTuiChat(ctx, { sessionId: 'failed-start-session', color: false }, { terminal, exit: vi.fn() }))
       .toThrow('terminal startup failed')
     expect(terminal.stopped).toBe(1)
     expect(terminal.progress).toEqual([false, true, false])
@@ -931,7 +933,7 @@ describe('terminal mounting', () => {
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const runtime: TuiRuntime = { terminal: new FakeTerminal(), exit: vi.fn() }
-    expect(() => createTuiChat(ctx, { agent: 'missing' }, runtime)).toThrow('is not running')
+    expect(() => createTuiChat(ctx, { sessionId: 'missing' }, runtime)).toThrow('is not running')
     await ctx.fiber.dispose()
   })
 })

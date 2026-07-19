@@ -15,7 +15,7 @@ While the agent is running, editor submissions call `agent.steer()`; otherwise t
 | Key | Default | Meaning |
 |---|---|---|
 | `welcome` | `ready.` | Header subtitle |
-| `agent` | `main` | Agent id driven by the terminal |
+| `sessionId` | `main` | Exact shared agent/session identity driven by the terminal |
 | `showReasoning` | `true` | Render reasoning blocks |
 | `maxToolOutputLines` | `12` | Collapsed tool-card output limit |
 | `maxQuestionOptions` | `8` | Visible options in a question overlay |
@@ -30,12 +30,12 @@ While the agent is running, editor submissions call `agent.steer()`; otherwise t
   name: '@deepseek-ai/dsh-tui'
   config:
     welcome: 'Coding agent ready.'
-    agent: main
+    sessionId: main-session-123
     showReasoning: true
     maxToolOutputLines: 12
 ```
 
-Startup fails before mounting when either process stream is not a TTY. While waiting for its configured agent, the front door also observes retained and live `agent/start-failed` notifications; a matching failure is written before fullscreen mode starts and exits with status 1 instead of leaving a blank terminal. Disposal stops loaders, rejects pending questions, drains terminal input, restores terminal state, unregisters event listeners and the user-interaction provider, and never exits a replacement process during HMR.
+Startup fails before mounting when either process stream is not a TTY. The composing app must mount the TUI before its config-created agent so the front door can observe `agent-loop/config-start-failed`; a matching exact-session failure is written before fullscreen mode starts and exits with status 1 instead of leaving a blank terminal. Disposal stops loaders, rejects pending questions, drains terminal input, restores terminal state, unregisters event listeners and the user-interaction provider, and never exits a replacement process during HMR.
 
 ## Color
 
@@ -57,6 +57,6 @@ The palette uses the standard 16-color ANSI foregrounds and SGR attributes, whic
 
 ## Known Limitations and Deferred Work
 
-- **One configured agent owns the transcript and editor** — questions from other agents can still use the shared overlay provider, but session rendering and prompt input remain bound to `agent`.
+- **One configured session owns the transcript and editor** — questions from other agents can still use the shared overlay provider, but session rendering and prompt input remain bound to `sessionId`.
 - **Tool cards are text terminal presentations** — terminal, diff, and generic cards use tool-owned titles/content, but session content currently has no image block for inline image rendering.
 - **Non-TTY operation is intentionally unsupported** — app bundles that need automation must select `dsh-stdio` before mounting this plugin rather than expecting an internal fallback.

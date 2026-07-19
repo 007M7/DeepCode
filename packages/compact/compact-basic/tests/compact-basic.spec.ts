@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import BasicCompactService, { resolveConfig } from '@deepseek-ai/dsh-compact-basic'
+import BasicCompactService from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compact-basic/src/region.ts'
+import { resolveConfig } from '@deepseek-ai/dsh-compact-basic/src/config.ts'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
 import LlmService, { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -349,32 +350,11 @@ describe('pressure measurement and retention', () => {
 })
 
 describe('compaction region transaction', () => {
-  it('rejects an agent that does not own the exact target session before mutation', async () => {
-    const compact = service()
-    const target = conversation(2)
-    const owner = conversation(1)
-    const targetEvents = [...target.events]
-    const ownerEvents = [...owner.events]
-    const nodes = target.surface.nodes
-
-    await expect(compact.compactRegion(
-      target,
-      nodes[0]!,
-      nodes[1]!,
-      agent(owner),
-    )).rejects.toThrow('compactRegion: agent.session must be the exact target session')
-
-    expect(target.events).toEqual(targetEvents)
-    expect(owner.events).toEqual(ownerEvents)
-    expect(compact.calls).toEqual([])
-  })
-
   it('lands a framed, replayable checkpoint with exact pricing provenance', async () => {
     const compact = service()
     const session = conversation(3)
     const before = session.surface.nodes
     const result = await compact.compactRegion(
-      session,
       before[0]!,
       before[3]!,
       agent(session, MODEL),
@@ -410,7 +390,6 @@ describe('compaction region transaction', () => {
     const session = conversation(2)
     const nodes = session.surface.nodes
     await expect(compact.compactRegion(
-      session,
       startOverride ?? nodes[0]!,
       endOverride ?? nodes[1]!,
       agent(session, MODEL),
@@ -422,7 +401,6 @@ describe('compaction region transaction', () => {
     const plain = conversation(2)
     const nodes = plain.surface.nodes
     await expect(compact.compactRegion(
-      plain,
       nodes[2]!,
       nodes[1]!,
       agent(plain, MODEL),
@@ -431,13 +409,11 @@ describe('compaction region transaction', () => {
     const tools = toolConversation()
     const toolNodes = tools.surface.nodes
     await expect(compact.compactRegion(
-      tools,
       toolNodes[2]!,
       toolNodes[4]!,
       agent(tools, MODEL),
     )).rejects.toThrow(/start seq .* not a balanced boundary/)
     await expect(compact.compactRegion(
-      tools,
       toolNodes[0]!,
       toolNodes[1]!,
       agent(tools, MODEL),
@@ -450,7 +426,6 @@ describe('compaction region transaction', () => {
     closed.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
     const nodes = closed.surface.nodes
     await expect(compact.compactRegion(
-      closed,
       nodes[0]!,
       nodes[1]!,
       agent(closed, MODEL),
@@ -460,7 +435,6 @@ describe('compaction region transaction', () => {
     locked.append('compact/start', { turn: 2 })
     const lockedNodes = locked.surface.nodes
     await expect(compact.compactRegion(
-      locked,
       lockedNodes[0]!,
       lockedNodes[1]!,
       agent(locked, MODEL),
@@ -477,7 +451,6 @@ describe('compaction region transaction', () => {
     const node = session.surface.nodes[0]!
 
     await expect(compact.compactRegion(
-      session,
       node,
       node,
       agent(session, MODEL),
@@ -497,7 +470,6 @@ describe('compaction region transaction', () => {
     const nodes = session.surface.nodes
 
     await expect(compact.compactRegion(
-      session,
       nodes[0]!,
       nodes[2]!,
       agent(session, MODEL),
@@ -511,7 +483,6 @@ describe('compaction region transaction', () => {
     const before = session.surface.nodes
 
     await expect(compact.compactRegion(
-      session,
       before[0]!,
       before[2]!,
       agent(session, MODEL),
@@ -527,7 +498,6 @@ describe('compaction region transaction', () => {
     const session = conversation(2)
     const nodes = session.surface.nodes
     await expect(compact.compactRegion(
-      session,
       nodes[0]!,
       nodes[2]!,
       agent(session, MODEL),
@@ -548,7 +518,6 @@ describe('compaction region transaction', () => {
     const nodes = session.surface.nodes
 
     await expect(compact.compactRegion(
-      session,
       nodes[0]!,
       nodes[2]!,
       agent(session, MODEL),
@@ -566,7 +535,6 @@ describe('compaction region transaction', () => {
     const nodes = session.surface.nodes
 
     await expect(compact.compactRegion(
-      session,
       nodes[0]!,
       nodes[2]!,
       agent(session, MODEL),
@@ -579,7 +547,6 @@ describe('compaction region transaction', () => {
     const session = conversation(1)
     const nodes = session.surface.nodes
     await expect(compact.compactRegion(
-      session,
       nodes[0]!,
       nodes[1]!,
       agent(session),
@@ -613,18 +580,28 @@ class ScriptedAdapter extends LlmAdapter {
   }
 }
 
+class ExposedCompactService extends BasicCompactService {
+  runSummarize(
+    text: string,
+    owner: Agent,
+    signal?: AbortSignal,
+  ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
+    return this.summarize(text, owner, signal)
+  }
+}
+
 async function summarizerHarness(
   blocks: readonly ContentBlock[],
   finish?: (StreamChunk & { type: 'finish' })['reason'],
   model = MODEL,
   config: BasicCompactConfig = { auto: false },
-): Promise<{ ctx: Context; adapter: ScriptedAdapter; compact: BasicCompactService }> {
+): Promise<{ ctx: Context; adapter: ScriptedAdapter; compact: ExposedCompactService }> {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   void new TokenMeterService(ctx, { contextWindow: 1_000 })
   const adapter = new ScriptedAdapter(blocks, finish)
   ctx.llm.registerAdapter([model], adapter)
-  const compact = new BasicCompactService(ctx, config)
+  const compact = new ExposedCompactService(ctx, config)
   return { ctx, adapter, compact }
 }
 
@@ -641,7 +618,7 @@ describe('default one-shot summarizer', () => {
       maxTokens: 321,
     })
     const session = conversation(1)
-    const output = await compact.summarize('transcript', agent(session, 'fallback'), SIGNAL)
+    const output = await compact.runSummarize('transcript', agent(session, 'fallback'), SIGNAL)
 
     expect(output).toEqual({
       summary: [{ type: 'text', text: 'public summary' }],
@@ -666,7 +643,7 @@ describe('default one-shot summarizer', () => {
       header: { config: { provider: 'routed', model: 'routed' } },
       reason: 'initial',
     })
-    const output = await compact.summarize('history', agent(session, 'fallback'))
+    const output = await compact.runSummarize('history', agent(session, 'fallback'))
     expect(output.provider).toBe('routed')
     expect(output.model).toBe('routed')
     expect(adapter.lastOptions?.provider).toBe('routed')
@@ -677,8 +654,8 @@ describe('default one-shot summarizer', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     void new TokenMeterService(ctx)
-    const compact = new BasicCompactService(ctx, { auto: false })
-    await expect(compact.summarize('history', agent(new Session(SessionId('model-less')))))
+    const compact = new ExposedCompactService(ctx, { auto: false })
+    await expect(compact.runSummarize('history', agent(new Session(SessionId('model-less')))))
       .rejects.toThrow(/no provider\/model available for summarization/)
   })
 
@@ -693,7 +670,7 @@ describe('default one-shot summarizer', () => {
       const { compact } = await summarizerHarness([], finish)
       let thrown: unknown
       try {
-        await compact.summarize('history', agent(conversation(1), MODEL))
+        await compact.runSummarize('history', agent(conversation(1), MODEL))
       } catch (error: unknown) {
         thrown = error
       }
@@ -705,7 +682,7 @@ describe('default one-shot summarizer', () => {
 
   it('rejects empty or reasoning-only successful output', async () => {
     const { compact } = await summarizerHarness([{ type: 'reasoning', text: 'private' }])
-    await expect(compact.summarize('history', agent(conversation(1), MODEL)))
+    await expect(compact.runSummarize('history', agent(conversation(1), MODEL)))
       .rejects.toThrow(/no text summary content/)
   })
 })

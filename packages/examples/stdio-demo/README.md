@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-stdio-demo
 
-The **terminal chat app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-spine-demo`](../../examples/agent-spine-demo/README.md)) with JSONL persistence, human interaction, a pre-created `main` agent, and a TTY-selected pi-tui/readline terminal front door. Its `bin` boots a leaf `cordis.yml`.
+The **terminal chat app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-spine-demo`](../../examples/agent-spine-demo/README.md)) with JSONL persistence, human interaction, a pre-created `main` agent, and a TTY-selected pi-tui/readline front door. Its `bin` boots a leaf `cordis.yml`.
 
 It is the terminal counterpart to [`@deepseek-ai/dsh-acp-demo`](../acp-demo/README.md): both consume the same spine, while ACP reserves stdout for JSON-RPC and creates sessions from the client.
 
@@ -15,10 +15,10 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by confirmation tools |
 | `@deepseek-ai/dsh-tool-ask-user` | the model-facing `ask_user_question` tool |
 | `@cordisjs/plugin-logger-console` | readline diagnostics for non-TTY operation; omitted from the fullscreen TUI path |
-| `@deepseek-ai/dsh-stdio` | the line-oriented terminal channel, bound to `main` for pipes and automation; matching `agent/start-failed` errors print and exit nonzero |
-| `@deepseek-ai/dsh-tui` | the interactive pi-tui channel, bound to `main` for TTY pairs; matching `agent/start-failed` startup errors are printed before fullscreen mode and exit nonzero |
+| `@deepseek-ai/dsh-stdio` | the line-oriented channel for pipes and automation, bound to the exact app-owned agent/session identity |
+| `@deepseek-ai/dsh-tui` | the fullscreen interactive channel for TTY pairs, bound to the same exact identity |
 
-`@cordisjs/plugin-hmr` (the dev/demo edit-reload loop) is deliberately a **leaf** entry, not baked in here: it is a Loader-only, subprocess-only dev plugin whose constructor needs `node --expose-internals` plus a live `loader`. The repository's terminal demo trees load it and their scripts pass `--expose-internals`.
+`@cordisjs/plugin-hmr` (the dev/demo edit-reload loop) is deliberately a **leaf** entry, NOT baked in here: it is a Loader-only, subprocess-only dev plugin — its constructor throws without `node --expose-internals` + a live `loader`, and the in-process test tier cannot even import it (so a package whose `apply` statically pulled it in could never carry the per-file coverage gate). Unlike the console logger, a stray `hmr` is not a stdout-purity footgun, so leaving it at the leaf costs no safety. The `demo:echo` / `demo:repl` leaves load it and pass `--expose-internals`.
 
 The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapter (`llm-deepseek` for the real model, or the mock `mock-llm` for a demo) and a bash executor (`bash-local`) — `hmr`, plus this app's [`Config`](#config). The whole plugin tree a run loads is therefore: this app's cluster, the spine inside `agent-spine-demo`, `hmr`, and the two leaf backends.
 
@@ -38,19 +38,19 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | `toolTasks` | owner defaults | generic `task_output` wait bounds routed through `dsh-agent-spine-demo` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 | `welcome` | `ready.` | terminal banner / TUI subtitle |
-| `ui` | owner defaults | app mode selection and nested `dsh-tui` presentation config |
+| `ui` | `{ mode: 'auto' }` | terminal mode (`auto` / `readline` / `tui`) and nested TUI presentation config |
 | `resumeSessionId` | — | resume a persisted session id instead of starting fresh (sourced from an env var in the leaf) |
 
-Fresh stdio sessions use the process launch directory as `session.header.cwd`, so project-scoped features such as skill discovery and default bash workdir follow the directory where `dsh-stdio-demo` was started. Resumed sessions keep the cwd stored in the persisted session header.
+Fresh terminal sessions use the process launch directory as `session.header.cwd` and mint one combined `main-session-<uuid>` agent/session id, so durable restarts cannot collide. The app passes that exact opaque id to the config-created agent and selected UI before agent-core starts; this lets either front door observe `agent-loop/config-start-failed`, and an AgentLoop-only reload restores materialized history under the same id. Readline buffers startup input until `agent/session-start`; the TUI waits to enter fullscreen until the matching root appears. A resumed run binds both components to the exact `resumeSessionId` and keeps the persisted cwd.
 
 ## The bin
 
-`dsh-stdio-demo [path-to-cordis.yml]` (default `./cordis.yml`) loads a gitignored `.env` from the cwd (`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`), then drives the cordis Loader against the config and awaits the whole plugin tree before returning. Run it under `node --expose-internals`, or install the Loader's optional `node-addon-require-builtin` fallback, so the Loader can resolve the config's bare plugin specifiers (`@deepseek-ai/dsh-*`, npm packages). The repository's demo scripts using this bin pass `--expose-internals`.
+`dsh-stdio-demo [path-to-cordis.yml]` (default `./cordis.yml`) loads a gitignored `.env` from the cwd (`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`), then drives the cordis Loader against the config and awaits the whole plugin tree before returning. Run it under `node --expose-internals`, or install the Loader's optional `node-addon-require-builtin` fallback, so the Loader can resolve the config's bare plugin specifiers (`@deepseek-ai/dsh-*`, npm packages). The `demo:echo` / `demo:repl` scripts use `--expose-internals`.
 
 ## Example leaf `cordis.yml`
 
 ```yaml
-# A coding-agent demo: hmr + the DeepSeek adapter + local bash, then this app.
+# A REPL agent demo: hmr + the DeepSeek adapter + local bash, then this app.
 - id: hmr
   name: '@cordisjs/plugin-hmr'
   config:
@@ -81,7 +81,7 @@ Swap `llm-deepseek` for a `mock-llm` leaf plugin and you have the echo demo — 
 
 **What the model sees**: Through `dsh-agent-spine-demo`, the `main` agent receives the harness identity, configured persona, skill catalog, and visible tools; this app also composes the generated [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user). Each terminal submission becomes a user message; submissions made while the agent runs steer the active turn.
 
-**Token effect**: Child prompt and schema costs repeat per request; user input and tool history grow until compaction. The TUI/readline banners and rendered transcripts are terminal-only and add zero model tokens.
+**Token effect**: Child prompt and schema costs repeat per request; user input and tool history grow until compaction. Terminal banners, logger output, cards, and rendered transcripts add zero model tokens.
 
 ### Human-answer result
 
@@ -91,6 +91,6 @@ Swap `llm-deepseek` for a `mock-llm` leaf plugin and you have the echo demo — 
 
 ## Known Limitations and Deferred Work
 
-- **One pre-created `main` agent drives the terminal UI** — there is no multi-session or concurrent-agent surface in this app; a run is one conversation.
+- **One pre-created `main` agent drives the selected terminal UI** — there is no multi-session or concurrent-agent surface in this app; a run is one conversation.
 - **The front-door cluster is fixed in code** — the JSONL persistence backend and the ask-user tooling are baked; a different composition is a leaf-level sibling entry or another app package.
 - **The question tool is not an approval answerer** — this app mounts `user-interaction` and `ask_user_question`, but not `ctx.approval`; a `tools/pre-execute` `ask` therefore fails closed unless the leaf composes an approval service and terminal answerer.

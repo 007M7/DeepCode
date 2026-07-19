@@ -1,6 +1,6 @@
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
-import AgentRegistry, { AgentId, type Agent, type AgentStatus } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -58,8 +58,9 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   } else {
     await options.configureContext(ctx)
   }
+  const sessionId = SessionId('main-session')
   const session = ctx.sessions.create(
-    SessionId('main-session'),
+    sessionId,
     options.cwd === null ? undefined : { meta: { cwd: options.cwd ?? '/workspace' } },
   )
   options.beforeMount?.(session)
@@ -67,7 +68,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   const steered: ContentBlock[][] = []
   const cancelled: string[] = []
   const agent: FakeAgent = {
-    id: AgentId('main'),
+    id: sessionId,
     options: { model: 'deepseek-v4-flash' },
     session,
     status: options.status ?? 'idle',
@@ -92,7 +93,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   ctx.agents.register(agent)
   const controller = createTuiChat(ctx, Object.assign({
     welcome: 'Coding agent ready.',
-    agent: 'main',
+    sessionId,
     color: false,
   }, options.config), { terminal, exit })
   return { ctx, session, agent, terminal, exit, controller }

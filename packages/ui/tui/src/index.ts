@@ -33,9 +33,10 @@ import {
 } from '@earendil-works/pi-tui'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { AgentId, observeAgentStart, type Agent, type AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-agent-loop'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent, TodoItem } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session, type SessionEvent, type TodoItem } from '@deepseek-ai/dsh-session'
 import type {
   FileDiff,
   TerminalCallView,
@@ -99,13 +100,13 @@ export const TuiConfigSchema: z<TuiConfig> = z.object({
 export interface Config extends TuiConfig {
   /** Header subtitle. Defaults to `ready.`. */
   welcome?: string
-  /** Agent id driven by this terminal. Defaults to `main`. */
-  agent?: string
+  /** Exact shared agent/session identity driven by this terminal. Defaults to `main`. */
+  sessionId?: string
 }
 
 export const Config: z<Config> = z.object({
   welcome: z.string().default('ready.'),
-  agent: z.string().default('main'),
+  sessionId: z.string().default('main'),
   showReasoning: showReasoningSchema,
   maxToolOutputLines: maxToolOutputLinesSchema,
   maxQuestionOptions: maxQuestionOptionsSchema,
@@ -188,6 +189,15 @@ const TERMINAL_CONTROL_PATTERN = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu
 function displayText(text: string): string {
   return text.replace(TERMINAL_CONTROL_PATTERN, control =>
     `\\x${control.charCodeAt(0).toString(16).padStart(2, '0')}`)
+}
+
+/** Render an arbitrary failure without allowing hostile coercion to escape the UI boundary. */
+function renderThrown(value: unknown): string {
+  try {
+    return String(value)
+  } catch {
+    return '<unrenderable thrown value>'
+  }
 }
 
 /**
@@ -293,7 +303,7 @@ class HeaderComponent implements Component {
     const usable = Math.max(1, width - 4)
     const title = `${this.palette.bold(this.palette.accent('DEEPSEEK'))} ${this.palette.bold('HARNESS')}`
     const model = displayText(this.agent.options.model ?? 'model unset')
-    const detail = `${displayText(this.agent.id)}  •  ${model}  •  ${displayText(this.agent.session.id)}`
+    const detail = `${model}  •  ${displayText(this.agent.session.id)}`
     const top = this.palette.accent(`╭${'─'.repeat(Math.max(0, width - 2))}╮`)
     const bottom = this.palette.accent(`╰${'─'.repeat(Math.max(0, width - 2))}╯`)
     const lines = [title, this.palette.muted(displayText(this.welcome)), this.palette.dim(detail)]
@@ -803,9 +813,9 @@ export function createTuiChat(
   config: Config,
   runtime: TuiRuntime,
 ): TuiController {
-  const agentId = AgentId(config.agent ?? 'main')
-  const agent = ctx.agents.get(agentId)
-  if (agent === undefined) throw new Error(`ui-tui: agent "${agentId}" is not running`)
+  const sessionId = SessionId(config.sessionId ?? 'main')
+  const agent = ctx.agents.get(sessionId)
+  if (agent === undefined) throw new Error(`ui-tui: session "${sessionId}" is not running`)
   const resolved = resolveTuiConfig(config)
   const palette = createPalette(resolved.color)
   const mdTheme = markdownTheme(palette)
@@ -1298,19 +1308,36 @@ export function createTuiChat(
  * @param runtime - Terminal and process-exit boundary.
  */
 export function mountTui(ctx: Context, config: Config, runtime: TuiRuntime): void {
-  const agentId = AgentId(config.agent ?? 'main')
-  observeAgentStart(ctx, agentId, {
-    onStarted: () => {
-      ctx.effect(() => {
-        const controller = createTuiChat(ctx, config, runtime)
-        return () => controller.dispose()
-      }, 'ui-tui')
-    },
-    onFailed: (error) => {
-      runtime.terminal.write(displayText(`ui-tui: agent "${agentId}" failed to start: ${error.message}\n`))
-      runtime.exit(1)
-    },
-  })
+  const sessionId = SessionId(config.sessionId ?? 'main')
+  const matchesConfiguredIdentity = (agent: Agent): boolean =>
+    agent.id === sessionId && ctx.agents.roots().includes(agent)
+  let settled = false
+
+  const stopWaiting = (): void => {
+    disposeCreated()
+    disposeFailure()
+  }
+  const start = (agent: Agent): void => {
+    if (settled || !matchesConfiguredIdentity(agent)) return
+    settled = true
+    stopWaiting()
+    ctx.effect(() => {
+      const controller = createTuiChat(ctx, config, runtime)
+      return () => controller.dispose()
+    }, 'ui-tui')
+  }
+  const fail = (failedSessionId: SessionId, error: unknown): void => {
+    if (settled || failedSessionId !== sessionId) return
+    settled = true
+    stopWaiting()
+    runtime.terminal.write(displayText(`ui-tui: session "${sessionId}" failed to start: ${renderThrown(error)}\n`))
+    runtime.exit(1)
+  }
+
+  const disposeCreated = ctx.on('agent/created', start)
+  const disposeFailure = ctx.on('agent-loop/config-start-failed', fail)
+  const existing = ctx.agents.roots().find(agent => agent.id === sessionId)
+  if (existing !== undefined) start(existing)
 }
 
 /** Cordis entry point using the process terminal; explicit TUI composition requires a TTY pair. */

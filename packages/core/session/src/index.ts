@@ -279,7 +279,12 @@ export class Session {
    */
   readonly header: SessionHeader
 
-  constructor(public readonly id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
+  /** The session identity, derived from its durable header's single copy. */
+  get id(): SessionId {
+    return this.header.id
+  }
+
+  constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
     if (seed) {
       // Validate the seed to the SAME invariants `append` enforces, so a
       // replay/fork (`ctx.sessions.create(id, { seed })`) cannot construct a

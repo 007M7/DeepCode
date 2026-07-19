@@ -66,7 +66,7 @@ if status is None:
     _, status = os.waitpid(pid, 0)
 sys.stdout.buffer.write(output)
 if scenario == "resume-failure":
-    if b'ui-tui: agent "main" failed to start:' not in output:
+    if b'ui-tui: session "missing-session" failed to start:' not in output:
         sys.stderr.write("TUI did not render the startup failure before timeout\n")
         sys.exit(126)
     if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 1:
@@ -167,7 +167,6 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
 
   it('prints a config-resume failure and exits instead of leaving a blank terminal', async () => {
     const output = await runTuiLoaderSmoke({ resumeSessionId: 'missing-session', scenario: 'resume-failure' })
-    expect(output).toContain('ui-tui: agent "main" failed to start:')
-    expect(output).toContain('missing-session')
+    expect(output).toContain('ui-tui: session "missing-session" failed to start:')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

@@ -4,6 +4,7 @@
  * @module @deepseek-ai/dsh-helper/features/builtin/app
  */
 
+import { JsExpression } from '../../documents/cordis-yaml-file.ts'
 import { featureId } from '../../ids.ts'
 import type { ProjectProfile } from '../../project/types.ts'
 import {
@@ -94,11 +95,11 @@ class AppOption extends FeatureOption {
             name: '@deepseek-ai/dsh-stdio',
             config: {
               welcome: 'agent REPL ready. Give it a coding task.',
-              agent: 'main',
+              sessionId: new JsExpression('process.env.DSH_SDK_SESSION_ID'),
             },
-          }, ['welcome', 'agent'], config => [
+          }, ['welcome', 'sessionId'], config => [
             ...optionalString(config, 'welcome'),
-            ...requiredString(config, 'agent'),
+            ...config.sessionId instanceof JsExpression ? [] : requiredString(config, 'sessionId'),
           ]),
         ])
       case 'embed':
