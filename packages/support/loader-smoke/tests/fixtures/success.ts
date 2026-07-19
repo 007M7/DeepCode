@@ -6,6 +6,7 @@ process.stdin.on('data', (chunk: string) => { input += chunk })
 process.stdin.on('end', () => {
   console.log(JSON.stringify({
     configPath: process.argv[2],
+    args: process.argv.slice(2),
     cwd: process.cwd(),
     dshHome: process.env.DSH_HOME,
     agentsHome: process.env.DSH_AGENTS_HOME,

@@ -28,7 +28,7 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
   ui/          ACP/stdio/TUI/JSON-RPC bridges; boot, approval, interaction plugins
-  examples/    demo bundles (agent-spine + stdio/ACP/JSON-RPC bins) leaves load
+  examples/    demo bundles (agent-spine + stdio/CLI/ACP/JSON-RPC bins) leaves load
   support/     dev/test infrastructure packages
   util/        zero-dependency utilities
 python/      Python SDK and bundled runtime (see python/README.md)
@@ -47,7 +47,7 @@ pnpm install            # pnpm workspaces, node ^22.19 || >=24
 pnpm run test           # vitest unit tests
 pnpm run test:coverage  # THE gating test run: per-file 100% coverage on packages/*/*/src
 pnpm run test:e2e       # real-API tests; self-skip without DEEPSEEK_API_KEY
-pnpm run test:snapshot  # keyless ACP replay vs goldens; filter: -t <name>
+pnpm run test:snapshot  # keyless ACP/headless/TUI replay vs goldens; filter: -t <name>
 pnpm run test:snapshot:record  # re-record goldens (needs key)
 pnpm run typecheck
 pnpm run lint
@@ -58,6 +58,7 @@ pnpm run doc-sync       # all documentation gates; see the doc-sync script in pa
 pnpm run website:build  # VitePress build (doubles as the site's dead-link check)
 pnpm run demo:echo      # mock-model REPL, no key needed
 pnpm run demo:repl      # real REPL coding agent (needs DEEPSEEK_API_KEY)
+pnpm run demo:headless -- "task" # one-shot agent (needs DEEPSEEK_API_KEY)
 pnpm run demo:tui       # full-screen TUI coding agent (needs DEEPSEEK_API_KEY)
 pnpm run demo:cordis    # self-referential demo: the agent modifies its own runtime (needs key)
 pnpm run demo:acp       # ACP server agent (needs DEEPSEEK_API_KEY)
@@ -88,7 +89,7 @@ printf '%s\n' "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
 printf '%s\n' "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
 test -n "$(find .sessions -path '.sessions/cwd-*/main-session-*.jsonl' -type f -print -quit)"
 rm -rf .sessions
-pnpm exec vitest run --config vitest.e2e.config.ts packages/examples/stdio-demo/tests/built-bin.e2e.ts packages/examples/acp-demo/tests/built-bin.e2e.ts packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
+pnpm exec vitest run --config vitest.e2e.config.ts packages/examples/stdio-demo/tests/built-bin.e2e.ts packages/examples/cli-demo/tests/built-bin.e2e.ts packages/examples/acp-demo/tests/built-bin.e2e.ts packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
 ```
 
 `test:coverage`, not `test`, is the gate ([why](docs/testing.md)); report only commands actually run.
