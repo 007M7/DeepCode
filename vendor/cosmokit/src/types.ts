@@ -1,4 +1,4 @@
-import { isNullable } from './misc'
+import { isNullable } from './misc.ts'
 
 type GlobalConstructorNames = keyof {
   [K in keyof typeof globalThis as typeof globalThis[K] extends abstract new (...args: any) => any ? K : never]: K

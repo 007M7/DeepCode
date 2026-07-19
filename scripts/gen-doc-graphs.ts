@@ -1,0 +1,1087 @@
+/**
+ * Generate the relationship layer above the module, Cordis, and tool catalogs.
+ * Enumerable facts come from source; hybrid graphs add manifests for policy the
+ * source cannot infer, while curated graphs explain flow and ownership.
+ * `--check` verifies the generated set.
+ */
+
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, relative, resolve } from 'node:path'
+import ts from 'typescript'
+import { collectEvents, collectServices } from './gen-cordis-catalog.ts'
+import {
+  collectPackageGraph,
+  escapeMermaidLabel as escLabel,
+  graphNodeId as nodeId,
+  type PackageGraphNode,
+} from './package-graph.ts'
+import { TypeScriptProject } from './ts-project.ts'
+
+const root = resolve(import.meta.dirname, '..')
+type Pkg = PackageGraphNode
+
+interface GraphDoc {
+  rel: string
+  content: string
+}
+
+interface ServiceRole {
+  key: string
+  pkg: string
+  title: string
+  mode: 'core' | 'seam' | 'bundle'
+  implementations?: string[]
+  consumers?: string[]
+  companions?: string[]
+  note: string
+}
+
+interface ExamplePlugin {
+  id: string
+  name: string
+}
+
+interface EventRelation {
+  dispatchers: Map<string, Set<string>>
+  listeners: Set<string>
+}
+
+interface PackageSource {
+  rel: string
+  pkg: string
+  sourceFile: ts.SourceFile
+}
+
+type EventReceiverKind = 'context' | 'agent-dispatch' | 'events-service'
+
+const GROUP_ORDER = [
+  'util',
+  'llm',
+  'core',
+  'bash',
+  'sandbox',
+  'fs',
+  'skill',
+  'compact',
+  'subagent',
+  'tasks',
+  'workflow',
+  'web',
+  'spill',
+  'todo',
+  'cordis',
+  'hooks',
+  'session-persistence',
+  'session-query',
+  'support',
+  'ui',
+]
+
+const SERVICE_ROLES: ServiceRole[] = [
+  {
+    key: 'llm',
+    pkg: 'llm',
+    title: 'LLM adapter registry',
+    mode: 'seam',
+    implementations: ['llm-deepseek', 'llm-pi-ai', 'llm-replay'],
+    consumers: ['agent-loop', 'compact-basic'],
+    note: 'Adapters register provider implementations; the loop and compaction call the provider-neutral stream service.',
+  },
+  {
+    key: 'tokenMeter',
+    pkg: 'token-meter',
+    title: 'Replay token measurement',
+    mode: 'core',
+    consumers: ['compact-basic'],
+    note: 'Owns isolated per-session replay folds; pressure consumers share immutable revisioned measurements.',
+  },
+  {
+    key: 'sessions',
+    pkg: 'session',
+    title: 'In-memory session store',
+    mode: 'core',
+    consumers: ['agent-loop', 'agent', 'cli-demo', 'session-persistence', 'session-query', 'subagent-inprocess', 'invariants'],
+    note: 'Owns append-only Session instances and emits the durable session event feed.',
+  },
+  {
+    key: 'sessionPersistence',
+    pkg: 'session-persistence',
+    title: 'Durable session persistence seam',
+    mode: 'seam',
+    implementations: ['session-persistence-jsonl', 'session-persistence-sqlite'],
+    consumers: ['agent-loop', 'tool-bash', 'hooks-claude', 'hooks-codex', 'acp', 'session-query'],
+    note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
+  },
+  {
+    key: 'sessionQuery',
+    pkg: 'session-query',
+    title: 'Exact session-history reads and traces',
+    mode: 'seam',
+    note: 'Resolves live and optional persisted logs into one logical corpus for exact reads and relationship traces.',
+  },
+  {
+    key: 'systemPrompt',
+    pkg: 'system-prompt',
+    title: 'System prompt assembly registry',
+    mode: 'core',
+    consumers: ['agent-loop', 'tools', 'tool-fs', 'tool-web'],
+    note: 'Collects prompt sections and model-facing tool schemas for each step.',
+  },
+  {
+    key: 'tools',
+    pkg: 'tools',
+    title: 'Tool registry and guarded execution pipeline',
+    mode: 'core',
+    consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-cordis', 'tool-fs', 'tool-skill', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
+    note: 'Registers capabilities, owns Code Mode transport, and routes calls through pre-policy, monotonic guards, around dispatch, post-policy, and final-result observation.',
+  },
+  {
+    key: 'userInteraction',
+    pkg: 'user-interaction',
+    title: 'Human question/answer seam',
+    mode: 'seam',
+    implementations: ['stdio-demo', 'acp'],
+    consumers: ['tool-ask-user', 'stdio-demo', 'acp'],
+    note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
+  },
+  {
+    key: 'skills',
+    pkg: 'skill',
+    title: 'Skill provider registry',
+    mode: 'seam',
+    implementations: ['skill-local'],
+    consumers: ['tool-skill'],
+    note: 'Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies.',
+  },
+  {
+    key: 'agents',
+    pkg: 'agent',
+    title: 'Agent service',
+    mode: 'core',
+    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess', 'stdio-demo', 'invariants'],
+    note: 'Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation.',
+  },
+  {
+    key: 'agentLoop',
+    pkg: 'agent-loop',
+    title: 'Concrete loop driver',
+    mode: 'bundle',
+    consumers: ['agent-spine-demo'],
+    note: 'The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package.',
+  },
+  {
+    key: 'bash',
+    pkg: 'bash',
+    title: 'Bash executor seam',
+    mode: 'seam',
+    implementations: ['bash-local', 'bash-sandbox'],
+    consumers: ['tool-bash', 'hooks-claude', 'hooks-codex'],
+    note: 'The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors replace bash-local without touching them.',
+  },
+  {
+    key: 'bashEnv',
+    pkg: 'tool-bash',
+    title: 'Managed bash environment registry',
+    mode: 'core',
+    note: 'Plugins declare effect-scoped DSH_* facts; tool-bash collects one trusted snapshot per execution and the executor rebuilds the namespace.',
+  },
+  {
+    key: 'sandbox',
+    pkg: 'sandbox',
+    title: 'Process-sandbox seam',
+    mode: 'seam',
+    implementations: ['sandbox-local'],
+    consumers: ['bash-sandbox'],
+    note: 'Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement.',
+  },
+  {
+    key: 'approval',
+    pkg: 'approval',
+    title: 'Approval seam',
+    mode: 'seam',
+    implementations: ['acp'],
+    consumers: ['tools', 'tool-bash'],
+    note: 'One-shot permission decisions dispatched over the `approval/request` waterfall; answerers are listeners (the ACP bridge for its own agents), absence fails closed to `unavailable`.',
+  },
+  {
+    key: 'permission',
+    pkg: 'permission',
+    title: 'Permission presets',
+    mode: 'core',
+    implementations: [],
+    consumers: ['acp'],
+    note: 'User-facing preset table (`workspace-write`/`danger-full-access`) bundling the sandbox-mode and approval-policy knobs; a switch writes one `permission/preset` event through to both knob events.',
+  },
+  {
+    key: 'codeRuntime',
+    pkg: 'code-runtime',
+    title: 'Code-execution seam',
+    mode: 'seam',
+    implementations: ['code-runtime-worker'],
+    consumers: ['tools'],
+    note: 'Runs one model-written program against host-provided async bindings; backends differ by substrate and language (the tool registry consumes it for Code Mode).',
+  },
+  {
+    key: 'fs',
+    pkg: 'fs',
+    title: 'Filesystem provider seam',
+    mode: 'seam',
+    implementations: ['fs-local'],
+    consumers: ['tool-fs'],
+    companions: ['fs-policy'],
+    note: 'tool-fs executes read/write/edit through ctx.fs; fs-policy contributes observed-state checks through the fs/* event gate.',
+  },
+  {
+    key: 'compact',
+    pkg: 'compact',
+    title: 'Compaction seam',
+    mode: 'seam',
+    implementations: ['compact-basic'],
+    consumers: ['compact-basic'],
+    note: 'The basic backend consumes post-step pressure and request-error recovery events; a model-facing compact tool remains deferred.',
+  },
+  {
+    key: 'subagents',
+    pkg: 'subagent',
+    title: 'Subagent provider registry',
+    mode: 'seam',
+    implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp'],
+    consumers: ['tool-subagent'],
+    note: 'Providers implement transports; tool-subagent exposes one configured provider as a model-facing tool name.',
+  },
+  {
+    key: 'tasks',
+    pkg: 'tasks',
+    title: 'Background task registry',
+    mode: 'core',
+    consumers: ['tool-bash', 'tool-subagent', 'tool-tasks'],
+    note: 'Producers (tool-bash background commands, tool-subagent background delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it.',
+  },
+  {
+    key: 'web',
+    pkg: 'web',
+    title: 'Web access provider registry',
+    mode: 'seam',
+    implementations: ['web-search-exa', 'web-search-perplexity', 'web-search-deepseek', 'web-fetch-local'],
+    consumers: ['tool-web'],
+    note: 'Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names.',
+  },
+  {
+    key: 'spillStore',
+    pkg: 'spill',
+    title: 'Spill storage seam',
+    mode: 'seam',
+    implementations: ['spill-local'],
+    consumers: ['spill-policy'],
+    note: 'The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill.',
+  },
+  {
+    key: 'workflows',
+    pkg: 'workflow',
+    title: 'Workflow script engine',
+    mode: 'seam',
+    implementations: ['workflow-workerthread'],
+    consumers: ['tool-workflow'],
+    note: 'One engine per context (bash shape, no named-provider registry); the worker-thread engine fans agent() calls out through ctx.subagents.',
+  },
+]
+
+function generatedHeader(title: string): string[] {
+  return [
+    '<!-- Generated by scripts/gen-doc-graphs.ts - do not edit by hand.',
+    '     Run `pnpm run gen-doc-graphs` to regenerate. -->',
+    '',
+    `# ${title}`,
+    '',
+  ]
+}
+
+function maintenanceFooter(source: string): string[] {
+  return [`Maintenance mode: ${source}.`, '']
+}
+
+function graphIndexLink(rel: string): string {
+  return relative('docs', rel).replaceAll('\\', '/')
+}
+
+function linkFromDoc(docRel: string, targetRel: string): string {
+  return relative(dirname(docRel), targetRel).replaceAll('\\', '/')
+}
+
+function mermaidCode(value: string): string {
+  return `<code>${value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code>`
+}
+
+function repoLink(path: string, label: string, up = '..'): string {
+  return `[${label}](${up}/${path})`
+}
+
+function sourceLink(source: string, up = '..'): string {
+  return repoLink(source.split(':')[0] ?? source, `\`${source}\``, up)
+}
+
+function pkgLink(pkg: Pkg | undefined, fallback: string, up = '..'): string {
+  return pkg ? repoLink(pkg.rel, `\`${pkg.short}\``, up) : `\`${fallback}\``
+}
+
+function pkgList(names: string[] | undefined, pkgsByShort: Map<string, Pkg>): string {
+  if (!names || names.length === 0) return '-'
+  return names.map(name => pkgLink(pkgsByShort.get(name), name)).join(', ')
+}
+
+function tableCell(value: string): string {
+  return value.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
+}
+
+function assertServiceRolesComplete(): void {
+  const discovered = new Set(collectServices().map(service => service.key))
+  const classified = new Set(SERVICE_ROLES.map(role => role.key))
+  const missing = [...discovered].filter(key => !classified.has(key)).sort()
+  const stale = [...classified].filter(key => !discovered.has(key)).sort()
+  if (missing.length || stale.length) {
+    throw new Error([
+      missing.length ? `missing service role classification: ${missing.join(', ')}` : '',
+      stale.length ? `stale service role classification: ${stale.join(', ')}` : '',
+    ].filter(Boolean).join('; '))
+  }
+}
+
+function renderCapabilitySeams(pkgs: Pkg[]): string {
+  assertServiceRolesComplete()
+  const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
+  const maintenance = 'hybrid: services are discovered from Cordis declarations; interface/implementation/consumer roles are classified in `scripts/gen-doc-graphs.ts` with a completeness guard'
+  const nodes = new Map<string, string>()
+  const edges = new Set<string>()
+  const companionEdges = new Set<string>()
+  const addNode = (id: string, label: string): void => {
+    if (!nodes.has(id)) nodes.set(id, `  ${id}["${escLabel(label)}"]`)
+  }
+  const addEdge = (from: string, to: string): void => { edges.add(`  ${from} --> ${to}`) }
+  const lines = generatedHeader('Capability Seams And Core Services')
+  lines.push(
+    'A service can be a core spine service, a swappable capability seam, or a bundle/composition point. The graph shows the package that owns the service declaration, known implementation packages, and packages that consume the service directly.',
+    '',
+    '```mermaid',
+    'flowchart LR',
+  )
+  for (const role of SERVICE_ROLES) {
+    const svc = nodeId('svc', role.key)
+    const owner = nodeId('pkg', role.pkg)
+    addNode(owner, role.pkg)
+    addNode(svc, `ctx.${role.key}<br/>${role.title}`)
+    addEdge(owner, svc)
+    for (const impl of role.implementations ?? []) {
+      addNode(nodeId('pkg', impl), impl)
+      addEdge(nodeId('pkg', impl), svc)
+    }
+    for (const consumer of role.consumers ?? []) {
+      addNode(nodeId('pkg', consumer), consumer)
+      addEdge(svc, nodeId('pkg', consumer))
+    }
+    for (const companion of role.companions ?? []) {
+      addNode(nodeId('pkg', companion), companion)
+      companionEdges.add(`  ${svc} -. event gate .-> ${nodeId('pkg', companion)}`)
+    }
+  }
+  lines.push(...nodes.values(), ...[...edges].sort(), ...[...companionEdges].sort())
+  lines.push('```', '', '| ctx key | Role | Owner | Implementations | Direct consumers | Companion plugins | Note |', '| --- | --- | --- | --- | --- | --- | --- |')
+  for (const role of SERVICE_ROLES) {
+    lines.push(`| \`ctx.${role.key}\` | \`${role.mode}\` | ${pkgLink(pkgsByShort.get(role.pkg), role.pkg)} | ${pkgList(role.implementations, pkgsByShort)} | ${pkgList(role.consumers, pkgsByShort)} | ${pkgList(role.companions, pkgsByShort)} | ${tableCell(role.note)} |`)
+  }
+  lines.push('', ...maintenanceFooter(maintenance))
+  return lines.join('\n')
+}
+
+function parseExampleCordis(rel: string): ExamplePlugin[] {
+  const text = readFileSync(resolve(root, rel), 'utf8')
+  const plugins: ExamplePlugin[] = []
+  let current: { id: string; name?: string } | null = null
+  const flush = (): void => {
+    if (current?.name) plugins.push({ id: current.id, name: current.name })
+  }
+  for (const line of text.split('\n')) {
+    const id = /^-\s+id:\s+(.+?)\s*$/.exec(line)
+    if (id?.[1] !== undefined) {
+      flush()
+      current = { id: stripYamlScalar(id[1]) }
+      continue
+    }
+    const name = /^\s+name:\s+(.+?)\s*$/.exec(line)
+    if (name?.[1] !== undefined && current) current.name = stripYamlScalar(name[1])
+  }
+  flush()
+  return plugins
+}
+
+function stripYamlScalar(value: string): string {
+  return value.trim().replace(/^['"]|['"]$/g, '')
+}
+
+const APP_EXAMPLES = [
+  {
+    id: 'echo',
+    rel: 'examples/echo-agent/composition.md',
+    title: 'Echo Agent App Composition',
+    label: 'examples/echo-agent',
+    config: 'examples/echo-agent/cordis.yml',
+    summary: 'The echo demo swaps in a local mock LLM and teaching echo tool, then loads the stdio app package for the shared spine and terminal front door.',
+  },
+  {
+    id: 'repl',
+    rel: 'examples/repl-agent/composition.md',
+    title: 'REPL Agent App Composition',
+    label: 'examples/repl-agent',
+    config: 'examples/repl-agent/cordis.yml',
+    summary: 'The REPL agent demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.',
+  },
+  {
+    id: 'tui',
+    rel: 'examples/tui-agent/composition.md',
+    title: 'TUI Agent App Composition',
+    label: 'examples/tui-agent',
+    config: 'examples/tui-agent/cordis.yml',
+    summary: 'The TUI agent reuses the repl-agent backend and tool composition while fixing the shared terminal app to the full-screen dsh-tui front door.',
+  },
+  {
+    id: 'headless',
+    rel: 'examples/headless-agent/composition.md',
+    title: 'Headless Agent App Composition',
+    label: 'examples/headless-agent',
+    config: 'examples/headless-agent/cordis.yml',
+    summary: 'The headless demo combines the real DeepSeek adapter and coding capabilities with the one-shot app package, format-pure stdout, and one fresh persisted top-level session.',
+  },
+  {
+    id: 'cordis',
+    rel: 'examples/cordis-agent/composition.md',
+    title: 'Cordis Agent App Composition',
+    label: 'examples/cordis-agent',
+    config: 'examples/cordis-agent/cordis.yml',
+    summary: 'The self-referential demo puts @deepseek-ai/dsh-tool-cordis on the coding spine, letting the agent inspect its own runtime and mount/unmount plugins into it.',
+  },
+  {
+    id: 'acp',
+    rel: 'examples/acp-agent/composition.md',
+    title: 'ACP Agent App Composition',
+    label: 'examples/acp-agent',
+    config: 'examples/acp-agent/cordis.yml',
+    summary: 'The ACP demo exposes the same agent spine over JSON-RPC stdio, with no stdout logger and no pre-created agent; clients create sessions through the ACP bridge.',
+  },
+]
+
+type AppExample = typeof APP_EXAMPLES[number]
+
+function renderAppExpansion(lines: string[], appNode: string, pluginName: string, exampleId: string): void {
+  const agentCore = nodeId('bundle', 'agent_core')
+  const jsonl = nodeId('bundle', 'jsonl')
+  lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
+  lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
+  if (pluginName === '@deepseek-ai/dsh-stdio-demo') {
+    const frontDoor = exampleId === 'tui'
+      ? '@deepseek-ai/dsh-tui<br/>pre-created main agent'
+      : exampleId === 'repl'
+        ? '@deepseek-ai/dsh-stdio<br/>pre-created main agent'
+        : 'dsh-tui (TTY) / dsh-stdio (pipes)<br/>pre-created main agent'
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'stdio')}["${frontDoor}"]`)
+  } else if (pluginName === '@deepseek-ai/dsh-cli-demo') {
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'cli')}["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]`)
+  } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]`)
+  }
+  lines.push(
+    `  ${agentCore} --> ${nodeId('spine', 'llm')}["ctx.llm"]`,
+    `  ${agentCore} --> ${nodeId('spine', 'sessions')}["ctx.sessions"]`,
+    `  ${agentCore} --> ${nodeId('spine', 'tools')}["ctx.tools + tool-bash"]`,
+    `  ${agentCore} --> ${nodeId('spine', 'loop')}["ctx.agents + ctx.agentLoop"]`,
+  )
+}
+
+function renderAppComposition(example: AppExample): string {
+  const plugins = parseExampleCordis(example.config)
+  const maintenance = 'hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source'
+  const lines = generatedHeader(example.title)
+  lines.push(
+    example.summary,
+    '',
+    '```mermaid',
+    'flowchart LR',
+    `  cfg["${escLabel(example.label)}<br/>cordis.yml"]`,
+  )
+  for (const plugin of plugins) {
+    const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
+    lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
+    lines.push(`  cfg --> ${pluginNode}`)
+    if (plugin.name === '@deepseek-ai/dsh-stdio-demo' || plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
+      renderAppExpansion(lines, pluginNode, plugin.name, example.id)
+    }
+  }
+  lines.push(
+    '```',
+    '',
+    '| Plugin id | Package / module |',
+    '| --- | --- |',
+    ...plugins.map(plugin => `| \`${plugin.id}\` | \`${plugin.name}\` |`),
+    '',
+    `Source config: [\`${example.config}\`](${linkFromDoc(example.rel, example.config)}).`,
+  )
+  lines.push('', ...maintenanceFooter(maintenance))
+  return lines.join('\n')
+}
+
+/** Collect event dispatch/listener relations from real cross-file receiver types. */
+class EventRelationCollector {
+  private readonly relations = new Map<string, EventRelation>()
+  private readonly callSites = new Map<ts.SignatureDeclaration | ts.JSDocSignature, ts.CallExpression[]>()
+  private readonly contextType: ts.Type
+  private readonly agentDispatchType: ts.Type
+  private readonly eventsServiceType: ts.Type
+
+  constructor(
+    private readonly project: TypeScriptProject,
+    private readonly sources: readonly PackageSource[],
+  ) {
+    this.contextType = this.declaredType('vendor/cordis/src/context.ts', 'Context')
+    this.agentDispatchType = this.declaredType('packages/core/agent/src/dispatch.ts', 'AgentEventDispatch')
+    this.eventsServiceType = this.declaredType('vendor/cordis/src/events.ts', 'EventsService')
+    this.indexCallSites()
+  }
+
+  /** Return all event relations discovered from the Program. */
+  collect(): Map<string, EventRelation> {
+    for (const source of this.sources) this.visitSource(source)
+    return this.relations
+  }
+
+  /** Resolve one named class/interface declaration to its merged instance type. */
+  private declaredType(relativePath: string, name: string): ts.Type {
+    const sourceFile = this.project.sourceFile(relativePath)
+    const declaration = sourceFile.statements.find((statement): statement is ts.ClassDeclaration | ts.InterfaceDeclaration => {
+      return (ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement)) && statement.name?.text === name
+    })
+    const symbol = declaration?.name && this.project.checker.getSymbolAtLocation(declaration.name)
+    if (!symbol) throw new Error(`cannot resolve TypeScript type ${name} from ${relativePath}`)
+    return this.project.checker.getDeclaredTypeOfSymbol(symbol)
+  }
+
+  /** Index resolved local function calls for narrow argument-flow recovery. */
+  private indexCallSites(): void {
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        const declaration = this.project.checker.getResolvedSignature(node)?.declaration
+        if (declaration) {
+          const calls = this.callSites.get(declaration) ?? []
+          calls.push(node)
+          this.callSites.set(declaration, calls)
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    for (const source of this.sources) visit(source.sourceFile)
+  }
+
+  /** Walk one package source file and classify event API calls by receiver type. */
+  private visitSource(source: PackageSource): void {
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+        const receiverKind = this.receiverKind(node.expression.expression)
+        const method = node.expression.name.text
+        if (receiverKind === 'events-service' && method === 'dispatch') {
+          const argumentList = node.arguments[1]
+          if (argumentList) {
+            for (const event of this.eventNamesFromArgumentList(argumentList, new Set())) {
+              this.addDispatcher(event, source.pkg, 'events.dispatch')
+            }
+          }
+        } else if (receiverKind === 'context' || receiverKind === 'agent-dispatch') {
+          const eventNames = this.eventNamesFromCall(node, receiverKind)
+          if (method === 'on' || method === 'once') {
+            for (const event of eventNames) this.ensure(event).listeners.add(source.pkg)
+          } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
+            for (const event of eventNames) this.addDispatcher(event, source.pkg, method)
+          }
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source.sourceFile)
+  }
+
+  /** Classify a receiver using assignability to the repository's actual event API types. */
+  private receiverKind(receiver: ts.Expression): EventReceiverKind | undefined {
+    const type = this.project.checker.getTypeAtLocation(receiver)
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never)) return undefined
+    if (this.project.checker.isTypeAssignableTo(type, this.eventsServiceType)) return 'events-service'
+    if (this.project.checker.isTypeAssignableTo(type, this.contextType)) return 'context'
+    if (this.project.checker.isTypeAssignableTo(type, this.agentDispatchType)) return 'agent-dispatch'
+    return undefined
+  }
+
+  /** Resolve the event-name argument for Context and fused agent dispatch calls. */
+  private eventNamesFromCall(call: ts.CallExpression, receiverKind: Exclude<EventReceiverKind, 'events-service'>): Set<string> {
+    const candidates = receiverKind === 'context' ? call.arguments.slice(0, 2) : call.arguments.slice(0, 1)
+    for (const candidate of candidates) {
+      const values = this.finiteStringValues(candidate)
+      if (values) return values
+    }
+    return new Set()
+  }
+
+  /** Recover the event slot from the argument array handed to EventsService.dispatch(). */
+  private eventNamesFromArgumentList(expression: ts.Expression, seen: Set<ts.Node>): Set<string> {
+    const current = unwrapExpression(expression)
+    if (seen.has(current)) return new Set()
+    seen.add(current)
+
+    if (ts.isArrayLiteralExpression(current)) {
+      for (const element of current.elements.slice(0, 2)) {
+        if (ts.isOmittedExpression(element) || ts.isSpreadElement(element)) continue
+        const values = this.finiteStringValues(element)
+        if (values) return values
+      }
+      return new Set()
+    }
+    if (ts.isConditionalExpression(current)) {
+      return unionSets(
+        this.eventNamesFromArgumentList(current.whenTrue, new Set(seen)),
+        this.eventNamesFromArgumentList(current.whenFalse, new Set(seen)),
+      )
+    }
+    if (!ts.isIdentifier(current)) return new Set()
+
+    const symbol = this.project.checker.getSymbolAtLocation(current)
+    if (!symbol) return new Set()
+    const events = new Set<string>()
+    for (const declaration of symbol.declarations ?? []) {
+      if (ts.isVariableDeclaration(declaration) && declaration.initializer && isConstDeclaration(declaration)) {
+        addAll(events, this.eventNamesFromArgumentList(declaration.initializer, new Set(seen)))
+      } else if (ts.isParameter(declaration)) {
+        addAll(events, this.eventNamesFromParameter(declaration, seen))
+      }
+    }
+    return events
+  }
+
+  /** Follow a non-exported local helper parameter back to every resolved call site. */
+  private eventNamesFromParameter(parameter: ts.ParameterDeclaration, seen: Set<ts.Node>): Set<string> {
+    const owner = parameter.parent
+    if (!ts.isFunctionDeclaration(owner) || hasExportModifier(owner)) return new Set()
+    const index = owner.parameters.indexOf(parameter)
+    if (index < 0) return new Set()
+    const events = new Set<string>()
+    for (const call of this.callSites.get(owner) ?? []) {
+      const argument = call.arguments[index]
+      if (argument) addAll(events, this.eventNamesFromArgumentList(argument, new Set(seen)))
+    }
+    return events
+  }
+
+  /** Return a finite string-literal value set, rejecting widened and generic strings. */
+  private finiteStringValues(expression: ts.Expression): Set<string> | undefined {
+    const current = unwrapExpression(expression)
+    if (ts.isStringLiteralLike(current)) return new Set([current.text])
+    if (this.isForwardedAgentEventParameter(current)) return undefined
+    return finiteStringTypeValues(this.project.checker.getTypeAtLocation(current))
+  }
+
+  /** Reject the contextual parameter inside the AgentEventDispatch forwarding object. */
+  private isForwardedAgentEventParameter(expression: ts.Expression): boolean {
+    if (!ts.isIdentifier(expression)) return false
+    const declarations = this.project.checker.getSymbolAtLocation(expression)?.declarations ?? []
+    return declarations.some((declaration) => {
+      if (!ts.isParameter(declaration)) return false
+      const method = declaration.parent
+      if (!ts.isMethodDeclaration(method) || !ts.isObjectLiteralExpression(method.parent)) return false
+      const contextualType = this.project.checker.getContextualType(method.parent)
+      return contextualType !== undefined
+        && this.project.checker.isTypeAssignableTo(contextualType, this.agentDispatchType)
+    })
+  }
+
+  /** Get or create one relation row. */
+  private ensure(event: string): EventRelation {
+    const existing = this.relations.get(event)
+    if (existing) return existing
+    const relation = { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
+    this.relations.set(event, relation)
+    return relation
+  }
+
+  /** Add one dispatcher method without duplicating package/method labels. */
+  private addDispatcher(event: string, pkg: string, method: string): void {
+    const relation = this.ensure(event)
+    const methods = relation.dispatchers.get(pkg) ?? new Set<string>()
+    methods.add(method)
+    relation.dispatchers.set(pkg, methods)
+  }
+}
+
+/** Peel syntax-only wrappers that do not change an expression's runtime value. */
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current = expression
+  while (
+    ts.isParenthesizedExpression(current)
+    || ts.isAsExpression(current)
+    || ts.isTypeAssertionExpression(current)
+    || ts.isNonNullExpression(current)
+    || ts.isSatisfiesExpression(current)
+  ) {
+    current = current.expression
+  }
+  return current
+}
+
+/** Return every value only when a type is a closed string-literal union. */
+function finiteStringTypeValues(type: ts.Type): Set<string> | undefined {
+  if (type.flags & ts.TypeFlags.StringLiteral) {
+    return new Set([(type as ts.StringLiteralType).value])
+  }
+  if (type.flags & ts.TypeFlags.Never) return new Set()
+  if (!type.isUnion()) return undefined
+  const values = new Set<string>()
+  for (const member of type.types) {
+    const memberValues = finiteStringTypeValues(member)
+    if (!memberValues) return undefined
+    addAll(values, memberValues)
+  }
+  return values
+}
+
+/** Return whether a variable declaration belongs to a const declaration list. */
+function isConstDeclaration(declaration: ts.VariableDeclaration): boolean {
+  return (declaration.parent.flags & ts.NodeFlags.Const) !== 0
+}
+
+/** Return whether a declaration is visible to callers outside its source module. */
+function hasExportModifier(node: ts.Node): boolean {
+  return ts.canHaveModifiers(node) && (ts.getModifiers(node)?.some((modifier) => {
+    return modifier.kind === ts.SyntaxKind.ExportKeyword || modifier.kind === ts.SyntaxKind.DefaultKeyword
+  }) ?? false)
+}
+
+/** Add every member of source to target. */
+function addAll<T>(target: Set<T>, source: ReadonlySet<T>): void {
+  for (const value of source) target.add(value)
+}
+
+/** Return the union of two sets without mutating either input. */
+function unionSets<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): Set<T> {
+  const out = new Set(left)
+  addAll(out, right)
+  return out
+}
+
+function collectEventRelations(): Map<string, EventRelation> {
+  const project = new TypeScriptProject(root)
+  const sources = project.sourceFiles().flatMap((sourceFile): PackageSource[] => {
+    const rel = project.relativePath(sourceFile)
+    const match = /^packages\/[^/]+\/([^/]+)\/src\/.+\.ts$/.exec(rel)
+    return match?.[1] ? [{ rel, pkg: match[1], sourceFile }] : []
+  }).sort((left, right) => left.rel.localeCompare(right.rel))
+  return new EventRelationCollector(project, sources).collect()
+}
+
+function relationPackages(map: Map<string, Set<string>>, pkgsByShort: Map<string, Pkg>): string {
+  if (map.size === 0) return '-'
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([pkg, methods]) => `${pkgLink(pkgsByShort.get(pkg), pkg)} (${[...methods].sort().map(m => `\`${m}\``).join(', ')})`)
+    .join(', ')
+}
+
+function listenerPackages(listeners: Set<string>, pkgsByShort: Map<string, Pkg>): string {
+  if (listeners.size === 0) return '-'
+  return [...listeners].sort().map(pkg => pkgLink(pkgsByShort.get(pkg), pkg)).join(', ')
+}
+
+function renderEventRelations(pkgs: Pkg[]): string {
+  const events = collectEvents()
+  const relations = collectEventRelations()
+  const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
+  const maintenance = 'generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program'
+  const lines = generatedHeader('Event Producer And Consumer Matrix')
+  lines.push(
+    'This matrix shows which packages dispatch each harness-owned event and which packages listen to it. It is intentionally a table rather than one large graph: events are many-to-many, and dense relation data is easier to review in rows. Receiver and event-name types also cover contained dispatch sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment.',
+    '',
+    '| Event | Mode | Declared in | Dispatchers | Listeners |',
+    '| --- | --- | --- | --- | --- |',
+  )
+  for (const event of [...events].sort((a, b) => a.name.localeCompare(b.name))) {
+    const relation = relations.get(event.name) ?? { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
+    lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
+  }
+  // Every declared event needs a dispatcher: zero means dead vocabulary or an
+  // unrecognized semantic dispatch shape. Listener-free extension points remain valid.
+  const undispatched = [...events]
+    .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
+    .map(event => event.name)
+    .sort()
+  if (undispatched.length > 0) {
+    throw new Error(
+      `event-producer-consumer matrix: no dispatcher found for declared event${undispatched.length > 1 ? 's' : ''} `
+      + `${undispatched.map(name => `"${name}"`).join(', ')} — dead vocabulary, or a dispatch shape the semantic scan misses `
+      + '(teach scripts/gen-doc-graphs.ts the shape)',
+    )
+  }
+  const declared = new Set(events.map(event => event.name))
+  const extra = [...relations.keys()].filter(event => !declared.has(event)).sort()
+  if (extra.length > 0) {
+    lines.push('', '## Non-harness or undeclared event strings seen in package source', '', '| Event string | Dispatchers | Listeners |', '| --- | --- | --- |')
+    for (const event of extra) {
+      const relation = relations.get(event)
+      if (!relation) continue
+      lines.push(`| \`${event}\` | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
+    }
+  }
+  lines.push('', ...maintenanceFooter(maintenance))
+  return lines.join('\n')
+}
+
+function renderLifecycle(): string {
+  const maintenance = 'curated Mermaid sequence; exact event signatures live in the generated Cordis catalog'
+  return [
+    ...generatedHeader('Agent Turn And Step Lifecycle'),
+    'This sequence is the visual companion to [architecture.md](architecture.md#loop-lifecycle-session--turn--step). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.',
+    '',
+    '```mermaid',
+    'sequenceDiagram',
+    '  participant User',
+    '  participant Agent',
+    '  participant Driver',
+    '  participant Hooks as hook listeners',
+    '  participant Prompt as ctx.systemPrompt',
+    '  participant LLM as ctx.llm',
+    '  participant Tools as ctx.tools',
+    '  participant Session',
+    '  participant Persistence',
+    '  participant SDK as UI or SDK listener',
+    '  User->>Agent: send(content)',
+    `  Agent-->>SDK: ${mermaidCode('agent/queued')}`,
+    '  Agent->>Driver: queued work wakes driver',
+    `  Driver-->>SDK: ${mermaidCode('agent/status')} running`,
+    `  Driver->>Session: ${mermaidCode('turn/start')}`,
+    `  Driver->>Hooks: ${mermaidCode('agent/prompt-submit')} waterfall`,
+    '  Hooks-->>Driver: allow, block, or add context',
+    `  Driver->>Session: ${mermaidCode('user/message')} or rejected ${mermaidCode('turn/end')}`,
+    `  Driver->>Prompt: ${mermaidCode('system-prompt/assemble')} waterfall`,
+    `  Driver-->>Driver: ${mermaidCode('agent/pre-step')} serial checkpoint`,
+    `  Driver->>Session: ${mermaidCode('step/start')}`,
+    `  Driver->>LLM: ${mermaidCode('agent/request')} waterfall, then ${mermaidCode('llm/stream')} waterfall`,
+    '  LLM-->>Driver: StreamChunk*',
+    `  Driver->>Session: ${mermaidCode('assistant/chunk')}*`,
+    `  Session-->>SDK: ${mermaidCode('session/event')} ${mermaidCode('assistant/chunk')}*`,
+    '  alt final adapter or terminal in-band request failure',
+    `    Driver->>Session: ${mermaidCode('step/end')}`,
+    `    Driver->>Hooks: ${mermaidCode('agent/request-error')} waterfall`,
+    '    Hooks-->>Driver: retry in a new step or preserve the original error',
+    '  else model request succeeded',
+    `  Driver->>Hooks: ${mermaidCode('agent/step-result')} waterfall`,
+    `  Driver->>Session: ${mermaidCode('assistant/message')}`,
+    '  Driver->>Tools: classify pending call by executionMode',
+    '  loop barriers and bounded rolling pool, reclassify before start',
+    '    opt call starts',
+    `      Driver->>Session: ${mermaidCode('tool/call')}`,
+    '      Driver->>Tools: ordered pre, concurrent execute',
+    '      Tools-->>Session: tool-owned events when applicable',
+    '    end',
+    '    opt next model-order result ready',
+    '      Driver->>Tools: ordered post',
+    `      Driver->>Session: ${mermaidCode('tool/result')}`,
+    '    end',
+    '  end',
+    '  Driver->>Session: post-tool context and steering',
+    `  Driver->>Hooks: ${mermaidCode('agent/post-step')} serial checkpoint`,
+    `  Driver->>Session: ${mermaidCode('step/end')}`,
+    `  Driver->>Hooks: ${mermaidCode('agent/turn-continuation')} waterfall`,
+    `  Driver->>Hooks: ${mermaidCode('agent/turn-stop')} serial terminal checkpoint`,
+    '  end',
+    `  Driver->>Session: ${mermaidCode('turn/end')}`,
+    `  Driver->>Persistence: ${mermaidCode('session/flush')} parallel checkpoint`,
+    `  Driver-->>SDK: ${mermaidCode('agent/status')} idle`,
+    '```',
+    '',
+    'The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.',
+    '',
+    '`dsh-compact-basic` uses `agent/post-step` for pressure after those durable facts and `agent/request-error` only for canonical context overflow. Recovery compacts between the closed failed step and a fresh retry step, and returns retry only when the surface replacement generation advances; otherwise the original request error remains authoritative.',
+    '',
+    'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.',
+    '',
+    ...maintenanceFooter(maintenance),
+  ].join('\n')
+}
+
+function renderToolPipeline(): string {
+  const maintenance = 'curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs'
+  return [
+    ...generatedHeader('Tool Execution Pipeline'),
+    'This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, final-outcome observation, and UI rendering fit without changing the loop. The transformable extension points are the `tools/pre-execute`, `tools/execute`, and `tools/post-execute` waterfalls; monotonic guards and `tools/result` are the owner-enforced boundaries around them.',
+    '',
+    '```mermaid',
+    'flowchart TD',
+    '  model["Assistant message contains tool-call block"]',
+    `  toolCall["Session event: ${mermaidCode('tool/call')}<br/>logged before execution"]`,
+    '  presentCall["UI pending card<br/>presentCall(args)"]',
+    `  pre["${mermaidCode('tools/pre-execute')} waterfall<br/>hooks, permission, sandbox"]`,
+    '  guards["Registered monotonic guards<br/>deny or abstain; identity protected"]',
+    '  denied["denied or approval refused<br/>tool body skipped"]',
+    `  approval["${mermaidCode('ctx.approval')} one-shot prompt<br/>absent or unanswerable: deny"]`,
+    `  around["${mermaidCode('tools/execute')} waterfall<br/>timeout, retry, metrics (around dispatch)"]`,
+    '  toolBody["Registered tool execute() body"]',
+    `  fsGate["${mermaidCode('fs/write-intent')} or ${mermaidCode('fs/edit-intent')}<br/>tool-fs mutations only"]`,
+    `  owned["Tool-owned session events<br/>${mermaidCode('todo/write')}, ${mermaidCode('fs/observed')}, ${mermaidCode('hook/invoked')}, ${mermaidCode('hook/result')}, ${mermaidCode('tool/code-dispatch')}"]`,
+    `  post["${mermaidCode('tools/post-execute')} waterfall<br/>accept, block, replace, add context"]`,
+    `  final["${mermaidCode('tools/result')} synchronous notification<br/>frozen authoritative outcome"]`,
+    '  context["Active-batch additionalContexts FIFO<br/>context/message after recorded tool results"]',
+    `  toolResult["Session event: ${mermaidCode('tool/result')}<br/>single model-facing outcome"]`,
+    '  allResults["Tool batch settled<br/>recorded tool/result events complete"]',
+    '  presentResult["UI completed card<br/>presentResult(args, result)"]',
+    '  model --> toolCall',
+    '  toolCall --> presentCall',
+    '  toolCall --> pre',
+    '  pre -->|allow| guards',
+    '  guards -->|allow| around',
+    '  guards -->|deny| denied',
+    '  around --> toolBody',
+    '  pre -->|deny| denied',
+    '  pre -->|ask| approval',
+    '  approval -->|allowed-once| guards',
+    '  approval -->|rejected, cancelled, unavailable| denied',
+    '  denied --> post',
+    '  toolBody --> fsGate',
+    '  fsGate --> toolBody',
+    '  toolBody --> owned',
+    '  toolBody --> around',
+    '  around --> post',
+    '  post --> final',
+    '  final --> toolResult',
+    '  toolResult --> presentResult',
+    '  toolResult --> allResults',
+    '  allResults --> context',
+    '```',
+    '',
+    'Filesystem read-before-edit checks stay below `tool-fs` on `fs/*` events. Generic pre/post waterfalls host hooks and approval policy; `ctx.approval` resolves asks before monotonic guards, and owner policy that must not be reordered remains a registered guard. Around-dispatch concerns such as timeouts wrap `tools/execute`, while `tools/result` observes the immutable outcome after transforms, lossless-JSON validation, and outer error normalization. This lets hooks span tool families without coupling the tools to one policy service. Code Mode sends both the reserved `run_code` transport and its serialized sub-calls through the pipeline; sub-calls carry the parent token, log `tool/code-dispatch`, surface denials as binding rejections, and omit `additionalContexts` to preserve call/result adjacency.',
+    '',
+    ...maintenanceFooter(maintenance),
+  ].join('\n')
+}
+
+function renderSnapshotReplay(): string {
+  const maintenance = 'curated Mermaid sequence based on the snapshot test harness'
+  return [
+    ...generatedHeader('ACP Snapshot Replay'),
+    'This graph explains what a snapshot scenario proves: recorded real-model session logs are replayed keylessly, ACP stdout is normalized and diffed, and scenario workspaces preserve tool side effects that the UI stream alone cannot prove.',
+    '',
+    '```mermaid',
+    'sequenceDiagram',
+    '  participant Recorder as Real API recording',
+    '  participant Fixture as snapshot fixture',
+    '  participant Workspace',
+    '  participant Replay as llm-replay adapter',
+    '  participant ACP as acp-agent subprocess',
+    '  participant Expected as stdout expected output',
+    '  Recorder->>Fixture: session.jsonl + workspace inputs',
+    '  Fixture->>Workspace: seed files and hook configs',
+    '  Fixture->>Replay: recorded StreamChunk script',
+    `  Replay->>ACP: deterministic ${mermaidCode('llm/stream')} chunks`,
+    '  ACP->>Workspace: bash, fs, and hook side effects',
+    '  ACP->>Expected: normalized sessionUpdate stream',
+    '  Expected-->>ACP: diff must be empty',
+    '```',
+    '',
+    'The fs and hook snapshot matrix is valuable because it proves world state, hook decisions, and failed tool-card rendering, not just that replay returns text.',
+    '',
+    ...maintenanceFooter(maintenance),
+  ].join('\n')
+}
+
+function renderDocs(): GraphDoc[] {
+  const pkgs = collectPackageGraph(root, GROUP_ORDER, 'gen-doc-graphs')
+  const docs: GraphDoc[] = [
+    { rel: 'docs/capability-seams.md', content: renderCapabilitySeams(pkgs) },
+    ...APP_EXAMPLES.map(example => ({ rel: example.rel, content: renderAppComposition(example) })),
+    { rel: 'docs/event-producer-consumer.md', content: renderEventRelations(pkgs) },
+    { rel: 'docs/agent-lifecycle.md', content: renderLifecycle() },
+    { rel: 'docs/tool-execution-pipeline.md', content: renderToolPipeline() },
+    { rel: 'packages/ui/acp/snapshot-replay.md', content: renderSnapshotReplay() },
+  ]
+  docs.unshift({ rel: 'docs/graph-atlas.md', content: renderIndex(docs) })
+  return docs
+}
+
+function renderIndex(docs: GraphDoc[]): string {
+  const labels: Record<string, string> = {
+    'docs/capability-seams.md': 'capability seams and core services',
+    'examples/echo-agent/composition.md': 'echo-agent app composition',
+    'examples/repl-agent/composition.md': 'repl-agent app composition',
+    'examples/headless-agent/composition.md': 'headless-agent app composition',
+    'examples/tui-agent/composition.md': 'tui-agent app composition',
+    'examples/cordis-agent/composition.md': 'cordis-agent app composition',
+    'examples/acp-agent/composition.md': 'acp-agent app composition',
+    'docs/event-producer-consumer.md': 'event producer/consumer matrix',
+    'docs/agent-lifecycle.md': 'agent turn and step lifecycle',
+    'docs/tool-execution-pipeline.md': 'tool execution pipeline',
+    'packages/ui/acp/snapshot-replay.md': 'ACP snapshot replay',
+  }
+  const modes: Record<string, string> = {
+    'docs/capability-seams.md': 'hybrid generated',
+    'examples/echo-agent/composition.md': 'hybrid generated',
+    'examples/repl-agent/composition.md': 'hybrid generated',
+    'examples/headless-agent/composition.md': 'hybrid generated',
+    'examples/tui-agent/composition.md': 'hybrid generated',
+    'examples/cordis-agent/composition.md': 'hybrid generated',
+    'examples/acp-agent/composition.md': 'hybrid generated',
+    'docs/event-producer-consumer.md': 'hybrid generated',
+    'docs/agent-lifecycle.md': 'curated',
+    'docs/tool-execution-pipeline.md': 'curated',
+    'packages/ui/acp/snapshot-replay.md': 'curated',
+  }
+  const rows = [
+    '| [module dependency graph](module-graph.md) | `generated` |',
+    '| [tool schema catalog and package map](tool-catalog.md) | `generated` |',
+    ...docs.map((doc) => {
+      const link = graphIndexLink(doc.rel)
+      return `| [${labels[doc.rel] ?? link}](${link}) | \`${modes[doc.rel] ?? 'generated'}\` |`
+    }),
+  ]
+  const maintenance = 'mixed: each linked page declares generated, hybrid, or curated mode'
+  return [
+    ...generatedHeader('Documentation Graph Index'),
+    'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog.md](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md).',
+    '',
+    'The process decision behind this index is recorded in [the documentation graph Agent Note](../.agents/notes/implemented/process/2026-07-03-documentation-graph-atlas.md).',
+    '',
+    '| Graph | Mode |',
+    '| --- | --- |',
+    ...rows,
+    '',
+    'Regenerate with `pnpm run gen-doc-graphs`; verify freshness with `pnpm run verify-doc-graphs`.',
+    '',
+    ...maintenanceFooter(maintenance),
+  ].join('\n')
+}
+
+function main(): void {
+  const docs = renderDocs()
+  if (process.argv.includes('--check')) {
+    const stale: string[] = []
+    for (const doc of docs) {
+      const abs = resolve(root, doc.rel)
+      const committed = existsSync(abs) ? readFileSync(abs, 'utf8') : null
+      if (committed !== doc.content) stale.push(doc.rel)
+    }
+    if (stale.length === 0) {
+      console.log(`gen-doc-graphs: ${docs.length} graph doc(s) are up to date.`)
+      return
+    }
+    console.error(`gen-doc-graphs: stale graph doc(s): ${stale.join(', ')}. Run \`pnpm run gen-doc-graphs\` and commit the result.`)
+    process.exit(1)
+  }
+
+  for (const doc of docs) {
+    mkdirSync(dirname(resolve(root, doc.rel)), { recursive: true })
+    writeFileSync(resolve(root, doc.rel), doc.content)
+  }
+  console.log(`gen-doc-graphs: wrote ${docs.length} graph doc(s).`)
+}
+
+if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
+  main()
+}

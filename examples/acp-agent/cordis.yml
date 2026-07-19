@@ -1,30 +1,114 @@
-# The acp-agent plugin tree, loaded via @cordisjs/plugin-include. Also the
-# snapshot RECORD config (start.ts selects it for DSH_SNAPSHOT=record): a real
-# llm-deepseek run whose persisted log the snapshot harness harvests.
-#
-# CRITICAL: this example loads NO stdout logger (no @cordisjs/plugin-logger-
-# console, no stdio-chat). stdout is reserved for the ACP JSON-RPC protocol —
-# anything else written there corrupts the frames (see packages/acp, RFC 010 §
-# Risks). Use a stderr exporter if you need logging. The timer plugin is loaded
-# (no stdout writes); hmr is omitted (an editor manages the subprocess).
-#
-# Requires DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL) in the
-# environment — start.ts loads the gitignored repo-root .env first.
+# ACP server and snapshot-record composition. With `DSH_SNAPSHOT=record`, the
+# app bin runs the real DeepSeek adapter and the harness harvests its persisted
+# log. The bin loads the gitignored root `.env` before this config. This tree has
+# no stdout logger or HMR because stdout carries ACP JSON-RPC.
 
-- id: timer
-  name: '@cordisjs/plugin-timer'
-
-# Shared provider/tool core, INCLUDING the real llm-deepseek adapter. Nested
-# include resolved relative to THIS file's directory.
-- id: base
-  name: '@cordisjs/plugin-include'
+# The DeepSeek adapter.
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    path: '../base.yml'
+    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    baseURL: !!js process.env.DEEPSEEK_BASE_URL
 
-# agent-loop (no pre-created agents) + JSONL persistence + the ACP bridge.
-# Shared with the snapshot REPLAY config (cordis.snapshot.yml) so the three
-# acp-agent configs don't drift.
-- id: acp-tail
-  name: '@cordisjs/plugin-include'
+# The default composition confines bash to the workspace and asks before a
+# wider retry. Snapshots use danger-full-access; DSH_PERMISSION_MODE overrides
+# both mode and approval policy for deployments and tests.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+- id: bash
+  name: '@deepseek-ai/dsh-bash-sandbox'
   config:
-    path: './acp-tail.yml'
+    timeoutMs: 60000
+    mode: !!js "process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')"
+    workspaceRoot: !!js process.cwd()
+
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: !!js "(process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')) === 'danger-full-access' ? 'never' : 'ask'"
+
+- id: permission
+  name: '@deepseek-ai/dsh-permission'
+
+# The ACP server app: the agent-spine-demo spine + JSONL persistence + the ACP bridge.
+# Persistence root: $DSH_SNAPSHOT_SESSIONS_ROOT when the snapshot harness sets it
+# (so it can harvest / isolate the log), else ./.sessions for the demo.
+- id: acp-agent
+  name: '@deepseek-ai/dsh-acp-demo'
+  config:
+    provider: deepseek
+    model: deepseek-v4-flash
+    persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+    workspaceContext:
+      maxBytes: 65536
+    # Keep the persona to identity and behavior; tool plugins own tool guidance.
+    # The loop resolves {{model}} and each ACP session's client-supplied {{cwd}}.
+    persona: |
+      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
+
+      Verify your work by running the code or tests. Keep answers brief and factual.
+
+# Expose fresh-child `spawn` and completed-prefix `fork` through separate tool
+# names so multi-child scenarios exercise both transports. These leaves follow
+# the app because it provides `ctx.agents` and `ctx.tools`.
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subagent-spawn
+  name: '@deepseek-ai/dsh-subagent-spawn'
+  config:
+    providerName: spawn
+
+- id: subagent-fork
+  name: '@deepseek-ai/dsh-subagent-fork'
+  config:
+    providerName: fork
+
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent
+
+- id: tool-subagent-fork
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: fork
+    toolName: subagent_fork
+
+
+# The worker-thread workflow engine fans a model-written JavaScript script's
+# `agent()` calls out through the spawn backend; the adjacent tool exposes it to the model.
+- id: workflow-workerthread
+  name: '@deepseek-ai/dsh-workflow-workerthread'
+  config:
+    provider: spawn
+
+- id: tool-workflow
+  name: '@deepseek-ai/dsh-tool-workflow'
+# `todo_write` replaces the logged whole list and surfaces an ACP `plan` update.
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+
+# Identical repeat calls trigger advisory context, never a block, at the default
+# thresholds [3, 5, 8]. Only the repeat-tool-guard snapshot scenario reaches them.
+- id: repeat-tool-guard
+  name: '@deepseek-ai/dsh-repeat-tool-guard'
+
+# `configPath` is read once at load and resolves from the server launch cwd, not
+# `session/new.cwd`; one `hooks.json` therefore applies to every session and a
+# project-local file is not discovered. Missing config registers nothing. Hook
+# commands still run in the session cwd. Warnings use `ctx.logger`, never stdout;
+# see packages/hooks/hooks-claude/README.md for the deferred per-session design.
+- id: hooks-claude
+  name: '@deepseek-ai/dsh-hooks-claude'
+  config:
+    configPath: ./hooks.json
+
+# Codex uses its own `codex-hooks.json` and snake_case five-event dialect; it
+# cannot share Claude's file. It has the same process-level, read-once, missing-is-no-op,
+# logger-only contract. Shipping both bridges lets a scenario seed and exercise either dialect.
+- id: hooks-codex
+  name: '@deepseek-ai/dsh-hooks-codex'
+  config:
+    configPath: ./codex-hooks.json

@@ -1,34 +1,16 @@
 /**
- * Provider-neutral message and streaming vocabulary.
- *
- * This is the canonical language spoken by the agent loop, session logs, and
- * every plugin. Adapters translate it to provider wire formats (DeepSeek V4
- * first); nothing outside an adapter should ever see a provider-specific
- * shape.
- *
- * Extensibility: the unions in this file are derived from interfaces
- * (`ContentBlockMap`, `MessageSourceMap`, `FinishReasonMap`) so that plugins
- * can extend them via declaration merging:
- *
- * ```ts
- * declare module '@deepseek-ai/dsh-llm' {
- *   interface ContentBlockMap {
- *     video: { type: 'video'; url: string }
- *   }
- * }
- * ```
+ * Canonical provider-neutral message and streaming vocabulary for the loop,
+ * session log, and plugins. Adapters alone translate provider wire shapes;
+ * mapped interfaces make the content, source, and finish unions extensible.
  */
 
+import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { CallId } from './brand.ts'
-
-/** Cache hint attached to a content block (provider-interpreted). */
-export type CacheHint = 'ephemeral'
 
 /** Plain text visible to the end user. */
 export interface TextBlock {
   type: 'text'
   text: string
-  cache?: CacheHint
 }
 
 /** Reasoning / thinking content, distinct from visible text. */
@@ -53,36 +35,47 @@ export interface ToolResultBlock {
   toolCallId: CallId
   content: ContentBlock[]
   isError?: boolean
-  cache?: CacheHint
-}
-
-/** An image, by URL or data URL. */
-export interface ImageBlock {
-  type: 'image'
-  url: string
-  mimeType?: string
-  cache?: CacheHint
 }
 
 /**
- * All known content block shapes, keyed by their `type` tag.
- * Merge-extensible: plugins add new block types via declaration merging.
+ * Merge-extensible content blocks keyed by `type`. New core blocks must land
+ * with adapter, UI, and compaction support.
  */
 export interface ContentBlockMap {
   'text': TextBlock
   'reasoning': ReasoningBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
-  'image': ImageBlock
 }
 
+/** The block `type` tag vocabulary; widens as plugins merge new shapes into {@link ContentBlockMap}. */
 export type ContentBlockType = keyof ContentBlockMap
+/** Any known content block, derived from {@link ContentBlockMap}; switch on `type` and fall through unknowns (merge-extensible). */
 export type ContentBlock = ContentBlockMap[ContentBlockType]
 
-/** A single message in a conversation history. */
+/** Provider ownership and adapter-private replay data for an assistant message. */
+export interface AssistantProvenance {
+  /** Provider route that produced the message. */
+  provider: string
+  /** Provider model id that produced the message. */
+  model: string
+  /**
+   * Lossless-JSON adapter state needed to replay the provider response.
+   * `LlmService` exposes it to a target adapter only when that adapter instance
+   * currently owns both this historical provider and the target provider.
+   */
+  replayState?: unknown
+}
+
+/**
+ * A single message in a conversation history. Loop-derived assistant messages
+ * always carry provenance; callers may omit it on hand-built foreign history.
+ */
 export interface Message {
   role: 'system' | 'user' | 'assistant'
   content: ContentBlock[]
+  /** Present only on assistant messages produced by a routed adapter. */
+  provenance?: AssistantProvenance
 }
 
 /**
@@ -92,9 +85,9 @@ export interface Message {
 export interface MessageSourceMap {
   user: { kind: 'user' }
   plugin: { kind: 'plugin'; plugin: string }
-  agent: { kind: 'agent'; agentId: string }
 }
 
+/** Any known message source, derived from {@link MessageSourceMap}; switch on `kind` and fall through unknowns (merge-extensible). */
 export type MessageSource = MessageSourceMap[keyof MessageSourceMap]
 
 /**
@@ -109,6 +102,7 @@ export interface FinishReasonMap {
   'error': { kind: 'error'; message: string; code?: string }
 }
 
+/** Any known finish reason, derived from {@link FinishReasonMap}; switch on `kind` and fall through unknowns (merge-extensible). */
 export type FinishReason = FinishReasonMap[keyof FinishReasonMap]
 
 /**
@@ -127,27 +121,32 @@ export interface TokenUsage {
   reasoningTokens?: number
 }
 
+/** Display metadata for one registered provider route. */
+export interface LlmProviderInfo {
+  /** Provider route key used by {@link GenerateOptions.provider}. */
+  id: string
+  /** Human-readable provider name for selectors and diagnostics. */
+  name: string
+}
+
+/** One adapter-discovered model; catalog membership is advisory, not request validation. */
+export interface LlmModelInfo {
+  /** Provider route that owns this model entry. */
+  provider: string
+  /** Model id passed to {@link GenerateOptions.model}. */
+  id: string
+  /** Human-readable model name for selectors. */
+  name: string
+  /** Optional user-facing distinction from otherwise similar models. */
+  description?: string
+}
+
 /**
  * Raw streaming protocol emitted by adapters.
- *
- * A streaming response interleaves several typed blocks (text, reasoning,
- * multiple tool calls); `index` ties each delta to its block, and `block-end`
- * carries the fully-assembled ContentBlock so consumers don't have to
- * re-assemble deltas themselves (use {@link BlockAssembler} when they do).
- *
- * Adapter contract — every adapter MUST obey these, and every consumer may
- * rely on them:
- * - Emit `usage` BEFORE `finish`, and nothing after `finish` (defer both to
- *   the provider's end-of-stream marker so trailing usage-only chunks can't
- *   violate this).
- * - Tool-call `arguments` stay RAW JSON strings end-to-end; partial fragments
- *   stream via `argumentsDelta` (providers that hand back parsed objects
- *   re-stringify at `block-end`).
- * - Failures may either THROW from `stream()` (transport/protocol errors) or
- *   end the stream with `finish {kind:'error'|'aborted'}` (provider in-band
- *   errors, for adapters that can't throw mid-stream); consumers must handle
- *   both. The agent loop translates a finish-error/aborted into a turn error —
- *   it never logs a normal completed assistant message for a failed step.
+ * Block indexes correlate interleaved deltas, and `block-end` carries the
+ * assembled block. Adapters emit usage before the terminal finish and nothing
+ * afterward; tool arguments remain raw JSON strings. Failures either throw or
+ * end with `error`/`aborted`, and consumers must handle both paths.
  */
 export type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
@@ -156,7 +155,12 @@ export type StreamChunk =
   | { type: 'tool-call-delta'; index: number; id: CallId; name?: string; argumentsDelta: string }
   | { type: 'block-end'; index: number; block: ContentBlock }
   | { type: 'usage'; usage: TokenUsage }
-  | { type: 'finish'; reason: FinishReason }
+  | {
+    type: 'finish'
+    reason: FinishReason
+    /** Adapter-private lossless-JSON state for replaying a successful response. */
+    replayState?: unknown
+  }
 
 /**
  * JSON-schema description of a tool, as sent to the model.
@@ -170,19 +174,24 @@ export interface ToolSchema {
   description: string
   /** JSON Schema object for the arguments. */
   parameters: Record<string, unknown>
-  strict?: boolean
 }
 
 /** A single model request, fully assembled. */
 export interface GenerateOptions {
+  /** Registered provider route selecting the adapter instance. */
+  provider: string
   model: string
+  /**
+   * Ordered conversation messages, exactly as the provider sees them (after
+   * the `system` slot). A loop-built request assembles them as
+   * `EpochHeader.messagePrefix` + the derived history (dsh-agent-loop); a
+   * hand-built one-shot passes any list.
+   */
   messages: Message[]
   /** System prompt text (adapters map to the provider's system slot). */
   system?: string
   /** Tool schemas (adapters map to the provider's `tools` field). */
   tools?: ToolSchema[]
-  /** Assistant prefix continuation (prefill). */
-  prefill?: ContentBlock[]
   temperature?: number
   maxTokens?: number
   /**
@@ -192,11 +201,9 @@ export interface GenerateOptions {
    */
   stop?: string[]
   signal?: AbortSignal
-}
-
-/** Non-streaming result, assembled from the chunk stream. */
-export interface GenerateResult {
-  message: Message
-  usage?: TokenUsage
-  finish: FinishReason
+  /**
+   * Session identity stamped by the loop for listener routing. Adapters ignore
+   * it; replay uses it to keep concurrent parent and child cursors independent.
+   */
+  sessionId?: Branded<'SessionId'>
 }

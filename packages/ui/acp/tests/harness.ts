@@ -1,43 +1,57 @@
 /**
- * Shared test fixtures for the ACP bridge specs. A plain module (NOT a
- * *.spec.ts) so importing it does not re-register a describe block.
- *
- * `makeBridgeHarness` builds a full in-memory cordis context (llm + session +
- * system-prompt + tools + agents + agent-loop + persistence) with the ACP
- * bridge wired to an in-memory transport, plus a `ClientSideConnection` on the
- * other end — so a test drives the bridge exactly as an editor would, with no
- * subprocess and no real stdio.
+ * Shared non-spec fixture that mounts the full in-memory agent/persistence stack and connects the
+ * ACP bridge to a real SDK client over memory streams. Tests exercise the same protocol path as an
+ * editor without a subprocess or stdio.
  */
 
 import { Context } from 'cordis'
-import LlmService, { CallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { CallId, type GenerateOptions, type LlmModelInfo, type LlmProviderInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import {
   ClientSideConnection,
   ndJsonStream,
   type Agent as AcpAgent,
   type Client,
+  type CreateElicitationRequest,
+  type CreateElicitationResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
   type Stream,
 } from '@agentclientprotocol/sdk'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as AcpPlugin from '../src/index.ts'
 import { type AcpConfig } from '../src/index.ts'
 
 /** A scripted mock adapter (mirrors the agent-loop test adapter). */
 class MockAdapter extends LlmAdapter {
   requests: GenerateOptions[] = []
-  constructor(private script: (StreamChunk[] | 'hang')[]) {
+  constructor(
+    private script: (StreamChunk[] | 'hang')[],
+    private readonly providers: readonly LlmProviderInfo[],
+    private readonly models: readonly LlmModelInfo[],
+  ) {
     super()
+  }
+
+  override providerInfo(provider: string): LlmProviderInfo {
+    const info = this.providers.find(entry => entry.id === provider)
+    if (info === undefined) throw new Error(`MockAdapter: unknown provider ${provider}`)
+    return info
+  }
+
+  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    return Promise.resolve(this.models.filter(model => model.provider === provider))
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -117,6 +131,10 @@ export interface BridgeHarness {
   permissionRequests: RequestPermissionRequest[]
   /** Decide each permission request's outcome (default: cancelled). */
   onPermission: (req: RequestPermissionRequest) => RequestPermissionResponse
+  /** Elicitation requests the bridge issued for ask_user_question. */
+  elicitationRequests: CreateElicitationRequest[]
+  /** Decide each elicitation response (default: cancel). */
+  onElicitation: (req: CreateElicitationRequest) => CreateElicitationResponse | Promise<CreateElicitationResponse>
   /** If set, the client's sessionUpdate throws this (tests notify error path). */
   onSessionUpdateError: (() => void) | undefined
   /**
@@ -135,6 +153,9 @@ export interface BridgeHarness {
   storageDir: string
 }
 
+/** Test-only overrides preserve explicit undefined to suppress harness defaults. */
+type AcpConfigOverrides = { [K in keyof AcpConfig]?: AcpConfig[K] | undefined }
+
 /**
  * Build the bridge + a connected client over an in-memory transport pair.
  *
@@ -143,45 +164,76 @@ export interface BridgeHarness {
  * The bridge's `apply` receives the agent-side `Stream` via `config.stream`;
  * the test holds the `ClientSideConnection`.
  *
- * Pass `config: { model: undefined }` to override the default `model: 'mock'`
- * (the model key is dropped entirely when explicitly undefined).
+ * Pass an explicit undefined route field to suppress its mock default.
  */
 export async function makeBridgeHarness(options: {
   script?: (StreamChunk[] | 'hang')[]
-  config?: Partial<AcpConfig>
+  config?: AcpConfigOverrides
+  /** Provider-neutral directory exposed to ACP model-selection tests. */
+  catalog?: { providers: LlmProviderInfo[]; models: LlmModelInfo[] }
+  /** Deployment persona for the tree (the system-prompt plugin's config). */
+  persona?: string
   storageDir: string
   /**
    * Plug the REAL `dsh-bash-local` executor + `dsh-tool-bash` tools (instead of
    * a test's own inline tool). Lets a test drive the actual `bash` tool — its
    * real `presentCall`/`presentResult` — through the bridge, so tool-call UI
-   * tests verify the SHIPPING tool, not a stand-in (AGENTS.md "prefer the real
+   * tests verify the SHIPPING tool, not a stand-in (docs/testing.md "prefer the real
    * implementation over a mock in tests").
    */
   withBash?: boolean
+  /** Plug the REAL `ask_user_question` tool and ACP user-interaction provider. */
+  withAskUser?: boolean
+  /**
+   * Plug the REAL `dsh-tool-todo` tool so a test can drive `todo_write` through
+   * the bridge and assert the resulting `plan` sessionUpdate — the shipping
+   * tool + the bridge's own todo/write→plan mapping, not a stand-in.
+   */
+  withTodo?: boolean
+  /**
+   * Plug the REAL filesystem stack (`dsh-fs-local` + `dsh-fs-policy` +
+   * `dsh-tool-fs`) so a test can drive `read`/`write`/`edit` through the bridge
+   * and assert their tool-owned presentation (title/kind/`locations`) on the
+   * wire — the shipping tools, not a stand-in. `fsCwd` sets the local backend's
+   * base directory (default: `storageDir`).
+   */
+  withFs?: boolean
+  fsCwd?: string
 } = { storageDir: '' }): Promise<BridgeHarness> {
-  const adapter = new MockAdapter(options.script ?? [])
+  const catalog = options.catalog ?? {
+    providers: [{ id: 'mock', name: 'Mock' }],
+    models: [{ provider: 'mock', id: 'mock', name: 'Mock' }],
+  }
+  const adapter = new MockAdapter(options.script ?? [], catalog.providers, catalog.models)
 
   const ctx = new Context()
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx, {
+    systemPrompt: { persona: options.persona ?? '' },
+  })
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SessionPersistenceJsonl, { root: options.storageDir })
+  await ctx.plugin(UserInteractionService)
+  if (options.withAskUser) {
+    await ctx.plugin(ToolAskUser)
+  }
   if (options.withBash) {
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
     await ctx.plugin(ToolBash)
   }
-  ctx.llm.registerAdapter(['mock'], adapter)
+  if (options.withTodo) {
+    await ctx.plugin(ToolTodo)
+  }
+  if (options.withFs) {
+    await ctx.plugin(LocalFileSystem, { cwd: options.fsCwd ?? options.storageDir })
+    await ctx.plugin(FsPolicy)
+    await ctx.plugin(ToolFs)
+  }
+  ctx.llm.registerAdapter(catalog.providers.map(provider => provider.id), adapter)
 
-  // Two identity byte pipes cross-wired into the two ndJsonStreams: bytes the
-  // agent writes flow to the client's reader and vice versa. (ndJsonStream
-  // takes (output, input): the agent writes to a2c and reads from c2a; the
-  // client writes to c2a and reads from a2c.) The client→agent path (c2a) runs
-  // through a hand-held writer so a test can close it (`closeClientTransport`)
-  // to simulate the editor disconnecting — closing it EOFs the agent's reader
-  // and resolves the bridge's `conn.closed`.
+  // Two identity byte pipes cross-wired into the two ndJsonStreams: bytes the agent writes flow
+  // to the client's reader and vice versa. (ndJsonStream takes (output, input): the agent
+  // writes to a2c and reads from c2a; the client writes to c2a and reads from a2c.) Holding the c2a
+  // writer lets tests EOF the agent reader and simulate editor disconnect.
   const a2c = new TransformStream<Uint8Array, Uint8Array>()
   const c2a = new TransformStream<Uint8Array, Uint8Array>()
   const c2aWriter = c2a.writable.getWriter()
@@ -197,6 +249,7 @@ export async function makeBridgeHarness(options: {
   const updates: CapturedUpdate[] = []
   const sessionUpdates: { sessionId: string; update: CapturedUpdate }[] = []
   const permissionRequests: RequestPermissionRequest[] = []
+  const elicitationRequests: CreateElicitationRequest[] = []
   const harness: BridgeHarness = {
     ctx,
     adapter,
@@ -204,14 +257,14 @@ export async function makeBridgeHarness(options: {
     sessionUpdates,
     permissionRequests,
     onPermission: () => ({ outcome: { outcome: 'cancelled' } }),
+    elicitationRequests,
+    onElicitation: () => ({ action: 'cancel' }),
     onSessionUpdateError: undefined,
     client: undefined as unknown as ClientSideConnection,
     acpFiber: undefined as unknown as BridgeHarness['acpFiber'],
-    // Close the writable the CLIENT writes to (c2a) — its readable, which the
-    // agent's ndJsonStream consumes, then EOFs cleanly, so the bridge's
-    // `conn.closed` resolves and it sees the client disconnect. If the client
-    // connection holds a writer lock on it, abort the connection's signal path
-    // instead by closing through the underlying stream.
+    // Close the writable the CLIENT writes to (c2a) — its readable, which the agent's
+    // ndJsonStream consumes, then EOFs cleanly, so the bridge's `conn.closed` resolves and it
+    // sees the client disconnect.
     closeClientTransport: async () => { await c2aWriter.close() },
     dispose: async () => { await ctx.fiber.dispose() },
     storageDir: options.storageDir,
@@ -229,29 +282,25 @@ export async function makeBridgeHarness(options: {
       permissionRequests.push(params)
       return Promise.resolve(harness.onPermission(params))
     },
+    unstable_createElicitation(params: CreateElicitationRequest): Promise<CreateElicitationResponse> {
+      elicitationRequests.push(params)
+      return Promise.resolve(harness.onElicitation(params))
+    },
   })
 
-  // Wire the bridge (agent side) and the client (test side). The test config
-  // can override `model` (including to undefined): default to 'mock' unless the
-  // caller explicitly set the key (even to undefined), so a `{ model: undefined }`
-  // override means "no model at all".
-  const cfg: AcpConfig = { stream: agentStream, ...options.config }
+  // Default route fields only when the caller omitted them; explicit undefined values must survive.
+  const cfg = { stream: agentStream, ...options.config } as AcpConfig
+  if (!(options.config && 'provider' in options.config)) cfg.provider = 'mock'
   if (!(options.config && 'model' in options.config)) cfg.model = 'mock'
-  // Mount the bridge the way production does: as a cordis PLUGIN (via
-  // `ctx.plugin` with the real `inject`), NOT `AcpPlugin.apply(ctx, cfg)`
-  // directly on the root ctx. The plugin fiber is the faithful reproduction —
-  // the bridge's `apply` runs inside the fiber's injection scope, and its ACP
-  // handlers later run from the JSON-RPC read loop OUTSIDE that scope, exactly
-  // as under the example's cordis.yml. (Mounting directly on root made every
-  // service an ungated property and hid the "cannot get property … without
-  // inject" failure that bit a real Zed session.) `harness.acpFiber.dispose()`
-  // tears down JUST the bridge (its listeners + effect) for the HMR test.
+  // Mount the bridge the way production does: as a cordis plugin (via `ctx.plugin` with the
+  // real `inject`), not `AcpPlugin.apply(ctx, cfg)` on the ungated root. Later JSON-RPC callbacks run
+  // outside apply's injection scope, matching production and exposing missing-inject failures.
   harness.acpFiber = await ctx.plugin({
     name: 'acp-test',
-    // Use the bridge's REAL exported `inject` so this never drifts from the
-    // plugin's actual dependency list (adding a service to the bridge must not
-    // require editing the harness — a hardcoded list silently broke when `tools`
-    // was added). The bridge programs against the interface packages only.
+    // Use the bridge's real exported `inject` so this never drifts from the plugin's actual
+    // dependency list (adding a service to the bridge must not require editing the harness — a
+    // hardcoded list silently broke when `tools` was added). The returned fiber permits ACP-only
+    // disposal while root services remain live for HMR assertions.
     inject: [...AcpPlugin.inject],
     apply: (inner: Context) => { AcpPlugin.apply(inner, cfg) },
   })

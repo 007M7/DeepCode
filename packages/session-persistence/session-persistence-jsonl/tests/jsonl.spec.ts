@@ -1,17 +1,38 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import { appendFile, mkdtemp, mkdir, open, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import type { FileHandle } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { encodeSegment, logPath, scanLog, sessionDir } from '../src/format.ts'
-import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
+import { encodeSegment, logPath, scanLog, sessionDir, toHeaderLine } from '../src/format.ts'
+import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
 let root: string
 const dirs: string[] = []
+
+type MutableSessionHeader = { -readonly [K in keyof SessionHeader]: SessionHeader[K] }
+
+/** Test-only mutable view used to verify that backends detach returned/caller metadata. */
+function mutableHeader(header: SessionHeader): MutableSessionHeader {
+  return header
+}
+
+async function expectParallelFlushError(promise: Promise<unknown>, message: RegExp): Promise<void> {
+  try {
+    await promise
+  } catch (error) {
+    expect(error).toBeInstanceOf(AggregateError)
+    const [cause] = (error as AggregateError).errors as unknown[]
+    expect(cause).toBeInstanceOf(Error)
+    expect((cause as Error).message).toMatch(message)
+    return
+  }
+  throw new Error('expected parallel flush to reject')
+}
 
 async function freshRoot(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-jsonl-'))
@@ -20,8 +41,33 @@ async function freshRoot(): Promise<string> {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
+
+async function rejectDirectorySync(code: string): Promise<void> {
+  const handle = await open(root, 'r')
+  const proto = Object.getPrototypeOf(handle) as { sync: () => Promise<void> }
+  await handle.close()
+  const realSync = proto.sync
+  vi.spyOn(proto, 'sync').mockImplementation(async function (this: FileHandle) {
+    if ((await this.stat()).isDirectory()) {
+      const error = new Error(`simulated directory fsync ${code}`) as NodeJS.ErrnoException
+      error.code = code
+      throw error
+    }
+    return realSync.call(this)
+  })
+}
+
+function appendClosedTurn(session: Session): void {
+  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('user/message', {
+    content: [{ type: 'text', text: 'hello' }],
+    source: { kind: 'user' },
+  }, { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+}
 
 // Run the shared backend contract against the real JSONL backend.
 runPersistenceContract('jsonl', async () => {
@@ -38,12 +84,8 @@ runPersistenceContract('jsonl', async () => {
   }
 })
 
-// Run the shared coordinator orchestration suite against the real JSONL backend.
-// One temp root is the shared storage scope (two mounted instances over the same
-// root = HMR/reload). `corruptTail` appends a partial, newline-less fragment to
-// the session's .jsonl past the committed region — a never-committed torn tail
-// that drives the coordinator's commitRepair-with-tornMarker branch over real
-// file bytes.
+// Two mounts share this temp root to exercise reload. `corruptTail` appends a partial,
+// newline-less fragment past the committed region so coordinator repair runs on real file bytes.
 runCoordinatorContract('jsonl', async (): Promise<CoordinatorFixture> => {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-jsonl-coord-'))
   return {
@@ -87,6 +129,19 @@ describe('SessionPersistenceJsonl: format helpers', () => {
   it('encodeSegment rejects an empty id', () => {
     expect(() => encodeSegment('')).toThrow(/empty/)
   })
+
+  it('resolves a relative custom root before locating a session', async () => {
+    const absoluteRoot = await freshRoot()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceJsonl, { root: relative(process.cwd(), absoluteRoot) })
+    const m = meta('relative-location', '/work')
+    expect(ctx.sessionPersistence.locate(m)).toEqual({
+      kind: 'jsonl',
+      path: logPath(resolve(absoluteRoot), '/work', m.id),
+    })
+    await fiber.dispose()
+  })
 })
 
 describe('SessionPersistenceJsonl: durability and crash semantics', () => {
@@ -101,17 +156,42 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
 
   it('lazy materialization: create() writes no file until the first append', async () => {
     const m = meta('lazy', '/work')
+    const location = ctx.sessionPersistence.locate(m)
+    expect(location).toEqual({ kind: 'jsonl', path: logPath(root, '/work', m.id) })
+    expect(isAbsolute(location!.path)).toBe(true)
+
     await ctx.sessionPersistence.create(m)
-    // nothing on disk yet
+    // locate() is a pure target-path calculation: neither it nor create()
+    // materializes a file before the first append.
     const dir = sessionDir(root, '/work')
     await expect(stat(logPath(root, '/work', m.id))).rejects.toThrow()
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(false)
+    expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(m.id)
 
     await ctx.sessionPersistence.append(m.id, oneTurnLog())
     // now materialized
     expect((await stat(logPath(root, '/work', m.id))).isFile()).toBe(true)
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(true)
+    expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
     void dir
+  })
+
+  it('keeps the same location on resume and gives a fork its own location', async () => {
+    const parent = meta('location-parent', '/work')
+    const parentLocation = ctx.sessionPersistence.locate(parent)
+    await ctx.sessionPersistence.create(parent)
+    await ctx.sessionPersistence.append(parent.id, oneTurnLog())
+
+    const loaded = await ctx.sessionPersistence.load(parent.id)
+    expect(ctx.sessionPersistence.locate(loaded.meta)).toEqual(parentLocation)
+
+    const child = {
+      ...loaded.meta,
+      id: SessionId('location-child'),
+      parentSession: parent.id,
+      seedLength: loaded.events.length,
+    }
+    const childLocation = ctx.sessionPersistence.locate(child)
+    expect(childLocation?.path).not.toBe(parentLocation?.path)
+    expect(childLocation).toEqual({ kind: 'jsonl', path: logPath(root, '/work', child.id) })
   })
 
   it('round-trip is byte-identical (incl. assistant/chunk verbatim)', async () => {
@@ -121,7 +201,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
       { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
       { type: 'assistant/chunk', seq: 2, time: 3, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'he' } } },
       { type: 'assistant/chunk', seq: 3, time: 4, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'llo' } } },
-      { type: 'assistant/message', seq: 4, time: 5, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] } },
+      { type: 'assistant/message', seq: 4, time: 5, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append', sourceEventSeqs: [2, 3] },
       { type: 'step/end', seq: 5, time: 6, data: { turn: 1, step: 1 } },
       { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
@@ -129,6 +209,57 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await ctx.sessionPersistence.append(m.id, log)
     const loaded = await ctx.sessionPersistence.load(m.id)
     expect(loaded.events).toEqual(log) // chunks preserved, contiguous seqs
+  })
+
+  it('rejects a stored v0 log containing a legacy request/header-delta event', async () => {
+    const m = meta('legacy-header-delta', '/legacy')
+    const path = logPath(root, m.cwd, m.id)
+    await mkdir(sessionDir(root, m.cwd), { recursive: true })
+    await writeFile(path, [
+      JSON.stringify(toHeaderLine(m)),
+      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+      JSON.stringify({ type: 'request/header-delta', seq: 1, time: 2, data: { config: { model: 'legacy' } } }),
+      JSON.stringify({ type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } }),
+      '',
+    ].join('\n'))
+
+    await expect(ctx.sessionPersistence.load(m.id)).rejects.toThrow(/unsupported legacy request\/header-delta event at seq 1/)
+  })
+
+  it('rejects a stored v0 full header carrying the legacy fallback reason', async () => {
+    const m = meta('legacy-header-fallback', '/legacy')
+    const path = logPath(root, m.cwd, m.id)
+    await mkdir(sessionDir(root, m.cwd), { recursive: true })
+    await writeFile(path, [
+      JSON.stringify(toHeaderLine(m)),
+      JSON.stringify({
+        type: 'request/header',
+        seq: 0,
+        time: 1,
+        data: { header: { config: { model: 'legacy' } }, reason: 'fallback' },
+      }),
+      '',
+    ].join('\n'))
+
+    await expect(ctx.sessionPersistence.load(m.id))
+      .rejects.toThrow(/unsupported legacy request\/header reason "fallback" at seq 0/)
+  })
+
+  it('persists a forked child seed through the existing session write path', async () => {
+    const source = ctx.sessions.create(SessionId('persist-parent'), { meta: { cwd: '/workspace' } })
+    appendClosedTurn(source)
+
+    const child = ctx.sessions.fork(source, undefined, SessionId('persist-child'))
+    await ctx.parallel('session/flush', child)
+    const loaded = await ctx.sessionPersistence.load(child.id)
+
+    expect(loaded.events).toEqual(source.events)
+    expect(loaded.meta).toMatchObject({
+      id: SessionId('persist-child'),
+      cwd: '/workspace',
+      parentSession: SessionId('persist-parent'),
+      seedLength: source.events.length,
+    })
   })
 
   it('crash recovery: load preserves the interrupted turn and closes it with a synthetic turn/end {interrupted}', async () => {
@@ -222,6 +353,28 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
   })
 
+  it('keeps file fsync mandatory while tolerating unsupported Windows directory fsync', async () => {
+    await rejectDirectorySync('EPERM')
+    const backend = ctx.sessionPersistence as SessionPersistenceJsonl
+    backend.internals.platform = 'win32'
+    const m = meta('windows-directory-sync')
+    await ctx.sessionPersistence.create(m)
+    await expect(ctx.sessionPersistence.append(m.id, oneTurnLog())).resolves.toBeUndefined()
+    expect((await ctx.sessionPersistence.load(m.id)).events).toEqual(oneTurnLog())
+  })
+
+  it.each([
+    ['linux', 'EPERM'],
+    ['win32', 'EIO'],
+  ] as const)('surfaces directory fsync errors on %s with %s', async (platform, code) => {
+    await rejectDirectorySync(code)
+    const backend = ctx.sessionPersistence as SessionPersistenceJsonl
+    backend.internals.platform = platform
+    const m = meta(`directory-sync-${platform}-${code}`)
+    await ctx.sessionPersistence.create(m)
+    await expect(ctx.sessionPersistence.append(m.id, oneTurnLog())).rejects.toMatchObject({ code })
+  })
+
   it('load returns a meta copy: mutating it does not corrupt backend pathing', async () => {
     const m = meta('meta-copy', '/proj')
     await ctx.sessionPersistence.create(m)
@@ -229,7 +382,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     const loaded = await ctx.sessionPersistence.load(m.id)
     // A consumer mutates the returned meta's cwd. The backend's stored pathing
     // metadata must be unaffected, so a later append still finds the right log.
-    loaded.meta.cwd = '/evil'
+    mutableHeader(loaded.meta).cwd = '/evil'
     await ctx.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 6, time: 9, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
       { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
@@ -249,7 +402,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
 
   it('path-traversal session ids are neutralized (no escape from root)', async () => {
     const evil = SessionId('../../etc/pwn')
-    const m = { version: 1, id: evil, createdAt: 1 }
+    const m = { version: 0, id: evil, createdAt: 1 }
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.append(evil, oneTurnLog())
     // The file lives UNDER root, not at ../../etc.
@@ -274,10 +427,10 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionPersistenceJsonl, { root })
 
-    const a = ctx.sessions.create('sa')
-    const b = ctx.sessions.create('sb')
-    a.append('user/message', { content: [{ type: 'text', text: 'A' }], source: { kind: 'user' } })
-    b.append('user/message', { content: [{ type: 'text', text: 'B' }], source: { kind: 'user' } })
+    const a = ctx.sessions.create(SessionId('sa'))
+    const b = ctx.sessions.create(SessionId('sb'))
+    a.append('user/message', { content: [{ type: 'text', text: 'A' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    b.append('user/message', { content: [{ type: 'text', text: 'B' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     b.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.parallel('session/flush', a)
@@ -310,20 +463,19 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
 
   it('a seq gap after the last turn/end bounds the preserved tail (torn fragment tolerated)', () => {
     const log = [
-      JSON.stringify({ type: 'session', version: 1, id: 'g', createdAt: 1 }),
+      JSON.stringify({ type: 'session', version: 0, id: 'g', createdAt: 1 }),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
       JSON.stringify({ type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }), // gap: missing seq 1
     ].join('\n') + '\n'
-    // No committed turn/end, so the gap is a tolerated crash boundary: scanLog
-    // PRESERVES the contiguous prefix (turn/start seq 0) — real interrupted-turn
-    // work, not discarded — and stops at the gap. The orphaned open turn is
-    // closed by loadCore's synthetic turn/end, not here.
+    // No committed turn/end, so the gap is a tolerated crash boundary: scanLog PRESERVES the
+    // contiguous prefix (turn/start seq 0) — real interrupted-turn work, not discarded — and
+    // stops at the gap. `loadCore`, not this scanner, later closes the orphaned turn.
     expect(scanLog(Buffer.from(log)).events.map(e => e.seq)).toEqual([0])
   })
 
   it('rejects a seq gap BEFORE a later committed turn/end (committed data damaged)', () => {
     const log = [
-      JSON.stringify({ type: 'session', version: 1, id: 'g2', createdAt: 1 }),
+      JSON.stringify({ type: 'session', version: 0, id: 'g2', createdAt: 1 }),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
       JSON.stringify({ type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }), // gap: missing seq 1
       JSON.stringify({ type: 'turn/end', seq: 3, time: 3, data: { turn: 1, reason: { kind: 'completed' } } }),
@@ -335,7 +487,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
 
   it('rejects a corrupt line BEFORE a later committed turn/end (committed data damaged)', () => {
     const log = [
-      JSON.stringify({ type: 'session', version: 1, id: 'c', createdAt: 1 }),
+      JSON.stringify({ type: 'session', version: 0, id: 'c', createdAt: 1 }),
       '{not json', // corrupt, sits in the committed region (a turn/end follows)
       JSON.stringify({ type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } }),
     ].join('\n') + '\n'
@@ -343,7 +495,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
   })
 
   it('a header-only log (no event lines at all) preserves nothing — committedBytes is the header', () => {
-    const log = JSON.stringify({ type: 'session', version: 1, id: 'h0', createdAt: 1 }) + '\n'
+    const log = JSON.stringify({ type: 'session', version: 0, id: 'h0', createdAt: 1 }) + '\n'
     const scanned = scanLog(Buffer.from(log))
     expect(scanned.events).toEqual([])
     // committedBytes falls back to the header line's end (no preserved events).
@@ -352,7 +504,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
 
   it('a corrupt line after the last turn/end bounds the preserved tail', () => {
     const log = [
-      JSON.stringify({ type: 'session', version: 1, id: 'c2', createdAt: 1 }),
+      JSON.stringify({ type: 'session', version: 0, id: 'c2', createdAt: 1 }),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
       '{not json', // corrupt crash fragment, no turn/end committed
     ].join('\n') + '\n'
@@ -363,7 +515,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
 
   it('tolerates a seq gap AFTER a turn/end (uncommitted tail)', () => {
     const log = [
-      JSON.stringify({ type: 'session', version: 1, id: 't', createdAt: 1 }),
+      JSON.stringify({ type: 'session', version: 0, id: 't', createdAt: 1 }),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
       JSON.stringify({ type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } }),
       JSON.stringify({ type: 'step/start', seq: 9, time: 3, data: { turn: 2, step: 1 } }), // gap in uncommitted tail
@@ -395,7 +547,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const m = meta('create-snap', '/orig')
     const p = ctx.sessionPersistence.create(m)
     // Mutate the caller's meta object immediately after calling create.
-    m.cwd = '/mutated'
+    mutableHeader(m).cwd = '/mutated'
     await p
     await ctx.sessionPersistence.append(SessionId('create-snap'), oneTurnLog())
     // The log materialized under the ORIGINAL cwd, not the mutated one.
@@ -437,51 +589,34 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   })
 
   it('list reads a header line longer than the 8KB read chunk', async () => {
-    // readFirstLine accumulates across reads when the first line exceeds its
-    // buffer. Plant a valid header whose line is > 8192 bytes (a long extra
-    // field is tolerated by the header type guard) and confirm list() reads it.
+    // A tolerated extra field makes this valid header exceed the 8192-byte read buffer, proving
+    // `readFirstLine` accumulates chunks before `list()` parses it.
     const bucket = join(root, '_no-cwd')
     await mkdir(bucket, { recursive: true })
-    const bigHeader = JSON.stringify({ type: 'session', version: 1, id: 'big', createdAt: 1, pad: 'x'.repeat(9000) })
+    const bigHeader = JSON.stringify({ type: 'session', version: 0, id: 'big', createdAt: 1, pad: 'x'.repeat(9000) })
     await writeFile(join(bucket, 'big.jsonl'), bigHeader + '\n')
     const ids = (await ctx.sessionPersistence.list()).map(x => x.id)
     expect(ids).toContain('big')
   })
 
-  it('has() finds a session on disk under an unknown cwd (cross-bucket scan)', async () => {
-    const m = meta('scan-me', '/somewhere')
-    await ctx.sessionPersistence.create(m)
-    await ctx.sessionPersistence.append(m.id, oneTurnLog())
-    // A fresh backend with no in-memory state → has() must scan disk buckets.
-    const ctx2 = new Context()
-    await ctx2.plugin(SessionStore)
-    await ctx2.plugin(SessionPersistenceJsonl, { root })
-    expect(await ctx2.sessionPersistence.has(m.id)).toBe(true)
-    expect(await ctx2.sessionPersistence.has(SessionId('absent'))).toBe(false)
-    await ctx2.fiber.dispose()
-  })
-
   it('a DIFFERENT live session object reusing a disposed id gets its own init (no stale cache)', async () => {
     // Session A materializes a log under id "reuse".
     const sessFiberA = await ctx.plugin(Object.assign((inner: Context) => {
-      const a = inner.sessions.create('reuse', { meta: { cwd: '/a' } })
-      for (const e of oneTurnLog()) a.append(e.type, e.data)
+      const a = inner.sessions.create(SessionId('reuse'), { meta: { cwd: '/a' } })
+      appendLog(a, oneTurnLog())
     }, { inject: ['sessions'] }))
     // Drain A, then dispose ITS fiber (the live session A is gone) while the
     // backend stays loaded.
     for (const s of ctx.sessions.list()) await ctx.parallel('session/flush', s)
     await sessFiberA.dispose()
 
-    // A NEW live Session object reuses id "reuse". The init cache is keyed by
-    // the Session OBJECT, so this gets its OWN onCreated (not A's stale promise)
-    // — which detects the on-disk collision and rejects, rather than silently
-    // appending the new session's events onto A's log under a stale cursor.
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
+    // A new Session object reuses the id. Object-keyed initialization must run independently,
+    // detect the disk collision, and reject instead of appending through session A's stale cursor.
     let b!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
-      b = inner.sessions.create('reuse', { meta: { cwd: '/a' } })
+      b = inner.sessions.create(SessionId('reuse'), { meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(b)).rejects.toThrow(/already bound to a different live session|already has a persisted log on disk/)
+    await expect(ctx.sessions.flush(b)).rejects.toThrow(/already bound to a different live session|already has a persisted log on disk/)
   })
 
   it('a NO-CWD live session does NOT cross-cwd-adopt a same-id log from a real cwd bucket (loadLive is scope-exact)', async () => {
@@ -493,22 +628,17 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx.sessionPersistence.append(SessionId('x'), oneTurnLog())
     await ctx.fiber.dispose()
 
-    // Backend 2 over the SAME root. A live no-cwd session reuses id "x". Because
-    // loadLive(id, undefined) is the DEFINITE no-cwd bucket (NOT an all-buckets
-    // scan), case-2 adoption does NOT match the "/w" log — so it would NOT
-    // silently graft the no-cwd events onto the "/w" log with a mismatched cwd
-    // (the bug a non-scope-exact loadLive caused). It falls through to the
-    // new-session path, where createCore's any-cwd collision probe (loadStored)
-    // catches the duplicate id and REJECTS — the id is taken in another bucket.
+    // Backend 2 creates a no-cwd session whose id exists only in `/w`. Exact `loadLive(id,
+    // undefined)` must not adopt across buckets; the any-cwd collision check then rejects instead
+    // of grafting no-cwd events onto a log with mismatched cwd.
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
-    const backend = ctx2.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let b!: Session
     await ctx2.plugin(Object.assign((inner: Context) => {
-      b = inner.sessions.create('x') // no cwd
+      b = inner.sessions.create(SessionId('x')) // no cwd
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(b)).rejects.toThrow(/already has a persisted log on disk/)
+    await expect(ctx2.sessions.flush(b)).rejects.toThrow(/already has a persisted log on disk/)
 
     // The "/w" log is untouched — no no-cwd events were grafted onto it, and no
     // `_no-cwd` log for "x" was created.
@@ -525,7 +655,6 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx.sessionPersistence.append(SessionId('divergent'), oneTurnLog())
     await ctx.sessionPersistence.load(SessionId('divergent'))
 
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     // A seed that keeps every seq/type/time but mutates a payload must NOT be
     // accepted as "the same session" — otherwise drain filters those seqs as
     // already persisted and the divergent payload is silently lost.
@@ -534,27 +663,26 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     if (userMsg?.type === 'user/message') userMsg.data.content = [{ type: 'text', text: 'DIFFERENT' }]
     let bad!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
-      bad = inner.sessions.create('divergent', { seed: tampered, meta: { cwd: '/a' } })
+      bad = inner.sessions.create(SessionId('divergent'), { seed: tampered, meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(bad)).rejects.toThrow(/do not match this live session|already has a persisted log/)
+    await expect(ctx.sessions.flush(bad)).rejects.toThrow(/do not match this live session|already has a persisted log/)
   })
 
   it('a second live session reusing a bound id is rejected', async () => {
     // A live session materializes and owns the id.
     const firstFiber = await ctx.plugin(Object.assign((inner: Context) => {
-      const a = inner.sessions.create('bound', { meta: { cwd: '/a' } })
+      const a = inner.sessions.create(SessionId('bound'), { meta: { cwd: '/a' } })
       a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
       a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     }, { inject: ['sessions'] }))
     for (const s of ctx.sessions.list()) await ctx.parallel('session/flush', s)
     await firstFiber.dispose()
 
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let second!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
-      second = inner.sessions.create('bound', { meta: { cwd: '/a' } })
+      second = inner.sessions.create(SessionId('bound'), { meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(second))
+    await expect(ctx.sessions.flush(second))
       .rejects.toThrow(/already bound to a different live session|already has a persisted log|do not match/)
   })
 
@@ -567,9 +695,8 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   })
 
   it('list surfaces a non-ENOENT root error (ENOTDIR) instead of reporting no sessions', async () => {
-    // A durable backend must NOT collapse a storage fault to "no sessions". Point
-    // the root at a regular FILE: readdir then fails with ENOTDIR, which must
-    // propagate rather than be swallowed as an empty listing.
+    // A durable backend must not collapse a storage fault to "no sessions". Making the root a
+    // regular file forces ENOTDIR from `readdir`, which must propagate.
     const filePath = join(root, 'not-a-dir')
     await writeFile(filePath, 'x')
     const ctx2 = new Context()
@@ -579,20 +706,19 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.fiber.dispose()
   })
 
-  it('exists() surfaces a non-ENOENT lookup error (ENOTDIR) instead of reporting absent', async () => {
-    // Same contract on the existence path: a non-ENOENT error from the per-id
-    // open() must surface, not be collapsed to "not found" (which would let a
-    // collision check proceed under a false absence assumption). A LAZY session
-    // (created, never appended) keeps its cwd in state, so has() reaches
-    // loadLive(id, cwd) → exists(logPath). Make that cwd's bucket DIRECTORY a
-    // regular file: open()ing `bucket/<id>.jsonl` under it then fails ENOTDIR.
+  it('loadLive surfaces a non-ENOENT lookup error (ENOTDIR) instead of reporting absent', async () => {
+    // A non-ENOENT per-id open error must surface rather than become "not found" and permit false
+    // live adoption. Making the cwd bucket a regular file forces ENOTDIR for its child log path.
     const cwd = '/x'
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
-    await ctx2.sessionPersistence.create(meta('exists-fault', cwd)) // lazy: no bucket yet
     await writeFile(sessionDir(root, cwd), 'x') // bucket path is now a FILE
-    await expect(ctx2.sessionPersistence.has(SessionId('exists-fault'))).rejects.toThrow(/ENOTDIR/)
+    let s!: Session
+    await ctx2.plugin(Object.assign((inner: Context) => {
+      s = inner.sessions.create(SessionId('exists-fault'), { meta: { cwd } })
+    }, { inject: ['sessions'] }))
+    await expect(ctx2.sessions.flush(s)).rejects.toThrow(/ENOTDIR/)
     await ctx2.fiber.dispose()
   })
 
@@ -639,8 +765,8 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const a = meta('dup-id', '/projA')
     await ctx.sessionPersistence.create(a)
     await ctx.sessionPersistence.append(a.id, oneTurnLog())
-    // A fresh backend creating the SAME id under cwd B must still refuse: load/
-    // has identify by id across all buckets, so a second log would make resume
+    // A fresh backend creating the SAME id under cwd B must still refuse: load
+    // identifies by id across all buckets, so a second log would make resume
     // nondeterministic. create scans every bucket, not just meta.cwd's.
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
@@ -655,15 +781,15 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
-    const session = ctx2.sessions.create('flush-fail')
+    const session = ctx2.sessions.create(SessionId('flush-fail'))
     // A full turn lands in the write-behind buffer.
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // Make the durable materialize fail on the next flush.
     const backend = ctx2.sessionPersistence as unknown as { materialize: (...args: unknown[]) => Promise<void> }
     const origMat = backend.materialize.bind(backend)
     backend.materialize = () => Promise.reject(new Error('disk full'))
-    await expect(ctx2.parallel('session/flush', session)).rejects.toThrow(/disk full/)
+    await expectParallelFlushError(ctx2.parallel('session/flush', session), /disk full/)
     // The events are STILL buffered (not silently dropped): a retry persists them.
     backend.materialize = origMat
     await ctx2.parallel('session/flush', session)
@@ -687,7 +813,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     circ.self = circ
     await expect(ctx.sessionPersistence.append(m.id, bad(circ))).rejects.toThrow(/non-JSON-serializable/)
     // The session was never materialized by any of the rejected appends.
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(false)
+    expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(m.id)
   })
 
   it('accepts well-formed JSON values (null, booleans, nested arrays/objects)', async () => {
@@ -695,17 +821,16 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx.sessionPersistence.create(m)
     const ev = [{ type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: { a: null, b: true, c: [1, 2, { d: 'nested' }] } } }] as unknown as SessionEvent[]
     await ctx.sessionPersistence.append(m.id, ev)
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(true)
+    expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
   })
 
   it('Session.append rejects a non-serializable event at the source (never enters the log)', () => {
-    const session = ctx.sessions.create('reject-bad')
-    // Serializability is enforced at the source: Session.append throws on a
-    // BigInt-bearing event BEFORE it enters session.events, so the durable log
-    // can never diverge from the live log. The throw surfaces at the caller's
-    // append site, not asynchronously in a backend flush.
+    const session = ctx.sessions.create(SessionId('reject-bad'))
+    // Serializability is enforced at the source: Session.append throws on a BigInt-bearing
+    // event before it enters session.events, so the durable log can never diverge from the live
+    // log. The error therefore surfaces synchronously at append, not later during backend flush.
     expect(() => {
-      session.append('user/message', { content: [{ type: 'text', text: 'bad' }], source: { kind: 'user' }, bad: 1n } as never)
+      session.append('user/message', { content: [{ type: 'text', text: 'bad' }], source: { kind: 'user' }, bad: 1n } as never, { surfaceOp: 'append' })
     }).toThrow(/non-JSON-serializable/)
     // The bad event was rejected, so the log stayed empty.
     expect(session.events.length).toBe(0)

@@ -1,20 +1,15 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { Readable, Writable } from 'node:stream'
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import {
-  ClientSideConnection,
-  ndJsonStream,
-  PROTOCOL_VERSION,
-  type Agent as AcpAgent,
-  type Client,
-  type RequestPermissionRequest,
-  type RequestPermissionResponse,
-  type SessionNotification,
-} from '@agentclientprotocol/sdk'
+  launchAcpTestAgent,
+  type AgentUnderTest,
+  type LaunchedAcpTestAgent,
+} from '@deepseek-ai/dsh-acp-snapshot'
+import { cleanupAcpExampleTest } from './cleanup.ts'
 
 /**
  * End-to-end: boot examples/acp-agent as a real subprocess speaking ACP over
@@ -26,99 +21,42 @@ import {
  * WITHOUT a key, since it only needs the server to boot and answer initialize.
  */
 
-const startScript = fileURLToPath(new URL('../start.ts', import.meta.url))
-// Resolve tsx's loader to an ABSOLUTE path: the subprocess runs with cwd set to
-// a temp workdir (this test launches there and uses it as the session cwd; the
-// bridge no longer requires cwd === the launch dir, but a temp dir keeps the
-// test hermetic), where a bare `--import tsx` would not resolve from
-// node_modules. import.meta.resolve gives the worktree's tsx regardless of cwd.
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
-// Absolute path to the repo-root tsconfig. Dev/test/demo run UNBUILT: the
-// `@deepseek-ai/dsh-*` workspace imports resolve through the `paths` map in the
-// root tsconfig (tsx reads it), NOT through built `lib/` output. But tsx finds
-// that tsconfig by searching UP from the child's cwd — and the child's cwd is a
-// temp workdir OUTSIDE the repo, so the search misses and the dsh-* imports fail
-// (the child dies before writing a byte). Point tsx at the repo tsconfig
-// explicitly via TSX_TSCONFIG_PATH so resolution is cwd-independent. (Without
-// this the suite only passed by accident when a stale built `lib/` happened to
-// exist — exactly the contamination that masked the inject bug this suite now
-// guards.) The repo root is four levels up from this file (examples/acp-agent/tests).
-const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
-
-interface Spawned {
-  child: ChildProcessWithoutNullStreams
-  client: ClientSideConnection
-  updates: SessionNotification['update'][]
-  stderr: string[]
+const AGENT: AgentUnderTest = {
+  binScript: fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url)),
+  configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
+  tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
+const DANGER_FULL_ACCESS_ENV = { DSH_PERMISSION_MODE: 'danger-full-access' }
 
-function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawned {
-  const child = spawn(
-    process.execPath,
-    ['--import', tsxLoader, startScript],
-    { cwd, env: { ...env, TSX_TSCONFIG_PATH: repoTsconfig }, stdio: ['pipe', 'pipe', 'pipe'] },
-  )
-  const stderr: string[] = []
-  child.stderr.setEncoding('utf8')
-  child.stderr.on('data', (chunk: string) => stderr.push(chunk))
-
-  const updates: SessionNotification['update'][] = []
-  const stream = ndJsonStream(
-    Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-    Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
-  )
-  const makeClient = (_agent: AcpAgent): Client => ({
-    sessionUpdate(params: SessionNotification): Promise<void> {
-      updates.push(params.update)
-      return Promise.resolve()
-    },
-    requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-      // Permission gate is deferred (TODO(rfc010-permission-gate)); the bridge
-      // never requests permission yet, so just allow if it ever does.
-      return Promise.resolve({ outcome: { outcome: 'cancelled' } })
-    },
-  })
-  const client = new ClientSideConnection(makeClient, stream)
-  return { child, client, updates, stderr }
-}
-
-let spawned: Spawned | undefined
+let spawned: LaunchedAcpTestAgent | undefined
 let workdir: string | undefined
 
 afterEach(async () => {
-  if (spawned) {
-    spawned.child.kill('SIGKILL')
-    spawned = undefined
-  }
-  if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
+  const ownedSpawned = spawned
+  const ownedWorkdir = workdir
+  spawned = undefined
   workdir = undefined
+  await cleanupAcpExampleTest(ownedSpawned, ownedWorkdir)
 })
 
 describe('acp-agent over real stdio (no key required)', () => {
   it('emits only framed JSON-RPC on stdout', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
-    // Collect raw stdout bytes directly (bypass the SDK framing) to inspect.
+    // Inspect the launcher's raw-byte tee in addition to driving its SDK client.
     // A dummy key lets the deepseek adapter APPLY (it only checks the key is
     // present at boot, not valid — the key is used only on a real model call,
     // which this purity test never triggers). So this runs WITHOUT real creds.
-    const child = spawn(process.execPath, ['--import', tsxLoader, startScript], {
+    spawned = launchAcpTestAgent({
+      agent: AGENT,
       cwd: workdir,
-      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot', TSX_TSCONFIG_PATH: repoTsconfig },
-      stdio: ['pipe', 'pipe', 'pipe'],
+      env: {
+        DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
+        ...DANGER_FULL_ACCESS_ENV,
+      },
     })
-    const out: string[] = []
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (c: string) => out.push(c))
+    await spawned.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
 
-    // Send a single initialize request as a newline-delimited JSON-RPC frame.
-    const req = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} } })
-    child.stdin.write(req + '\n')
-
-    // Give it a moment to boot + reply, then inspect stdout.
-    await new Promise(r => setTimeout(r, 4000))
-    child.kill('SIGKILL')
-
-    const lines = out.join('').split('\n').filter(l => l.trim().length > 0)
+    const lines = spawned.rawStdout().split('\n').filter(line => line.trim().length > 0)
     expect(lines.length).toBeGreaterThan(0)
     for (const line of lines) {
       // Every stdout line MUST parse as JSON (a JSON-RPC frame). A non-JSON
@@ -142,7 +80,14 @@ describe('acp-agent over real stdio (no key required)', () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
     // A dummy key lets the deepseek adapter boot (it only checks presence, not
     // validity, at apply time); no model call is made, so the key is never used.
-    spawned = spawnAcpAgent(workdir, { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot' })
+    spawned = launchAcpTestAgent({
+      agent: AGENT,
+      cwd: workdir,
+      env: {
+        DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
+        ...DANGER_FULL_ACCESS_ENV,
+      },
+    })
     const { client } = spawned
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
@@ -155,7 +100,7 @@ describe('acp-agent over real stdio (no key required)', () => {
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over ACP', () => {
   it('runs a real turn and the agent writes the requested file (verified on disk)', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
-    spawned = spawnAcpAgent(workdir)
+    spawned = launchAcpTestAgent({ agent: AGENT, cwd: workdir, env: DANGER_FULL_ACCESS_ENV })
     const { client, updates } = spawned
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
@@ -196,7 +141,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over 
 
   it('with the terminal_output capability, a real bash call renders as a terminal card (content + _meta + exit)', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
-    spawned = spawnAcpAgent(workdir)
+    spawned = launchAcpTestAgent({ agent: AGENT, cwd: workdir, env: DANGER_FULL_ACCESS_ENV })
     const { client, updates } = spawned
 
     // Advertise the Zed `_meta.terminal_output` capability so the bridge emits

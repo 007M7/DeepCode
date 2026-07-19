@@ -1,74 +1,46 @@
 # Packages
 
-Harness packages, all under the `@deepseek-ai/dsh-*` scope. Each package is a Cordis plugin (microkernel-style): it exports either a default `Service` subclass or a functional plugin that gets registered via `ctx.plugin()`, declares its ctx key/events where applicable through declaration merging, and exposes extension points through `ctx.effect()`, `ctx.on()`, and `ctx.waterfall()`.
+Packages use the `@deepseek-ai/dsh-*` scope. Each is a Cordis `Service` subclass or function plugin; contributions use `ctx.effect()`, `ctx.on()`, or `ctx.waterfall()`. Authoring rules: [package](AGENTS.md) and [root](../AGENTS.md#conventions).
 
 ## Hierarchy
 
-Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group directory is a pure container (no `package.json` of its own); the package name stays `@deepseek-ai/dsh-<pkg>` regardless of group. Each group has a `README.md` describing its role and whether it is product or support infrastructure.
+Packages live at `packages/<group>/<pkg>/`; groups are containers, while names remain `@deepseek-ai/dsh-<pkg>`. **Each group README is the canonical package/ctx-key map.**
 
 | Group | Role | Release expectation |
 |---|---|---|
-| [`core/`](core/README.md) | Product API spine: session, system-prompt, tools, agent, and the concrete loop | Product — stable surface |
+| [`core/`](core/README.md) | Product API spine: sessions, prompts, tools, agent services, and the concrete loop | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: the executor seam, a local impl, and the model-facing tool | Product — stable surface |
+| [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: the abstract runtime seam for model-written programs + a worker-thread backend | Product — stable surface |
+| [`sandbox/`](sandbox/README.md) | Process-confinement seam; bwrap/Landlock/Seatbelt backends | Product — stable surface |
+| [`fs/`](fs/README.md) | Filesystem capability family: the abstract seam, a local impl, the model-facing file tools, and the bash-backed discovery tools | Product — stable surface |
+| [`skill/`](skill/README.md) | Skill capability family: the provider registry, local provider, and model-facing catalog/loader | Product — stable surface |
+| [`compact/`](compact/README.md) | Compaction capability family: the abstract seam + a basic backend (tool deferred) | Product — stable surface |
+| [`context/`](context/README.md) | Model-visible request context, including workspace instructions and time context | Product — stable surface |
+| [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
+| [`tasks/`](tasks/README.md) | Generic background-task runtime and model-facing `task_*` control tools | Product — stable surface |
+| [`workflow/`](workflow/README.md) | Workflow capability family: the script-engine seam, the worker-thread engine, and the model-facing `workflow` tool | Product — stable surface |
+| [`web/`](web/README.md) | Web capability family: the abstract seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
+| [`spill/`](spill/README.md) | Spill capability family: the storage seam, a local impl, and the tool-result spill policy | Product — stable surface |
+| [`todo/`](todo/README.md) | Todo/planning family: the model-facing `todo_write` tool | Product — stable surface |
+| [`timeout/`](timeout/README.md) | Tool-call timeout policy: the `tools/execute` deadline enforcer | Product — stable surface |
+| [`guard/`](guard/README.md) | Loop-hygiene guards: advisory repeat-call reminders | Product — stable surface |
+| [`cordis/`](cordis/README.md) | Self-referential runtime toolset: inspect the live runtime's plugins and services, mount/unmount model-written plugins ([design](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)) | Product — stable surface |
+| [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
-| [`ui/`](ui/README.md) | Editor/client integration surfaces (the ACP bridge) | Product — stable surface |
-| [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, stdio UI, replay adapter) | Support — lower compatibility expectations |
+| [`session-query/`](session-query/README.md) | Session retrieval: logical corpus, bounded reads, lineage, and event relationships | Product — stable surface |
+| [`sdk/`](sdk/README.md) | Project SDK tooling | Product — stable surface |
+| [`ui/`](ui/README.md) | Editor/client integration surfaces: ACP bridge, JSON-RPC SDK server, user-approval/user-interaction seams, ask-user tool | Product — stable surface |
+| [`examples/`](examples/README.md) | Demo bundles (agent-spine + stdio/one-shot CLI/ACP/JSON-RPC bins) the leaves load | Support — example infra |
+| [`support/`](support/README.md) | Support infrastructure (testkits, invariants, replay, Loader smokes) | Support — lower compatibility expectations |
+| [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (`Branded<B>`, Harness home/path helpers, timeout, retention) | Support — small, stable, harness-dep-free |
 
-The split is the point: a package's group says whether it is part of the product API or support/test/example infrastructure, so release and removal decisions do not have to treat every package as an equal public contract. New packages join an existing group; adding a new top-level group is a deliberate act (extend the group READMEs and the hierarchy docs).
+Groups distinguish product API from support infrastructure. New packages join an existing group; a new group updates its README and this table.
 
-## Dependency graph
+## Dependencies
 
-```
-dsh-llm          (no harness deps — pure vocabulary)
-dsh-bash          (no harness deps — abstract executor seam)
-dsh-session       ← dsh-llm
-dsh-system-prompt ← dsh-llm
-dsh-agent         ← dsh-llm, dsh-session
-dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
-dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
-dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
-dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
-dsh-llm-pi-ai     ← dsh-llm                        (pi-ai-backed adapter)
-dsh-agent-loop    ← dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent
-dsh-invariants    ← dsh-llm, dsh-session, dsh-agent (dev-mode contract checks)
-dsh-acp           ← dsh-agent, dsh-llm, dsh-session, dsh-session-persistence  (ACP JSON-RPC bridge)
-dsh-ui-stdio      ← dsh-agent, dsh-llm, dsh-session (stdio readline UI plugin)
-dsh-llm-replay    ← dsh-llm, dsh-session            (record/replay adapter for keyless snapshot tests)
-```
+The dependency graph is generated: [docs/module-graph.md](../docs/module-graph.md) (`pnpm run gen-module-graph`, freshness-gated in CI).
 
-The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [capability seams](../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)).
+The rule it must obey: **extension plugins depend on interfaces, never on the concrete loop.** `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. The sanctioned exception is a **composition/bundle** package like `dsh-agent-spine-demo`, whose whole job is to assemble the concrete spine: it depends on `dsh-agent-loop` (and the other concrete spine plugins) on purpose. The rule constrains plugins that EXTEND the system, not the bundle that COMPOSES it. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [capability seams](../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)).
 
-## What goes where
-
-| Package | Group | Role | ctx key |
-|---|---|---|---|
-| `llm/` | `llm` | Abstract LLM service + content-block vocabulary + chunk assembler | `ctx.llm` |
-| `session/` | `core` | Event-sourced session log + in-memory store | `ctx.sessions` |
-| `system-prompt/` | `core` | Prompt-section + tool-schema assembly registry | `ctx.systemPrompt` |
-| `tools/` | `core` | Tool registry + `tools/execute` waterfall | `ctx.tools` |
-| `agent/` | `core` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
-| `agent-loop/` | `core` | THE concrete loop plugin: `ReactLoopAgent` + the loop driver | `ctx.agentLoop` |
-| `bash/` | `bash` | Abstract bash executor seam (interface + vocabulary) | `ctx.bash` |
-| `bash-local/` | `bash` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
-| `tool-bash/` | `bash` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |
-| `llm-deepseek/` | `llm` | DeepSeek API adapter (hand-rolled fetch/SSE) | (registers on `ctx.llm`) |
-| `llm-pi-ai/` | `llm` | DeepSeek adapter via `@earendil-works/pi-ai` (design twin) | (registers on `ctx.llm`) |
-| `session-persistence/` | `session-persistence` | Persistence seam + write coordinator | `ctx.sessionPersistence` |
-| `session-persistence-jsonl/` | `session-persistence` | JSONL-sidecar persistence backend | (registers `ctx.sessionPersistence`) |
-| `session-persistence-sqlite/` | `session-persistence` | SQLite persistence backend | (registers `ctx.sessionPersistence`) |
-| `invariants/` | `support` | Dev-mode event-contract invariants + session-log freeze | (listens on `session/*`, `agent/*`) |
-| `acp/` | `ui` | Agent Client Protocol bridge: serves the agent to an ACP editor over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
-| `ui-stdio/` | `support` | Minimal stdio (readline) UI plugin: renders `agent/*` events, feeds stdin lines to the agent | (drives `ctx.agents`) |
-| `llm-replay/` | `support` | Record/replay adapter: short-circuits `llm/stream` with chunks from a recorded session JSONL (keyless snapshot tests) | (listens on `llm/stream`) |
-
-Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).
-
-## Conventions (applied across all harness packages)
-
-- **Registrations are effects**: every contribution (adapter, tool, section, agent, event listener) goes through `ctx.effect()` / `ctx.on()`, so disposal and HMR clean up automatically. Every `register()` returns the disposer.
-- **Declaration merging for events and ctx**: services declare their events in `declare module 'cordis' { interface Events { ... } }` and their ctx key in `interface Context`.
-- **Waterfall semantics**: `ctx.waterfall` listeners receive `(...args, next)` and MUST call `next()` to delegate; returning without it short-circuits (the veto mechanism).
-- **Extensible unions**: `ContentBlockMap`, `MessageSourceMap`, `FinishReasonMap`, `TurnTriggerMap`, `TurnEndReasonMap`, and `SessionEventMap` use the merge-extensible-map pattern so plugins can add variants via declaration merging.
-- **ESM everywhere**; imports use package names across package boundaries, `.ts` extensions within a package.
-- **Tests**: vitest, colocated under `packages/<group>/<pkg>/tests/*.spec.ts`. Every registry needs an HMR-safety test. Err on the side of more tests.
+Package READMEs cover purpose, APIs, extension points, and [Model Experience](../docs/cookbook/adding-a-package.md#4-write-the-package-readme) unless on the model-agnostic [omission allowlist](../scripts/verify-package-readme-model-experience.ts). They also carry `## Known Limitations and Deferred Work` or use its [allowlist](../scripts/verify-package-readme-limitations.ts).

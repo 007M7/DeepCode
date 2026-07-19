@@ -1,91 +1,107 @@
 /**
- * Replay LLM plugin for snapshot tests.
- *
- * Installs a single `llm/stream` waterfall listener that short-circuits the
- * waterfall (never calls `next()`) and yields model streams reconstructed from
- * a recorded **session JSONL** fixture — so a snapshot test can boot the real
- * agent against a fixed model transcript with no API key. See
- * docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
- *
- * The fixture IS the persisted session log (`<scenario>/session.jsonl`): its
- * `assistant/chunk` events carry every {@link StreamChunk}, so grouping them by
- * `(turn, step)` reconstructs each `stream()` call's chunk sequence (one model
- * call per loop step — see packages/core/agent-loop/src/loop.ts). Recording is
- * therefore "run the real agent once and harvest the `.jsonl`", done by the
- * snapshot harness — this plugin does not record.
- *
- * Two failure modes are NOT reconstructable from `assistant/chunk` alone — a
- * pure throw before any chunk (e.g. an HTTP 401: the log holds only a
- * `turn/end {error}`, no chunks) and a cancel/hang (timing, not chunk content).
- * A scenario that needs those supplies an optional sidecar
- * (`<scenario>/replay.override.json`: a `ReplayEntry[]`) that REPLACES the
- * derived script.
- *
- * It lives in its own package (not under `examples/`) so its derive/parse/
- * replay logic falls under the per-file 100% coverage gate on package `src`
- * trees — its tests previously lived under `examples/`, which the gate does
- * not measure, leaving these branches (clean chunks / mid-stream throw / hang)
- * unguarded. Its consumer is the ACP snapshot harness in `examples/acp-agent`,
- * which loads it (via `cordis.snapshot.yml`) in place of a real LLM adapter.
- *
- * Plugin export shape: named `name`/`inject`/`Config`/`apply`, NO default
- * export (the cordis Loader's `unwrapExports` does `exports.default ?? exports`,
- * so a stray default would drop the namespace — see docs/postmortem/0001).
- *
+ * Keyless snapshot-test LLM replay. It derives one model-call script per
+ * recorded session from `assistant/chunk` events and binds fresh live sessions
+ * to parent/child scripts by first-call order. Throw and hang cases require an
+ * explicit override because a session log cannot reconstruct them alone.
  * @module @deepseek-ai/dsh-llm-replay
  */
 
 import { existsSync, readFileSync } from 'node:fs'
+import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from 'cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { LlmError, assertNever } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, assertNever } from '@deepseek-ai/dsh-llm'
 
 /**
- * One recorded model call. A discriminated union (not a bare `StreamChunk[]`)
- * so it can faithfully replay BOTH branches of the documented LLM failure
- * contract — an adapter may THROW from `stream()` or end with a `finish` error
- * chunk — plus a `hang` marker for cancellation scenarios (mirrors the
- * `MockAdapter` `hang` support in packages/core/agent-loop/tests).
- *
- * A `throw` entry carries any `chunks` the adapter emitted BEFORE it threw, so
- * a mid-stream transport failure (partial output then `STREAM_CLOSED`) replays
- * the partial chunks first and only then throws — exactly what the agent loop
- * saw live (it may already have emitted partial assistant chunks).
- *
- * The normal/finish-terminated cases are DERIVED from the session JSONL
- * ({@link deriveReplayScript}); only the throw and hang cases need a
- * hand-authored sidecar entry (a thrown stream leaves no terminal `finish` in
- * the log, so it cannot be derived as `chunks`).
+ * One recorded model call. `throw` may replay prefix chunks before failing;
+ * `hang` models cancellation. Only ordinary chunk entries derive from JSONL;
+ * the other variants come from an override sidecar.
  */
 export type ReplayEntry =
   | { kind: 'chunks'; chunks: StreamChunk[] }
-  | { kind: 'throw'; chunks: StreamChunk[]; message: string; code: string; status?: number }
+  | { kind: 'throw'; chunks: StreamChunk[]; message: string; code: string }
   | { kind: 'hang' }
+
+/** One model exposed by a replay-only provider catalog. */
+export interface ReplayModelConfig {
+  /** Model id used for replay requests. */
+  id: string
+  /** Selector label; defaults to {@link id}. */
+  name?: string
+  /** Optional selector description. */
+  description?: string
+}
+
+/** One provider route exposed by the replay adapter. */
+export interface ReplayProviderConfig {
+  /** Provider route used for replay requests. */
+  id: string
+  /** Selector label; defaults to {@link id}. */
+  name?: string
+  /** Advisory models exposed to clients such as ACP editors. */
+  models?: ReplayModelConfig[]
+}
 
 /** Resolved plugin configuration. */
 export interface ReplayConfig {
-  /** Path to the per-scenario `session.jsonl` fixture (the recorded log). */
+  /**
+   * Path to the PRIMARY (parent) `session.jsonl` fixture. For a single-session
+   * scenario this is the only log; for a nested-agent scenario it is the parent,
+   * and the child logs ride in {@link childFiles}.
+   */
   file: string
   /**
-   * Optional path to a `ReplayEntry[]` sidecar that REPLACES the derived
-   * script. Used by the two scenarios not expressible as `assistant/chunk`
-   * (pure throw-before-chunk, cancel/hang). Absent for normal scenarios.
+   * Optional `ReplayEntry[]` sidecar that REPLACES the derived script for the
+   * PRIMARY session. Used by the two single-session scenarios not expressible as
+   * `assistant/chunk` (pure throw-before-chunk, cancel/hang). Absent for normal
+   * and nested scenarios.
    */
   overrideFile?: string
+  /**
+   * Additional recorded child-session logs (a nested-agent scenario's subagent
+   * sessions). Each is derived independently; the full set is ordered by
+   * `createdAt` so the parent (earliest) binds to the first live session. Empty
+   * for a single-session scenario.
+   */
+  childFiles?: string[]
+  /**
+   * Optional provider catalog. When non-empty, replay registers an adapter for
+   * these routes; when absent or empty, it retains the catch-all waterfall used
+   * by tests that do not need discovery.
+   */
+  providers?: ReplayProviderConfig[]
+}
+
+/**
+ * Recorded calls plus header facts used to order parent and child scripts.
+ * Recorded ids are diagnostic; fresh live ids bind by ordered first use.
+ */
+export interface SessionScript {
+  /** The recorded session id (diagnostics only — the live id differs). */
+  recordedId: string
+  /** Session creation time; the deterministic ordering key (parent < child). */
+  createdAt: number
+  /** The per-`stream()`-call replay entries, in recorded call order. */
+  entries: ReplayEntry[]
+  /**
+   * Whether this is the PRIMARY (parent) session. Breaks a `createdAt` tie in
+   * favor of the parent, which always issues the first model call.
+   */
+  primary: boolean
 }
 
 /**
  * Parse a session `.jsonl` buffer into its event list. Line 0 is the session
  * header (a `{type:'session',…}` record), every subsequent non-empty line is a
  * {@link SessionEvent}. The header is skipped; malformed lines fail loud.
+ * @param text - the raw `.jsonl` file contents.
+ * @returns every event after the header, in log order.
  */
 export function parseSessionLog(text: string): SessionEvent[] {
   const lines = text.split('\n').filter(line => line.trim().length > 0)
   const events: SessionEvent[] = []
-  // Skip line 0 (the header). A reader distinguishes it by its `type:'session'`
-  // tag; we simply drop the first line, which the JSONL backend guarantees is
-  // the header.
+  // The JSONL backend guarantees line 0 is the session header.
   for (let i = 1; i < lines.length; i++) {
     const parsed: unknown = JSON.parse(lines[i] as string)
     events.push(parsed as SessionEvent)
@@ -94,23 +110,29 @@ export function parseSessionLog(text: string): SessionEvent[] {
 }
 
 /**
+ * Read replay identity, ordering, and fork-seed facts from the JSONL header.
+ *
+ * @param text - the raw `.jsonl` file contents (only the header line is read).
+ * @returns the header's `id`, `createdAt`, and `seedLength`, defaulted when absent.
+ */
+export function parseSessionHeader(text: string): { id: string; createdAt: number; seedLength: number } {
+  const firstLine = text.split('\n').find(line => line.trim().length > 0) ?? '{}'
+  const parsed = JSON.parse(firstLine) as { id?: unknown; createdAt?: unknown; seedLength?: unknown }
+  return {
+    id: typeof parsed.id === 'string' ? parsed.id : '',
+    createdAt: typeof parsed.createdAt === 'number' ? parsed.createdAt : 0,
+    seedLength: typeof parsed.seedLength === 'number' ? parsed.seedLength : 0,
+  }
+}
+
+/**
  * Reconstruct the per-`stream()` replay script from a recorded session log.
  *
- * The agent loop makes exactly one `ctx.llm.stream()` call per step and appends
- * every chunk as an `assistant/chunk` event tagged with the current
- * `(turn, step)`. Grouping those events by `(turn, step)` in log order
- * therefore yields one `{kind:'chunks'}` entry per model call, in call order.
- *
- * A group is only valid if it ends in a `finish` chunk — the adapter contract
- * guarantees a successful (or finish-error) stream terminates with `finish`,
- * and the loop relies on it. A group WITHOUT a terminal `finish` is the
- * fingerprint of a *thrown* `stream()` (the loop recorded the prefix chunks,
- * then an `error`/`turn/end`, but no `finish`): such a stream cannot be
- * faithfully replayed as `{kind:'chunks'}` (that would look like a clean stop),
- * so deriving it is an error — the scenario must supply a `replay.override.json`
- * sidecar with an explicit `throw` (or `hang`) entry instead. {@link
- * deriveReplayScript} throws, naming the offending `(turn, step)`, so a missing
- * override fails loud rather than silently replaying a thrown call as success.
+ * Groups `assistant/chunk` events by turn and step. Every group must end in a
+ * `finish`; a missing terminator means the live stream threw, so derivation
+ * rejects and the scenario must provide an explicit override.
+ * @param events - the recorded session's events; only `assistant/chunk` is consulted.
+ * @returns one `chunks` entry per recorded model call, in call order.
  */
 export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
   const script: ReplayEntry[] = []
@@ -144,11 +166,13 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
 }
 
 /**
- * Build the replay script for a scenario: the sidecar override if present,
- * otherwise the script derived from the recorded session JSONL. Fail-loud if
- * the JSONL fixture is missing (the scenario was never recorded) — never
- * silently returns an empty script, so a coverage hole can't masquerade as a
- * passing replay.
+ * Build the replay script for the PRIMARY session: the sidecar override if
+ * present, otherwise the script derived from the recorded session JSONL.
+ * Fail-loud if the JSONL fixture is missing (the scenario was never recorded) —
+ * never silently returns an empty script, so a coverage hole can't masquerade
+ * as a passing replay.
+ * @param config - the fixture paths; only `file` and `overrideFile` are consulted.
+ * @returns the primary session's replay entries.
  */
 export function loadReplayScript(config: ReplayConfig): ReplayEntry[] {
   if (config.overrideFile !== undefined && existsSync(config.overrideFile)) {
@@ -162,6 +186,83 @@ export function loadReplayScript(config: ReplayConfig): ReplayEntry[] {
     throw new Error(`llm-replay: fixture not found: ${config.file} — run \`pnpm run test:snapshot:record\` first`)
   }
   return deriveReplayScript(parseSessionLog(readFileSync(config.file, 'utf8')))
+}
+
+/**
+ * Load the primary and child scripts in bind order. Child derivation begins at
+ * `seedLength` so inherited parent chunks are never replayed as child calls.
+ *
+ * @param config - the fixture paths: the primary log plus any recorded child logs.
+ * @returns the primary script first, then the child scripts in bind order.
+ */
+export function loadSessionScripts(config: ReplayConfig): SessionScript[] {
+  const primaryEntries = loadReplayScript(config)
+  // The override path replaces the derived script but carries no header; read
+  // the header off the JSONL when it exists, else use a stable default so an
+  // override-only fixture (header-less) still orders first as the primary.
+  const primaryHeader = existsSync(config.file)
+    ? parseSessionHeader(readFileSync(config.file, 'utf8'))
+    : { id: '', createdAt: 0 }
+  const primary: SessionScript = {
+    recordedId: primaryHeader.id, createdAt: primaryHeader.createdAt, entries: primaryEntries, primary: true,
+  }
+  const children: SessionScript[] = []
+  for (const childFile of config.childFiles ?? []) {
+    if (!existsSync(childFile)) {
+      throw new Error(`llm-replay: child fixture not found: ${childFile} — re-record the scenario`)
+    }
+    const text = readFileSync(childFile, 'utf8')
+    const header = parseSessionHeader(text)
+    // Derive the child's script from its own events only — events AT OR after the seed
+    // boundary.
+    const ownEvents = parseSessionLog(text).slice(header.seedLength)
+    children.push({
+      recordedId: header.id,
+      createdAt: header.createdAt,
+      entries: deriveReplayScript(ownEvents),
+      primary: false,
+    })
+  }
+  // Synchronous children start in creation order; the id only stabilizes timestamp ties.
+  // XXX(concurrent-subagents): concurrent children need an explicit first-call ordinal.
+  children.sort((a, b) => a.createdAt - b.createdAt || a.recordedId.localeCompare(b.recordedId))
+  return [primary, ...children]
+}
+
+/** Replay adapter that makes a configured provider catalog discoverable without provider I/O. */
+class ReplayAdapter extends LlmAdapter {
+  private readonly providers: ReadonlyMap<string, ReplayProviderConfig>
+
+  constructor(
+    providers: readonly ReplayProviderConfig[],
+    private readonly replay: (options: GenerateOptions) => AsyncIterable<StreamChunk>,
+  ) {
+    super()
+    this.providers = new Map(providers.map(provider => [provider.id, provider]))
+  }
+
+  override providerInfo(provider: string): LlmProviderInfo {
+    const configured = this.providers.get(provider)
+    /* v8 ignore next -- LlmService only asks about routes registered from this same map. */
+    if (configured === undefined) return super.providerInfo(provider)
+    return { id: provider, name: configured.name ?? provider }
+  }
+
+  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    const configured = this.providers.get(provider)
+    /* v8 ignore next -- LlmService only asks about routes registered from this same map. */
+    if (configured === undefined) return Promise.resolve([])
+    return Promise.resolve((configured.models ?? []).map(model => ({
+      provider,
+      id: model.id,
+      name: model.name ?? model.id,
+      ...model.description === undefined ? {} : { description: model.description },
+    })))
+  }
+
+  override stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    return this.replay(options)
+  }
 }
 
 /** Yield a recorded stream back, honoring abort like a real adapter. */
@@ -182,7 +283,7 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
         if (signal?.aborted) throw new Error('aborted')
         yield chunk
       }
-      throw new LlmError(entry.message, entry.code, entry.status)
+      throw new LlmError(entry.message, entry.code)
     case 'hang':
       // Replay a stream that stalls until cancelled (mirrors MockAdapter): one
       // chunk, then wait for abort and surface it as the consumer expects.
@@ -202,41 +303,88 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
 }
 
 /**
- * Install the replay `llm/stream` listener on `ctx`. Returns the listener
- * disposer (so a fiber dispose removes it — HMR safety). Exported separately
- * from {@link apply} so unit tests can drive it without the Loader or env vars.
+ * Install per-session positional replay. A newly seen live session takes the
+ * next ordered recorded script, then advances its own cursor synchronously at
+ * invocation time; calls without `sessionId` share one anonymous session. A
+ * non-empty provider catalog registers a routed replay adapter; otherwise a
+ * catch-all waterfall intercepts requests. Returns the effect disposer for
+ * HMR-safe removal.
  *
- * Replay is POSITIONAL: the Nth `stream()` call serves the Nth script entry.
- * This is deterministic only with at most one model stream in flight at a time;
- * the snapshot harness runs one ACP session per scenario to guarantee that. The
- * cursor is advanced synchronously at listener-invocation time (not lazily
- * inside the generator) so call ORDER, not iteration order, fixes the mapping.
+ * @param ctx - the context whose LLM service receives the replay route or waterfall.
+ * @param config - the resolved fixture paths (env-var defaulting is `apply`'s job).
+ * @returns the disposer that removes the registered adapter or listener.
  */
 export function installLlmReplay(ctx: Context, config: ReplayConfig): () => void {
-  const entries = loadReplayScript(config)
-  let cursor = 0
-  return ctx.on('llm/stream', (options: GenerateOptions, _next) => {
-    const index = cursor++
-    const entry: ReplayEntry | undefined = entries[index]
+  const scripts = loadSessionScripts(config)
+  // Live-session → its bound script + cursor. A new live session id claims the
+  // next not-yet-bound script (scripts are in bind order); `nextScript` is the
+  // index of the next unclaimed one.
+  const bound = new Map<string, { entries: ReplayEntry[]; cursor: number }>()
+  let nextScript = 0
+  const ANON = '\0anon\0' // the key for a call that carries no sessionId
+  const replay = (options: GenerateOptions): AsyncIterable<StreamChunk> => {
+    const key = options.sessionId ?? ANON
+    let state = bound.get(key)
+    let unrecorded = false
+    if (state === undefined) {
+      const script = scripts[nextScript]
+      if (script === undefined) {
+        // More distinct live sessions made calls than the scenario recorded —
+        // an unrecorded subagent appeared. Defer the throw into the returned
+        // generator (the listener must return an AsyncIterable, not throw).
+        unrecorded = true
+        state = { entries: [], cursor: 0 }
+      } else {
+        nextScript++
+        state = { entries: script.entries, cursor: 0 }
+        bound.set(key, state)
+      }
+    }
+    const boundState = state
+    const seenSessions = nextScript
+    const totalScripts = scripts.length
+    const index = boundState.cursor++
+    const entry: ReplayEntry | undefined = boundState.entries[index]
     return (async function* () {
+      if (unrecorded) {
+        throw new Error(
+          `llm-replay: a model call arrived from an unrecorded session (#${seenSessions + 1}); `
+          + `the scenario recorded only ${totalScripts} session(s) — re-record it`,
+        )
+      }
       if (entry === undefined) {
         throw new Error(
-          `llm-replay: script exhausted — requested model call #${index + 1} but the fixture has only ${entries.length}; re-record the scenario`,
+          `llm-replay: script exhausted — session requested model call #${index + 1} `
+          + `but its script has only ${boundState.entries.length}; re-record the scenario`,
         )
       }
       yield* replayEntry(entry, options.signal)
     })()
-  })
+  }
+  const providers = config.providers ?? []
+  if (providers.length > 0) {
+    return ctx.llm.registerAdapter(providers.map(provider => provider.id), new ReplayAdapter(providers, replay))
+  }
+  return ctx.on('llm/stream', (options: GenerateOptions, _next) => replay(options))
 }
 
 export const name = 'llm-replay'
 export const inject = ['llm']
 
+/** Plugin config: the {@link ReplayConfig} inputs, each defaulting to its `DSH_SNAPSHOT_*` env var in `apply`. */
 export interface Config {
   /** Override the fixture path; defaults to `$DSH_SNAPSHOT_FILE`. */
   file?: string
   /** Override the sidecar path; defaults to `$DSH_SNAPSHOT_OVERRIDE`. */
   overrideFile?: string
+  /**
+   * Override the child-log paths; defaults to `$DSH_SNAPSHOT_CHILD_FILES` (a
+   * path-separator-delimited list). Each is a recorded subagent session log for
+   * a nested-agent scenario; absent/empty for a single-session scenario.
+   */
+  childFiles?: string[]
+  /** Optional replay-only provider catalog; absent or empty selects catch-all waterfall replay. */
+  providers?: ReplayProviderConfig[]
 }
 
 export function apply(ctx: Context, config: Config = {}): void {
@@ -245,5 +393,13 @@ export function apply(ctx: Context, config: Config = {}): void {
     throw new Error('llm-replay: a fixture path is required (Config.file or $DSH_SNAPSHOT_FILE)')
   }
   const overrideFile = config.overrideFile ?? process.env.DSH_SNAPSHOT_OVERRIDE
-  installLlmReplay(ctx, overrideFile === undefined || overrideFile.length === 0 ? { file } : { file, overrideFile })
+  const childEnv = process.env.DSH_SNAPSHOT_CHILD_FILES
+  const childFiles = config.childFiles
+    ?? (childEnv !== undefined && childEnv.length > 0 ? childEnv.split(pathDelimiter) : [])
+  installLlmReplay(ctx, {
+    file,
+    ...overrideFile !== undefined && overrideFile.length > 0 ? { overrideFile } : {},
+    ...childFiles.length > 0 ? { childFiles } : {},
+    ...config.providers !== undefined ? { providers: config.providers } : {},
+  })
 }

@@ -1,32 +1,37 @@
-# Snapshot-test REPLAY config: the acp-agent plugin tree with the model replaced
-# by llm-replay (serves a recorded session JSONL — no API key, no network).
-#
-# It reuses ../base-core.yml (the providerless core) + ./acp-tail.yml (agent-
-# loop + persistence + the ACP bridge), the SAME pieces cordis.yml shares — only
-# the LLM adapter differs: llm-replay here, llm-deepseek there. It can't reuse
-# ../base.yml because that loads llm-deepseek, whose apply() throws without
-# DEEPSEEK_API_KEY, killing a keyless replay run at boot.
-#
-# stdout is reserved for the ACP JSON-RPC protocol — no stdout logger (see
-# cordis.yml). The replay fixture path comes from $DSH_SNAPSHOT_FILE (and an
-# optional $DSH_SNAPSHOT_OVERRIDE sidecar), set by the snapshot harness.
-
-- id: timer
-  name: '@cordisjs/plugin-timer'
-
-# Providerless core (everything base.yml has EXCEPT the llm-deepseek adapter).
-- id: base-core
+# Keyless replay includes the live `cordis.yml`, disables the key-requiring
+# DeepSeek adapter, and inserts `llm-replay` to serve recorded JSONL without a key
+# or network; every other app entry remains shared.
+# With `DSH_SNAPSHOT=replay`, the app bin reads `DSH_SNAPSHOT_FILE` and optional
+# `DSH_SNAPSHOT_OVERRIDE` from the harness. The one-shot patch applies at include
+# load time, and stdout remains reserved for ACP JSON-RPC.
+- id: base
   name: '@cordisjs/plugin-include'
   config:
-    path: '../base-core.yml'
-
-# The replay adapter: short-circuits llm/stream with the recorded log's chunks,
-# in place of llm-deepseek.
-- id: llm-replay
-  name: '@deepseek-ai/dsh-llm-replay'
-
-# agent-loop + persistence + the ACP bridge — shared with cordis.yml.
-- id: acp-tail
-  name: '@cordisjs/plugin-include'
-  config:
-    path: './acp-tail.yml'
+    path: ./cordis.yml
+    patches:
+      # `name` asserts the target: a mismatch skips the patch and warns only when
+      # a logger exists. A renamed id leaves a stale adapter entry, but replay still
+      # short-circuits through `llm-replay`.
+      - id: llm-deepseek
+        name: '@deepseek-ai/dsh-llm-deepseek'
+        disabled: true
+      - id: sandbox
+        name: '@deepseek-ai/dsh-sandbox-local'
+        config:
+          runnerCommand:
+            - bash
+            - -c
+            - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+            - passthrough-runner
+          runnerFailureSignatures:
+            - 'passthrough-runner: profile rejected'
+      - insert:
+          - id: llm-replay
+            name: '@deepseek-ai/dsh-llm-replay'
+            config:
+              providers:
+                - id: deepseek
+                  name: DeepSeek
+                  models:
+                    - id: deepseek-v4-flash
+                    - id: deepseek-v4-pro

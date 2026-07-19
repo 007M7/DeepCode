@@ -1,46 +1,75 @@
 /**
- * SQLite durable session-persistence backend (`@deepseek-ai/dsh-session-persistence-sqlite`).
- *
- * A SECOND {@link SessionPersistence} implementation, built to validate that the
- * abstract seam + the shared `runPersistenceContract` suite are genuinely
- * backend-agnostic: the same append-only / contiguous-seq / lazy-materialization
- * / interrupted-turn-close-on-load semantics the JSONL backend expresses over
- * file bytes, expressed here over `node:sqlite` rows. Each `SessionEvent` maps
- * 1:1 onto a row `(session_id, seq, type, time, data)`.
- *
- * Like the JSONL backend it supplies ONLY the storage primitives (the
- * {@link PersistenceBackend} hooks below — INSERT/DELETE/SELECT inside
- * transactions); all the write-path orchestration lives in the backend-agnostic
- * {@link PersistenceCoordinator} this class composes. The six public
- * {@link SessionPersistence} methods delegate to the coordinator.
- *
+ * SQLite durable session-persistence backend. It maps each session header and
+ * event to rows, and delegates write-path orchestration to
+ * {@link PersistenceCoordinator}. It has no independent per-session artifact,
+ * so its locator returns `undefined`.
  * @module @deepseek-ai/dsh-session-persistence-sqlite
  */
 
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type StoredPrefix,
+  type PersistenceBackend, type SessionLocation, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
-import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
-  openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
+  type JournalMode, openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
 } from './schema.ts'
 
 export { SCHEMA_VERSION } from './schema.ts'
+
+/**
+ * Serialize an event's surface-metadata fields for SQL binding. Both fields are
+ * nullable TEXT columns — null when the event has no surface metadata (non-surface
+ * events, events written before surface support).
+ */
+function surfaceBindings(event: SessionEvent): [string | null, string | null] {
+  const se = event as SessionEvent<SurfaceEventType>
+  return [
+    se.sourceEventSeqs ? JSON.stringify(se.sourceEventSeqs) : null,
+    se.surfaceOp !== undefined ? JSON.stringify(se.surfaceOp) : null,
+  ]
+}
+
+/**
+ * Exclusively create a missing database file with owner-only permissions.
+ * Existing files retain their modes, and errors other than `EEXIST` propagate.
+ * `DatabaseSync` reopens by path, so this does not protect confidentiality or
+ * integrity when another principal can replace the database entry in its parent
+ * directory.
+ */
+async function createDatabaseFile(path: string): Promise<void> {
+  try {
+    const handle = await open(path, 'wx', 0o600)
+    await handle.close()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  }
+}
 
 /** Plugin configuration. */
 export interface Config {
   /**
    * Filesystem path to the SQLite database file. The special value `:memory:`
-   * opens an in-process database (tests); a file path is created (with parent
-   * dirs) on construction.
+   * opens an in-process database (tests). On filesystems with POSIX modes,
+   * missing directories and databases are created owner-only; existing path
+   * modes are preserved. Filesystem setup errors other than an existing database
+   * fail initialization. The backend does not protect confidentiality or
+   * integrity when another principal can replace the database entry in its
+   * parent directory.
    */
   path: string
+  /**
+   * SQLite `journal_mode` pragma. `wal` (the default) is the recorded
+   * durability model; pick a rollback-journal mode (`delete`/`truncate`/
+   * `persist`) on filesystems where WAL's shared-memory files do not work
+   * (network mounts). See {@link JournalMode}.
+   */
+  journalMode?: JournalMode
 }
 
 /**
@@ -53,6 +82,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
 
   static Config: z<Config> = z.object({
     path: z.string().required(),
+    journalMode: z.union(['wal', 'delete', 'truncate', 'persist'] as const).default('wal'),
   })
 
   /**
@@ -68,24 +98,29 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
-    // Open the database asynchronously (the parent directory may need creating);
-    // every hook awaits `ready` first. Opening synchronously would force a sync
-    // mkdir and block plugin apply.
-    this.ready = this.openDb(config.path)
+    // Open asynchronously so directory creation does not block plugin apply;
+    // every storage hook awaits the same readiness promise.
+    this.ready = this.openDb(config.path, (config as Required<Config>).journalMode)
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this)
   }
 
-  private async openDb(path: string): Promise<void> {
+  private async openDb(path: string, journalMode: JournalMode): Promise<void> {
     if (path !== ':memory:') {
       const abs = resolve(path)
       await mkdir(dirname(abs), { recursive: true, mode: 0o700 })
-      this.db = openDatabase(abs)
+      await createDatabaseFile(abs)
+      this.db = openDatabase(abs, journalMode)
     } else {
-      this.db = openDatabase(path)
+      this.db = openDatabase(path, journalMode)
     }
   }
 
   // --- SessionPersistence service surface (delegated to the coordinator) ---
+
+  /** SQLite has one database, not an independent local artifact per session. */
+  locate(_meta: SessionHeader): SessionLocation | undefined {
+    return undefined
+  }
 
   create(meta: SessionHeader): Promise<void> {
     return this.coordinator.create(meta)
@@ -99,26 +134,8 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     return this.coordinator.load(id)
   }
 
-  has(id: SessionId): Promise<boolean> {
-    return this.coordinator.has(id)
-  }
-
-  delete(id: SessionId): Promise<void> {
-    return this.coordinator.delete(id)
-  }
-
-  // `list` is BOTH the public service method and the PersistenceBackend hook —
-  // one method (the SELECT below). The coordinator adds no orchestration for
-  // listing, so routing it through the coordinator would just recurse. Defined
-  // once, in the "PersistenceBackend hooks" section.
-
-  /**
-   * The per-session init promises, exposed for white-box tests that await a
-   * specific session's onCreated (there is no public API to await one init).
-   */
-  get inits(): Map<Session, Promise<void>> {
-    return this.coordinator.inits
-  }
+  // One method serves both public `list` and the backend hook; delegating it to
+  // the coordinator would call this hook recursively.
 
   // --- PersistenceBackend hooks (the SQLite storage primitives) ---
 
@@ -143,7 +160,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     if (row === undefined) return undefined
     const meta = rowToMeta(row)
     const eventRows = this.db
-      .prepare('SELECT seq, type, time, data FROM events WHERE session_id = ? ORDER BY seq')
+      .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op FROM events WHERE session_id = ? ORDER BY seq')
       .all(id) as unknown as EventRow[]
     const { preserved, tornFrom } = scanRows(eventRows)
     return { meta, events: preserved, ...tornFrom !== undefined ? { tornMarker: tornFrom } : {} }
@@ -158,13 +175,14 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   async appendBatch(meta: SessionHeader, events: readonly SessionEvent[], isMaterialized: boolean): Promise<void> {
     await this.ready
     const insertEvent = this.db.prepare(
-      'INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
     this.db.exec('BEGIN')
     try {
       if (!isMaterialized) this.writeRow(meta)
       for (const event of events) {
-        insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data))
+        const [surfaceSeqs, surfaceOp] = surfaceBindings(event)
+        insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp)
       }
       this.db.exec('COMMIT')
     } catch (error) {
@@ -186,9 +204,12 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
         this.db.prepare('DELETE FROM events WHERE session_id = ? AND seq >= ?').run(meta.id, tornMarker)
       }
       if (closers.length > 0) {
-        const insertEvent = this.db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
+        const insertEvent = this.db.prepare(
+          'INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
         for (const event of closers) {
-          insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data))
+          const [surfaceSeqs, surfaceOp] = surfaceBindings(event)
+          insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp)
         }
       }
       this.db.exec('COMMIT')
@@ -201,12 +222,6 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       throw error
       /* v8 ignore stop */
     }
-  }
-
-  /** Remove a session's row (ON DELETE CASCADE drops its events). */
-  async deleteStored(id: SessionId): Promise<void> {
-    await this.ready
-    this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
   }
 
   /** List all materialized sessions' metadata (every row is a materialized session). */
@@ -234,23 +249,25 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   /**
    * Insert-or-replace a session's metadata row. The only caller is the first
    * materializing `appendBatch`, so writing the row IS the materialization (its
-   * existence is the signal `has`/`list` read).
+   * existence is the signal `list` reads).
    */
   private writeRow(meta: SessionHeader): void {
     this.db.prepare(`
-      INSERT INTO sessions (id, version, created_at, cwd, parent_session)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         version = excluded.version,
         created_at = excluded.created_at,
         cwd = excluded.cwd,
-        parent_session = excluded.parent_session
+        parent_session = excluded.parent_session,
+        seed_length = excluded.seed_length
     `).run(
       meta.id,
       meta.version,
       meta.createdAt,
       meta.cwd ?? null,
       meta.parentSession ?? null,
+      meta.seedLength ?? null,
     )
   }
 }

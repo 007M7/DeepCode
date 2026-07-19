@@ -1,225 +1,188 @@
 # DeepSeek Harness Architecture
 
-This document describes the phase-1 architecture of the DeepSeek Harness — the foundation of **DeepSeek Code**. The governing principle, from the [microkernel design discussion][microkernel-doc], is:
+The **DeepSeek Harness SDK** builds agent harnesses on Cordis. The principle is simple: **everything is a plugin**. The shipped loop is one plugin, not a privileged kernel.
 
-> **Microkernel approach. Everything is a plugin.**
+## Overview
 
-The harness core is deliberately tiny: a handful of abstract services plus one concrete loop plugin (`dsh-agent-loop`). Every product feature — tools, hooks, compaction, sandboxing, UI, persistence, sub-agents, MCP, skills — is meant to be written as a plugin against the extension surface described here, without modifying the loop.
+A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx.llm`, `ctx.tools`, `ctx.sessions`), typed events (`agent/request`, `tools/pre-execute`, `session/event`), and disposable prompt, tool, provider, adapter, and listener registrations.
 
-Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
+`packages/core/` groups the default agent flow; surrounding capabilities are equally first-class Cordis plugins.
 
-For a catalog of the **data structures** this architecture moves around — the core vocabulary types, their literal shapes, and the seam types grouped by capability — see [core-data-structures/](core-data-structures/core.md). This document covers behavior; that one covers the types.
+### Default Services
 
-**Contents:** [Layering](#layering) · [Service map](#service-map) · [Capability seams](#capability-seams-interface--implementation--consumer) · [The vocabulary (dsh-llm)](#the-vocabulary-dsh-llm) · [Event-sourced sessions](#event-sourced-sessions-dsh-session) · [Prompt assembly](#prompt-assembly-dsh-system-prompt) · [Tool pipeline](#tool-pipeline-dsh-tools) · [Agents and the loop](#agents-dsh-agent-and-the-loop-dsh-agent-loop) ([lifecycle](#loop-lifecycle-session--turn--step), [event taxonomy](#event-taxonomy), [waterfall semantics](#cordis-waterfall-semantics-important)) · [Plugin sanity checklist](#plugin-sanity-checklist) · [Extension cookbook](#extension-cookbook) · [Deferred work](#deferred-work-todo)
+| ctx key | Package | Role |
+|---|---|---|
+| — | [`dsh-scope`](../packages/core/scope/README.md) | scoped-context registration primitive (library) |
+| `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
+| `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and prompt variables |
+| `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
+| `ctx.agents` | `dsh-agent` | live agents, delegated creation, `agent/*` events, and process-local initiator scope |
+| `ctx.agentLoop` | `dsh-agent-loop` | concrete `Agent` driver |
 
-[microkernel-doc]: https://trtgsjkv6r.feishu.cn/wiki/VS9Lw1kQki6mDJk2UHocyuphnsc
-[mvp-doc]: https://trtgsjkv6r.feishu.cn/wiki/ZwK6wfBE9i91V6kzMGYcgRGanxg
+### Capability Services
 
-## Layering
+| ctx key | Package family | Role |
+|---|---|---|
+| `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry and streaming model calls |
+| `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | singleton replay-aware request/surface pressure |
+| `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
+| `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
+| `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
+| `ctx.fs` | [`fs/`](../packages/fs/README.md) | filesystem provider primitives and policy events |
+| `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry and progressive disclosure |
+| `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
+| `ctx.compact` | [`compact/`](../packages/compact/README.md) | session-log compaction |
+| `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
+| `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry + generic `task_*` control tools |
+| `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
+| `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
+| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred logical-corpus exact reads and relationship traces |
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  future plugins: hooks, compaction, sandbox, UI, MCP…        │
-├─────────────────────────────────────────────────────────────┤
-│  @deepseek-ai/dsh-agent-loop      (the ONE concrete plugin)  │
-│  @deepseek-ai/dsh-bash-local      (bash impl)                │
-│  @deepseek-ai/dsh-tool-bash       (bash tool schemas)        │
-│  @deepseek-ai/dsh-session-persistence-jsonl (persistence impl)│
-├─────────────────────────────────────────────────────────────┤
-│  @deepseek-ai/dsh-agent           (vocabulary + registry)    │
-│  @deepseek-ai/dsh-tools           (registry + exec waterfall)│
-│  @deepseek-ai/dsh-system-prompt   (assembly registry)        │
-│  @deepseek-ai/dsh-session         (event-sourced log)        │
-│  @deepseek-ai/dsh-session-persistence (persistence seam)     │
-│  @deepseek-ai/dsh-llm             (abstract model service)   │
-│  @deepseek-ai/dsh-bash            (abstract bash executor)   │
-├─────────────────────────────────────────────────────────────┤
-│  vendor/: cordis, loader, include, group, timer, hmr,        │
-│           logger-console, cosmokit, schemastery              │
-└─────────────────────────────────────────────────────────────┘
-```
+## Event
 
-Dependency rule: plugins depend on interface packages, never on `dsh-agent-loop`. The loop itself is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced.
+Events form the service extension API; see the exhaustive [events catalog](cordis-catalog/events.md) and [producer/consumer map](event-producer-consumer.md).
 
-## Service map
+### Event Domains
 
-| ctx key | Class | Package | Role |
-|---|---|---|---|
-| `ctx.llm` | `LlmService` | dsh-llm | adapter registry; `stream()` / `streamBlocks()` / `generate()` |
-| `ctx.sessions` | `SessionStore` | dsh-session | creates/holds event-sourced `Session`s |
-| `ctx.sessionPersistence` | `SessionPersistence` (abstract) | dsh-session-persistence | durable persistence seam: create/append/load/list sessions |
-| `ctx.systemPrompt` | `SystemPrompt` | dsh-system-prompt | ordered sections + tool schemas → `assemble()` |
-| `ctx.tools` | `ToolRegistry` | dsh-tools | tool definitions; `execute()` through waterfall |
-| `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles + the create/resume factory seam (returns an `AgentHandle` = `{ agent, dispose() }` for owned per-agent teardown) |
-| `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `ReactLoopAgent`s and drives their loops |
-| `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
+- **Session events** are durable, replayable facts: boundaries, messages, tool activity, steering, compaction, and tool-owned records append to the log and flow through `session/event`.
+- **Agent events** carry the live `Agent` handle for status, diagnostics, prompt admission, request shaping, result validation, and continuation policy.
+- **Capability events** belong to their owning seam; `tools/*`, `llm/*`, `system-prompt/*`, `fs/*`, and `subagent/*` attach policy and adapters without importing the loop.
 
-All registrations (`registerAdapter`, `section`, `tools`, `register`, …) go through `ctx.effect()` and return disposers, so plugin hot-reload (vendored HMR) and fiber disposal clean up automatically.
+### Interception Semantics
 
-For each service's full public interface (every method signature, generated from source), plus the inherited cordis-core/loader/hmr/timer surface a plugin also sees, see the `## Services` section of [cordis-catalog/events-and-services.md](cordis-catalog/events-and-services.md). This table is the at-a-glance role summary; that catalog is the exhaustive reference.
+Waterfall events behave like around-middleware: a listener delegates by calling `next()`; returning without it vetoes or takes over. Full rule: [Cordis waterfall semantics](cordis-primer.md#cordis-waterfall-semantics).
 
-## Capability seams: interface / implementation / consumer
+## Default Loop Lifecycle
 
-Swappable capabilities are split into **three packages** so each part evolves independently. The bash capability is the template:
+The shipped loop drains work from prompt through checkpoint. Every pause is a service call or event available to plugins.
 
-1. **Interface** (`dsh-bash`) — an abstract service plus the vocabulary types (`BashExecutor`, `BashRunResult`, `BashTask`, …). Defines the contract, owns the `ctx.bash` key, depends only on cordis.
-2. **Implementation** (`dsh-bash-local`) — a concrete subclass loaded as a plugin (local subprocesses, process-group kills, spill-file truncation). Sandboxed, containerized, or remote backends are sibling packages implementing the same interface.
-3. **Consumer** (`dsh-tool-bash`) — what the model and other plugins program against (the `bash`/`bash_output`/`bash_kill` tool schemas). Consumers `inject` the interface's ctx key and never import implementation types.
+A **session** is an append-only event log. A **turn** drains queued input until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension points.
 
-The LLM seam has the same topology folded differently: `dsh-llm` carries the interface (`LlmAdapter`) AND the consumer surface (`ctx.llm.stream()`), with adapters as implementation packages — there the consumer is the loop itself, not a swappable schema surface. Use the full three-package split when the consumer is independently replaceable; keep interface + consumer together when they are one concern. Don't split preemptively: a capability with one conceivable implementation and one consumer stays one package until proven otherwise.
+Startup resolves identity. No id mints `<config-id>-session-<uuid>`; `sessionId` resumes or creates; `resumeSessionId` requires history. Active failures emit `agent-loop/config-start-failed(sessionId, error)`, so front doors reject work; teardown stays silent.
 
-> **"Capability" — two unrelated meanings.** (1) The *seam pattern* above ("one plugin provides a capability, another needs it") is realized by plain Cordis **services + `inject`**: a provider registers a service (`ctx.bash`, declared in `interface Context`); a consumer declares `inject: ['bash']` and its fiber stays pending until the service exists, tearing down via HMR if it later vanishes. No extra library is needed. (2) `@cordisjs/plugin-capability` is a different axis entirely — a **permission/capability-security** service (named permissions with inheritance/dependency, tested against a session via `ctx.capability.test`). It is a candidate for the deferred permissions/sandbox work (the `tools/execute` veto seam), NOT a mechanism for swapping implementations.
+### Turn Flow
 
-## The vocabulary (dsh-llm)
-
-Messages are arrays of typed **content blocks** (`text`, `reasoning`, `tool-call`, `tool-result`, `image`); the union is derived from the merge-extensible `ContentBlockMap`, so plugins can add block types via declaration merging. The same merge-extensible-map pattern is used for `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason` — typed sum types instead of strings.
-
-Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta`, `tool-call-delta`, `block-end`, `usage`, `finish`). `BlockAssembler` is the single shared implementation that assembles chunks into blocks/messages; the loop logs raw chunks (replay fidelity) while feeding the same chunks through an assembler.
-
-`LlmAdapter` is the provider seam: subclass, implement `stream()`, call `ctx.llm.registerAdapter(models, adapter)`. Two real adapters implement it — `dsh-llm-deepseek` (hand-rolled fetch/SSE against the DeepSeek API) and `dsh-llm-pi-ai` (the same endpoint through the `@earendil-works/pi-ai` library). They exist as a pair deliberately: two independent internals over one contract verified the StreamChunk protocol, which is now documented (in `dsh-llm/src/types.ts`) with the conventions that review pinned down — usage before finish, nothing after finish, raw-string tool arguments, and the two sanctioned error paths (thrown vs `finish {kind:'error'}`).
-
-## Event-sourced sessions (dsh-session)
-
-A `Session` is an append-only log of typed `SessionEvent`s — the single source of truth. The LLM message history is *derived* from the log (`deriveMessages()`):
-
-- `user/message` → user message
-- `assistant/message` → assistant message (raw `assistant/chunk` events are replay/UI data and are skipped in derivation)
-- `tool/result` → user message carrying a `tool-result` block
-- `context/message`, `steering/message` → user-role messages wrapped in a tagged envelope (`<context source="…">…</context>`) at their chronological position — the "system-reminder" pattern; models distinguish them from real user prompts by the envelope. **TODO(review)**: the real adapters now exist (the original precondition); the envelope still wants a deliberate review against live model behavior (`TODO(review)` in dsh-session).
-
-Replay/fork = `ctx.sessions.create(id, { seed: seedEvents })`. Trace/telemetry = listen to `session/event`.
-
-**Durability seam**: `session/event` is a synchronous notification; persistence plugins buffer (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end. The durable backend is a real **capability seam**: the abstract `SessionPersistence` service (`dsh-session-persistence`, `ctx.sessionPersistence`) defines create/append/load/list over the existing `SessionEvent` (no parallel persisted type), and `dsh-session-persistence-jsonl` is the first implementation — an append-only JSONL log per session with crash-safe atomic writes, crash recovery that PRESERVES an interrupted turn (closing it with a synthetic `turn/end {interrupted}` rather than truncating — a turn can be huge), and a read/replay path. Session metadata (format version, cwd, lineage) travels separately as `SessionHeader`, attached to a `Session` via `session.header`. Resuming a persisted session into a live agent is `ctx.agents.resume({ resumeSessionId })`. A second backend, `dsh-session-persistence-sqlite` (`node:sqlite`, one row per `SessionEvent` — the row shape `(session_id, seq, type, time, data)` maps 1:1 onto it), passes the same `runPersistenceContract` suite, proving the seam is genuinely backend-agnostic.
-
-## Prompt assembly (dsh-system-prompt)
-
-Plugins contribute `PromptSection`s (named, ordered, static or computed) and tool-schema providers. `assemble()` returns a `PromptAssembly { sections, tools }` through the `system-prompt/assemble` waterfall.
-
-Tool schemas are deliberately **part of the assembly**: "what the model is told it can do" is one coherent thing managed here, even though adapters transmit schemas as the wire-level `tools` field rather than prompt text.
-
-## Tool pipeline (dsh-tools)
-
-`ToolRegistry.register()` takes schema + `execute()`. The registry feeds its schemas into the system-prompt assembly automatically.
-
-`execute()` runs through the **`tools/execute` waterfall** — the single seam where sandbox, permission, hooks, and plan-mode plugins wrap or veto a call. This collapses Claude Code's validate → PreToolUse → permission → execute → PostToolUse pipeline into ordered waterfall listeners.
-
-**TODO**: tool shapes get revisited now that real tools exist (the bash suite landed; the `TODO(review)` in dsh-tools is still open) — e.g. a concurrency-safety hint for parallel execution; phase 1 executes tool calls sequentially.
-
-## Agents (dsh-agent) and the loop (dsh-agent-loop)
-
-`Agent` is the handle every plugin programs against:
-
-- `send(content)` — queued message; starts a turn when idle, else next turn
-- `steer(content)` — mid-turn injection, drained **between steps**; behaves like `send` when idle
-- `inject(content)` — in-session context (`context/message` event); the next request sees it (Claude Code attachment / system-reminder analog). An inject made while the agent is *running* joins the open turn; an inject while *idle* is wrapped in a one-shot turn (`turn/start{trigger:injection}` → `context/message` → `turn/end`) so every event stays turn-enclosed (see [the turn-enclosure invariant](rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md)).
-- `abort(reason)` — aborts the in-flight step via `AbortSignal`
-- `cancel(reason)` — the broad cancel: clears queued + steering work, aborts the in-flight step, and drops a turn about to start (the pre-step window) so a queued-but-not-started prompt never runs and cannot be batched into the cancelled turn. `abort()` is the narrower step-only verb; `cancel()` is what a UI/ACP `session/cancel` maps to.
-- `whenIdle()` — resolves once the agent reaches quiescence after settling out of `running` (resolves immediately when already idle; awaits the loop exit when disposed). The teardown signal: `abort()` then `await whenIdle()` guarantees the in-flight turn has fully stopped. Observes the transition without disposing the agent.
-- `session`, `status`, `options`
-
-**TODO(sub-agents)**: `spawn`/`fork` land on `AgentLoop.create()` — fork seeds the child Session with the parent's event log, spawn starts fresh; children are ordinary `Agent` handles so `steer()` and event subscription work uniformly. Inter-agent channels beyond these primitives are deliberately deferred.
-
-### Loop lifecycle (session / turn / step)
-
-- **Session**: the whole event log of one agent.
-- **Turn**: triggered by ≥1 queued message; runs steps until the model stops requesting tools and no plugin requests continuation.
-- **Step**: one model request + its tool executions.
-
-```
+```text
+choose declarative identity and fresh/resume path
+  -> prepare private session + agent.ctx -> await unpublished setup
+  -> enter session + agent -> session/created -> agent/created
+  -> enable driving -> agent/session-start(source) -> start driver
 forever:
-  wait for queued messages (idle)
+  wait for queued messages
   emit agent/status(running)
-  TURN (error-contained — a throwing plugin ends the turn, never the loop):
-    drain queued → 'turn/start' → session('user/message'…) → emit agent/turn-start
+  TURN:
+    'turn/start'
+    each queued message -> agent/prompt-submit
+      allowed prompt -> 'user/message' plus injected context
+    every prompt blocked -> 'turn/end'(rejected)
     STEP loop:
-      drain steering (late steering from previous step's listeners)
-      session('step/start'); emit agent/step-start
-      assembly = ctx.systemPrompt.assemble()          ⟵ waterfall system-prompt/assemble
-      req = {model, system, tools, messages: session.deriveMessages(), signal}
-      req = waterfall agent/request                   ⟵ hooks, compaction, model switch
-      stream ctx.llm.stream(req)                      ⟵ waterfall llm/stream (raw chunks)
-        session('assistant/chunk'); emit agent/stream-chunk
-      if assembler.finish is error/aborted: throw      ⟵ adapter's in-band error path →
-                                                         step error (turn ends error/aborted,
-                                                         not a normal completed message)
-      msg = waterfall agent/step-result               ⟵ runs BEFORE the log append, so the
-      session('assistant/message', 'usage')              log records what tool dispatch uses
-      each tool-call (sequential, abort-checked between calls):
-        session('tool/call'); ctx.tools.execute()     ⟵ waterfall tools/execute
-        session('tool/result')
-      drain steering → session('steering/message'); emit agent/steering
-      emit agent/step-end
-      cont = waterfall agent/turn-continuation(default = hadToolCalls || steered)
-      steering pending from step-end/continuation listeners forces cont = true
-      if !cont: break
-  session('turn/end'); emit agent/turn-end
-  await ctx.parallel('session/flush', session)        ⟵ durability checkpoint (failure
-                                                         reported via agent/error, not fatal)
-  leftover steering re-enqueued as queued messages    ⟵ steering is never stranded
-  emit agent/status(idle) unless more queued
+      drain steering
+      assemble system prompt and tool schemas
+      agent/session-prefix (first step)
+      agent/pre-step
+      snapshot the derived messages (the reconstruction boundary)
+      'step/start'
+      agent/request (config only) -> log request/header -> llm/stream (frozen)
+      on final adapter-path or terminal in-band failure:
+        'step/end'
+        agent/request-error(original error, consecutive retry attempt, signal)
+        retry in the next numbered step or preserve the original error
+      otherwise:
+        'assistant/chunk'
+        agent/step-result
+        'assistant/message' (transformed content or empty success anchor after step-result rejection)
+        schedule tool calls by ctx.tools.executionMode:
+          exclusive -> one-call barrier
+          parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
+          each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+          each model-order result -> ordered tools/post-execute -> 'tool/result'
+        append accepted tool-batch context after all recorded results, then steering
+        agent/post-step
+        'step/end'
+        agent/turn-continuation
+        agent/turn-stop (terminal policy)
+        stop unless tools or continuation policy ask for another step
+    'turn/end'
+    checkpoint persistence and notify idle/running status
 ```
 
-Error containment: a throwing `agent/turn-continuation` listener or a broken step ends the **turn** with an `error` event (appended INSIDE the turn, before `turn/end`) — never the driver loop. An adapter that ends its stream with a `finish {kind:'error'}` or `{kind:'aborted'}` chunk (the in-band error path, for adapters that can't throw mid-stream) is likewise translated into a step error, so the turn ends `error`/`aborted` instead of logging a normal `completed` assistant message. `abort()` is honored mid-stream **and** between tool calls; disposal mid-turn ends the turn with reason `disposed` and emits `agent/status('disposed')`.
+Each step assembles ordered prompt sections, tool schemas, and `{{name}}` variables; unknown or valueless references fail the turn. `dsh-system-prompt` owns the harness identity and default persona, which an agent scope may shadow. The loop supplies `model` and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Turn-end reasons: a turn ends with one `TurnEndReason` — `completed`, `aborted`, `error`, `disposed`, or `max-tokens`. `max-tokens` mirrors the model-call `FinishReason` of the same name (DeepSeek's `length`): a step that hit the output-token ceiling makes the turn end `max-tokens` rather than `completed`, by the rule *any `max-tokens` step in the turn surfaces as `max-tokens`* (a continuation plugin may run further steps after one, but the cut-short fact wins; the `disposed`/`aborted`/`error` outcomes still take precedence). This lets a consumer distinguish a clean stop from a truncated one (the ACP bridge maps it to the `max_tokens` stop reason). `TurnEndReason` is merge-extensible; `refusal` and `max_turn_requests` are the next variants to add when an adapter/loop first emits them.
+Tool-time context—including async `agent.inject()` notices and post-tool `additionalContexts`—settles, then follows recorded results. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering before signal closure. Leftovers become queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through turn close and flush, and discards later steering but preserves queued prompts.
 
-A failure that happens once the turn is already closed has no in-turn position for a session `error` event (appending one after `turn/end` would put it past the persistence commit boundary, where it is dropped as a crash tail — [the turn-enclosure invariant](rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md)). So a rejecting `session/flush` (the post-`turn/end` durability checkpoint) and a throwing `agent/turn-end` listener are reported via `agent/error` + the logger only, NOT as a session event; the turn stays balanced and the persistence backend keeps its buffered events for the next flush.
+`dsh-compact-basic` handles pressure and canonical overflow at checkpoints; retry requires a balanced surface replacement ([decision](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)).
 
-**Turn-enclosure invariant**: every session event lives inside a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a persistence backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See [the turn-enclosure invariant](rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md).
+### Failure Boundaries
 
-### Event taxonomy
+The turn is the containment boundary. Final adapter-path and terminal in-band failures close the step before `agent/request-error`; retry opens a numbered step; otherwise, the provider error survives. Attempts reset on success.
 
-The `agent/*` events are declared in `@deepseek-ai/dsh-agent` (so nothing depends on the loop package); each other service declares its own events (`tools/*`, `llm/*`, `system-prompt/*`, `session/*`). The full catalog — every event's exact signature, dispatch mode, and prose — is **generated from source** and lives in [cordis-catalog/events-and-services.md](cordis-catalog/events-and-services.md) (the `## Events` section), alongside the `ctx.<key>` service interfaces. That file is regenerated by `scripts/gen-cordis-catalog.ts` and frozen by the `verify-cordis-catalog` freshness gate (part of `doc-sync`), so it cannot drift from the `interface Events` declarations.
+Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched model tool calls receive synthetic `tool/call` and `ABORTED` result pairs before `turn/end`. `cancel()` clears queues and aborts active work; disposal awaits quiescence before unregistering.
 
-### Cordis waterfall semantics (important)
+Every session event is turn-enclosed. Reloading preserves an interrupted tail and closes it with a synthetic `interrupted` turn end. Failures after durable turn close report only through `agent/error` because no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
 
-`ctx.waterfall` is **around-middleware**, not a value reducer. Each listener receives `(...args, next)`:
+### Agent Handles
 
-- call `next()` to delegate to later listeners (and ultimately the core behavior), possibly wrapping it;
-- return a value **without** calling `next()` to short-circuit (veto);
-- listeners run in registration order; `prepend: true` jumps the queue.
+`ctx.agents` owns live agents and returns `AgentHandle { agent, dispose() }`. Plugins drive `Agent` through `send()`, `steer()`, `inject()`, `cancel()`, and `whenIdle()`. The caller fiber and factory provider structurally co-own programmatic lifecycles; the consumer handle is the only other teardown capability. All owners await one disposer.
 
-Composition caveat: values propagate through `next()`'s **return value**. Mutating the passed-in object works when later listeners receive the same reference, but a listener that returns a *new* object makes earlier mutations invisible downstream. Prefer mutate-then-`next()` for cooperative middleware; return a replacement only when you mean to take over the result.
+### Agent Scope
 
-## Plugin sanity checklist
+Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, receive only that agent's dispatches, and unwind with it; async effects such as background-task cleanup are awaited. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. Typed resolvers derive carrier checks from merged `Events` signatures and `scopeTarget` ([semantic gates](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See [agent scope](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition controls](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs drivers inside `ctx.agents.withInitiator()`; private orchestration derives `agent.session`; other identities stay explicit ([decision](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
 
-Every MVP feature (including the TODO-marked ones), with the mechanism that implements it **without modifying the loop**:
+## State
 
-| MVP feature | Plugin mechanism |
+### Session Log
+
+The session log is the source of truth. `deriveMessages()` projects session events into the `Message[]` sent to the model; raw `assistant/chunk` events stay in the log for replay and UI fidelity. Replay, fork, resume, transcript rendering, telemetry, and persistence all derive from the same event stream.
+
+**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, headers by folding `request/header` — and dev invariants assert this ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+
+Durability is a plugin concern. Persistence backends buffer synchronous `session/event` notifications and the loop awaits a turn-end checkpoint before moving on. The `SessionPersistence` seam stores `SessionEvent` directly, with metadata in `SessionHeader`; JSONL and SQLite share one contract suite.
+
+### Model Content
+
+Messages contain typed blocks (`text`, `reasoning`, `tool-call`, `tool-result`) derived from merge-extensible `ContentBlockMap`; the same pattern types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New block types coordinate adapters, UI bridges, compaction pricing, token metering, and persistence as one repo-wide contract; replay measurement types live in [token-meter.md](core-data-structures/token-meter.md).
+
+Streaming uses raw chunks (`block-start` through `finish`) and `BlockAssembler`. The loop logs and assembles chunks, storing provider/model provenance plus replay state. An `LlmAdapter` implements `stream()`, registers provider routes, and may expose selector metadata; it resolves and validates model ids. Replay state reaches targets only when both routes map to one adapter instance, which owns validation and conversion. The contract lives in [llm-streaming.md](core-data-structures/llm-streaming.md).
+
+## Extension And Composition
+
+### Capability Pattern
+
+A swappable capability usually splits into **interface / implementation / consumer**: the interface owns its `ctx` key and events, an implementation registers a backend, and a consumer exposes model behavior through tools or prompts. Bash is the reference; the [capability graph](capability-seams.md) shows every family.
+
+Some seams bend the template deliberately: LLM combines interface and consumer because adapters implement it; filesystem wraps provider primitives with policy; web keeps search/fetch provider registries behind one service; skills and subagents use named providers. Subagents spawn fresh, fork a completed-turn prefix, or use ACP children ([subagent.md](core-data-structures/subagent.md)).
+
+`dsh-workspace-context` composes baselines on `agent/session-prefix` and appends `ctx.fs`-discovered nested changes on `tools/post-execute`; its [decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md) records isolation. `dsh-paths` owns shared paths.
+
+### Bundles And Apps
+
+`dsh-agent-spine-demo` bundles the default spine ([README](../packages/examples/agent-spine-demo/README.md)). `dsh-stdio-demo` selects `dsh-tui` for interactive terminals and line-oriented `dsh-stdio` for pipes; `dsh-cli-demo` runs one persisted headless turn with format-pure stdout; `dsh-acp-demo` adds stdout-pure ACP over JSON-RPC ([ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies its default only without an explicit config channel and drives `dsh-jsonrpc` over line-delimited JSON-RPC ([Python SDK](../python/README.md)). Deployments remain thin leaves with swappable backends and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+
+### Where New Behavior Goes
+
+New behavior should attach to a documented extension point; changing the shipped loop requires updating this map.
+
+| Goal | Mechanism |
 |---|---|
-| Hook system (user + project level) | listeners on `agent/request`, `agent/step-result`, `tools/execute`, `agent/turn-continuation`; a hooks plugin bridges config files to shell commands |
-| `/goal` | force-continue via `agent/turn-continuation` + `steer()` reminders |
-| `/loop` | on `agent/turn-end`, `send()` the next iteration; or force-continue |
-| Dynamic workflow | orchestrator plugin on `agent/turn-end` / `agent/step-end` driving `send`/`steer` (+ sub-agents later) |
-| Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
-| Context compaction (auto + manual) | wrap `agent/request`: measure tokens, rewrite `req.messages`, append merged `compaction/*` session events; manual = a command plugin invoking the same routine |
-| System prompt configurability | `ctx.systemPrompt.section()` with ordering |
-| AGENTS.md (root) | a section provider reading the file |
-| AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
-| Built-in tools (Read/Write/Edit/Bash/…) | `ctx.tools.register()`; schemas flow into the assembly automatically. **Bash: implemented** — `dsh-bash` (seam) + `dsh-bash-local` (subprocesses) + `dsh-tool-bash` (`bash`/`bash_output`/`bash_kill`, incl. background tasks) |
-| ToolSearch / progressive disclosure | wrap `agent/request`, filter `req.tools` |
-| Tool sandbox (landlock / sandbox-exec) | wrap `tools/execute`, or implement a sandboxing `BashExecutor` (the dsh-bash seam) |
-| Permission system / AskUserQuestion | wrap `tools/execute` (veto or ask); register an ask tool |
-| Plan mode | wrap `tools/execute` (deny writes) + `agent/request` (inject mode prompt) |
-| Sub-agents (spawn / fork / steer) | TODO seam on `AgentLoop.create()`; fork = seed Session with parent events; `steer()` on the child handle |
-| MCP | one plugin per server: discover tools → `ctx.tools.register()` |
-| Skills | section + tool registration; `inject()` skill content on invocation |
-| Memory | section provider + tool |
-| Scheduled tasks (cron) | plugin registers model-callable scheduling tools; timer fires → `send(…, {source: {kind: 'cron', …}})` when idle / `inject()` notification when busy |
-| UI (GUI; CLI emits JSONL) | listen `agent/stream-chunk` + `session/event`; input → `send()` |
-| Telemetry / replayable trace | `session/event` → JSONL; replay = `sessions.create(id, { seed })` |
-| DeepSeek V4 (and other) models | `LlmAdapter` subclass via `registerAdapter`. **Implemented twice**: `dsh-llm-deepseek` (hand-rolled) and `dsh-llm-pi-ai` (pi-ai-backed) |
-| Plugin hot-reload | every registration is a `ctx.effect` → vendored HMR just works |
+| Add a model provider | register an adapter on `ctx.llm` |
+| Add a model-facing capability | register a tool on `ctx.tools`; schemas flow into prompt assembly |
+| Add command execution | implement and register a `ctx.bash` backend |
+| Add a long-running/background capability | register the work on `ctx.tasks`; the generic `task_*` tools collect/stop it |
+| Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
+| Confine spawned processes | a `ctx.sandbox` backend; consumers wrap their argv before spawning |
+| Intercept prompts, requests, model completion/failure, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` event; use serial `agent/turn-stop` for a monotonic terminal stop |
+| Add a session-stable request prefix outside history | compose it on `agent/session-prefix`, once per loop instance; logged on the request header |
+| Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
+| Add durable session state | add a `SessionEventMap` member and render/replay from the log |
+| Fork a live session | use `ctx.sessions.fork(source, boundary?, childSessionId?)` |
+| Scope a tool, prompt section, or listener to ONE agent | register it through that agent's `agent.ctx` (see Agent Scope) |
 
-## Extension cookbook
+The [extension cookbook](cookbook/extension-cookbook.md) carries plugin skeletons and the feature-to-seam map; step-by-step guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [vendored packages](cookbook/adding-a-vendored-package.md).
 
-Code skeletons for the three plugin shapes (tool, hook/permission-gate, UI) and the two runnable example wirings live in [docs/cookbook/extension-cookbook.md](./cookbook/extension-cookbook.md). Step-by-step guides: [adding a package](./cookbook/adding-a-package.md), [adding a tool](./cookbook/adding-a-tool.md), [adding an LLM adapter](./cookbook/adding-an-llm-adapter.md), [adding a vendored package](./cookbook/adding-a-vendored-package.md).
-
-## Deferred work (TODO)
-
-Tracked here deliberately — each is designed-for but not implemented:
-
-- **Sub-agent spawn/fork semantics** (seam: `AgentLoop.create()`); inter-agent channels beyond `send`/`steer`/events.
-- **Compaction implementation** (auto thresholds, summarization prompts) on the `agent/request` seam, with its session-event types added by declaration merging.
-- **Parallel tool execution** (concurrency-safety hints on ToolDefinition).
-- **Session branching/tree** (pi-style entry tree) if needed beyond seed-based forking.
+## Quick Reference
+- Domain terms in the [glossary](glossary.md)
+- Type definitions in [core-data-structures/](core-data-structures/core.md)
+- Exact event and service signatures in [events](cordis-catalog/events.md)
+- [services](cordis-catalog/services.md) catalogs
+- package contracts in the [package map](../packages/README.md)
+- [Agent Notes](../.agents/notes/README.md)

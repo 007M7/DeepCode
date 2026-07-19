@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import { DONE, mapFinishReason, mapUsage, translate } from '@deepseek-ai/dsh-llm-deepseek'
+import { DONE } from '../src/sse.ts'
+import { mapFinishReason, mapUsage, translate } from '../src/translate.ts'
 
 async function* feed(...payloads: (string | object)[]): AsyncGenerator<string> {
   for (const payload of payloads) {
@@ -47,7 +48,7 @@ describe('translate: text', () => {
     ))) {
       assembler.push(chunk)
     }
-    const result = assembler.result()
+    const result = { message: assembler.message(), finish: assembler.finish }
     expect(result.message.content).toEqual([{ type: 'text', text: 'hi' }])
     expect(result.finish).toEqual({ kind: 'stop' })
   })

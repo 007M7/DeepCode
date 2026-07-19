@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ContentBlock as AcpContentBlock } from '@agentclientprotocol/sdk'
 import {
@@ -16,7 +17,8 @@ describe('turnEndToStopReason', () => {
     expect(turnEndToStopReason({ kind: 'max-tokens' })).toBe('max_tokens')
     expect(turnEndToStopReason({ kind: 'aborted', reason: 'x' })).toBe('cancelled')
     expect(turnEndToStopReason({ kind: 'disposed' })).toBe('cancelled')
-    expect(turnEndToStopReason({ kind: 'error', message: 'boom' })).toBe('end_turn')
+    expect(turnEndToStopReason({ kind: 'rejected', reason: 'blocked by hook' })).toBe('cancelled')
+    expect(turnEndToStopReason({ kind: 'error', step: 1, message: 'boom' })).toBe('end_turn')
   })
 
   it('falls back to end_turn for an unknown (merge-extensible) future kind', () => {
@@ -32,9 +34,9 @@ describe('harnessBlockToAcpContent', () => {
     expect(harnessBlockToAcpContent({ type: 'text', text: 'hi' })).toEqual({ type: 'text', text: 'hi' })
   })
 
-  it('returns undefined for non-text blocks (reasoning/tool/image)', () => {
+  it('returns undefined for non-text blocks (reasoning / plugin-added)', () => {
     expect(harnessBlockToAcpContent({ type: 'reasoning', text: 'think' })).toBeUndefined()
-    expect(harnessBlockToAcpContent({ type: 'image', url: 'https://x/y.png', mimeType: 'image/png' })).toBeUndefined()
+    expect(harnessBlockToAcpContent({ type: 'chart', data: 'x' } as unknown as ContentBlock)).toBeUndefined()
   })
 })
 

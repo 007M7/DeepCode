@@ -1,13 +1,14 @@
 /**
  * Incremental chunk-to-message assembler. This is the single canonical assembly
- * algorithm used by both the agent loop and the LLM service convenience views.
+ * algorithm used by the agent loop to build an assistant message from a chunk
+ * stream while logging the raw chunks for replay fidelity.
  *
  * @module @deepseek-ai/dsh-llm/assembler
  */
 
 import { CallId } from './brand.ts'
 import { assertNever } from './never.ts'
-import type { ContentBlock, FinishReason, GenerateResult, Message, StreamChunk, TokenUsage } from './types.ts'
+import type { ContentBlock, FinishReason, Message, StreamChunk, TokenUsage } from './types.ts'
 
 interface PartialBlock {
   blockType: string
@@ -23,9 +24,8 @@ interface PartialBlock {
  * Incrementally assembles raw {@link StreamChunk}s into complete
  * {@link ContentBlock}s and a final assistant {@link Message}.
  *
- * This is the single shared assembly implementation: the agent loop feeds it
- * while logging raw chunks for replay fidelity, and `LlmService.generate()` /
- * `streamBlocks()` use it to offer assembled views of the same stream.
+ * The agent loop feeds it while logging raw chunks for replay fidelity, then
+ * reads `blocks()` / `message()` / `usage` / `finish` once the stream ends.
  *
  * Tolerant of delta-only protocols (no block-start/end); deltas arriving for
  * an index already closed by `block-end` are ignored (malformed stream) so a
@@ -34,15 +34,15 @@ interface PartialBlock {
 export class BlockAssembler {
   private partials = new Map<number, PartialBlock>()
   private order: number[] = []
-  private flushed = 0
   private _usage: TokenUsage | undefined
   private _finish: FinishReason | undefined
+  private _replayState: unknown = undefined
 
   /**
-   * Feed one chunk. Returns the completed block when the chunk closes one
-   * (an explicit `block-end`), otherwise undefined.
+   * Feed one chunk into the assembly state.
+   * @param chunk - the next raw chunk, in stream order.
    */
-  push(chunk: StreamChunk): ContentBlock | undefined {
+  push(chunk: StreamChunk): void {
     switch (chunk.type) {
       case 'block-start': {
         if (!this.partials.has(chunk.index)) {
@@ -72,13 +72,11 @@ export class BlockAssembler {
       }
       case 'block-end': {
         const partial = this.ensure(chunk.index, chunk.block.type)
-        // First close wins: a second block-end for an already-closed index is
-        // a straggler (same rule as post-close deltas). Ignoring it keeps the
-        // streamed prefix and the final blocks() in agreement — otherwise a
-        // re-close could rewrite a block already flushed downstream.
+        // First close wins; ignoring re-close stragglers keeps streamed output
+        // and the final assembled block in agreement.
         if (partial.block) return
         partial.block = chunk.block
-        return chunk.block
+        return
       }
       case 'usage': {
         this._usage = chunk.usage
@@ -86,6 +84,7 @@ export class BlockAssembler {
       }
       case 'finish': {
         this._finish = chunk.reason
+        this._replayState = chunk.replayState
         return
       }
       default: return assertNever(chunk, 'BlockAssembler.push')
@@ -124,68 +123,35 @@ export class BlockAssembler {
     return partial
   }
 
-  /** Assemble all blocks seen so far, in stream order. */
+  /**
+   * Assemble all blocks seen so far, in stream order.
+   * @returns one block per seen index; an open block assembles from its
+   *   accumulated deltas (an unknown block type never closed by `block-end` throws).
+   */
   blocks(): ContentBlock[] {
     return this.order.map(index => this.assemble(this.mustGet(index), index))
   }
 
-  /**
-   * Streaming flush: returns (once) every block that is complete AND has no
-   * incomplete block before it in stream order. Call after each `push()`;
-   * blocks come out strictly in stream order, so a streaming consumer sees
-   * exactly the sequence `blocks()` would produce.
-   */
-  flushReady(): ContentBlock[] {
-    const ready: ContentBlock[] = []
-    while (this.flushed < this.order.length) {
-      const index = this.order[this.flushed]
-      /* v8 ignore next 3 -- noUncheckedIndexedAccess guard: loop condition guarantees index exists in a non-empty array */
-      if (index === undefined) break
-      const partial = this.mustGet(index)
-      if (!partial.block) break
-      ready.push(partial.block)
-      this.flushed += 1
-    }
-    return ready
-  }
-
-  /**
-   * End-of-stream flush: returns (once) all not-yet-flushed blocks, in stream
-   * order, assembling still-open ones from their deltas (delta-only
-   * protocols). After this, `flushReady()` + `flushRemaining()` together have
-   * yielded exactly `blocks()`.
-   */
-  flushRemaining(): ContentBlock[] {
-    const remaining: ContentBlock[] = []
-    while (this.flushed < this.order.length) {
-      const index = this.order[this.flushed]
-      /* v8 ignore next 3 -- noUncheckedIndexedAccess guard: loop condition guarantees index exists */
-      if (index === undefined) break
-      remaining.push(this.assemble(this.mustGet(index), index))
-      this.flushed += 1
-    }
-    return remaining
-  }
-
+  /** Usage from the `usage` chunk; undefined until one arrives. */
   get usage(): TokenUsage | undefined {
     return this._usage
   }
 
+  /** Finish reason from the `finish` chunk; `{kind: 'stop'}` when the stream ended without one. */
   get finish(): FinishReason {
     return this._finish ?? { kind: 'stop' }
   }
 
-  /** The assembled assistant message. */
-  message(): Message {
-    return { role: 'assistant', content: this.blocks() }
+  /** Adapter-private replay state from the terminal finish chunk, if any. */
+  get replayState(): unknown {
+    return this._replayState
   }
 
-  /** The assembled non-streaming result. */
-  result(): GenerateResult {
-    return {
-      message: this.message(),
-      ...this._usage !== undefined ? { usage: this._usage } : {},
-      finish: this.finish,
-    }
+  /**
+   * The assembled assistant message.
+   * @returns an assistant-role message over `blocks()` (same open-block assembly rules).
+   */
+  message(): Message {
+    return { role: 'assistant', content: this.blocks() }
   }
 }

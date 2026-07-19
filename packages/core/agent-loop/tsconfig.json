@@ -2,7 +2,7 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib"
+    "outDir": "lib/types"
   },
   "include": [
     "src"
@@ -34,6 +34,9 @@
     },
     {
       "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/scope"
     }
   ]
 }

@@ -2,7 +2,7 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib"
+    "outDir": "lib/types"
   },
   "include": [
     "src"
@@ -15,7 +15,13 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../util/brand"
+    },
+    {
       "path": "../../llm/llm"
+    },
+    {
+      "path": "../../core/scope"
     }
   ]
 }

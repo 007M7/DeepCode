@@ -1,20 +1,20 @@
 import { defineConfig } from 'tsdown'
 
 /**
- * JS bundling for all workspace packages (vendor and the packages hierarchy).
- * Declarations are NOT produced here — `tsc -b tsconfig.build.json` owns
- * .d.ts output (composite project references); hence `dts: false` and
- * `clean: false` (lib/ already holds tsc's declarations).
+ * JS bundling for vendored Cordis and Harness TypeScript packages.
+ * TypeScript source is compiled first by `tsc -b tsconfig.build.json`; tsdown
+ * reads only the emitted JS under lib/types and writes lib/index.* runtime
+ * bundles. Declarations are NOT produced here, hence `dts: false`.
  *
  * Per-package shape overrides live in `<package>/tsdown.config.ts`
  * (schemastery: dual ESM+CJS; logger-console: extra browser entry).
  */
 export default defineConfig({
-  // Explicit globs: `workspace: true` would also discover examples (any
-  // package.json), but only vendor and the packages hierarchy are pnpm
-  // workspaces.
+  // Explicit globs keep bundling to vendored Cordis and the TypeScript package tree;
+  // `workspace: true` would discover package manifests outside that bundle set. Landlock
+  // platform packages contain only a prebuilt native binary, so they have no JS entry.
   workspace: ['vendor/*', 'packages/*/*'],
-  entry: ['src/index.ts'],
+  entry: ['lib/types/index.js'],
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',

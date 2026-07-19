@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { CallId, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import { serializeMessages, serializeRequest } from '@deepseek-ai/dsh-llm-deepseek'
+import { CallId } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import { serializeMessages, serializeRequest } from '../src/serialize.ts'
 
 function request(overrides: Partial<GenerateOptions> = {}): GenerateOptions {
-  return { model: 'deepseek-v4-flash', messages: [], ...overrides }
+  return { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [], ...overrides }
 }
 
 describe('serializeMessages', () => {
@@ -110,11 +110,17 @@ describe('serializeMessages', () => {
     ])
   })
 
-  it('skips image blocks (documented MVP limitation)', () => {
+  it('skips plugin-added block types (merge-extensible ContentBlockMap)', () => {
     const wire = serializeMessages([
-      { role: 'user', content: [{ type: 'image', url: 'data:image/png;base64,x' }, { type: 'text', text: 'see image' }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'chart', data: 'x' } as unknown as ContentBlock,
+          { type: 'text', text: 'see chart' },
+        ],
+      },
     ])
-    expect(wire).toEqual([{ role: 'user', content: 'see image' }])
+    expect(wire).toEqual([{ role: 'user', content: 'see chart' }])
   })
 
   it('emits an empty user message rather than dropping block-less messages', () => {
@@ -149,17 +155,17 @@ describe('serializeRequest', () => {
     expect(wire.stop).toEqual(['END'])
   })
 
-  it('maps tools with strict passthrough', () => {
+  it('maps tools to the wire function shape', () => {
     const wire = serializeRequest(request({
       messages: history,
       tools: [
         { name: 'a', description: 'A', parameters: { type: 'object', properties: {} } },
-        { name: 'b', description: 'B', parameters: { type: 'object', properties: {} }, strict: true },
+        { name: 'b', description: 'B', parameters: { type: 'object', properties: { x: { type: 'string' } } } },
       ],
     }))
     expect(wire.tools).toEqual([
       { type: 'function', function: { name: 'a', description: 'A', parameters: { type: 'object', properties: {} } } },
-      { type: 'function', function: { name: 'b', description: 'B', parameters: { type: 'object', properties: {} }, strict: true } },
+      { type: 'function', function: { name: 'b', description: 'B', parameters: { type: 'object', properties: { x: { type: 'string' } } } } },
     ])
   })
 
@@ -179,20 +185,9 @@ describe('serializeRequest', () => {
     expect(wire.thinking).toBeUndefined()
     expect(wire.reasoning_effort).toBeUndefined()
   })
-
-  it('rejects prefill with an UNSUPPORTED LlmError', () => {
-    expect(() => serializeRequest(request({ prefill: [{ type: 'text', text: 'Sure' }] })))
-      .toThrow(LlmError)
-    try {
-      serializeRequest(request({ prefill: [] }))
-      expect.unreachable()
-    } catch (error) {
-      expect((error as LlmError).code).toBe('UNSUPPORTED')
-    }
-  })
 })
 
-describe('review fixes: assistant content shapes', () => {
+describe('assistant empty and tool-call content shapes', () => {
   it('serializes a content-less, tool-call-less assistant message as null content', () => {
     // Aborted/empty assistant turns: no text, no calls → null (the wire
     // accepts it; "" is reserved for tool-call turns per the samples).

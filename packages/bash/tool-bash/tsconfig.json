@@ -2,7 +2,7 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib"
+    "outDir": "lib/types"
   },
   "include": [
     "src"
@@ -15,6 +15,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/schemastery"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
@@ -24,7 +27,25 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../session-persistence/session-persistence"
+    },
+    {
       "path": "../../bash/bash"
+    },
+    {
+      "path": "../../util/home"
+    },
+    {
+      "path": "../../tasks/tasks"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../ui/user-approval"
+    },
+    {
+      "path": "../../sandbox/sandbox"
     }
   ]
 }

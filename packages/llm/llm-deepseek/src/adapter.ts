@@ -5,34 +5,50 @@
  * @module dsh-llm-deepseek/adapter
  */
 
-import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { serializeRequest } from './serialize.ts'
 import type { RequestDefaults } from './serialize.ts'
 import { parseSse } from './sse.ts'
 import { translate } from './translate.ts'
 import type { WireError } from './types.ts'
 
+/** One optional model entry advertised by the hand-written adapter. */
+export interface DeepSeekCatalogModel {
+  /** Wire model id accepted by the configured endpoint. */
+  id: string
+  /** Selector label; defaults to {@link id}. */
+  name?: string
+  /** Optional selector detail for deployments with similar model variants. */
+  description?: string
+}
+
+/** Constructor options for {@link DeepSeekAdapter}; the plugin's `apply` resolves them from Config + environment. */
 export interface DeepSeekAdapterOptions {
+  /** Bearer token sent in the `authorization` header on every request. */
   apiKey: string
   /** Endpoint base; `/chat/completions` is appended. */
   baseURL: string
   /** Request defaults applied to every call (thinking mode, effort). */
   defaults?: RequestDefaults
+  /** Advisory models exposed to discovery consumers; requests remain unrestricted. */
+  models?: readonly DeepSeekCatalogModel[]
 }
 
 /**
- * Attribution header sent on every request so the provider can identify the
- * client. Bump in lockstep with this package's version (no build-time version
- * injection is wired in this repo yet).
+ * Map an HTTP status to a stable LlmError code.
+ * @param status - status of a non-2xx provider response.
+ * @param error - parsed provider error body, when available.
+ * @returns the normalized harness error code.
  */
-const USER_AGENT = 'deepseek-harness/0.0.1'
-
-/** Map an HTTP status to a stable LlmError code. */
-export function httpErrorCode(status: number): string {
+export function httpErrorCode(status: number, error?: WireError['error']): string {
   if (status === 401 || status === 403) return 'AUTH'
   if (status === 429) return 'RATE_LIMIT'
-  if (status === 400) return 'INVALID_REQUEST'
+  if (status === 400) {
+    const detail = [error?.code, error?.type, error?.message].filter(Boolean).join(' ')
+    if (isContextWindowExceededError(detail)) return CONTEXT_WINDOW_EXCEEDED_CODE
+    return 'INVALID_REQUEST'
+  }
   if (status >= 500) return 'SERVER'
   return `HTTP_${status}`
 }
@@ -50,47 +66,51 @@ export class DeepSeekAdapter extends LlmAdapter {
     super()
   }
 
+  override providerInfo(provider: string): LlmProviderInfo {
+    return { id: provider, name: 'DeepSeek' }
+  }
+
+  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    return Promise.resolve((this.options.models ?? []).map(model => ({
+      provider,
+      id: model.id,
+      name: model.name ?? model.id,
+      ...model.description === undefined ? {} : { description: model.description },
+    })))
+  }
+
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     const body = serializeRequest(options, this.options.defaults ?? {})
 
-    // TODO(http): deliberately raw `fetch` for the hand-rolled SSE body.
-    // `@cordisjs/plugin-http` (ctx.http) would give proxy/intercept/timeout
-    // uniformity AND can stream (`responseType: 'stream'` yields the same
-    // ReadableStream<Uint8Array> parseSse consumes), but adopting it today
-    // costs a hard `undici` dependency (it does `require('undici')` with no
-    // globalThis.fetch fallback) plus an unconditional `@cordisjs/fetch-file`
-    // import (pulling file-type + mime-types) for a file:// path we never hit.
-    // Revisit when a second adapter wants shared proxy/intercept config.
+    // TODO(http): adopt the Cordis HTTP service when shared transport configuration
+    // outweighs its additional runtime dependencies.
     const response = await fetch(`${this.options.baseURL}/chat/completions`, {
       method: 'POST',
       headers: {
         'authorization': `Bearer ${this.options.apiKey}`,
         'content-type': 'application/json',
         'accept': 'text/event-stream',
-        'user-agent': USER_AGENT,
+        ...attributionHeaders(),
+        ...options.sessionId !== undefined
+          ? { 'x-deepseek-harness-session-id': String(options.sessionId) }
+          : {},
       },
       body: JSON.stringify(body),
       ...options.signal ? { signal: options.signal } : {},
     })
 
     if (!response.ok) {
-      const code = httpErrorCode(response.status)
       let message = `DeepSeek API error (HTTP ${response.status})`
+      let providerError: WireError['error']
       try {
         const parsed = await response.json() as WireError
-        if (parsed.error?.message) message = parsed.error.message
+        providerError = parsed.error
+        if (providerError?.message) message = providerError.message
       } catch {
-        // Paranoid by design: `code` and the HTTP status are ALREADY captured
-        // above (and passed to LlmError below), so the only thing this `try`
-        // can add is a richer provider-supplied message. A malformed, empty,
-        // or non-JSON error body is a normal thing for gateways/proxies to
-        // return on a 5xx/429 — swallowing the parse failure keeps the usable
-        // status-line message instead of letting a JSON.parse throw mask the
-        // real HTTP error. Nothing else reaches this catch: response.json()
-        // is the sole statement, and any non-parse failure (e.g. body already
-        // consumed) is equally non-actionable here.
+        // Only swallow error-body parsing: the HTTP status still identifies the
+        // failure, so malformed gateway JSON must not mask it.
       }
-      throw new LlmError(message, code, response.status)
+      throw new LlmError(message, httpErrorCode(response.status, providerError))
     }
     if (!response.body) {
       throw new LlmError('DeepSeek API returned no response body', 'EMPTY_RESPONSE')

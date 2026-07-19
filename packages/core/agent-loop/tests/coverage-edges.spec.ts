@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId, LlmError, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { TurnEndReason } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+
+function driverDone(agent: Agent): Promise<void> {
+  return (agent as Agent & { done: Promise<void> }).done
+}
 
 async function harness(adapter: MockAdapter) {
   const ctx = new Context()
@@ -20,7 +26,7 @@ async function harness(adapter: MockAdapter) {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -31,98 +37,28 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function send(agent: ReactLoopAgent, text: string) {
+function send(agent: Agent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
-describe('turn boundary listener throws (handled in-turn, loop survives)', () => {
-  it('a throwing agent/turn-start listener surfaces via agent/error and the loop survives', async () => {
-    // The agent/turn-start emit happens AFTER turn/start is appended to the log,
-    // so a throwing listener is handled inside runTurn (the turn is balanced and
-    // closed via failTurn → agent/error), NOT rethrown to the runLoop backstop.
-    // The second turn should proceed normally and consume the first script entry.
-    const adapter = new MockAdapter([textResponse('turn 2')])
+describe('inbox acceptance', () => {
+  it('rejects non-serializable content or source synchronously before notification or enqueue', async () => {
+    const adapter = new MockAdapter([textResponse('turn 1')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    let queued = 0
+    ctx.on('agent/queued', () => { queued += 1 })
 
-    let threwOnce = false
-    ctx.on('agent/turn-start', () => {
-      if (!threwOnce) {
-        threwOnce = true
-        throw new Error('broken turn-start listener')
-      }
-    })
+    expect(() => {
+      agent.send([{ type: 'text', text: 'first', bad: 1n } as never])
+    }).toThrow(/losslessly JSON-serializable/)
+    expect(() => {
+      agent.send([{ type: 'text', text: 'first' }], { source: { kind: 'plugin', plugin: 'p', bad: 1n } as never })
+    }).toThrow(/losslessly JSON-serializable/)
+    expect(queued).toBe(0)
+    expect(agent.session.events).toHaveLength(0)
 
-    const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
-
-    send(agent, 'first')
-    await waitForIdle(ctx, agent)
-    expect(errors.map(e => e.message)).toEqual(['broken turn-start listener'])
-    // The turn is balanced: its turn/start was logged, so a turn/end was owed
-    // and appended (decided from the log, not a flag).
-    expect(agent.session.events.at(-1)?.type).toBe('turn/end')
-
-    // loop survives: second turn works fine and makes the model call
-    send(agent, 'second')
-    await waitForIdle(ctx, agent)
-    expect(adapter.requests).toHaveLength(1)
-    expect(adapter.requests[0]!.messages.some(m => m.content.some(b => 'text' in b && b.text === 'second'))).toBe(true)
-  })
-
-  it('a throwing agent/turn-end listener surfaces via agent/error and the loop survives', async () => {
-    const adapter = new MockAdapter([textResponse('turn 1'), textResponse('turn 2')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
-
-    let threwOnce = false
-    ctx.on('agent/turn-end', () => {
-      if (!threwOnce) {
-        threwOnce = true
-        throw new Error('broken turn-end listener')
-      }
-    })
-
-    const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
-
-    send(agent, 'first')
-    await waitForIdle(ctx, agent)
-    // The turn-end throw happens after the model call is complete, so turn 1's
-    // request is consumed. turn/end is already in the log (append pushes before
-    // notifying), so the turn is balanced; the error is surfaced via agent/error.
-    expect(errors.map(e => e.message)).toEqual(['broken turn-end listener'])
-
-    // loop survives: second turn works fine
-    send(agent, 'second')
-    await waitForIdle(ctx, agent)
-    expect(adapter.requests).toHaveLength(2)
-  })
-
-  it('a pre-push turn/start failure (non-serializable source) is rethrown to the runLoop backstop', async () => {
-    // A non-serializable message source makes the turn/start append throw BEFORE
-    // the event is pushed (Session.append validates before push), so turn/start
-    // never enters the log. runTurn sees no logged turn/start and rethrows; the
-    // runLoop backstop reports via agent/error (step 0) + the logger and the
-    // driver survives. This is the ONLY path that reaches the backstop.
-    const adapter = new MockAdapter([textResponse('turn 2')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
-
-    const errors: { turn: number; step: number; message: string }[] = []
-    ctx.on('agent/error', (_a, turn, step, error) => void errors.push({ turn, step, message: error.message }))
-
-    // A non-serializable source (BigInt) on the queued message.
-    agent.send([{ type: 'text', text: 'first' }], { source: { kind: 'plugin', plugin: 'p', bad: 1n } as never })
-    await waitForIdle(ctx, agent)
-
-    expect(errors).toHaveLength(1)
-    expect(errors[0]!.step).toBe(0)
-    expect(errors[0]!.message).toMatch(/non-JSON-serializable/)
-    // No turn boundary was written (the turn/start append threw before push).
-    expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
-
-    // loop survives: a well-formed second turn runs normally.
+    // The rejected value never woke or poisoned the loop; a valid message runs.
     send(agent, 'second')
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)
@@ -149,7 +85,7 @@ describe('tool JSON parse', () => {
         return [{ type: 'text', text: typeof args === 'string' ? `raw: ${args}` : JSON.stringify(args) }]
       },
     }))
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'use tool')
     await waitForIdle(ctx, agent)
@@ -182,7 +118,7 @@ describe('tool JSON parse', () => {
         return [{ type: 'text', text: 'ran with empty args' }]
       },
     }))
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'use tool')
     await waitForIdle(ctx, agent)
@@ -192,14 +128,16 @@ describe('tool JSON parse', () => {
 })
 
 describe('toError normalization', () => {
-  it('normalizes non-Error throws from turn-start listeners via toError', async () => {
+  it('normalizes non-Error throws from pre-commit dispatch validation via the runLoop backstop', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
-    ctx.on('agent/turn-start', () => {
-      if (!threwOnce) {
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'turn/start' && !threwOnce) {
         threwOnce = true
         throw 'naked string error' // non-Error throw, normalized via toError
       }
@@ -211,17 +149,15 @@ describe('toError normalization', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     expect(errors).toHaveLength(1)
-    expect(errors[0]!.message).toBe('naked string error')
-    // A non-Error throw is wrapped in a HarnessError with code UNKNOWN, so the
-    // session error event carries a routable code instead of degrading.
-    const errorEvent = agent.session.events.find(e => e.type === 'error')
-    expect(errorEvent?.type === 'error' && errorEvent.data.code).toBe('UNKNOWN')
+    expect(errors[0]).toMatchObject({ message: 'naked string error', code: 'UNKNOWN' })
+    expect(adapter.requests).toEqual([])
+    expect(agent.session.events.some(event => event.type === 'turn/start' || event.type === 'turn/end')).toBe(false)
   })
 
   it('normalizes non-Error throws from agent/request waterfall via inline toError in runStep catch', async () => {
     const adapter = new MockAdapter([textResponse('irrelevant')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
     ctx.on('agent/request', async (_agent, _turn, _step, _options, _next) => {
@@ -240,8 +176,8 @@ describe('toError normalization', () => {
     expect(errors).toHaveLength(1)
     // String() of { code: 500 } is '[object Object]'
     expect(errors[0]!.message).toBe('[object Object]')
-    const errorEvent = agent.session.events.find(e => e.type === 'error')
-    expect(errorEvent?.type === 'error' && errorEvent.data.code).toBe('UNKNOWN')
+    const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error' && turnEnd.data.reason.code).toBe('UNKNOWN')
   })
 })
 
@@ -249,7 +185,7 @@ describe('coded error data emission', () => {
   it('errorData includes code when a coded error (LlmError) is thrown from a plugin', async () => {
     const adapter = new MockAdapter([textResponse('turn 1')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
     ctx.on('agent/request', async (_agent, _turn, _step, _options, next) => {
@@ -268,11 +204,11 @@ describe('coded error data emission', () => {
     expect(errors).toHaveLength(1)
     expect(errors[0]!.message).toBe('server overloaded')
 
-    // session error event includes the code
-    const errorEvent = agent.session.events.find(e => e.type === 'error')
-    expect(errorEvent).toBeDefined()
-    if (errorEvent!.type === 'error') {
-      expect(errorEvent!.data.code).toBe('RATE_LIMIT')
+    // turn-end error reason includes the code
+    const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
+    expect(turnEnd).toBeDefined()
+    if (turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error') {
+      expect(turnEnd.data.reason.code).toBe('RATE_LIMIT')
     }
   })
 })
@@ -281,27 +217,25 @@ describe('disposed vs aborted branching', () => {
   it('handles dispose during model streaming producing reason "disposed"', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create('scoped', { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     await fiber.dispose() // dispose during hang
-    await agent.done
+    await driverDone(agent)
 
-    // The review-fixes test for 'HIGH: disposed status' already covers
-    // this assertion path. The reason is 'disposed' because isDisposed() is
-    // checked before the abort signal check in the error path.
+    // Disposal wins abort classification because the error path checks it first.
     expect(reasons).toContainEqual({ kind: 'disposed' })
   })
 })
 
-describe('structured tool error propagation (the runtime-validation RFC, part 2)', () => {
+describe('structured tool error propagation (the runtime-validation Agent Note, part 2)', () => {
   it('forwards a tool HarnessError onto the tool/result session event', async () => {
     const { HarnessError } = await import('@deepseek-ai/dsh-llm')
     // First model turn calls the tool; second turn (after the tool result is
@@ -311,7 +245,7 @@ describe('structured tool error propagation (the runtime-validation RFC, part 2)
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     ctx.tools.register(defineTool({
       name: 'boom',
       description: 'always fails',

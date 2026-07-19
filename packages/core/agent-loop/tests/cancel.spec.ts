@@ -1,23 +1,25 @@
 /**
- * Tests for the queue-aware `Agent.cancel()` primitive. `cancel()` is the
- * broad verb — it clears queued + steering work, aborts an in-flight step, and
- * drops a turn about to start — whereas `abort()` kills only the current step.
- * These tests exercise every window where a cancel can land (idle, pre-step,
- * mid-step, continuation) and the marker's arm/reset rules that keep a cancel
- * from leaking to a later prompt or hanging `whenIdle()`.
- *
+ * Tests for the queue-aware `Agent.cancel()` primitive. `cancel()` is the broad verb — it
+ * clears queued + steering work, aborts an in-flight step, and drops a turn about to start —
+ * whereas a bare step abort (the loop's private `AbortController`) kills only the current step
+ * and leaves the queue intact. The suite covers every landing window plus marker
+ * reset and `whenIdle()` quiescence.
  * @module dsh-agent-loop/tests/cancel
  */
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore, { TurnEndReason } from '@deepseek-ai/dsh-session'
+import LlmService, { type Message } from '@deepseek-ai/dsh-llm'
+import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
-import { MockAdapter, textResponse } from './mock-adapter.ts'
+import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+
+function driverDone(agent: Agent): Promise<void> {
+  return (agent as Agent & { done: Promise<void> }).done
+}
 
 async function harness(adapter: MockAdapter) {
   const ctx = new Context()
@@ -31,12 +33,12 @@ async function harness(adapter: MockAdapter) {
   return ctx
 }
 
-function send(agent: ReactLoopAgent, text: string) {
+function send(agent: Agent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
 /** Resolve on the agent's next idle transition (event-based, not status poll). */
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') { dispose(); resolve() }
@@ -45,7 +47,7 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
 }
 
 /** All user-message texts recorded in the log (to assert what actually ran). */
-function userTexts(agent: ReactLoopAgent): string[] {
+function userTexts(agent: Agent): string[] {
   return agent.session.events
     .filter(e => e.type === 'user/message')
     .flatMap(e => e.type === 'user/message' ? e.data.content : [])
@@ -56,7 +58,7 @@ describe('Agent.cancel()', () => {
   it('cancel() on an idle agent with nothing queued is a no-op; the next prompt runs (F2 leak guard)', async () => {
     const adapter = new MockAdapter([textResponse('reply')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     // The loop is parked at the idle wait with nothing queued. A cancel here must
     // NOT arm the marker — otherwise the next legitimate prompt would be dropped.
@@ -73,7 +75,7 @@ describe('Agent.cancel()', () => {
   it('pre-step cancel drops the about-to-start turn (no turn is opened)', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     // send() queues synchronously (status still idle, loop microtask not yet
     // resumed). Cancel in that pre-step window: the queued turn must not run.
@@ -92,12 +94,10 @@ describe('Agent.cancel()', () => {
   it('a whenIdle() waiter registered BEFORE a pre-step cancel resolves (F1 hang guard)', async () => {
     const adapter = new MockAdapter([textResponse('x')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    // Queue work, then register a whenIdle() waiter while in the pre-step window
-    // (status idle, hasQueued true) — it does NOT take the fast path. Then cancel.
-    // The skip path must settle this waiter directly (no running→idle transition
-    // ever fires), or it would hang forever.
+    // This waiter cannot rely on a running→idle transition because cancellation
+    // drops the turn before it runs; the skip path must settle it directly.
     send(agent, 'q')
     const idle = agent.whenIdle()
     agent.cancel('pre-step')
@@ -113,10 +113,10 @@ describe('Agent.cancel()', () => {
   it('cancel() mid-step aborts the in-flight model call; the turn ends aborted', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
@@ -130,10 +130,10 @@ describe('Agent.cancel()', () => {
   it('cancel() with no reason defaults to "cancelled" when aborting an in-flight step', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
@@ -143,10 +143,63 @@ describe('Agent.cancel()', () => {
     expect(reasons).toEqual([{ kind: 'aborted', reason: 'cancelled' }])
   })
 
+  it('cancel from an assistant/message observer skips execution but balances replay', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'danger', {}),
+      textResponse('recovered after cancellation'),
+    ])
+    const ctx = await harness(adapter)
+    let executions = 0
+    ctx.tools.register(defineTool({
+      name: 'danger',
+      description: 'must not run after cancellation',
+      parameters: {},
+      async execute() {
+        executions += 1
+        return [{ type: 'text', text: 'ran' }]
+      },
+    }))
+    const agent = ctx.agentLoop.create(SessionId('cancel-after-assistant-message'), { provider: 'mock', model: 'mock' })
+    const dispose = ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'assistant/message') {
+        agent.cancel('cancelled after assistant message')
+      }
+    })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('session/event', (_session, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+    dispose()
+
+    expect(executions).toBe(0)
+    expect(reasons).toEqual([{ kind: 'aborted', reason: 'cancelled after assistant message' }])
+    const call = agent.session.events.find(event => event.type === 'tool/call')
+    const result = agent.session.events.find(event => event.type === 'tool/result')
+    expect(call?.type === 'tool/call' ? call.data.callId : undefined).toBe('c1')
+    expect(result?.type === 'tool/result' ? result.data : undefined).toMatchObject({
+      callId: 'c1',
+      isError: true,
+      error: { name: 'AbortError', code: 'ABORTED' },
+    })
+
+    send(agent, 'continue safely')
+    await waitForIdle(ctx, agent)
+    const replayedResult = adapter.requests[1]!.messages
+      .flatMap(message => message.content)
+      .find(block => block.type === 'tool-result')
+    expect(replayedResult).toMatchObject({ toolCallId: 'c1', isError: true })
+    expect(reasons).toEqual([
+      { kind: 'aborted', reason: 'cancelled after assistant message' },
+      { kind: 'completed' },
+    ])
+  })
+
   it('a prompt sent AFTER a cancelled turn settles runs normally (marker reset)', async () => {
     const adapter = new MockAdapter(['hang', textResponse('second reply')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     // First turn hangs; cancel it mid-step.
     send(agent, 'first')
@@ -165,22 +218,113 @@ describe('Agent.cancel()', () => {
     expect(reasons.length).toBe(2)
   })
 
-  it('cancel from a synchronous agent/turn-start listener drops the step (step-start window)', async () => {
+  it('cancel from inside the agent/session-prefix waterfall drops the step (prefix-composition window)', async () => {
     const adapter = new MockAdapter([textResponse('should not stream')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    // A turn-start listener fires BEFORE any AbortController is installed for the
-    // step. Cancelling there must still drop the step (the turn-scoped marker,
-    // not abort(), is what catches this) — no model step runs.
+    // Prefix composition runs before the pre-step seam on the instance's first
+    // step; a cancel landing inside it must drop the about-to-start step
+    // without running the seam or the model.
     let streamed = false
-    ctx.on('agent/stream-chunk', () => { streamed = true })
-    const dispose = ctx.on('agent/turn-start', (subject) => {
-      if (subject === agent) agent.cancel('from turn-start')
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next) => {
+      agent.cancel('from prefix composition')
+      return next()
     })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(streamed).toBe(false)
+    expect(reasons).toEqual([{ kind: 'aborted', reason: 'from prefix composition' }])
+  })
+
+  it('disposal from inside the agent/session-prefix waterfall ends the turn disposed (prefix-composition window)', async () => {
+    const adapter = new MockAdapter([textResponse('should not stream')])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    ctx.llm.registerAdapter(['mock'], adapter)
+
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('dispose-prefix-session'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const agent = handle.agent
+
+    let disposalDone: Promise<void> | undefined
+    let streamed = false
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next) => {
+      disposalDone = handle.dispose()
+      return next()
+    })
+
+    send(agent, 'go')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await disposalDone
+    await driverDone(agent)
+
+    // No step opened, no model call ran, and the turn closed disposed.
+    expect(streamed).toBe(false)
+    expect(adapter.requests).toHaveLength(0)
+    const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
+  })
+
+  it('a cancel-interrupted prefix composition is discarded: the next send recomposes and ships the fresh prefix (stale-cache guard)', async () => {
+    const adapter = new MockAdapter([textResponse('reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    // The interrupted first composition must not cache its degraded empty value;
+    // the next prompt recomposes and logs/sends the fresh prefix.
+    const opener: Message = { role: 'user', content: [{ type: 'text', text: 'fresh opener' }] }
+    let compositions = 0
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => {
+      compositions += 1
+      if (compositions === 1) {
+        agent.cancel('mid-composition')
+        return next()
+      }
+      return [opener, ...await next()]
+    })
+
+    send(agent, 'dropped')
+    await waitForIdle(ctx, agent)
+    send(agent, 'real prompt')
+    await waitForIdle(ctx, agent)
+
+    expect(compositions).toBe(2)
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]?.messages[0]).toEqual(opener)
+    const headerEvent = agent.session.events.find(e => e.type === 'request/header')
+    expect(headerEvent?.type === 'request/header' && headerEvent.data.header.messagePrefix).toEqual([opener])
+  })
+
+  it('cancel from a synchronous turn/start session-event listener drops the step (step-start window)', async () => {
+    const adapter = new MockAdapter([textResponse('should not stream')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    // A turn/start listener fires before a step controller exists, so the
+    // turn-scoped marker—not step abort—must drop the pending step.
+    let streamed = false
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
+    const dispose = ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'turn/start') agent.cancel('from turn-start')
+    })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -193,6 +337,72 @@ describe('Agent.cancel()', () => {
     expect(reasons).toEqual([{ kind: 'aborted', reason: 'from turn-start' }])
   })
 
+  it('cancel from a synchronous step/start session-event listener drops the step (post-step-start window)', async () => {
+    const adapter = new MockAdapter([textResponse('should not stream')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    // A step/start session-event listener fires AFTER step/start is appended
+    // (and after the pre-step seam), so cancelling there lands in the SECOND
+    // cancel check (the one that must closeStep() to balance the already-open
+    // step) — distinct from a turn-start cancel, caught before the step opens.
+    let streamed = false
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
+    const dispose = ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'step/start') agent.cancel('from step-start')
+    })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+    dispose()
+
+    // No step streamed, the turn ended aborted with the caller's reason, and the
+    // log is balanced (the open step was closed by the cancel branch).
+    expect(streamed).toBe(false)
+    expect(reasons).toEqual([{ kind: 'aborted', reason: 'from step-start' }])
+    const types = agent.session.events.map(e => e.type)
+    expect(types.filter(t => t === 'step/start').length).toBe(types.filter(t => t === 'step/end').length)
+  })
+
+  it('disposal from a synchronous step/start session-event listener closes the open step as disposed', async () => {
+    const adapter = new MockAdapter([textResponse('should not stream')])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    ctx.llm.registerAdapter(['mock'], adapter)
+
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('dispose-step-start-session'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const agent = handle.agent
+
+    let disposalDone: Promise<void> | undefined
+    let streamed = false
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
+    ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'step/start') disposalDone = handle.dispose()
+    })
+
+    send(agent, 'go')
+    await disposalDone
+    await driverDone(agent)
+
+    expect(streamed).toBe(false)
+    expect(adapter.requests).toHaveLength(0)
+    const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
+    const types = agent.session.events.map(e => e.type)
+    expect(types.filter(t => t === 'step/start').length).toBe(types.filter(t => t === 'step/end').length)
+  })
+
   it('cancel during the continuation window ends the turn aborted and runs no further step', async () => {
     // A continuation-waterfall listener cancels DURING the continuation decision
     // (the finished step's AbortController is already cleared), and votes to
@@ -200,19 +410,21 @@ describe('Agent.cancel()', () => {
     // `aborted` and run NO second step.
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let steps = 0
-    ctx.on('agent/step-start', () => { steps += 1 })
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'step/start') steps += 1
+      if (event.type === 'turn/end') reasons.push(event.data.reason)
+    })
 
     let continued = false
     ctx.on('agent/turn-continuation', async (subject, _turn, _default, next) => {
       if (subject === agent && !continued) {
         continued = true
         agent.cancel('from continuation')
-        return true // vote to continue — the post-waterfall marker check must override
+        return { action: 'continue' as const } // vote to continue — the post-waterfall marker check must override
       }
       return next()
     })
@@ -230,14 +442,12 @@ describe('Agent.cancel()', () => {
   it('cancel from a synchronous agent/status(running) listener drops the turn (window 2)', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    // setStatus('running') emits agent/status SYNCHRONOUSLY, so a running
-    // listener can cancel in the gap between the loop's pre-step check and
-    // runTurn. The second check (after the running flip) must drop the turn —
-    // runTurn would otherwise throw on the now-empty queue.
+    // `agent/status` is synchronous, so cancellation can land after the first
+    // pre-step check; the second check must drop the now-empty turn.
     let streamed = false
-    ctx.on('agent/stream-chunk', () => { streamed = true })
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'running') agent.cancel('from running listener')
     })
@@ -253,14 +463,10 @@ describe('Agent.cancel()', () => {
   })
 
   it('window 2: whenIdle() does NOT resolve early when a running listener cancels then queues replacement work', async () => {
-    // The window-1 early-resolve race has a window-2 twin: a synchronous
-    // agent/status('running') listener cancels the about-to-run turn AND queues a
-    // replacement. window 2 must NOT settle waiters (via setStatus('idle')) while
-    // the replacement is still queued-and-unrun — it must fall through and run it,
-    // so whenIdle() resolves on the replacement turn's running→idle, not before.
+    // Cancellation must not settle idle while replacement work remains queued.
     const adapter = new MockAdapter([textResponse('A reply'), textResponse('B reply')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let replaced = false
     const dispose = ctx.on('agent/status', (subject, status) => {
@@ -283,23 +489,19 @@ describe('Agent.cancel()', () => {
   })
 
   it('whenIdle() does NOT resolve early when a new prompt is queued during a pre-step cancel', async () => {
-    // The subtle race: a whenIdle() waiter is registered for prompt A; cancel()
-    // clears A; prompt B is queued BEFORE the loop resumes from the idle wait.
-    // The window-1 cancel branch must NOT settle the waiter while B is still
-    // queued-and-unrun — whenIdle() must wait for B's turn to actually run and
-    // settle (the quiescence contract), not resolve before B's first event.
+    // The subtle race: a whenIdle() waiter is registered for prompt A; cancel() clears A;
+    // prompt B is queued before the loop resumes from the idle wait.
     const adapter = new MockAdapter([textResponse('A reply'), textResponse('B reply')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'A')           // queues A (status still idle, loop microtask pending)
     const idle = agent.whenIdle() // registers a waiter (idle + hasQueued → no fast path)
     agent.cancel('drop A')     // arms marker, clears A
     send(agent, 'B')           // B races in before the loop resumes
 
-    // whenIdle() must resolve only AFTER B's turn fully ran — by which point B's
-    // user message and a turn/end are in the log. (Before the fix it resolved
-    // immediately, with zero events, then B ran afterward.)
+    // whenIdle() must resolve only after B's turn fully ran — by which point B's user message
+    // and a turn/end are in the log.
     await idle
     expect(userTexts(agent)).toContain('B')
     expect(agent.session.events.some(e => e.type === 'turn/end')).toBe(true)
@@ -310,7 +512,7 @@ describe('Agent.cancel()', () => {
   it("cancel clears the turn's steering — it is not re-enqueued as a fresh turn", async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))

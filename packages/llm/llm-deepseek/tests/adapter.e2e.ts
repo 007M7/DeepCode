@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
-import type { GenerateResult, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type { Config } from '@deepseek-ai/dsh-llm-deepseek'
+import { assemble, type AssembledResult } from './assemble.ts'
 
 /**
  * Real-API e2e for the hand-rolled adapter: V4 Flash + V4 Pro across
@@ -15,11 +16,11 @@ const FLASH = 'deepseek-v4-flash'
 const PRO = 'deepseek-v4-pro'
 const contexts: Context[] = []
 
-async function harness(model: string, config: Partial<Config> = {}) {
+async function harness(_model: string, config: Partial<Config> = {}) {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(LlmService)
-  await ctx.plugin(LlmDeepSeek, { models: [model], ...config })
+  await ctx.plugin(LlmDeepSeek, config)
   return ctx
 }
 
@@ -31,7 +32,7 @@ function ask(text: string): Message[] {
   return [{ role: 'user', content: [{ type: 'text', text }] }]
 }
 
-function textOf(result: GenerateResult): string {
+function textOf(result: AssembledResult): string {
   return result.message.content
     .filter(block => block.type === 'text')
     .map(block => block.text)
@@ -51,7 +52,7 @@ const weatherTool: ToolSchema = {
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', () => {
   it('flash + thinking disabled: plain text generation', async () => {
     const ctx = await harness(FLASH, { thinking: 'disabled' })
-    const result = await ctx.llm.generate({
+    const result = await assemble(ctx,{
       model: FLASH,
       messages: ask('Reply with exactly the word: pong'),
       maxTokens: 50,
@@ -65,7 +66,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
 
   it('flash + thinking enabled (effort high): reasoning blocks + reasoning tokens', async () => {
     const ctx = await harness(FLASH, { thinking: 'enabled', reasoningEffort: 'high' })
-    const result = await ctx.llm.generate({
+    const result = await assemble(ctx,{
       model: FLASH,
       messages: ask('Which is larger, 9.11 or 9.8? Answer with just the number.'),
       maxTokens: 2000,
@@ -82,7 +83,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
       const ctx = await harness(PRO, { thinking: 'enabled', reasoningEffort: effort })
 
       // Turn 1: the model must call the tool (and think before it).
-      const first = await ctx.llm.generate({
+      const first = await assemble(ctx,{
         model: PRO,
         messages: ask('What is the weather in Paris right now? Use the get_weather tool.'),
         tools: [weatherTool],
@@ -96,7 +97,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
 
       // Turn 2: send the tool result back WITH the assistant's reasoning
       // block in history (the official thinking+tools passback rule).
-      const second = await ctx.llm.generate({
+      const second = await assemble(ctx,{
         model: PRO,
         messages: [
           ...ask('What is the weather in Paris right now? Use the get_weather tool.'),
@@ -120,7 +121,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
 
   it('pro + thinking disabled: plain generation without reasoning blocks', async () => {
     const ctx = await harness(PRO, { thinking: 'disabled' })
-    const result = await ctx.llm.generate({
+    const result = await assemble(ctx,{
       model: PRO,
       messages: ask('Reply with exactly the word: pong'),
       maxTokens: 50,
@@ -133,6 +134,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
     const ctx = await harness(FLASH, { thinking: 'disabled' })
     const kinds: string[] = []
     for await (const chunk of ctx.llm.stream({
+      provider: 'deepseek',
       model: FLASH,
       messages: ask('Count from 1 to 5, digits only.'),
       maxTokens: 50,

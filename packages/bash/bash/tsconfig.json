@@ -2,7 +2,7 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib"
+    "outDir": "lib/types"
   },
   "include": [
     "src"
@@ -13,6 +13,12 @@
     },
     {
       "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../core/session"
     }
   ]
 }

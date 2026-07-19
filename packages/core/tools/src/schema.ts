@@ -1,27 +1,8 @@
-/**
- * Typed tool-parameter schema DSL.
- *
- * Plugin authors write per-property specs with `required: true` as a boolean
- * (the `SchemaSpec` type). A type-level helper (`InferArgs`) maps a SchemaSpec
- * to the TS argument type. At runtime, `schemaSpecToJsonSchema()` converts a
- * SchemaSpec to standard JSON Schema (`type: 'object'`, `properties`,
- * `required` array) for the wire format sent to the model.
- *
- * # Why a custom DSL and not schemastery?
- *
- * Schemastery is a validation/transformation library (StandardSchema v1) used
- * for plugin Config. Tool parameters need JSON Schema specifically (the LLM
- * wire format), not validation. A lightweight DSL focused on JSON Schema
- * generation, with type inference for the tool's `execute` args, gives plugin
- * authors the best DX with the smallest surface area. Schemastery would add
- * unnecessary indirection and wouldn't cleanly produce JSON Schema.
- *
- * @module dsh-tools/schema
- */
+/** Typed tool-parameter DSL with argument inference and JSON Schema output. @module dsh-tools/schema */
 
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ToolCallPresentation, ToolDefinition, ToolExecution, ToolResult, ToolResultPresentation } from './index.ts'
+import type { ToolDefinition, ToolExecuteReturn, ToolRunContext, ToolResult } from './index.ts'
+import type { ToolCallView, ToolResultView } from './presentation.ts'
 
 // ---------------------------------------------------------------------------
 // SchemaSpec — the author-facing per-property type
@@ -40,12 +21,8 @@ export interface SchemaProp {
   /** Enum of allowed values (strings only). */
   enum?: string[]
   /**
-   * Default value, emitted into the JSON Schema only (validation never applies
-   * it — see the validator note below).
-   *
-   * XXX(unused-default): no tool definition in the repo sets `default`; it rides
-   * into the wire schema for a model that no tool surfaces it to. Drop the field
-   * and its converter line unless a real tool needs a model-visible default.
+   * Model-visible JSON Schema default annotation. Validation does not apply it;
+   * dynamic tool mounts may supply it even though first-party definitions do not.
    */
   default?: unknown
   /** Nested properties for type: 'object'. */
@@ -155,6 +132,9 @@ export interface JsonSchemaObject {
  * `properties`, `required` array).
  *
  * This is a plain function — no schemastery or other framework dependency.
+ * @param spec - the author-facing per-property schema to convert.
+ * @returns the wire-format JSON Schema; the top-level `required` array is
+ *   omitted entirely when no property is marked required.
  */
 export function schemaSpecToJsonSchema(spec: SchemaSpec): JsonSchemaObject {
   const properties: Record<string, unknown> = {}
@@ -182,7 +162,7 @@ export function schemaSpecToJsonSchema(spec: SchemaSpec): JsonSchemaObject {
 /**
  * Thrown by a {@link defineTool} tool when the model-generated arguments don't
  * match the declared {@link SchemaSpec}. Extends {@link HarnessError}
- * (`code: 'INVALID_ARGS'`); the registry's execute waterfall catches it and
+ * (`code: 'INVALID_ARGS'`); the registry's execution pipeline catches it and
  * returns an `isError` ToolExecutionResult carrying the structured error, so
  * the model can self-correct and downstream plugins can route on the code.
  */
@@ -269,6 +249,9 @@ function checkSpec(spec: SchemaSpec, value: unknown, path: string): string[] {
  * keys are allowed (no `additionalProperties: false`); `default` is not
  * applied; an `object`/`array` prop without `properties`/`items` only
  * type-checks; `enum` is membership (strings only).
+ * @param spec - the declared parameter schema to validate against.
+ * @param args - the model-generated arguments, however malformed.
+ * @returns the violation messages in declaration order; empty means valid.
  */
 export function validateArgs(spec: SchemaSpec, args: unknown): string[] {
   return checkSpec(spec, args, '')
@@ -281,65 +264,62 @@ export function validateArgs(spec: SchemaSpec, args: unknown): string[] {
 /** Options for {@link defineTool}. */
 export interface DefineToolOptions<S extends SchemaSpec> {
   /** Tool name (must be unique). */
-  name: string
+  readonly name: string
   /** Human-readable description sent to the model. */
-  description: string
+  readonly description: string
   /**
    * Parameter schema using the per-property-required DSL. Converted to
    * standard JSON Schema at runtime.
    */
-  parameters: S
+  readonly parameters: S
+  /**
+   * Optional cooperative tool-call timeout budget in milliseconds. When given it
+   * must be a positive finite number; it is attached to the produced
+   * {@link ToolDefinition} for `@deepseek-ai/dsh-timeout-policy` to enforce and
+   * is never sent to the model.
+   */
+  readonly timeoutMs?: number
+  /**
+   * Optional pure synchronous classifier for sibling overlap. It receives typed
+   * arguments after soft validation; invalid input returns `false` without
+   * invoking it. See {@link ToolDefinition.isConcurrencySafe}.
+   * @param args - typed validated arguments.
+   * @returns whether this call may join a parallel group.
+   */
+  isConcurrencySafe?(args: InferArgs<S>): boolean
   /**
    * Tool execution function. `args` is typed as {@link InferArgs<S>} — zero
-   * casts needed.
+   * casts needed. Returns either a bare {@link ContentBlock}`[]` (model-facing
+   * content only) or a `{ content, meta }` object to also attach a tool-private
+   * presentation payload (see {@link ToolExecuteReturn}).
    */
-  execute(args: InferArgs<S>, exec: ToolExecution): Promise<ContentBlock[]>
+  execute(args: InferArgs<S>, exec: ToolRunContext): Promise<ToolExecuteReturn>
   /**
    * Optional: how to present the PENDING state of one call in a UI (an editor
    * tool-call card, a CLI log line). `args` is the typed, schema-validated
    * argument shape — zero casts. Pure and side-effect-free: a UI may call it
    * during live streaming AND a session-log replay, so depend only on `args`.
    * The tool owns its presentation so a UI never special-cases tool names. See
-   * {@link ToolCallPresentation}.
+   * {@link ToolCallView}.
    */
-  presentCall?(args: InferArgs<S>): ToolCallPresentation | undefined
+  presentCall?(args: InferArgs<S>): ToolCallView | undefined
   /**
    * Optional: how to present the COMPLETED state, given the typed `args` and the
    * `result`. Use it to reformat result content for a UI distinctly from the
    * model-facing text (e.g. a fenced ```console block). Pure and side-effect-
-   * free for the same replay reason. See {@link ToolResultPresentation}.
+   * free for the same replay reason. See {@link ToolResultView}.
    */
-  presentResult?(args: InferArgs<S>, result: ToolResult): ToolResultPresentation | undefined
-  /** Whether the tool requires structured output (default false). */
-  strict?: boolean
+  presentResult?(args: InferArgs<S>, result: ToolResult): ToolResultView | undefined
 }
 
 /**
- * Define a tool with a typed parameter schema.
- *
- * Use this instead of constructing a raw {@link ToolDefinition} for all
- * first-party tools. The `parameters` use the boolean-required style
- * (`required: true` as a per-property flag), and `execute` receives typed
- * args derived from the schema.
- *
- * ```ts
- * const tool = defineTool({
- *   name: 'read_file',
- *   description: 'Read a file from disk.',
- *   parameters: {
- *     path: { type: 'string', required: true, description: 'Absolute file path' },
- *     offset: { type: 'number' },
- *     limit: { type: 'number', description: 'Max lines to read' },
- *   },
- *   async execute(args) {
- *     // args: { path: string; offset?: number; limit?: number }
- *   },
- * })
- * ```
- *
- * Raw JSON-Schema tool definitions (from MCP servers) are still accepted
- * by `ToolRegistry.register()` directly — `defineTool` is sugar for
- * first-party plugin authors.
+ * Define a first-party tool whose execution and presentation arguments are
+ * inferred from its per-property schema. Raw JSON-Schema definitions remain
+ * valid inputs to {@link ToolRegistry.register}; this helper is authoring sugar.
+ * @param options - the tool's name, description, typed parameter schema,
+ *   execute body, and optional presenters.
+ * @returns a registry-ready definition with strict execution validation and
+ *   soft presenter and classifier validation for replay compatibility.
  */
 export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>): ToolDefinition {
   // Object-literal execute methods don't use `this`; the reference is safe.
@@ -349,12 +329,17 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   const userPresentCall = options.presentCall
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userPresentResult = options.presentResult
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const userIsConcurrencySafe = options.isConcurrencySafe
+  if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
+    throw new Error(`defineTool(${options.name}): timeoutMs must be a positive finite number`)
+  }
   const tool: ToolDefinition = {
     name: options.name,
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
-    ...options.strict !== undefined ? { strict: options.strict } : {},
-    async execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]> {
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    async execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn> {
       // Validate the model-generated args before the typed body runs. On
       // mismatch we throw ToolArgsError; the registry turns it into an
       // isError result so the model can self-correct. After this guard, the
@@ -369,15 +354,22 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   // fall back to `undefined` (a generic UI presentation) on any mismatch, rather
   // than the hard `ToolArgsError` the execute path raises.
   if (userPresentCall) {
-    tool.presentCall = (args: unknown): ToolCallPresentation | undefined => {
+    tool.presentCall = (args: unknown): ToolCallView | undefined => {
       if (validateArgs(options.parameters, args).length > 0) return undefined
       return userPresentCall(args as InferArgs<S>)
     }
   }
   if (userPresentResult) {
-    tool.presentResult = (args: unknown, result: ToolResult): ToolResultPresentation | undefined => {
+    tool.presentResult = (args: unknown, result: ToolResult): ToolResultView | undefined => {
       if (validateArgs(options.parameters, args).length > 0) return undefined
       return userPresentResult(args as InferArgs<S>, result)
+    }
+  }
+  // Invalid arguments fail closed without invoking the typed classifier.
+  if (userIsConcurrencySafe) {
+    tool.isConcurrencySafe = (args: unknown): boolean => {
+      if (validateArgs(options.parameters, args).length > 0) return false
+      return userIsConcurrencySafe(args as InferArgs<S>)
     }
   }
   return tool

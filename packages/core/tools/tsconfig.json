@@ -2,12 +2,18 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib"
+    "outDir": "lib/types"
   },
   "include": [
     "src"
   ],
   "references": [
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../code-runtime/code-runtime"
+    },
     {
       "path": "../../../vendor/cosmokit"
     },
@@ -22,6 +28,12 @@
     },
     {
       "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/scope"
+    },
+    {
+      "path": "../../ui/user-approval"
     }
   ]
 }

@@ -1,26 +1,18 @@
 /**
- * Process plumbing for the local bash executor: spawn, output collection
- * with tail-keep + spill-to-disk truncation, and process-group kill with
- * SIGTERM→SIGKILL escalation.
- *
- * Everything here is deliberately free of Cordis concepts so it can be unit
- * tested in isolation; `LocalBashExecutor` owns lifecycle and configuration.
- *
- * Design notes (surveyed against Claude Code, OpenCode, Codex, and pi — see
- * the package README): spawn-per-call with `detached: true` so the child
- * leads its own process group; kills target the group (`kill(-pid)`) so
- * pipelines and subshells die with the parent. SIGTERM first, SIGKILL after a
- * grace period (OpenCode's escalation; Codex/pi jump straight to SIGKILL).
- *
+ * Process plumbing for the local bash executor: detached process-group spawn,
+ * tail-keep output with spill files, and SIGTERM→SIGKILL escalation. This layer
+ * reacts to an abort signal; the executor owns deadlines and classifies causes.
  * @module dsh-bash-local/run
  */
 
-import { spawn } from 'node:child_process'
+import { type ChildProcessByStdio, spawn } from 'node:child_process'
+import type { Readable, Writable } from 'node:stream'
 import { randomBytes } from 'node:crypto'
-import { closeSync, mkdtempSync, openSync, writeSync } from 'node:fs'
+import { closeSync, mkdtempSync, openSync, unlinkSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CollectedOutput } from '@deepseek-ai/dsh-bash'
+import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
+import type { CollectedOutput, DshEnvironment } from '@deepseek-ai/dsh-bash'
 
 /**
  * Model-friendly environment overrides: disable colors, pagers, and
@@ -42,47 +34,95 @@ export const ENV_OVERRIDES = {
  */
 export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
-/** process.env minus credential-shaped vars, plus the model-friendly overrides. */
-export function childEnv(): NodeJS.ProcessEnv {
+/**
+ * Build a child environment from scrubbed ambient values, terminal overrides,
+ * ordinary caller entries, and a managed `DSH_*` snapshot. Ambient managed
+ * names are removed; ordinary and managed entries reject the other channel's
+ * namespace before `dshEnv` merges last.
+ * @param extra - caller entries; `DSH_*` names are rejected.
+ * @param dshEnv - managed entries; non-`DSH_*` names are rejected.
+ * @returns the environment to hand to `spawn` for the child process.
+ */
+export function childEnv(
+  extra?: Readonly<Record<string, string>>,
+  dshEnv?: DshEnvironment,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (!SENSITIVE_ENV_PATTERN.test(key)) env[key] = value
+    if (!SENSITIVE_ENV_PATTERN.test(key) && !key.startsWith(DSH_ENV_PREFIX)) env[key] = value
   }
-  return { ...env, ...ENV_OVERRIDES }
+  for (const key of Object.keys(extra ?? {})) {
+    if (key.startsWith(DSH_ENV_PREFIX)) {
+      throw new Error(`ordinary bash env cannot set reserved variable "${key}"; use dshEnv`)
+    }
+  }
+  for (const key of Object.keys(dshEnv ?? {})) {
+    if (!key.startsWith(DSH_ENV_PREFIX)) {
+      throw new Error(`managed bash env cannot set ordinary variable "${key}"; use env`)
+    }
+  }
+  return { ...env, ...ENV_OVERRIDES, ...extra, ...dshEnv }
 }
 
 /** What to run and under which limits (resolved — no defaults in here). */
 export interface SpawnSpec {
   command: string
   cwd: string
-  /** Kill the process group after this many milliseconds. 0 = no timeout. */
-  timeoutMs: number
-  /** Per-stream in-memory cap; overflow spills to disk (tail kept in memory). */
-  maxOutputBytes: number
-  /** Abort signal — kills the process group when fired. */
+  /** Stdout in-memory cap; overflow spills to disk (tail kept in memory). */
+  stdoutMaxBytes: number
+  /** Stderr in-memory cap; overflow spills to disk (tail kept in memory). */
+  stderrMaxBytes: number
+  /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
+  maxSpillBytes: number
+  /** Grace period for kill escalation and for inherited pipes after shell exit. */
+  graceMs: number
+  /**
+   * Abort signal — kills the process group when it fires. The executor owns
+   * timing: `run()` passes a fused timeout/cancel deadline signal (see
+   * `@deepseek-ai/dsh-timeout`), `start()` passes the bare upstream signal.
+   * runBash only listens and kills; it does NOT classify why (the executor
+   * reads the signal's reason afterward).
+   */
   signal?: AbortSignal | undefined
+  /**
+   * Bytes to write to the child's stdin, then close it. Absent (or empty)
+   * leaves stdin closed/empty. Set by in-process plugins (the hooks bridges);
+   * the model-facing `dsh-tool-bash` tool does not thread model input here.
+   */
+  stdin?: string | undefined
+  /**
+   * Ordinary environment entries merged after the credential scrub and
+   * terminal overrides. `DSH_*` names are rejected and belong in `dshEnv`.
+   */
+  env?: Record<string, string> | undefined
+  /** Harness-owned entries; non-`DSH_*` names are rejected before spawn. */
+  dshEnv?: DshEnvironment | undefined
 }
 
-/** Raw outcome of one closed process (before result shaping). */
+/**
+ * Raw outcome of one closed process (before result shaping). Deliberately
+ * carries NO timeout/cancel classification: runBash kills on abort but does not
+ * decide why — the executor's `run()`/`start()` reads the deadline signal it
+ * owns to classify `timedOut`/`aborted` (see the package README).
+ */
 export interface SpawnOutcome {
   exitCode: number | null
   signal: NodeJS.Signals | null
-  timedOut: boolean
-  aborted: boolean
   stdout: CollectedOutput
   stderr: CollectedOutput
 }
 
-/** Injectable knobs so tests can exercise escalation/spill without long waits. */
+/** Injectable knobs so tests can exercise spill behavior without the OS tmpdir. */
 export interface RunInternals {
-  /** Grace period between SIGTERM and SIGKILL on the process group. */
-  graceMs?: number
   /** Directory for spill files (defaults to the OS temp dir). */
   spillDir?: string
 }
 
-/** Default SIGTERM→SIGKILL grace period (matches OpenCode's 3s). */
+/** Default SIGTERM→SIGKILL grace period (the `graceMs` config; matches OpenCode's 3s). */
 export const DEFAULT_GRACE_MS = 3_000
+
+/** Default per-stream spill cap (the `maxSpillBytes` config). */
+export const DEFAULT_MAX_SPILL_BYTES = 64 * 1024 * 1024
 
 let spillCounter = 0
 let defaultSpillDir: string | undefined
@@ -98,9 +138,9 @@ function privateSpillDir(): string {
 }
 
 /**
- * Collects one stream with a bounded in-memory tail. The FULL stream is
- * always recoverable: on first overflow a spill file is created and every
- * chunk (including those already collected) is appended there.
+ * Collects one stream with a bounded in-memory tail. On first overflow a
+ * spill file is created and every chunk (including those already collected)
+ * is appended there while the full stream remains within `maxSpillBytes`.
  *
  * Tail-keep rationale (pi/OpenCode): errors and final results cluster at the
  * end of command output; the spill file covers the head.
@@ -111,19 +151,29 @@ export class OutputCollector {
   private dropped = false
   private spillFd: number | undefined
   private spillFile: string | undefined
+  private spillDisabled = false
   /** Total bytes ever pushed (not just retained). */
   private total = 0
 
   constructor(
     private readonly maxBytes: number,
+    private readonly maxSpillBytes: number,
     private readonly label: string,
     private readonly spillDir: string,
   ) {}
 
+  /**
+   * Ingest one stream chunk, counting it toward the whole-stream total. On
+   * first overflow of the in-memory cap a spill file is opened and every chunk
+   * (already-collected ones included) is appended there from then on; the
+   * in-memory tail then drops whole chunks from its head (or the head of a
+   * single over-cap chunk) until it fits the cap again.
+   * @param chunk - the raw bytes from one stream 'data' event.
+   */
   push(chunk: Buffer): void {
     this.total += chunk.length
     const overflows = this.bytes + chunk.length > this.maxBytes
-    if (overflows || this.spillFd !== undefined) this.spillAll(chunk)
+    if (!this.spillDisabled && (overflows || this.spillFd !== undefined)) this.spillAll(chunk)
     this.chunks.push(chunk)
     this.bytes += chunk.length
     while (this.bytes > this.maxBytes && this.chunks.length > 1) {
@@ -145,6 +195,10 @@ export class OutputCollector {
 
   /** Open the spill file lazily and append `chunk` (and any prior chunks once). */
   private spillAll(chunk: Buffer): void {
+    if (this.total > this.maxSpillBytes) {
+      this.discardSpill()
+      return
+    }
     if (this.spillFd === undefined) {
       // Random suffix + O_EXCL + no-follow-equivalent ('wx' fails on any
       // existing path, symlink or not) + owner-only mode: defeats spill-path
@@ -159,22 +213,28 @@ export class OutputCollector {
     writeSync(this.spillFd, chunk)
   }
 
-  // TODO(snapshot-scope): `snapshot()` has one internal caller (`finalize()` at
-  // the bottom of this file) and `totalBytes` is read only by a test. The live
-  // background-poll path goes through `readFrom()`, so inline snapshot() into
-  // finalize() and drop or privatize the totalBytes getter.
-  /** Read the collected tail without finalizing (the final-result snapshot). */
-  snapshot(): CollectedOutput {
-    return {
-      text: Buffer.concat(this.chunks).toString('utf8'),
-      truncated: this.dropped,
-      ...this.spillFile !== undefined ? { spillPath: this.spillFile } : {},
+  /** Stop spilling and remove the file once it can no longer hold the complete stream. */
+  private discardSpill(): void {
+    const fd = this.spillFd
+    const file = this.spillFile
+    this.spillFd = undefined
+    this.spillFile = undefined
+    this.spillDisabled = true
+    if (fd !== undefined) {
+      try {
+        closeSync(fd)
+      } catch {
+        // Retain the descriptor so finalize can retry the failed close.
+        this.spillFd = fd
+      }
     }
-  }
-
-  /** Total bytes ever pushed (including bytes dropped from memory). */
-  get totalBytes(): number {
-    return this.total
+    if (file !== undefined) {
+      try {
+        unlinkSync(file)
+      } catch {
+        // A failed unlink leaves at most maxSpillBytes behind, never an unbounded file.
+      }
+    }
   }
 
   /**
@@ -182,6 +242,8 @@ export class OutputCollector {
    * pushed since `fromByte`. When `fromByte` has already slid out of the
    * in-memory tail window, the read is `lossy` — it returns the whole
    * retained tail and the gap is only recoverable from the spill file.
+   * @param fromByte - whole-stream offset to resume from (a prior read's `nextOffset`; 0 for the first read).
+   * @returns the delta text, the offset for the next read, the `lossy` flag, and the spill path when one was created.
    */
   readFrom(fromByte: number): { text: string; nextOffset: number; lossy: boolean; spillPath?: string } {
     const windowStart = this.total - this.bytes
@@ -196,32 +258,37 @@ export class OutputCollector {
     }
   }
 
-  /** Close the spill file (if any) and return the final output. */
+  /**
+   * Close the spill file (if any) and return the final output. A failed close
+   * (delayed writeback fault) stops advertising the spill path — the file may
+   * be missing its tail — but still returns the in-memory result.
+   * @returns the final collected output: tail text, truncation flag, and the spill path when intact.
+   */
   finalize(): CollectedOutput {
     if (this.spillFd !== undefined) {
       try {
         closeSync(this.spillFd)
       } catch {
-        // close can surface delayed writeback failures (for example EIO/ENOSPC)
-        // after writeSync appeared to succeed. Keep finalize total so runBash's
-        // close handler still resolves, but stop advertising a spill file that
-        // may be missing its tail.
+        // A delayed writeback failure makes the spill unreliable; keep finalize
+        // total but stop advertising that file.
         this.spillFile = undefined
       }
       this.spillFd = undefined
     }
-    return this.snapshot()
+    return {
+      text: Buffer.concat(this.chunks).toString('utf8'),
+      truncated: this.dropped,
+      ...this.spillFile !== undefined ? { spillPath: this.spillFile } : {},
+    }
   }
 }
 
 /**
- * Send `sig` to the process GROUP led by `pid` (requires the child to have
- * been spawned with `detached: true`). NEVER throws: kills race process exit
- * by design (ESRCH), and the other failure modes (EPERM from setuid
- * children, …) fire inside timer callbacks where a throw would crash the
- * host process — a kill that cannot be delivered is reported by the process
- * NOT dying, which callers already handle via escalation/timeouts. No-op for
- * non-positive pids (spawn never started a process).
+ * Send `sig` to a detached process group. Never throws: delivery races process
+ * exit and may run in a timer callback, so failures are contained and a
+ * non-positive pid is a no-op.
+ * @param pid - the group leader's pid; non-positive means the spawn failed and the call is a no-op.
+ * @param sig - the signal to deliver to the whole group.
  */
 export function killGroup(pid: number, sig: NodeJS.Signals): void {
   if (pid <= 0) return
@@ -249,90 +316,81 @@ export interface RunningBash {
 }
 
 /**
- * Spawn `bash -c <command>` in its own process group and collect output.
- *
- * Outcome semantics: the returned promise REJECTS only for spawn-level
- * failures (bad cwd → ENOENT, missing binary, pre-aborted signal); every
- * runtime outcome — nonzero exit, timeout kill, abort kill, signal death —
- * RESOLVES with a {@link SpawnOutcome} describing what happened, so callers
- * shape one consistent report for the model.
- *
- * XXX(stateful-shell): per the agent-tool survey there are two proven
- * stateful designs worth revisiting — Claude Code persists ONLY cwd between
- * calls (captures `pwd -P` after each command), and Codex keeps whole PTY
- * exec sessions addressable via session ids + stdin writes. We deliberately
- * spawn a fresh non-login `bash -c` per call for determinism (no rc files,
- * no inherited shell state); revisit when real workflows demand it.
+ * Spawn one isolated `bash -c` process group and collect its output.
+ * Runtime exits resolve as {@link SpawnOutcome}; only spawn failures reject.
+ * @param spec - fully resolved command, cwd, limits, and cancellation.
+ * @param internals - test-only process and spill-directory overrides.
+ * @returns live process handle and outcome promise.
  */
+// XXX(stateful-shell): evaluate persistent cwd or PTY sessions when workflows require shell state.
 export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningBash {
-  const graceMs = internals.graceMs ?? DEFAULT_GRACE_MS
   const spillDir = internals.spillDir ?? privateSpillDir()
 
   if (spec.signal?.aborted) {
     throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
   }
 
-  const child = spawn('bash', ['-c', spec.command], {
-    cwd: spec.cwd,
-    env: childEnv(),
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
-  })
+  // Keep absent stdin as /dev/null; literal tuples preserve non-null output types.
+  const env = childEnv(spec.env, spec.dshEnv)
+  const child: ChildProcessByStdio<Writable | null, Readable, Readable> = spec.stdin !== undefined
+    ? spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
+    : spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
 
-  const stdout = new OutputCollector(spec.maxOutputBytes, 'stdout', spillDir)
-  const stderr = new OutputCollector(spec.maxOutputBytes, 'stderr', spillDir)
+  const stdout = new OutputCollector(spec.stdoutMaxBytes, spec.maxSpillBytes, 'stdout', spillDir)
+  const stderr = new OutputCollector(spec.stderrMaxBytes, spec.maxSpillBytes, 'stderr', spillDir)
   child.stdout.on('data', (chunk: Buffer) => { stdout.push(chunk) })
   child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk) })
 
-  let timedOut = false
-  let aborted = false
-  let killTimer: NodeJS.Timeout | undefined
   let graceTimer: NodeJS.Timeout | undefined
 
-  // pid is undefined when the spawn itself fails (bad cwd, missing binary);
-  // the 'error' handler rejects `done` and kills become no-ops via pid -1.
+  // Failed spawns use pid -1 so kill remains a no-op.
   const pid = child.pid ?? -1
 
   const kill = (): void => {
     if (graceTimer !== undefined) return // escalation already in flight
     killGroup(pid, 'SIGTERM')
-    graceTimer = setTimeout(() => { killGroup(pid, 'SIGKILL') }, graceMs)
+    graceTimer = setTimeout(() => { killGroup(pid, 'SIGKILL') }, spec.graceMs)
   }
 
-  if (spec.timeoutMs > 0) {
-    killTimer = setTimeout(() => {
-      timedOut = true
-      kill()
-    }, spec.timeoutMs)
-  }
-
-  const onAbort = (): void => {
-    aborted = true
-    kill()
-  }
+  // The executor owns timeout classification; this layer only reacts to abort.
+  const onAbort = (): void => { kill() }
   spec.signal?.addEventListener('abort', onAbort, { once: true })
 
+  // Stdin writes are best-effort; process exit and captured output remain authoritative.
+  if (child.stdin !== null) {
+    child.stdin.on('error', () => { /* stdin write is best-effort; outcome rides on exit/output. */ })
+    child.stdin.end(spec.stdin)
+  }
+
   const done = new Promise<SpawnOutcome>((resolve, reject) => {
-    child.on('error', (error) => {
-      // Spawn-level failure (ENOENT cwd, EACCES, …): no close event with
-      // meaningful output follows; clean up and reject.
-      cleanup()
-      reject(error)
-    })
-    child.on('close', (exitCode, signal) => {
+    let settled = false
+    let pipeDrainTimer: NodeJS.Timeout | undefined
+    const settle = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
+      if (settled) return
+      settled = true
+      child.stdout.destroy()
+      child.stderr.destroy()
       cleanup()
       resolve({
         exitCode,
         signal,
-        timedOut,
-        aborted,
         stdout: stdout.finalize(),
         stderr: stderr.finalize(),
       })
+    }
+    child.on('error', (error) => {
+      // No meaningful close outcome follows a spawn failure.
+      settled = true
+      cleanup()
+      reject(error)
     })
+    child.on('exit', (exitCode, signal) => {
+      pipeDrainTimer = setTimeout(() => { settle(exitCode, signal) }, spec.graceMs)
+    })
+    child.on('close', settle)
     function cleanup(): void {
-      if (killTimer !== undefined) clearTimeout(killTimer)
       if (graceTimer !== undefined) clearTimeout(graceTimer)
+      if (pipeDrainTimer !== undefined) clearTimeout(pipeDrainTimer)
       spec.signal?.removeEventListener('abort', onAbort)
     }
   })

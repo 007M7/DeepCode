@@ -1,10 +1,35 @@
 /**
- * Execution vocabulary for the bash executor seam. Types only — the abstract
- * service lives in `./index.ts`, implementations in sibling packages
- * (`@deepseek-ai/dsh-bash-local` first).
- *
+ * Execution types for the bash executor seam. Background task semantics belong
+ * to `@deepseek-ai/dsh-tasks`; this seam exposes only process handles.
  * @module dsh-bash/types
  */
+
+import type { SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+
+/** Namespace prefix reserved for DeepSeek Harness-managed child environment facts. */
+export const DSH_ENV_PREFIX = 'DSH_' as const
+
+/** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
+export type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`
+
+/** Trusted DeepSeek Harness variables for one bash execution. */
+export type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>
+
+/**
+ * Sandbox facts for one run, present iff a sandboxing executor handled it.
+ * Facts are reported independently of process exit status so callers can
+ * distinguish command failures from policy denials and runner failures.
+ */
+export interface BashSandboxInfo {
+  /** The mode the command actually ran under. */
+  mode: SandboxMode
+  /** Whether the sandbox denied a file operation. */
+  denied: boolean
+  /** How completely the selected runner enforced the requested mode. */
+  enforcement?: SandboxEnforcement
+  /** Whether the sandbox runner failed before the command could run. */
+  runnerFailed?: boolean
+}
 
 /**
  * A caller's execution REQUEST: `workdir` and `timeoutMs` are optional and
@@ -18,42 +43,71 @@ export interface BashExecRequest {
   workdir?: string | undefined
   /** Timeout override in milliseconds (implementations cap it). */
   timeoutMs?: number | undefined
+  /**
+   * Foreground stdout capture budget in bytes. Absent uses the executor's
+   * default output cap. Trusted in-process consumers use this when they must
+   * parse complete stdout up to their own bounded limit; the model-facing bash
+   * tool does not expose it as a parameter.
+   */
+  stdoutMaxBytes?: number | undefined
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
-   * Opaque OWNER token for a background task — the consumer's isolation key
-   * (the tool layer passes the owning agent's `session.header.id`). The
-   * executor stores it on the task and exposes it via {@link BashExecutor.ownerOf};
-   * the executor itself NEVER interprets it (no access policy lives in the
-   * seam — that is the consumer's job). Absent for foreground runs and for an
-   * ownerless background start (a non-agent caller).
+   * Bytes to write to the command's stdin, then close it. Absent leaves stdin
+   * closed/empty (the default for model-driven tool calls). Set by in-process
+   * plugins (e.g. the hooks bridges, which write a hook command's JSON payload
+   * to its stdin); the model-facing bash tool does not expose it as a parameter
+   * (a model that needs stdin uses shell syntax like a heredoc or a pipe).
    */
-  owner?: string | undefined
+  stdin?: string | undefined
+  /**
+   * Ordinary environment entries for the command, merged after the credential
+   * scrub. `DSH_*` is reserved for {@link dshEnv} and implementations reject it
+   * here. Set by in-process plugins (the hooks bridges set
+   * `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing bash tool
+   * does not expose it as a parameter.
+   */
+  env?: Record<string, string> | undefined
+  /**
+   * Harness-owned `DSH_*` variables for this execution. Executors discard
+   * ambient `DSH_*` entries before merging this snapshot, so an unavailable
+   * current fact cannot inherit a stale value from the harness process, and
+   * reject non-`DSH_*` names supplied through this managed channel.
+   */
+  dshEnv?: DshEnvironment | undefined
+  /** Explicit per-call sandbox mode override. */
+  sandboxMode?: SandboxMode | undefined
 }
 
 /**
- * A fully-resolved execution SPEC — exactly what {@link BashExecutor.run} /
- * {@link BashExecutor.start} act on. `workdir` and `timeoutMs` are REQUIRED:
- * defaulting and capping already happened in {@link BashExecutor.resolve}, so
- * the executor never hides a `?? config` fallback (explicit > implicit). For
- * background tasks, `start()` ignores `timeoutMs` (background runs have no
- * timeout) — the field is still required because the type is shared.
+ * A resolved execution spec. {@link BashExecutor.resolve} fills and caps the
+ * required fields; {@link BashExecutor.start} ignores `timeoutMs` because
+ * background processes have no executor timeout.
  */
 export interface BashExecSpec {
   command: string
   workdir: string
   timeoutMs: number
+  /**
+   * Resolved foreground stdout capture budget in bytes. `run()` uses it for
+   * stdout; background tasks and stderr keep the executor's own output cap.
+   */
+  stdoutMaxBytes: number
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
+  /** Bytes to write to stdin before closing it; absent means no stdin. */
+  stdin?: string | undefined
   /**
-   * Opaque owner token, REQUIRED-but-nullable (mirrors `workdir`/`timeoutMs`
-   * being required on the resolved spec): {@link BashExecutor.resolve} carries
-   * the request's `owner` through, defaulting a missing one to `undefined`. A
-   * required field makes a forgotten owner a VISIBLE `undefined` rather than a
-   * silently-absent property that yields an unowned (cross-session-readable)
-   * task. `start()` stores it; `run()` (foreground) ignores it.
+   * Ordinary environment entries carried through from
+   * {@link BashExecRequest.env}. `DSH_*` remains reserved for {@link dshEnv}.
+   * OPTIONAL on the spec for the same reason as `stdin`: absent means no
+   * ordinary extra environment.
    */
-  owner: string | undefined
+  env?: Record<string, string> | undefined
+  /** Managed `DSH_*` snapshot; implementations reject ordinary names. */
+  dshEnv?: DshEnvironment | undefined
+  /** Resolved sandbox mode; ignored by executors that do not confine. */
+  sandboxMode: SandboxMode | undefined
 }
 
 /** One captured stream: the (possibly truncated) text plus recovery info. */
@@ -72,35 +126,33 @@ export interface BashRunResult {
   exitCode: number | null
   /** Terminating signal (e.g. 'SIGTERM'); null on normal exit. */
   signal: NodeJS.Signals | null
-  /** True when the executor's own timeout killed the command. */
+  /**
+   * True when the executor's own timeout was the FIRST cause to cut the command
+   * short. Mutually exclusive with {@link aborted}: one fused deadline drives
+   * both the timeout and the caller's cancellation, so a timeout and an abort
+   * racing before process close report the single first-abort cause, not both
+   * (see the [timeout-library Agent Note](../../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md)).
+   */
   timedOut: boolean
-  /** True when the caller's AbortSignal killed the command. */
+  /**
+   * True when the caller's `AbortSignal` was the FIRST cause to kill the command
+   * (and it was not the executor's own timeout). Mutually exclusive with
+   * {@link timedOut} — see there for the first-cause classification.
+   */
   aborted: boolean
   /** The effective timeout applied to this run (after defaulting/capping). */
   timeoutMs: number
   stdout: CollectedOutput
   stderr: CollectedOutput
+  /** Sandbox execution facts, absent for an unsandboxed executor. */
+  sandbox?: BashSandboxInfo
 }
 
-/** Lifecycle of a background task. */
-export type BashTaskStatus = 'running' | 'completed' | 'killed'
+/** Lifecycle of a background process. */
+export type BashProcessStatus = 'running' | 'completed' | 'killed'
 
-/** A tracked background task handle. */
-export interface BashTask {
-  readonly id: string
-  readonly command: string
-  status: BashTaskStatus
-  /** Exit code once finished (null = killed by signal / still running). */
-  exitCode: number | null
-  /** Terminating signal name, when signal-killed. */
-  signal: NodeJS.Signals | null
-  /** Resolves when the underlying process closes (never rejects). */
-  readonly done: Promise<void>
-}
-
-/** One incremental {@link BashExecutor.readOutput} read. */
-export interface BashTaskRead {
-  task: BashTask
+/** One incremental {@link BashProcess.readOutput} read. */
+export interface BashProcessRead {
   /** Output produced since the previous read (stderr in a marked section). */
   delta: string
   /** True when truncation dropped unread bytes the delta cannot include. */
@@ -111,5 +163,31 @@ export interface BashTaskRead {
   stderrSpillPath?: string
 }
 
-/** Completion callback for background tasks. */
-export type BashTaskListener = (task: BashTask) => void
+/**
+ * A background process handle returned by {@link BashExecutor.start}. It is the
+ * only access path; buffered output remains readable after exit. Executor
+ * disposal kills running processes and awaits {@link done}.
+ */
+export interface BashProcess {
+  /** Process lifecycle state (settled exactly once). */
+  status: BashProcessStatus
+  /** Exit code once finished (null = killed by signal / still running). */
+  exitCode: number | null
+  /** Terminating signal name, when signal-killed. */
+  signal: NodeJS.Signals | null
+  /** Resolves when the underlying process closes (never rejects — a spawn failure settles as `killed` with the error on stderr). */
+  readonly done: Promise<void>
+  /** Sandbox facts, stamped once a confined process settles. */
+  sandbox?: BashSandboxInfo
+  /**
+   * Read output produced since the previous read (consuming — consecutive
+   * reads never re-deliver). Reads that lost data flag `lossy` and point at
+   * full-stream spill files when available.
+   */
+  readOutput(): BashProcessRead
+  /**
+   * Kill the process group. Returns false when it had already finished
+   * (no-op); idempotent.
+   */
+  kill(): boolean
+}

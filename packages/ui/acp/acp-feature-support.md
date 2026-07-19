@@ -10,7 +10,7 @@ Legend: ✅ supported · ⚠️ partial / fallback · ❌ not yet · — n/a. Th
 
 ## At a glance
 
-The bridge implements the **core prompt-turn loop** for N concurrent sessions: initialize, session new/load, prompt, cancel, streamed assistant/thought chunks, tool-call rendering (including Zed terminal cards), and resumable session replay. The largest **unbuilt** areas are the **permission gate** (`session/request_permission`), **MCP passthrough**, **session modes / config options / model selection**, **slash commands**, and **agent plans** — all of which both reference adapters ship — plus the client **filesystem** and **terminal** method families (which the adapters mostly do NOT drive either — see rows 43-49). See [Gap summary](#gap-summary).
+The bridge implements the **core prompt-turn loop** for N concurrent sessions: initialize, session new/load, prompt, cancel, streamed assistant/thought chunks, tool-call rendering (including Zed terminal cards), resumable session replay, one-shot permission prompts, per-session model selection, and permission presets. The largest **unbuilt** areas are **MCP passthrough**, **slash commands**, and **agent plans**, plus the client **filesystem** and **terminal** method families (which the adapters mostly do NOT drive either — see rows 43-49). See [Gap summary](#gap-summary).
 
 ## 1. Agent methods (client → agent)
 
@@ -25,9 +25,9 @@ The bridge implements the **core prompt-turn loop** for N concurrent sessions: i
 | `session/close` | S | ❌ | ✅ | ✅ | No `session/close` handler — the SDK dispatch returns `method_not_found`. The bridge tears sessions down on client disconnect / Cordis disposal (cross-cutting, see [§8](#8-cross-cutting)), but that is not the on-demand per-session method. |
 | `session/prompt` | S | ✅ | ✅ | ✅ | Maps to `agent.send`; one in-flight prompt per session; settles on the owning turn's end. |
 | `session/cancel` | S | ✅ | ✅ | ✅ | Queue-aware `agent.cancel`; settles the in-flight prompt `cancelled`, scoped to the one session. |
-| `session/set_mode` | S | ❌ | ✅ | ✅ | Session modes not modeled (see [§6 Modes](#6-session-modes--config-options--models)). |
-| `session/set_config_option` | S | ❌ | ✅ | ✅ | Config options not modeled. |
-| model selection | S | ❌ | ✅ | ✅ | No distinct stable `session/set_model` — model is the `model`-category `session/set_config_option`. The bridge fixes the model per-bridge via config; no runtime switch. Codex still uses the legacy `unstable_setSessionModel` ext method. |
+| `session/set_mode` | S | ❌ | ✅ | ✅ | Session modes deliberately skipped: config options are the spec's replacement and modes are slated for removal in ACP v2 (see [§6](#6-session-modes--config-options--models)). |
+| `session/set_config_option` | S | ✅ | ✅ | ✅ | A provider/model select is present for a complete registered target; one `permission` select is added when `ctx.permission` is composed. Every response carries the complete refreshed state. |
+| model selection | S | ✅ | ✅ | ✅ | No distinct stable `session/set_model` — model is the `model`-category `session/set_config_option`. Values preserve the provider/model pair, catalogs come from `ctx.llm`, selection is per session, and `session/load` restores the last requested pair. Codex also supports the legacy `unstable_setSessionModel` ext method. |
 | `session/list` | S | ❌ | ✅ | ✅ | Gated by `sessionCapabilities.list`. The harness HAS `sessionPersistence.list()` (used internally for load-cwd validation) but does not expose it over ACP. |
 | `session/delete` | S | ❌ | ✅ | ✅ | Gated by `sessionCapabilities.delete`. |
 | `session/fork` | U | ❌ | ✅ | ❌ | Claude ships `unstable_forkSession`; Codex does not. |
@@ -39,7 +39,7 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | Method | Stable | Bridge | Claude | Codex | Notes |
 |---|---|---|---|---|---|
 | `session/update` | S | ✅ | ✅ | ✅ | The bridge's primary output channel (see [§4](#4-sessionupdate-variants)). |
-| `session/request_permission` | S | ❌ | ✅ | ✅ | **The biggest gap.** Tools run with the executor's full authority; no user authorization round-trip. The `agent→sessionId` reverse map is already in place to route a future permission request. Tracked `TODO(rfc010-permission-gate)`. |
+| `session/request_permission` | S | ✅ | ✅ | ✅ | The bridge answers the [`ctx.approval`](../user-approval/README.md) seam for the agents it owns: an `ask` from a hook/plugin becomes an editor prompt attached to the streamed tool call, one-shot `allow_once`/`reject_once` options only. Whether a call asks is policy (nothing asks by default); `allow_always` is deferred (grant storage). |
 | `fs/read_text_file` | S | ❌ | ✅ | ❌ | The harness reads files directly (it does not see the editor's unsaved buffer state). Claude delegates; Codex does not. |
 | `fs/write_text_file` | S | ❌ | ✅ | ❌ | Same — direct writes, no editor delegation. |
 | `terminal/create` | S | ❌ | ❌ | ❌ | Neither reference adapter drives the client terminal API either — both, like the bridge, render shell output as tool-call content + a `_meta` channel (see [§5 Terminal](#terminal-rendering)). |
@@ -47,7 +47,7 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | `terminal/wait_for_exit` | S | ❌ | ❌ | ❌ | As above. |
 | `terminal/kill` | S | ❌ | ❌ | ❌ | As above. |
 | `terminal/release` | S | ❌ | ❌ | ❌ | As above. |
-| `elicitation/create` · `elicitation/complete` | U | ❌ | ✅ | ⚠️ | Structured user-input forms. Claude calls the `unstable_*` elicitation methods (to surface MCP server elicitations); Codex does NOT — its `CodexElicitationHandler` maps elicitations onto `session/request_permission` instead. |
+| `elicitation/create` · `elicitation/complete` | U | ⚠️ | ✅ | ⚠️ | The bridge drives `unstable_createElicitation` for `ask_user_question` form prompts (session-scoped, no URL-mode flow yet). Claude calls the `unstable_*` elicitation methods for MCP server elicitations; Codex maps elicitations onto `session/request_permission`. |
 
 ## 3. Capabilities
 
@@ -63,7 +63,7 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | `sessionCapabilities.*` | S | ❌ | ✅ | ✅ | None advertised (list/delete/resume/close/additionalDirectories/fork all off). |
 | `auth.logout` | S | ❌ | ✅ | ✅ | Not advertised. |
 | `authMethods[]` | S | ⚠️ | ✅ | ✅ | Advertised as empty (no auth required to reach the model). |
-| `agentInfo` (name/version) | S | ✅ | ✅ | ✅ | From `agentName` / `agentVersion` config. |
+| `agentInfo` (name/version) | S | ✅ | ✅ | ✅ | Fixed literals: `deepseek-harness-acp` / `0.0.1` (not config). |
 | `_meta` custom caps | S | ❌ | ✅ | — | E.g. Claude's `claudeCode.promptQueueing`. The bridge advertises no custom `_meta`. |
 
 ### 3b. `clientCapabilities` (consumed by the bridge)
@@ -86,22 +86,22 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | `plan` | S | ❌ | ✅ | ✅ | No agent plan emitted. Both adapters emit real plan entries (Codex's `CodexEventHandler.updatePlan` maps `turn/plan/updated` → `{ sessionUpdate: 'plan', entries }`). |
 | `available_commands_update` | S | ❌ | ✅ | ✅ | No slash commands advertised. |
 | `current_mode_update` | S | ❌ | ✅ | ✅ | No session modes. |
-| `config_option_update` | S | ❌ | ✅ | ✅ | No config options. |
-| `usage_update` | S | ❌ | ✅ | ✅ | Token/cost reporting not surfaced (the harness HAS usage events internally). |
+| `config_option_update` | S | ❌ | ✅ | ✅ | Config options exist (advertised in `session/new`/`session/load`, switched via `session/set_config_option`), but the bridge never pushes agent-initiated changes — an operator default drift is narrated to the MODEL, not echoed to the editor. Future work in the [sandbox Agent Note § Per-session mode switching](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md). |
+| `usage_update` | S | ❌ | ✅ | ✅ | Token/cost reporting not surfaced (the harness records token usage internally on `assistant/message`). |
 | `session_info_update` | S | ❌ | ⚠️ | ⚠️ | Session title/metadata not pushed. |
 
 ## 5. Tool-call rendering
 
-Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult` on the `dsh-tools` definition), not special-cased in the bridge — see the [terminal-and-tool-rendering RFC](../../../docs/rfc/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md).
+Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult` on the `dsh-tools` definition), not special-cased in the bridge — see the [terminal-and-tool-rendering Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md).
 
 | Feature | Stable | Bridge | Claude | Codex | Notes |
 |---|---|---|---|---|---|
-| `ToolCallKind` mapping | S | ✅ | ✅ | ✅ | `execute`/`read`/`edit`/`other` inferred from the tool; richer mapping possible. |
+| `ToolCallKind` mapping | S | ✅ | ✅ | ✅ | `execute`/`read`/`edit` declared by each tool's `presentCall`; presenter-less tools render `other` (no name sniffing); richer mapping possible. |
 | `ToolCallStatus` | S | ✅ | ✅ | ✅ | `in_progress` → `completed`/`failed`. |
 | `content` blocks | S | ✅ | ✅ | ✅ | Text content; the description renders above the card. |
-| `diff` content | S | ❌ | ✅ | ✅ | No structured diff rendering for edits (would need a diffing edit tool + presenter). |
+| `diff` content | S | ✅ | ✅ | ✅ | The `write`/`edit` tools declare a `diff` render intent: `presentCall` → a call-time `{ card: 'diff' }` snippet, and `presentResult` → a result-time `{ card: 'diff' }`. For an edit or an overwrite it carries the applied hunk(s) with surrounding context (one per `replace_all` site), computed from the before/after text and persisted on the `tool/result` event as `meta`; for a create (no before-image) it is an args-derived whole-file diff. The bridge emits `{ type: 'diff', path, oldText, newText }` content blocks; a successful mutation ALWAYS returns the result diff (an ACP `tool_call_update.content` replaces the call's content, so the result diff — not the model-facing text — is what survives). |
 | `terminal` content | S | ✅ | ✅ | ✅ | Via the Zed `_meta` terminal convention (see below), not the spec `terminal/*` sub-protocol. |
-| `locations` (follow-along) | S | ❌ | ✅ | ✅ | No file-location hints emitted. |
+| `locations` (follow-along) | S | ✅ | ✅ | ✅ | The `read`/`write`/`edit` tools emit `{ path, line? }` file-location hints via `presentCall`. |
 | `rawInput` | S | ✅ | ⚠️ | ✅ | Parsed tool args surfaced as `rawInput`. |
 | `rawOutput` | S | ❌ | ⚠️ | ✅ | Not emitted. |
 
@@ -111,7 +111,7 @@ Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult
 
 ## 6. Session modes / config options / models
 
-❌ None modeled. Both reference adapters ship modes (Claude: a "plan" auto-mode; Codex: read-only / agent / agent-full-access mapping to its approval+sandbox policy), the newer config-option surface, and runtime model selection. The harness fixes the model per-bridge via `AcpConfig.model`. These are coupled to the unbuilt **permission gate** (a mode often selects an approval policy), so they are natural follow-ups to it.
+Config options ✅: the bridge advertises a `model` select from the advisory LLM provider/model catalog, preserving each provider/model pair in an opaque value and grouping multiple providers. A selected pair is isolated to one session, snapshotted with the prompt for each step, applied through `agent/request`, and restored from the logged request header on load. When `ctx.permission` is composed, the bridge also advertises one `permission` select whose values come from the deployment preset table and whose current value derives from the session log; idle permission switches anchor at the next `agent/prompt-submit` inside its open turn. Session modes stay deliberately unmodeled because config options replace them in ACP v2. See the [model-catalog Agent Note](../../../.agents/notes/implemented/architecture/2026-07-15-llm-model-catalog-and-acp-selection.md) and [sandbox Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md).
 
 ## 7. Content blocks
 
@@ -130,26 +130,23 @@ The bridge rejects unsupported prompt blocks rather than silently dropping them 
 | Feature | Stable | Bridge | Notes |
 |---|---|---|---|
 | `StopReason` mapping | S | ✅ | `turnEndToStopReason` is total over harness turn-end reasons → `end_turn`/`max_tokens`/`cancelled`. |
-| Multi-session (N per connection) | S | ✅ | Strict per-session demux; concurrent streams never interleave. See the [multi-session RFC](../../../docs/rfc/proposed/feature/2026-06-14-acp-multi-session.md). |
+| Multi-session (N per connection) | S | ✅ | Strict per-session demux; concurrent streams never interleave. See the [multi-session Agent Note](../../../.agents/notes/implemented/feature/2026-06-14-acp-multi-session.md). |
 | Disconnect / disposal teardown | S | ✅ | Quiesces every live session on client disconnect or Cordis disposal. |
 | `_meta` extensibility | S | ⚠️ | Consumed (Zed terminal cap) and emitted (terminal `_meta`); no other custom extensions. |
-| Background-task ownership isolation | — | ✅ | `bash_output`/`bash_kill` reject another session's task via an opaque owner token. |
+| Background-task ownership isolation | — | ✅ | Generic `task_output`/`task_kill` reject tasks whose branded owner `SessionId` belongs to another session. |
 | stdout-is-the-protocol guarantee | S | ✅ | The bridge runs in an example with no stdout logger. |
 
 ## Gap summary
 
 Ranked by how commonly the reference adapters ship them and how much UX they unlock:
 
-1. **Permission gate** — `session/request_permission` + permission options. Tracked `TODO(rfc010-permission-gate)`; the reverse map is already wired. Foundational, and a prerequisite for modes.
-2. **Session lifecycle** — `session/list` + `session/delete` (the persistence layer already lists), then `session/resume` / `session/close`.
-3. **Modes / config options / model selection** — coupled to the permission gate.
-4. **Agent plan** (`sessionUpdate: 'plan'`) — surface the loop's plan as structured entries.
-5. **Slash commands** (`available_commands_update`).
-6. **MCP passthrough** (`mcpServers` on `session/new` + `mcpCapabilities`).
-7. **Richer prompt content** — image / embedded `resource` blocks (needs a multimodal model path).
-8. **Diff + location tool rendering** — `diff` content and `locations` for edit tools.
-9. **Usage reporting** (`usage_update`) — the harness already has the internal usage events.
-10. **Editor filesystem delegation** (`fs/read_text_file` / `fs/write_text_file`) — lets the agent see unsaved buffers; lower priority since the harness has direct disk access.
+1. **Session lifecycle** — `session/list` + `session/delete` (the persistence layer already lists), then `session/resume` / `session/close`.
+2. **Agent plan** (`sessionUpdate: 'plan'`) — surface the loop's plan as structured entries.
+3. **Slash commands** (`available_commands_update`).
+4. **MCP passthrough** (`mcpServers` on `session/new` + `mcpCapabilities`).
+5. **Richer prompt content** — image / embedded `resource` blocks (needs a multimodal model path).
+6. **Usage reporting** (`usage_update`) — the harness already records token usage internally (on `assistant/message`).
+7. **Editor filesystem delegation** (`fs/read_text_file` / `fs/write_text_file`) — lets the agent see unsaved buffers; lower priority since the harness has direct disk access.
 
 ## Out of scope
 
@@ -159,4 +156,4 @@ Unstable/draft ACP features that **neither** reference adapter ships are not tra
 
 - Stable spec: `schema/v1/schema.json` (schema `1.14.0`) and `docs/protocol/v1/*.mdx` in the [agent-client-protocol](https://github.com/agentclientprotocol/agent-client-protocol) repo.
 - Reference adapters: [`claude-agent-acp`](https://github.com/zed-industries/claude-code-acp) and [`codex-acp`](https://github.com/zed-industries/codex-acp).
-- Bridge: [`README.md`](README.md), [`src/index.ts`](src/index.ts), and the ACP RFCs under [`docs/rfc/`](../../../docs/rfc/README.md).
+- Bridge: [`README.md`](README.md), [`src/index.ts`](src/index.ts), and the ACP Agent Notes under [`.agents/notes/`](../../../.agents/notes/README.md).

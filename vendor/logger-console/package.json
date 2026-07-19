@@ -5,10 +5,10 @@
   "private": true,
   "type": "module",
   "main": "lib/index.js",
-  "types": "lib/shared.d.ts",
+  "types": "lib/types/shared.d.ts",
   "exports": {
     ".": {
-      "types": "./lib/shared.d.ts",
+      "types": "./lib/types/shared.d.ts",
       "node": "./lib/index.js",
       "default": "./lib/browser.js"
     },
@@ -16,13 +16,16 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "lib",
+    "lib/index.js",
+    "lib/browser.js",
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
     "src"
   ],
   "author": "Shigma <shigma10826@gmail.com>",
   "license": "MIT",
   "peerDependencies": {
-    "cordis": "^4.0.0-rc.6"
+    "cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
     "cosmokit": "^1.8.1",
