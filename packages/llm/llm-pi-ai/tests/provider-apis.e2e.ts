@@ -7,22 +7,24 @@ import type { PiAiReplayState } from '../src/replay.ts'
 import { assemble, type AssembledResult } from './assemble.ts'
 
 interface ProviderCase {
-  provider: 'azure-openai-responses' | 'anthropic'
-  api: 'azure-openai-responses' | 'anthropic-messages'
+  provider: 'openai' | 'anthropic'
+  api: 'openai-responses' | 'anthropic-messages'
   model: string
   apiKey?: string
   baseURL?: string
+  headers?: Record<string, string>
 }
 
-const azureOpenAIBaseURL = process.env.DSH_PI_AI_AZURE_OPENAI_BASE_URL ?? process.env.AZURE_OPENAI_BASE_URL
+const openAIBaseURL = process.env.DSH_PI_AI_OPENAI_BASE_URL
+const azureOpenAIKey = process.env.AZURE_OPENAI_API_KEY
 
 const providerCases: ProviderCase[] = [
   {
-    provider: 'azure-openai-responses',
-    api: 'azure-openai-responses',
-    model: process.env.DSH_PI_AI_AZURE_OPENAI_MODEL ?? 'gpt-5.5',
-    ...process.env.AZURE_OPENAI_API_KEY ? { apiKey: process.env.AZURE_OPENAI_API_KEY } : {},
-    ...azureOpenAIBaseURL ? { baseURL: azureOpenAIBaseURL } : {},
+    provider: 'openai',
+    api: 'openai-responses',
+    model: process.env.DSH_PI_AI_OPENAI_MODEL ?? 'gpt-5.5',
+    ...azureOpenAIKey ? { apiKey: azureOpenAIKey, headers: { 'api-key': azureOpenAIKey } } : {},
+    ...openAIBaseURL ? { baseURL: openAIBaseURL } : {},
   },
   {
     provider: 'anthropic',
@@ -43,6 +45,7 @@ async function harness(): Promise<Context> {
       provider: profile.provider,
       ...profile.apiKey === undefined ? {} : { apiKey: profile.apiKey },
       ...profile.baseURL === undefined ? {} : { baseURL: profile.baseURL },
+      ...profile.headers === undefined ? {} : { headers: profile.headers },
     })),
   })
   return ctx

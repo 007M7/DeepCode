@@ -68,10 +68,9 @@ jobs:
       - name: E2E tests (real Azure OpenAI and Anthropic APIs)
         env:
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY_EXTERNAL }}
-          AZURE_OPENAI_API_VERSION: v1
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY_EXTERNAL }}
-          DSH_PI_AI_AZURE_OPENAI_MODEL: ${{ inputs.azure_openai_model }}
-          DSH_PI_AI_AZURE_OPENAI_BASE_URL: https://openai-routerhub-resource.services.ai.azure.com/api/projects/openai/openai/
+          DSH_PI_AI_OPENAI_MODEL: ${{ inputs.azure_openai_model }}
+          DSH_PI_AI_OPENAI_BASE_URL: https://openai-routerhub-resource.services.ai.azure.com/api/projects/openai/openai/v1
           DSH_PI_AI_ANTHROPIC_MODEL: ${{ inputs.anthropic_model }}
           DSH_E2E_MAX_WORKERS: 2
         run: >-
