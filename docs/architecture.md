@@ -4,7 +4,7 @@ The **DeepSeek Harness SDK** builds agent harnesses on Cordis. The principle is 
 
 ## Overview
 
-A harness is one [Cordis](cordis-primer.md) context. Packages contribute service keys, typed events, and disposable registrations: services expose stable calls (`ctx.llm`, `ctx.tools`, `ctx.sessions`), events provide interception and notifications (`agent/request`, `tools/pre-execute`, `session/event`), and registrations install prompt sections, tools, providers, adapters, or listeners.
+A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx.llm`, `ctx.tools`, `ctx.sessions`), typed events (`agent/request`, `tools/pre-execute`, `session/event`), and disposable prompt, tool, provider, adapter, and listener registrations.
 
 `packages/core/` groups the default agent flow; surrounding capabilities are equally first-class Cordis plugins.
 
@@ -16,7 +16,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages contribute service
 | `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
 | `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and prompt variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
-| `ctx.agents` | `dsh-agent` | live agents, creation delegation, `agent/*` events, and process-local initiating Agent scope |
+| `ctx.agents` | `dsh-agent` | live agents, delegated creation, `agent/*` events, and process-local initiator scope |
 | `ctx.agentLoop` | `dsh-agent-loop` | concrete `Agent` driver |
 
 ### Capability Services
@@ -80,33 +80,43 @@ forever:
       assemble system prompt and tool schemas
       agent/session-prefix (first step)
       agent/pre-step
-      'step/start'
       snapshot the derived messages (the reconstruction boundary)
+      'step/start'
       agent/request (config only) -> log request/header -> llm/stream (frozen)
+      on final adapter-path or terminal in-band failure:
+        'step/end'
+        agent/request-error(original error, consecutive retry attempt, signal)
+        retry in the next numbered step or preserve the original error
+      otherwise:
         'assistant/chunk'
-      agent/step-result
-      'assistant/message' (transformed content or empty success anchor after step-result rejection)
-      schedule tool calls by ctx.tools.executionMode:
-        exclusive -> one-call barrier
-        parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
-        each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
-        each model-order result -> ordered tools/post-execute -> 'tool/result'
-      append accepted tool-batch context after all recorded results, then steering
-      'step/end'
-      agent/turn-continuation
-      agent/turn-stop (terminal policy)
-      stop unless tools or continuation policy ask for another step
+        agent/step-result
+        'assistant/message' (transformed content or empty success anchor after step-result rejection)
+        schedule tool calls by ctx.tools.executionMode:
+          exclusive -> one-call barrier
+          parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
+          each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+          each model-order result -> ordered tools/post-execute -> 'tool/result'
+        append accepted tool-batch context after all recorded results, then steering
+        agent/post-step
+        'step/end'
+        agent/turn-continuation
+        agent/turn-stop (terminal policy)
+        stop unless tools or continuation policy ask for another step
     'turn/end'
     checkpoint persistence and notify idle/running status
 ```
 
 Each step assembles ordered prompt sections, tool schemas, and `{{name}}` variables; unknown or valueless references fail the turn. `dsh-system-prompt` owns the harness identity and default persona, which an agent scope may shadow. The loop supplies `model` and `cwd` ([prompt-ownership RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Context accepted during tool execution—including async `agent.inject()` notices and post-tool `additionalContexts`—waits for settlement, then follows every recorded result. Successful batches preserve call/result adjacency; interrupted batches drain that context before turn closure. Steering drains between steps; ordinary leftover steering becomes queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through turn close and flush, and discards later steering while preserving queued prompts.
+Tool-time context—including async `agent.inject()` notices and post-tool `additionalContexts`—settles, then follows recorded results. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering before signal closure. Leftovers become queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through turn close and flush, and discards later steering but preserves queued prompts.
+
+`dsh-compact-basic` handles pressure and canonical overflow at these checkpoints; retry requires a balanced surface replacement ([RFC](rfc/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)).
 
 ### Failure Boundaries
 
-The turn is the containment boundary. A throwing listener, adapter error finish, or failed step ends it with an error reason and reports `agent/error` without killing the driver. `cancel()` clears queued and steering work, aborts the active model/tool boundary when possible, and records the turn end. Disposal stops the loop, awaits quiescence, unregisters the agent, and drains service disposers.
+The turn is the containment boundary. Final adapter-path and terminal in-band failures close the step before `agent/request-error`; retry opens a numbered step; otherwise, the provider error survives. Attempts reset on success.
+
+Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched model tool calls receive synthetic `tool/call` and `ABORTED` result pairs before `turn/end`. `cancel()` clears queues and aborts active work; disposal awaits quiescence before unregistering.
 
 Every session event is turn-enclosed. Reloading preserves an interrupted tail and closes it with a synthetic `interrupted` turn end. Failures after durable turn close report only through `agent/error` because no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
 
@@ -116,11 +126,7 @@ Every session event is turn-enclosed. Reloading preserves an interrupted tail an
 
 ### Agent Scope
 
-Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, receive only that agent's dispatches, and unwind with it; async effects such as background-task cleanup are awaited. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. Typed resolvers derive carrier checks from merged `Events` signatures and `scopeTarget` ([semantic-gates RFC](rfc/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See the [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition controls](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md).
-
-### Initiating Agent Scope
-
-`AgentLoop` runs each driver inside `ctx.agents.withInitiator()`; private code derives `agent.session`, while other identities stay explicit ([decision](rfc/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
+Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, receive only that agent's dispatches, and unwind with it; async effects such as background-task cleanup are awaited. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. Typed resolvers derive carrier checks from merged `Events` signatures and `scopeTarget` ([semantic-gates RFC](rfc/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See the [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition controls](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs drivers inside `ctx.agents.withInitiator()`; private orchestration derives `agent.session`; other identities stay explicit ([RFC](rfc/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
 
 ## State
 
@@ -150,7 +156,7 @@ Some seams bend the template deliberately: LLM combines interface and consumer b
 
 ### Bundles And Apps
 
-`dsh-agent-spine-demo` bundles the default spine ([README](../packages/examples/agent-spine-demo/README.md)). `dsh-stdio-demo` adds a terminal front door that selects `dsh-tui` for interactive terminals and line-oriented `dsh-stdio` for pipes; `dsh-cli-demo` runs one persisted headless turn with format-pure stdout; and `dsh-acp-demo` adds stdout-pure ACP over JSON-RPC ([ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies its default only without an explicit config channel and drives `dsh-jsonrpc` over line-delimited JSON-RPC ([Python SDK](../python/README.md)). Deployments remain thin leaves with swappable backends and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-spine-demo` bundles the default spine ([README](../packages/examples/agent-spine-demo/README.md)). `dsh-stdio-demo` selects `dsh-tui` for interactive terminals and line-oriented `dsh-stdio` for pipes; `dsh-cli-demo` runs one persisted headless turn with format-pure stdout; `dsh-acp-demo` adds stdout-pure ACP over JSON-RPC ([ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies its default only without an explicit config channel and drives `dsh-jsonrpc` over line-delimited JSON-RPC ([Python SDK](../python/README.md)). Deployments remain thin leaves with swappable backends and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Where New Behavior Goes
 
@@ -164,7 +170,7 @@ New behavior should attach to a documented extension point; changing the shipped
 | Add a long-running/background capability | register the work on `ctx.tasks`; the generic `task_*` tools collect/stop it |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
 | Confine spawned processes | a `ctx.sandbox` backend; consumers wrap their argv before spawning |
-| Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall; use serial `agent/turn-stop` for a monotonic terminal stop |
+| Intercept prompts, requests, model completion/failure, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` event; use serial `agent/turn-stop` for a monotonic terminal stop |
 | Add a session-stable request prefix outside history | compose it on `agent/session-prefix`, once per loop instance; logged on the request header |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |

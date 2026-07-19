@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CallId, LlmError } from '@deepseek-ai/dsh-llm'
+import { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, AssistantMessageEvent, Usage } from '@earendil-works/pi-ai'
 import { toPiContext } from '../src/context.ts'
@@ -523,6 +523,46 @@ describe('mapStopReason / mapUsage', () => {
       .toMatchObject({ kind: 'error', code: 'RATE_LIMIT' })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 500: backend down' })))
       .toMatchObject({ kind: 'error', code: 'SERVER' })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'HTTP 400: input exceeds the model context window limit',
+    }))).toMatchObject({ kind: 'error', code: CONTEXT_WINDOW_EXCEEDED_CODE })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'HTTP 400: request too large for model context',
+    }))).toMatchObject({ kind: 'error', code: CONTEXT_WINDOW_EXCEEDED_CODE })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'HTTP 400: invalid input: temperature exceeds maximum allowed value',
+    }))).toMatchObject({ kind: 'error', code: 'INVALID_REQUEST' })
+  })
+
+  it('uses pi-ai provider-specific overflow classification without losing rate-limit exclusions', () => {
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'prompt is too long: 213462 tokens > 200000 maximum',
+    }))).toMatchObject({ kind: 'error', code: CONTEXT_WINDOW_EXCEEDED_CODE })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'ThrottlingException: Too many tokens, rate limit reached',
+    }))).toMatchObject({ kind: 'error', code: 'RATE_LIMIT' })
+  })
+
+  it('uses the resolved context window for silent and length-stop overflows', () => {
+    const silent = assistant({ stopReason: 'stop', usage: usage(101, 0) })
+    expect(mapStopReason(silent)).toEqual({ kind: 'stop' })
+    expect(mapStopReason(silent, 100)).toEqual({
+      kind: 'error',
+      message: 'pi-ai detected context overflow for model "deepseek-v4-flash"',
+      code: CONTEXT_WINDOW_EXCEEDED_CODE,
+    })
+
+    const truncated = assistant({ stopReason: 'length', usage: usage(80, 0, 19) })
+    expect(mapStopReason(truncated)).toEqual({ kind: 'max-tokens' })
+    expect(mapStopReason(truncated, 100)).toMatchObject({
+      kind: 'error',
+      code: CONTEXT_WINDOW_EXCEEDED_CODE,
+    })
   })
 
   it('maps cache fields only when nonzero', () => {

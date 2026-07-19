@@ -814,7 +814,7 @@ describe('scoped-dispatch invariants', () => {
       ['agent/status', [agent, 'idle']],
       ['agent/queued', [agent, [], { source: { kind: 'user' }, steering: false }]],
       ['agent/session-start', [agent, 'startup']],
-      ['agent/pre-step', [agent, 1, 1, '', new AbortController().signal]],
+      ['agent/pre-step', [agent, 1, 1, new AbortController().signal]],
       ['agent/prompt-submit', [agent, [], { kind: 'user' }, () => Promise.resolve({ kind: 'allow' })]],
       ['agent/request', [agent, 1, 1, { model: 'm' }, () => Promise.resolve({ model: 'm' })]],
       ['agent/session-prefix', [agent, [], new AbortController().signal, () => Promise.resolve([])]],

@@ -4,14 +4,15 @@
  * Dispatch may overlap, while policy, results, and result context remain
  * model-ordered. Abort stops replenishment and drains started calls.
  *
- * Each started call records `tool/call`; `tool/result` commits in model order,
- * preserving derived history when audit events interleave with earlier results.
+ * Each advertised call records a balanced `tool/call`/`tool/result` pair. Calls
+ * skipped after abort receive synthetic error results so replay stays valid.
  * @module dsh-agent-loop/tool-calls
  */
 
 import type { Context } from 'cordis'
 import { assertNever, type ToolCallBlock } from '@deepseek-ai/dsh-llm'
 import type { HookContext } from '@deepseek-ai/dsh-agent'
+import type { Session } from '@deepseek-ai/dsh-session'
 import { TOOL_REGISTRY_SCHEDULER, type ToolExecutionInput, type ToolExecutionMode, type ToolExecutionResult, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 
 /** One tool call after argument parsing, ready to schedule. */
@@ -27,10 +28,17 @@ interface Slot {
   needsPost: boolean
 }
 
+/** One scheduler group outcome, including a drained cancellation. */
+interface GroupOutcome {
+  consumed: number
+  aborted: boolean
+}
+
 /**
  * Schedule one assistant step's tool calls by their live concurrency mode.
- * Started calls receive ordered results. Abort drains them and rethrows after
- * accepting their context into the batch FIFO owned by the caller.
+ * Started calls receive ordered results. Abort drains them, records synthetic
+ * results for unstarted calls, and returns with the signal still aborted after
+ * accepting started-call context into the batch FIFO owned by the caller.
  * The committed step's AgentLoop driver boundary supplies the initiating Agent
  * that becomes each explicit {@link ToolExecutionInput.agent}.
  *
@@ -52,6 +60,7 @@ export async function executeToolCalls(
   acceptContext: (context: HookContext) => void,
 ): Promise<void> {
   const agent = ctx.agents.requireInitiator()
+  const { session } = agent
 
   // Inputs are distinct because tools/execute wrappers may replace `exec.signal`.
   const planned: PlannedCall[] = toolCalls.map(block => ({
@@ -72,7 +81,14 @@ export async function executeToolCalls(
     const first = planned[next]!
     const mode = ctx.tools.executionMode(first.exec).kind
     const group = mode === 'parallel' ? planned.slice(next) : [first]
-    next += await runGroup(ctx, turn, step, group, mode, signal, maxParallel, acceptContext)
+    const outcome = await runGroup(
+      ctx, turn, step, group, mode, signal, maxParallel, acceptContext,
+    )
+    next += outcome.consumed
+    if (outcome.aborted) {
+      for (const call of planned.slice(next)) appendSkippedToolCall(session, turn, step, call.block)
+      return
+    }
   }
 }
 
@@ -90,7 +106,8 @@ function parseArguments(raw: string): unknown {
  * before start; an exclusive reclassification waits for the current pool to
  * drain and remains for the caller's next barrier. Results and contexts commit
  * in model order. Abort stops starts, drains and commits started calls, accepts
- * their contexts into the owning batch, and throws.
+ * their contexts into the owning batch, records results for skipped calls, and
+ * returns an aborted outcome.
  */
 async function runGroup(
   ctx: Context,
@@ -101,33 +118,8 @@ async function runGroup(
   signal: AbortSignal,
   maxParallel: number,
   acceptContext: (context: HookContext) => void,
-): Promise<number> {
+): Promise<GroupOutcome> {
   const { session } = ctx.agents.requireInitiator()
-  const appendToolCall = (block: ToolCallBlock): number => {
-    return session.append('tool/call', {
-      turn,
-      step,
-      callId: block.id,
-      name: block.name,
-      arguments: block.arguments,
-    }).seq
-  }
-  const appendToolResult = (block: ToolCallBlock, result: ToolExecutionResult, callSeq: number): void => {
-    session.append('tool/result', {
-      turn,
-      step,
-      // Correlation stays with the loop's authoritative model-transcript call id;
-      // registry results deliberately do not duplicate it.
-      callId: block.id,
-      content: result.content,
-      isError: result.isError,
-      ...result.error ? { error: result.error } : {},
-      // Persist presentation payloads so UI bridges reproduce result cards on replay.
-      ...result.meta !== undefined ? { meta: result.meta } : {},
-    }, { surfaceOp: 'append', sourceEventSeqs: [callSeq] })
-  }
-  /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-  if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
   const slots: (Slot | undefined)[] = group.map(() => undefined)
   // Started slots retain their tool/call seq for result provenance.
   const callSeqs: number[] = group.map(() => -1)
@@ -146,7 +138,7 @@ async function runGroup(
         ? await ctx.tools[TOOL_REGISTRY_SCHEDULER].finalize(slot.exec, slot.result)
         : ctx.tools[TOOL_REGISTRY_SCHEDULER].finish(slot.exec, slot.result)
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded index
-      appendToolResult(call!.block, result, callSeqs[committed]!)
+      appendToolResult(session, turn, step, call!.block, result, callSeqs[committed]!)
       for (const context of result.additionalContexts ?? []) acceptContext(context)
       committed++
     }
@@ -157,7 +149,7 @@ async function runGroup(
   const startCall = async (index: number): Promise<void> => {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded index
     const call = group[index]!
-    callSeqs[index] = appendToolCall(call.block)
+    callSeqs[index] = appendToolCall(session, turn, step, call.block)
     started++
     const prepared = await ctx.tools[TOOL_REGISTRY_SCHEDULER].prepare(call.exec)
     switch (prepared.kind) {
@@ -205,17 +197,57 @@ async function runGroup(
     inFlight.delete(settledIndex)
     await commitReady()
     // Abort may arrive while a tool or ordered commit awaits.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+
     if (signal.aborted) aborted = true
     await fillPool()
   }
 
   if (aborted) {
-    // Started calls and accepted context settle before the turn records the abort.
-    /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-    throw new Error(String(signal.reason ?? 'aborted'))
+    // Started calls and accepted context settle first; every remaining model
+    // call then receives an ordered synthetic result before the turn aborts.
+    for (const call of group.slice(started)) appendSkippedToolCall(session, turn, step, call.block)
+    return { consumed: group.length, aborted: true }
   }
   /* v8 ignore next -- unreachable: a non-aborted group commits every started call */
   if (committed !== started) throw new Error('tool-call scheduler: uncommitted settled calls')
-  return started
+  return { consumed: started, aborted: false }
+}
+
+/** Append the durable call/result pair for a model call skipped after cancellation. */
+function appendSkippedToolCall(session: Session, turn: number, step: number, block: ToolCallBlock): void {
+  const callSeq = appendToolCall(session, turn, step, block)
+  appendToolResult(session, turn, step, block, {
+    content: [{ type: 'text', text: 'Error: tool call skipped because the step was aborted before execution' }],
+    isError: true,
+    error: { name: 'AbortError', code: 'ABORTED' },
+  }, callSeq)
+}
+
+/** Append a started call and return its provenance sequence. */
+function appendToolCall(session: Session, turn: number, step: number, block: ToolCallBlock): number {
+  const event = session.append('tool/call', { turn, step, callId: block.id, name: block.name, arguments: block.arguments })
+  return event.seq
+}
+
+/** Append a model-ordered result linked to its call event. */
+function appendToolResult(
+  session: Session,
+  turn: number,
+  step: number,
+  block: ToolCallBlock,
+  result: ToolExecutionResult,
+  callSeq: number,
+): void {
+  session.append('tool/result', {
+    turn, step,
+    // Correlation stays with the loop's authoritative model-transcript call id;
+    // registry results deliberately do not duplicate it.
+    callId: block.id,
+    content: result.content,
+    isError: result.isError,
+    ...result.error ? { error: result.error } : {},
+    // The tool's private presentation payload (e.g. a result-time diff),
+    // persisted so a UI bridge reproduces the card on replay.
+    ...result.meta !== undefined ? { meta: result.meta } : {},
+  }, { surfaceOp: 'append', sourceEventSeqs: [callSeq] })
 }
