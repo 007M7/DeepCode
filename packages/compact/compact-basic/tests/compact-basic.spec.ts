@@ -353,7 +353,7 @@ describe('compaction region transaction', () => {
   it('lands a framed, replayable checkpoint with exact pricing provenance', async () => {
     const compact = service()
     const session = conversation(3)
-    const before = session.surface.nodes
+    const before = [...session.surface.nodes]
     const result = await compact.compactRegion(
       before[0]!,
       before[3]!,
