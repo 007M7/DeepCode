@@ -91,9 +91,78 @@ interface TokenUsage {
 
 `BlockAssembler` ([`packages/llm/llm/src/assembler.ts`](../../packages/llm/llm/src/assembler.ts)) is the single shared implementation that folds a `StreamChunk` stream back into `ContentBlock`s, usage, finish reason, and replay state. The loop logs the raw chunks while feeding the same chunks through an assembler, then stores the assembled assistant content with its provider/model provenance. A consumer that needs the assembled result without re-implementing the fold uses this.
 
+```ts public-api
+/**
+ * Incrementally assembles raw {@link StreamChunk}s into complete
+ * {@link ContentBlock}s and a final assistant {@link Message}.
+ *
+ * The agent loop feeds it while logging raw chunks for replay fidelity, then
+ * reads `blocks()` / `message()` / `usage` / `finish` once the stream ends.
+ *
+ * Tolerant of delta-only protocols (no block-start/end); deltas arriving for
+ * an index already closed by `block-end` are ignored (malformed stream) so a
+ * misbehaving adapter cannot grow memory or corrupt a completed block.
+ */
+declare class BlockAssembler {
+  /**
+   * Feed one chunk into the assembly state.
+   * @param chunk - the next raw chunk, in stream order.
+   */
+  push(chunk: StreamChunk): void;
+  /**
+   * Assemble all blocks seen so far, in stream order.
+   * @returns one block per seen index; an open block assembles from its
+   *   accumulated deltas (an unknown block type never closed by `block-end` throws).
+   */
+  blocks(): ContentBlock[];
+  /** Usage from the `usage` chunk; undefined until one arrives. */
+  get usage(): TokenUsage | undefined;
+  /** Finish reason from the `finish` chunk; `{kind: 'stop'}` when the stream ended without one. */
+  get finish(): FinishReason;
+  /** Adapter-private replay state from the terminal finish chunk, if any. */
+  get replayState(): unknown;
+  /**
+   * The assembled assistant message.
+   * @returns an assistant-role message over `blocks()` (same open-block assembly rules).
+   */
+  message(): Message;
+}
+```
+
 ## The seam
 
 `LlmAdapter` is the provider seam: subclass, implement `stream()`, and register one adapter instance with `ctx.llm.registerAdapter(providers, adapter)`. `GenerateOptions.provider` selects the registered adapter; `GenerateOptions.model` is passed to that adapter and need not be registered at lifecycle start. Duplicate provider routes fail atomically. Optional `providerInfo()` and asynchronous `listModels()` methods feed `LlmService.listProviders()` / `listModels()` with detached selector metadata. That catalog is advisory rather than a request whitelist: the adapter remains authoritative and may accept unlisted model ids. Adapter lookup happens at the terminal continuation of the `llm/stream` waterfall, so a listener may short-circuit the call or route a mutable one-shot request before lookup. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()`) and the `llm/stream` waterfall are described in [architecture.md § Content blocks and streaming](../architecture.md#content-blocks-and-streaming-dsh-llm).
+
+```ts public-api
+/**
+ * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
+ * with `ctx.llm.registerAdapter(providers, adapter)`. Every provider HTTP request must include
+ * `attributionHeaders()`; prove that at the wire or library header-hook boundary. The hand-rolled
+ * DeepSeek and pi-ai adapters intentionally exercise this contract through different internals.
+ */
+declare abstract class LlmAdapter {
+  /**
+   * Describe one provider route owned by this adapter.
+   * @param provider - a route passed to `registerAdapter()` for this instance.
+   * @returns detached display metadata whose id must equal `provider`.
+   */
+  providerInfo(provider: string): LlmProviderInfo;
+  /**
+   * List models this adapter can currently advertise for one owned provider.
+   * The result is advisory: an adapter may accept unlisted model ids, and
+   * consumers must not turn absence into request rejection.
+   * @param _provider - one provider route owned by this adapter.
+   * @returns discoverable models in adapter-preferred order.
+   */
+  listModels(_provider: string): Promise<readonly LlmModelInfo[]>;
+  /**
+   * Stream one model call as raw chunks. The only required method.
+   * @param options - the fully-assembled request; implementations must honor `options.signal`.
+   * @returns the chunk stream, obeying the adapter contract documented on `StreamChunk`.
+   */
+  abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;
+}
+```
 
 `ContentBlockType` (the key set the `index`-correlated blocks carry) derives from `ContentBlockMap`:
 
