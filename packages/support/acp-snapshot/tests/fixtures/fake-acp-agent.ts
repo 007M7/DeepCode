@@ -267,6 +267,7 @@ function flushLogsAndExit(): void {
       `setTimeout(() => process.stderr.write(${JSON.stringify('late inherited stderr\n')}), 75)`,
     ].join(';')
     spawn(process.execPath, ['-e', code], {
+      detached: true,
       stdio: ['ignore', 'inherit', 'inherit'],
     }).unref()
   }
