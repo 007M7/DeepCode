@@ -1,7 +1,7 @@
 /**
  * Doc-sync gate for package README Model Experience sections. It validates
- * audited package classifications, context-surface fields, package-owned text
- * blocks, generated-catalog links, and final-section order. See the
+ * audited package classifications, model/token/KV-cache fields, package-owned
+ * text blocks, generated-catalog links, and final-section order. See the
  * [Model Experience RFC](../docs/rfc/implemented/process/2026-07-12-package-model-experience-contract.md).
  */
 
@@ -14,6 +14,7 @@ const HEADING = '## Model Experience'
 const LIMITATIONS_HEADING = '## Known Limitations and Deferred Work'
 const MODEL_VIEW_LABEL = '**What the model sees**'
 const TOKEN_EFFECT_LABEL = '**Token effect**'
+const KV_CACHE_EFFECT_LABEL = '**KV Cache effect**'
 
 type SentenceKind = 'none' | 'indirect'
 
@@ -34,9 +35,9 @@ const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
 }
 
 /**
- * Packages whose Model Experience is simple enough for one gated sentence.
- * Every other package must carry canonical context-surface blocks. A package
- * moves on or off this list with the change to its context behavior.
+ * Packages whose Model Experience is simple enough for one gated sentence plus
+ * a KV-cache field. Every other package must carry canonical context-surface
+ * blocks. A package moves on or off this list with its context behavior.
  */
 const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/bash/bash': { kind: 'indirect', reason: 'The service interface delegates all model rendering to dsh-tool-bash.' },
@@ -91,6 +92,7 @@ interface ContextSurface {
   heading: Line
   modelView: Line
   tokenEffect: Line
+  kvCacheEffect: Line
   title: string
   verbatimBlocks: number
 }
@@ -107,7 +109,7 @@ function validateNestedVerbatim(raw: readonly string[]): { blocks: number; error
     while (raw[cursor]?.trim().length === 0) cursor += 1
     if (cursor === raw.length) break
     if (!/^#### \S/.test(raw[cursor] ?? '')) {
-      return { blocks, error: 'content after Token effect must be a titled H4 verbatim block' }
+      return { blocks, error: 'content after KV Cache effect must be a titled H4 verbatim block' }
     }
     const title = (raw[cursor] as string).slice('#### '.length)
     const fragment = headingFragment(title)
@@ -165,6 +167,7 @@ let indirectCount = 0
 let verbatimBlockCount = 0
 let systemPromptSurfaceCount = 0
 let toolSchemaSurfaceCount = 0
+let kvCacheEffectCount = 0
 
 for (const [pkg, reason] of Object.entries(NO_MODEL_EXPERIENCE_SECTION)) {
   if (!scannedPackages.has(pkg)) {
@@ -258,13 +261,24 @@ for (const packageJson of packageJsons) {
   if (sentenceContract !== undefined) {
     const pattern = sentenceContract.kind === 'none' ? /^None, as .+\.$/ : /^Indirectly, through .+\.$/
     const rawContent = rawSection.filter(line => line.trim().length > 0)
-    if (content.length !== 1 || rawContent.length !== 1 || !pattern.test(content[0]?.raw ?? '')) {
+    const sentence = content[0]
+    const kvCacheEffect = content[1]
+    if (content.length !== 2 || rawContent.length !== 2 || !pattern.test(sentence?.raw ?? '')) {
       const prefix = sentenceContract.kind === 'none' ? 'None, as ' : 'Indirectly, through '
-      failures.push({ path: readme, message: `must contain exactly one sentence beginning ${JSON.stringify(prefix)} and ending with a period` })
+      failures.push({ path: readme, message: `must contain exactly one sentence beginning ${JSON.stringify(prefix)} and ending with a period, followed by ${KV_CACHE_EFFECT_LABEL}` })
+      continue
+    }
+    if (kvCacheEffect === undefined || !kvCacheEffect.raw.startsWith(`${KV_CACHE_EFFECT_LABEL}: `) || kvCacheEffect.raw.slice(`${KV_CACHE_EFFECT_LABEL}: `.length).trim().length === 0) {
+      failures.push({ path: readme, message: `line ${kvCacheEffect?.index ?? sentence?.index ?? modelHeading.index}: short Model Experience form requires non-empty ${KV_CACHE_EFFECT_LABEL}: text` })
+      continue
+    }
+    if (sentence === undefined || sentence.index !== modelHeading.index + 2 || kvCacheEffect.index !== sentence.index + 2) {
+      failures.push({ path: readme, message: 'short Model Experience sentence and KV-cache field require one blank line between each element' })
       continue
     }
     if (sentenceContract.kind === 'none') explainedNoneCount += 1
     else indirectCount += 1
+    kvCacheEffectCount += 1
     continue
   }
 
@@ -292,6 +306,7 @@ for (const packageJson of packageJsons) {
     const heading = entries[0] as Line
     const modelView = entries[1]
     const tokenEffect = entries[2]
+    const kvCacheEffect = entries[3]
     const title = heading.raw.slice('### '.length)
     const fragment = headingFragment(title)
     if (fragment.length === 0) {
@@ -314,39 +329,45 @@ for (const packageJson of packageJsons) {
       surfaceError = true
       break
     }
+    if (kvCacheEffect === undefined || !kvCacheEffect.raw.startsWith(`${KV_CACHE_EFFECT_LABEL}: `) || kvCacheEffect.raw.slice(`${KV_CACHE_EFFECT_LABEL}: `.length).trim().length === 0) {
+      failures.push({ path: readme, message: `line ${kvCacheEffect?.index ?? heading.index}: context surface requires non-empty ${KV_CACHE_EFFECT_LABEL}: text` })
+      surfaceError = true
+      break
+    }
     if ((surfaceIndex === 0 && heading.index !== modelHeading.index + 2)
       || rawLines[heading.index - 2]?.trim().length !== 0
       || modelView.index !== heading.index + 2
-      || tokenEffect.index !== modelView.index + 2) {
+      || tokenEffect.index !== modelView.index + 2
+      || kvCacheEffect.index !== tokenEffect.index + 2) {
       failures.push({ path: readme, message: `line ${heading.index}: context-surface heading and fields require one blank line between each element` })
       surfaceError = true
       break
     }
-    const unexpected = entries.slice(3).find(line => !/^#### \S/.test(line.raw))
+    const unexpected = entries.slice(4).find(line => !/^#### \S/.test(line.raw))
     if (unexpected !== undefined) {
-      failures.push({ path: readme, message: `line ${unexpected.index}: content after ${TOKEN_EFFECT_LABEL} must be a titled H4 plus \`markdown\` fence inside this context surface` })
+      failures.push({ path: readme, message: `line ${unexpected.index}: content after ${KV_CACHE_EFFECT_LABEL} must be a titled H4 plus \`markdown\` fence inside this context surface` })
       surfaceError = true
       break
     }
     const nextHeadingLine = surfaceStarts[surfaceIndex + 1]?.line.index ?? nextH2Line
-    const verbatim = validateNestedVerbatim(rawLines.slice(tokenEffect.index, nextHeadingLine - 1))
+    const verbatim = validateNestedVerbatim(rawLines.slice(kvCacheEffect.index, nextHeadingLine - 1))
     if (verbatim.error !== undefined) {
-      failures.push({ path: readme, message: `line ${tokenEffect.index}: ${verbatim.error}` })
+      failures.push({ path: readme, message: `line ${kvCacheEffect.index}: ${verbatim.error}` })
       surfaceError = true
       break
     }
-    if (entries.length - 3 !== verbatim.blocks) {
-      failures.push({ path: readme, message: `line ${tokenEffect.index}: every nested H4 must own exactly one \`markdown\` fence` })
+    if (entries.length - 4 !== verbatim.blocks) {
+      failures.push({ path: readme, message: `line ${kvCacheEffect.index}: every nested H4 must own exactly one \`markdown\` fence` })
       surfaceError = true
       break
     }
-    if (/\]\(#[^)]+\)/.test(modelView.raw) || /\]\(#[^)]+\)/.test(tokenEffect.raw)) {
+    if (/\]\(#[^)]+\)/.test(modelView.raw) || /\]\(#[^)]+\)/.test(tokenEffect.raw) || /\]\(#[^)]+\)/.test(kvCacheEffect.raw)) {
       failures.push({ path: readme, message: `line ${heading.index}: Model Experience fields must not link between local subsections; nest the H4 in its owning H3` })
       surfaceError = true
       break
     }
     surfaceFragments.add(fragment)
-    surfaces.push({ heading, modelView, tokenEffect, title, verbatimBlocks: verbatim.blocks })
+    surfaces.push({ heading, modelView, tokenEffect, kvCacheEffect, title, verbatimBlocks: verbatim.blocks })
   }
   if (surfaceError) continue
 
@@ -385,11 +406,12 @@ for (const packageJson of packageJsons) {
   contextSurfaceCount += surfaces.length
   systemPromptSurfaceCount += surfaces.filter(surface => isDirectSystemPromptSurface(surface.title)).length
   toolSchemaSurfaceCount += surfaces.filter(surface => /\bschemas?\b/i.test(surface.title)).length
+  kvCacheEffectCount += surfaces.length
   structuredCount += 1
 }
 
 if (failures.length === 0) {
-  console.log(`verify-package-readme-model-experience: ${packageJsons.length} README(s) checked (${omittedSectionCount} audited omissions, ${structuredCount} structured, ${contextSurfaceCount} context surfaces, ${systemPromptSurfaceCount} fenced system-prompt surfaces, ${toolSchemaSurfaceCount} catalog-linked tool-schema surfaces, ${explainedNoneCount} explained none, ${indirectCount} indirect, ${verbatimBlockCount} verbatim markdown blocks), all conform.`)
+  console.log(`verify-package-readme-model-experience: ${packageJsons.length} README(s) checked (${omittedSectionCount} audited omissions, ${structuredCount} structured, ${contextSurfaceCount} context surfaces, ${kvCacheEffectCount} KV-cache fields, ${systemPromptSurfaceCount} fenced system-prompt surfaces, ${toolSchemaSurfaceCount} catalog-linked tool-schema surfaces, ${explainedNoneCount} explained none, ${indirectCount} indirect, ${verbatimBlockCount} verbatim markdown blocks), all conform.`)
   process.exit(0)
 }
 

@@ -36,6 +36,8 @@ The time reading stays in derived conversation history until a later compaction 
 
 **Token effect**: Each injected two-line message accumulates until compaction shadows it. A positive interval reduces additions; omission or `0` adds one for every eligible preparation attempt.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 #### First step
 
 ```markdown

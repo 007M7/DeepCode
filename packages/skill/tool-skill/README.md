@@ -32,6 +32,8 @@ The tool does not call `agent.inject()` in v1. Its result is already recorded as
 
 **Token effect**: Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; no catalog tokens are sent when the list is empty or the tool is hidden or shadowed.
 
+**KV Cache effect**: Prefix-stable within a loop instance once the session prefix is composed. A new or resumed instance with different providers, skills, descriptions, visibility, or catalog limits may invalidate reuse from the first changed catalog token.
+
 #### Skill catalog template
 
 ```markdown
@@ -52,11 +54,15 @@ If the user names a skill, or the task clearly matches a skill's description, ca
 
 **Token effect**: Fixed schema cost per request where the tool is visible.
 
+**KV Cache effect**: Prefix-stable while the tool definition and visibility are unchanged. Shadowing, restrictions, or plugin lifecycle changes may invalidate reuse from this schema.
+
 ### Tool result
 
 **What the model sees**: A successful call uses the result template and the provider-managed, directory, URL, or opaque resource guidance below.
 
 **Token effect**: Loaded instructions are data-dependent tool-result tokens, resent on later steps until compaction; no duplicate `agent.inject()` copy is made.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 #### Skill result template
 
@@ -105,6 +111,8 @@ Load referenced resources only as needed.
 **What the model sees**: Invalid or stale selections return exactly `Error: invalid skill name "<name>"`, `Error: skill "<name>" is unknown or no longer available`, or `Error: skill "<name>" is not available for model invocation`. Provider-thrown lookup text is data-dependent and receives the same `Error: <message>` wrapper.
 
 **Token effect**: Only a failing call adds these retained tokens.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

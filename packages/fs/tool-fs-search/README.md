@@ -53,6 +53,8 @@ Search failures carry the package-owned `SearchError` (a `HarnessError` subclass
 
 **Token effect**: Fixed guidance cost per request while the plugin is active.
 
+**KV Cache effect**: Prefix-stable while the plugin scope and guidance text are unchanged. Activation or disposal may invalidate reuse from this prompt section.
+
 #### Glob guidance
 
 ```markdown
@@ -71,17 +73,23 @@ Use the grep tool — not shell grep or rg — to search file contents. Use read
 
 **Token effect**: Fixed schema cost on every request where the tools are visible.
 
+**KV Cache effect**: Prefix-stable while tool visibility and definitions are unchanged. Registration lifecycle or scoped restrictions may invalidate reuse from the first changed schema token.
+
 ### Results and spill notices
 
 **What the model sees**: `glob` returns one path per line; `grep` groups `Line <line>: <preview>` matches beneath each path. Empty searches return `No files found` or `No matches found`. A capped result ends with its omission count plus the spill locator and backend retrieval hint, or says the complete result could not be saved.
 
 **Token effect**: Inline paths and matches are bounded by `globMaxResults`, `grepMaxMatches`, and `grepMaxLineBytes`; the call and retained result remain in history until compaction.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ### Tool errors
 
 **What the model sees**: Failures are normalized as `Error: <message>` with structured `SEARCH_INVALID_PATTERN`, `SEARCH_FAILED`, `SEARCH_RAW_OUTPUT_OVERFLOW`, or `SEARCH_ABORTED` metadata for callers.
 
 **Token effect**: Only a failing call adds these retained tokens.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

@@ -44,6 +44,8 @@ The tool never calls a provider's `available()` and never enumerates providers â
 
 **Token effect**: Fixed guidance cost per request for each config-enabled tool, even when a restriction hides its schema.
 
+**KV Cache effect**: Prefix-stable while enabled tools, scope, and guidance text are unchanged. Config enablement or plugin lifecycle may invalidate reuse from the first changed prompt section; scoped schema restrictions do not remove it.
+
 #### Web search guidance
 
 ```markdown
@@ -62,11 +64,15 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 **Token effect**: Fixed schema cost per request; config disablement removes both schema and guidance, while a scoped restriction removes only the schema.
 
+**KV Cache effect**: Prefix-stable while definitions and visibility are unchanged. Config enablement, plugin lifecycle, or scoped restrictions may invalidate reuse from the first changed schema token.
+
 ### Search result
 
 **What the model sees**: The optional provider-owned answer is followed by `Sources:` and data-dependent lines shaped exactly `- [<title-or-url>](<url>)`, optionally suffixed ` â€” <snippet> (<publishedAt>)`. With neither answer nor sources the result says `No results found.` A capped list adds `(Showing the first <count> sources. Refine the query for more.)`; every result ends `Cite the relevant URLs above as markdown links in your answer.`
 
 **Token effect**: Data-dependent results are resent until compaction and sources are capped by `searchMaxResults`.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ### Fetch result
 
@@ -74,11 +80,15 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 **Token effect**: Provider caps bound body size; retained call arguments and results are resent until compaction, and timeout policy can replace a late result with a short error.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ### Argument errors
 
 **What the model sees**: Blank inputs become exactly `Error: query must be a non-empty string` or `Error: url must be a non-empty string`.
 
 **Token effect**: Only the failing call adds these retained tokens.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

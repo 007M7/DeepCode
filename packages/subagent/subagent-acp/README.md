@@ -67,11 +67,15 @@ Keyless tests drive a scripted ACP subprocess over real stdio. The with-key e2e 
 
 **Token effect**: The child pays for an independent full context and its own multi-step history. These tokens never enter the parent's context.
 
+**KV Cache effect**: Independent of the parent request cache. Each ACP child can reuse only prefixes identical under its own provider, model, composition, and history; child steps otherwise grow append-only.
+
 ### Parent tool result, indirectly
 
 **What the model sees**: Through `dsh-tool-subagent`, the parent receives only the child's final streamed assistant text or that consumer's exact stop-reason error, not intermediate messages or tool traffic. A request already cancelled before publication becomes exactly `Error: subagent request was aborted before the ACP child started`; other start failures pass through as `Error: <message>`.
 
 **Token effect**: Parent input grows only by the final result or error, which is data-dependent and retained until compaction. This provider adds no parent schema itself.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

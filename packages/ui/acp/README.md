@@ -98,11 +98,15 @@ The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loa
 
 **Token effect**: Prompt tokens are data-dependent and remain in that session's history until compaction. Concurrent ACP sessions keep separate contexts.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ### Human answers and permission decisions
 
 **What the model sees**: When optional consumers are loaded, ACP form answers become the exact JSON shape documented by `dsh-tool-ask-user`. Failures become `Error: ACP user questions must come from an agent-owned request`, `Error: ACP user question has no matching session`, `Error: ACP elicitation request failed`, `Error: ask_user_question was cancelled by the user`, `Error: ask_user_question returned no answer`, or `Error: ask_user_question was aborted before the user answered`. Permission decisions control whether another tool yields success or denial. ACP tool cards, terminal output, diffs, and streamed session updates are UI-only.
 
 **Token effect**: Answer, error, and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ### Permission preset switches
 
@@ -110,17 +114,23 @@ The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loa
 
 **Token effect**: Zero direct tokens from the ACP option or the log-only `permission/preset` event. Downstream cost is limited to the owning plugins' policy prompt, conditional retained change notice, and any changed tool outcome.
 
+**KV Cache effect**: The ACP option and log event cause no direct invalidation. The downstream policy-prompt change may invalidate reuse from that system section, while its change notice appends to history.
+
 ### Model switches
 
 **What the model sees**: The ACP selector itself emits no message. The selected provider/model pair supplies the next step's `{{provider}}` / `{{model}}` prompt variables and request routing together; all other call-config fields continue through the `agent/request` waterfall unchanged.
 
 **Token effect**: The selector adds no direct tokens. A changed model may tokenize the same retained prompt/history differently, and any persona text that interpolates provider or model changes accordingly.
 
+**KV Cache effect**: Switching provider or model selects a different cache domain. If the persona interpolates either value, the rendered system prompt also changes and prevents reuse from its first changed token.
+
 ### Loaded sessions
 
 **What the model sees**: `session/load` resumes the persisted log, after which the loop sends its reconstructed history and request header. Replaying that log to the editor is not an extra model message.
 
 **Token effect**: Restored context has the persistence and session packages' normal retained cost; ACP replay to the client adds none.
+
+**KV Cache effect**: Loading does not rewrite the stored log, but the next request is reconstructed under the current envelope and route. Reuse requires that reconstruction to match; ACP replay to the client has no cache effect.
 
 ## Known Limitations and Deferred Work
 

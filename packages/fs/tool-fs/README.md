@@ -58,6 +58,8 @@ The package root exports only the Cordis plugin contract (`name`, `inject`, `Con
 
 **Token effect**: Fixed guidance cost per request while the plugin is active, even when a restriction hides one or more tools.
 
+**KV Cache effect**: Prefix-stable while the plugin scope and guidance text are unchanged. Tool restrictions do not remove this section, but plugin activation or disposal may invalidate reuse from it.
+
 #### Read guidance
 
 ```markdown
@@ -82,11 +84,15 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 **Token effect**: Fixed schema cost on every request in that tool view.
 
+**KV Cache effect**: Prefix-stable while the visible tool definitions and order are unchanged. Registration lifecycle or scoped restrictions may invalidate reuse from the first changed schema token.
+
 ### Read result
 
 **What the model sees**: A successful read is exactly `<path><displayPath></path>`, newline, `<type>file</type>`, newline, `<content>`, numbered lines as `<lineNumber>: <text>`, a blank line, one footer, and `</content>`. The footer is exactly `(Output capped. Showing lines <start>-<end>. Use offset=<next> to continue.)`, `(Showing lines <start>-<end> of <total>. Use offset=<next> to continue.)`, or `(End of file - total <total> lines)`. A long line ends exactly `... (line truncated to <max> chars)`.
 
 **Token effect**: Read output is capped by `readLimit`, `readMaxLineLength`, and `readMaxBytes`; the retained call and result are resent until compaction.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ### Write and edit results
 
@@ -94,11 +100,15 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 **Token effect**: Success text is small, but large mutation arguments and any result are resent until compaction.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ### Tool errors
 
 **What the model sees**: Failures are normalized as `Error: <message>`. This package's stable validation and read messages are `file_path must be a non-empty string`, `limit must be less than or equal to <max>`, `old_string must be a non-empty string`, `old_string and new_string must differ`, `cannot read "<path>": not found`, `cannot read "<path>": not a regular file`, and `offset <offset> is out of range for "<path>" (<total> lines)`; provider and policy templates are quoted in their package READMEs.
 
 **Token effect**: Only a failing call adds these retained tokens.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

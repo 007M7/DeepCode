@@ -44,6 +44,8 @@ Unit suites drive a real agent loop against a mock adapter (no network) and cove
 
 **Token effect**: Zero tokens before the threshold. The reminder is retained history for that agent.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 #### First-threshold reminder
 
 ```markdown
@@ -55,6 +57,8 @@ You are repeating the exact same tool call with identical arguments. Carefully a
 **What the model sees**: A later threshold receives the detailed reminder template below. A capped argument preview ends exactly `… (+<omitted> more chars)`.
 
 **Token effect**: Each reminder is retained history; `argumentsPreviewChars` bounds its data-dependent argument text, while agents keep independent counters.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 #### Later-threshold reminder
 

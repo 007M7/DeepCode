@@ -60,11 +60,15 @@ Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-claude' }
 
 **Token effect**: No cost when hooks return no context. Hook text is data-dependent, logged, and resent in later conversation requests until compaction.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ### Blocked prompt or tool outcome
 
 **What the model sees**: Provider-supplied reasons pass through verbatim. When absent, a blocked prompt uses exactly `blocked by UserPromptSubmit hook`, a denied tool becomes `Error: blocked by PreToolUse hook`, blocked post-tool feedback is exactly `blocked by PostToolUse hook`, and a blocking stop adds steering exactly `continue: blocked by Stop hook`. `systemMessage` and `updatedInput` are logged or warned but are not model-visible in this implementation.
 
 **Token effect**: Blocking a prompt removes that prompt's request tokens; denial or feedback adds the retained fallback or provider text; forced continuation pays another full request.
+
+**KV Cache effect**: A blocked prompt sends no request and invalidates nothing. Denial, feedback, and forced-continuation context append after the reusable prefix without rewriting it.
 
 ## Known Limitations and Deferred Work
 

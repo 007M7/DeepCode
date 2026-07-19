@@ -55,6 +55,8 @@ Because the plugin influences the world only through events, removing it does no
 
 **Token effect**: Zero tokens on allowed operations beyond the ordinary tool result. A denial adds the small retained error result and avoids any success payload.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ## Known Limitations and Deferred Work
 
 - **Observed state does not survive a session resume** — persistence of the `WeakMap` record is deferred, so a resumed session must re-read files before guarded writes/edits.

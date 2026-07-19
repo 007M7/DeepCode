@@ -36,17 +36,23 @@ Foreground and background calls are exclusive. Children may share the parent's w
 
 **Token effect**: Fixed schema cost per parent request; each provider instance adds one schema.
 
+**KV Cache effect**: Prefix-stable while provider instances, names, descriptions, and schemas are unchanged. Provider registration lifecycle may invalidate parent reuse from the first changed tool definition.
+
 ### Foreground result
 
 **What the model sees**: The call retains the description and prompt. Success contains only the child's final text; other outcomes become `Error: <message>`. Intermediate child steps stay out of the parent.
 
 **Token effect**: The prompt and result remain in parent history until compaction; child working context remains in the child.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ### Background task result
 
 **What the model sees**: Start returns exactly `started background subagent task <id>`. The generic task surface provides later status, final output, cancellation responses, and notices.
 
 **Token effect**: The acknowledgement is retained; final output enters parent history only when collected or injected.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

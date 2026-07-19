@@ -40,6 +40,8 @@ The plugin buffers frozen session events and drains them on flush or disposal. A
 
 **Token effect**: Zero live-request tokens. A resumed agent pays for retained history and its current envelope, plus the quoted repair result for each interrupted call.
 
+**KV Cache effect**: JSONL storage does not mutate live request prefixes. A resumed loop can reuse provider cache only when its reconstructed history, current envelope, and model route match; crash-repair results append.
+
 ## Known Limitations and Deferred Work
 
 - **Only the current `SESSION_FORMAT_VERSION` (v0) loads** — the on-disk format is pre-release/unstable: a breaking format change is absorbed at v0 and non-current logs are rejected; there is no migration.

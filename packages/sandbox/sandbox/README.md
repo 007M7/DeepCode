@@ -18,6 +18,8 @@ Implementations: [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) (Linux: `
 
 **Token effect**: Conditional error text is visible for that call and retained in history until compaction.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 #### Exact error
 
 ```markdown

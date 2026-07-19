@@ -60,6 +60,8 @@ Loading the plugin registers `ctx.compact`. With `auto: true` (the default) it c
 
 **Token effect**: The replacement reduces future input history rather than appending a second copy. The summary remains until a later compaction replaces it; one oversized indivisible unit can still exceed the budget.
 
+**KV Cache effect**: Replacing rather than append-only. Each checkpoint invalidates reuse from the first replaced history token; the unchanged request prefix before that range remains reusable.
+
 #### Conversation checkpoint preamble
 
 ```markdown
@@ -72,11 +74,15 @@ This is an automatically generated checkpoint condensing an earlier span of the 
 
 **Token effect**: This is a separate model call with data-dependent input and `maxTokens`-capped output. Convergence retries can pay this cost more than once.
 
+**KV Cache effect**: Independent of the conversation request cache. An auxiliary call can reuse an exact transcript prefix, while a different selected range or rendering invalidates reuse from its first changed token.
+
 ### Auxiliary summarizer system prompt
 
 **What the model sees**: The summarization model receives the checkpoint-writing instruction below.
 
 **Token effect**: Fixed auxiliary input cost plus the data-dependent transcript on every summarization attempt.
+
+**KV Cache effect**: Prefix-stable for auxiliary calls while this instruction and the summarizer route are unchanged. Changing either starts a different prefix; transcript changes occur after the instruction.
 
 #### Auxiliary summarizer system prompt
 

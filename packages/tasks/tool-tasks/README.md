@@ -31,6 +31,8 @@ A default above the cap fails at load.
 
 **Token effect**: Small fixed input cost per request while active.
 
+**KV Cache effect**: Prefix-stable while the plugin scope and guidance text are unchanged. Activation or disposal may invalidate reuse from this prompt section.
+
 #### Background-task guidance
 
 ```markdown
@@ -43,11 +45,15 @@ Track every background task id you start. You are notified in-session when a tas
 
 **Token effect**: Fixed schema cost on each request where the tools are visible.
 
+**KV Cache effect**: Prefix-stable while tool definitions and visibility are unchanged. Registration lifecycle or scoped restrictions may invalidate reuse from the first changed schema token.
+
 ### Results and notices
 
 **What the model sees**: Reads return output or `(no new output)` followed by `[status: <status>]` and optional detail. An empty list returns `(no background tasks)`. Kill returns `requested cancellation of task <id>` or the existing terminal status. Unreported owned completion uses the notice above.
 
 **Token effect**: Results and notices remain in parent history until compaction. Stream reads do not repeat consumed output.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

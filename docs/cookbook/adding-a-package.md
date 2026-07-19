@@ -16,7 +16,7 @@ packages/<group>/<pkg>/
   src/index.ts     # service default export or plugin (name/inject/apply/Config)
   tests/<x>.spec.ts
   README.md        # service API, events, extension points, design notes,
-                   # + gated Model Experience context blocks or short sentence
+                   # + gated Model Experience context blocks or short form
                    # + the gated "Known Limitations and Deferred Work" section
                    # (or a whitelist entry in scripts/verify-package-readme-limitations.ts)
 ```
@@ -55,6 +55,8 @@ Keep package-specific service API, config, events, extension points, and design 
 
 **Token effect**: Fixed, conditional, retained, replaced, capped, or zero-direct token effect.
 
+**KV Cache effect**: Append-only, prefix-stable, replacing, or independent behavior, including the exact conditions that may invalidate reuse.
+
 #### Verbatim text for this context surface, when needed
 
 ```markdown
@@ -66,9 +68,9 @@ Stable system-prompt prose of any length, or another long non-generated literal,
 - **Consumer-visible gap** — exact boundary, consequence, or maintainer constraint.
 ````
 
-Fill Model Experience from the implementation. Use one H3 per direct, conditional, capped, lifetime, or auxiliary-model surface, with the two fields shown above. Quote stable text owned by the package: system-prompt prose goes in a titled H4 plus `markdown` fence, other short literals stay inline with named placeholders, and other long literals use the same nested form. Summarize only data-dependent or provider-owned text. A tool-schema surface links its anchored section in the generated [tool catalog](../tool-catalog.md) and states only deltas absent there. Keep prompt and schema surfaces separate when scoping can hide one without the other. The [prose standard](../../.agents/skills/dsh-prose-standard/SKILL.md) governs completeness and ownership; the verifier enforces the mechanical shape.
+Fill Model Experience from the implementation. Use one H3 per direct, conditional, capped, lifetime, or auxiliary-model surface, with the three fields shown above. Quote stable text owned by the package: system-prompt prose goes in a titled H4 plus `markdown` fence, other short literals stay inline with named placeholders, and other long literals use the same nested form. Summarize only data-dependent or provider-owned text. A tool-schema surface links its anchored section in the generated [tool catalog](../tool-catalog.md) and states only deltas absent there. Keep prompt and schema surfaces separate when scoping can hide one without the other. In `KV Cache effect`, distinguish append-only growth, a stable repeated prefix, replacement of earlier request tokens, and an independent model request, then name the package-owned changes that can invalidate reuse. “Does not invalidate” means the package preserves an already-reusable prefix; provider cache availability and eviction remain outside the package contract. The [prose standard](../../.agents/skills/dsh-prose-standard/SKILL.md) governs completeness and ownership; the verifier enforces the mechanical shape.
 
-A package with no context effect or one consumer-owned path uses the audited `None, as ` or `Indirectly, through ` sentence in [`SENTENCE_MODEL_EXPERIENCE`](../../scripts/verify-package-readme-model-experience.ts); a model-agnostic generic package may instead join `NO_MODEL_EXPERIENCE_SECTION`. Do not expand either case into a description of another package's work. The limitations [allowlist](../../scripts/verify-package-readme-limitations.ts) is independent. The [Model Experience RFC](../rfc/implemented/process/2026-07-12-package-model-experience-contract.md) records the rationale.
+A package with no context effect or one consumer-owned path uses the audited `None, as ` or `Indirectly, through ` sentence in [`SENTENCE_MODEL_EXPERIENCE`](../../scripts/verify-package-readme-model-experience.ts), followed by a non-empty `**KV Cache effect**` field; a model-agnostic generic package may instead join `NO_MODEL_EXPERIENCE_SECTION`. Do not expand either case into a description of another package's work. The limitations [allowlist](../../scripts/verify-package-readme-limitations.ts) is independent. The [Model Experience RFC](../rfc/implemented/process/2026-07-12-package-model-experience-contract.md) records the rationale.
 
 ## 5. Verify
 

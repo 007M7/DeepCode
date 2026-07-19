@@ -30,6 +30,8 @@ The plugin answers `shutdown`, disposes SDK-owned agents and subscriptions to qu
 
 **Token effect**: Data-dependent user-message tokens enter retained session history and are resent on later turns until another package compacts them. The JSON-RPC frames, session notifications, and server bookkeeping add zero model-context tokens.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ## Known Limitations and Deferred Work
 
 - **The wire has no per-session close or prompt-cancel method** — SDK-created agents remain live until process shutdown, and one accepted prompt runs to agent idle before that session accepts another.

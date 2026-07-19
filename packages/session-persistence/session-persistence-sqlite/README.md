@@ -41,6 +41,8 @@ Like the JSONL backend, the plugin also installs the `session/event` → buffer 
 
 **Token effect**: Zero live-request tokens. Resume restores retained history and pays the current envelope, plus the quoted repair result for each interrupted call.
 
+**KV Cache effect**: SQLite storage does not mutate live request prefixes. A resumed loop can reuse provider cache only when its reconstructed history, current envelope, and model route match; crash-repair results append.
+
 ## Known Limitations and Deferred Work
 
 - **`DatabaseSync` is synchronous** — every append transaction blocks the event loop for its duration; acceptable for local stores, a throughput ceiling for busy multi-session servers.

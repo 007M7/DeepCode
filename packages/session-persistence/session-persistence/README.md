@@ -61,6 +61,8 @@ Re-exported from `dsh-session`: `SessionHeader` (immutable session metadata: `ve
 
 **Token effect**: Zero tokens during ordinary persistence. Resume restores retained history cost and pays the current request envelope normally; each repaired call adds the quoted retained error text.
 
+**KV Cache effect**: Persistence does not mutate live request prefixes. A resumed loop can reuse provider cache only when its reconstructed history, current envelope, and model route match; crash-repair results append without rewriting earlier history.
+
 ## Known Limitations and Deferred Work
 
 - **No deletion or retention surface** — the seam is `create`/`append`/`load`/`list` only; pruning stored sessions is out-of-band backend maintenance.

@@ -18,6 +18,8 @@ The tools pipeline routes `ask` decisions through this seam and fails closed whe
 
 **Token effect**: Small fixed per-request cost, larger under `never`; a change notice is conditional and retained in history.
 
+**KV Cache effect**: Prefix-stable while the approval policy is unchanged. An `ask`/`never` switch changes the system-prompt section and invalidates reuse from its first changed token; the accompanying notice is append-only.
+
 #### Ask-policy prompt section
 
 ```markdown
@@ -36,6 +38,8 @@ Approval prompts are disabled in this session: actions that require approval are
 **What the model sees**: `approval/asked` and `approval/decided` are log-only. The model sees only the asking consumer's eventual allowed, rejected, cancelled, or unavailable tool outcome; the human permission UI is not context.
 
 **Token effect**: Zero duplicate audit tokens. A rejection may replace a normal tool result with a small retained error, while an allowance leaves the consumer's ordinary result.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

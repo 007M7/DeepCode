@@ -42,17 +42,23 @@ The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landloc
 
 **Token effect**: Small fixed schema increment on requests where `bash` is visible; mode switches add no context tokens.
 
+**KV Cache effect**: Prefix-stable while the executor advertises the same sandbox capabilities. Changing those capabilities alters the `bash` schema and may invalidate reuse from that definition; per-session mode switches do not.
+
 ### Bash tool result, indirectly
 
 **What the model sees**: After ordinary bounded output, a denied call appends exactly `[sandbox: file access denied under <mode> mode]`. When escalation is available it next appends `[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]`. A settled background runner failure instead appends `[sandbox: the sandbox runner itself failed under <mode> mode — the command did not run; this is a sandbox problem, not a command failure]`.
 
 **Token effect**: Zero additional tokens on an unremarkable allowed run beyond ordinary output. Denial or failure adds the quoted conditional marker, retained until compaction.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ### Bash tool error, indirectly
 
 **What the model sees**: If no runner can enforce a confined mode, the foreground call propagates the [`SANDBOX_UNAVAILABLE` error owned by `dsh-sandbox`](../../sandbox/sandbox/README.md#confinement-error-indirectly). For an execution-time runner failure, this backend supplies the first stderr line as its detail.
 
 **Token effect**: Conditional error text is visible for that call and retained in history until compaction.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

@@ -82,6 +82,8 @@ Instruction content is read through `streamText()` under `maxSourceBytes`, even 
 
 **Token effect**: The rendered baseline is frozen and resent on every request in that loop instance. `maxBytes` bounds the complete message, broader files are omitted before the most-specific file is truncated, and an empty chain contributes zero tokens.
 
+**KV Cache effect**: Prefix-stable within one loop instance because the baseline is frozen. A new or resumed instance recomposes it, so instruction, precedence, cwd, candidate, or byte-budget changes may invalidate reuse from the first changed baseline token.
+
 #### Baseline instruction template
 
 ```markdown
@@ -104,6 +106,8 @@ Instructions from: AGENTS.md
 
 **Token effect**: Each discovered scope adds bounded history tokens until compaction. Unchanged content is suppressed by visible session state plus version/digest comparison, and Code Mode defers the same message until after the outer `run_code` result.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 #### Additional instruction template
 
 ```markdown
@@ -121,6 +125,8 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 **What the model sees**: A changed file produces `Updated instructions from: <path>` plus its replacement content; a candidate switch also names the previous path. A removed final candidate produces the removal notice below.
 
 **Token effect**: Each confirmed change or removal is one retained history message bounded by `maxBytes`. Provider failures add no message, and an update omitted by the budget remains eligible for a later filesystem touch.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 #### Removal notice
 

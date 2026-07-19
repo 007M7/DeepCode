@@ -48,6 +48,8 @@ Design rationale: [the prompt-variables RFC](../../../docs/rfc/implemented/archi
 
 **Token effect**: Identity is a fixed per-request cost. Persona and plugin text are repeated per request and scale with their rendered content.
 
+**KV Cache effect**: Prefix-stable while identity, persona, variables, section text, and order render identically. Any change may invalidate reuse from the first changed system-prompt token.
+
 #### Harness identity
 
 ```markdown
@@ -59,6 +61,8 @@ You are an AI agent powered by the DeepSeek Harness SDK.
 **What the model sees**: For shipped tools, the model receives the per-agent-visible subset of the [generated tool schemas](../../../docs/tool-catalog.md#tool-package-map), ordered by configuration or lexicographically after restrictions and assembly interception. Extensions can contribute additional definitions through the same registry. Sections and schema providers are separate assembly inputs, so a tool restriction does not remove independently registered guidance.
 
 **Token effect**: Schema tokens repeat on every request. Restricting a tool removes its entire schema cost for that agent but not a separate prompt section; reordering changes cache shape but not semantic content.
+
+**KV Cache effect**: Prefix-stable while the visible schema set, rendering, and order are unchanged. Registration, restriction, or reordering may invalidate reuse from the first changed schema token.
 
 ## Known Limitations and Deferred Work
 

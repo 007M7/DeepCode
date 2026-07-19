@@ -41,6 +41,8 @@ Multiple `tools/execute` listeners compose by cordis registration order. Combine
 
 **Token effect**: Zero tokens on non-timeout calls. A timeout adds one small retained error result and can prevent a larger late provider result from entering context.
 
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ## Known Limitations and Deferred Work
 
 - **Cooperative, never a hard kill** — the deadline only notifies via `exec.signal`; a tool that ignores the signal does not stop on timeout (see § Cooperative, not a hard kill).

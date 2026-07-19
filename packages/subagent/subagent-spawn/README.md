@@ -26,11 +26,15 @@ Spawn advertises `{ outputSchema: true, depthLimit: true, toolFilter: true, pers
 
 **Token effect**: The child pays for a new independent context and history; no parent-history tokens are duplicated. Persona changes this child's repeated prompt cost, while filtering changes its schema or generated SDK cost.
 
+**KV Cache effect**: Independent of the parent request cache. Child history grows append-only, while persona, tool-filter, generated-SDK, provider, or model changes establish a different child prefix.
+
 ### Parent tool result, indirectly
 
 **What the model sees**: Through `dsh-tool-subagent`, the parent receives only the child's final output or stop-reason error.
 
 **Token effect**: Parent input grows by one data-dependent result retained until compaction.
+
+**KV Cache effect**: Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 
