@@ -100,7 +100,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'session',
     title: 'In-memory session store',
     mode: 'core',
-    consumers: ['agent-loop', 'agent', 'session-persistence', 'session-query', 'subagent-inprocess', 'invariants'],
+    consumers: ['agent-loop', 'agent', 'cli-demo', 'session-persistence', 'session-query', 'subagent-inprocess', 'invariants'],
     note: 'Owns append-only Session instances and emits the durable session event feed.',
   },
   {
@@ -158,7 +158,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'agent',
     title: 'Agent registry',
     mode: 'core',
-    consumers: ['agent-loop', 'acp', 'subagent-inprocess', 'stdio-demo', 'invariants'],
+    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess', 'stdio-demo', 'invariants'],
     note: 'Owns live Agent handles and the create/resume factory seam.',
   },
   {
@@ -443,6 +443,14 @@ const APP_EXAMPLES = [
     summary: 'The TUI agent reuses the repl-agent backend and tool composition while fixing the shared terminal app to the full-screen dsh-tui front door.',
   },
   {
+    id: 'headless',
+    rel: 'examples/headless-agent/composition.md',
+    title: 'Headless Agent App Composition',
+    label: 'examples/headless-agent',
+    config: 'examples/headless-agent/cordis.yml',
+    summary: 'The headless demo combines the real DeepSeek adapter and coding capabilities with the one-shot app package, format-pure stdout, and one fresh persisted top-level session.',
+  },
+  {
     id: 'cordis',
     rel: 'examples/cordis-agent/composition.md',
     title: 'Cordis Agent App Composition',
@@ -474,6 +482,8 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
         ? '@deepseek-ai/dsh-stdio<br/>pre-created main agent'
         : 'dsh-tui (TTY) / dsh-stdio (pipes)<br/>pre-created main agent'
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'stdio')}["${frontDoor}"]`)
+  } else if (pluginName === '@deepseek-ai/dsh-cli-demo') {
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'cli')}["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]`)
   } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]`)
   }
@@ -500,7 +510,7 @@ function renderAppComposition(example: AppExample): string {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
-    if (plugin.name === '@deepseek-ai/dsh-stdio-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
+    if (plugin.name === '@deepseek-ai/dsh-stdio-demo' || plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
       renderAppExpansion(lines, pluginNode, plugin.name, example.id)
     }
   }
@@ -991,6 +1001,7 @@ function renderIndex(docs: GraphDoc[]): string {
     'docs/capability-seams.md': 'capability seams and core services',
     'examples/echo-agent/composition.md': 'echo-agent app composition',
     'examples/repl-agent/composition.md': 'repl-agent app composition',
+    'examples/headless-agent/composition.md': 'headless-agent app composition',
     'examples/tui-agent/composition.md': 'tui-agent app composition',
     'examples/cordis-agent/composition.md': 'cordis-agent app composition',
     'examples/acp-agent/composition.md': 'acp-agent app composition',
@@ -1003,6 +1014,7 @@ function renderIndex(docs: GraphDoc[]): string {
     'docs/capability-seams.md': 'hybrid generated',
     'examples/echo-agent/composition.md': 'hybrid generated',
     'examples/repl-agent/composition.md': 'hybrid generated',
+    'examples/headless-agent/composition.md': 'hybrid generated',
     'examples/tui-agent/composition.md': 'hybrid generated',
     'examples/cordis-agent/composition.md': 'hybrid generated',
     'examples/acp-agent/composition.md': 'hybrid generated',

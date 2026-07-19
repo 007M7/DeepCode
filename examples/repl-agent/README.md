@@ -1,6 +1,6 @@
 # repl-agent
 
-The repl-agent wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + `todo_write` + readline chat + JSONL persistence, loaded from `cordis.yml`. The sibling [`tui-agent`](../tui-agent/README.md) fixes the same agent composition to the full-screen terminal front door.
+The repl-agent wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + workflows + `todo_write` + readline chat + JSONL persistence, loaded from `cordis.yml`. The sibling [`tui-agent`](../tui-agent/README.md) fixes the same agent composition to the full-screen terminal front door.
 
 ## Run it
 
@@ -52,6 +52,7 @@ This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads
 | `stdio-agent` (`@deepseek-ai/dsh-stdio-demo`) | the app bundle: the agent-spine demo + JSONL persistence + the configured terminal channel + a pre-created `main` agent. This leaf fixes `ui.mode` to `readline`; `tui-agent` owns the corresponding TUI leaf |
 | `subagent`, `subagent-spawn`, `subagent-fork` | the subagent provider registry plus the two in-process backends: a fresh child and a child seeded with the parent's completed-turn prefix |
 | `tool-subagent`, `tool-subagent-fork` | two model-facing `dsh-tool-subagent` loads, each bound to a different provider and exposed under a distinct tool name (`subagent`, `subagent_fork`) |
+| `workflow-workerthread`, `tool-workflow` | the worker-thread workflow engine and its model-facing `workflow` tool, with child calls routed through the spawn backend |
 | `tool-todo` | the model-facing `todo_write` tool; writes the whole task list to the session log and renders as a persistent TUI plan or readline checklist |
 | `fs-local`, `fs-policy`, `tool-fs` | the filesystem stack: the local `ctx.fs` provider, the read-before-write/edit policy gate (on the `fs/*` event gate), and the model-facing `read`/`write`/`edit` tools. Relative paths resolve against the session workspace |
 
@@ -63,4 +64,4 @@ This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads
 - `tests/compaction.e2e.ts` — the compaction smoke: a real multi-step bash task runs with a deliberately tiny context window so the auto-compaction listener fires MID-SESSION. Verifies the WORLD — a `compact/start…end` pair landed in the real log, the surface shrank (a replace node shadowed older nodes), and the agent still produced a correct final answer after compaction.
 - `tests/todo-write.e2e.ts` — a real model drives the real `todo_write` tool and the test verifies the resulting `todo/write` session event.
 
-These self-skip without `DEEPSEEK_API_KEY`. `tests/code-mode.e2e.ts` is the with-key Code Mode proof — a real model, a two-tool task, asserting the wire tool list was exactly `[run_code]`, the `tool/code-dispatch` events landed under the parent call, and the curated answer came back. The keyless boot smokes run in the default e2e gate: `tests/keyless-smoke.e2e.ts` (the full real tree, dummy key, no prompt → no model call) and `tests/code-mode-keyless-smoke.e2e.ts` (the same guard for the Code Mode overlay).
+These self-skip without `DEEPSEEK_API_KEY`. `tests/code-mode.e2e.ts` is the with-key Code Mode proof — a real model, a two-tool task, asserting the wire tool list was exactly `[run_code]`, the `tool/code-dispatch` events landed under the parent call, and the curated answer came back. The keyless Loader smokes run in the default e2e gate: `tests/keyless-smoke.e2e.ts` and `tests/code-mode-keyless-smoke.e2e.ts`.

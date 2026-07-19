@@ -2,7 +2,7 @@
 
 A replay LLM plugin for keyless snapshot tests. It yields model streams reconstructed from a recorded **session JSONL** fixture, so a test can boot the real agent against a fixed model transcript with no API key. With `providers` configured it registers a replay-only adapter whose catalog is visible to clients such as ACP editors; without `providers` it installs the catch-all `llm/stream` waterfall used by tests that do not need discovery.
 
-Its consumer is the ACP snapshot harness in `examples/acp-agent`, which loads this plugin (via `cordis.snapshot.yml`) in place of a real LLM adapter. The package exists so its derive/parse/replay logic falls under the per-file 100% coverage gate on `packages/*/src` (the same logic, while it lived under `examples/`, was outside the gate).
+Its consumers are the ACP snapshot harness in `examples/acp-agent` and the `stream-json` snapshot in `examples/headless-agent`; each loads this plugin in place of a real LLM adapter. Keeping derivation and replay here places that logic under the per-file 100% coverage gate on `packages/*/src`.
 
 ## How the fixture works
 
