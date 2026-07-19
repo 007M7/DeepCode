@@ -57,7 +57,22 @@ function subagentParentOf(carrier: Scoped<SubagentService>): Agent {
   return carrierKeyOf(carrier) as Agent
 }
 
-/** SDK server whose subscriptions and created agents live until {@link shutdown}. */
+/** Deployment-specific status mapping for SDK turn and subagent outcomes. */
+export interface HarnessSdkServerOptions {
+  /** Report max-token termination as an accepted result instead of an infrastructure error. */
+  maxTokensAsSuccess?: boolean
+}
+
+function successStatus(reason: string, options: HarnessSdkServerOptions): 'ok' | 'error' {
+  if (reason === 'completed') return 'ok'
+  return reason === 'max-tokens' && options.maxTokensAsSuccess === true ? 'ok' : 'error'
+}
+
+/**
+ * SDK server over one booted harness context and transport peer. Construction
+ * subscribes to session, agent, and subagent lifecycle events until shutdown;
+ * reinitialization is unsupported.
+ */
 export class HarnessSdkServer {
   private cwd = process.cwd()
   private provider = 'deepseek'
@@ -72,7 +87,9 @@ export class HarnessSdkServer {
   constructor(
     private readonly ctx: Context,
     private readonly transport: JsonRpcTransportPeer,
+    private readonly options: HarnessSdkServerOptions = {},
   ) {
+    const serverOptions = this.options
     this.disposers.push(ctx.on('session/event', (session, event) => {
       if (event.type === 'turn/end') {
         const rec = this.sessions.get(String(session.id))
@@ -99,7 +116,7 @@ export class HarnessSdkServer {
         agentId: String(info.id),
         parentSessionId: String(parent.session.id),
         childSessionId: String(info.id),
-        status: info.stopReason === 'completed' ? 'ok' : 'error',
+        status: successStatus(info.stopReason, serverOptions),
         stopReason: info.stopReason,
         ...(info.lastAssistantMessage === undefined ? {} : { lastAssistantMessage: info.lastAssistantMessage }),
       })
@@ -233,7 +250,7 @@ export class HarnessSdkServer {
 
   private finishedStatus(reason: TurnEndReason | undefined): 'ok' | 'error' {
     if (!reason) return 'error'
-    return reason.kind === 'completed' ? 'ok' : 'error'
+    return successStatus(reason.kind, this.options)
   }
 
   private hasAdapterFor(provider: string): boolean {
