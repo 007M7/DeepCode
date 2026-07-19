@@ -200,3 +200,77 @@ becomes pure pass-through (roughly 20 lines) — a small doc-only PR at
 that point removes the heuristic scan entirely. Until then, the tri-view
 tabs read as "here's what the runtime is showing you" (wire signals) and
 "here's what the shell inferred" (heuristic, tooltipped as such).
+
+---
+
+## L-4  Runtime should expose a `models/list` RPC (shell-side static mirror is workaround)
+
+**Symptom.** The shell has no wire-level way to ask the runtime "which
+(adapter × model) pairs are actually registered right now?". A researcher
+who wires up a new adapter or ships a plugin that calls
+`ctx.llm.registerAdapter(...)` at boot has no way to see that model in
+the composer dropdown without also editing shell code. Picking a model
+the runtime doesn't know about falls through to a `NO_ADAPTER` error,
+which the shell recovers from with a "switch profile" affordance — but
+the up-front list is a static mirror maintained by hand.
+
+**Root cause.** No `models/list` (or equivalent) RPC on the wire. The
+runtime knows its own adapter/model registry — that's what routes each
+`llm/call` to the right adapter — but it never exposes that registry to
+the shell. The shell therefore has to guess, and today "guess" means
+"copy the yml into a JS map".
+
+**Local workaround.**
+
+- `src/main/profiles.js:230` — `PROFILE_MODELS` is a static map,
+  `profile name → array of supported model ids`, one entry per row in
+  `config/*.yml`.
+- `src/main/profiles.js:246` — `modelsFor(name)` is the accessor exported
+  to `main.js`.
+- `src/main/main.js:280` — the `profiles:models` IPC handler snapshots
+  the whole map to the renderer at handshake / profile-switch time.
+- `src/renderer/renderer.js:4048` — `renderComposerModel(currentModel)`
+  uses the mirror to filter the composer dropdown; if the runtime later
+  reports `NO_ADAPTER` we fall back to the "switch profile" affordance.
+- `test/model-profile-guard.test.js` — parses every `config/*.yml`
+  `models:` field and asserts the yml matches `PROFILE_MODELS` line by
+  line, so any yml drift trips the test.
+
+Spot the workaround in code review by the `PROFILE_MODELS` literal at
+`src/main/profiles.js:230` and by the guard test — both exist purely
+because the runtime never told us.
+
+The workaround is intentionally strict: hand-maintained maps drift, so
+the guard test locks yml ↔ map. It does **not** cover runtime-time
+`registerAdapter` calls; those still surface only as
+`NO_ADAPTER`-then-recover.
+
+**Upstream fix (needed).** Expose a `models/list` RPC on the wire:
+
+```
+Method: models/list
+Params: none
+Result: {
+  models: [
+    { id: string, adapter: string, capabilities?: { streaming, thinking, ... } }
+  ]
+}
+```
+
+Consumer migration in this shell once the RPC lands:
+
+- Add a `runtime:list-models` IPC and call it once at handshake plus on
+  every profile switch.
+- Downgrade `PROFILE_MODELS` to a fallback used only when the RPC is
+  unavailable (e.g. older runtime).
+- Keep `test/model-profile-guard.test.js` — its job becomes narrower
+  (yml ↔ fallback consistency), still worth having for older-runtime
+  users.
+
+**Precedent in ledger.** Same shape as L-1 (`presentResult` wire),
+L-2 (trace semantic signals), L-3 (artifact blob snapshot): the shell
+paints over an information gap the runtime should own, and the fix is a
+small wire addition that lets the workaround retire.
+
+**Reference.** PR #374 review comment by @ZiyaZhang —
+https://github.com/deepseek-harness/deepseek-harness/pull/374#issuecomment-5016306211
