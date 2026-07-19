@@ -17,6 +17,7 @@ import z from 'schemastery'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import CommandService from '@deepseek-ai/dsh-commands'
+import * as commandGoal from '@deepseek-ai/dsh-command-goal'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -100,6 +101,8 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Persisted same-session goals; owner defaults enable them, or false disables the stack and command. */
+  goals?: agentCore.GoalConfig | false
   /**
    * If set, the pre-created agent RESUMES this persisted session id instead of
    * starting fresh. Sourced from an env var in the leaf `cordis.yml`
@@ -127,6 +130,7 @@ export const Config: z<Config> = z.object({
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
+  goals: z.union([z.const(false), agentCore.GoalConfigSchema]),
   resumeSessionId: z.string(),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
@@ -145,8 +149,10 @@ export function composeTerminalApp(ctx: Context, config: Config, isTTY: boolean)
   const resumeSessionId = config.resumeSessionId === '' ? undefined : config.resumeSessionId
   const sessionId = SessionId(resumeSessionId ?? `main-session-${randomUUID()}`)
   const mode = resolveTerminalMode(config.ui, isTTY)
+  const goals = config.goals ?? {}
   if (mode === 'readline') ctx.plugin(ConsoleExporter)
   ctx.plugin(CommandService)
+  if (goals !== false) ctx.plugin(commandGoal)
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT })
   ctx.plugin(UserInteractionService)
   if (mode === 'tui') {
@@ -163,6 +169,7 @@ export function composeTerminalApp(ctx: Context, config: Config, isTTY: boolean)
   }
   ctx.plugin(agentCore, {
     ...agentCore.pickSpineConfig(config),
+    goals,
     agents: [{
       id: SessionId('main'),
       provider: config.provider,

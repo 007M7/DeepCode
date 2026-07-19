@@ -13,6 +13,7 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
 import CommandService from '@deepseek-ai/dsh-commands'
+import * as commandGoal from '@deepseek-ai/dsh-command-goal'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
@@ -56,6 +57,8 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Persisted same-session goals; owner defaults enable them, or false disables the stack and command. */
+  goals?: agentCore.GoalConfig | false
 }
 
 // Each front door owns a complete, directly readable config schema; extracting
@@ -77,6 +80,7 @@ export const Config: z<Config> = z.object({
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
+  goals: z.union([z.const(false), agentCore.GoalConfigSchema]),
 })
 /* jscpd:ignore-end */
 
@@ -88,8 +92,10 @@ export const Config: z<Config> = z.object({
  * from the provider/model pair. No logger, no `hmr` — stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
+  const goals = config.goals ?? {}
   ctx.plugin(CommandService)
-  ctx.plugin(agentCore, agentCore.pickSpineConfig(config))
+  if (goals !== false) ctx.plugin(commandGoal)
+  ctx.plugin(agentCore, { ...agentCore.pickSpineConfig(config), goals })
   ctx.plugin(UserInteractionService)
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT })
   ctx.plugin(acp, { provider: config.provider, model: config.model })

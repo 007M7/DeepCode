@@ -90,6 +90,7 @@ describe('dsh-stdio-demo app', () => {
       ui: { mode: 'tui', tui: { color: false, maxToolOutputLines: 3 } },
     }, true)
     expect(calls.map(call => call.name)).toContain('ui-tui')
+    expect(calls.map(call => call.name)).toContain('command-goal')
     expect(calls.map(call => call.name)).not.toContain('ui-stdio')
     expect(calls.map(call => call.name)).not.toContain('ConsoleExporter')
     const tuiConfig = calls.find(call => call.name === 'ui-tui')?.config as { sessionId: string }
@@ -99,6 +100,7 @@ describe('dsh-stdio-demo app', () => {
       agents: Array<{ id: string; sessionId?: string; resumeSessionId?: string }>
     }
     expect(spineConfig.agents[0]).toMatchObject({ id: 'main', sessionId: tuiConfig.sessionId })
+    expect(spineConfig).toMatchObject({ goals: {} })
 
     calls.length = 0
     stdioAgent.composeTerminalApp(ctx, {
@@ -116,11 +118,13 @@ describe('dsh-stdio-demo app', () => {
 
     calls.length = 0
     stdioAgent.composeTerminalApp(ctx, {
-      provider: 'mock', model: 'mock', workspaceContext: false, ui: { mode: 'readline' },
+      provider: 'mock', model: 'mock', workspaceContext: false, goals: false, ui: { mode: 'readline' },
     }, false)
     expect(calls.map(call => call.name)).toContain('ui-stdio')
     expect(calls.map(call => call.name)).toContain('ConsoleExporter')
     expect(calls.map(call => call.name)).not.toContain('ui-tui')
+    expect(calls.map(call => call.name)).not.toContain('command-goal')
+    expect(calls.find(call => call.name === 'agent-spine-demo')?.config).toMatchObject({ goals: false })
   })
 
   it('composes the spine + front-door cluster and pre-creates the main agent', async () => {
@@ -131,6 +135,8 @@ describe('dsh-stdio-demo app', () => {
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(ctx.get('userInteraction')).toBeDefined()
     expect(ctx.get('tools')?.get('ask_user_question')).toBeDefined()
+    expect(ctx.get('goals')).toBeDefined()
+    expect(ctx.get('tools')?.get('get_goal')).toBeDefined()
     // The sole pre-created agent the UI drives. `main` is its stable config
     // label; each fresh process mints a durable combined agent/session id.
     await expect.poll(() => ctx.get('agents')?.list()).toHaveLength(1)
@@ -139,6 +145,7 @@ describe('dsh-stdio-demo app', () => {
     expect(agent?.id).toBe(agent?.session.id)
     expect(agent?.id).toMatch(/^main-session-/)
     expect(agent?.session.header.cwd).toBe(process.cwd())
+    expect(ctx.commands.find(agent!, 'tui', 'goal')).toBeDefined()
     await ctx.fiber.dispose()
   })
 
@@ -273,7 +280,18 @@ describe('dsh-stdio-demo app', () => {
       })
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'ask_user_question', 'skill', 'task_kill', 'task_list', 'task_output'])
+    expect(assembly.tools.map(tool => tool.name)).toEqual([
+      'zulu',
+      'alpha',
+      'ask_user_question',
+      'create_goal',
+      'get_goal',
+      'skill',
+      'task_kill',
+      'task_list',
+      'task_output',
+      'update_goal',
+    ])
     await ctx.fiber.dispose()
   })
 

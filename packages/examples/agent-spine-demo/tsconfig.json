@@ -42,6 +42,15 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../goal/goal"
+    },
+    {
+      "path": "../../goal/tool-goal"
+    },
+    {
+      "path": "../../goal/goal-session"
+    },
+    {
       "path": "../../context/workspace-context"
     },
     {

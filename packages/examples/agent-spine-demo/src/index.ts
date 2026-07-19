@@ -1,6 +1,6 @@
 /**
  * Default executor-less, UI-less agent spine. It bundles the common services,
- * background-task registry and controls, concrete loop, local skill and
+ * background-task registry and controls, optional persisted goals, concrete loop, local skill and
  * workspace-context providers, and model-facing bash/skill consumers;
  * deployments still choose the LLM adapter, bash executor, and presentation.
  * The plugin intentionally exposes named exports only because Loader default
@@ -18,6 +18,9 @@ import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools
 import SkillService, { type Config as SkillRegistryConfig } from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import GoalService, { type Config as GoalDomainConfig } from '@deepseek-ai/dsh-goal'
+import * as goalSession from '@deepseek-ai/dsh-goal-session'
+import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
 import TaskService from '@deepseek-ai/dsh-tasks'
 import * as invariants from '@deepseek-ai/dsh-invariants'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
@@ -41,6 +44,14 @@ export interface SkillConfig {
   tool?: toolSkill.Config
 }
 
+/** Persisted goal domain, model-tool policy, and same-session driver config. */
+export interface GoalConfig {
+  /** Goal-domain creation defaults. */
+  domain?: GoalDomainConfig
+  /** Model-facing goal-tool authority policy. */
+  tool?: toolGoal.Config
+}
+
 /**
  * Bundle config: each field forwarded verbatim to the child that owns it —
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
@@ -50,7 +61,8 @@ export interface SkillConfig {
  * `dshHome` to bash environment and local skill discovery, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
  * workspace-context loader, and `toolBash`/`toolTasks` to the model-facing tool
- * plugins this bundle owns. Owner schemas supply defaults for optional input;
+ * plugins this bundle owns. `goals` opts into and configures the persisted goal
+ * domain plus its model tool and same-session driver. Owner schemas supply defaults for optional input;
  * workspace context instead requires an explicit byte budget or `false` because
  * it changes model-visible input. Producer opt-in stays producer-local:
  * `toolBash` configures bash only; independently composed producers keep their
@@ -77,6 +89,8 @@ export interface Config {
   toolBash?: toolBash.Config
   /** Generic background-task controls; set false to keep the task service without model-facing task tools. */
   toolTasks?: toolTasks.Config | false
+  /** Opt-in persisted same-session goal stack; set false or omit to leave it unmounted. */
+  goals?: GoalConfig | false
 }
 
 /** The skill config schema exported for app packages that forward `skills`. */
@@ -93,6 +107,12 @@ export const ToolBashConfigSchema: z<toolBash.Config> = toolBash.Config
 /** The task-control-tool config schema exported for app packages that forward `toolTasks`. */
 export const ToolTasksConfigSchema: z<toolTasks.Config> = toolTasks.Config
 
+/** The persisted-goal config schema exported for app packages that opt in. */
+export const GoalConfigSchema: z<GoalConfig> = z.object({
+  domain: GoalService.Config,
+  tool: toolGoal.Config,
+})
+
 /** Intersect the owners' schemas so validation + defaulting stay identical. */
 export const Config = z.intersect([
   AgentLoop.Config,
@@ -104,7 +124,8 @@ export const Config = z.intersect([
     workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
     toolBash: ToolBashConfigSchema,
     toolTasks: z.union([z.const(false), ToolTasksConfigSchema]),
-  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks'>>,
+    goals: z.union([z.const(false), GoalConfigSchema]),
+  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'goals'>>,
 ]) as unknown as z<Config>
 
 /**
@@ -123,6 +144,7 @@ export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'a
     ...config.skills !== undefined ? { skills: config.skills } : {},
     ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
     ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
+    ...config.goals !== undefined ? { goals: config.goals } : {},
   }
 }
 
@@ -159,6 +181,11 @@ export function apply(ctx: Context, config: Config): void {
     ctx.plugin(SkillLocal, Object.assign({}, config.skills?.local, { dshHome }))
   }
   ctx.plugin(AgentRegistry)
+  if (config.goals !== undefined && config.goals !== false) {
+    ctx.plugin(GoalService, config.goals.domain ?? {})
+    ctx.plugin(toolGoal, config.goals.tool ?? {})
+    ctx.plugin(goalSession)
+  }
   ctx.plugin(TaskService)
   ctx.plugin(invariants)
   ctx.plugin(toolBash, Object.assign({}, config.toolBash, { dshHome }))

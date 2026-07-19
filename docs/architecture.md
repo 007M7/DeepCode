@@ -157,7 +157,7 @@ Exceptions combine layers: LLM interface/consumer; filesystem policy; web regist
 
 ### Bundles And Apps
 
-`dsh-agent-spine-demo` bundles the default spine ([README](../packages/examples/agent-spine-demo/README.md)). Apps add front doors; TUI/ACP mount commands ([ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`, including the Python SDK default ([Python SDK](../python/README.md)). Deployments stay thin with swappable backends/tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-spine-demo` bundles the default spine and an opt-in persisted-goal stack ([README](../packages/examples/agent-spine-demo/README.md)). Terminal and ACP apps enable goals plus the shared `/goal` command by default; other apps choose explicitly. `dsh-jsonrpc-agent` boots external `cordis.yml`, including the Python SDK default ([Python SDK](../python/README.md)). Deployments stay thin with swappable backends/tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Where New Behavior Goes
 

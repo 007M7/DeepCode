@@ -12,6 +12,7 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 |---|---|
 | `@deepseek-ai/dsh-agent-spine-demo` | the spine, pre-creating a `main` agent from this app's provider/model pair with `process.cwd()` as the fresh session cwd and carrying its `persona` |
 | `@deepseek-ai/dsh-commands` | the human-command registry consumed by the TUI front door and optional command plugins |
+| `@deepseek-ai/dsh-command-goal` | the direct `/goal` producer; the app enables the spine's persisted-goal stack with it |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by confirmation tools |
 | `@deepseek-ai/dsh-tool-ask-user` | the model-facing `ask_user_question` tool |
@@ -37,6 +38,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-spine-demo` |
 | `toolBash` | owner defaults | model-facing bash config routed through `dsh-agent-spine-demo`, including bash's producer-local `enableRunInBackground` |
 | `toolTasks` | owner defaults | generic `task_output` wait bounds routed through `dsh-agent-spine-demo` |
+| `goals` | owner defaults | persisted goal-domain and model-tool config; `false` removes the goal stack and `/goal` producer |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 | `welcome` | `ready.` | terminal banner / TUI subtitle |
 | `ui` | `{ mode: 'auto' }` | terminal mode (`auto` / `readline` / `tui`) and nested TUI presentation config |
@@ -82,7 +84,7 @@ Swap `llm-deepseek` for a `mock-llm` leaf plugin and you have the echo demo — 
 
 #### What the model sees
 
-Through `dsh-agent-spine-demo`, the `main` agent receives the harness identity, configured persona, skill catalog, and visible tools; this app also composes the generated [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user). Each ordinary terminal submission becomes a user message; submissions made while the agent runs steer the active turn. TUI commands and their results remain outside model context.
+Through `dsh-agent-spine-demo`, the `main` agent receives the harness identity, configured persona, skill catalog, visible tools, and the enabled goal policy/tools; this app also composes the generated [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user). Each ordinary terminal submission becomes a user message; submissions made while the agent runs steer the active turn. TUI commands and their direct results remain outside model context, while accepted `/goal` mutations append the goal domain's model-visible snapshot.
 
 #### Token effect
 
@@ -109,5 +111,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 ## Known Limitations and Deferred Work
 
 - **One pre-created `main` agent drives the selected terminal UI** — there is no multi-session or concurrent-agent surface in this app; a run is one conversation.
+- **Direct commands require TUI mode** — the line-oriented fallback does not consume `ctx.commands`; an ordinary `/goal` prompt there may instead be interpreted through the model-facing goal tools.
 - **The front-door cluster is fixed in code** — the JSONL persistence backend and the ask-user tooling are baked; a different composition is a leaf-level sibling entry or another app package.
 - **The question tool is not an approval answerer** — this app mounts `user-interaction` and `ask_user_question`, but not `ctx.approval`; a `tools/pre-execute` `ask` therefore fails closed unless the leaf composes an approval service and terminal answerer.
