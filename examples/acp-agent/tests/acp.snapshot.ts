@@ -127,6 +127,13 @@ const SCENARIOS: Scenario[] = [
     // workflow children bypass tool-subagent and keep the full set.
     childToolOmissions: ['subagent'],
   },
+  {
+    name: 'cordis-inspect-jsdoc',
+    hasModelTurn: true,
+    recorded: false,
+    headerClass: 'advanced',
+    configPath: ADVANCED_CONFIG,
+  },
   // Prompt-submit blocks are authored keylessly: they persist a rejected turn
   // and hook events without starting a model step, so their logs still compare.
   { name: 'hook-cc-promptsubmit-block', hasModelTurn: false, comparesLog: true, recorded: false },

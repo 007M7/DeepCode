@@ -19,7 +19,6 @@ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
-import type { ReactLoopAgent } from './agent.ts'
 import type { Inbox } from './inbox.ts'
 
 /** An Error with an optional machine-readable code (e.g., from LlmError or a throwing plugin). */
@@ -95,12 +94,17 @@ export interface LoopHandle {
 
 /**
  * Drive queued batches as durable turns until disposal. Plugin failures end the
- * current turn without terminating the driver.
- * @param ctx - the plugin context the loop reaches events (agent/…, session/flush) and services (systemPrompt, llm, tools) through.
- * @param agent - the agent this invocation drives for its whole lifetime (its inbox, session, and options).
+ * current turn without terminating the driver. The caller establishes the
+ * `ctx.agents.withInitiator()` boundary before entry; package-private
+ * orchestration recovers that exact Agent and captures its Session locally.
+ * @param ctx - the plugin context the loop reaches its initiating Agent,
+ * events (agent/…, session/flush), and services (systemPrompt, llm, tools)
+ * through.
  * @param handle - the bridge to the agent's mutable state: status/abort setters plus the disposal and cancel-marker reads.
+ * @throws when no initiating Agent is active.
  */
-export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle): Promise<void> {
+export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
+  const agent = ctx.agents.requireInitiator()
   // Per-instance prefix and request-header state; conversation history remains in the session log.
   const transmission = createTransmissionLog()
 
@@ -138,7 +142,7 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     const turn = lastTurnNumber(session) + 1
     let terminalStopped = false
     try {
-      terminalStopped = await runTurn(ctx, events, agent, handle, turn, transmission)
+      terminalStopped = await runTurn(ctx, events, handle, turn, transmission)
     } catch (error: unknown) {
       // Pre-turn failure has no durable boundary to close; report it without appending outside a turn.
       const err = toError(error)
@@ -161,9 +165,17 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
 }
 
 async function runTurn(
-  ctx: Context, events: AgentEventDispatch, agent: ReactLoopAgent, handle: LoopHandle, turn: number, transmission: TransmissionLog,
+  ctx: Context, events: AgentEventDispatch, handle: LoopHandle, turn: number, transmission: TransmissionLog,
 ): Promise<boolean> {
+  const agent = ctx.agents.requireInitiator()
   const { session } = agent
+  const drainSteering = (): boolean => {
+    const messages = handle.inbox.drainSteering()
+    for (const message of messages) {
+      session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
+    }
+    return messages.length > 0
+  }
 
   // Drain before opening the turn, but append only after `turn/start`.
   const queued = handle.inbox.drainQueued()
@@ -262,7 +274,7 @@ async function runTurn(
 
       // Steering from the previous round's continuation listeners joins before
       // the request.
-      drainSteering(agent, handle.inbox, turn)
+      drainSteering()
 
       // The step's AbortController exists BEFORE any async pre-step work so a
       // dispose() or cancel() — in a synchronous turn-start listener or an
@@ -336,7 +348,7 @@ async function runTurn(
       let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
         stepOutcome = await runStep(
-          ctx, events, agent, handle, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
+          ctx, events, handle, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
       } catch (error: unknown) {
         stepOutcome = { error: toError(error) }
       } finally {
@@ -365,7 +377,7 @@ async function runTurn(
       if (stepReason) reason = stepReason
 
       // Steering that arrived during streaming/tool execution.
-      const steered = drainSteering(agent, handle.inbox, turn)
+      const steered = drainSteering()
 
       closeStep()
 
@@ -454,15 +466,6 @@ async function runTurn(
   return terminalStopped
 }
 
-/** Drain the steering queue into the session. Returns whether any arrived. */
-function drainSteering(agent: ReactLoopAgent, inbox: Inbox, turn: number): boolean {
-  const messages = inbox.drainSteering()
-  for (const message of messages) {
-    agent.session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
-  }
-  return messages.length > 0
-}
-
 /**
  * Run one committed step: transform call config, log the request header, build
  * the request from the cached prefix plus the step-boundary snapshot, stream and
@@ -472,7 +475,6 @@ function drainSteering(agent: ReactLoopAgent, inbox: Inbox, turn: number): boole
 async function runStep(
   ctx: Context,
   events: AgentEventDispatch,
-  agent: ReactLoopAgent,
   handle: LoopHandle,
   turn: number,
   step: number,
@@ -482,6 +484,7 @@ async function runStep(
   transmission: TransmissionLog,
   signal: AbortSignal,
 ): Promise<{ hadToolCalls: boolean; finish: FinishReason }> {
+  const agent = ctx.agents.requireInitiator()
   const { session, options } = agent
 
   // Seed the first request from agent options and later requests from the logged header;
@@ -538,15 +541,47 @@ async function runStep(
   const stepError = finishError(assembler.finish)
   if (stepError) throw stepError
 
+  const recordAssistantMessage = (
+    assembledContent: ContentBlock[],
+    message: Message,
+    preserveReplayState = true,
+  ): void => {
+    session.append(
+      'assistant/message',
+      {
+        turn,
+        step,
+        content: message.content,
+        provenance: assistantProvenance(
+          header.config,
+          assembler.replayState,
+          preserveReplayState && isDeepStrictEqual(message.content, assembledContent),
+        ),
+        ...assembler.usage === undefined ? {} : { usage: assembler.usage },
+      },
+      { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
+    )
+  }
+
+  // A rejected result still records the successful provider call without retaining rejected output.
+  const processStepResult = async (assembledContent: ContentBlock[], message: Message): Promise<Message> => {
+    try {
+      return await events.waterfall(
+        'agent/step-result', turn, step, message, () => Promise.resolve(message),
+      )
+    } catch (error: unknown) {
+      recordAssistantMessage(assembledContent, { ...message, content: [] }, false)
+      throw error
+    }
+  }
+
   if (assembler.finish.kind === 'max-tokens') {
     const assembled = assembler.message()
     const assembledContent = structuredClone(assembled.content)
     let message: Message = withoutToolCalls(assembled)
-    message = withoutToolCalls(await processStepResult(
-      events, session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs,
-    ))
+    message = withoutToolCalls(await processStepResult(assembledContent, message))
     // Preserve usage even when max-token truncation produced no content.
-    recordAssistantMessage(session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs)
+    recordAssistantMessage(assembledContent, message)
     return { hadToolCalls: false, finish: assembler.finish }
   }
 
@@ -554,84 +589,21 @@ async function runStep(
   const assembled = assembler.message()
   const assembledContent = structuredClone(assembled.content)
   let message: Message = assembled
-  message = await processStepResult(
-    events, session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs,
-  )
+  message = await processStepResult(assembledContent, message)
 
   // Every successful call records its completion anchor, including explicit
   // empty chunk provenance for a contentless, usage-less provider response.
-  recordAssistantMessage(session, turn, step, header.config, assembledContent, message, assembler, chunkSeqs)
+  recordAssistantMessage(assembledContent, message)
 
   // Dispatch may overlap; policy, durable results, and result context stay model-ordered.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
   if (toolCalls.length === 0) return { hadToolCalls: false, finish: assembler.finish }
   return handle.withToolBatch(async (acceptContext) => {
     await executeToolCalls(
-      ctx, agent, turn, step, toolCalls, signal, handle.maxParallelToolCalls, acceptContext,
+      ctx, turn, step, toolCalls, signal, handle.maxParallelToolCalls, acceptContext,
     )
     return { hadToolCalls: true, finish: assembler.finish }
   })
-}
-
-/** Preserve successful-call accounting without retaining output that result processing rejected. */
-async function processStepResult(
-  events: AgentEventDispatch,
-  session: Session,
-  turn: number,
-  step: number,
-  config: LlmCallConfig,
-  assembledContent: ContentBlock[],
-  message: Message,
-  assembler: BlockAssembler,
-  chunkSeqs: number[],
-): Promise<Message> {
-  try {
-    return await events.waterfall(
-      'agent/step-result', turn, step, message, () => Promise.resolve(message),
-    )
-  } catch (error: unknown) {
-    recordAssistantMessage(
-      session,
-      turn,
-      step,
-      config,
-      assembledContent,
-      { ...message, content: [] },
-      assembler,
-      chunkSeqs,
-      false,
-    )
-    throw error
-  }
-}
-
-/** Record one content-or-usage assistant message with replay-safe provenance. */
-function recordAssistantMessage(
-  session: Session,
-  turn: number,
-  step: number,
-  config: LlmCallConfig,
-  assembledContent: ContentBlock[],
-  message: Message,
-  assembler: BlockAssembler,
-  chunkSeqs: number[],
-  preserveReplayState = true,
-): void {
-  session.append(
-    'assistant/message',
-    {
-      turn,
-      step,
-      content: message.content,
-      provenance: assistantProvenance(
-        config,
-        assembler.replayState,
-        preserveReplayState && isDeepStrictEqual(message.content, assembledContent),
-      ),
-      ...assembler.usage === undefined ? {} : { usage: assembler.usage },
-    },
-    { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
-  )
 }
 
 /** Build durable assistant provenance, dropping replay state after any content rewrite. */

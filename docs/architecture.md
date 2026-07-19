@@ -120,7 +120,7 @@ Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, re
 
 ### Initiating Agent Scope
 
-`AgentLoop` runs each process-local driver inside `ctx.agents.withInitiator()`; the [decision](rfc/implemented/architecture/2026-07-15-agent-initiator-scope.md) owns boundary and explicit-identity rules.
+`AgentLoop` runs each driver inside `ctx.agents.withInitiator()`; private code derives `agent.session`, while other identities stay explicit ([decision](rfc/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
 
 ## State
 
