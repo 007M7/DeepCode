@@ -659,8 +659,9 @@ export interface Config {
    * opens an in-process database (tests). On filesystems with POSIX modes,
    * missing directories and databases are created owner-only; existing path
    * modes are preserved. Filesystem setup errors other than an existing database
-   * fail initialization. The backend does not protect integrity when another
-   * principal can replace the database entry in its parent directory.
+   * fail initialization. The backend does not protect confidentiality or
+   * integrity when another principal can replace the database entry in its
+   * parent directory.
    */
   path: string
   /**
@@ -683,7 +684,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:54`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:55`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-query`
 

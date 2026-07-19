@@ -38,8 +38,9 @@ function surfaceBindings(event: SessionEvent): [string | null, string | null] {
 /**
  * Exclusively create a missing database file with owner-only permissions.
  * Existing files retain their modes, and errors other than `EEXIST` propagate.
- * `DatabaseSync` reopens by path, so this does not protect integrity when
- * another principal can replace the database entry in its parent directory.
+ * `DatabaseSync` reopens by path, so this does not protect confidentiality or
+ * integrity when another principal can replace the database entry in its parent
+ * directory.
  */
 async function createDatabaseFile(path: string): Promise<void> {
   try {
@@ -57,8 +58,9 @@ export interface Config {
    * opens an in-process database (tests). On filesystems with POSIX modes,
    * missing directories and databases are created owner-only; existing path
    * modes are preserved. Filesystem setup errors other than an existing database
-   * fail initialization. The backend does not protect integrity when another
-   * principal can replace the database entry in its parent directory.
+   * fail initialization. The backend does not protect confidentiality or
+   * integrity when another principal can replace the database entry in its
+   * parent directory.
    */
   path: string
   /**
