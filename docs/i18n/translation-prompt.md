@@ -27,7 +27,7 @@
 - `docs/development.md` ↔ `docs/development.zh.md`
 - `docs/i18n/README.md` ↔ `docs/i18n/README.zh.md`
 - `docs/i18n/translation-rules.md` ↔ `docs/i18n/translation-rules.zh.md`
-- `docs/rfc/implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md` ↔ 对应 `.zh.md`
+- `.agents/notes/implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md` ↔ 对应 `.zh.md`
 
 注入时按当前翻译方向选择每组的源侧与目标侧：user 消息包含源文档全文，assistant 消息采用模板正文规定的 XML 协议；`translation` 与 `final` 都放入目标文档全文，`review` 填 `- [None] No corrections.`。CDATA 遵循上文的 `]]>` 拆分规则。上下文不足时，按上列顺序从后往前删减示例组数。这 5 组也是评审校准锚点；改动任何一组都会改变流水线行为。
 

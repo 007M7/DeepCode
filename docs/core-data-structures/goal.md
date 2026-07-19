@@ -1,6 +1,6 @@
 # Same-session goals
 
-Types shared by the event-sourced goal domain and its policy consumers. The [goal-domain RFC](../rfc/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md) owns the persistence and activation decisions; this page records the literal shapes from [`packages/goal/goal/src/types.ts`](../../packages/goal/goal/src/types.ts).
+Types shared by the event-sourced goal domain and its policy consumers. The [goal-domain Agent Note](../../.agents/notes/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md) owns the persistence and activation decisions; this page records the literal shapes from [`packages/goal/goal/src/types.ts`](../../packages/goal/goal/src/types.ts).
 
 ## Identity and lifecycle
 
