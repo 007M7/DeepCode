@@ -12,6 +12,8 @@ Each `SessionEvent` maps 1:1 onto a row in an `events` table `(session_id, seq, 
 
 The repository's Node range supports unflagged `node:sqlite`. The database enables foreign keys and uses the configured journal mode (`wal` by default; use a rollback mode where WAL shared-memory files are unsuitable). `PRAGMA user_version` stores the table-layout version; databases with any other version are rejected because this unreleased format has no migrations.
 
+On filesystems with POSIX modes, the backend requests mode `0700` for missing directories and exclusively creates a missing database with mode `0600` before SQLite opens it; the process umask may further restrict both. New WAL, shared-memory, and persistent rollback-journal sidecars receive the database's resulting owner-only mode. Existing directories, database files, and sidecars keep their modes; filesystem setup errors other than an existing database fail initialization. These defaults prevent incidental exposure through a permissive process umask, but do not protect database confidentiality or integrity when another principal can replace the database entry in its parent directory.
+
 ## Contract semantics over rows
 
 - **Append = a transaction.** `append` runs `BEGIN`/`COMMIT` around the batch: it materializes the `sessions` row (if still lazy) and INSERTs every event, asserting the contiguous-seq contract first (the first event's `seq` must equal the stored next-seq). A mid-batch failure (a UNIQUE violation on a duplicated seq) rolls back entirely, so the stored log and the in-memory cursor stay consistent. (`load()` already balanced the stored log, so `append` never has to repair a crash tail.)
