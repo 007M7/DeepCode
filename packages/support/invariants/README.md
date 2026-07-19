@@ -56,6 +56,10 @@ The standard agent spine mounts the service and all four companions. Custom comp
 
 None, as the service and companions observe runtime events and requests but never alter prompts, messages, schemas, streams, or tool results.
 
+#### KV Cache effect
+
+None; invariant checks do not assemble or send provider requests.
+
 ## Known Limitations and Deferred Work
 
 - The shipped checks cover only the four listed package contracts; a merge-extended event family has no family-specific assertion until its owner publishes one.

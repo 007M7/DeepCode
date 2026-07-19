@@ -27,27 +27,51 @@ A default above the cap fails at load.
 
 ### System prompt
 
-**What the model sees**: Every request in this plugin's registration scope contains this guidance. Agent-scoped tool filtering may hide the tools without removing the independently registered prompt section.
+#### What the model sees
 
-**Token effect**: Small fixed input cost per request while active.
+Every request in this plugin's registration scope contains this guidance. Agent-scoped tool filtering may hide the tools without removing the independently registered prompt section.
 
-#### Background-task guidance
+##### Background-task guidance
 
 ```markdown
 Track every background task id you start. You are notified in-session when a task finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running task's work. Before giving a final answer, collect every still-relevant task with task_output (set wait: true only when you are genuinely blocked on it), and task_kill tasks that stopped mattering.
 ```
 
+#### Token effect
+
+Small fixed input cost per request while active.
+
+#### KV Cache effect
+
+Prefix-stable while the plugin scope and guidance text are unchanged. Activation or disposal may invalidate reuse from this prompt section.
+
 ### Tool schemas
 
-**What the model sees**: The generated [`task_output`, `task_list`, and `task_kill` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-tasks) while this surface is visible.
+#### What the model sees
 
-**Token effect**: Fixed schema cost on each request where the tools are visible.
+The generated [`task_output`, `task_list`, and `task_kill` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-tasks) while this surface is visible.
+
+#### Token effect
+
+Fixed schema cost on each request where the tools are visible.
+
+#### KV Cache effect
+
+Prefix-stable while tool definitions and visibility are unchanged. Registration lifecycle or scoped restrictions may invalidate reuse from the first changed schema token.
 
 ### Results and notices
 
-**What the model sees**: Reads return output or `(no new output)` followed by `[status: <status>]` and optional detail. An empty list returns `(no background tasks)`. Kill returns `requested cancellation of task <id>` or the existing terminal status. Unreported owned completion uses the notice above.
+#### What the model sees
 
-**Token effect**: Results and notices remain in parent history until compaction. Stream reads do not repeat consumed output.
+Reads return output or `(no new output)` followed by `[status: <status>]` and optional detail. An empty list returns `(no background tasks)`. Kill returns `requested cancellation of task <id>` or the existing terminal status. Unreported owned completion uses the notice above.
+
+#### Token effect
+
+Results and notices remain in parent history until compaction. Stream reads do not repeat consumed output.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

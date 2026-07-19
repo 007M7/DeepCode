@@ -5,12 +5,12 @@ import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from
 /**
  * The acp-agent example's snapshot suite: the scenario table for
  * `dsh-acp-snapshot`'s suite factory, which owns every compare/guard mechanic
- * (golden + re-persisted-log diffs, record/refresh write-back, the pinned-header
+ * (expected-output + re-persisted-log diffs, record/refresh write-back, the pinned-header
  * uniformity guard, the fixture guards). Fixtures live under `snapshots/<name>/`;
  * `pnpm run test:snapshot:record` re-records model transcripts against the real
- * API; `pnpm run test:snapshot:refresh` rewrites current replay goldens keyless.
- * See the package README (packages/support/acp-snapshot) and the snapshot RFC,
- * docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
+ * API; `pnpm run test:snapshot:refresh` rewrites current replay expected outputs keyless.
+ * See the package README (packages/support/acp-snapshot) and the snapshot Agent Note,
+ * .agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
 // The dsh-acp-demo bin (the demo:acp entry), this example's cordis.yml, and
@@ -137,8 +137,8 @@ const SCENARIOS: Scenario[] = [
   // The mid-turn seams fire during a real model turn, so each is recorded with its hook active
   // (the model's reaction to a deny/block/force-continue is part of the captured transcript).
   // SessionStart/SubagentStart are excluded because detached injection races log
-  // order; SubagentStop writes no transcript, so a golden could not prove it ran.
-  // Unit tests cover those points; the hook-snapshot-matrix RFC owns the rationale.
+  // order; SubagentStop writes no transcript, so an expected output could not prove it ran.
+  // Unit tests cover those points; the hook-snapshot-matrix Agent Note owns the rationale.
   { name: 'hook-cc-promptsubmit-context', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-deny', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-ask', hasModelTurn: true, recorded: true },

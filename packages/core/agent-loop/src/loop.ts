@@ -1,7 +1,7 @@
 /**
  * Drives one agent across queued durable turns. Turn failures are contained so
  * later work can run; the session log, not this driver, owns conversation state.
- * See docs/rfc/implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md.
+ * See .agents/notes/implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md.
  * @module dsh-agent-loop/loop
  */
 

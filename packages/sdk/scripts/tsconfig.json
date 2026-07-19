@@ -7,6 +7,7 @@
   "include": ["src"],
   "references": [
     { "path": "../helper" },
+    { "path": "../telemetry" },
     { "path": "../../ui/app-boot" },
     { "path": "../../../vendor/cordis" }
   ]

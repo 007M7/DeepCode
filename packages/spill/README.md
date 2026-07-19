@@ -10,4 +10,4 @@ The tool-output spill capability seam: an abstract storage interface, a local fi
 
 The interface lives at `spill/spill/`. The split mirrors bash/fs: the seam owns storage only, `spill-local` owns the filesystem mechanics, and `spill-policy` owns WHEN to spill and the model-facing notice. Preview mechanics stay in [`util/retention`](../util/README.md) — the policy composes the two without either owning the other's job.
 
-See the [tool output spill RFC](../../docs/rfc/implemented/architecture/2026-07-08-tool-output-spill-files.md) for the design rationale, including why final-result spill is separate from tool-owned early spill (bash streams, subagent rollouts) and why creation belongs to the runtime spill seam rather than the model-facing `write` tool.
+See the [tool output spill Agent Note](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) for the design rationale, including why final-result spill is separate from tool-owned early spill (bash streams, subagent rollouts) and why creation belongs to the runtime spill seam rather than the model-facing `write` tool.

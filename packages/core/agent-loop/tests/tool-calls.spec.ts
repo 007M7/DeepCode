@@ -1,6 +1,6 @@
 /**
  * Exercises scheduler ordering and cancellation with deterministic gated tools.
- * ACP goldens own transcript-facing coverage.
+ * ACP expected outputs own transcript-facing coverage.
  */
 
 import { describe, expect, it } from 'vitest'
