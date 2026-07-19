@@ -427,6 +427,9 @@ async function refreshSessions(preferredId?: string): Promise<void> {
       state.selectedSessionId = id
       renderSessionList()
       renderTopbar()
+    } else {
+      // First boot with no sessions: show the empty-state guide, not a blank pane.
+      renderConversation()
     }
   } catch (error) {
     showError(String(error))
