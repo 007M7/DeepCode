@@ -49,7 +49,7 @@ Blocklist matches override allowlist matches. Each list entry is a case-sensitiv
 
 The public registration boundary is `ctx.invariants.register(packageName, installer)`. It reserves one active registration per full npm package name even when filters disable installation, and returns the effect disposer. Disposing the companion or service releases the reservation and all contribution state.
 
-An enabled installer runs in a dedicated child Cordis fiber owned by the service. `InvariantInstaller.inject` declares the child fiber's service surface explicitly; the registry carries no product-specific dependency metadata. The installer receives a bound `fail(message)` reporter. Calling it throws an `Error` subclass named `InvariantError` with stable code `INVARIANT` and the registering `packageName`; it does not extend a product-package error base.
+An enabled installer runs in a dedicated child Cordis fiber owned by the service. `InvariantInstaller.inject` declares the child fiber's service surface explicitly; the registry carries no product-specific dependency metadata. The service joins a returned installer promise before registration succeeds, so asynchronous startup checks remain transactional. The installer receives a bound `fail(message)` reporter. Calling it throws an `Error` subclass named `InvariantError` with stable code `INVARIANT` and the registering `packageName`; it does not extend a product-package error base.
 
 Registration setup is transactional. If an installer fails after registering listeners, the child fiber is disposed completely and the name reservation is released before the failure escapes. Filtered registrations create no child but retain their reservation until disposal. Reloading a companion therefore begins with one clean installer state; stateful contributions rebuild baselines from their owning services.
 
@@ -84,7 +84,7 @@ Service tests cover defaults, global disablement, allow/block selection, blockli
 
 Composition tests cover standard-spine forwarding and generated SDK entries. Loader tests preserve each companion namespace, while built plain-Node smokes exercise the compiled subpath exports. The scoped-event freshness gate reruns its semantic Program analysis.
 
-Every Vitest configuration loads a test host that mounts an explicitly enabled service and all package companions before an ordinary Cordis root's first plugin. Focused service and owner tests construct their own invariant topology so they can exercise disablement, filtering, rollback, and reload without duplicate ownership. Gate tests also execute every companion's `apply` function and verify that it calls `register` with its manifest name, rather than accepting source text alone.
+Every Vitest configuration loads a test host that mounts an explicitly enabled service before an ordinary Cordis root's first plugin and adds the current test package's companion. One exhaustive topology mounts all package companions once; focused service and owner tests construct their own invariant topology so they can exercise disablement, filtering, rollback, and reload without duplicate ownership. Gate tests also execute every companion's `apply` function and verify that it calls `register` with its manifest name, rather than accepting source text alone.
 
 ## Alternatives considered
 
@@ -101,5 +101,5 @@ Every Vitest configuration loads a test host that mounts an explicitly enabled s
 - Explicit companion entries make diagnostic cost and ownership visible in Cordis config and package exports.
 - One selected contribution adds one child fiber and its listener/state cost; filtered registrations retain only name ownership.
 - Regex sources are deployment configuration and remain fixed until the service reloads.
-- Ordinary Vitest roots install every selected companion, trading extra child fibers during tests for repository-wide invariant coverage and immediate fixture failures.
+- Ordinary Vitest roots install the owning test package's selected companion; one exhaustive topology pays the full child-fiber cost once for repository-wide registration coverage.
 - Session storage validation, snapshotting, freezing, provenance, and surface acceptance remain always on and are not affected by invariant selection.

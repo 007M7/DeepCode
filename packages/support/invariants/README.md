@@ -16,7 +16,7 @@ Defaults are `enabled: true`, `package_allowlist: []`, and `package_blocklist: [
 
 Each entry is a case-sensitive JavaScript regular-expression source compiled with `new RegExp(pattern)`. Matching is unanchored unless the source supplies `^` and `$`; `/pattern/flags` syntax is not parsed. Blank, whitespace-padded, invalid, or duplicate entries within one list fail service startup. A valid pattern may match no currently loaded package so later loading and HMR remain deterministic.
 
-`ctx.invariants.register(packageName, installer)` reserves one active registration for the full npm package name, including when filters keep its installer inactive, and returns its disposer. An enabled contribution runs in a dedicated child Cordis fiber. The installer can declare its required service surface through `installer.inject` and receives `fail(message)`, which throws an `InvariantError` bound to the registering package. Installer failure disposes the child and releases ownership atomically.
+`ctx.invariants.register(packageName, installer)` reserves one active registration for the full npm package name, including when filters keep its installer inactive, and returns its disposer. An enabled contribution runs in a dedicated child Cordis fiber. The installer can declare its required service surface through `installer.inject` and receives `fail(message)`, which throws an `InvariantError` bound to the registering package. Synchronous or asynchronous installer completion is joined before registration succeeds; failure disposes the child and releases ownership atomically.
 
 The service owns every registration fiber, while the returned disposer also belongs to the companion fiber. Unloading either side removes the listeners and reservation completely. A companion can therefore reload and register the same package name without retaining trace state or duplicate listeners; packages that need an existing baseline rebuild it during installation.
 
@@ -32,7 +32,7 @@ Packages select the narrowest runtime form that protects their public contract:
 |---|---|
 | Cordis plugin | `observePluginInvariant` validates the plugin's own declared name, required injections, owned effect group, provided services, and optional package-specific relation for existing, late, and HMR-activated fibers. |
 | Cordis service seam | `observeServiceInvariant` plus `serviceShapeViolation` validates current and future structural implementations, including conforming third-party backends and test doubles. |
-| Pure library, bin, or support package | `assertInvariant` checks stable protocol algebra, parser mapping, path/timeout/retention rules, normalization, or entrypoint shape in a child effect. |
+| Pure library, bin, or support package | `assertInvariant` checks stable protocol algebra, parser mapping, path/timeout/retention rules, normalization, or entrypoint shape during child startup. |
 
 Four companions additionally install stateful event and request checks:
 
@@ -62,7 +62,7 @@ ctx.plugin(InvariantService, {
 ctx.plugin(SessionInvariant)
 ```
 
-The standard agent spine mounts the service and the four stateful companions. Custom compositions explicitly add the companions for the packages whose contracts they want checked and may disable or filter them without changing package entrypoints. Vitest mounts every package companion against an explicitly enabled service for ordinary Cordis roots, so all package checks execute across unit, snapshot, and e2e suites; focused invariant-service tests construct their own topology to exercise filtering and lifecycle behavior.
+The standard agent spine mounts the service and the four stateful companions. Custom compositions explicitly add the companions for the packages whose contracts they want checked and may disable or filter them without changing package entrypoints. Plugin and service helpers multiplex package contracts through indexed lifecycle listeners shared by the Cordis root, while contribution disposal removes only that owner's contract. Vitest gives every ordinary root an explicitly enabled service and mounts the current test package's companion; one exhaustive topology test mounts all companions once, and focused invariant-service tests construct their own topology to exercise filtering and lifecycle behavior.
 
 ## Model Experience
 

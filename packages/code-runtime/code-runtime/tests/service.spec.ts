@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import { InvariantError } from '@deepseek-ai/dsh-invariants'
 
 /**
  * Minimal concrete runtime: records requests, "executes" by invoking every
@@ -96,6 +97,13 @@ describe('CodeRuntime service seam', () => {
         child.provide('codeRuntime', value as unknown as CodeRuntime)
       },
     }
-    await expect(ctx.plugin(invalidRuntime)).rejects.toThrow(message)
+    let caught: unknown
+    try {
+      await ctx.plugin(invalidRuntime)
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(InvariantError)
+    expect((caught as Error).message).toMatch(message)
   })
 })

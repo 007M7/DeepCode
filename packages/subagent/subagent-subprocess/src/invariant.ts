@@ -13,19 +13,24 @@ export const name = 'subagent-subprocess-invariant'
 export const inject = ['invariants']
 
 /** Assert ambient credential scrubbing and explicit credential precedence. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const { buildChildEnv } = await import('./index.ts')
-    const scrubbed = buildChildEnv({})
-    const ambientSensitiveNames = Object.keys(process.env).filter(key => SENSITIVE_ENV_PATTERN.test(key))
-    assertInvariant(fail, ambientSensitiveNames.every(key => !Object.hasOwn(scrubbed, key)),
-      'subprocess environments must omit every credential-shaped ambient variable')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const { buildChildEnv } = await import('./index.ts')
+  const ambientProbe = `DSH_INVARIANT_AMBIENT_TOKEN_${process.pid}`
+  assertInvariant(fail, SENSITIVE_ENV_PATTERN.test(ambientProbe),
+    'the invariant ambient probe must remain credential-shaped')
+  process.env[ambientProbe] = 'must-not-reach-child'
+  let scrubbed: NodeJS.ProcessEnv
+  try {
+    scrubbed = buildChildEnv({})
+  } finally {
+    Reflect.deleteProperty(process.env, ambientProbe)
+  }
+  assertInvariant(fail, !Object.hasOwn(scrubbed, ambientProbe),
+    'subprocess environments must omit every credential-shaped ambient variable')
 
-    const explicit = buildChildEnv({ DSH_INVARIANT_TOKEN: 'explicit-child-value' })
-    assertInvariant(fail, explicit.DSH_INVARIANT_TOKEN === 'explicit-child-value',
-      'explicit child credentials must be applied after ambient scrubbing')
-    return () => {}
-  }, 'subagent-subprocess: validate child environment isolation')
+  const explicit = buildChildEnv({ DSH_INVARIANT_TOKEN: 'explicit-child-value' })
+  assertInvariant(fail, explicit.DSH_INVARIANT_TOKEN === 'explicit-child-value',
+    'explicit child credentials must be applied after ambient scrubbing')
 }
 
 /**

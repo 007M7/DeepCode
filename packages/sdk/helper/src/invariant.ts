@@ -12,20 +12,17 @@ export const name = 'helper-invariant'
 export const inject = ['invariants']
 
 /** Assert FeatureId's zero-cost representation and boundary validation. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const { featureId } = await import('./ids.ts')
-    assertInvariant(fail, featureId('local-plugin') === 'local-plugin',
-      'a valid feature id must preserve its runtime string value')
-    let rejected = false
-    try {
-      featureId('Invalid Feature')
-    } catch (error) {
-      rejected = error instanceof Error
-    }
-    assertInvariant(fail, rejected, 'feature ids must reject values outside lowercase kebab-case')
-    return () => {}
-  }, 'dsh-helper: validate feature identities')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const { featureId } = await import('./ids.ts')
+  assertInvariant(fail, featureId('local-plugin') === 'local-plugin',
+    'a valid feature id must preserve its runtime string value')
+  let rejected = false
+  try {
+    featureId('Invalid Feature')
+  } catch (error) {
+    rejected = error instanceof Error
+  }
+  assertInvariant(fail, rejected, 'feature ids must reject values outside lowercase kebab-case')
 }
 
 /**

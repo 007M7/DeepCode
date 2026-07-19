@@ -12,19 +12,16 @@ export const name = 'timeout-invariant'
 export const inject = ['invariants']
 
 /** Assert default-before-cap arithmetic and capability-code classification. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const { clampTimeout, TimeoutReason, timeoutOf } = await import('./index.ts')
-    assertInvariant(fail,
-      clampTimeout(undefined, 50, 30) === 30 && clampTimeout(20, 50, 30) === 20,
-      'timeout resolution must apply the default before capping and preserve smaller requests')
-    const reason = new TimeoutReason('INVARIANT_TIMEOUT', 25)
-    assertInvariant(fail, timeoutOf({ reason }, 'INVARIANT_TIMEOUT') === reason,
-      'timeout classification must recover a matching capability-owned reason')
-    assertInvariant(fail, timeoutOf({ reason }, 'FOREIGN_TIMEOUT') === undefined,
-      'timeout classification must reject a reason owned by another capability')
-    return () => {}
-  }, 'timeout: validate resolution and reason classification')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const { clampTimeout, TimeoutReason, timeoutOf } = await import('./index.ts')
+  assertInvariant(fail,
+    clampTimeout(undefined, 50, 30) === 30 && clampTimeout(20, 50, 30) === 20,
+    'timeout resolution must apply the default before capping and preserve smaller requests')
+  const reason = new TimeoutReason('INVARIANT_TIMEOUT', 25)
+  assertInvariant(fail, timeoutOf({ reason }, 'INVARIANT_TIMEOUT') === reason,
+    'timeout classification must recover a matching capability-owned reason')
+  assertInvariant(fail, timeoutOf({ reason }, 'FOREIGN_TIMEOUT') === undefined,
+    'timeout classification must reject a reason owned by another capability')
 }
 
 /**

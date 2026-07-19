@@ -273,6 +273,25 @@ describe('InvariantService lifecycle', () => {
     expect(retry).toHaveBeenCalledOnce()
   })
 
+  it('joins asynchronous checks and rolls back their effects on failure', async () => {
+    const { ctx } = await setup()
+    const leaked = vi.fn()
+    const failed = runtimeRegistration(ctx.invariants.register('@deepseek-ai/dsh-async-probe', async (child, fail) => {
+      child.on('invariants-test/ping', leaked, { global: true })
+      await Promise.resolve()
+      fail('asynchronous check failed')
+    }))
+    await expect(Promise.resolve(failed)).rejects.toThrow(/asynchronous check failed/)
+    ctx.emit('invariants-test/ping')
+    expect(leaked).not.toHaveBeenCalled()
+
+    const retry = runtimeRegistration(ctx.invariants.register('@deepseek-ai/dsh-async-probe', async () => {
+      await Promise.resolve()
+    }))
+    await retry
+    await retry()
+  })
+
   it('releases a synchronous reservation if the service fiber is already inactive', async () => {
     const { ctx, fiber } = await setup()
     const service = ctx.invariants
@@ -282,11 +301,15 @@ describe('InvariantService lifecycle', () => {
 })
 
 describe('package-owned invariant helpers', () => {
+  interface InvariantDisposer {
+    (): void | Promise<void>
+  }
+
   async function registerInstaller(
     ctx: Context,
     packageName: string,
     installer: InvariantInstaller,
-  ): Promise<() => void> {
+  ): Promise<InvariantDisposer> {
     const registration = runtimeRegistration(ctx.invariants.register(packageName, installer))
     const dispose = await Promise.resolve(registration)
     return dispose
@@ -376,6 +399,38 @@ describe('package-owned invariant helpers', () => {
     await ctx.plugin(plugin)
   })
 
+  it('multiplexes same-runtime plugin checks through one root listener pair and disposes each owner', async () => {
+    const { ctx } = await setup()
+    const firstValidation = vi.fn(() => undefined)
+    const secondValidation = vi.fn(() => undefined)
+    const first = await registerInstaller(ctx, '@deepseek-ai/dsh-shared-plugin-first', (child, fail) => {
+      observePluginInvariant(child, fail, { name: 'shared-plugin-probe', validate: firstValidation })
+    })
+    const second = await registerInstaller(ctx, '@deepseek-ai/dsh-shared-plugin-second', (child, fail) => {
+      observePluginInvariant(child, fail, { name: 'shared-plugin-probe', validate: secondValidation })
+    })
+    const rootEffectLabels = ctx.fiber.getEffects().map(effect => effect.label)
+    expect(rootEffectLabels.filter(label => label === 'ctx.on("internal/plugin")')).toHaveLength(1)
+    expect(rootEffectLabels.filter(label => label === 'ctx.on("internal/status")')).toHaveLength(1)
+
+    const plugin = effectPlugin({ name: 'shared-plugin-probe' })
+    const firstFiber = await ctx.plugin(plugin)
+    expect(firstValidation).toHaveBeenCalledOnce()
+    expect(secondValidation).toHaveBeenCalledOnce()
+
+    await first()
+    await firstFiber.dispose()
+    const secondFiber = await ctx.plugin(plugin)
+    expect(firstValidation).toHaveBeenCalledOnce()
+    expect(secondValidation).toHaveBeenCalledTimes(2)
+
+    await second()
+    await secondFiber.dispose()
+    await ctx.plugin(plugin)
+    expect(firstValidation).toHaveBeenCalledOnce()
+    expect(secondValidation).toHaveBeenCalledTimes(2)
+  })
+
   it('rejects a contract that does not identify a plugin', async () => {
     const { ctx } = await setup()
     const registration = runtimeRegistration(ctx.invariants.register('@deepseek-ai/dsh-invalid-plugin', (child, fail) => {
@@ -449,12 +504,46 @@ describe('package-owned invariant helpers', () => {
       .rejects.toThrow(/wrong watched service/)
   })
 
+  it('multiplexes same-name service checks through one root listener and disposes each owner', async () => {
+    const { ctx } = await setup()
+    const firstValidation = vi.fn(() => undefined)
+    const secondValidation = vi.fn(() => undefined)
+    const first = await registerInstaller(ctx, '@deepseek-ai/dsh-shared-service-first', (child, fail) => {
+      observeServiceInvariant(child, fail, 'watchedInvariantProbe', firstValidation)
+    })
+    const second = await registerInstaller(ctx, '@deepseek-ai/dsh-shared-service-second', (child, fail) => {
+      observeServiceInvariant(child, fail, 'watchedInvariantProbe', secondValidation)
+    })
+    const rootEffectLabels = ctx.fiber.getEffects().map(effect => effect.label)
+    expect(rootEffectLabels.filter(label => label === 'ctx.on("internal/service")')).toHaveLength(1)
+
+    const firstFiber = await ctx.plugin(WatchedInvariantProbeService)
+    expect(firstValidation).toHaveBeenCalledOnce()
+    expect(secondValidation).toHaveBeenCalledOnce()
+
+    await first()
+    const firstCallsAfterDisposal = firstValidation.mock.calls.length
+    const secondCallsBeforeRemount = secondValidation.mock.calls.length
+    await firstFiber.dispose()
+    const secondFiber = await ctx.plugin(WatchedInvariantProbeService)
+    expect(firstValidation).toHaveBeenCalledTimes(firstCallsAfterDisposal)
+    expect(secondValidation.mock.calls.length).toBeGreaterThan(secondCallsBeforeRemount)
+
+    await second()
+    const firstCallsAfterBothDisposals = firstValidation.mock.calls.length
+    const secondCallsAfterBothDisposals = secondValidation.mock.calls.length
+    await secondFiber.dispose()
+    await ctx.plugin(WatchedInvariantProbeService)
+    expect(firstValidation).toHaveBeenCalledTimes(firstCallsAfterBothDisposals)
+    expect(secondValidation).toHaveBeenCalledTimes(secondCallsAfterBothDisposals)
+  })
+
   it('reports synchronous package assertions through the bound failure reporter', async () => {
     const { ctx } = await setup()
     const valid = await registerInstaller(ctx, '@deepseek-ai/dsh-valid-assertion', (_child, fail) => {
       assertInvariant(fail, true, 'must stay true')
     })
-    valid()
+    await valid()
 
     const invalid = runtimeRegistration(ctx.invariants.register('@deepseek-ai/dsh-invalid-assertion', (_child, fail) => {
       assertInvariant(fail, false, 'must stay true')

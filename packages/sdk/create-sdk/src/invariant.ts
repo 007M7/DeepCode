@@ -12,24 +12,23 @@ export const name = 'create-sdk-invariant'
 export const inject = ['invariants']
 
 /** Assert the bin-only entrypoint and its core argument mapping. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const { parseCreateArgs } = await import('./args.ts')
-    const packageEntry = await import('./index.ts')
-    assertInvariant(fail, Object.keys(packageEntry).length === 0,
-      'the create-sdk library entrypoint must remain empty because the package is bin-only')
-    const parsed = parseCreateArgs([
-      'workspace', '--provider=custom', '--base-url=https://example.test', '--interface=embed', '--no-install',
-    ])
-    assertInvariant(fail,
-      parsed.directory === 'workspace'
-        && parsed.provider === 'custom'
-        && parsed.baseURL === 'https://example.test'
-        && parsed.runInterface === 'embed'
-        && parsed.install === false,
-      'create-sdk arguments must preserve directory, provider, base URL, interface, and negative install flags')
-    return () => {}
-  }, 'create-sdk: validate bin and argument contracts')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const [{ parseCreateArgs }, packageEntry] = await Promise.all([
+    import('./args.ts'),
+    import('./index.ts'),
+  ])
+  assertInvariant(fail, Object.keys(packageEntry).length === 0,
+    'the create-sdk library entrypoint must remain empty because the package is bin-only')
+  const parsed = parseCreateArgs([
+    'workspace', '--provider=custom', '--base-url=https://example.test', '--interface=embed', '--no-install',
+  ])
+  assertInvariant(fail,
+    parsed.directory === 'workspace'
+      && parsed.provider === 'custom'
+      && parsed.baseURL === 'https://example.test'
+      && parsed.runInterface === 'embed'
+      && parsed.install === false,
+    'create-sdk arguments must preserve directory, provider, base URL, interface, and negative install flags')
 }
 
 /**

@@ -49,7 +49,7 @@ blocklist 匹配优先于 allowlist 匹配。每个条目都是区分大小写�
 
 公开注册边界是 `ctx.invariants.register(packageName, installer)`。即使过滤器禁止安装，它也会为每个完整 npm 包名保留唯一的活跃注册，并返回 effect disposer。卸载伴随插件或服务都会释放注册名及全部贡献状态。
 
-启用的 installer 在服务拥有的独立 Cordis 子 fiber 中运行。`InvariantInstaller.inject` 显式声明该子 fiber 的服务表面；注册服务不携带产品专用依赖元数据。installer 接收绑定后的 `fail(message)` 报告器。调用它会抛出名为 `InvariantError` 的 `Error` 子类，保留稳定代码 `INVARIANT` 并记录注册方 `packageName`；该错误不继承产品包中的错误基类。
+启用的 installer 在服务拥有的独立 Cordis 子 fiber 中运行。`InvariantInstaller.inject` 显式声明该子 fiber 的服务表面；注册服务不携带产品专用依赖元数据。服务会在注册成功前等待 installer 返回的 promise，因此异步启动检查仍具有事务性。installer 接收绑定后的 `fail(message)` 报告器。调用它会抛出名为 `InvariantError` 的 `Error` 子类，保留稳定代码 `INVARIANT` 并记录注册方 `packageName`；该错误不继承产品包中的错误基类。
 
 注册启动是事务性的。如果 installer 在注册监听器后失败，子 fiber 会完整释放，并在失败向外传播前解除包名占用。被过滤的注册不创建子 fiber，但会保留占用直到 dispose。伴随插件重载时总会从干净的 installer 状态开始；有状态贡献从其所属服务重建基线。
 
@@ -84,7 +84,7 @@ Workspace 约束识别独立的不变式 bundle；包 exports、项目引用、�
 
 组合测试覆盖标准 spine 转发和生成的 SDK 条目。Loader 测试固定每个伴随命名空间，构建后的纯 Node smoke 覆盖编译子路径 export。scoped event 新鲜度门禁会重新执行语义 Program 分析。
 
-每个 Vitest 配置都会加载测试宿主；在普通 Cordis 根上下文启动第一个插件之前，宿主会挂载显式启用的服务以及所有包的伴随插件。服务与所有者的聚焦测试自行构建不变式拓扑，从而在不发生重复所有权冲突的前提下覆盖关闭、过滤、回滚与重载。门禁测试还会执行每个伴随插件的 `apply` 函数，并验证它调用 `register` 时使用包清单中的包名，而不是只检查源码文本。
+每个 Vitest 配置都会加载测试宿主；在普通 Cordis 根上下文启动第一个插件之前，宿主会挂载显式启用的服务，并添加当前测试包的伴随插件。一个完整拓扑会一次挂载所有包的伴随插件；服务与所有者的聚焦测试自行构建不变式拓扑，从而在不发生重复所有权冲突的前提下覆盖关闭、过滤、回滚与重载。门禁测试还会执行每个伴随插件的 `apply` 函数，并验证它调用 `register` 时使用包清单中的包名，而不是只检查源码文本。
 
 ## 考虑过的替代方案
 
@@ -101,5 +101,5 @@ Workspace 约束识别独立的不变式 bundle；包 exports、项目引用、�
 - 显式伴随条目让诊断成本和所有权在 Cordis 配置与包 export 中可见。
 - 每个选中贡献增加一个子 fiber 及其监听器和状态成本；被过滤注册只保留包名占用。
 - 正则表达式源属于部署配置，在服务重载前保持固定。
-- 普通 Vitest 根上下文会安装每个被选中的伴随插件，以增加测试期间的子 fiber 为代价，换取覆盖整个仓库的不变式检查和对 fixture（测试前置数据）错误的即时反馈。
+- 普通 Vitest 根上下文会安装当前测试包中被选中的伴随插件；一个完整拓扑只支付一次全部子 fiber 成本，用于覆盖整个仓库的注册。
 - 会话存储验证、快照、冻结、provenance 与 surface 接受规则始终启用，不受不变式选择影响。

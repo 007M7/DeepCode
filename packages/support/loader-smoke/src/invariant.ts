@@ -12,23 +12,20 @@ export const name = 'loader-smoke-invariant'
 export const inject = ['invariants']
 
 /** Assert default source mode and plain-Node built-artifact launch resolution. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const { resolveExampleLaunch, resolveExampleMode } = await import('./index.ts')
-    assertInvariant(fail, resolveExampleMode('') === 'src',
-      'an empty example-mode selection must preserve source-mode development')
-    const launch = resolveExampleLaunch({
-      srcBin: '/workspace/probe/src/bin.ts',
-      mode: 'lib',
-    })
-    assertInvariant(fail,
-      launch.command === process.execPath
-        && launch.args.length === 1
-        && launch.args[0] === '/workspace/probe/lib/bin.js'
-        && launch.env.TSX_TSCONFIG_PATH === undefined,
-      'built example launches must use plain Node, the derived lib entry, and no tsx paths map')
-    return () => {}
-  }, 'loader-smoke: validate source and built launch resolution')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const { resolveExampleLaunch, resolveExampleMode } = await import('./index.ts')
+  assertInvariant(fail, resolveExampleMode('') === 'src',
+    'an empty example-mode selection must preserve source-mode development')
+  const launch = resolveExampleLaunch({
+    srcBin: '/workspace/probe/src/bin.ts',
+    mode: 'lib',
+  })
+  assertInvariant(fail,
+    launch.command === process.execPath
+      && launch.args.length === 1
+      && launch.args[0] === '/workspace/probe/lib/bin.js'
+      && launch.env.TSX_TSCONFIG_PATH === undefined,
+    'built example launches must use plain Node, the derived lib entry, and no tsx paths map')
 }
 
 /**

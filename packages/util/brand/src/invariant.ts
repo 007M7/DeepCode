@@ -12,13 +12,10 @@ export const name = 'brand-invariant'
 export const inject = ['invariants']
 
 /** Assert that the nominal-type primitive remains erased at runtime. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const brandRuntime = await import('./index.ts')
-    assertInvariant(fail, Object.keys(brandRuntime).length === 0,
-      'the branded-id primitive must remain type-only with no runtime exports')
-    return () => {}
-  }, 'brand: validate type-only runtime erasure')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const brandRuntime = await import('./index.ts')
+  assertInvariant(fail, Object.keys(brandRuntime).length === 0,
+    'the branded-id primitive must remain type-only with no runtime exports')
 }
 
 /**

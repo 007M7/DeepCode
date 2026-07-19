@@ -12,15 +12,12 @@ export const name = 'subagent-inprocess-invariant'
 export const inject = ['invariants']
 
 /** Assert that structured-output guidance names the tool it actually installs. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const { STRUCTURED_OUTPUT_INSTRUCTION, STRUCTURED_OUTPUT_TOOL } = await import('./structured-protocol.ts')
-    assertInvariant(fail, /^[a-z][a-z0-9_]*$/.test(STRUCTURED_OUTPUT_TOOL),
-      'the structured-output tool must retain a stable lowercase protocol name')
-    assertInvariant(fail, STRUCTURED_OUTPUT_INSTRUCTION.includes(STRUCTURED_OUTPUT_TOOL),
-      'the structured-output instruction must name the exact installed tool')
-    return () => {}
-  }, 'subagent-inprocess: validate structured-output protocol')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const { STRUCTURED_OUTPUT_INSTRUCTION, STRUCTURED_OUTPUT_TOOL } = await import('./structured-protocol.ts')
+  assertInvariant(fail, /^[a-z][a-z0-9_]*$/.test(STRUCTURED_OUTPUT_TOOL),
+    'the structured-output tool must retain a stable lowercase protocol name')
+  assertInvariant(fail, STRUCTURED_OUTPUT_INSTRUCTION.includes(STRUCTURED_OUTPUT_TOOL),
+    'the structured-output instruction must name the exact installed tool')
 }
 
 /**

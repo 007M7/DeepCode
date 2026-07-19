@@ -28,15 +28,15 @@ export interface Config {
  */
 export type InvariantFailure = (message: string) => never
 
-/** Install one package's listeners into the registration's child context. */
+/** Install one package's checks into the registration's child context. */
 export interface InvariantInstaller {
   /**
    * Install the package contribution.
    * @param ctx - child context owned by this invariant registration.
    * @param fail - reporter bound to the registering package name.
-   * @returns nothing after synchronous listener installation completes.
+   * @returns nothing, or a promise settling after asynchronous checks finish.
    */
-  (ctx: Context, fail: InvariantFailure): void
+  (ctx: Context, fail: InvariantFailure): void | Promise<void>
   /** Services the child installer fiber may access. */
   readonly inject?: Inject
 }
@@ -70,11 +70,111 @@ function collectEffectLabels(fiber: Fiber): ReadonlySet<string> {
   return labels
 }
 
+/** One package check routed by a root-shared plugin lifecycle dispatcher. */
+interface PluginObservation {
+  readonly callback: globalThis.Function | undefined
+  readonly contract: PluginInvariantContract
+  readonly fail: InvariantFailure
+}
+
+/** Indexed plugin checks and the two lifecycle listeners shared by one root. */
+interface PluginObservationHub {
+  readonly byCallback: Map<globalThis.Function, Set<PluginObservation>>
+  readonly byName: Map<string, Set<PluginObservation>>
+}
+
+const pluginObservationHubs = new WeakMap<Context, PluginObservationHub>()
+
+/** Check one already-matched active plugin fiber. */
+function inspectPluginObservation(observation: PluginObservation, fiber: Fiber): void {
+  if (fiber.state !== FiberState.ACTIVE || fiber.uid === null) return
+  const { callback, contract, fail } = observation
+  if (callback !== undefined && fiber.name !== contract.name) {
+    fail(`active plugin name must be ${JSON.stringify(contract.name)}, got ${JSON.stringify(fiber.name)}`)
+  }
+  const injections = new Set(Object.keys(fiber.inject))
+  for (const service of contract.inject ?? []) {
+    if (!injections.has(service)) fail(`active plugin must inject ${JSON.stringify(service)}`)
+  }
+
+  const effectLabels = collectEffectLabels(fiber)
+  for (const requirement of contract.effects ?? []) {
+    const alternatives = typeof requirement === 'string' ? [requirement] : requirement
+    if (!alternatives.some(label => effectLabels.has(label))) {
+      fail(`active plugin must own effect ${alternatives.map(label => JSON.stringify(label)).join(' or ')}`)
+    }
+  }
+  for (const service of contract.services ?? []) {
+    const provided = Reflect.ownKeys(fiber.ctx.reflect.store).some((key) => {
+      const implementation = fiber.ctx.reflect.store[key as symbol]
+      return implementation?.fiber === fiber && implementation.name === service
+    })
+    if (!provided) fail(`active plugin must provide service ${JSON.stringify(service)}`)
+  }
+  const message = contract.validate?.(fiber, effectLabels)
+  if (message !== undefined) fail(message)
+}
+
+/** Route one lifecycle notification only to checks that can match its runtime. */
+function inspectObservedPlugin(hub: PluginObservationHub, fiber: Fiber): void {
+  const callback = fiber.runtime?.callback
+  if (callback !== undefined) {
+    for (const observation of hub.byCallback.get(callback) ?? []) {
+      inspectPluginObservation(observation, fiber)
+    }
+  }
+  const runtimeName = fiber.runtime?.name
+  if (runtimeName !== undefined) {
+    for (const observation of hub.byName.get(runtimeName) ?? []) {
+      inspectPluginObservation(observation, fiber)
+    }
+  }
+}
+
+/** Return the root's shared plugin dispatcher, creating its two listeners once. */
+function pluginObservationHub(ctx: Context): PluginObservationHub {
+  const root = ctx.root
+  const existing = pluginObservationHubs.get(root)
+  if (existing !== undefined) return existing
+
+  const hub: PluginObservationHub = {
+    byCallback: new Map(),
+    byName: new Map(),
+  }
+  pluginObservationHubs.set(root, hub)
+  root.on('internal/plugin', (fiber) => { inspectObservedPlugin(hub, fiber) }, { global: true })
+  root.on('internal/status', (fiber) => { inspectObservedPlugin(hub, fiber) }, { global: true })
+  return hub
+}
+
+/** Add one plugin observation to a typed exact-key index. */
+function addIndexedPluginObservation<Key>(
+  index: Map<Key, Set<PluginObservation>>,
+  key: Key,
+  observation: PluginObservation,
+): () => void {
+  const observations = index.get(key) ?? new Set<PluginObservation>()
+  index.set(key, observations)
+  observations.add(observation)
+  return () => {
+    observations.delete(observation)
+    if (observations.size === 0) index.delete(key)
+  }
+}
+
+/** Add one observation to its exact callback or runtime-name index. */
+function addPluginObservation(hub: PluginObservationHub, observation: PluginObservation): () => void {
+  if (observation.callback === undefined) {
+    return addIndexedPluginObservation(hub.byName, observation.contract.name, observation)
+  }
+  return addIndexedPluginObservation(hub.byCallback, observation.callback, observation)
+}
+
 /**
  * Observe one package plugin and fail whenever an active fiber violates its
  * declared name, dependency, effect, service, or package-specific contract.
  * Existing fibers are checked immediately; later starts and HMR activations
- * are checked through Cordis lifecycle events.
+ * are checked through two indexed lifecycle listeners shared by the root.
  * @param ctx - invariant child context that owns the observers.
  * @param fail - reporter bound to the package that owns the plugin.
  * @param contract - expected runtime facts for the package plugin.
@@ -90,50 +190,79 @@ export function observePluginInvariant(
     fail('invariant contract does not identify a Cordis plugin')
   }
 
-  const inspect = (fiber: Fiber): void => {
-    const matches = callback === undefined
-      ? fiber.runtime?.name === contract.name
-      : fiber.runtime?.callback === callback
-    if (!matches || fiber.state !== FiberState.ACTIVE) return
-    if (callback !== undefined && fiber.name !== contract.name) {
-      fail(`active plugin name must be ${JSON.stringify(contract.name)}, got ${JSON.stringify(fiber.name)}`)
-    }
-    const injections = new Set(Object.keys(fiber.inject))
-    for (const service of contract.inject ?? []) {
-      if (!injections.has(service)) fail(`active plugin must inject ${JSON.stringify(service)}`)
-    }
-
-    const effectLabels = collectEffectLabels(fiber)
-    for (const requirement of contract.effects ?? []) {
-      const alternatives = typeof requirement === 'string' ? [requirement] : requirement
-      if (!alternatives.some(label => effectLabels.has(label))) {
-        fail(`active plugin must own effect ${alternatives.map(label => JSON.stringify(label)).join(' or ')}`)
-      }
-    }
-    for (const service of contract.services ?? []) {
-      const provided = Reflect.ownKeys(fiber.ctx.reflect.store).some((key) => {
-        const implementation = fiber.ctx.reflect.store[key as symbol]
-        return implementation?.fiber === fiber && implementation.name === service
-      })
-      if (!provided) fail(`active plugin must provide service ${JSON.stringify(service)}`)
-    }
-    const message = contract.validate?.(fiber, effectLabels)
-    if (message !== undefined) fail(message)
-  }
+  const observation: PluginObservation = { callback, contract, fail }
 
   if (contract.plugin === undefined) {
     for (const runtime of ctx.registry.values()) {
-      for (const fiber of runtime.fibers) inspect(fiber)
+      if (runtime.name !== contract.name) continue
+      for (const fiber of runtime.fibers) inspectPluginObservation(observation, fiber)
     }
   } else {
-    for (const fiber of ctx.registry.get(contract.plugin)?.fibers ?? []) inspect(fiber)
+    for (const fiber of ctx.registry.get(contract.plugin)?.fibers ?? []) {
+      inspectPluginObservation(observation, fiber)
+    }
   }
-  ctx.on('internal/plugin', inspect, { global: true })
-  ctx.on('internal/status', inspect, { global: true })
+  const hub = pluginObservationHub(ctx)
+  ctx.effect(
+    () => addPluginObservation(hub, observation),
+    `invariants.observePlugin(${JSON.stringify(contract.name)})`,
+  )
+}
+
+/** One structural check routed by a root-shared service lifecycle dispatcher. */
+interface ServiceObservation {
+  readonly fail: InvariantFailure
+  readonly validate: (value: unknown) => string | undefined
+}
+
+/** Service checks and the single service listener shared by one root. */
+interface ServiceObservationHub {
+  readonly byName: Map<string, Set<ServiceObservation>>
+}
+
+const serviceObservationHubs = new WeakMap<Context, ServiceObservationHub>()
+
+/** Check one present service implementation. */
+function inspectServiceObservation(observation: ServiceObservation, value: unknown): void {
+  if (value === undefined) return
+  const message = observation.validate(value)
+  if (message !== undefined) observation.fail(message)
+}
+
+/** Return the root's shared service dispatcher, creating its listener once. */
+function serviceObservationHub(ctx: Context): ServiceObservationHub {
+  const root = ctx.root
+  const existing = serviceObservationHubs.get(root)
+  if (existing !== undefined) return existing
+
+  const hub: ServiceObservationHub = { byName: new Map() }
+  serviceObservationHubs.set(root, hub)
+  root.on('internal/service', (name, value: unknown) => {
+    for (const observation of hub.byName.get(name) ?? []) {
+      inspectServiceObservation(observation, value)
+    }
+  }, { global: true })
+  return hub
+}
+
+/** Add one service observation to its exact service-name index. */
+function addServiceObservation(
+  hub: ServiceObservationHub,
+  serviceName: string,
+  observation: ServiceObservation,
+): () => void {
+  const observations = hub.byName.get(serviceName) ?? new Set<ServiceObservation>()
+  hub.byName.set(serviceName, observations)
+  observations.add(observation)
+  return () => {
+    observations.delete(observation)
+    if (observations.size === 0) hub.byName.delete(serviceName)
+  }
 }
 
 /**
- * Validate every current and future implementation bound to one Cordis service.
+ * Validate every current and future implementation bound to one Cordis
+ * service through the root's indexed shared service listener.
  * @param ctx - invariant child context that owns the service observer.
  * @param fail - reporter bound to the package that owns the service seam.
  * @param serviceName - Cordis service name to observe.
@@ -146,16 +275,14 @@ export function observeServiceInvariant(
   serviceName: string,
   validate: (value: unknown) => string | undefined,
 ): void {
-  const inspect = (value: unknown): void => {
-    if (value === undefined) return
-    const message = validate(value)
-    if (message !== undefined) fail(message)
-  }
+  const observation: ServiceObservation = { fail, validate }
   const current: unknown = ctx.get(serviceName)
-  inspect(current)
-  ctx.on('internal/service', (name, value: unknown) => {
-    if (name === serviceName) inspect(value)
-  }, { global: true })
+  inspectServiceObservation(observation, current)
+  const hub = serviceObservationHub(ctx)
+  ctx.effect(
+    () => addServiceObservation(hub, serviceName, observation),
+    `invariants.observeService(${JSON.stringify(serviceName)})`,
+  )
 }
 
 /** Structural runtime surface required from a Cordis service implementation. */
@@ -297,7 +424,7 @@ export class InvariantService extends Service {
    * even when filtering disables its checks. Enabled installers run in a child
    * fiber; failure disposes that fiber and releases the reservation.
    * @param packageName - full npm package name that owns the contribution.
-   * @param installer - synchronous listener installer for the child context.
+   * @param installer - listener or startup-check installer for the child context.
    * @returns an effect-scoped disposer for the registration.
    */
   register(packageName: string, installer: InvariantInstaller): () => void {
@@ -324,11 +451,11 @@ export class InvariantService extends Service {
           }
         }
 
-        const installInvariant = (childCtx: Context) => {
+        const installInvariant = (childCtx: Context) => (
           installer(childCtx, (message): never => {
             throw new InvariantError(packageName, message)
           })
-        }
+        )
         const child = ctx.plugin(installer.inject === undefined
           ? installInvariant
           : Object.assign(installInvariant, { inject: installer.inject }))

@@ -12,22 +12,21 @@ export const name = 'hook-protocol-invariant'
 export const inject = ['invariants']
 
 /** Assert blocking-exit decoding and restrictive merge precedence. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const { parseHookOutput } = await import('./codec.ts')
-    const { mergeHookOutputs } = await import('./merge.ts')
-    const blocked = parseHookOutput(2, '', ' denied ')
-    assertInvariant(fail, blocked.decision === 'block' && blocked.reason === 'denied',
-      'exit 2 must decode as a block whose reason is trimmed stderr')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const [{ parseHookOutput }, { mergeHookOutputs }] = await Promise.all([
+    import('./codec.ts'),
+    import('./merge.ts'),
+  ])
+  const blocked = parseHookOutput(2, '', ' denied ')
+  assertInvariant(fail, blocked.decision === 'block' && blocked.reason === 'denied',
+    'exit 2 must decode as a block whose reason is trimmed stderr')
 
-    const merged = mergeHookOutputs([
-      { exitCode: 0, stderr: '', stdout: '', decision: 'allow', reason: 'permitted' },
-      { exitCode: 0, stderr: '', stdout: '', decision: 'deny', reason: 'forbidden' },
-    ])
-    assertInvariant(fail, merged.decision === 'deny' && merged.reason === 'forbidden',
-      'deny must override allow and retain only the winning decision reason')
-    return () => {}
-  }, 'hook-protocol: validate decode and merge algebra')
+  const merged = mergeHookOutputs([
+    { exitCode: 0, stderr: '', stdout: '', decision: 'allow', reason: 'permitted' },
+    { exitCode: 0, stderr: '', stdout: '', decision: 'deny', reason: 'forbidden' },
+  ])
+  assertInvariant(fail, merged.decision === 'deny' && merged.reason === 'forbidden',
+    'deny must override allow and retain only the winning decision reason')
 }
 
 /**

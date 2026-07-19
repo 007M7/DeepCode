@@ -13,18 +13,15 @@ export const name = 'app-boot-invariant'
 export const inject = ['invariants']
 
 /** Assert ordinary and replay config-path selection. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const { resolveConfigPath } = await import('./config-path.ts')
-    const cwd = '/tmp/dsh-app-boot-invariant'
-    const ordinary = resolveConfigPath('cordis.yml', undefined, cwd)
-    const replay = resolveConfigPath('cordis.yml', 'replay', cwd)
-    assertInvariant(fail, ordinary === resolve(cwd, 'cordis.yml'),
-      'ordinary app boot must retain the requested config basename')
-    assertInvariant(fail, replay === resolve(cwd, 'cordis.snapshot.yml'),
-      'snapshot replay must select cordis.snapshot.yml in the requested config directory')
-    return () => {}
-  }, 'app-boot: validate ordinary and replay config selection')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const { resolveConfigPath } = await import('./config-path.ts')
+  const cwd = '/tmp/dsh-app-boot-invariant'
+  const ordinary = resolveConfigPath('cordis.yml', undefined, cwd)
+  const replay = resolveConfigPath('cordis.yml', 'replay', cwd)
+  assertInvariant(fail, ordinary === resolve(cwd, 'cordis.yml'),
+    'ordinary app boot must retain the requested config basename')
+  assertInvariant(fail, replay === resolve(cwd, 'cordis.snapshot.yml'),
+    'snapshot replay must select cordis.snapshot.yml in the requested config directory')
 }
 
 /**

@@ -14,17 +14,14 @@ export const name = 'paths-invariant'
 export const inject = ['invariants']
 
 /** Assert tilde expansion and explicit-over-environment home precedence. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const { DSH_HOME_ENV, expandHomePath, resolveDshHome } = await import('./index.ts')
-    assertInvariant(fail, expandHomePath('~/invariant-probe') === join(homedir(), 'invariant-probe'),
-      'supported tilde prefixes must expand against the operating-system home')
-    const configured = 'relative-invariant-home'
-    const resolved = resolveDshHome(configured, { [DSH_HOME_ENV]: '/ignored-environment-home' })
-    assertInvariant(fail, resolved === resolve(configured),
-      'an explicit DSH home must override the environment and normalize to an absolute path')
-    return () => {}
-  }, 'paths: validate DSH home resolution')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const { DSH_HOME_ENV, expandHomePath, resolveDshHome } = await import('./index.ts')
+  assertInvariant(fail, expandHomePath('~/invariant-probe') === join(homedir(), 'invariant-probe'),
+    'supported tilde prefixes must expand against the operating-system home')
+  const configured = 'relative-invariant-home'
+  const resolved = resolveDshHome(configured, { [DSH_HOME_ENV]: '/ignored-environment-home' })
+  assertInvariant(fail, resolved === resolve(configured),
+    'an explicit DSH home must override the environment and normalize to an absolute path')
 }
 
 /**

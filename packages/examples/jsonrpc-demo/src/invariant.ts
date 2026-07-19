@@ -12,13 +12,10 @@ export const name = 'jsonrpc-demo-invariant'
 export const inject = ['invariants']
 
 /** Assert that Loader configuration, rather than a hidden root plugin, owns composition. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const packageEntry = await import('./index.ts')
-    assertInvariant(fail, Object.keys(packageEntry).length === 0,
-      'the JSON-RPC demo library entrypoint must remain empty because cordis.yml owns composition')
-    return () => {}
-  }, 'jsonrpc-demo: validate bin-only entrypoint')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const packageEntry = await import('./index.ts')
+  assertInvariant(fail, Object.keys(packageEntry).length === 0,
+    'the JSON-RPC demo library entrypoint must remain empty because cordis.yml owns composition')
 }
 
 /**

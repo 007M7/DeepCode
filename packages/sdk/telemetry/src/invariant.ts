@@ -12,19 +12,16 @@ export const name = 'telemetry-invariant'
 export const inject = ['invariants']
 
 /** Assert the final telemetry redaction boundary removes secrets without corrupting ordinary package metadata. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const [{ DEFAULT_REDACTION_PLACEHOLDER, SecretRedactor }, { telemetryRedactionViolation }] = await Promise.all([
-      import('./secret-redactor.ts'),
-      import('./redaction-contract.ts'),
-    ])
-    const redactor = new SecretRedactor()
-    const violation = telemetryRedactionViolation(redactor, DEFAULT_REDACTION_PLACEHOLDER, PACKAGE_NAME)
-    assertInvariant(fail,
-      violation === undefined,
-      violation ?? 'telemetry redaction contract failed without a diagnostic')
-    return () => {}
-  }, 'telemetry: validate secret-redaction boundary')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const [{ telemetryRedactionViolation }, { DEFAULT_REDACTION_PLACEHOLDER, SecretRedactor }] = await Promise.all([
+    import('./redaction-contract.ts'),
+    import('./secret-redactor.ts'),
+  ])
+  const redactor = new SecretRedactor()
+  const violation = telemetryRedactionViolation(redactor, DEFAULT_REDACTION_PLACEHOLDER, PACKAGE_NAME)
+  assertInvariant(fail,
+    violation === undefined,
+    violation ?? 'telemetry redaction contract failed without a diagnostic')
 }
 
 /**

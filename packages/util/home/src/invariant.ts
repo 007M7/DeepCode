@@ -13,17 +13,14 @@ export const name = 'home-invariant'
 export const inject = ['invariants']
 
 /** Assert the canonical environment key and configured-path precedence. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const { DSH_HOME_ENV, resolveDshHome } = await import('./index.ts')
-    const environmentKey: string = DSH_HOME_ENV
-    assertInvariant(fail, environmentKey === ['DSH', 'HOME'].join('_'),
-      'the canonical Harness home environment key must remain DSH_HOME')
-    const configured = 'relative-invariant-home'
-    assertInvariant(fail, resolveDshHome(configured) === resolve(configured),
-      'an explicitly configured Harness home must normalize to an absolute path')
-    return () => {}
-  }, 'home: validate canonical DSH home resolution')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const { DSH_HOME_ENV, resolveDshHome } = await import('./index.ts')
+  const environmentKey: string = DSH_HOME_ENV
+  assertInvariant(fail, environmentKey === ['DSH', 'HOME'].join('_'),
+    'the canonical Harness home environment key must remain DSH_HOME')
+  const configured = 'relative-invariant-home'
+  assertInvariant(fail, resolveDshHome(configured) === resolve(configured),
+    'an explicitly configured Harness home must normalize to an absolute path')
 }
 
 /**

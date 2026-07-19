@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context, Service } from 'cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { packageInvariantOwners } from './package-invariants.ts'
-import { MANUAL_INVARIANT_TESTS, testInvariantCompanions } from './test-invariants.ts'
+import {
+  MANUAL_INVARIANT_TESTS,
+  testInvariantCompanionPaths,
+  testInvariantCompanions,
+} from './test-invariants.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -17,7 +21,7 @@ class TestInvariantProbe extends Service {
 }
 
 describe('global test invariant host', () => {
-  it('loads every companion and reserves every package name with enabled checks', async () => {
+  it('uses one exhaustive topology to reserve every package name with enabled checks', async () => {
     const ctx = new Context()
     await ctx.plugin(TestInvariantProbe)
 
@@ -37,6 +41,14 @@ describe('global test invariant host', () => {
       }
     }
     expect(unreserved).toEqual([])
+  })
+
+  it('mounts the owning package companion while leaving non-package roots service-only', () => {
+    expect(testInvariantCompanionPaths('/repo/packages/core/tools/tests/tools.spec.ts'))
+      .toEqual(['../packages/core/tools/src/invariant.ts'])
+    expect(testInvariantCompanionPaths('/repo/examples/echo-agent/tests/echo.spec.ts')).toEqual([])
+    expect(testInvariantCompanionPaths('/repo/scripts/test-invariants.spec.ts'))
+      .toEqual(Object.keys(testInvariantCompanions).sort())
   })
 
   it('executes each companion registration with its owning package name', async () => {

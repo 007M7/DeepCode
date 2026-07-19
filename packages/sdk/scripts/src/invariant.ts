@@ -12,22 +12,19 @@ export const name = 'scripts-invariant'
 export const inject = ['invariants']
 
 /** Assert the launcher's opaque post-separator forwarding boundary. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const { splitForwardedArgs } = await import('./forwarding.ts')
-    const plain = splitForwardedArgs(['dev', 'src/index.ts'])
-    const separated = splitForwardedArgs(['dev', 'src/index.ts', '--', '--inspect', '9229'])
-    assertInvariant(fail,
-      plain.launcher.length === 2
-        && plain.forwarded.length === 0
-        && separated.launcher.length === 2
-        && separated.launcher[1] === 'src/index.ts'
-        && separated.forwarded.length === 2
-        && separated.forwarded[0] === '--inspect'
-        && separated.forwarded[1] === '9229',
-      'dsh-sdk must split the first delimiter without interpreting forwarded runtime arguments')
-    return () => {}
-  }, 'dsh-sdk: validate command argument contracts')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const { splitForwardedArgs } = await import('./forwarding.ts')
+  const plain = splitForwardedArgs(['dev', 'src/index.ts'])
+  const separated = splitForwardedArgs(['dev', 'src/index.ts', '--', '--inspect', '9229'])
+  assertInvariant(fail,
+    plain.launcher.length === 2
+      && plain.forwarded.length === 0
+      && separated.launcher.length === 2
+      && separated.launcher[1] === 'src/index.ts'
+      && separated.forwarded.length === 2
+      && separated.forwarded[0] === '--inspect'
+      && separated.forwarded[1] === '9229',
+    'dsh-sdk must split the first delimiter without interpreting forwarded runtime arguments')
 }
 
 /**

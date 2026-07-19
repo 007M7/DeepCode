@@ -12,16 +12,13 @@ export const name = 'agent-loop-testkit-invariant'
 export const inject = ['invariants']
 
 /** Assert the awaitable helper shape and optional-options call boundary. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.effect(async () => {
-    const { mountAgentLoopTestDependencies } = await import('./index.ts')
-    assertInvariant(fail,
-      mountAgentLoopTestDependencies.constructor.name === 'AsyncFunction',
-      'the prerequisite mount helper must remain awaitable so tests cannot race service activation')
-    assertInvariant(fail, mountAgentLoopTestDependencies.length === 1,
-      'the prerequisite mount helper must keep its options argument optional')
-    return () => {}
-  }, 'agent-loop-testkit: validate prerequisite mount boundary')
+const install: InvariantInstaller = async (_ctx, fail) => {
+  const { mountAgentLoopTestDependencies } = await import('./index.ts')
+  assertInvariant(fail,
+    mountAgentLoopTestDependencies.constructor.name === 'AsyncFunction',
+    'the prerequisite mount helper must remain awaitable so tests cannot race service activation')
+  assertInvariant(fail, mountAgentLoopTestDependencies.length === 1,
+    'the prerequisite mount helper must keep its options argument optional')
 }
 
 /**
