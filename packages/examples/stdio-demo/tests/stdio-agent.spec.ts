@@ -11,8 +11,8 @@ import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as stdioAgent from '../src/index.ts'
 
 /**
- * Unit coverage for app composition and config forwarding: console logger, pre-created main agent,
- * agent-spine-demo spine, JSONL backend, and readline UI. HMR is a Loader-only leaf concern covered by the
+ * Unit coverage for app composition and config forwarding: pre-created main agent,
+ * agent-spine-demo spine, JSONL backend, and adaptive terminal UI. HMR is a Loader-only leaf concern covered by the
  * keyless echo smoke; this tier pins the export shape because an inject-less app could otherwise
  * survive namespace collapse while silently losing its schema.
  */
@@ -66,6 +66,63 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe('dsh-stdio-demo app', () => {
+  it('selects readline for pipes and dsh-tui for interactive terminal pairs', () => {
+    expect(stdioAgent.resolveTerminalMode(undefined, false)).toBe('readline')
+    expect(stdioAgent.resolveTerminalMode(undefined, true)).toBe('tui')
+    expect(stdioAgent.resolveTerminalMode({ mode: 'readline' }, true)).toBe('readline')
+    expect(stdioAgent.resolveTerminalMode({ mode: 'tui' }, true)).toBe('tui')
+    expect(() => stdioAgent.resolveTerminalMode({ mode: 'tui' }, false)).toThrow('requires both stdin and stdout')
+  })
+
+  it('binds only the selected terminal package to the app-owned exact session identity', () => {
+    const calls: Array<{ name: string; config: unknown }> = []
+    const ctx = {
+      plugin(plugin: { name?: string }, config?: unknown) {
+        calls.push({ name: plugin.name ?? '', config })
+      },
+    } as unknown as Context
+
+    stdioAgent.composeTerminalApp(ctx, {
+      provider: 'mock',
+      model: 'mock',
+      workspaceContext: false,
+      welcome: 'TUI ready',
+      ui: { mode: 'tui', tui: { color: false, maxToolOutputLines: 3 } },
+    }, true)
+    expect(calls.map(call => call.name)).toContain('ui-tui')
+    expect(calls.map(call => call.name)).not.toContain('ui-stdio')
+    expect(calls.map(call => call.name)).not.toContain('ConsoleExporter')
+    const tuiConfig = calls.find(call => call.name === 'ui-tui')?.config as { sessionId: string }
+    expect(tuiConfig).toMatchObject({ welcome: 'TUI ready', color: false, maxToolOutputLines: 3 })
+    expect(tuiConfig.sessionId).toMatch(/^main-session-/)
+    const spineConfig = calls.find(call => call.name === 'agent-spine-demo')?.config as {
+      agents: Array<{ id: string; sessionId?: string; resumeSessionId?: string }>
+    }
+    expect(spineConfig.agents[0]).toMatchObject({ id: 'main', sessionId: tuiConfig.sessionId })
+
+    calls.length = 0
+    stdioAgent.composeTerminalApp(ctx, {
+      provider: 'mock',
+      model: 'mock',
+      resumeSessionId: 'persisted-session',
+      workspaceContext: false,
+      ui: { mode: 'tui' },
+    }, true)
+    expect(calls.find(call => call.name === 'ui-tui')?.config).toMatchObject({
+      sessionId: 'persisted-session', welcome: 'ready.',
+    })
+    expect((calls.find(call => call.name === 'agent-spine-demo')?.config as typeof spineConfig).agents[0])
+      .toMatchObject({ id: 'main', resumeSessionId: 'persisted-session' })
+
+    calls.length = 0
+    stdioAgent.composeTerminalApp(ctx, {
+      provider: 'mock', model: 'mock', workspaceContext: false, ui: { mode: 'readline' },
+    }, false)
+    expect(calls.map(call => call.name)).toContain('ui-stdio')
+    expect(calls.map(call => call.name)).toContain('ConsoleExporter')
+    expect(calls.map(call => call.name)).not.toContain('ui-tui')
+  })
+
   it('composes the spine + front-door cluster and pre-creates the main agent', async () => {
     const ctx = await mount({ provider: 'mock', model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-demo-spec', skills: await isolatedSkillsConfig(), workspaceContext: false })
     // The spine services (brought up by the agent-spine-demo bundle) are all present.

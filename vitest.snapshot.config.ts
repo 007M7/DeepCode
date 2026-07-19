@@ -39,7 +39,11 @@ export default defineConfig({
   // through the root tsconfig paths map; the native option cannot do this.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
   test: {
-    include: ['examples/*/tests/**/*.snapshot.ts', 'packages/sdk/*/tests/**/*.snapshot.ts'],
+    include: [
+      'examples/*/tests/**/*.snapshot.ts',
+      'packages/sdk/*/tests/**/*.snapshot.ts',
+      'packages/ui/tui/tests/**/*.snapshot.ts',
+    ],
     // Each test boots a subprocess; give it room and keep the worker file singular. Replay tests
     // opt into bounded in-file concurrency, while record/refresh stay serial because they write
     // fixtures. The environment knob restores serial replay with value 1 on constrained machines.

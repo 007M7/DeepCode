@@ -24,7 +24,7 @@ flowchart LR
   cfg --> plugin_cordis_stdio_agent
   plugin_cordis_stdio_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
   plugin_cordis_stdio_agent --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
-  plugin_cordis_stdio_agent --> frontdoor_stdio["readline UI<br/>console logger<br/>pre-created main agent"]
+  plugin_cordis_stdio_agent --> frontdoor_stdio["dsh-tui (TTY) / dsh-stdio (pipes)<br/>pre-created main agent"]
   bundle_agent_core --> spine_llm["ctx.llm"]
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]
