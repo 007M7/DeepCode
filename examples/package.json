@@ -10,6 +10,7 @@
     "@deepseek-ai/dsh-acp-demo": "workspace:*",
     "@deepseek-ai/dsh-bash-local": "workspace:*",
     "@deepseek-ai/dsh-bash-sandbox": "workspace:*",
+    "@deepseek-ai/dsh-cli-demo": "workspace:*",
     "@deepseek-ai/dsh-code-runtime-worker": "workspace:*",
     "@deepseek-ai/dsh-compact-basic": "workspace:*",
     "@deepseek-ai/dsh-fs-local": "workspace:*",

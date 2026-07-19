@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import { appendFile, mkdtemp, mkdir, open, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import type { FileHandle } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -40,8 +41,24 @@ async function freshRoot(): Promise<string> {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
+
+async function rejectDirectorySync(code: string): Promise<void> {
+  const handle = await open(root, 'r')
+  const proto = Object.getPrototypeOf(handle) as { sync: () => Promise<void> }
+  await handle.close()
+  const realSync = proto.sync
+  vi.spyOn(proto, 'sync').mockImplementation(async function (this: FileHandle) {
+    if ((await this.stat()).isDirectory()) {
+      const error = new Error(`simulated directory fsync ${code}`) as NodeJS.ErrnoException
+      error.code = code
+      throw error
+    }
+    return realSync.call(this)
+  })
+}
 
 function appendClosedTurn(session: Session): void {
   session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -334,6 +351,28 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await ctx.sessionPersistence.append(m.id, turn2)
     const loaded = await ctx.sessionPersistence.load(m.id)
     expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+  })
+
+  it('keeps file fsync mandatory while tolerating unsupported Windows directory fsync', async () => {
+    await rejectDirectorySync('EPERM')
+    const backend = ctx.sessionPersistence as SessionPersistenceJsonl
+    backend.internals.platform = 'win32'
+    const m = meta('windows-directory-sync')
+    await ctx.sessionPersistence.create(m)
+    await expect(ctx.sessionPersistence.append(m.id, oneTurnLog())).resolves.toBeUndefined()
+    expect((await ctx.sessionPersistence.load(m.id)).events).toEqual(oneTurnLog())
+  })
+
+  it.each([
+    ['linux', 'EPERM'],
+    ['win32', 'EIO'],
+  ] as const)('surfaces directory fsync errors on %s with %s', async (platform, code) => {
+    await rejectDirectorySync(code)
+    const backend = ctx.sessionPersistence as SessionPersistenceJsonl
+    backend.internals.platform = platform
+    const m = meta(`directory-sync-${platform}-${code}`)
+    await ctx.sessionPersistence.create(m)
+    await expect(ctx.sessionPersistence.append(m.id, oneTurnLog())).rejects.toMatchObject({ code })
   })
 
   it('load returns a meta copy: mutating it does not corrupt backend pathing', async () => {

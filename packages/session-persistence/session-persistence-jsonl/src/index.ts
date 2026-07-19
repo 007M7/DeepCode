@@ -57,6 +57,9 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   private root: string
   private coordinator: PersistenceCoordinator<number>
 
+  /** Runtime host platform used to decide whether directory sync is supported. */
+  readonly internals: { platform: NodeJS.Platform } = { platform: process.platform }
+
   constructor(ctx: Context, public config: Config) {
     super(ctx)
     // Resolve once so later process.cwd() changes cannot split one backend across roots.
@@ -208,11 +211,18 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  /** fsync a directory so a just-created or published entry inside it is crash-durable. */
+  /** fsync a directory when the host exposes that durability primitive. */
   private async syncDir(dir: string): Promise<void> {
     const handle = await open(dir, 'r')
     try {
-      await handle.sync()
+      try {
+        await handle.sync()
+      } catch (error: unknown) {
+        const code = (error as NodeJS.ErrnoException | null)?.code
+        // Node opens directories on Windows but its fsync binding rejects them.
+        // File-content fsync remains mandatory; only this unsupported primitive is skipped.
+        if (this.internals.platform !== 'win32' || code !== 'EPERM') throw error
+      }
     } finally {
       await handle.close()
     }
