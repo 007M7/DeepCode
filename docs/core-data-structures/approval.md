@@ -9,12 +9,20 @@ Source: [`packages/ui/user-approval/src/index.ts`](../../packages/ui/user-approv
 Every request receives a fresh `ApprovalRequestId`. The brand pairs the `approval/asked` and `approval/decided` audit events without making approval ids interchangeable with tool-call or agent/session ids.
 
 ```ts type-equiv
+/**
+ * Pairs one `approval/asked` audit event with its `approval/decided`.
+ * Service-issued (one fresh id per {@link ApprovalService.request} call).
+ */
 type ApprovalRequestId = Branded<'ApprovalRequestId'>
 ```
 
 `ApprovalOutcome` is closed and fail-closed. `allowed-once` grants only the asked-about action; callers deny on `rejected`, `cancelled`, and `unavailable`. A missing, non-owning, throwing, or non-conforming answerer becomes `unavailable` rather than opening the gate.
 
 ```ts type-equiv
+/**
+ * Closed approval outcomes: a one-shot grant, explicit rejection, withdrawn
+ * request, or unavailable answerer. Callers fail closed on `unavailable`.
+ */
 type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 ```
 
@@ -23,6 +31,18 @@ type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 `ApprovalPolicy` determines what happens before interactive answerers run. `ask` delegates to the composed answerer chain, whose no-answer default is `unavailable`; `never` deterministically returns `rejected` without dispatching any answerer. The effective value is the last `approval/policy` event in the session log, falling back to the service config. `setApprovalPolicy(session, policy)` is the single write path, so replay reconstructs the override.
 
 ```ts type-equiv
+/**
+ * A session's approval policy — what happens to an {@link ApprovalService}
+ * ask BEFORE any interactive answerer sees it:
+ *
+ * - `'ask'` (the default) — delegate to the composed answerers; with none
+ *   composed the chain falls through to the fail-closed `'unavailable'`
+ *   (exactly today's behavior).
+ * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
+ *   deterministically. The strict headless stance (CI, unattended runs) and
+ *   the only policy value stated in the system prompt — unlike `'ask'`, its
+ *   outcome is knowable without asking, so stating it cannot overclaim.
+ */
 type ApprovalPolicy = 'ask' | 'never'
 ```
 
@@ -33,6 +53,10 @@ The prompt section states the deterministic `never` behavior and records either 
 `ApprovalRequest` identifies the agent and tool action closely enough to route and audit the question. It deliberately omits tool arguments: an answerer attaches the prompt to the already-streamed tool call through `callId` instead of rendering a second copy that could drift.
 
 ```ts type-equiv
+/**
+ * Readonly same-process permission question. `callId` links to an already
+ * presented tool call, so arguments are not duplicated here.
+ */
 interface ApprovalRequest {
   /**
    * The agent on whose behalf the question is asked. Routes the question (a

@@ -2,7 +2,7 @@
 
 Status: implemented
 
-> The full seam is shipped: the `dsh-subagent` interface, the `dsh-subagent-mock` test backend, and the `dsh-tool-subagent` consumer; the two in-process backends (`dsh-subagent-spawn`, `dsh-subagent-fork`); the nested-agent snapshot infrastructure ([per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md)); and the out-of-process `dsh-subagent-acp` backend ([its RFC](2026-06-22-acp-subagent-backend.md)).
+> The full seam is shipped: the `dsh-subagent` interface and `dsh-tool-subagent` consumer; the two in-process backends (`dsh-subagent-spawn`, `dsh-subagent-fork`); the nested-agent snapshot infrastructure ([per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md)); and the out-of-process `dsh-subagent-acp` backend ([its RFC](2026-06-22-acp-subagent-backend.md)).
 
 ## Problem
 
@@ -32,7 +32,6 @@ A new package group `packages/subagent/`:
 | `@deepseek-ai/dsh-subagent-spawn` | implementation: a fresh in-process child via `ctx.agents.create` |
 | `@deepseek-ai/dsh-subagent-fork` | implementation: an in-process child seeded with a snapshot of the parent's log |
 | `@deepseek-ai/dsh-subagent-acp` | implementation: an ACP client driving a configured child process |
-| `@deepseek-ai/dsh-subagent-mock` | support: a scripted provider for testing the seam through the real load path |
 | `@deepseek-ai/dsh-tool-subagent` | consumer: the model-facing `subagent` tool over `ctx.subagents` |
 
 ### The primitive: async `start → SubagentRun`
@@ -62,7 +61,7 @@ Each subagent runs in its **own `Session`** (own id, `parentSession` lineage), p
 
 ## Testing
 
-The seam is tested through the real Cordis Loader/export path, which catches the export-shape failure described in [postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md). Registry tests cover reload safety, duplicate names, and start-time capability rejection; nested-agent scenarios replay keylessly through [per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md); in-process backends also have real-loop unit tests and a with-key e2e.
+Registry and tool tests replace only the nondeterministic child boundary with a package-local scripted provider while exercising the real `SubagentService`, lifecycle, task integration, and model-facing tool. Provider and consumer export shapes retain their Loader regression coverage for the failure described in [postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md). Registry tests cover reload safety, duplicate names, and start-time capability rejection; nested-agent scenarios replay keylessly through [per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md); in-process backends also have real-loop unit tests and a with-key e2e.
 
 ## Consequences
 

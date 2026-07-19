@@ -23,6 +23,7 @@ These variants are merged inside a `declare module '@deepseek-ai/dsh-session'` b
 What a successful compaction returns to its caller: the bookkeeping-event seqs, raw summary, shadowed range and seqs, and estimated token count.
 
 ```ts type-equiv
+/** Result of a successful compaction operation. */
 interface CompactionResult {
   /** The seq of the appended `compact/start` event. */
   startSeq: number

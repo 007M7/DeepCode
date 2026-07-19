@@ -10,7 +10,7 @@ So the work had two intertwined questions: **what belongs in such a catalog** (t
 
 ## Decision
 
-A new `docs/core-data-structures/` folder catalogs the vocabulary, with a new `verify-type-equiv` doc-sync gate that keeps every pasted type definition byte-identical to its source.
+A new `docs/core-data-structures/` folder catalogs the vocabulary, with a new `verify-type-equiv` doc-sync gate that keeps every pasted type declaration and its JSDoc synchronized with source.
 
 ### What counts as "core" — the spine-vs-seam line
 
@@ -27,10 +27,10 @@ The rule that settled the remaining cases: ***the type you write, hold, or recei
 
 ### The `ts type-equiv` mechanism — literal AND drift-proof
 
-The durability requirement was specific: the doc should show the **literal** current type definition (so a reader sees the real shape, not a paraphrase) **and** be mechanically guaranteed to match source. The repo already compiles fenced ` ```ts ` blocks (`doc-typecheck`), but a real typechecked block needs import noise and proves only *assignability*, not *byte-equality* — a renamed field with the same type would pass. So:
+The durability requirement was specific: the doc shows the **literal** current type declaration and original JSDoc (so a reader sees the real shape and source contract, not a paraphrase) **and** is mechanically guaranteed to match source. The repo already compiles fenced ` ```ts ` blocks (`doc-typecheck`), but a real typechecked block needs import noise and proves only *assignability* — a renamed field or changed JSDoc can pass. So:
 
-- Type definitions are pasted verbatim into a dedicated ` ```ts type-equiv ` fence. `doc-typecheck` recognizes the fence and skips it (a bare definition is not standalone-compilable), and **excludes it from the opt-out ratio** — it is a separately-checked category, not an unchecked sketch.
-- A new `scripts/verify-type-equiv.ts` extracts each block via the TypeScript parser and asserts a **verbatim source match** against the declared symbol — chosen over a compiled `_Check` assertion precisely because byte-equality, not assignability, is the property we want.
+- Type declarations and their JSDoc are pasted verbatim into a dedicated ` ```ts type-equiv ` fence. `doc-typecheck` recognizes the fence and skips it (a bare definition is not standalone-compilable), and **excludes it from the opt-out ratio** — it is a separately-checked category, not an unchecked sketch.
+- A new `scripts/verify-type-equiv.ts` extracts each block via the TypeScript parser and asserts that its declaration structure and every JSDoc comment match the declared symbol, ignoring only formatting whitespace and non-JSDoc comments. This is chosen over a compiled `_Check` assertion because source names and documentation identity, not assignability, are the properties the catalog preserves.
 - Provenance lives in a central `scripts/type-equiv.manifest.json` (`{ doc, symbol, source }` entries), **not** in directive comments in the prose. The script enforces a **1:1 correspondence**: every type-equiv block has exactly one manifest entry and vice versa, so a block can never be silently unchecked and an entry can never rot.
 - Wired into `doc-sync`, so it runs in the same lefthook pre-push and CI paths as the other doc gates.
 
@@ -41,7 +41,7 @@ The durability requirement was specific: the doc should show the **literal** cur
 ## Alternatives considered
 
 - **A flat dump of all cross-package vocabulary** — the `BashExecRequest` test case killed it: if seam vocabulary is "core", the catalog helps no one; the tiered spine-vs-seam structure won.
-- **A compiled `_Check` assignability assertion** instead of the verbatim source match — rejected because byte-equality, not assignability, is the property we want: a renamed field with the same type would pass assignability.
+- **A compiled `_Check` assignability assertion** instead of the source match — rejected because assignability does not preserve names or JSDoc: a renamed field with the same type or a changed contract comment would pass.
 - **Provenance as directive comments in the prose** — rejected for the central manifest, whose enforced 1:1 correspondence means a block can never be silently unchecked and an entry can never rot.
 
 ## Verification lesson

@@ -9,18 +9,30 @@ Source: [`packages/sandbox/sandbox/src/index.ts`](../../packages/sandbox/sandbox
 `SandboxMode` governs filesystem effects only. `read-only` denies writes except the required `/dev/null` sink; `workspace-write` permits writes under the workspace root and the backend's promised temp area; `danger-full-access` bypasses confinement. Network and process visibility are outside this vocabulary.
 
 ```ts type-equiv
+/**
+ * File-effect policy for confined processes. `read-only` permits only required
+ * sinks such as `/dev/null`; `workspace-write` also permits the workspace and a
+ * backend-defined temp area; `danger-full-access` bypasses confinement. Network
+ * and process visibility are outside this vocabulary.
+ */
 type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 ```
 
 Only the first two modes can be sent to a provider. A `danger-full-access` consumer spawns its original argv and does not call `ctx.sandbox`.
 
 ```ts type-equiv
+/** A confining (non-`danger-full-access`) mode — the modes a {@link SandboxPolicy} can carry. */
 type ConfinedSandboxMode = Exclude<SandboxMode, 'danger-full-access'>
 ```
 
 Enforcement is a reported fact. `full` means the backend governs every file effect promised by the mode; `partial` means an active backend or older kernel ABI governs only a subset, so consumers that require the absolute promise must reject or surface that distinction.
 
 ```ts type-equiv
+/**
+ * Enforcement completeness for this host. `partial` means an active backend or
+ * older kernel ABI cannot govern every promised file effect; callers requiring
+ * an absolute boundary must not treat it as `full`.
+ */
 type SandboxEnforcement = 'full' | 'partial'
 ```
 
@@ -29,6 +41,15 @@ type SandboxEnforcement = 'full' | 'partial'
 The policy is fully resolved and carried per call. This permits concurrent consumers and one-shot escalated retries to ask the same provider for different boundaries without mutating provider state.
 
 ```ts type-equiv
+/**
+ * What one confined execution is allowed to touch — carried PER CALL, not
+ * fixed on the provider: two consumers may confine under different policies
+ * at the same instant (bash under `read-only` while a confined child agent
+ * needs its state directory writable), and an approved escalated retry is a
+ * new call with a wider policy. Defaulting/resolution is the consumer's
+ * explicit step (its config owns the fallback chain); the provider treats
+ * the policy as fully specified.
+ */
 interface SandboxPolicy {
   /** The file-effect mode this execution runs under. */
   mode: ConfinedSandboxMode
@@ -42,6 +63,11 @@ interface SandboxPolicy {
 `ConfinedArgv` is what the consumer spawns. Besides the replacement argv, it carries the backend's enforcement fact and two orthogonal stderr dialects. `denialSignatures` identify the confined command being blocked while the sandbox works correctly. `runnerFailureSignatures` identify the sandbox runner refusing or failing before it executes the command; consumers check these first and surface a sandbox infrastructure failure, never an ordinary task failure.
 
 ```ts type-equiv
+/**
+ * A {@link SandboxProvider.confine} result: the argv to spawn in place of
+ * the caller's own, plus the enforcement completeness the selected backend
+ * achieves for it.
+ */
 interface ConfinedArgv {
   /** The wrapped argv (runner, profile, separator, then the caller's argv). */
   argv: string[]
@@ -57,17 +83,9 @@ interface ConfinedArgv {
    */
   denialSignatures: readonly string[]
   /**
-   * How the RUNNER ITSELF failing identifies itself: case-insensitive stderr
-   * substrings produced when the sandbox binary is missing, refuses its
-   * profile, or fails closed before exec'ing the command (`bwrap: `,
-   * `landlock-run: `, `sandbox-exec: ` — each covers both the runner's own
-   * error prefix and the shell's runner-not-found message). ORTHOGONAL to
-   * {@link denialSignatures}: a denial is the confined COMMAND being blocked
-   * (the sandbox working as designed); a runner failure means the command
-   * NEVER RAN and must surface as a sandbox failure, not a task failure —
-   * consumers check these signatures FIRST (a runner's own error text may
-   * contain denial words, e.g. an unopenable grant root reporting
-   * `Permission denied`).
+   * Case-insensitive signatures for runner failure before command execution.
+   * Consumers check these before denial signatures: runner failure means the
+   * command never ran, while denial means confinement worked and blocked it.
    */
   runnerFailureSignatures: readonly string[]
 }

@@ -19,7 +19,7 @@ import WebService from '@deepseek-ai/dsh-web'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
+import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import TaskService from '@deepseek-ai/dsh-tasks'
@@ -38,6 +38,17 @@ import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog.md'
+
+/** Register the descriptor needed to mount schema-producing consumers. */
+function registerCatalogSubagentProvider(ctx: Context, name: string): void {
+  const provider: SubagentProvider = {
+    name,
+    capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+    inheritsParentContext: false,
+    start: () => Promise.reject(new Error('tool-catalog provider cannot start a child')),
+  }
+  ctx.subagents.registerProvider(provider)
+}
 
 /**
  * Tool package plus its hand-maintained boot recipe. The caller mounts the
@@ -191,8 +202,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     shippedNames: ['subagent', 'subagent_fork'],
     async mount(ctx) {
       await ctx.plugin(SubagentService)
-      // Register a scripted provider under the name the tool delegates to.
-      await ctx.plugin(SubagentMock, { name: 'mock' })
+      registerCatalogSubagentProvider(ctx, 'mock')
       await ctx.plugin(ToolSubagent, { provider: 'mock' })
     },
     note:
@@ -234,7 +244,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       // subagent provider to satisfy it. The schema does not depend on which
       // provider backs the engine.
       await ctx.plugin(SubagentService)
-      await ctx.plugin(SubagentMock, { name: 'mock' })
+      registerCatalogSubagentProvider(ctx, 'mock')
       await ctx.plugin(VmWorkflowEngine, { provider: 'mock' })
       await ctx.plugin(ToolWorkflow)
     },
