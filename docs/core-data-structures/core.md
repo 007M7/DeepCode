@@ -446,12 +446,14 @@ type ContinuationDecision =
 `agent/request-error` receives the original `RequestError`, whose optional provider-neutral `code` supports stable routing without message parsing:
 
 ```ts type-equiv
+/** Model-request failure with an optional machine-routable provider code. */
 type RequestError = Error & { code?: string }
 ```
 
 It returns a `RequestErrorDecision`; `retry` opens a new numbered step after the recovery listener's durable mutation, while `fail` preserves that error:
 
 ```ts type-equiv
+/** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */
 type RequestErrorDecision = { action: 'fail' } | { action: 'retry' }
 ```
 

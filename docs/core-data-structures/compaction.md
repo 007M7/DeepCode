@@ -54,7 +54,8 @@ interface CompactionResult {
 Automatic callers state why policy is running; implementations may treat confirmed overflow more aggressively than ordinary pressure.
 
 ```ts type-equiv
-export type CompactionTrigger = 'pressure' | 'context-overflow'
+/** Why automatic policy is asking a backend to consider compaction. */
+type CompactionTrigger = 'pressure' | 'context-overflow'
 ```
 
 `CompactService` exposes `compactIfNeeded(agent, trigger, signal)` for automatic `pressure` or `context-overflow` policy, returning `null` when no safe work exists, and `compactRegion(...)` for an explicit inclusive surface range. Implementations must forward the supplied signal to summarization. The seam owns no pricing API: the singleton [`ctx.tokenMeter`](token-meter.md) directly owns estimation and replay, while `dsh-compact-basic` owns retention, event sequencing, routed summarization calls, and their configuration.
