@@ -27,7 +27,7 @@ function toError(error: unknown): RequestError {
   return error instanceof Error ? error : new HarnessError(String(error), 'UNKNOWN', { cause: error })
 }
 
-/** Distinguishes a terminal failure finish from failures in later step processing. */
+/** Distinguishes final model-request failures from failures in later step processing. */
 class TerminalModelRequestFailure extends Error {
   constructor(readonly requestError: RequestError) {
     super(requestError.message, { cause: requestError })
@@ -347,9 +347,7 @@ async function runTurn(
         stepOutcome = await runStep(
           ctx, events, agent, handle, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
       } catch (error: unknown) {
-        if (isLlmAdapterFailure(error)) {
-          stepOutcome = { requestError: error }
-        } else if (error instanceof TerminalModelRequestFailure) {
+        if (error instanceof TerminalModelRequestFailure) {
           stepOutcome = { requestError: error.requestError }
         } else {
           stepOutcome = { error: toError(error) }
@@ -624,12 +622,18 @@ async function runStep(
   // --- Model call (streaming-first; raw chunks are the replay record) ---
   const assembler = new BlockAssembler()
   const chunkSeqs: number[] = []
-  for await (const chunk of ctx.llm.stream(request)) {
-    /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    const chunkEvent = session.append('assistant/chunk', { turn, step, chunk })
-    chunkSeqs.push(chunkEvent.seq)
-    assembler.push(chunk)
+  const stream = ctx.llm.stream(request)
+  try {
+    for await (const chunk of stream) {
+      /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
+      if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
+      const chunkEvent = session.append('assistant/chunk', { turn, step, chunk })
+      chunkSeqs.push(chunkEvent.seq)
+      assembler.push(chunk)
+    }
+  } catch (error: unknown) {
+    if (isLlmAdapterFailure(stream, error)) throw new TerminalModelRequestFailure(error)
+    throw error
   }
 
   // Normalize failure finish chunks into the same path as thrown stream errors.

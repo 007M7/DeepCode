@@ -22,7 +22,7 @@ Status: implemented
 
 ### 请求恢复只覆盖最终模型边界
 
-`RequestError`、`RequestErrorDecision` 与 `agent/request-error` waterfall 表示最终适配器已经选定之后的失败。私有 `WeakSet` 标记在分发、异步迭代器构造与迭代过程中保留原始抛出错误的身份。终止性的带内 `error` 或 `aborted` finish 进入同一路径。提示词装配、请求中间件、请求日志、结果处理、工具、post-step 监听器与清理仍属于普通失败。
+`RequestError`、`RequestErrorDecision` 与 `agent/request-error` waterfall 表示最终适配器已经选定之后的失败。每个返回的流句柄都绑定一个私有失败集合；该集合在分发、异步迭代器构造与迭代过程中保留原始抛出错误的身份，同时防止把嵌套调用的错误来源误归到外层调用。终止性的带内 `error` 或 `aborted` finish 进入同一路径。提示词装配、请求中间件、请求日志、结果处理、工具、post-step 监听器与清理仍属于普通失败。
 
 恢复运行前，失败 step 已经关闭。重试会打开下一个编号 step，并从持久日志重建请求；连续恢复尝试计数只在提供方请求成功后重置。两个 DeepSeek 适配器都把识别出的提供方上下文限制错误规范化为 `CONTEXT_WINDOW_EXCEEDED`。
 

@@ -13,7 +13,7 @@ An adapter registry plus a single streaming call surface, interceptable via a wa
 - `ctx.llm.listModels(provider: string): Promise<LlmModelInfo[]>` Discover the models one registered provider currently advertises.
 - `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` Stream one model call as raw chunks (token-level deltas). Consumers assemble the chunks into blocks/messages with `BlockAssembler`.
 
-`LlmService` preserves and privately tags errors from final adapter selection, synchronous dispatch, iterator construction, and iteration. `isLlmAdapterFailure(value)` exposes that provenance without classifying `llm/stream` middleware or downstream consumer failures as provider failures, and without replacing the adapter's original coded `Error`.
+`LlmService` preserves errors from final adapter selection, synchronous dispatch, iterator construction, and iteration, and binds their provenance to the exact stream handle returned for that model call. `isLlmAdapterFailure(stream, value)` reports only errors from that call's final adapter boundary; nested model calls, `llm/stream` middleware, and downstream consumer failures remain unclassified for the outer call. Classification does not replace the adapter's original coded `Error`.
 
 Provider and model metadata is a discovery surface, not a routing whitelist. `registerAdapter()` still owns provider exclusivity, while an adapter may accept model ids absent from `listModels()`; consumers must not reject a request because its model is unlisted. Returned metadata is detached and invalid or duplicate adapter entries fail with `INVALID_ADAPTER` or `INVALID_CATALOG`.
 
