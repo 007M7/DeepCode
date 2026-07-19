@@ -91,10 +91,10 @@ type PayloadFormat = 'plain' | 'json' | 'jsonl' | 'yaml'
 
 interface DevArtifact {
   readonly id: string
-  readonly group: 'Prompts' | 'Tools' | 'Plugins / Context Providers' | 'Config / Runtime' | 'Change Loop'
+  readonly group: 'Prompts' | 'Tools' | 'Plugins / Context Providers' | 'Config / Runtime'
   readonly title: string
   readonly subtitle: string
-  readonly kind: 'prompt' | 'tool' | 'plugin' | 'config' | 'runtime' | 'change' | 'source'
+  readonly kind: 'prompt' | 'tool' | 'plugin' | 'config' | 'runtime' | 'source'
   readonly status?: string
   readonly source?: string
   readonly owner?: string
@@ -1885,8 +1885,7 @@ function devGroupLabel(group: DevArtifact['group']): string {
   if (group === 'Prompts') return t('dev.group.prompts')
   if (group === 'Tools') return t('dev.group.tools')
   if (group === 'Plugins / Context Providers') return t('dev.group.plugins')
-  if (group === 'Config / Runtime') return t('dev.group.config')
-  return t('dev.group.changeLoop')
+  return t('dev.group.config')
 }
 
 function devListSubtitle(artifact: DevArtifact): string {
@@ -1915,7 +1914,6 @@ function renderDevArtifactDetail(artifact: DevArtifact): string {
         </div>
         <div class="dev-detail-actions">
           ${editablePath === undefined ? '' : `<button type="button" data-open-path="${escapeHtml(editablePath)}">${escapeHtml(t('dev.openInEditor'))}</button>`}
-          <em>${escapeHtml(artifact.status ?? artifact.kind)}</em>
         </div>
       </header>
       <section class="dev-detail-grid">
@@ -1929,7 +1927,6 @@ function renderDevArtifactDetail(artifact: DevArtifact): string {
       ${artifact.kind === 'prompt' ? renderDevRegistrySnapshot() : ''}
       ${artifact.metadata === undefined ? '' : renderDevCodePanel(t('dev.metadata'), t('dev.metadataSubtitle'), artifact.metadata)}
       ${artifact.kind === 'runtime' ? renderRuntimePanel() : ''}
-      ${artifact.kind === 'change' ? renderChangeLoopPanel() : ''}
     </article>
   `
 }
@@ -1974,8 +1971,7 @@ function contentTitleForArtifact(artifact: DevArtifact): string {
   if (artifact.kind === 'plugin') return t('dev.pluginContribution')
   if (artifact.kind === 'source') return t('dev.sourceFileContent')
   if (artifact.kind === 'config') return t('dev.activeConfiguration')
-  if (artifact.kind === 'runtime') return t('dev.runtimeState')
-  return t('dev.suggestedLoop')
+  return t('dev.runtimeState')
 }
 
 function contentMetaForArtifact(artifact: DevArtifact): string {
@@ -1984,28 +1980,12 @@ function contentMetaForArtifact(artifact: DevArtifact): string {
   if (artifact.kind === 'plugin') return t('dev.pluginMeta')
   if (artifact.kind === 'source') return t('dev.sourceMeta')
   if (artifact.kind === 'config') return t('dev.configMeta')
-  if (artifact.kind === 'runtime') return t('dev.runtimeMeta')
-  return t('dev.loopMeta')
+  return t('dev.runtimeMeta')
 }
 
 function reloadLabelForArtifact(artifact: DevArtifact): string {
   if (artifact.kind === 'runtime') return t('dev.manualRestart')
-  if (artifact.kind === 'change') return String(asRecord(state.dev).restartNeeded ?? false) === 'true' ? t('dev.restartRecommended') : t('dev.noRestartSignal')
   return t('dev.restartAfterEdit')
-}
-
-function renderChangeLoopPanel(): string {
-  return `
-    <section class="dev-loop-card">
-      <strong>${escapeHtml(t('dev.recommendedLoop'))}</strong>
-      <ol>
-        <li>${escapeHtml(t('dev.loopStepEdit'))}</li>
-        <li>${escapeHtml(t('dev.loopStepRestart'))}</li>
-        <li>${escapeHtml(t('dev.loopStepRerun'))}</li>
-        <li>${escapeHtml(t('dev.loopStepCompare'))}</li>
-      </ol>
-    </section>
-  `
 }
 
 function renderRuntimePanel(): string {
@@ -2133,34 +2113,11 @@ function developArtifactGroups(): DevArtifactGroup[] {
       recent: String(asRecord(state.runtime).pid ?? t('dev.noPid')),
     },
   ]
-  const changeArtifacts: DevArtifact[] = [
-    {
-      id: 'change:loop',
-      group: 'Change Loop',
-      kind: 'change',
-      title: t('dev.modifyReloadRerun'),
-      subtitle: t('dev.modifyReloadRerunSubtitle'),
-      status: String(dev.restartNeeded ?? false) === 'true' ? t('dev.statusRestartNeeded') : t('dev.statusReady'),
-      source: runtimeRepoRoot(),
-      owner: 'DeepSeek Harness desktop',
-      value: {
-        git: dev.git,
-        restartNeeded: dev.restartNeeded ?? false,
-        suggestedNextRun: state.selectedSessionId === undefined ? t('dev.startChatThenInspect') : `${t('dev.rerunOrContinue')} ${state.selectedSessionId}`,
-      },
-      metadata: {
-        selectedSessionId: state.selectedSessionId,
-        sessionsAvailable: state.sessions.length,
-      },
-      recent: gitSummary(),
-    },
-  ]
   return [
     { title: 'Prompts', artifacts: [...promptArtifacts, ...promptSources] },
     { title: 'Tools', artifacts: [...toolArtifacts, ...toolSources] },
     { title: 'Plugins / Context Providers', artifacts: [...pluginArtifacts, ...compositionSources] },
     { title: 'Config / Runtime', artifacts: configArtifacts },
-    { title: 'Change Loop', artifacts: changeArtifacts },
   ]
 }
 
@@ -2451,9 +2408,6 @@ function gitField(key: string): string {
   return String(git[key] ?? t('dev.unknown'))
 }
 
-function gitSummary(): string {
-  return `${gitField('branch')} @ ${gitField('commit')}${gitField('dirty') === 'true' ? ` · ${t('app.dirty')}` : ''}`
-}
 
 function asSessionUpdate(value: unknown): SessionUpdatePayload {
   const record = asRecord(value)
