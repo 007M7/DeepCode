@@ -501,7 +501,7 @@ export async function dynamicInstructionContext(
     {
       touchedPath,
       includeBaselineScopes: baselineInstructionStates.has(agent.session),
-      ...exec.signal === undefined ? {} : { signal: exec.signal },
+      signal: exec.signal,
     },
   )
 }

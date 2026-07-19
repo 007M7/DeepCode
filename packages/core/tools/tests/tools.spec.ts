@@ -6,9 +6,12 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import ToolRegistry, {
   defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
+  TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH,
   type InferArgs, type SchemaSpec, type PreToolDecision, type PostToolDecision,
-  type ToolExecution, type ToolExecutionResult,
+  type ToolDispatchExecution, type ToolExecutionResult,
 } from '@deepseek-ai/dsh-tools'
+
+const testToolSignal = new AbortController().signal
 
 async function setup() {
   const ctx = new Context()
@@ -79,7 +82,7 @@ describe('ToolRegistry', () => {
   it('executes a tool and returns its content', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false })
   })
 
@@ -92,7 +95,7 @@ describe('ToolRegistry', () => {
         return { content: [{ type: 'text', text: 'ok' }], meta: { diffs: [{ path: 'a', oldText: null, newText: 'x' }] } }
       },
     })
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'meta-tool', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'meta-tool', arguments: {} })
     expect(result).toEqual({
       content: [{ type: 'text', text: 'ok' }],
       isError: false,
@@ -109,7 +112,7 @@ describe('ToolRegistry', () => {
         return { content: [{ type: 'text', text: 'ok' }] }
       },
     })
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'no-meta-tool', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'no-meta-tool', arguments: {} })
     expect(result).toEqual({ content: [{ type: 'text', text: 'ok' }], isError: false })
     expect('meta' in result).toBe(false)
   })
@@ -127,6 +130,7 @@ describe('ToolRegistry', () => {
     })
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('bad-meta'), name: 'bad-meta', arguments: {},
     })
     expect(result.isError).toBe(true)
@@ -144,13 +148,13 @@ describe('ToolRegistry', () => {
       },
     })
 
-    const unknown = await ctx.tools.execute({ callId: CallId('c1'), name: 'nope', arguments: {} })
+    const unknown = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'nope', arguments: {} })
     expect(unknown.isError).toBe(true)
     expect(unknown.content[0]).toMatchObject({ text: 'Error: unknown tool "nope"' })
     // An unknown tool is a routable failure class, same as a tool-thrown one.
     expect(unknown.error).toEqual({ name: 'ToolNotFoundError', code: 'UNKNOWN_TOOL' })
 
-    const thrown = await ctx.tools.execute({ callId: CallId('c2'), name: 'boom', arguments: {} })
+    const thrown = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c2'), name: 'boom', arguments: {} })
     expect(thrown.isError).toBe(true)
     expect(thrown.content[0]).toMatchObject({ text: 'Error: exploded' })
   })
@@ -170,6 +174,7 @@ describe('ToolRegistry', () => {
     })
 
     await expect(ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('hostile'), name: 'hostile-throw', arguments: {},
     })).resolves.toMatchObject({
       isError: true,
@@ -195,7 +200,7 @@ describe('ToolRegistry', () => {
       return next()
     })
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: denied by policy' })
   })
@@ -207,7 +212,7 @@ describe('ToolRegistry', () => {
     ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> =>
       ({ kind: 'ask', reason: 'needs approval' }))
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: needs approval' })
   })
@@ -218,7 +223,7 @@ describe('ToolRegistry', () => {
 
     ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval (not yet supported)' })
   })
@@ -269,7 +274,7 @@ describe('ToolRegistry', () => {
       ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))
       ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
 
-      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
       expect(result.isError).toBe(true)
       expect(result.content[0]).toMatchObject({ text: 'Error: the user rejected tool "echo"' })
     })
@@ -279,16 +284,51 @@ describe('ToolRegistry', () => {
       ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('cancelled'))
       ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
 
-      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
       expect(result.isError).toBe(true)
       expect(result.content[0]).toMatchObject({ text: 'Error: approval for tool "echo" was cancelled' })
+    })
+
+    it('returns ABORTED_BEFORE_DISPATCH when caller cancellation overtakes approval', async () => {
+      const ctx = await approvalSetup()
+      const entered = Promise.withResolvers<undefined>()
+      const release = Promise.withResolvers<ApprovalOutcome>()
+      let dispatched = 0
+      ctx.tools.register({
+        ...echoTool,
+        name: 'approval-probe',
+        async execute() { dispatched += 1; return [] },
+      })
+      ctx.on('approval/request', () => {
+        entered.resolve(undefined)
+        return release.promise
+      })
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+      const controller = new AbortController()
+      const pending = ctx.tools.execute({
+        callId: CallId('approval-cancelled'),
+        name: 'approval-probe',
+        arguments: {},
+        agent: fakeAgent(),
+        signal: controller.signal,
+      })
+
+      await entered.promise
+      controller.abort('caller cancelled approval')
+      release.resolve('allowed-once')
+
+      await expect(pending).resolves.toMatchObject({
+        isError: true,
+        error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+      })
+      expect(dispatched).toBe(0)
     })
 
     it('denies with the no-channel reason when the seam is mounted but nobody answers', async () => {
       const ctx = await approvalSetup()
       ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
 
-      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
       expect(result.isError).toBe(true)
       expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval, but no approval channel is available' })
     })
@@ -302,7 +342,7 @@ describe('ToolRegistry', () => {
       })
       ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
 
-      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {} })
+      const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: {} })
       expect(asked).toBe(false)
       expect(result.isError).toBe(true)
       expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval, but the call has no agent to route it through' })
@@ -317,7 +357,7 @@ describe('ToolRegistry', () => {
       ctx.provide('approval', { request: () => Promise.resolve('yolo') } as unknown as ApprovalService)
       ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
 
-      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
+      const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: {}, agent: fakeAgent() })
       expect(result.isError).toBe(true)
       const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
       expect(text).toContain('unreachable')
@@ -331,7 +371,7 @@ describe('ToolRegistry', () => {
     ctx.on('tools/post-execute', async (_exec, _result, _next): Promise<PostToolDecision> =>
       ({ kind: 'accept', content: [{ type: 'text', text: 'rewritten' }] }))
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(false)
     expect(result.content[0]).toMatchObject({ text: 'rewritten' })
   })
@@ -343,7 +383,7 @@ describe('ToolRegistry', () => {
     ctx.on('tools/post-execute', async (_exec, _result, _next): Promise<PostToolDecision> =>
       ({ kind: 'block', feedback: [{ type: 'text', text: 'output rejected: try again' }] }))
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'output rejected: try again' })
   })
@@ -359,7 +399,7 @@ describe('ToolRegistry', () => {
         additionalContexts: [{ content: [{ type: 'text', text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' } }],
       }))
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'rejected' })
     expect(result.additionalContexts).toMatchObject([{ content: [{ text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' } }])
@@ -372,7 +412,7 @@ describe('ToolRegistry', () => {
     ctx.on('tools/post-execute', async (_exec, _result, _next): Promise<PostToolDecision> =>
       ({ kind: 'accept', additionalContexts: [{ content: [{ type: 'text', text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } }] }))
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.additionalContexts).toMatchObject([{ content: [{ text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } }])
   })
 
@@ -409,7 +449,7 @@ describe('ToolRegistry', () => {
       }
     })
 
-    const result = await ctx.tools.execute({ callId: CallId('composite'), name: 'composite', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('composite'), name: 'composite', arguments: {} })
 
     expect(result.additionalContexts?.map(context => context.source)).toEqual([
       { kind: 'plugin', plugin: 'nested-1' },
@@ -433,7 +473,7 @@ describe('ToolRegistry', () => {
       },
     }))
 
-    const failed = await ctx.tools.execute({ callId: CallId('failed'), name: 'failing-composite', arguments: {} })
+    const failed = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('failed'), name: 'failing-composite', arguments: {} })
     expect(failed.isError).toBe(true)
     expect(failed.additionalContexts?.map(context => context.source)).toEqual([{ kind: 'plugin', plugin: 'nested' }])
 
@@ -442,7 +482,7 @@ describe('ToolRegistry', () => {
       feedback: [{ type: 'text', text: 'blocked' }],
       additionalContexts: [{ content: [{ type: 'text', text: 'block-only' }], source: { kind: 'plugin', plugin: 'blocker' } }],
     }))
-    const blocked = await ctx.tools.execute({ callId: CallId('blocked'), name: 'failing-composite', arguments: {} })
+    const blocked = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('blocked'), name: 'failing-composite', arguments: {} })
     expect(blocked.isError).toBe(true)
     expect(blocked.additionalContexts?.map(context => context.source)).toEqual([{ kind: 'plugin', plugin: 'blocker' }])
   })
@@ -465,7 +505,7 @@ describe('ToolRegistry', () => {
       return decision
     })
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'x' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'x' } })
     expect(result.isError).toBe(false)
     // pre runs fully (gate) before dispatch, then post runs over the result.
     expect(order).toEqual(['pre:before', 'pre:after', 'post:before', 'post:after'])
@@ -485,7 +525,7 @@ describe('ToolRegistry', () => {
     }))
 
     ctx.on('tools/pre-execute', async (_exec, next) => { order.push('pre'); return next() })
-    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
+    ctx.on('tools/execute', async (_exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
       order.push('execute:before')
       const result = await next()
       order.push('execute:after')
@@ -493,7 +533,7 @@ describe('ToolRegistry', () => {
     })
     ctx.on('tools/post-execute', async (_exec, _result, next) => { order.push('post'); return next() })
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'traced', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'traced', arguments: { text: 'hi' } })
     expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false })
     // The around seam wraps dispatch; pre gates before it, post runs over its result.
     expect(order).toEqual(['pre', 'execute:before', 'dispatch', 'execute:after', 'post'])
@@ -524,14 +564,45 @@ describe('ToolRegistry', () => {
     release.resolve(undefined)
 
     await expect(pending).resolves.toMatchObject({
-      content: [{ type: 'text', text: 'Error: tool call aborted' }],
+      content: [{ type: 'text', text: 'Error: tool call aborted before dispatch' }],
       isError: true,
-      error: { name: 'AbortError', code: 'ABORTED' },
+      error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
     })
     expect(dispatched).toBe(0)
   })
 
-  it('materializes ABORTED when an async pre-execute gate throws after cancellation', async () => {
+  it('preserves a pre-execute denial that settles after cancellation', async () => {
+    const ctx = await setup()
+    let dispatched = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'denied-after-cancel',
+      async execute() { dispatched += 1; return [] },
+    })
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.on('tools/pre-execute', async () => {
+      entered.resolve(undefined)
+      await release.promise
+      return { kind: 'deny', reason: 'policy denied the call' }
+    })
+    const controller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('denied-after-cancel'), name: 'denied-after-cancel', arguments: {}, signal: controller.signal,
+    })
+
+    await entered.promise
+    controller.abort('cancelled while policy decided')
+    release.resolve(undefined)
+
+    await expect(pending).resolves.toEqual({
+      content: [{ type: 'text', text: 'Error: policy denied the call' }],
+      isError: true,
+    })
+    expect(dispatched).toBe(0)
+  })
+
+  it('preserves an async pre-execute failure that settles after cancellation', async () => {
     const ctx = await setup()
     let dispatched = 0
     ctx.tools.register({
@@ -555,9 +626,9 @@ describe('ToolRegistry', () => {
     controller.abort('cancelled in policy')
     release.resolve(undefined)
 
-    await expect(pending).resolves.toMatchObject({
+    await expect(pending).resolves.toEqual({
+      content: [{ type: 'text', text: 'Error: gate interrupted' }],
       isError: true,
-      error: { name: 'AbortError', code: 'ABORTED' },
     })
     expect(dispatched).toBe(0)
   })
@@ -581,8 +652,7 @@ describe('ToolRegistry', () => {
         await release.promise
         return await next()
       } finally {
-        if (upstream === undefined) delete exec.signal
-        else exec.signal = upstream
+        exec.signal = upstream
       }
     })
 
@@ -596,7 +666,7 @@ describe('ToolRegistry', () => {
 
     await expect(pending).resolves.toMatchObject({
       isError: true,
-      error: { name: 'AbortError', code: 'ABORTED' },
+      error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
     })
     expect(dispatched).toBe(0)
   })
@@ -616,8 +686,7 @@ describe('ToolRegistry', () => {
       try {
         return await next()
       } finally {
-        if (upstream === undefined) delete exec.signal
-        else exec.signal = upstream
+        exec.signal = upstream
       }
     })
 
@@ -626,7 +695,50 @@ describe('ToolRegistry', () => {
       callId: CallId('cancelled-wrapper'), name: 'must-not-run', arguments: {}, signal: controller.signal,
     })
 
-    expect(result.error).toEqual({ name: 'AbortError', code: 'ABORTED' })
+    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(dispatched).toBe(0)
+  })
+
+  it('uses ABORTED_BEFORE_DISPATCH when cancellation overtakes a wrapper short-circuit', async () => {
+    const ctx = await setup()
+    let dispatched = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'short-circuited',
+      async execute() { dispatched += 1; return [] },
+    })
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.on('tools/execute', async () => {
+      entered.resolve(undefined)
+      await release.promise
+      return {
+        content: [{ type: 'text', text: 'wrapper success' }],
+        isError: false,
+        additionalContexts: [{
+          content: [{ type: 'text', text: 'wrapper context' }],
+          source: { kind: 'plugin', plugin: 'wrapper' },
+        }],
+      }
+    })
+    const controller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('cancelled-short-circuit'),
+      name: 'short-circuited',
+      arguments: {},
+      signal: controller.signal,
+    })
+
+    await entered.promise
+    controller.abort('cancelled while wrapper waited')
+    release.resolve(undefined)
+
+    await expect(pending).resolves.toMatchObject({
+      content: [{ type: 'text', text: 'Error: tool call aborted before dispatch' }],
+      isError: true,
+      error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+      additionalContexts: [{ source: { kind: 'plugin', plugin: 'wrapper' } }],
+    })
     expect(dispatched).toBe(0)
   })
 
@@ -662,7 +774,7 @@ describe('ToolRegistry', () => {
     await expect(pending).resolves.toMatchObject({
       content: [{ type: 'text', text: 'Error: tool call aborted' }],
       isError: true,
-      error: { name: 'AbortError', code: 'ABORTED' },
+      error: { name: 'AbortError', code: TOOL_ABORTED },
       additionalContexts: [{ source: { kind: 'plugin', plugin: 'child' } }],
     })
   })
@@ -713,6 +825,94 @@ describe('ToolRegistry', () => {
     })
   })
 
+  it('preserves an around-dispatch failure that settles after cancellation', async () => {
+    const ctx = await setup()
+    let dispatched = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'wrapper-failure',
+      async execute() { dispatched += 1; return [] },
+    })
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.on('tools/execute', async () => {
+      entered.resolve(undefined)
+      await release.promise
+      throw new HarnessError('wrapper failed', 'WRAPPER_FAILURE')
+    })
+    const controller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('wrapper-failure'), name: 'wrapper-failure', arguments: {}, signal: controller.signal,
+    })
+
+    await entered.promise
+    controller.abort('cancelled while wrapper failed')
+    release.resolve(undefined)
+
+    await expect(pending).resolves.toMatchObject({
+      content: [{ type: 'text', text: 'Error: wrapper failed' }],
+      isError: true,
+      error: { name: 'HarnessError', code: 'WRAPPER_FAILURE' },
+    })
+    expect(dispatched).toBe(0)
+  })
+
+  it('preserves a tool-owned failure after the body observes cancellation', async () => {
+    const ctx = await setup()
+    const entered = Promise.withResolvers<undefined>()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'tool-failure',
+      execute(_args, exec) {
+        entered.resolve(undefined)
+        return new Promise<never[]>((_resolve, reject) => {
+          exec.signal.addEventListener('abort', () => {
+            reject(new HarnessError('tool failed', 'TOOL_FAILURE'))
+          }, { once: true })
+        })
+      },
+    })
+    const controller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('tool-failure'), name: 'tool-failure', arguments: {}, signal: controller.signal,
+    })
+
+    await entered.promise
+    controller.abort('cancelled running body')
+
+    await expect(pending).resolves.toMatchObject({
+      content: [{ type: 'text', text: 'Error: tool failed' }],
+      isError: true,
+      error: { name: 'HarnessError', code: 'TOOL_FAILURE' },
+    })
+  })
+
+  it('preserves a post-policy failure that settles after cancellation', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.on('tools/post-execute', async () => {
+      entered.resolve(undefined)
+      await release.promise
+      throw new HarnessError('post-policy failed', 'POST_FAILURE')
+    })
+    const controller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('post-failure'), name: 'echo', arguments: {}, signal: controller.signal,
+    })
+
+    await entered.promise
+    controller.abort('cancelled while post-policy failed')
+    release.resolve(undefined)
+
+    await expect(pending).resolves.toMatchObject({
+      content: [{ type: 'text', text: 'Error: post-policy failed' }],
+      isError: true,
+      error: { name: 'HarnessError', code: 'POST_FAILURE' },
+    })
+  })
+
   it('fuses caller cancellation back into a wrapper replacement for the running body', async () => {
     const ctx = await setup()
     const entered = Promise.withResolvers<undefined>()
@@ -724,9 +924,9 @@ describe('ToolRegistry', () => {
       execute(_args, exec) {
         bodySignal = exec.signal
         entered.resolve(undefined)
-        if (exec.signal?.aborted) return Promise.resolve([])
+        if (exec.signal.aborted) return Promise.resolve([])
         return new Promise((resolve) => {
-          exec.signal?.addEventListener('abort', () => { resolve([]) }, { once: true })
+          exec.signal.addEventListener('abort', () => { resolve([]) }, { once: true })
         })
       },
     })
@@ -736,8 +936,7 @@ describe('ToolRegistry', () => {
       try {
         return await next()
       } finally {
-        if (upstream === undefined) delete exec.signal
-        else exec.signal = upstream
+        exec.signal = upstream
       }
     })
 
@@ -758,30 +957,29 @@ describe('ToolRegistry', () => {
     expect(replacement.signal.aborted).toBe(false)
   })
 
-  it('restores a removed caller signal for dispatch', async () => {
+  it('restores the required caller signal after around dispatch', async () => {
     const ctx = await setup()
-    let bodySignal: AbortSignal | undefined
-    ctx.tools.register({
-      ...echoTool,
-      name: 'signal-probe',
-      async execute(_args, exec) { bodySignal = exec.signal; return [] },
-    })
+    let postSignal: AbortSignal | undefined
     ctx.on('tools/execute', async (exec, next) => {
       const upstream = exec.signal
-      delete exec.signal
+      exec.signal = new AbortController().signal
       try {
         return await next()
       } finally {
-        if (upstream !== undefined) exec.signal = upstream
+        exec.signal = upstream
       }
+    })
+    ctx.on('tools/post-execute', async (exec, _result, next) => {
+      postSignal = exec.signal
+      return next()
     })
     const controller = new AbortController()
 
     await ctx.tools.execute({
-      callId: CallId('restored-signal'), name: 'signal-probe', arguments: {}, signal: controller.signal,
+      callId: CallId('restored-signal'), name: 'echo', arguments: {}, signal: controller.signal,
     })
 
-    expect(bodySignal).toBe(controller.signal)
+    expect(postSignal).toBe(controller.signal)
   })
 
   it('waits for an uncooperative started body before returning ABORTED', async () => {
@@ -820,25 +1018,75 @@ describe('ToolRegistry', () => {
     })
   })
 
-  it('lets an already-aborted entry signal reach the body for domain-specific cleanup', async () => {
+  it('materializes a pre-aborted call and publishes one result without entering pipeline phases', async () => {
     const ctx = await setup()
-    let dispatched = 0
+    const phases = { pre: 0, around: 0, body: 0, post: 0, result: 0 }
+    const callerArguments = { nested: { value: 1 } }
+    const callerSignal = AbortSignal.abort('already cancelled')
+    let argumentReads = 0
+    let observedArguments: unknown
+    let observedExecution: object | undefined
+    let observedToken: symbol | undefined
+    let observedSignal: AbortSignal | undefined
+    let observedResult: ToolExecutionResult | undefined
     ctx.tools.register({
       ...echoTool,
       name: 'domain-abort',
-      async execute(_args, exec) {
-        dispatched += 1
-        expect(exec.signal?.aborted).toBe(true)
-        throw new HarnessError('domain cleanup completed', 'DOMAIN_ABORTED')
-      },
+      async execute() { phases.body += 1; return [] },
+    })
+    ctx.on('tools/pre-execute', async (_exec, next) => { phases.pre += 1; return next() })
+    ctx.on('tools/execute', async (_exec, next) => { phases.around += 1; return next() })
+    ctx.on('tools/post-execute', async (_exec, _result, next) => { phases.post += 1; return next() })
+    ctx.on('tools/result', (exec, result) => {
+      phases.result += 1
+      observedExecution = exec
+      observedArguments = exec.arguments
+      observedToken = exec.token
+      observedSignal = exec.signal
+      observedResult = result
     })
 
     const result = await ctx.tools.execute({
-      callId: CallId('pre-aborted'), name: 'domain-abort', arguments: {}, signal: AbortSignal.abort(),
+      callId: CallId('pre-aborted'),
+      name: 'domain-abort',
+      get arguments() { argumentReads += 1; return callerArguments },
+      signal: callerSignal,
     })
 
-    expect(dispatched).toBe(1)
-    expect(result.error).toEqual({ name: 'HarnessError', code: 'DOMAIN_ABORTED' })
+    expect(argumentReads).toBe(1)
+    expect(phases).toEqual({ pre: 0, around: 0, body: 0, post: 0, result: 1 })
+    expect(result).toEqual({
+      content: [{ type: 'text', text: 'Error: tool call aborted before dispatch' }],
+      isError: true,
+      error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    })
+    expect(observedResult).toBe(result)
+    expect(Object.isFrozen(observedExecution)).toBe(true)
+    expect(typeof observedToken).toBe('symbol')
+    expect(observedSignal).toBe(callerSignal)
+    expect(Object.isFrozen(result)).toBe(true)
+    expect(observedArguments).not.toBe(callerArguments)
+    expect(Object.isFrozen(observedArguments)).toBe(true)
+    expect(Object.isFrozen((observedArguments as { nested: object }).nested)).toBe(true)
+  })
+
+  it('lets argument materialization failure win over a pre-aborted signal', async () => {
+    const ctx = await setup()
+    let observed = 0
+    ctx.on('tools/result', () => { observed += 1 })
+
+    const result = await ctx.tools.execute({
+      callId: CallId('invalid-pre-aborted'),
+      name: 'missing',
+      arguments: { invalid: () => undefined },
+      signal: AbortSignal.abort('already cancelled'),
+    })
+
+    expect(result).toEqual({
+      content: [{ type: 'text', text: 'Error: tool execution arguments must be losslessly JSON-serializable' }],
+      isError: true,
+    })
+    expect(observed).toBe(1)
   })
 
   it('a pre-execute deny short-circuits before tools/execute (the seam never runs)', async () => {
@@ -847,12 +1095,12 @@ describe('ToolRegistry', () => {
 
     let entered = false
     ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'deny', reason: 'nope' }))
-    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
+    ctx.on('tools/execute', async (_exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
       entered = true
       return next()
     })
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: nope' })
     expect(entered).toBe(false) // a denied call never enters the around-dispatch seam
@@ -867,7 +1115,7 @@ describe('ToolRegistry', () => {
     })
 
     let seen: { isError: boolean; error?: unknown } | undefined
-    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
+    ctx.on('tools/execute', async (_exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
       const result = await next()
       // The base next() IS dispatch-with-normalization: the wrapper sees the
       // normalized isError result, never a raw throw from the tool body.
@@ -875,7 +1123,7 @@ describe('ToolRegistry', () => {
       return result
     })
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'boom', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'boom', arguments: {} })
     expect(seen).toEqual({ isError: true, error: { name: 'HarnessError', code: 'BOOM' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: kaboom' })
@@ -890,13 +1138,13 @@ describe('ToolRegistry', () => {
     })
 
     let postSaw: boolean | undefined
-    ctx.on('tools/execute', async (_exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => next())
+    ctx.on('tools/execute', async (_exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => next())
     ctx.on('tools/post-execute', async (_exec, result, next) => {
       postSaw = result.isError
       return next()
     })
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'boom', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'boom', arguments: {} })
     expect(postSaw).toBe(true) // the normalized isError still flows through post-execute
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: exploded' })
@@ -916,7 +1164,7 @@ describe('ToolRegistry', () => {
 
     const upstream = new AbortController().signal
     const replacement = new AbortController().signal
-    ctx.on('tools/execute', async (exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
+    ctx.on('tools/execute', async (exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
       expect(exec.signal).toBe(upstream)
       // Cordis next() ignores passed arguments, so a wrapper mutates exec in
       // place (the documented "mutate the shared object, then delegate" idiom).
@@ -939,10 +1187,10 @@ describe('ToolRegistry', () => {
       async execute() { dispatched = true; return [] },
     })
 
-    ctx.on('tools/execute', async (_exec: ToolExecution, _next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> =>
+    ctx.on('tools/execute', async (_exec: ToolDispatchExecution, _next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> =>
       ({ content: [{ type: 'text', text: 'short-circuited' }], isError: false }))
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'never-runs', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'never-runs', arguments: {} })
     expect(dispatched).toBe(false) // returning without next() skips core dispatch
     expect(result.content[0]).toMatchObject({ text: 'short-circuited' })
   })
@@ -960,6 +1208,7 @@ describe('ToolRegistry', () => {
     }))
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('around-context'), name: 'echo', arguments: {},
     })
     expect(result.additionalContexts).toEqual([{
@@ -973,7 +1222,7 @@ describe('ToolRegistry', () => {
     ctx.tools.register(echoTool)
     ctx.on('tools/execute', async () => { throw new Error('wrapper broke') })
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result).toEqual({
       content: [{ type: 'text', text: 'Error: wrapper broke' }],
       isError: true,
@@ -987,7 +1236,7 @@ describe('ToolRegistry', () => {
       throw new Error('permission hook broke')
     })
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
 
     expect(result).toEqual({
       content: [{ type: 'text', text: 'Error: permission hook broke' }],
@@ -1002,7 +1251,7 @@ describe('ToolRegistry', () => {
       throw new Error('post hook broke')
     })
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
 
     expect(result).toEqual({
       content: [{ type: 'text', text: 'Error: post hook broke' }],
@@ -1017,7 +1266,7 @@ describe('ToolRegistry', () => {
       throw new HarnessError('denied', 'DENIED')
     })
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
 
     expect(result).toMatchObject({
       isError: true,
@@ -1204,6 +1453,7 @@ describe('defineTool / schema DSL', () => {
     }])
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('c1'),
       name: 'typed-echo',
       arguments: { text: 'hello', uppercase: true },
@@ -1258,6 +1508,7 @@ describe('defineTool / schema DSL', () => {
 
     // Execution round-trip
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('c1'),
       name: 'roundtrip',
       arguments: { req: 'hello' },
@@ -1290,6 +1541,7 @@ describe('defineTool / schema DSL', () => {
     })
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('c1'),
       name: 'raw-tool',
       arguments: { path: '/tmp' },
@@ -1463,7 +1715,7 @@ describe('schema DSL optional and nested contracts', () => {
         throw { message: 'denied by object' }
       },
     })
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'object-thrower', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'object-thrower', arguments: {} })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: denied by object' })
   })
@@ -1478,7 +1730,7 @@ describe('schema DSL optional and nested contracts', () => {
         throw 'kaboom'
       },
     })
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'string-thrower', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'string-thrower', arguments: {} })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: kaboom' })
   })
@@ -1493,7 +1745,7 @@ describe('schema DSL optional and nested contracts', () => {
         throw { code: 500 }
       },
     })
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'object-no-message', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'object-no-message', arguments: {} })
     expect(result.isError).toBe(true)
     const firstContent = result.content[0]!
     expect(firstContent.type).toBe('text')
@@ -1630,7 +1882,7 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
       },
     }))
 
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'reader', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'reader', arguments: {} })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({
       text: 'Error: invalid arguments: missing required property "path"',
@@ -1647,7 +1899,7 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
         return [{ type: 'text', text: `read ${args.path}` }]
       },
     }))
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'reader', arguments: { path: '/x' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'reader', arguments: { path: '/x' } })
     expect(result).toEqual({ content: [{ type: 'text', text: 'read /x' }], isError: false })
   })
 
@@ -1670,7 +1922,7 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
         return [{ type: 'text', text: args.path }]
       },
     }))
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'reader', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'reader', arguments: {} })
     expect(result.isError).toBe(true)
     expect(result.error).toEqual({ name: 'ToolArgsError', code: 'INVALID_ARGS' })
   })
@@ -1685,7 +1937,7 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
         throw new HarnessError('disk full', 'ENOSPC')
       },
     })
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'coded', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'coded', arguments: {} })
     expect(result.isError).toBe(true)
     expect(result.error).toEqual({ name: 'HarnessError', code: 'ENOSPC' })
     expect(result.content[0]).toMatchObject({ text: 'Error: disk full' })
@@ -1700,7 +1952,7 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
         throw new Error('just a message')
       },
     })
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'plain', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'plain', arguments: {} })
     expect(result.isError).toBe(true)
     expect(result.error).toBeUndefined()
     expect(result.content[0]).toMatchObject({ text: 'Error: just a message' })
@@ -1719,7 +1971,7 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
     })
     // Missing the "required" path — but raw tools validate their own input, so
     // this reaches execute rather than being rejected by the harness.
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'raw', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'raw', arguments: {} })
     expect(result.isError).toBe(false)
   })
 

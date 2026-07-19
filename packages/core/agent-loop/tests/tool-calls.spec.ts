@@ -9,7 +9,7 @@ import { CallId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmService from '@deepseek-ai/dsh-llm'
-import ToolRegistry, { defineTool, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool, TOOL_ABORTED_BEFORE_DISPATCH, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
@@ -476,8 +476,8 @@ describe('tool-call scheduler: abort handling', () => {
       isError: e.data.isError,
       error: e.data.error,
     }))).toEqual([
-      { callId: CallId('c1'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } },
-      { callId: CallId('c2'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } },
+      { callId: CallId('c1'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } },
+      { callId: CallId('c2'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } },
     ])
   })
 
@@ -508,8 +508,8 @@ describe('tool-call scheduler: abort handling', () => {
       isError: e.data.isError,
       error: e.data.error,
     }))).toEqual([
-      { callId: CallId('c1'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } },
-      { callId: CallId('c2'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } },
+      { callId: CallId('c1'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } },
+      { callId: CallId('c2'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } },
     ])
   })
 
@@ -541,8 +541,8 @@ describe('tool-call scheduler: abort handling', () => {
       .toEqual([CallId('c1'), CallId('c2'), CallId('c3'), CallId('c4')])
     expect(events(agent).filter(e => e.type === 'tool/result').slice(-2).map(e => e.data))
       .toEqual([
-        expect.objectContaining({ callId: CallId('c3'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } }),
-        expect.objectContaining({ callId: CallId('c4'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } }),
+        expect.objectContaining({ callId: CallId('c3'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } }),
+        expect.objectContaining({ callId: CallId('c4'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } }),
       ])
     const settled = events(agent).filter(e => e.type === 'tool/result' || e.type === 'context/message')
     expect(settled.map(e => e.type))
@@ -584,6 +584,6 @@ describe('tool-call scheduler: abort handling', () => {
     expect(events(agent).filter(e => e.type === 'tool/call').map(e => e.data.callId))
       .toEqual([CallId('c1'), CallId('c2'), CallId('c3')])
     expect(events(agent).filter(e => e.type === 'tool/result').at(-1)?.data)
-      .toMatchObject({ callId: CallId('c3'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } })
+      .toMatchObject({ callId: CallId('c3'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } })
   })
 })

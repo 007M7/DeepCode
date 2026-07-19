@@ -19,6 +19,8 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+
+const testToolSignal = new AbortController().signal
 import WebService from '@deepseek-ai/dsh-web'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import LocalSpillStore from '@deepseek-ai/dsh-spill-local'
@@ -63,7 +65,7 @@ afterEach(async () => {
 /** A web_fetch call carrying a session owner (so the policy can scope the spill). */
 function fetchCall(): Promise<{ isError: boolean; content: { type: string; text?: string }[] }> {
   const agent = { session: { header: { id: SessionId('web-sess') } } }
-  const exec = { callId: CallId('call-1'), name: 'web_fetch', arguments: { url: base }, agent } as unknown as ToolExecution
+  const exec = { callId: CallId('call-1'), name: 'web_fetch', arguments: { url: base }, agent, signal: testToolSignal } as unknown as ToolExecution
   return ctx.tools.execute(exec)
 }
 

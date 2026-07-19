@@ -366,7 +366,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       toolName: 'bash',
       callId: exec.callId,
       reason: `escalate sandbox to ${mode}: ${justification}`,
-      ...exec.signal ? { signal: exec.signal } : {},
+      signal: exec.signal,
     })
     switch (outcome) {
       case 'allowed-once': return mode as SandboxMode
@@ -437,8 +437,6 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (tasks === undefined) {
           throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
         }
-        // Reject pre-start cancellation; returned tasks use their own lifecycle.
-        if (exec.signal?.aborted) throw new Error('command aborted')
         // Task preflight finishes before the starter can spawn a process.
         const id = tasks.start({
           kind: 'bash',
@@ -457,7 +455,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
       const result = await ctx.bash.run(ctx.bash.resolve({
         ...request,
-        ...exec.signal ? { signal: exec.signal } : {},
+        signal: exec.signal,
       }))
       if (result.aborted) throw new Error('command aborted')
       return [{ type: 'text', text: renderResult(result, escalationModes) }]

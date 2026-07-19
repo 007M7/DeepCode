@@ -697,7 +697,7 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:122`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:123`](../../packages/core/tools/src/index.ts)
 
 ### `tools/execute` — waterfall
 
@@ -714,23 +714,24 @@ Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a nor
  * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).
  * @mode waterfall
  */
-'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
+'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
 ```
 
-Types: [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
+Types: [Scoped](../core-data-structures/scope.md) · [ToolDispatchExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:93`](../../packages/core/tools/src/index.ts)
 
 ### `tools/post-execute` — waterfall
 
-Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts it unchanged; thrown tools still reach this seam as errors. Async listeners must observe `exec.signal`; after they settle, caller cancellation replaces only a successful accepted outcome with `ABORTED`. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
+Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts it unchanged; thrown tools still reach this seam as errors. Async listeners must observe `exec.signal`; after they settle, caller cancellation replaces only a successful accepted outcome with the code selected by whether the tool body was invoked. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
 
 ```ts cordis-catalog
 /**
  * Accept, replace, enrich, or block a normalized dispatch result. `next()`
  * accepts it unchanged; thrown tools still reach this seam as errors. Async
  * listeners must observe `exec.signal`; after they settle, caller
- * cancellation replaces only a successful accepted outcome with `ABORTED`.
+ * cancellation replaces only a successful accepted outcome with the code
+ * selected by whether the tool body was invoked.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
  * @param exec - the call that just ran (name, parsed arguments, caller agent).
  * @param result - the dispatch outcome a listener may accept, replace, or block.
@@ -741,7 +742,7 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 
 Types: [PostToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:104`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:105`](../../packages/core/tools/src/index.ts)
 
 ### `tools/pre-execute` — waterfall
 
@@ -781,7 +782,7 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 
 Types: [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:112`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:113`](../../packages/core/tools/src/index.ts)
 
 ## `workflow/*`
 

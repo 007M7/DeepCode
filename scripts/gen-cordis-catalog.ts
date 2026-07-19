@@ -114,6 +114,7 @@ export const LINK_MAP: Record<string, string> = {
   PreToolDecision: 'tools.md',
   ToolDefinition: 'tools.md',
   ToolExecution: 'tools.md',
+  ToolDispatchExecution: 'tools.md',
   ToolExecutionInput: 'tools.md',
   ToolExecutionMode: 'tools.md',
   ToolExecutionResult: 'tools.md',

@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import LlmService, { CallId, ContentBlock, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool, type PostToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool, TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, type PostToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent, type ContinuationDecision } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { prepareReactLoopAgent } from '../src/agent.ts'
@@ -259,7 +259,10 @@ describe('abort during tool execution ends the turn', () => {
         case 'assistant/message': order.push('assistant/message'); break
         case 'tool/call': order.push(`tool/call:${event.data.callId}`); break
         case 'tool/result': {
-          const outcome = event.data.error?.code === 'ABORTED' ? 'aborted' : 'completed'
+          const outcome = event.data.error?.code === TOOL_ABORTED
+            || event.data.error?.code === TOOL_ABORTED_BEFORE_DISPATCH
+            ? 'aborted'
+            : 'completed'
           order.push(`tool/result:${event.data.callId}:${outcome}`)
           break
         }
@@ -308,12 +311,12 @@ describe('abort during tool execution ends the turn', () => {
       callId: CallId('c1'),
       content: [{ type: 'text', text: 'Error: tool call aborted' }],
       isError: true,
-      error: { name: 'AbortError', code: 'ABORTED' },
+      error: { name: 'AbortError', code: TOOL_ABORTED },
     })
     expect(results[1]!.data).toMatchObject({
       callId: CallId('c2'),
       isError: true,
-      error: { name: 'AbortError', code: 'ABORTED' },
+      error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
     })
   })
 

@@ -12,7 +12,7 @@ import { Context } from 'cordis'
 import LlmService, { type Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
@@ -181,7 +181,7 @@ describe('Agent.cancel()', () => {
     expect(result?.type === 'tool/result' ? result.data : undefined).toMatchObject({
       callId: 'c1',
       isError: true,
-      error: { name: 'AbortError', code: 'ABORTED' },
+      error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
     })
 
     send(agent, 'continue safely')

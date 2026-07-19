@@ -794,7 +794,7 @@ Emitted when any prompt provider changes. This registry notification is unfilter
 
 A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed — possibly for one scope only). An UNFILTERED registry-subject notification, deliberately not scope-filtered dispatch: a global change concerns every agent's next assembly, so a scoped listener subscribing here sees every change, not just its own scope's.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L122)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L123)
 
 ### tools/execute
 
@@ -811,7 +811,7 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
  * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).
  * @mode waterfall
  */
-'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
+'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
 ```
 
 Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a normalized result; wrappers may change only `exec.signal`, while call identity remains immutable. The registry re-fuses the original caller signal before the body, so replacement cannot detach caller cancellation; wrappers must still restore their signal and reach quiescence. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
@@ -829,7 +829,8 @@ Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a nor
  * Accept, replace, enrich, or block a normalized dispatch result. `next()`
  * accepts it unchanged; thrown tools still reach this seam as errors. Async
  * listeners must observe `exec.signal`; after they settle, caller
- * cancellation replaces only a successful accepted outcome with `ABORTED`.
+ * cancellation replaces only a successful accepted outcome with the code
+ * selected by whether the tool body was invoked.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
  * @param exec - the call that just ran (name, parsed arguments, caller agent).
  * @param result - the dispatch outcome a listener may accept, replace, or block.
@@ -838,12 +839,12 @@ Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a nor
 'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
 ```
 
-Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts it unchanged; thrown tools still reach this seam as errors. Async listeners must observe `exec.signal`; after they settle, caller cancellation replaces only a successful accepted outcome with `ABORTED`. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
+Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts it unchanged; thrown tools still reach this seam as errors. Async listeners must observe `exec.signal`; after they settle, caller cancellation replaces only a successful accepted outcome with the code selected by whether the tool body was invoked. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
 
 - `exec` — the call that just ran (name, parsed arguments, caller agent).
 - `result` — the dispatch outcome a listener may accept, replace, or block.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L104)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L105)
 
 ### tools/pre-execute
 
@@ -888,7 +889,7 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 - `exec` — the execution object that traversed the pipeline.
 - `result` — a deep-frozen snapshot of the final returned result.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L112)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L113)
 
 ## workflow/*
 

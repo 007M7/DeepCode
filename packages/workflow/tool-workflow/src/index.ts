@@ -174,17 +174,14 @@ export function apply(ctx: Context, config: Config): void {
         meta: args.meta,
         ...args.args !== undefined ? { args: args.args } : {},
         parent,
-        ...exec.signal ? { signal: exec.signal } : {},
+        signal: exec.signal,
       })
 
       // Bridge the tool's abort signal to the run: if the parent step is aborted while the
       // script is in flight, cancel the whole run. The signal also enters the engine directly, but
       // this local bridge preserves the tool contract even if an implementation ignores it.
       const onAbort = (): void => { run.cancel('parent step aborted') }
-      exec.signal?.addEventListener('abort', onAbort, { once: true })
-      // `addEventListener` does NOT fire for a signal already aborted before
-      // this line — cancel explicitly in that case.
-      if (exec.signal?.aborted) run.cancel('parent step aborted')
+      exec.signal.addEventListener('abort', onAbort, { once: true })
 
       try {
         const result = await run.result
@@ -196,7 +193,7 @@ export function apply(ctx: Context, config: Config): void {
         }
         return [{ type: 'text', text: renderResult(run, result, maxResultChars) }]
       } finally {
-        exec.signal?.removeEventListener('abort', onAbort)
+        exec.signal.removeEventListener('abort', onAbort)
         // Always reach run quiescence — never leak a live script or children.
         await run.dispose()
       }

@@ -165,7 +165,7 @@ function createExecutor(
       { name: rawName, arguments: argsObj },
       undefined,
       {
-        ...exec.signal ? { signal: exec.signal } : {},
+        signal: exec.signal,
         timeout: opts.toolCallTimeoutMs,
       },
     )

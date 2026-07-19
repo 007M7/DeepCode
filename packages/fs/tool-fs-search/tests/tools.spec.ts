@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
@@ -30,6 +30,8 @@ import {
   previewLine,
   toWorkdirRelative,
 } from '@deepseek-ai/dsh-tool-fs-search'
+
+const testToolSignal = new AbortController().signal
 
 /** A successful run result over the given stdout; overrides script the failure shapes. */
 function runResult(stdout: string, overrides?: Partial<BashRunResult>): BashRunResult {
@@ -55,6 +57,7 @@ class FakeBash extends BashExecutor {
   requests: BashExecRequest[] = []
   specs: BashExecSpec[] = []
   startCalls = 0
+  forwardSignal = true
   handler: (spec: BashExecSpec) => BashRunResult = () => runResult('')
 
   override resolve(request: BashExecRequest): BashExecSpec {
@@ -64,7 +67,7 @@ class FakeBash extends BashExecutor {
       workdir: request.workdir ?? '/work',
       timeoutMs: request.timeoutMs ?? 60_000,
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
-      signal: request.signal,
+      ...this.forwardSignal ? { signal: request.signal } : {},
       sandboxMode: request.sandboxMode,
     }
   }
@@ -117,6 +120,7 @@ const agent = (cwd?: string) => ({ session: { header: { id: 'session-1', ...cwd 
 let callCounter = 0
 function call(ctx: Context, name: string, args: unknown, options: { agent?: object; signal?: AbortSignal } = {}) {
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId(`call-${++callCounter}`),
     name,
     arguments: args,
@@ -248,16 +252,13 @@ describe('workdir derivation and signal forwarding', () => {
     expect(bash.requests[1]).not.toHaveProperty('workdir')
   })
 
-  it('forwards exec.signal into the bash spec (the abort reaches the backend)', async () => {
+  it('forwards exec.signal into the bash spec', async () => {
     const { ctx, bash } = await setup()
     const controller = new AbortController()
-    controller.abort()
-    bash.handler = spec => runResult('', { aborted: spec.signal?.aborted === true })
+    bash.handler = () => runResult('')
     const result = await call(ctx, 'grep', { pattern: 'x' }, { signal: controller.signal })
     expect(bash.specs[0]?.signal).toBe(controller.signal)
-    expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_ABORTED' })
-    expect(text(result)).toContain('aborted')
+    expect(result.isError).toBe(false)
   })
 
   it('reports the bash executor timeout as SEARCH_ABORTED with the budget', async () => {
@@ -269,20 +270,46 @@ describe('workdir derivation and signal forwarding', () => {
     expect(text(result)).toContain('timed out after 1234ms')
   })
 
-  it('translates a run() rejection under a pre-aborted signal into SEARCH_ABORTED', async () => {
-    // The seam contract: run() REJECTS for a pre-aborted signal (it never
-    // spawns). The plain rejection must not escape the SEARCH_* taxonomy.
+  it('skips a pre-aborted registry call before run()', async () => {
     const { ctx, bash } = await setup()
     const controller = new AbortController()
     controller.abort()
     bash.handler = () => { throw new Error('aborted before spawn') }
     const result = await call(ctx, 'grep', { pattern: 'x' }, { signal: controller.signal })
     expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(bash.specs).toHaveLength(0)
+  })
+
+  it('translates a run() rejection after the forwarded signal aborts', async () => {
+    const { ctx, bash } = await setup()
+    const controller = new AbortController()
+    bash.handler = () => {
+      controller.abort('cancel search')
+      throw new Error('executor stopped on abort')
+    }
+
+    const result = await call(ctx, 'grep', { pattern: 'x' }, { signal: controller.signal })
+
+    expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_ABORTED' })
+    expect(text(result)).toContain('aborted before completion')
+  })
+
+  it('translates an aborted executor result after dispatch starts', async () => {
+    const { ctx, bash } = await setup()
+    bash.handler = () => runResult('', { aborted: true, exitCode: null })
+
+    const result = await call(ctx, 'glob', { pattern: '*' })
+
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_ABORTED' })
+    expect(text(result)).toContain('aborted before completion')
   })
 
   it('translates a run() rejection without an abort (unusable workdir) into SEARCH_FAILED', async () => {
     const { ctx, bash } = await setup()
+    bash.forwardSignal = false
     bash.handler = () => { throw new Error('spawn bash ENOENT') }
     const result = await call(ctx, 'glob', { pattern: '*' })
     expect(result.isError).toBe(true)
