@@ -432,7 +432,15 @@ const APP_EXAMPLES = [
     title: 'Coding Agent App Composition',
     label: 'examples/coding-agent',
     config: 'examples/coding-agent/cordis.yml',
-    summary: 'The coding REPL demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.',
+    summary: 'The coding-agent demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.',
+  },
+  {
+    id: 'tui',
+    rel: 'examples/tui-agent/composition.md',
+    title: 'TUI Agent App Composition',
+    label: 'examples/tui-agent',
+    config: 'examples/tui-agent/cordis.yml',
+    summary: 'The TUI agent reuses the coding-agent backend and tool composition while fixing the shared terminal app to the full-screen dsh-tui front door.',
   },
   {
     id: 'cordis',
@@ -454,13 +462,18 @@ const APP_EXAMPLES = [
 
 type AppExample = typeof APP_EXAMPLES[number]
 
-function renderAppExpansion(lines: string[], appNode: string, pluginName: string): void {
+function renderAppExpansion(lines: string[], appNode: string, pluginName: string, exampleId: string): void {
   const agentCore = nodeId('bundle', 'agent_core')
   const jsonl = nodeId('bundle', 'jsonl')
   lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
   if (pluginName === '@deepseek-ai/dsh-stdio-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'stdio')}["readline UI<br/>console logger<br/>pre-created main agent"]`)
+    const frontDoor = exampleId === 'tui'
+      ? '@deepseek-ai/dsh-tui<br/>pre-created main agent'
+      : exampleId === 'coding'
+        ? '@deepseek-ai/dsh-stdio<br/>pre-created main agent'
+        : 'dsh-tui (TTY) / dsh-stdio (pipes)<br/>pre-created main agent'
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'stdio')}["${frontDoor}"]`)
   } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]`)
   }
@@ -488,7 +501,7 @@ function renderAppComposition(example: AppExample): string {
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
     if (plugin.name === '@deepseek-ai/dsh-stdio-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
-      renderAppExpansion(lines, pluginNode, plugin.name)
+      renderAppExpansion(lines, pluginNode, plugin.name, example.id)
     }
   }
   lines.push(
@@ -978,6 +991,7 @@ function renderIndex(docs: GraphDoc[]): string {
     'docs/capability-seams.md': 'capability seams and core services',
     'examples/echo-agent/composition.md': 'echo-agent app composition',
     'examples/coding-agent/composition.md': 'coding-agent app composition',
+    'examples/tui-agent/composition.md': 'tui-agent app composition',
     'examples/cordis-agent/composition.md': 'cordis-agent app composition',
     'examples/acp-agent/composition.md': 'acp-agent app composition',
     'docs/event-producer-consumer.md': 'event producer/consumer matrix',
@@ -989,6 +1003,7 @@ function renderIndex(docs: GraphDoc[]): string {
     'docs/capability-seams.md': 'hybrid generated',
     'examples/echo-agent/composition.md': 'hybrid generated',
     'examples/coding-agent/composition.md': 'hybrid generated',
+    'examples/tui-agent/composition.md': 'hybrid generated',
     'examples/cordis-agent/composition.md': 'hybrid generated',
     'examples/acp-agent/composition.md': 'hybrid generated',
     'docs/event-producer-consumer.md': 'hybrid generated',
