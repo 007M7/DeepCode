@@ -7,7 +7,7 @@
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { agentNoteRoot, walkAgentNoteTree } from './agent-note-index.ts'
+import { agentNoteRoot, walkAgentNoteTree } from './agent-note-tree.ts'
 
 /** The date the format contract landed; the grandfather comment is valid only before it. */
 const FORMAT_ADOPTED = '2026-07-05'

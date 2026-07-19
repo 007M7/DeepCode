@@ -86,7 +86,6 @@ pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
 pnpm run verify-export-jsdoc    # fail if a module-level package export lacks complete JSDoc
 pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
 pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
-pnpm run gen-agent-note-index          # regenerate .agents/notes/INDEX.md from the Agent Note tree
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
 pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
