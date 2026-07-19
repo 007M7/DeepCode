@@ -21,8 +21,8 @@ const snapshotMaxConcurrency = positiveIntFromEnv(
 )
 
 // Replay is the keyless default: boot real example subprocesses from recorded model scripts and diff
-// normalized protocol or transcript output plus persisted-log goldens. `record` calls the real API
-// and updates fixtures and goldens; `refresh` replays committed scripts and updates current goldens.
+// normalized protocol or transcript output plus persisted-log expected outputs. `record` calls the real API
+// and updates fixtures and expected outputs; `refresh` replays committed scripts and updates current expected outputs.
 // Replay/refresh never load `.env`; only record reads a key from the environment or root `.env`.
 if (process.env.DSH_SNAPSHOT === 'record') {
   try {

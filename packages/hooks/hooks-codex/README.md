@@ -60,15 +60,31 @@ Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-codex' }`
 
 ### Hook-provided context
 
-**What the model sees**: `SessionStart`, accepted prompt, and post-tool hooks can add source-attributed context messages; a blocking `Stop` hook adds its reason as next-step steering.
+#### What the model sees
 
-**Token effect**: No cost when hooks return no context. Hook text is data-dependent, logged, and resent until compaction.
+`SessionStart`, accepted prompt, and post-tool hooks can add source-attributed context messages; a blocking `Stop` hook adds its reason as next-step steering.
+
+#### Token effect
+
+No cost when hooks return no context. Hook text is data-dependent, logged, and resent until compaction.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ### Blocked prompt or tool outcome
 
-**What the model sees**: Provider-supplied reasons pass through verbatim. When absent, a blocked prompt uses exactly `blocked by UserPromptSubmit hook`, a denied tool becomes `Error: blocked by PreToolUse hook`, blocked post-tool feedback is exactly `blocked by PostToolUse hook`, and a blocking stop adds steering exactly `continue: blocked by Stop hook`. Codex `systemMessage` is not surfaced.
+#### What the model sees
 
-**Token effect**: Blocking a prompt removes its request tokens; denial or feedback adds the retained fallback or provider text; forced continuation pays another full request.
+Provider-supplied reasons pass through verbatim. When absent, a blocked prompt uses exactly `blocked by UserPromptSubmit hook`, a denied tool becomes `Error: blocked by PreToolUse hook`, blocked post-tool feedback is exactly `blocked by PostToolUse hook`, and a blocking stop adds steering exactly `continue: blocked by Stop hook`. Codex `systemMessage` is not surfaced.
+
+#### Token effect
+
+Blocking a prompt removes its request tokens; denial or feedback adds the retained fallback or provider text; forced continuation pays another full request.
+
+#### KV Cache effect
+
+A blocked prompt sends no request and invalidates nothing. Denial, feedback, and forced-continuation context append after the reusable prefix without rewriting it.
 
 ## Known Limitations and Deferred Work
 

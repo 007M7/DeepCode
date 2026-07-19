@@ -40,7 +40,7 @@ description: Use when reviewing a pull request in the deepseek-harness repo — 
 - **Test strength:** assertions fail on the intended regression and verify external state, logs, events, or disposal rather than restating the implementation or trusting an agent's report. Coverage is necessary but not evidence that the scenario is correct.
 - **Mechanized invariants and negative controls:** trace each new or changed check through the executed top-level gate and its deliberately invalid case; confirm the real runner fails for the intended rule.
 - **Implemented RFCs match shipped reality:** when a PR implements a proposed RFC, move and rewrite it as present-tense shipped state in the same diff, then verify paths, names, and mechanisms against the implementation.
-- **Transcript changes:** editor-visible or model-visible changes update snapshots or explain why no snapshot applies. Review golden diffs as behavior changes, not formatting noise.
+- **Transcript changes:** editor-visible or model-visible changes update snapshots or explain why no snapshot applies. Review expected-output diffs as behavior changes, not formatting noise.
 - **Bilingual changes:** compare meaning and terminology on both sides; a green pairing hash does not prove translation quality.
 
 ## Reporting findings

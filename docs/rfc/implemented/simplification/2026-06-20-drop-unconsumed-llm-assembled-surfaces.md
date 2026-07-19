@@ -26,7 +26,7 @@ This is the [drop-mutable-session-summary](../../implemented/simplification/2026
 
 ## Verification
 
-`streamBlocks`, `generate`, `llm/generate`, and the assembler helpers they alone required are gone with no new dead exports; both real adapters are exercised through `stream()` and the shared assembler; the loop behaves identically (ACP snapshot goldens unchanged); and the README, architecture doc, and module docs carry no mention of the removed surfaces.
+`streamBlocks`, `generate`, `llm/generate`, and the assembler helpers they alone required are gone with no new dead exports; both real adapters are exercised through `stream()` and the shared assembler; the loop behaves identically (ACP snapshot expected outputs unchanged); and the README, architecture doc, and module docs carry no mention of the removed surfaces.
 
 ## Consequences
 

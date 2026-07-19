@@ -36,9 +36,17 @@ The policy sees only the FINAL formatted tool result — not a tool's internal r
 
 ### Oversized plain-text result
 
-**What the model sees**: Results at or below `maxInlineBytes`, `read` results, blocked decisions, and results containing non-text blocks are unchanged. An oversized plain-text result becomes a bounded head/tail preview followed by `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`; storage or ownership failures leave the original result visible.
+#### What the model sees
 
-**Token effect**: A successful replacement is at most `maxInlineBytes` UTF-8 bytes and remains in history until compaction; the full spill text is not resent to the model.
+Results at or below `maxInlineBytes`, `read` results, blocked decisions, and results containing non-text blocks are unchanged. An oversized plain-text result becomes a bounded head/tail preview followed by `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`; storage or ownership failures leave the original result visible.
+
+#### Token effect
+
+A successful replacement is at most `maxInlineBytes` UTF-8 bytes and remains in history until compaction; the full spill text is not resent to the model.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 
