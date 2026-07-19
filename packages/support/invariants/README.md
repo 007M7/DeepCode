@@ -54,7 +54,7 @@ ctx.plugin(InvariantService, {
 ctx.plugin(SessionInvariant)
 ```
 
-The standard agent spine mounts the service and the four stateful companions. Custom compositions choose the companions they want and may disable or filter them without changing package entrypoints. Vitest mounts every package companion against an explicitly enabled service for ordinary Cordis roots, so baseline ownership and stateful checks execute across unit, snapshot, and e2e suites; focused invariant-service tests construct their own topology to exercise filtering and lifecycle behavior.
+The standard agent spine mounts the service and the four stateful companions. Custom compositions choose the companions they want and may disable or filter them without changing package entrypoints. Vitest gives every ordinary root an explicitly enabled service and mounts the current test package's companion; one exhaustive topology mounts all companions once, while focused invariant-service tests construct their own topology to exercise filtering and lifecycle behavior.
 
 ## Model Experience
 
