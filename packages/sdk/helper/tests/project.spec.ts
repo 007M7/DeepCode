@@ -703,6 +703,28 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(committed.packageManifest().dependencies?.['@deepseek-ai/dsh-subagent']).toMatch(/^file:/)
     expect(createBuiltinRegistry(committed.profile).get(featureId('subagent')).inspect(committed).state).toBe('absent')
   })
+
+  it('mounts an external plugin dependency and rejects missing deps or duplicate entries', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-external-plugin-'))
+    temporary.push(root)
+    const creation = request()
+    const project = SdkProject.create(root, creation)
+    const registry = createBuiltinRegistry(project.profile)
+    const edit = project.edit(registry)
+    for (const item of creation.features) edit.installFeature(registry.get(item.id), item)
+    await edit.commit()
+    const manifestPath = join(root, 'package.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { dependencies?: Record<string, string> }
+    manifest.dependencies = { ...manifest.dependencies, 'ext-plugin': 'github:o/r#sha' }
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2))
+    const reopened = await SdkProject.open(root)
+    const edit2 = reopened.edit(createBuiltinRegistry(reopened.profile))
+    edit2.addExternalPlugin('ext-plugin', 'ext-plugin')
+    expect(() => { edit2.addExternalPlugin('ext-plugin', 'ext-plugin') }).toThrow('already exists')
+    expect(() => { edit2.addExternalPlugin('missing', 'not-a-dep') }).toThrow('not installed')
+    const commit = await edit2.commit()
+    expect(commit.project.cordis.entry('ext-plugin')?.name).toBe('ext-plugin')
+  })
 })
 
 describe('extension points', () => {
