@@ -896,11 +896,11 @@ export interface Config {
   /** Arguments passed to {@link command}. */
   args: string[]
   /**
-   * Working directory override for the child process and its ACP session. A
-   * relative path resolves against the harness launch directory at load, and
-   * the result must be an existing directory. When omitted, each child
-   * inherits its delegating parent session's cwd — and starting one from a
-   * parent session that has no cwd fails.
+   * Working directory override for the child process and its ACP session.
+   * Must be non-empty; a relative path resolves against the harness launch
+   * directory at load, and the result must be an existing directory. When
+   * omitted, each child inherits its delegating parent session's cwd — and
+   * starting one from a parent session that has no cwd fails.
    */
   cwd?: string
   /**

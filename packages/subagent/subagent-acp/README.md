@@ -25,7 +25,7 @@ ACP advertises no start-time capabilities because this process cannot enforce th
 | `providerName` | `acp` | Registry name on `ctx.subagents`. |
 | `command` | required | Executable spawned for each run. |
 | `args` | `[]` | Command arguments. |
-| `cwd` | parent session cwd | Working-directory override for the child process and its ACP session; a relative value resolves against the harness launch directory at load and must name an existing directory. |
+| `cwd` | parent session cwd | Working-directory override for the child process and its ACP session; must be non-empty, a relative value resolves against the harness launch directory at load, and the result must name an existing directory. |
 | `permission` | `reject` | Auto-answer permission requests by rejecting or choosing the first allow-shaped option. |
 | `env` | `{}` | Explicit child environment layered over a credential-scrubbed parent environment. |
 | `disposeEofGraceMs` | `6000` | Grace after stdin EOF before SIGTERM. |

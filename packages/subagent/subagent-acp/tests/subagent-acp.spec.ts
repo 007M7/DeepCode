@@ -199,6 +199,22 @@ describe('cwd resolution', () => {
     expect(text(result.output)).toBe(`${realpathSync(absolute)}\n${absolute}`)
   })
 
+  it('rejects an empty config cwd at load', async () => {
+    // `path.resolve('')` is the process cwd, so an empty string would silently
+    // reintroduce the launch-directory fallback this resolution removed.
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    await expect(ctx.plugin(acp, {
+      providerName: 'acp',
+      command: 'true',
+      args: [],
+      cwd: '',
+      permission: 'reject',
+      env: {},
+    })).rejects.toThrow('config cwd must not be empty')
+    await ctx.fiber.dispose()
+  })
+
   it('rejects a config cwd that is not an accessible directory at load', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)

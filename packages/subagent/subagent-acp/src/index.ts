@@ -26,11 +26,11 @@ export interface Config {
   /** Arguments passed to {@link command}. */
   args: string[]
   /**
-   * Working directory override for the child process and its ACP session. A
-   * relative path resolves against the harness launch directory at load, and
-   * the result must be an existing directory. When omitted, each child
-   * inherits its delegating parent session's cwd — and starting one from a
-   * parent session that has no cwd fails.
+   * Working directory override for the child process and its ACP session.
+   * Must be non-empty; a relative path resolves against the harness launch
+   * directory at load, and the result must be an existing directory. When
+   * omitted, each child inherits its delegating parent session's cwd — and
+   * starting one from a parent session that has no cwd fails.
    */
   cwd?: string
   /**
@@ -160,6 +160,11 @@ export function apply(ctx: Context, config: Config): void {
   const resolved = config as ResolvedConfig
   assertPositiveFinite('disposeEofGraceMs', resolved.disposeEofGraceMs)
   assertPositiveFinite('disposeGraceMs', resolved.disposeGraceMs)
+  // `path.resolve('')` is the process cwd — an empty string would silently
+  // reintroduce the launch-directory fallback this resolution removed.
+  if (resolved.cwd === '') {
+    throw new Error('subagent-acp: config cwd must not be empty — omit the key to inherit the parent session cwd')
+  }
   // Interpret a relative configured cwd against the harness launch directory
   // ONCE, at load, and fail a misconfigured directory here — not per start.
   const validated: ResolvedConfig = resolved.cwd === undefined
