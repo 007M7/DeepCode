@@ -1,5 +1,5 @@
 {
-  "comment": "Maps each ` ```ts type-equiv ` block (by doc + declared symbol) to the source declaration and original JSDoc it must match. verify-type-equiv.ts enforces a 1:1 correspondence: every type-equiv block has exactly one entry here, and every entry resolves to exactly one block. Add an entry when you add a type-equiv block; remove it when you remove the block.",
+  "comment": "Maps each ` ```ts type-equiv ` or ` ```ts public-api ` block (by doc + declared symbol + projection) to the source declaration and original JSDoc it must match. Omit projection for the complete declaration; use public-api with a ` ```ts public-api ` block for a body-stripped public class declaration. verify-type-equiv.ts enforces a 1:1 correspondence: every source-equivalence block has exactly one entry here, and every entry resolves to exactly one block. Add an entry when you add a source-equivalence block; remove it when you remove the block.",
   "entries": [
     { "doc": "docs/core-data-structures/core.md", "symbol": "Branded", "source": "packages/util/brand/src/index.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "ContentBlockMap", "source": "packages/llm/llm/src/types.ts" },
@@ -33,6 +33,8 @@
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "TokenUsage", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "ContentBlockMap", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "AppIdentity", "source": "packages/llm/llm/src/attribution.ts" },
+    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "BlockAssembler", "source": "packages/llm/llm/src/assembler.ts", "projection": "public-api" },
+    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "LlmAdapter", "source": "packages/llm/llm/src/index.ts", "projection": "public-api" },
 
     { "doc": "docs/core-data-structures/token-meter.md", "symbol": "TokenMeasurement", "source": "packages/llm/token-meter/src/types.ts" },
     { "doc": "docs/core-data-structures/token-meter.md", "symbol": "TokenSurfaceNode", "source": "packages/llm/token-meter/src/types.ts" },
@@ -50,6 +52,7 @@
     { "doc": "docs/core-data-structures/session.md", "symbol": "SessionSurface", "source": "packages/core/session/src/surface.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceFoldReplacement", "source": "packages/core/session/src/surface.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceFoldResult", "source": "packages/core/session/src/surface.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "Session", "source": "packages/core/session/src/index.ts", "projection": "public-api" },
 
     { "doc": "docs/core-data-structures/persistence.md", "symbol": "SessionHeader", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/persistence.md", "symbol": "CreateSessionOptions", "source": "packages/core/session/src/types.ts" },
