@@ -406,6 +406,22 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     await b.dispose()
   })
 
+  it('creates a persistent rollback journal with owner-only mode', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path, journalMode: 'persist' })
+    const m = meta('persist-permissions')
+
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-journal`)).mode & 0o777).toBe(0o600)
+    await fiber.dispose()
+  })
+
   it('preserves the mode of an existing database file', async () => {
     if (process.platform === 'win32') return
     const path = await freshDbPath()
