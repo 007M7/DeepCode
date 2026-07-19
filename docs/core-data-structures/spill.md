@@ -9,15 +9,28 @@ Source: [`packages/spill/spill/src/types.ts`](../../packages/spill/spill/src/typ
 `saveText` is the whole seam: persist `content` verbatim, return an opaque locator, a backend-supplied retrieval hint, and the exact byte count. The request carries the save-time storage namespace (`owner`), WHERE it came from (`source`, descriptive provenance for naming and inspection — not access control), and a `suggestedName` the backend may use as a naming hint (it is not a path).
 
 ```ts type-equiv
+/** One request to persist text to a spill artifact. */
 interface SaveTextSpill {
   owner: SpillOwner
   source: SpillSource
+  /**
+   * A caller-suggested base name (e.g. `web_fetch.txt`). The backend sanitizes
+   * it to a single safe path segment before use — it is a hint, never a path.
+   */
   suggestedName: string
+  /** The full text to persist (UTF-8). */
   content: string
 }
 ```
 
 ```ts type-equiv
+/**
+ * Save-time storage namespace for a spilled artifact. The session id lets a
+ * backend group storage under the producing session, but the returned
+ * {@link SpillLocator} is the model-facing handle. Forked sessions inherit
+ * locators already present in the seeded log; those artifacts are not copied or
+ * re-owned, and spills produced after the fork use the child session id.
+ */
 interface SpillOwner {
   sessionId: SessionId
 }
@@ -26,9 +39,17 @@ interface SpillOwner {
 `SpillOwner.sessionId` is the save-time storage namespace. Forked sessions inherit existing spill locators from the seeded log; those artifacts are not copied or re-owned, and spills produced after the fork use the child session id. A retention-period cleanup may expire old locators with other old session artifacts; the spill seam does not define a per-session cleanup policy.
 
 ```ts type-equiv
+/**
+ * Provenance of one spilled artifact — recorded by the backend for a readable
+ * filename and inspection. Not interpreted for access control; purely
+ * descriptive.
+ */
 interface SpillSource {
+  /** The tool whose result was spilled (e.g. `web_fetch`). */
   toolName: string
+  /** The model-issued call id the result belongs to. */
   callId: CallId
+  /** A short human label for the artifact (e.g. `result`). */
   label: string
 }
 ```
@@ -36,6 +57,7 @@ interface SpillSource {
 ## The result
 
 ```ts type-equiv
+/** A saved spill artifact: its locator, byte length, and backend-specific retrieval guidance. */
 interface SpillRef {
   locator: SpillLocator
   bytes: number
@@ -46,6 +68,11 @@ interface SpillRef {
 `SpillLocator` is a [branded](core.md#branded-ids) model-facing handle returned by the backend. The local backend renders it as a filesystem path; a remote or database backend can render a URI, key, or command token. Consumers treat it as opaque and render it with `retrievalHint` instead of assuming `read` is always the right retrieval mechanism.
 
 ```ts type-equiv
+/**
+ * Opaque model-facing handle for one spilled artifact. A local backend may use a
+ * filesystem path; a remote or database backend may use a URI or key. Consumers
+ * render it with {@link SpillRef.retrievalHint}, but do not parse it.
+ */
 type SpillLocator = Branded<'SpillLocator'>
 ```
 

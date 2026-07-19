@@ -9,6 +9,13 @@ Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 A streaming response interleaves several typed blocks (text, reasoning, multiple tool calls). `index` ties each delta to its block; `block-end` carries the fully-assembled `ContentBlock` so consumers don't have to re-assemble deltas themselves. It is a **closed** discriminated union — a `switch` over `type` ends with `assertNever`, so adding a variant breaks compilation at every consumer that must handle it.
 
 ```ts type-equiv
+/**
+ * Raw streaming protocol emitted by adapters.
+ * Block indexes correlate interleaved deltas, and `block-end` carries the
+ * assembled block. Adapters emit usage before the terminal finish and nothing
+ * afterward; tool arguments remain raw JSON strings. Failures either throw or
+ * end with `error`/`aborted`, and consumers must handle both paths.
+ */
 type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
   | { type: 'text-delta'; index: number; text: string }
@@ -41,9 +48,19 @@ This contract was pinned down by two deliberately independent implementations: `
 The static public application identity every adapter sends to providers ([`packages/llm/llm/src/attribution.ts`](../../packages/llm/llm/src/attribution.ts)). `attributionHeaders(identity?)` maps it to the standard `User-Agent` header only; OpenRouter-specific app attribution headers are intentionally not supported by this contract. The default `APP_IDENTITY` sources its version from the package manifest; every field is a public product fact - no secrets, paths, session ids, or per-user identifiers, and nothing per-request may influence the values. Rationale: [Mandatory `User-Agent` attribution](../rfc/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md).
 
 ```ts type-equiv
+/**
+ * Static public application identity sent to LLM providers.
+ *
+ * Every field is a public product fact, safe on every request: no secrets,
+ * local paths, session ids, prompt text, or per-user identifiers belong here,
+ * and nothing per-request may influence the values.
+ */
 interface AppIdentity {
+  /** `User-Agent` product token (lowercase, hyphenated). */
   product: string
+  /** Product version; sourced from package metadata, never hand-copied. */
   version: string
+  /** Public home URL of the app, used as the `User-Agent` comment. */
   url: string
 }
 ```
@@ -53,6 +70,14 @@ interface AppIdentity {
 Per-call token accounting. Counts are **disjoint**: `inputTokens` is uncached input only; cached input is reported separately, and billed input is the sum of the three. Adapters whose providers fold cache hits into a single prompt total (DeepSeek's `prompt_tokens`) subtract them back out.
 
 ```ts type-equiv
+/**
+ * Token accounting for one model call (cache fields are optional).
+ *
+ * Counts are DISJOINT: `inputTokens` is uncached input only; cached input is
+ * reported separately as `cacheReadTokens`/`cacheWriteTokens` (billed input =
+ * sum of the three). Adapters whose providers fold cache hits into a total
+ * prompt count (DeepSeek's `prompt_tokens`) subtract them out.
+ */
 interface TokenUsage {
   inputTokens: number
   outputTokens: number
@@ -73,6 +98,10 @@ interface TokenUsage {
 `ContentBlockType` (the key set the `index`-correlated blocks carry) derives from `ContentBlockMap`:
 
 ```ts type-equiv
+/**
+ * Merge-extensible content blocks keyed by `type`. New core blocks must land
+ * with adapter, UI, and compaction support.
+ */
 interface ContentBlockMap {
   'text': TextBlock
   'reasoning': ReasoningBlock

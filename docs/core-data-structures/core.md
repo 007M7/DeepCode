@@ -36,7 +36,7 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [spill.md](spill.md) | the spill storage seam: `SaveTextSpill`, `SpillOwner`/`SpillSource`, `SpillRef`, the branded `SpillLocator` |
 | [workflow.md](workflow.md) | the workflow seam: `WorkflowStartRequest`, `WorkflowMeta`, `WorkflowRun`/`Result`, the `workflow/*` event payloads, `WorkflowError` fatality |
 
-> Type definitions on this page are pasted **verbatim** from source and drift-checked by `pnpm run verify-type-equiv` (see [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)). Inline JSDoc is omitted for readability; follow the source link for the full contracts.
+> Type declarations and their JSDoc on this page are pasted **verbatim** from source and drift-checked by `pnpm run verify-type-equiv` (see [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)).
 
 FIXME(catalog-verbs): the drift gate covers only the nouns (the pasted type shapes); every method surface on these pages is hand-written prose. core-data-structures should probably also generate the *verbs* — the public methods of the cataloged classes — so a signature change cannot silently outdate the catalog.
 
@@ -83,6 +83,7 @@ The `Branded<B>` primitive lives in its own type-only package, [dsh-brand](../..
 Source: [`packages/util/brand/src/index.ts`](../../packages/util/brand/src/index.ts)
 
 ```ts type-equiv
+/** A string carrying a compile-time-only brand `B`. */
 type Branded<B extends string> = string & { readonly [BRAND]: B }
 ```
 
@@ -95,6 +96,10 @@ A conversation is `Message`s; a message is an array of typed **content blocks**.
 Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
 ```ts type-equiv
+/**
+ * Merge-extensible content blocks keyed by `type`. New core blocks must land
+ * with adapter, UI, and compaction support.
+ */
 interface ContentBlockMap {
   'text': TextBlock
   'reasoning': ReasoningBlock
@@ -108,6 +113,7 @@ The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBl
 A `Message` is a role plus blocks. Loop-derived assistant messages carry their durable provider/model identity and optional adapter-private replay metadata:
 
 ```ts type-equiv
+/** Provider ownership and adapter-private replay data for an assistant message. */
 interface AssistantProvenance {
   /** Provider route that produced the message. */
   provider: string
@@ -123,6 +129,10 @@ interface AssistantProvenance {
 ```
 
 ```ts type-equiv
+/**
+ * A single message in a conversation history. Loop-derived assistant messages
+ * always carry provenance; callers may omit it on hand-built foreign history.
+ */
 interface Message {
   role: 'system' | 'user' | 'assistant'
   content: ContentBlock[]
@@ -134,6 +144,10 @@ interface Message {
 Where a message came from is itself a merge-extensible sum type:
 
 ```ts type-equiv
+/**
+ * Where a message (or injected content) came from.
+ * Merge-extensible sum type — plugins add their own `kind`s.
+ */
 interface MessageSourceMap {
   user: { kind: 'user' }
   plugin: { kind: 'plugin'; plugin: string }
@@ -155,6 +169,7 @@ Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 Provider and model discovery uses small provider-neutral descriptors. A model catalog is advisory: routing still keys on a registered provider, and an adapter may accept unlisted model ids.
 
 ```ts type-equiv
+/** Display metadata for one registered provider route. */
 interface LlmProviderInfo {
   /** Provider route key used by {@link GenerateOptions.provider}. */
   id: string
@@ -164,6 +179,7 @@ interface LlmProviderInfo {
 ```
 
 ```ts type-equiv
+/** One adapter-discovered model; catalog membership is advisory, not request validation. */
 interface LlmModelInfo {
   /** Provider route that owns this model entry. */
   provider: string
@@ -177,6 +193,7 @@ interface LlmModelInfo {
 ```
 
 ```ts type-equiv
+/** A single model request, fully assembled. */
 interface GenerateOptions {
   /** Registered provider route selecting the adapter instance. */
   provider: string
@@ -212,6 +229,10 @@ interface GenerateOptions {
 Why a model response stopped is a merge-extensible reason:
 
 ```ts type-equiv
+/**
+ * Why a model response stopped.
+ * Merge-extensible so adapters can surface provider-specific reasons.
+ */
 interface FinishReasonMap {
   'stop': { kind: 'stop' }
   'tool-calls': { kind: 'tool-calls' }
@@ -226,6 +247,13 @@ interface FinishReasonMap {
 `GenerateOptions.tools` carries `ToolSchema` — the JSON-schema description of a tool, as sent to the model. It is declared in dsh-llm (not dsh-tools) precisely because it is part of the request the loop assembles every step:
 
 ```ts type-equiv
+/**
+ * JSON-schema description of a tool, as sent to the model.
+ *
+ * Declared here (not in dsh-tools) because it is part of {@link GenerateOptions};
+ * dsh-tools' ToolDefinition and dsh-system-prompt's PromptAssembly both import
+ * it from this package.
+ */
 interface ToolSchema {
   name: string
   description: string
@@ -247,6 +275,11 @@ On the wire, a loop-built request reads in this order: the `system` slot (the re
 FIXME(call-config-shape): revisit the exact definition of this type — which fields are genuinely epoch-level for cache purposes (`model` certainly; the sampling scalars sit here out of caution), and where provider-specific extras (reasoning options, extra body params) belong when an adapter needs them.
 
 ```ts type-equiv
+/**
+ * Provider + model + sampling scalars of one conversation's requests. Every field maps
+ * 1:1 onto the same-named `GenerateOptions` field; the loop builds requests
+ * from the logged header rather than accepting these per call.
+ */
 interface LlmCallConfig {
   provider: string
   model: string
@@ -263,6 +296,19 @@ A `Session` is an **append-only log** of typed `SessionEvent`s — the single so
 Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
 ```ts type-equiv
+/**
+ * One immutable entry in the session log.
+ *
+ * A proper discriminated union over `type` (not independent `type`/`data`
+ * unions), so `switch (event.type)` narrows `event.data` without casts.
+ *
+ * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
+ * they only exist on {@link SurfaceEventType} variants (`user/message`,
+ * `assistant/message`, `tool/result`, `context/message`, `steering/message`).
+ * Non-surface events (boundary markers, chunks, usage, errors) never carry
+ * surface metadata — the compiler enforces this at `Session.append()`
+ * call sites.
+ */
 type SessionEvent<T extends SessionEventType = SessionEventType> = {
   [K in SessionEventType]: {
     type: K
@@ -275,7 +321,9 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /**
      * Seq numbers of events that are provenance sources of this event
      * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
-     * or the surface nodes shadowed by a compaction replace node).
+     * or the surface nodes shadowed by a compaction replace node). An
+     * `assistant/message` may carry a present empty array for a known empty
+     * provider stream; omission means unrecorded provenance.
      */
     sourceEventSeqs?: number[]
     /** How this event entered the surface; absent for non-surface events. */
@@ -295,35 +343,29 @@ Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types
 `InjectOptions` extends ordinary message attribution with context-only framing and durable model-hidden JSON metadata:
 
 ```ts type-equiv
+/** Options specific to durable synthetic context injection. */
 interface InjectOptions extends SendOptions {
+  /** Keep the canonical context tag, or send caller-owned framing verbatim. */
   envelope?: ContextEnvelope
+  /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }
 ```
 
 ```ts type-equiv
+/** Public agent handle; its concrete implementation is internal to `@deepseek-ai/dsh-agent-loop`. */
 interface Agent {
+  /** The single identity shared with {@link session}. */
   readonly id: SessionId
   readonly options: AgentOptions
   readonly session: Session
   readonly status: AgentStatus
-
-  /**
-   * The agent's scope context (`@deepseek-ai/dsh-scope`, key = this agent):
-   * registrations through it — tools, prompt sections/variables, listeners,
-   * restrictions — are visible to this agent only and unwind when it is
-   * disposed; `agent.ctx.on('agent/…')` listeners fire only for this agent.
-   */
+  /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
   readonly ctx: Context
 
   /**
-   * Queue a user message. Starts a turn when idle; otherwise waits for the next
-   * turn. Content and the resolved source are accepted as one detached,
-   * deeply-frozen lossless-JSON record before notification or enqueue, so
-   * caller or `agent/queued` listener in-place mutation cannot change later
-   * log/model input. Throws synchronously when either value is not losslessly
-   * JSON-serializable; `agent/prompt-submit` may still return an explicit
-   * replacement.
+   * Queue detached, frozen lossless-JSON input; starts a turn when idle.
+   * Invalid input throws synchronously before notification or enqueue.
    */
   send(content: ContentBlock[], options?: SendOptions): void
 
@@ -335,77 +377,25 @@ interface Agent {
   steer(content: ContentBlock[], options?: SendOptions): void
 
   /**
-   * Inject in-session context (file-change notices, skill content, cron
-   * notifications, …): appends a `context/message` session event the next model
-   * request sees at its chronological position, rendered as synthetic context
-   * rather than a user prompt. The default uses the canonical context tag;
-   * `options.envelope: 'raw'` preserves caller-owned framing. Does not run the
-   * model.
-   *
-   * In an open turn, inject appends at the current log position except while
-   * the current tool-call batch executes: accepted context waits FIFO until the
-   * batch settles, then appends after every recorded result and before turn
-   * close even when execution is interrupted.
-   *
-   * Turn-enclosure (the turn-enclosure RFC): an inject while a turn is open joins that turn;
-   * an inject while idle wraps its `context/message` in a one-shot `injection`
-   * turn (`turn/start` → `context/message` → `turn/end`) and checkpoints it for
-   * durability, so every event stays inside a turn and a persistence backend
-   * never loses a between-turn notice. The idle checkpoint is fire-and-forget
-   * (inject is synchronous): a failing flush is reported via `agent/error`
-   * (step `0`) and the logger, never thrown into the caller.
-   *
-   * Live-adapter review has validated the canonical tagged-envelope rendering
-   * against current DeepSeek behavior; provider-specific mismatches belong in
-   * that adapter, not in the canonical session vocabulary.
+   * Append detached model-facing context without running the model. An open-turn
+   * injection joins at the current log position unless the current tool batch is
+   * executing; then it waits FIFO until that batch settles and drains before turn
+   * close even when interrupted. Idle injection uses a one-shot turn and durability
+   * checkpoint. Disposal awaits idle checkpoints; flush failures report through `agent/error`.
    */
   inject(content: ContentBlock[], options?: InjectOptions): void
 
   /**
-   * Cancel ALL pending work for the agent. `cancel()`:
-   *
-   * - clears the queued FIFO (un-started prompts never run) and the steering
-   *   FIFO (steering for the cancelled turn is dropped, not re-enqueued);
-   * - aborts the in-flight step if one is running (the turn ends `aborted`);
-   * - drops a turn that is about to start (a `cancel()` landing in the
-   *   pre-step window — after a `send()` queued but before the loop flips to
-   *   `running`, or after `running` is emitted but before the first step) so
-   *   that queued prompt does not run and cannot be batched into the cancelled
-   *   turn.
-   *
-   * After `cancel()`, `whenIdle()` resolves on the post-cancel quiescent state.
-   * `cancel()` on an idle agent with nothing queued or running is a safe no-op
-   * — it does NOT arm anything that would drop a later legitimate prompt.
+   * Clear queued and steering work, including work waiting to start, and abort
+   * the active step. The supplied reason is preserved across pre-step and active
+   * cancellation windows, and `whenIdle()` resolves after cancellation reaches
+   * quiescence. Idle cancellation is a no-op and does not arm a later cancel.
    */
   cancel(reason?: string): void
 
-  /**
-   * Resolve once the agent has reached quiescence after settling out of
-   * `running`, or immediately if it is already idle with no queued work. A
-   * non-owner's quiescence-observation hook: a consumer that does NOT own the
-   * agent's lifecycle awaits this to proceed only after queued/running work has
-   * fully stopped, rather than returning while the driver is still streaming or
-   * about to start a queued turn — without itself tearing the agent down. (A
-   * lifecycle OWNER does not need it: `AgentHandle.dispose()` already awaits the
-   * loop-exit promise directly as part of stopping and unregistering. So this is
-   * for a non-owning observer — e.g. a test awaiting a turn to settle, or a
-   * monitor — that wants the settle signal but must not dispose the agent.)
-   *
-   * "Quiescence", not merely "status changed": a disposed agent emits
-   * `agent/status('disposed')` from inside its disposer, BEFORE the driver loop
-   * has unwound — so `whenIdle()` resolving on `disposed` must wait for the loop
-   * to actually exit (the implementation chains the loop-exit promise), not just
-   * observe the status flip. A mid-step disposal that never reaches `idle` still
-   * unblocks the await this way.
-   */
+  /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
   whenIdle(): Promise<void>
 
-  // Subagent delegation is realized on top of this interface by the
-  // `@deepseek-ai/dsh-subagent` seam, not by a method here: a backend creates
-  // the child through `ctx.agents.create` (fork seeds the child Session with a
-  // balanced prefix of the parent's log via `CreateAgentOptions.seed`; spawn
-  // starts fresh) and drives it as an ordinary Agent handle, so steer() and
-  // event subscription work uniformly. See docs/core-data-structures/subagent.md.
 }
 ```
 
@@ -420,10 +410,13 @@ Each `agent/*` interception waterfall returns a small, seam-specific typed union
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
 ```ts type-equiv
+/** Model-facing context injected by a listener; `source` prevents plugin text from being labeled as user input. */
 interface HookContext {
   content: ContentBlock[]
   source: MessageSource
+  /** Keep the canonical context tag, or use caller-owned framing verbatim. */
   envelope?: ContextEnvelope
+  /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }
 ```
@@ -431,6 +424,11 @@ interface HookContext {
 `agent/prompt-submit` returns a `PromptDecision` (allow a drained queued message — optionally rewriting its `content` or attaching `additionalContexts` — or block it; a batch whose every prompt is blocked opens a zero-step turn that ends `rejected`):
 
 ```ts type-equiv
+/**
+ * Prompt interception result. `allow.content` replaces the prompt and each
+ * `additionalContexts` entry becomes a separate context message. `block` records a
+ * durable `prompt/blocked`; an all-blocked batch ends a zero-step rejected turn.
+ */
 type PromptDecision =
   | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
   | { kind: 'block'; reason: string }
@@ -439,6 +437,7 @@ type PromptDecision =
 `agent/turn-continuation` returns a `ContinuationDecision` (the loop's default is `continue` when the step had tool calls or steering was injected, else `stop`; a `continue` `reason` is recorded as next-step steering in the same turn and therefore carries no context envelope or metadata — the typed `/goal` pattern):
 
 ```ts type-equiv
+/** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */
 type ContinuationDecision =
   | { action: 'stop' }
   | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
@@ -447,12 +446,18 @@ type ContinuationDecision =
 `agent/turn-stop` returns the stop-only `ContinuationStop` subset or `undefined`. The loop calls this serial checkpoint after folding the ordinary decision, its reason, and pending steering; a stop is terminal and discards pending steering.
 
 ```ts type-equiv
+/**
+ * The terminal subset of {@link ContinuationDecision}. A listener on
+ * `agent/turn-stop` returns this to make the already-composed continuation
+ * outcome terminal; `undefined` abstains.
+ */
 type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
 ```
 
 `agent/session-start` carries a `SessionStartSource` (why the session lifecycle began; a bridge keys its SessionStart matcher on it):
 
 ```ts type-equiv
+/** Why a session lifecycle began; seeded creates are `startup`, while persisted loads are `resume`. */
 type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 ```
 
