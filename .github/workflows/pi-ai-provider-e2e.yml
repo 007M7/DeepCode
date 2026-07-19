@@ -1,12 +1,12 @@
-name: E2E (pi-ai OpenAI and Anthropic)
+name: E2E (pi-ai Azure OpenAI and Anthropic)
 
 # This suite spends tokens against two external providers and is intentionally
 # opt-in. It has no push, pull_request, schedule, or workflow_call trigger.
 on:
   workflow_dispatch:
     inputs:
-      openai_model:
-        description: OpenAI model from pi-ai's installed catalog
+      azure_openai_model:
+        description: Azure OpenAI model from pi-ai's installed catalog
         required: true
         default: gpt-5.5
         type: string
@@ -22,7 +22,7 @@ permissions:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    name: OpenAI Responses + Anthropic Messages
+    name: Azure OpenAI Responses + Anthropic Messages
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
@@ -52,12 +52,12 @@ jobs:
       # dispatched CI run must fail instead of reporting an all-skipped green.
       - name: Preflight (require provider API keys)
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_EXTERNAL }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY_EXTERNAL }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY_EXTERNAL }}
         run: |
           set -euo pipefail
           missing=0
-          for name in OPENAI_API_KEY ANTHROPIC_API_KEY; do
+          for name in AZURE_OPENAI_API_KEY ANTHROPIC_API_KEY; do
             if [ -z "${!name:-}" ]; then
               echo "::error::${name} is empty. Configure the corresponding *_EXTERNAL repository secret."
               missing=1
@@ -65,11 +65,13 @@ jobs:
           done
           exit "$missing"
 
-      - name: E2E tests (real OpenAI and Anthropic APIs)
+      - name: E2E tests (real Azure OpenAI and Anthropic APIs)
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_EXTERNAL }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY_EXTERNAL }}
+          AZURE_OPENAI_API_VERSION: v1
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY_EXTERNAL }}
-          DSH_PI_AI_OPENAI_MODEL: ${{ inputs.openai_model }}
+          DSH_PI_AI_AZURE_OPENAI_MODEL: ${{ inputs.azure_openai_model }}
+          DSH_PI_AI_AZURE_OPENAI_BASE_URL: https://openai-routerhub-resource.services.ai.azure.com/api/projects/openai/openai/
           DSH_PI_AI_ANTHROPIC_MODEL: ${{ inputs.anthropic_model }}
           DSH_E2E_MAX_WORKERS: 2
         run: >-

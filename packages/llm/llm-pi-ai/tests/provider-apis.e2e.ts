@@ -3,22 +3,26 @@ import { Context } from 'cordis'
 import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
-import type { PiAiReplayState } from '@deepseek-ai/dsh-llm-pi-ai'
+import type { PiAiReplayState } from '../src/replay.ts'
 import { assemble, type AssembledResult } from './assemble.ts'
 
 interface ProviderCase {
-  provider: 'openai' | 'anthropic'
-  api: 'openai-responses' | 'anthropic-messages'
+  provider: 'azure-openai-responses' | 'anthropic'
+  api: 'azure-openai-responses' | 'anthropic-messages'
   model: string
   apiKey?: string
+  baseURL?: string
 }
+
+const azureOpenAIBaseURL = process.env.DSH_PI_AI_AZURE_OPENAI_BASE_URL ?? process.env.AZURE_OPENAI_BASE_URL
 
 const providerCases: ProviderCase[] = [
   {
-    provider: 'openai',
-    api: 'openai-responses',
-    model: process.env.DSH_PI_AI_OPENAI_MODEL ?? 'gpt-5.5',
-    ...process.env.OPENAI_API_KEY ? { apiKey: process.env.OPENAI_API_KEY } : {},
+    provider: 'azure-openai-responses',
+    api: 'azure-openai-responses',
+    model: process.env.DSH_PI_AI_AZURE_OPENAI_MODEL ?? 'gpt-5.5',
+    ...process.env.AZURE_OPENAI_API_KEY ? { apiKey: process.env.AZURE_OPENAI_API_KEY } : {},
+    ...azureOpenAIBaseURL ? { baseURL: azureOpenAIBaseURL } : {},
   },
   {
     provider: 'anthropic',
@@ -38,6 +42,7 @@ async function harness(): Promise<Context> {
     providers: providerCases.map(profile => ({
       provider: profile.provider,
       ...profile.apiKey === undefined ? {} : { apiKey: profile.apiKey },
+      ...profile.baseURL === undefined ? {} : { baseURL: profile.baseURL },
     })),
   })
   return ctx
@@ -90,7 +95,7 @@ for (const profile of providerCases) {
           provider: profile.provider,
           model: profile.model,
           messages: ask('Reply with exactly the word: pong'),
-          maxTokens: 64,
+          maxTokens: 1024,
         })
 
         expect(result.finish.kind).toBe('stop')
@@ -108,7 +113,7 @@ for (const profile of providerCases) {
           model: profile.model,
           messages: prompt,
           tools: [lookupTool],
-          maxTokens: 256,
+          maxTokens: 2048,
         })
 
         expect(first.finish.kind).toBe('tool-calls')
@@ -134,7 +139,7 @@ for (const profile of providerCases) {
             },
           ],
           tools: [lookupTool],
-          maxTokens: 256,
+          maxTokens: 2048,
         })
 
         expect(second.finish.kind).toBe('stop')

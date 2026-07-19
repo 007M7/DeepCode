@@ -167,6 +167,25 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.paths).toEqual(['/v1/responses'])
   })
 
+  it('uses Azure OpenAI Responses with the configured project base path and API key', async () => {
+    vi.stubEnv('AZURE_OPENAI_API_VERSION', 'v1')
+    const server = await mockServer([{ status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmPiAi, {
+      providers: [{
+        provider: 'azure-openai-responses',
+        apiKey: 'test-key',
+        baseURL: `${server.url}/api/projects/openai/openai/`,
+        maxRetries: 0,
+      }],
+    })
+    const result = await assemble(ctx, { provider: 'azure-openai-responses', model: 'gpt-5.5', messages: [] })
+    expect(result.finish.kind).toBe('error')
+    expect(server.paths).toEqual(['/api/projects/openai/openai/responses?api-version=v1'])
+    expect(server.headers[0]?.['api-key']).toBe('test-key')
+  })
+
   it.each([
     [401, 'AUTH'],
     [400, 'INVALID_REQUEST'],
