@@ -179,6 +179,29 @@ describe('runScenario', () => {
     }
   })
 
+  it('preserves the child error when the requested signal sets an exit marker', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('signal failed as the child exited'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockImplementation((signal) => {
+      expect(signal).toBe('SIGTERM')
+      originalKill('SIGKILL')
+      Object.defineProperty(launched.child, 'signalCode', { configurable: true, enumerable: true, writable: true, value: 'SIGTERM' })
+      return true
+    })
+    try {
+      launched.child.emit('error', childFailure)
+      await expect(launched.close('SIGTERM')).rejects.toBe(childFailure)
+      expect(kill).toHaveBeenCalledOnce()
+    } finally {
+      kill.mockRestore()
+      if (launched.child.exitCode === null && launched.child.signalCode === null) originalKill('SIGKILL')
+    }
+  })
+
   it('preserves the child error when fallback refusal races with an exit marker', async () => {
     const { dir } = await scenario({})
     const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
