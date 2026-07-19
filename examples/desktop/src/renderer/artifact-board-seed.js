@@ -1,0 +1,93 @@
+// Auto-inlined artifact-board fixture. Renderer runs at file:// so we
+// inline docs/artifact-board-fixture.json here instead of relying on fetch().
+// To refresh: node scripts/regen-artifact-board-seed.js
+
+'use strict'
+;(function () {
+  if (typeof window === 'undefined') return
+  window.__dshArtifactBoardSeed = {
+  "_note": "Fixture for lane-artifact-v2 (Artifacts evolution chain + Board view). Each entry is one artifact:event payload the renderer would receive. Multi-version entries share an artifactId; blob content is included so the evolution diff pane can render real per-hop line-diffs. The real ArtifactServer does not include content in its broadcast — that's the constraint the strip's fallback 'content not preserved' note is calibrated for.",
+  "artifacts": [
+    {
+      "artifactId": "session.md",
+      "kind": "md",
+      "version": 1,
+      "seenAt": 1747000000000,
+      "path": "/w/.artifacts/session.md",
+      "blob": "# Session log\n\nTurn 1: user asked to build a landing page.\n"
+    },
+    {
+      "artifactId": "session.md",
+      "kind": "md",
+      "version": 2,
+      "seenAt": 1747000060000,
+      "path": "/w/.artifacts/session.md",
+      "blob": "# Session log\n\nTurn 1: user asked to build a landing page.\nTurn 2: agent scaffolded landing.html and hero.svg.\n"
+    },
+    {
+      "artifactId": "session.md",
+      "kind": "md",
+      "version": 3,
+      "seenAt": 1747000180000,
+      "path": "/w/.artifacts/session.md",
+      "blob": "# Session log\n\nTurn 1: user asked to build a landing page.\nTurn 2: agent scaffolded landing.html and hero.svg.\nTurn 3: agent added responsive styles and OG tags.\nTurn 4: agent added README with build steps.\n"
+    },
+    {
+      "artifactId": "landing.html",
+      "kind": "html",
+      "version": 1,
+      "seenAt": 1747000030000,
+      "path": "/w/.artifacts/landing.html",
+      "blob": "<!doctype html>\n<html>\n<head><title>Landing</title></head>\n<body>\n  <h1>Hello</h1>\n</body>\n</html>\n"
+    },
+    {
+      "artifactId": "landing.html",
+      "kind": "html",
+      "version": 2,
+      "seenAt": 1747000090000,
+      "path": "/w/.artifacts/landing.html",
+      "blob": "<!doctype html>\n<html>\n<head>\n  <title>Landing</title>\n  <meta name=\"description\" content=\"A demo landing page\">\n</head>\n<body>\n  <h1>Hello</h1>\n  <p>Welcome to our product.</p>\n</body>\n</html>\n"
+    },
+    {
+      "artifactId": "hero.svg",
+      "kind": "svg",
+      "version": 1,
+      "seenAt": 1747000045000,
+      "path": "/w/.artifacts/hero.svg",
+      "blob": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 200 100\">\n  <rect width=\"200\" height=\"100\" fill=\"#eef\"/>\n</svg>\n"
+    },
+    {
+      "artifactId": "config.json",
+      "kind": "json",
+      "version": 1,
+      "seenAt": 1747000120000,
+      "path": "/w/.artifacts/config.json",
+      "blob": "{\n  \"name\": \"landing\",\n  \"version\": \"0.1.0\"\n}\n"
+    },
+    {
+      "artifactId": "config.json",
+      "kind": "json",
+      "version": 2,
+      "seenAt": 1747000200000,
+      "path": "/w/.artifacts/config.json",
+      "blob": "{\n  \"name\": \"landing\",\n  \"version\": \"0.2.0\",\n  \"port\": 3000\n}\n"
+    },
+    {
+      "artifactId": "build.sh",
+      "kind": "sh",
+      "version": 1,
+      "seenAt": 1747000150000,
+      "path": "/w/.artifacts/build.sh",
+      "blob": "#!/bin/sh\nset -e\nnpm install\nnpm run build\n"
+    },
+    {
+      "artifactId": "README.md",
+      "kind": "md",
+      "version": 1,
+      "seenAt": 1747000210000,
+      "path": "/w/.artifacts/README.md",
+      "blob": "# Landing\n\nStatic landing page for the demo product.\n\n## Build\n\n```sh\nsh build.sh\n```\n"
+    }
+  ]
+};
+})()

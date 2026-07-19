@@ -29,10 +29,14 @@ function freshFusion() {
 const FIXTURE_PATH = path.join(__dirname, '..', 'docs', 'rubric-fusion-fixture.json')
 const FIXTURE = JSON.parse(fs.readFileSync(FIXTURE_PATH, 'utf8'))
 
-test('fixture loads with 3 rubrics and > 30 events', () => {
+test('fixture loads with catalog-aligned rubrics and > 30 events', () => {
   const s = freshFusion()
   const res = s.loadFixture(FIXTURE)
-  assert.equal(res.rubrics, 3)
+  // Fixture now covers all 7 catalog rubrics (svg-generation, bug-fix,
+  // multi-turn-feedback, code-review, correctness-score, intent-triage,
+  // passes-bench) so every Rubrics tile has stats. Before the fix only
+  // 3 rubrics were seeded and 4 tiles read as "No scores yet."
+  assert.equal(res.rubrics, 7)
   assert.ok(res.events > 30, 'expected > 30 events, got ' + res.events)
 })
 
@@ -92,8 +96,8 @@ test('Growth view: filter chip harnessVersion narrows the series', () => {
 test('Runtime view: rolloutGridFor produces a matrix with cell pass/fail', () => {
   const s = freshFusion()
   s.loadFixture(FIXTURE)
-  const grid = s.rolloutGridFor('svg-gen', 's-svg-live')
-  assert.equal(grid.rubric.id, 'svg-gen')
+  const grid = s.rolloutGridFor('svg-generation', 's-svg-live')
+  assert.equal(grid.rubric.id, 'svg-generation')
   assert.ok(grid.rollouts.length >= 3, 'expected >= 3 rollouts for the live session')
   assert.ok(grid.dims.length === 3, 'svg-gen has 3 dims')
   // Assert we have at least one pass AND at least one fail — the fixture
@@ -107,7 +111,7 @@ test('Runtime view: rolloutGridFor produces a matrix with cell pass/fail', () =>
 test('Runtime view: rolloutGridFor sessionId=null aggregates all rollouts', () => {
   const s = freshFusion()
   s.loadFixture(FIXTURE)
-  const grid = s.rolloutGridFor('svg-gen', null)
+  const grid = s.rolloutGridFor('svg-generation', null)
   // The fixture has rollouts 1..8 for svg-gen (5 seed sessions + 3 on
   // the live session).
   assert.deepEqual(grid.rollouts, [1, 2, 3, 4, 5, 6, 7, 8])

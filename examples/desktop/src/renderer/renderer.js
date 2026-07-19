@@ -4291,13 +4291,29 @@ function refreshChatSideDrawer() {
     sessionId: state.activeSessionId || '',
     model: meta && (meta.model || (meta.header && meta.header.model)) || '',
     events,
-    selectedTurnId: null,
+    selectedTurnId: state.chatSelectedTurnId || null,
     onSelect(row) {
-      if (!row || !row.turnId) return
+      if (!row) return
+      // User rows have no turnId — scroll to the matching data-seq
+      // anchor instead of the no-op early return. Cursor:pointer on
+      // the whole row promises interactivity; without this the row
+      // reads as a dead affordance.
+      if (row.kind === 'user' && row.seq) {
+        const seqTarget = streamEl && streamEl.querySelector(`[data-seq="${row.seq}"]`)
+        if (seqTarget && typeof seqTarget.scrollIntoView === 'function') {
+          seqTarget.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+        return
+      }
+      if (!row.turnId) return
+      state.chatSelectedTurnId = row.turnId
       const target = streamEl && streamEl.querySelector(`[data-turn-id="${row.turnId}"]`)
       if (target && typeof target.scrollIntoView === 'function') {
         target.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }
+      // Re-render so the .active highlight lands on the row we just
+      // clicked. Keeps drawer state in sync with the stream focus.
+      refreshChatSideDrawerIfOpen()
     },
   })
 }
@@ -4343,15 +4359,34 @@ function refreshSessionGraph() {
   const events = (meta && Array.isArray(meta.cachedEvents)) ? meta.cachedEvents : []
   api.renderSessionGraph(chatSessionGraphEl, {
     sessionId: state.activeSessionId || '',
+    selectedTurnId: state.chatSelectedTurnId || null,
     events,
     onSelect(node) {
-      if (!node || !node.turnId) return
+      if (!node) return
+      // Fork nodes point at a child session — clicking follows the
+      // fork. Without this the cursor:pointer node reads as dead.
+      if (node.kind === 'fork' && node.childSessionId) {
+        try { selectSession(node.childSessionId) } catch (_) { /* stale id */ }
+        return
+      }
+      // User nodes have no turnId — scroll to the message via data-seq.
+      if (node.kind === 'user' && node.seq) {
+        setChatView('list')
+        const sTarget = streamEl && streamEl.querySelector(`[data-seq="${node.seq}"]`)
+        if (sTarget && typeof sTarget.scrollIntoView === 'function') {
+          sTarget.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+        return
+      }
+      if (!node.turnId) return
+      state.chatSelectedTurnId = node.turnId
       // Jump to the turn in the List view and focus it.
       setChatView('list')
       const target = streamEl && streamEl.querySelector(`[data-turn-id="${node.turnId}"]`)
       if (target && typeof target.scrollIntoView === 'function') {
         target.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }
+      refreshChatSideDrawerIfOpen()
     },
   })
 }

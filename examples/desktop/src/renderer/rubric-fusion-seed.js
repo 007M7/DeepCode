@@ -1,3 +1,7 @@
+// Auto-inlined fusion fixture. Renderer runs at file:// so we inline
+// docs/rubric-fusion-fixture.json here instead of relying on fetch().
+// To refresh: node scripts/regen-rubric-fusion-seed.js
+
 'use strict'
 ;(function () {
   if (typeof window === 'undefined') return
@@ -5,7 +9,7 @@
   "_note": "Rubric fusion fixture — feeds Rubrics/Growth/Runtime demo. All demo-tier data.",
   "rubrics": [
     {
-      "id": "svg-gen",
+      "id": "svg-generation",
       "name": "SVG generation",
       "group": "interaction-reasoning",
       "description": "Iterative SVG editing over 3-5 turns. Judged for shape correctness, style consistency, and no-regression.",
@@ -97,6 +101,74 @@
           "max": 5
         }
       ]
+    },
+    {
+      "id": "code-review",
+      "name": "Code review",
+      "group": "se-process",
+      "description": "Reviewer rubric — style, correctness, test-coverage feedback quality.",
+      "dims": [
+        {
+          "id": "verdict",
+          "label": "Review verdict",
+          "type": "categorical",
+          "values": [
+            "reject",
+            "revise",
+            "approve"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "correctness-score",
+      "name": "Correctness score",
+      "group": "fix-optimize",
+      "description": "Continuous 0-1 correctness on trajectory's stated goal.",
+      "dims": [
+        {
+          "id": "correctness",
+          "label": "Correctness",
+          "type": "continuous",
+          "min": 0,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "id": "intent-triage",
+      "name": "Intent triage",
+      "group": "interaction-reasoning",
+      "description": "Categorical verdict — bad · ok · good.",
+      "dims": [
+        {
+          "id": "verdict",
+          "label": "Triage verdict",
+          "type": "categorical",
+          "values": [
+            "bad",
+            "ok",
+            "good"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "passes-bench",
+      "name": "Passes bench",
+      "group": "se-process",
+      "description": "Boolean pass/fail on bench probe.",
+      "dims": [
+        {
+          "id": "passes",
+          "label": "Passes bench probe",
+          "type": "boolean",
+          "labels": {
+            "true": "pass",
+            "false": "fail"
+          }
+        }
+      ]
     }
   ],
   "similarClasses": [
@@ -117,7 +189,7 @@
   "events": [
     {
       "ts": 1720915200000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "shape-correct",
       "sessionId": "s-svg-1",
       "turnId": "t1",
@@ -129,7 +201,7 @@
     },
     {
       "ts": 1720915200000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "style-consistent",
       "sessionId": "s-svg-1",
       "turnId": "t1",
@@ -141,7 +213,7 @@
     },
     {
       "ts": 1720915200000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "no-regress",
       "sessionId": "s-svg-1",
       "turnId": "t1",
@@ -153,7 +225,7 @@
     },
     {
       "ts": 1721001600000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "shape-correct",
       "sessionId": "s-svg-2",
       "turnId": "t2",
@@ -165,7 +237,7 @@
     },
     {
       "ts": 1721001600000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "style-consistent",
       "sessionId": "s-svg-2",
       "turnId": "t2",
@@ -177,7 +249,7 @@
     },
     {
       "ts": 1721001600000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "no-regress",
       "sessionId": "s-svg-2",
       "turnId": "t2",
@@ -189,7 +261,7 @@
     },
     {
       "ts": 1721088000000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "shape-correct",
       "sessionId": "s-svg-3",
       "turnId": "t3",
@@ -201,7 +273,7 @@
     },
     {
       "ts": 1721088000000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "style-consistent",
       "sessionId": "s-svg-3",
       "turnId": "t3",
@@ -213,7 +285,7 @@
     },
     {
       "ts": 1721088000000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "no-regress",
       "sessionId": "s-svg-3",
       "turnId": "t3",
@@ -225,7 +297,7 @@
     },
     {
       "ts": 1721174400000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "shape-correct",
       "sessionId": "s-svg-4",
       "turnId": "t4",
@@ -237,7 +309,7 @@
     },
     {
       "ts": 1721174400000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "style-consistent",
       "sessionId": "s-svg-4",
       "turnId": "t4",
@@ -249,7 +321,7 @@
     },
     {
       "ts": 1721174400000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "no-regress",
       "sessionId": "s-svg-4",
       "turnId": "t4",
@@ -261,7 +333,7 @@
     },
     {
       "ts": 1721260800000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "shape-correct",
       "sessionId": "s-svg-5",
       "turnId": "t5",
@@ -273,7 +345,7 @@
     },
     {
       "ts": 1721260800000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "style-consistent",
       "sessionId": "s-svg-5",
       "turnId": "t5",
@@ -285,7 +357,7 @@
     },
     {
       "ts": 1721260800000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "no-regress",
       "sessionId": "s-svg-5",
       "turnId": "t5",
@@ -297,7 +369,7 @@
     },
     {
       "ts": 1721260800000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "shape-correct",
       "sessionId": "s-svg-live",
       "turnId": "tL",
@@ -309,7 +381,7 @@
     },
     {
       "ts": 1721260800000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "style-consistent",
       "sessionId": "s-svg-live",
       "turnId": "tL",
@@ -321,7 +393,7 @@
     },
     {
       "ts": 1721260800000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "no-regress",
       "sessionId": "s-svg-live",
       "turnId": "tL",
@@ -333,7 +405,7 @@
     },
     {
       "ts": 1721260800000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "shape-correct",
       "sessionId": "s-svg-live",
       "turnId": "tL",
@@ -345,7 +417,7 @@
     },
     {
       "ts": 1721260800000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "style-consistent",
       "sessionId": "s-svg-live",
       "turnId": "tL",
@@ -357,7 +429,7 @@
     },
     {
       "ts": 1721260800000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "no-regress",
       "sessionId": "s-svg-live",
       "turnId": "tL",
@@ -369,7 +441,7 @@
     },
     {
       "ts": 1721260800000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "shape-correct",
       "sessionId": "s-svg-live",
       "turnId": "tL",
@@ -381,7 +453,7 @@
     },
     {
       "ts": 1721260800000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "style-consistent",
       "sessionId": "s-svg-live",
       "turnId": "tL",
@@ -393,7 +465,7 @@
     },
     {
       "ts": 1721260800000,
-      "rubricId": "svg-gen",
+      "rubricId": "svg-generation",
       "dimId": "no-regress",
       "sessionId": "s-svg-live",
       "turnId": "tL",
@@ -615,6 +687,150 @@
       "turnId": "t3",
       "rolloutIdx": 1,
       "score": 5,
+      "harnessVersion": "v0.11",
+      "model": "deepseek-r1",
+      "dataMix": "mix-c"
+    },
+    {
+      "ts": 1721088000000,
+      "rubricId": "code-review",
+      "dimId": "verdict",
+      "sessionId": "s-cr-1",
+      "turnId": "t1",
+      "rolloutIdx": 1,
+      "score": "revise",
+      "harnessVersion": "v0.10",
+      "model": "deepseek-r1",
+      "dataMix": "mix-b"
+    },
+    {
+      "ts": 1721174400000,
+      "rubricId": "code-review",
+      "dimId": "verdict",
+      "sessionId": "s-cr-2",
+      "turnId": "t2",
+      "rolloutIdx": 1,
+      "score": "approve",
+      "harnessVersion": "v0.11",
+      "model": "deepseek-r1",
+      "dataMix": "mix-b"
+    },
+    {
+      "ts": 1721260800000,
+      "rubricId": "code-review",
+      "dimId": "verdict",
+      "sessionId": "s-cr-3",
+      "turnId": "t3",
+      "rolloutIdx": 1,
+      "score": "approve",
+      "harnessVersion": "v0.11",
+      "model": "deepseek-r1",
+      "dataMix": "mix-c"
+    },
+    {
+      "ts": 1721088000000,
+      "rubricId": "correctness-score",
+      "dimId": "correctness",
+      "sessionId": "s-cs-1",
+      "turnId": "t1",
+      "rolloutIdx": 1,
+      "score": 0.62,
+      "harnessVersion": "v0.10",
+      "model": "deepseek-r1",
+      "dataMix": "mix-b"
+    },
+    {
+      "ts": 1721174400000,
+      "rubricId": "correctness-score",
+      "dimId": "correctness",
+      "sessionId": "s-cs-2",
+      "turnId": "t2",
+      "rolloutIdx": 1,
+      "score": 0.78,
+      "harnessVersion": "v0.11",
+      "model": "deepseek-r1",
+      "dataMix": "mix-b"
+    },
+    {
+      "ts": 1721260800000,
+      "rubricId": "correctness-score",
+      "dimId": "correctness",
+      "sessionId": "s-cs-3",
+      "turnId": "t3",
+      "rolloutIdx": 1,
+      "score": 0.85,
+      "harnessVersion": "v0.11",
+      "model": "deepseek-r1",
+      "dataMix": "mix-c"
+    },
+    {
+      "ts": 1721088000000,
+      "rubricId": "intent-triage",
+      "dimId": "verdict",
+      "sessionId": "s-it-1",
+      "turnId": "t1",
+      "rolloutIdx": 1,
+      "score": "ok",
+      "harnessVersion": "v0.10",
+      "model": "deepseek-r1",
+      "dataMix": "mix-b"
+    },
+    {
+      "ts": 1721174400000,
+      "rubricId": "intent-triage",
+      "dimId": "verdict",
+      "sessionId": "s-it-2",
+      "turnId": "t2",
+      "rolloutIdx": 1,
+      "score": "good",
+      "harnessVersion": "v0.11",
+      "model": "deepseek-r1",
+      "dataMix": "mix-b"
+    },
+    {
+      "ts": 1721260800000,
+      "rubricId": "intent-triage",
+      "dimId": "verdict",
+      "sessionId": "s-it-3",
+      "turnId": "t3",
+      "rolloutIdx": 1,
+      "score": "good",
+      "harnessVersion": "v0.11",
+      "model": "deepseek-r1",
+      "dataMix": "mix-c"
+    },
+    {
+      "ts": 1721088000000,
+      "rubricId": "passes-bench",
+      "dimId": "passes",
+      "sessionId": "s-pb-1",
+      "turnId": "t1",
+      "rolloutIdx": 1,
+      "score": false,
+      "harnessVersion": "v0.10",
+      "model": "deepseek-r1",
+      "dataMix": "mix-b"
+    },
+    {
+      "ts": 1721174400000,
+      "rubricId": "passes-bench",
+      "dimId": "passes",
+      "sessionId": "s-pb-2",
+      "turnId": "t2",
+      "rolloutIdx": 1,
+      "score": true,
+      "harnessVersion": "v0.11",
+      "model": "deepseek-r1",
+      "dataMix": "mix-b"
+    },
+    {
+      "ts": 1721260800000,
+      "rubricId": "passes-bench",
+      "dimId": "passes",
+      "sessionId": "s-pb-3",
+      "turnId": "t3",
+      "rolloutIdx": 1,
+      "score": true,
       "harnessVersion": "v0.11",
       "model": "deepseek-r1",
       "dataMix": "mix-c"

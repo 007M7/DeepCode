@@ -472,4 +472,17 @@
   // tri-view instead of on the index. Auto-drill only fires when the caller
   // has a valid sessionId; the internal path already handles refresh + rehydrate.
   window.__dshTracingPage = { show, closeDrill, openDrill }
+
+  // Runtime → Rubric grid cell click dispatches `dsh:rubric-cell-jump`. The
+  // upstream fires with { sessionId, turnId } detail and calls __dshTabs to
+  // switch, but drops the ids. Wire the drill here so clicking a cell
+  // actually lands the user inside that session's trace — the whole value
+  // prop of the grid.
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('dsh:rubric-cell-jump', function (ev) {
+      const detail = ev && ev.detail
+      if (!detail || !detail.sessionId) return
+      try { openDrill(detail.sessionId) } catch (_) { /* drill unavailable — swallow */ }
+    })
+  }
 })()

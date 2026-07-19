@@ -12574,6 +12574,18 @@ button.artifact-version:hover {
   border: 1px dashed var(--border); border-radius: 4px;
   margin-top: 4px;
 }
+.artifact-evolution-banner {
+  padding: 6px 8px; font-size: 11px; line-height: 1.4;
+  border-left: 2px solid var(--border);
+  background: var(--bg-elev);
+  border-radius: 0 4px 4px 0;
+  margin: 4px 0 6px 0;
+}
+.artifact-panel-empty {
+  padding: 12px 10px;
+  text-align: center;
+  line-height: 1.5;
+}
 .artifact-evolution-diff-body {
   margin-top: 4px;
   border: 1px solid var(--border); border-radius: 4px;

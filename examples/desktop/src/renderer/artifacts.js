@@ -176,6 +176,12 @@
       b.panelEl = buildPanel()
       stream.appendChild(b.panelEl)
     }
+    // Remove the cold-clone empty-state hint (if present) once we have
+    // a real artifact to show. Introduced by lane-usability-fix so
+    // seedBoardFixture's placeholder gets swept when a real artifact
+    // event arrives.
+    const emptyHint = b.panelEl.querySelector('[data-role="empty-state"]')
+    if (emptyHint && emptyHint.parentNode) emptyHint.parentNode.removeChild(emptyHint)
     const groupHost = b.panelEl.querySelector('.artifact-group')
     groupHost.appendChild(el)
   }
@@ -458,20 +464,71 @@
     setTimeout(() => el.classList.remove('artifact-flash'), 900)
   }
 
-  // Debug menu button — mocks a write into the artifact dir via IPC.
+  // Debug menu button — seeds the board/timeline/evolution demo. The
+  // real ArtifactServer broadcasts fs writes with no blob content, so
+  // cold-clone researchers never see the Board/Timeline/Evolution
+  // views' actual affordances. We route the multi-kind, multi-version
+  // fixture through the same onArtifactEvent entry the real wire uses
+  // so all three tabs light up via the production code path. When the
+  // seed is unavailable we fall back to the original IPC single-file
+  // mock.
   function bindMockButton() {
     const btn = document.getElementById('mock-artifact')
     if (!btn) return
     btn.addEventListener('click', async () => {
       btn.disabled = true
       try {
-        await window.dsh.mockArtifact()
+        const seed = typeof window !== 'undefined' ? window.__dshArtifactBoardSeed : null
+        if (seed && Array.isArray(seed.artifacts) && seed.artifacts.length) {
+          seedBoardFixture(seed.artifacts)
+        } else if (window.dsh && typeof window.dsh.mockArtifact === 'function') {
+          await window.dsh.mockArtifact()
+        }
       } catch (err) {
-        console.error('mockArtifact failed', err)
+        console.error('mockArtifact / seed failed', err)
       } finally {
         btn.disabled = false
       }
     })
+  }
+
+  // Feed the board fixture through the same onArtifactEvent path the
+  // real ArtifactServer uses. `seenAt` is re-anchored to "moments ago"
+  // so relative-time labels don't read as ~430d against the frozen
+  // fixture timestamps. Idempotent: ensureCard() de-dups on artifactId,
+  // recordHistory() de-dups on (artifactId, version).
+  function seedBoardFixture(list) {
+    if (!Array.isArray(list) || !list.length) return
+    const base = Date.now() - list.length * 60_000
+    list.forEach((raw, i) => {
+      onArtifactEvent({ ...raw, seenAt: base + i * 60_000 })
+    })
+  }
+
+  // Cold-clone empty state: mount the panel scaffold on stream init so
+  // researchers can see List/Board/Timeline tabs (and the "no artifacts
+  // yet" hint) exist even before the first artifact:event lands. Until
+  // now the panel only appeared after the first artifact — new users
+  // saw a blank pane and had no idea the surface existed. Scoped to the
+  // active session bucket so switching sessions before any artifact
+  // fires still gets its own empty panel per session.
+  function ensureEmptyPanel() {
+    const s = streamEl()
+    if (!s) return
+    const b = bucket()
+    if (b.panelEl && b.panelEl.isConnected) return
+    b.panelEl = buildPanel()
+    // Inject a muted empty-state hint into the List body. Removed on
+    // first appendGrouped() call so real artifacts land in a clean host.
+    const body = b.panelEl.querySelector('.artifact-panel-body')
+    if (body) {
+      const hint = document.createElement('div')
+      hint.className = 'artifact-panel-empty muted small'
+      hint.dataset.role = 'empty-state'
+      hint.textContent = 'No artifacts yet — try “artifact” in the Debug menu, or run a session that writes to .artifacts/.'
+      body.appendChild(hint)
+    }
+    s.appendChild(b.panelEl)
   }
 
   // Wire up once the DOM + preload bridge are ready. The renderer script
@@ -480,10 +537,14 @@
   if (window.dsh && typeof window.dsh.onArtifact === 'function') {
     window.dsh.onArtifact(onArtifactEvent)
   }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bindMockButton)
-  } else {
+  function initDom() {
     bindMockButton()
+    ensureEmptyPanel()
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDom)
+  } else {
+    initDom()
   }
 
   // Route artifact events on a session id if the payload carries one.
@@ -510,6 +571,8 @@
     cards,
     history,
     switchView,
+    seedBoardFixture,
+    ensureEmptyPanel,
     getView: () => bucket().currentView,
     setActiveSession,
     getActiveSessionId: () => activeSessionId,

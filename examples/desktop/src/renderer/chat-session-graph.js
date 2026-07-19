@@ -169,9 +169,20 @@ function renderSessionGraph(container, snapshot) {
     label.setAttribute('y', String(pos.y + 4))
     label.textContent = node.label
     g.appendChild(label)
-    if (typeof snapshot?.onSelect === 'function' && node.turnId) {
+    // Bind click on any node that carries an actionable identifier:
+    // turn nodes → turnId, fork nodes → childSessionId, user nodes →
+    // seq. Only these get the pointer cursor; nodes without a target
+    // fall back to the default cursor so the affordance matches
+    // reality.
+    const actionable =
+      (node.turnId) ||
+      (node.kind === 'fork' && node.childSessionId) ||
+      (node.kind === 'user' && node.seq)
+    if (typeof snapshot?.onSelect === 'function' && actionable) {
       g.addEventListener('click', () => snapshot.onSelect(node))
       g.style && (g.style.cursor = 'pointer')
+    } else if (g.style) {
+      g.style.cursor = 'default'
     }
     svg.appendChild(g)
   }

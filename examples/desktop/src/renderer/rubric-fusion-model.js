@@ -178,13 +178,16 @@ function createStore() {
   // so without dedupe here, two-page seeding would double-insert every
   // event. Two-tier guard:
   //   1. WeakSet on the fixture object ref (fast path for the common
-  //      case where all pages read window.__dshRubricFusionSeed).
+  //      case where all pages read window.__dshRubricFusionSeed). Return
+  //      shape includes `deduped: true` on this fast-path hit so callers
+  //      can distinguish "already seeded" from "empty fixture".
   //   2. Per-event key dedupe inside addEvent() catches the case where a
-  //      caller passes a fresh literal that happens to carry the same
-  //      rows.
+  //      caller passes a fresh literal (or a deep-cloned copy) that
+  //      carries the same rows — the WeakSet won't help there because
+  //      the object identity differs.
   function loadFixture(json) {
     if (!json || typeof json !== 'object') return { rubrics: 0, events: 0 }
-    if (state.loadedFixtures.has(json)) return { rubrics: 0, events: 0 }
+    if (state.loadedFixtures.has(json)) return { rubrics: 0, events: 0, deduped: true }
     state.loadedFixtures.add(json)
     let rn = 0, en = 0
     for (const r of json.rubrics || []) { if (registerRubric(r)) rn++ }

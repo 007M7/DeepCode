@@ -292,6 +292,20 @@
     head.append(label, summary)
     el.append(head)
 
+    // Provenance banner: the real ArtifactServer broadcasts fs writes
+    // with no blob content, so per-hop diffs collapse to the "content
+    // not preserved" fallback in production. When any hop is missing
+    // blob content we surface why up front rather than letting the
+    // researcher assume the diff pane is broken. Fixture supplies
+    // blobs so all hops render; production doesn't, yet.
+    const missingBlobs = chain.some((c) => typeof c.blob !== 'string')
+    if (missingBlobs) {
+      const banner = document.createElement('div')
+      banner.className = 'artifact-evolution-banner muted small'
+      banner.textContent = 'Version diff currently requires blob payload. The real ArtifactServer does not preserve older blobs (RFC L-3 follow-up: snapshot store). The fixture supplies blobs for demo.'
+      el.append(banner)
+    }
+
     const chainEl = document.createElement('ol')
     chainEl.className = 'artifact-evolution-chain'
     for (let i = 0; i < chain.length; i++) {
