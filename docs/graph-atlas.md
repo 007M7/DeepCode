@@ -15,6 +15,7 @@ The process decision behind this index is recorded in [the documentation graph R
 | [echo-agent app composition](../examples/echo-agent/composition.md) | `hybrid generated` |
 | [repl-agent app composition](../examples/repl-agent/composition.md) | `hybrid generated` |
 | [tui-agent app composition](../examples/tui-agent/composition.md) | `hybrid generated` |
+| [headless-agent app composition](../examples/headless-agent/composition.md) | `hybrid generated` |
 | [cordis-agent app composition](../examples/cordis-agent/composition.md) | `hybrid generated` |
 | [acp-agent app composition](../examples/acp-agent/composition.md) | `hybrid generated` |
 | [event producer/consumer matrix](event-producer-consumer.md) | `hybrid generated` |
