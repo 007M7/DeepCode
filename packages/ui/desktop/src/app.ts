@@ -69,6 +69,8 @@ interface SessionUpdatePayload {
 
 /** One in-flight turn rendered incrementally while ACP updates stream in. */
 interface LiveTurn {
+  /** Distinguishes turns so a new prompt never reuses the previous turn's DOM skeleton. */
+  key: number
   userText?: string
   thinking: string
   answer: string
@@ -154,6 +156,9 @@ const state = {
   graph: buildTraceGraph('', []),
   expandedActivityIds: new Set<string>(),
   traceLoadRevision: 0,
+  liveTurnCounter: 0,
+  traceCatchupTimer: undefined as number | undefined,
+  traceCatchupAttempts: 0,
 }
 
 function t(key: I18nKey): string {
@@ -212,8 +217,8 @@ function buildShell(): void {
           <button class="primary-action" data-action="new-session"><span data-text="app.newChat"></span><kbd>⌘N</kbd></button>
         </section>
         <nav class="product-nav" aria-label="DeepSeek Harness modules">
-          <button class="module-button selected" data-module="sessions"><span><strong data-text="app.sessions"></strong><small data-text="app.sessionsSubtitle"></small></span></button>
-          <button class="module-button" data-module="develop"><span><strong data-text="app.develop"></strong><small data-text="app.developSubtitle"></small></span></button>
+          <button class="module-button selected" data-module="sessions" data-title="app.sessionsSubtitle"><strong data-text="app.sessions"></strong></button>
+          <button class="module-button" data-module="develop" data-title="app.developSubtitle"><strong data-text="app.develop"></strong></button>
         </nav>
         <label class="session-search">
           <span data-text="app.sessions"></span>
@@ -340,6 +345,9 @@ function applyStaticText(): void {
   for (const node of appEl.querySelectorAll<HTMLElement>('[data-text]')) {
     node.textContent = t(node.dataset.text as I18nKey)
   }
+  for (const node of appEl.querySelectorAll<HTMLElement>('[data-title]')) {
+    node.title = t(node.dataset.title as I18nKey)
+  }
   el.searchInput.placeholder = t('app.searchPlaceholder')
   el.composerInput.placeholder = state.selectedSessionId === undefined
     ? t('composer.placeholderDraft')
@@ -436,7 +444,7 @@ async function refreshSessions(preferredId?: string): Promise<void> {
   }
 }
 
-async function loadTrace(sessionId: string): Promise<void> {
+async function loadTrace(sessionId: string, resetExpansion = true): Promise<void> {
   captureFeedbackDraft()
   const revision = ++state.traceLoadRevision
   state.selectedSessionId = sessionId
@@ -450,7 +458,7 @@ async function loadTrace(sessionId: string): Promise<void> {
     showError(String(error))
   }
   if (revision !== state.traceLoadRevision || state.selectedSessionId !== sessionId) return
-  applyTrace(trace, true)
+  applyTrace(trace, resetExpansion)
 }
 
 function applyTrace(trace: TracePayload, resetExpansion: boolean): void {
@@ -476,6 +484,32 @@ function applyTrace(trace: TracePayload, resetExpansion: boolean): void {
   renderWaterfall()
   renderInspector()
   scrollChatToBottom(true)
+  scheduleTraceCatchup(sessionId)
+}
+
+/**
+ * Persisted JSONL can lag a finished turn (the runtime flushes asynchronously),
+ * which leaves the live turn on screen next to a stale conversation. Poll the
+ * trace briefly until the expected turn lands instead of waiting for a user
+ * action to trigger the next read.
+ */
+function scheduleTraceCatchup(sessionId: string): void {
+  if (state.traceCatchupTimer !== undefined) {
+    window.clearTimeout(state.traceCatchupTimer)
+    state.traceCatchupTimer = undefined
+  }
+  const live = state.live.get(sessionId)
+  if (live === undefined || state.busySessionId !== undefined || live.status === 'error') {
+    state.traceCatchupAttempts = 0
+    return
+  }
+  if (state.traceCatchupAttempts >= 12) return
+  state.traceCatchupAttempts += 1
+  state.traceCatchupTimer = window.setTimeout(() => {
+    state.traceCatchupTimer = undefined
+    if (state.selectedSessionId !== sessionId || state.busySessionId !== undefined) return
+    void loadTrace(sessionId, false)
+  }, 500)
 }
 
 function updateSessionSummaryFromTrace(trace: TracePayload): void {
@@ -515,7 +549,7 @@ function completedTurnCount(trace: TracePayload | undefined): number {
 function handleSessionUpdate(payload: SessionUpdatePayload): void {
   const update = payload.update
   const kind = String(update.sessionUpdate ?? '')
-  const live = state.live.get(payload.sessionId) ?? { thinking: '', answer: '', tools: [], expectedCompletedTurns: completedTurnCount(state.trace) + 1, status: 'streaming' as const }
+  const live = state.live.get(payload.sessionId) ?? { key: ++state.liveTurnCounter, thinking: '', answer: '', tools: [], expectedCompletedTurns: completedTurnCount(state.trace) + 1, status: 'streaming' as const }
   if (kind === 'agent_message_chunk') {
     live.answer += contentText(update.content)
     live.status = 'streaming'
@@ -593,6 +627,13 @@ function renderLiveTurn(): void {
 function ensureLiveSkeleton(live: LiveTurn): void {
   el.conversation.querySelector('.empty-thread')?.remove()
   let root = el.liveTurn.querySelector<HTMLElement>('.message.live')
+  // A stale skeleton from an earlier turn (persisted trace still lagging) must
+  // never be patched with the new turn's content — its user bubble would keep
+  // showing the previous prompt.
+  if (root !== null && root.dataset.liveKey !== String(live.key)) {
+    el.liveTurn.innerHTML = ''
+    root = null
+  }
   if (root === null) {
     el.liveTurn.innerHTML = `
       ${live.userText === undefined ? '' : `
@@ -600,7 +641,7 @@ function ensureLiveSkeleton(live: LiveTurn): void {
           <div class="message-card"><div class="user-bubble">${escapeHtml(live.userText)}</div></div>
         </article>
       `}
-      <article class="message assistant live">
+      <article class="message assistant live" data-live-key="${live.key}">
         <div class="avatar">A</div>
         <div class="message-card">
           <div class="activity-list">
@@ -663,6 +704,7 @@ async function sendPrompt(prompt: string): Promise<void> {
   }
   const draftKey = state.selectedSessionId ?? DRAFT_SESSION_ID
   state.live.set(draftKey, {
+    key: ++state.liveTurnCounter,
     userText: prompt,
     thinking: '',
     answer: '',

@@ -234,4 +234,91 @@ describe('desktop renderer chat lifecycle', () => {
     document.querySelector<HTMLButtonElement>('[data-action="jump-traj"]')!.click()
     expect(document.querySelector('#trajView')?.classList.contains('active')).toBe(true)
   })
+
+  it('starts a fresh live skeleton per turn and converges without user action when the persisted trace lags', async () => {
+    const prompts: Deferred<unknown>[] = [deferred(), deferred(), deferred()]
+    const promptQueue = [...prompts]
+    let traceRead: unknown
+    const turnEvents = (turn: number, userText: string, answer: string, base: number): unknown[] => [
+      { type: 'turn/start', seq: base, time: base + 1, data: { turn, trigger: { kind: 'message' } } },
+      { type: 'user/message', seq: base + 1, time: base + 2, data: { content: [{ type: 'text', text: userText }] } },
+      { type: 'step/start', seq: base + 2, time: base + 3, data: { turn, step: 1 } },
+      { type: 'assistant/message', seq: base + 3, time: base + 4, data: { turn, step: 1, content: [{ type: 'text', text: answer }] } },
+      { type: 'step/end', seq: base + 4, time: base + 5, data: { turn, step: 1 } },
+      { type: 'turn/end', seq: base + 5, time: base + 6, data: { turn, reason: { kind: 'completed' } } },
+    ]
+    const trace = (events: unknown[]): unknown => ({ found: true, sessionId: 's-lag', header: { id: 's-lag' }, rawText: '', feedback: [], events })
+    const turn1Trace = trace(turnEvents(1, 'first', 'first answer', 0))
+    const fullTrace = trace([
+      ...turnEvents(1, 'first', 'first answer', 0),
+      ...turnEvents(2, 'second', 'second answer', 10),
+      ...turnEvents(3, 'third', 'third answer', 20),
+    ])
+    traceRead = turn1Trace
+
+    window.dshDesktop = {
+      runtime: {
+        start: async () => ({}),
+        stop: async () => ({}),
+        restart: async () => ({}),
+        status: async () => ({ state: 'running', repoRoot: '/repo' }),
+        onStatus: () => () => {},
+        onStderr: () => () => {},
+      },
+      sessions: {
+        list: async () => ({ sessions: [] }),
+        create: async () => ({ sessionId: 's-lag', trace: trace([]) }),
+        load: async () => ({}),
+        prompt: async () => promptQueue.shift()!.promise,
+        cancel: async () => ({}),
+        reveal: async () => ({}),
+        onUpdate: () => () => {},
+      },
+      trace: { read: async () => traceRead },
+      feedback: { list: async () => [], add: async () => ({}) },
+      dev: { status: async () => ({ git: {} }) },
+    }
+
+    await import('../src/app.ts')
+    await vi.waitFor(() => {
+      expect(document.querySelector('#composerInput')).not.toBeNull()
+    })
+    const composer = document.querySelector<HTMLTextAreaElement>('#composerInput')!
+    const form = document.querySelector<HTMLFormElement>('#composerForm')!
+    const send = (text: string): void => {
+      composer.value = text
+      composer.dispatchEvent(new Event('input', { bubbles: true }))
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    }
+
+    document.querySelector<HTMLButtonElement>('[data-action="new-session"]')!.click()
+    send('first')
+    prompts[0]!.resolve({ response: {}, trace: turn1Trace })
+    await vi.waitFor(() => {
+      expect(document.querySelector('#conversation')?.textContent).toContain('first answer')
+      expect(document.querySelector('#liveTurn')?.innerHTML).toBe('')
+    })
+
+    // Turn 2 finishes but the persisted trace still lags behind: the live turn stays.
+    send('second')
+    prompts[1]!.resolve({ response: {}, trace: turn1Trace })
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLButtonElement>('#cancelButton')?.hidden).toBe(true)
+    })
+    expect(document.querySelector('#liveTurn .user-bubble')?.textContent).toBe('second')
+
+    // A third prompt must never reuse the previous turn's skeleton (swallowed-message regression).
+    send('third')
+    await vi.waitFor(() => {
+      expect(document.querySelector('#liveTurn .user-bubble')?.textContent).toBe('third')
+    })
+
+    // Once the persisted log catches up, the view converges with no user action.
+    prompts[2]!.resolve({ response: {}, trace: turn1Trace })
+    traceRead = fullTrace
+    await vi.waitFor(() => {
+      expect(document.querySelector('#conversation')?.textContent).toContain('third answer')
+      expect(document.querySelector('#liveTurn')?.innerHTML).toBe('')
+    }, { timeout: 4000 })
+  })
 })

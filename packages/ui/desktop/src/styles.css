@@ -246,9 +246,12 @@ kbd {
   transition: background 120ms var(--ease-out);
 }
 
+/* Module nav rows match the primary action exactly: one control height. */
 .module-button {
-  min-height: var(--row-list);
-  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  height: var(--control-lg);
+  padding: 0 10px;
 }
 
 .module-button:not(.selected) {
