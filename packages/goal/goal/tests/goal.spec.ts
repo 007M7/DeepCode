@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus, InjectOptions } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import { HarnessError, type ContentBlock, type MessageSource } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import GoalService, {
   GoalError,
@@ -161,6 +161,7 @@ describe('GoalService creation and replay', () => {
       code: 'GOAL_INVALID_MAX_ROUNDS',
     }))
     expect(() => ctx.goals.resolveCreate({ objective: 'x', maxGoalRounds: 1.5 })).toThrow(GoalError)
+    expect(() => ctx.goals.resolveCreate({ objective: 'x', maxGoalRounds: 1.5 })).toThrow(HarnessError)
     expect(() => ctx.goals.resolveCreate({ objective: 'x', maxGoalRounds: Number.MAX_SAFE_INTEGER + 1 })).toThrow(GoalError)
     expect(ctx.goals.create(agent, { objective: 'x' }).maxGoalRounds).toBe(256)
   })
