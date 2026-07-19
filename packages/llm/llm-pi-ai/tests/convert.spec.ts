@@ -537,6 +537,34 @@ describe('mapStopReason / mapUsage', () => {
     }))).toMatchObject({ kind: 'error', code: 'INVALID_REQUEST' })
   })
 
+  it('uses pi-ai provider-specific overflow classification without losing rate-limit exclusions', () => {
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'prompt is too long: 213462 tokens > 200000 maximum',
+    }))).toMatchObject({ kind: 'error', code: CONTEXT_WINDOW_EXCEEDED_CODE })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'ThrottlingException: Too many tokens, rate limit reached',
+    }))).toMatchObject({ kind: 'error', code: 'RATE_LIMIT' })
+  })
+
+  it('uses the resolved context window for silent and length-stop overflows', () => {
+    const silent = assistant({ stopReason: 'stop', usage: usage(101, 0) })
+    expect(mapStopReason(silent)).toEqual({ kind: 'stop' })
+    expect(mapStopReason(silent, 100)).toEqual({
+      kind: 'error',
+      message: 'pi-ai detected context overflow for model "deepseek-v4-flash"',
+      code: CONTEXT_WINDOW_EXCEEDED_CODE,
+    })
+
+    const truncated = assistant({ stopReason: 'length', usage: usage(80, 0, 19) })
+    expect(mapStopReason(truncated)).toEqual({ kind: 'max-tokens' })
+    expect(mapStopReason(truncated, 100)).toMatchObject({
+      kind: 'error',
+      code: CONTEXT_WINDOW_EXCEEDED_CODE,
+    })
+  })
+
   it('maps cache fields only when nonzero', () => {
     expect(mapUsage(usage(10, 5, 8, 2))).toEqual({
       inputTokens: 10,
