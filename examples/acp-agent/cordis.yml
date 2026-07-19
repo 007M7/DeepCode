@@ -30,6 +30,19 @@
 - id: permission
   name: '@deepseek-ai/dsh-permission'
 
+# Workspace instructions and the model-facing read/write/edit tools share the
+# local filesystem provider. fs-policy adds observed-version guards; fs-local's
+# cwd is only a resolution default, not containment, so the permission preset
+# above still confines bash only.
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.cwd()
+- id: fs-policy
+  name: '@deepseek-ai/dsh-fs-policy'
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
 # The ACP server app: the agent-spine-demo spine + JSONL persistence + the ACP bridge.
 # Persistence root: $DSH_SNAPSHOT_SESSIONS_ROOT when the snapshot harness sets it
 # (so it can harvest / isolate the log), else ./.sessions for the demo.

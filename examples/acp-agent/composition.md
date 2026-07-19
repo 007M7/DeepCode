@@ -18,6 +18,12 @@ flowchart LR
   cfg --> plugin_acp_approval
   plugin_acp_permission["permission<br/>@deepseek-ai/dsh-permission"]
   cfg --> plugin_acp_permission
+  plugin_acp_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
+  cfg --> plugin_acp_fs_local
+  plugin_acp_fs_policy["fs-policy<br/>@deepseek-ai/dsh-fs-policy"]
+  cfg --> plugin_acp_fs_policy
+  plugin_acp_tool_fs["tool-fs<br/>@deepseek-ai/dsh-tool-fs"]
+  cfg --> plugin_acp_tool_fs
   plugin_acp_acp_agent["acp-agent<br/>@deepseek-ai/dsh-acp-demo"]
   cfg --> plugin_acp_acp_agent
   plugin_acp_acp_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
@@ -58,6 +64,9 @@ flowchart LR
 | `bash` | `@deepseek-ai/dsh-bash-sandbox` |
 | `approval` | `@deepseek-ai/dsh-user-approval` |
 | `permission` | `@deepseek-ai/dsh-permission` |
+| `fs-local` | `@deepseek-ai/dsh-fs-local` |
+| `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
+| `tool-fs` | `@deepseek-ai/dsh-tool-fs` |
 | `acp-agent` | `@deepseek-ai/dsh-acp-demo` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
