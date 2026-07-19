@@ -6,10 +6,11 @@ Pre-composed plugin bundles a thin leaf `cordis.yml` loads instead of assembling
 |---|---|---|
 | `agent-spine-demo/` | `@deepseek-ai/dsh-agent-spine-demo` | The executor-less/UI-less agent spine as one bundle plugin (`timer` + `llm` + sessions + system-prompt + tools + skills + agents + invariants + `tool-bash` + workspace-context + `tool-skill` + `agent-loop`) |
 | `stdio-demo/` | `@deepseek-ai/dsh-stdio-demo` | Terminal chat app: the spine + JSONL persistence + TTY-selected `dsh-tui`/`dsh-stdio` front door + a pre-created `main` agent, with a boot `bin` |
+| `cli-demo/` | `@deepseek-ai/dsh-cli-demo` | Headless one-shot app: the spine + JSONL persistence + a pre-created `main` agent, with text and DSH-native JSON output |
 | `acp-demo/` | `@deepseek-ai/dsh-acp-demo` | ACP server app: the spine + JSONL persistence + the [`acp`](../ui/acp/README.md) bridge (no stdout logger), with a boot `bin` |
 | `jsonrpc-demo/` | `@deepseek-ai/dsh-jsonrpc-demo` | Bin-only runtime that boots an external `cordis.yml` for the stdio JSON-RPC SDK client |
 
-`agent-spine-demo` is the shared bundle; `stdio-demo` and `acp-demo` compose it with terminal and ACP front-door clusters and own their boot bins. `jsonrpc-demo` mounts no composition of its own — it boots whatever tree the deployment's `cordis.yml` names, and is what the Python SDK runtime launches.
+`agent-spine-demo` is the shared bundle; `stdio-demo`, `cli-demo`, and `acp-demo` compose it with terminal, headless one-shot, and ACP front doors and own their boot bins. `jsonrpc-demo` mounts no composition of its own — it boots whatever tree the deployment's `cordis.yml` names, and is what the Python SDK runtime launches.
 
 These are **not** product API. The spine pieces they bundle live in [`core/`](../core/README.md), the bridges/channels/boot-glue in [`ui/`](../ui/README.md), and the swappable backends (LLM adapter, bash executor) in their capability groups; a demo bundle just picks one concrete composition of them. Swap or fork one freely.
 
