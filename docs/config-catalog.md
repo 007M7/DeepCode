@@ -99,7 +99,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
+Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core-data-structures/core.md)
 
 Source: [`packages/core/agent-loop/src/index.ts:369`](../packages/core/agent-loop/src/index.ts)
 
@@ -1144,7 +1144,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts)
+Depends on: [`AgentOptions`](core-data-structures/core.md)
 
 Source: [`packages/subagent/tool-subagent/src/index.ts:23`](../packages/subagent/tool-subagent/src/index.ts)
 
