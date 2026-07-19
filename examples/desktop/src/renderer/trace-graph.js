@@ -372,6 +372,36 @@ function renderGraph(doc, input, opts) {
       class: `trace-graph-node-body family-${node.family}`,
     })
     nodeG.appendChild(circle)
+
+    // Signal ring — a colored outer stroke when this node's seq shows up
+    // in the passed signals map. Multiple signals share one ring but the
+    // tooltip enumerates them. See trace-signal-detect.js + L-2 RFC.
+    if (options.signals && typeof options.signals.get === 'function' && node.seq !== null) {
+      const sigs = options.signals.get(node.seq)
+      if (sigs && sigs.length) {
+        // Highest-priority signal wins the ring class (error > loop > redundant > plan).
+        const priority = ['tool-error', 'loop-detected', 'plan-restart', 'redundant-call', 'plan-update']
+        let winner = sigs[0]
+        let winnerRank = 999
+        for (const s of sigs) {
+          const r = priority.indexOf(s.signal)
+          if (r >= 0 && r < winnerRank) { winner = s; winnerRank = r }
+        }
+        const SD = (typeof window !== 'undefined' && window.__dshTraceSignalDetect)
+          || (typeof require !== 'undefined' ? require('./trace-signal-detect.js') : null)
+        const cls = SD ? SD.classFor(winner.signal) : 'sig-generic'
+        const ring = svgEl(doc, 'circle', {
+          cx: 0, cy: 0, r: NODE_R + 4,
+          class: `trace-graph-signal-ring ${cls}`,
+          fill: 'none',
+        })
+        const title = svgEl(doc, 'title', {})
+        title.textContent = SD ? sigs.map(s => SD.tooltipFor(s)).join('\n') : sigs.map(s => s.signal).join(', ')
+        ring.appendChild(title)
+        nodeG.appendChild(ring)
+      }
+    }
+
     const glyph = svgEl(doc, 'text', {
       x: 0, y: 4, class: 'trace-graph-node-glyph',
       'text-anchor': 'middle',

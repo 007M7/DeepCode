@@ -338,6 +338,45 @@ function renderTimeline(doc, input, opts) {
     svg.appendChild(g)
   }
 
+  // Signal badges — small filled circles hanging off the right edge of the
+  // label column for any row whose seq matches a detected/emitted signal.
+  // The `signals` option is a bySeq Map from trace-signal-detect.js. We keep
+  // this render entirely optional so tests + non-signal callers stay
+  // untouched; when no map is supplied nothing is drawn. See L-2 in
+  // docs/upstream-ledger.md for the RFC that would move detection upstream.
+  if (options.signals && typeof options.signals.get === 'function') {
+    const badgesG = svgGroup(doc, 'trace-timeline-badges')
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      if (row.seq === null) continue
+      const sigs = options.signals.get(row.seq)
+      if (!sigs || !sigs.length) continue
+      const y = topPad + i * rowH + rowH * 0.5
+      // Stack badges horizontally so multiple signals on one seq stay
+      // readable. The seed x sits just inside the label column so the
+      // badge visually "labels" the row without eating bar space.
+      let bx = labelW - 10
+      for (const sig of sigs) {
+        const cls = (typeof window !== 'undefined' && window.__dshTraceSignalDetect)
+          ? window.__dshTraceSignalDetect.classFor(sig.signal)
+          : (typeof require !== 'undefined' ? require('./trace-signal-detect.js').classFor(sig.signal) : 'sig-generic')
+        const tip = (typeof window !== 'undefined' && window.__dshTraceSignalDetect)
+          ? window.__dshTraceSignalDetect.tooltipFor(sig)
+          : (typeof require !== 'undefined' ? require('./trace-signal-detect.js').tooltipFor(sig) : sig.signal)
+        const badge = svgEl(doc, 'circle', {
+          cx: bx, cy: y, r: 4,
+          class: `trace-timeline-signal-badge ${cls}`,
+        })
+        const title = svgEl(doc, 'title', {})
+        title.textContent = tip
+        badge.appendChild(title)
+        badgesG.appendChild(badge)
+        bx -= 10
+      }
+    }
+    svg.appendChild(badgesG)
+  }
+
   // Live cursor: hairline at nowMs during streaming.
   if (typeof options.nowMs === 'number' && Number.isFinite(options.nowMs)) {
     const nx = labelW + xScale(options.nowMs)

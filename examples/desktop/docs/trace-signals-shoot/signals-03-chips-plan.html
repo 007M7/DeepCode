@@ -1,0 +1,63 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Signals 03 — Turn container: signal chip row</title>
+<style>
+  body { font: 13px system-ui, sans-serif; margin: 24px; background: #f9fafb; color: #1d1d1f; }
+  h1 { font-size: 15px; margin: 0 0 8px 0; }
+  .note { color: #6b6b70; font-size: 12px; margin: 0 0 16px 0; max-width: 720px; line-height: 1.4; }
+  .stage { background: #fff; padding: 16px; border: 1px solid #e5e5ea; border-radius: 8px; overflow-x: auto; }
+  /* Palette matches src/renderer/style.css tail block for signal badges/rings/chips. */
+  .trace-timeline-svg { font: 11px system-ui, sans-serif; }
+  .trace-timeline-tick { stroke: #d0d0d5; stroke-width: 0.5; stroke-dasharray: 2 3; }
+  .trace-timeline-tick-label { fill: #6b6b70; font-size: 10px; }
+  .trace-timeline-label { fill: #1d1d1f; font-size: 11px; }
+  .trace-timeline-bar.family-step { fill: #b0b4bd; }
+  .trace-timeline-bar.family-llm { fill: #7c3aed; }
+  .trace-timeline-bar.family-tool { fill: #b45309; }
+  .trace-timeline-bar.family-input { fill: #6b6b70; }
+  .trace-timeline-signal-badge { stroke: rgba(0,0,0,0.15); stroke-width: 0.75; }
+  .trace-timeline-signal-badge.sig-error    { fill: #dc2626; }
+  .trace-timeline-signal-badge.sig-loop     { fill: #ef4444; }
+  .trace-timeline-signal-badge.sig-redundant{ fill: #f59e0b; }
+  .trace-timeline-signal-badge.sig-plan     { fill: #2563eb; }
+  .trace-graph-svg { background: #fff; }
+  .trace-graph-node-body { fill: #f3f4f6; stroke: #9ca3af; stroke-width: 1; }
+  .trace-graph-node-body.family-tool { fill: #fde68a; stroke: #b45309; }
+  .trace-graph-node-body.family-step { fill: #e5e7eb; stroke: #6b7280; }
+  .trace-graph-node-body.family-llm { fill: #ddd6fe; stroke: #7c3aed; }
+  .trace-graph-node-glyph { font: 12px system-ui, sans-serif; fill: #1d1d1f; }
+  .trace-graph-node-label { font: 10px system-ui, sans-serif; fill: #1d1d1f; }
+  .trace-graph-edge { stroke: #9ca3af; stroke-width: 1.2; }
+  .trace-graph-signal-ring { stroke-width: 2.5; fill: none; }
+  .trace-graph-signal-ring.sig-error    { stroke: #dc2626; }
+  .trace-graph-signal-ring.sig-loop     { stroke: #ef4444; }
+  .trace-graph-signal-ring.sig-plan     { stroke: #2563eb; }
+  .assistant-turn { border-left: 3px solid #d0d0d5; padding: 12px; margin: 12px 0; background: #fff; border-radius: 6px; }
+  .turn-body { display: flex; flex-direction: column; gap: 6px; }
+  .text-block { font-size: 13px; color: #1d1d1f; }
+  .tool-row { font-family: ui-monospace, monospace; font-size: 12px; color: #4b5563; }
+  .turn-glyph { display: inline-block; width: 14px; }
+  .turn-signal-chip-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 6px 0; align-items: center; }
+  .turn-signal-chip { font-size: 11px; line-height: 1; padding: 3px 8px; border-radius: 10px; border: 1px solid transparent; background: rgba(0,0,0,0.03); color: #1d1d1f; cursor: pointer; font-family: inherit; }
+  .turn-signal-chip::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: currentColor; }
+  .turn-signal-chip.sig-error, .turn-signal-chip.sig-loop { color: #b91c1c; border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.06); }
+  .turn-signal-chip.sig-redundant { color: #92400e; border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.08); }
+  .turn-signal-chip.sig-plan { color: #1d4ed8; border-color: rgba(37,99,235,0.35); background: rgba(37,99,235,0.06); }
+</style>
+</head><body>
+  <h1>Signals 03 — Turn container: signal chip row</h1>
+  <p class="note">The chip row sits above the assistant body. Each chip covers one signal kind detected in this turn (loop / redundant / plan-update). Clicking a chip auto-opens the trace drawer for a drill-in. Signals detected in this turn: <code>plan-update, loop-detected, redundant-call</code>.</p>
+  <div class="stage">
+<section class="assistant-turn">
+  <div class="turn-body">
+    <div class="turn-signal-chip-row"><button class="turn-signal-chip sig-plan" title="Plan update · “Here is the new plan: 1. read main.ts
+2. edit imports
+3. verify.” · (heuristic)">Plan update</button><button class="turn-signal-chip sig-loop" title="Loop detected · 3 × fs.read · prior seq 3, 4 · (heuristic)">Loop detected</button><button class="turn-signal-chip sig-redundant" title="Redundant call · fs.read, matches seq 5 · (heuristic)">Redundant call</button></div>
+    <div class="text-block">Here is the new plan: 1. read main.ts, 2. edit imports, 3. verify.</div>
+    <div class="tool-row"><span class="turn-glyph">▸</span>fs.read(main.ts)</div>
+    <div class="tool-row"><span class="turn-glyph">▸</span>fs.read(main.ts)</div>
+    <div class="tool-row"><span class="turn-glyph">▸</span>fs.read(main.ts)</div>
+    <div class="tool-row"><span class="turn-glyph">▸</span>bash(ls)</div>
+    <div class="tool-row"><span class="turn-glyph">▸</span>fs.read(main.ts)</div>
+  </div>
+</section></div>
+</body></html>

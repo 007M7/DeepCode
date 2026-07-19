@@ -11510,6 +11510,64 @@ details.devtools-row[open] > .devtools-row-summary::before { transform: rotate(9
 .trace-detail-field-block[open] > .trace-detail-field-block-head::before { transform: rotate(90deg); }
 .trace-detail-field-block > .trace-detail-field-block-head:hover { background: var(--surface-hover); }
 
+/* --- trace signal badges (lane-trace-signals; see docs/upstream-ledger.md L-2) --
+ * The detector runs renderer-side until upstream emits `trace/signal` events.
+ * Colors follow the palette: red=error/loop, amber=redundant, blue=plan.
+ * Multiple signals stack horizontally on the Timeline; the Graph uses a single
+ * outer ring per node (highest-priority signal wins the color).
+ */
+.trace-timeline-signal-badge { stroke: rgba(0,0,0,0.15); stroke-width: 0.75; }
+.trace-timeline-signal-badge.sig-error    { fill: #dc2626; }
+.trace-timeline-signal-badge.sig-loop     { fill: #ef4444; }
+.trace-timeline-signal-badge.sig-redundant{ fill: #f59e0b; }
+.trace-timeline-signal-badge.sig-plan     { fill: #2563eb; }
+.trace-timeline-signal-badge.sig-plan-restart { fill: #1d4ed8; }
+.trace-timeline-signal-badge.sig-generic  { fill: #6b7280; }
+
+.trace-graph-signal-ring { stroke-width: 2.5; }
+.trace-graph-signal-ring.sig-error    { stroke: #dc2626; }
+.trace-graph-signal-ring.sig-loop     { stroke: #ef4444; }
+.trace-graph-signal-ring.sig-redundant{ stroke: #f59e0b; }
+.trace-graph-signal-ring.sig-plan     { stroke: #2563eb; }
+.trace-graph-signal-ring.sig-plan-restart { stroke: #1d4ed8; }
+.trace-graph-signal-ring.sig-generic  { stroke: #6b7280; }
+
+/* Main-flow marker chips — small pill row above the assistant turn body */
+.turn-signal-chip-row {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 4px 0 6px 0;
+  align-items: center;
+}
+.turn-signal-chip {
+  font-size: 11px; line-height: 1;
+  padding: 3px 8px; border-radius: 10px;
+  border: 1px solid transparent;
+  background: rgba(0,0,0,0.03);
+  color: #1d1d1f;
+  cursor: pointer;
+  font-family: inherit;
+}
+.turn-signal-chip:hover { filter: brightness(0.96); }
+.turn-signal-chip::before {
+  content: ''; display: inline-block; width: 6px; height: 6px;
+  border-radius: 50%; margin-right: 6px; vertical-align: 1px;
+  background: currentColor;
+}
+.turn-signal-chip.sig-error       { color: #b91c1c; border-color: rgba(220,38,38,0.35); background: rgba(220,38,38,0.06); }
+.turn-signal-chip.sig-loop        { color: #b91c1c; border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.06); }
+.turn-signal-chip.sig-redundant   { color: #92400e; border-color: rgba(245,158,11,0.4);  background: rgba(245,158,11,0.08); }
+.turn-signal-chip.sig-plan        { color: #1d4ed8; border-color: rgba(37,99,235,0.35);  background: rgba(37,99,235,0.06); }
+.turn-signal-chip.sig-plan-restart{ color: #1e3a8a; border-color: rgba(29,78,216,0.4);   background: rgba(29,78,216,0.08); }
+
+/* Dark theme reads the badges/chips against the dark surface, so bump the
+ * saturation a touch — the palette is designed for both. */
+@media (prefers-color-scheme: dark) {
+  .turn-signal-chip { background: rgba(255,255,255,0.05); color: #f3f4f6; }
+  .turn-signal-chip.sig-error, .turn-signal-chip.sig-loop { color: #fca5a5; }
+  .turn-signal-chip.sig-redundant { color: #fcd34d; }
+  .turn-signal-chip.sig-plan, .turn-signal-chip.sig-plan-restart { color: #93c5fd; }
+}
+
 /* --- onboarding overlay: first-frame FOUC guard ------------------------ */
 /* index.html declares <div id="onboarding" class="onboarding" hidden> and  */
 /* onboarding-ui.js clears the [hidden] attribute only after a first-run    */

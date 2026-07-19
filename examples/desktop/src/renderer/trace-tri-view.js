@@ -117,6 +117,12 @@
       }
       openDetailForSeq(seq, meta)
     }
+    // Signals map (bySeq) is derived once from the tri-view's records and
+    // passed to both Timeline + Graph so badge/ring placement stays
+    // consistent across view switches. See trace-signal-detect.js and
+    // docs/upstream-ledger.md L-2 for the RFC that would replace this
+    // renderer-side detection with wire-emitted `trace/signal` events.
+    const signalMap = _computeSignals(spec.records)
     function ensureTimeline() {
       if (builtTimeline) return
       builtTimeline = true
@@ -126,6 +132,7 @@
         onSeqClick: handleNodeClick,
         nowMs: typeof spec.nowMs === 'number' ? spec.nowMs : undefined,
         width: spec.scope === 'session' ? 860 : 720,
+        signals: signalMap,
       })
       panelEls.timeline.appendChild(el)
     }
@@ -134,7 +141,10 @@
       builtGraph = true
       const G = (typeof window !== 'undefined' && window.__dshTraceGraph) || null
       if (!G) { panelEls.graph.textContent = 'trace-graph.js not loaded'; return }
-      const el = G.renderGraph(doc, spec.records || [], { onSeqClick: handleNodeClick })
+      const el = G.renderGraph(doc, spec.records || [], {
+        onSeqClick: handleNodeClick,
+        signals: signalMap,
+      })
       panelEls.graph.appendChild(el)
     }
 
@@ -252,6 +262,18 @@
     const agg = (typeof window !== 'undefined' && window.__dshTraceAgg) || null
     if (!agg || typeof agg.aggregateSteps !== 'function') return []
     return agg.aggregateSteps(Array.isArray(events) ? events : [])
+  }
+
+  // Derive the signals bySeq map from a set of step-records. Falls back to
+  // an empty Map when the detector module isn't loaded, so a lean test env
+  // that only pulls tri-view keeps working.
+  function _computeSignals(records) {
+    const SD = (typeof window !== 'undefined' && window.__dshTraceSignalDetect) || null
+    if (!SD || typeof SD.detectSignalsFromRecords !== 'function') return new Map()
+    try {
+      const res = SD.detectSignalsFromRecords(records)
+      return (res && res.bySeq) || new Map()
+    } catch (_) { return new Map() }
   }
 
   // Pick the step-record whose seq range contains `seq`, preferring an

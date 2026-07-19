@@ -1553,7 +1553,88 @@ function finishTurnContainer(sessionId, { footerSpec, traceCard, traceSummaryTex
   }
   ct.section.appendChild(footer)
   ct.section.dataset.turnStatus = 'sealed'
+  // Signal marker chips: overlay any loop/redundant/plan/error signals
+  // detected in this turn's cached events onto the top of the turn
+  // section. The chip row sits above the assistant body so a reader
+  // scanning the stream sees "this turn had a loop" before deciding
+  // whether to open the trace drawer. See trace-signal-detect.js and
+  // docs/upstream-ledger.md L-2.
+  applyTurnSignalChips(sessionId, ct.section)
   state.currentTurn = null
+}
+
+// Compute+attach the signal chip row for a just-sealed turn. Reads
+// meta.cachedEvents (already populated) and detects signals whose seq
+// falls inside this turn's range. When no signals fire, no chip row is
+// added.
+function applyTurnSignalChips(sessionId, section) {
+  try {
+    const SD = window.__dshTraceSignalDetect
+    if (!SD || typeof SD.detectSignals !== 'function') return
+    const meta = state.sessions.get(sessionId)
+    if (!meta || !Array.isArray(meta.cachedEvents) || !meta.cachedEvents.length) return
+    // Restrict to events whose seq falls inside this turn's range so the
+    // chip row reflects THIS turn, not the whole session. We use the last
+    // `turn/start`→`turn/end` bracket in the cache. When no bracket is
+    // findable, fall back to detecting on the whole cache (which will still
+    // produce meaningful chips at the session scope).
+    const range = _lastTurnSeqRange(meta.cachedEvents)
+    const scope = range
+      ? meta.cachedEvents.filter(ev => typeof ev.seq === 'number'
+          && ev.seq >= range.start && ev.seq <= range.end)
+      : meta.cachedEvents
+    const { all } = SD.detectSignals(scope)
+    if (!all.length) return
+    // Dedup by signal kind for the chip row: the row is a "kinds seen"
+    // summary; the badges in the drawer show the specific seqs.
+    const seen = new Map()
+    for (const sig of all) {
+      const key = sig.signal
+      if (!seen.has(key)) seen.set(key, { signal: sig.signal, count: 1, first: sig })
+      else seen.get(key).count++
+    }
+    const row = document.createElement('div')
+    row.className = 'turn-signal-chip-row'
+    for (const entry of seen.values()) {
+      const chip = document.createElement('button')
+      chip.type = 'button'
+      chip.className = `turn-signal-chip ${SD.classFor(entry.signal)}`
+      chip.dataset.signal = entry.signal
+      chip.textContent = entry.count > 1
+        ? `${SD.labelFor(entry.signal)} × ${entry.count}`
+        : SD.labelFor(entry.signal)
+      chip.title = SD.tooltipFor(entry.first)
+      // Clicking a chip opens the trace drawer so the reader can drill in.
+      chip.addEventListener('click', function () {
+        const drawer = section.querySelector('.turn-trace-drawer')
+        if (drawer) {
+          drawer.open = true
+          if (typeof drawer.scrollIntoView === 'function') {
+            try { drawer.scrollIntoView({ block: 'nearest' }) } catch (_) {}
+          }
+        }
+      })
+      row.appendChild(chip)
+    }
+    // Insert as the first body-child so it sits above assistant text/tool
+    // rows without breaking the turn-rule up top.
+    const body = section.querySelector('.turn-body')
+    if (body && body.firstChild) body.insertBefore(row, body.firstChild)
+    else if (body) body.appendChild(row)
+    else section.appendChild(row)
+  } catch (_) { /* chip row is a visual enhancement — never crash the stream */ }
+}
+
+function _lastTurnSeqRange(events) {
+  let start = null, end = null
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i]
+    if (!ev || typeof ev.seq !== 'number') continue
+    if (end === null && ev.type === 'turn/end') end = ev.seq
+    if (ev.type === 'turn/start') { start = ev.seq; break }
+  }
+  if (start === null || end === null) return null
+  return { start, end }
 }
 
 function ensureStreamingBubble(sessionId) {
