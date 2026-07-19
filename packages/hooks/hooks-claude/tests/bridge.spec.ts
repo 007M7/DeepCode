@@ -9,6 +9,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -288,8 +289,8 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     // Drive the observe-only lifecycle events directly (no real child needed — the
     // bridge just listens). No child agent is registered, so SubagentStart's
     // child lookup yields undefined and it simply runs the hook.
-    ctx.emit('subagent/start', { provider: 'inproc', id: SessionId('child-1') })
-    ctx.emit('subagent/end', { provider: 'inproc', id: SessionId('child-1'), stopReason: 'completed', lastAssistantMessage: [{ type: 'text', text: 'done' }] })
+    ctx.emit('subagent/start', { runId: SubagentRunId('run-1'), provider: 'inproc', id: SessionId('child-1'), local: false })
+    ctx.emit('subagent/end', { runId: SubagentRunId('run-1'), provider: 'inproc', id: SessionId('child-1'), local: false, stopReason: 'completed', lastAssistantMessage: [{ type: 'text', text: 'done' }] })
 
     // Both hooks run async (detached .then); poll for their marker files rather
     // than a fixed sleep that flakes under load.
@@ -324,7 +325,7 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     const { ctx, hooks } = await harnessWithFiber(dir, new MockAdapter([]))
     const warn = vi.fn()
     ctx.logger.warn = warn as never
-    ctx.emit('subagent/start', { provider: 'inproc', id: SessionId('child-1') })
+    ctx.emit('subagent/start', { runId: SubagentRunId('run-1'), provider: 'inproc', id: SessionId('child-1'), local: false })
     await waitFor(() => existsSync(marker))
     const pid = Number(readFileSync(pidFile, 'utf8').trim())
     await hooks.dispose()

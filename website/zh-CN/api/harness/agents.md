@@ -105,6 +105,21 @@ Look up a live agent.
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L439)
 
+### ctx.agents.isOwnedBy(id, owner)
+
+```ts website-api
+isOwnedBy(id: SessionId, owner: Agent): boolean
+```
+
+Test whether a live agent was created through one exact parent agent's scoped context. Runtime ownership is independent of durable session lineage and remains unambiguous when unrelated providers reuse an id.
+
+- `id` — the candidate child agent's shared agent/session id.
+- `owner` — the expected runtime creator agent.
+
+**Returns** true only while the exact child entry is live under that owner.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L451)
+
 ### ctx.agents.list()
 
 ```ts website-api
@@ -115,7 +130,7 @@ All live agents, in registration order.
 
 **Returns** a fresh array; mutating it does not affect the registry.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L447)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L459)
 
 ### ctx.agents.roots()
 
@@ -127,4 +142,4 @@ All live top-level agents in registration order. A top-level agent was created w
 
 **Returns** a fresh array; mutating it does not affect the registry.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L457)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/index.ts#L469)

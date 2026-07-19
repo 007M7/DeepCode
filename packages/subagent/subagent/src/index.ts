@@ -28,6 +28,7 @@
  * @module @deepseek-ai/dsh-subagent
  */
 
+import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
@@ -43,7 +44,9 @@ import type {
   SubagentRun,
   SubagentStartRequest,
 } from './types.ts'
+import { SubagentRunId } from './types.ts'
 
+export { SubagentRunId } from './types.ts'
 export type {
   SubagentCapabilities,
   SubagentProvider,
@@ -112,18 +115,26 @@ declare module 'cordis' {
 
 /** Observe-only identifying detail for a ready subagent run. */
 export interface SubagentRunInfo {
+  /** Unique identity shared with the paired terminal event. */
+  readonly runId: SubagentRunId
   /** The provider that established the run. */
   readonly provider: string
   /** The child agent's id. */
   readonly id: SessionId
+  /** Snapshot of whether `SubagentRun.localAgent` was present when start fulfilled. */
+  readonly local: boolean
 }
 
 /** Observe-only outcome detail for a settled subagent run. */
 export interface SubagentRunEndInfo {
+  /** Unique identity shared with the paired start event. */
+  readonly runId: SubagentRunId
   /** The provider that ran it. */
   readonly provider: string
   /** The child agent's id. */
   readonly id: SessionId
+  /** Snapshot of whether `SubagentRun.localAgent` was present when start fulfilled. */
+  readonly local: boolean
   /** The terminal stop reason. */
   readonly stopReason: SubagentResult['stopReason']
   /** The child's final assistant output, absent on infrastructure rejection. */
@@ -208,22 +219,28 @@ export class SubagentService extends Service {
 
     const parent = request.parent
     const run = await provider.start(request)
+    const runId = SubagentRunId(randomUUID())
+    const lifecycleIdentity = {
+      runId,
+      provider: name,
+      id: run.id,
+      local: run.localAgent !== undefined,
+    }
     // Attach the terminal observer before dispatching start. Promise reactions
     // still run after this synchronous start emission, preserving start → end.
     void run.result.then(
       (result) => {
         this.emitLifecycle('subagent/end', {
-          provider: name,
-          id: run.id,
+          ...lifecycleIdentity,
           stopReason: result.stopReason,
           lastAssistantMessage: result.output,
         }, parent)
       },
       () => {
-        this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: 'error' }, parent)
+        this.emitLifecycle('subagent/end', { ...lifecycleIdentity, stopReason: 'error' }, parent)
       },
     )
-    this.emitLifecycle('subagent/start', { provider: name, id: run.id }, parent)
+    this.emitLifecycle('subagent/start', lifecycleIdentity, parent)
     return run
   }
 

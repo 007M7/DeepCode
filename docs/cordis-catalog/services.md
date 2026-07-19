@@ -33,6 +33,7 @@ register(agent: Agent): () => void
 enter(agent: Agent, owner: Agent | undefined): () => void
 announce(agent: Agent): void
 get(id: SessionId): Agent | undefined
+isOwnedBy(id: SessionId, owner: Agent): boolean
 list(): Agent[]
 roots(): Agent[]
 ```
@@ -263,7 +264,7 @@ list(): string[]
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:142`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:153`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 

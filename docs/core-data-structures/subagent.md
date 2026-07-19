@@ -69,12 +69,15 @@ interface SubagentStopReasonMap {
 ```ts type-equiv
 interface SubagentRun {
   readonly id: SessionId
+  readonly localAgent: Agent | undefined
   readonly result: Promise<SubagentResult>
   dispose(): Promise<void>
   sendMessage?(content: ContentBlock[]): void
   resume?(content: ContentBlock[]): Promise<SubagentRun>
 }
 ```
+
+A local run MUST publish an ordinary child agent/session before `start()` fulfills, return that child session id as `SubagentRun.id`, expose the exact child as `localAgent`, and record `request.parent.session.id` in the child's `parentSession` header. Runtime ownership may place the child under the parent, provider, or root scope. A remote provider instead returns a parent-scoped lifecycle id and `localAgent: undefined`.
 
 ## The provider seam: `SubagentProvider`
 
@@ -89,7 +92,7 @@ interface SubagentProvider {
 }
 ```
 
-`start()` fulfills only with a ready run. The service observes its result, emits `subagent/start`, and returns the same run; rejection implies provider cleanup and emits no lifecycle pair. In-process children are discoverable through `ctx.agents`, while remote children need not be. `subagent/end` reports final output or infrastructure failure. Both events are observe-only and contain listener exceptions.
+`start()` fulfills only with a ready run. The service mints a unique `runId`, snapshots `local` from the provider's exact `localAgent`, observes the result, emits `subagent/start`, and returns the same run; rejection implies provider cleanup and emits no lifecycle pair. The paired `subagent/end` carries the same identity and the final output or infrastructure failure. Both events are observe-only and contain listener exceptions.
 
 ## In-process backends: depth and seed
 

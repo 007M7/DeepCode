@@ -72,6 +72,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'enter(agent: Agent, owner: Agent | undefined): () => void',
       'announce(agent: Agent): void',
       'get(id: SessionId): Agent | undefined',
+      'isOwnedBy(id: SessionId, owner: Agent): boolean',
       'list(): Agent[]',
       'roots(): Agent[]',
     ],
@@ -1028,7 +1029,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentRun',
-    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    sendMessage?(content: ContentBlock[]): void;\n    resume?(content: ContentBlock[]): Promise<SubagentRun>;\n}',
+    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    sendMessage?(content: ContentBlock[]): void;\n    resume?(content: ContentBlock[]): Promise<SubagentRun>;\n}',
   },
   {
     name: 'SubagentStartRequest',
