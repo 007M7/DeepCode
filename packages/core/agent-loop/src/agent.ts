@@ -387,7 +387,7 @@ export class ReactLoopAgent implements Agent {
   [startDriver](): void {
     if (this._status === 'disposed') return
     this.driverStarted = true
-    this.done = this.loopCtx.agents.withInitiator(this, () => runLoop(this.loopCtx, this, {
+    this.done = this.loopCtx.agents.withInitiator(this, () => runLoop(this.loopCtx, {
       inbox: this.#inbox,
       maxParallelToolCalls: this.maxParallelToolCalls,
       setStatus: (status) => { this.setStatus(status) },
