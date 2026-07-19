@@ -1,10 +1,10 @@
-# RFC: Hook snapshot matrix — end-to-end goldens for both bridges
+# RFC: Hook snapshot matrix — end-to-end expected outputs for both bridges
 
 Status: implemented
 
 ## Problem
 
-The hook bridges — [`dsh-hooks-claude`](../../../../packages/hooks/hooks-claude) (7 Claude Code hook points) and [`dsh-hooks-codex`](../../../../packages/hooks/hooks-codex) (5 Codex points) — map external hook commands onto the harness interception seams. They carry deep unit and coverage-spec coverage (every decision arm, every payload dialect, driven against a mocked seam) plus one key-gated e2e (`hooks.e2e.ts`, a live `PreToolUse` block). But the full-transcript snapshot tier — the one net that boots the real `acp-agent` subprocess, replays a recorded session keyless, and diffs the normalized ACP stdout + re-persisted log against committed goldens — covered exactly ONE hook: a Claude `UserPromptSubmit` block (`hook-cc-promptsubmit-block`).
+The hook bridges — [`dsh-hooks-claude`](../../../../packages/hooks/hooks-claude) (7 Claude Code hook points) and [`dsh-hooks-codex`](../../../../packages/hooks/hooks-codex) (5 Codex points) — map external hook commands onto the harness interception seams. They carry deep unit and coverage-spec coverage (every decision arm, every payload dialect, driven against a mocked seam) plus one key-gated e2e (`hooks.e2e.ts`, a live `PreToolUse` block). But the full-transcript snapshot tier — the one net that boots the real `acp-agent` subprocess, replays a recorded session keyless, and diffs the normalized ACP stdout + re-persisted log against committed expected outputs — covered exactly ONE hook: a Claude `UserPromptSubmit` block (`hook-cc-promptsubmit-block`).
 
 That is the tier a mocked unit test structurally cannot be: it exercises the REAL bridge translating a REAL hook process's outcome into the REAL seam decision, then the REAL loop's reaction, rendered exactly as an editor sees it. A bridge-translation or loop-structure regression that left every unit green would still escape it for every hook point but one — and for the Codex bridge, the ACP example did not even LOAD it, so no Codex hook could fire end-to-end at all.
 
@@ -29,22 +29,22 @@ Thirteen scenarios under `examples/acp-agent/tests/snapshots/`, naming `hook-<di
 
 Each hook command emits only FIXED LITERAL strings (no timestamps/pids/`$RANDOM`/cwd echoes); the snapshot normalizer scrubs the one volatile field a `hook/result` carries (`durationMs`). The `Stop` scenarios self-limit with a marker file (`.stop_fired`) so the force-continue does not loop — the `stop_hook_active` loop-guard is still a bridge `TODO`, so an unconditional Stop hook would force-continue every step.
 
-The `PostToolUse` block scenarios self-limit at the mechanism they prove. The Claude hook persists a workspace marker after its first rejection, so one recovery call is allowed; the Codex prompt makes one call and reports the injected result. Each golden pins one blocked call without repeated block/retry cycles.
+The `PostToolUse` block scenarios self-limit at the mechanism they prove. The Claude hook persists a workspace marker after its first rejection, so one recovery call is allowed; the Codex prompt makes one call and reports the injected result. Each expected output pins one blocked call without repeated block/retry cycles.
 
 ### Three hook points are deliberately NOT snapshotted
 
 Discovered while building the matrix, and documented here because the omission is a decision, not an oversight:
 
-- **`SessionStart` and `SubagentStart`** inject context through a detached, best-effort `void runPoint(...).then(agent.inject())` with NO turn binding. The resulting `context/message` races the work it precedes (the first model request / the child's first turn) and lands at a nondeterministic log position. A recorded golden does not even reproduce on its own replay — a 10× replay stability check failed 10/10 for both. They stay on the bridges' unit coverage, which drives the seam directly without the timing race. (If the injection is ever made turn-bound and deterministic — the direction the `TODO(session-start-gating)` points — these become snapshottable.)
-- **`SubagentStop`** is observe-only: its `subagent/end` handler passes no turn (so no `hook/*` log events) and does no injection. It writes NOTHING to the transcript, so a golden would be byte-identical to the no-hook run and could never be proven to fail — a guard that cannot bite. It stays on unit coverage (`bridge.spec.ts` already asserts the observe-only call).
+- **`SessionStart` and `SubagentStart`** inject context through a detached, best-effort `void runPoint(...).then(agent.inject())` with NO turn binding. The resulting `context/message` races the work it precedes (the first model request / the child's first turn) and lands at a nondeterministic log position. A recorded expected output does not even reproduce on its own replay — a 10× replay stability check failed 10/10 for both. They stay on the bridges' unit coverage, which drives the seam directly without the timing race. (If the injection is ever made turn-bound and deterministic — the direction the `TODO(session-start-gating)` points — these become snapshottable.)
+- **`SubagentStop`** is observe-only: its `subagent/end` handler passes no turn (so no `hook/*` log events) and does no injection. It writes NOTHING to the transcript, so an expected output would be byte-identical to the no-hook run and could never be proven to fail — a guard that cannot bite. It stays on unit coverage (`bridge.spec.ts` already asserts the observe-only call).
 
 The matrix therefore covers every hook point that has a DETERMINISTIC, OBSERVABLE transcript footprint, for both dialects.
 
 ## Consequences
 
-- Every bridge seam mapping with an observable transcript is now guarded at the full-transcript tier, in the real app, for both dialects — including the Codex bridge, which had no end-to-end coverage at all. Recorded goldens capture the model's real reaction to a denied/blocked/force-continued turn, which a hand-authored transcript could only guess at.
+- Every bridge seam mapping with an observable transcript is now guarded at the full-transcript tier, in the real app, for both dialects — including the Codex bridge, which had no end-to-end coverage at all. Recorded expected outputs capture the model's real reaction to a denied/blocked/force-continued turn, which a hand-authored transcript could only guess at.
 - The `UserPromptSubmit` block scenarios are authored keylessly (no model turn); the rest replay keylessly from recorded fixtures. `pnpm run test:snapshot:record` regenerates the recorded fixtures from the live API and self-skips without a key like every recorded scenario.
-- The prove-red discipline holds: tampering a hook config's output (e.g. changing a deny reason) turns its scenario red on replay — the hook process runs FOR REAL during replay (only the model is replayed), so the golden guards the actual hook→seam→loop path, not a mock of it.
+- The prove-red discipline holds: tampering a hook config's output (e.g. changing a deny reason) turns its scenario red on replay — the hook process runs FOR REAL during replay (only the model is replayed), so the expected output guards the actual hook→seam→loop path, not a mock of it.
 - The `acp-agent` demo now loads a Codex bridge it will usually no-op (no `codex-hooks.json` in a typical project), which is the intended fail-soft behavior, not a cost.
 
 <!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

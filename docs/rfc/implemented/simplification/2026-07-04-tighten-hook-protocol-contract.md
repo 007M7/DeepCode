@@ -27,4 +27,4 @@ Unsupported vocabulary can return when a real consumer exists. `durationMs` rema
 
 ## Consequences
 
-The `dialect`, `suppressOutput`, tunables, and semantics changes are invisible on the wire and in the goldens. The cost was churn in `dsh-hook-protocol` and both bridges — cheap under the pre-release stance, and cheaper than letting two copies of a durable event's semantics age apart.
+The `dialect`, `suppressOutput`, tunables, and semantics changes are invisible on the wire and in the expected outputs. The cost was churn in `dsh-hook-protocol` and both bridges — cheap under the pre-release stance, and cheaper than letting two copies of a durable event's semantics age apart.
