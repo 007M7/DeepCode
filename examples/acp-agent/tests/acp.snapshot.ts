@@ -103,6 +103,7 @@ const SCENARIOS: Scenario[] = [
     configPath: WORKSPACE_CONTEXT_CONFIG,
   },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
+  { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true },
   { name: 'subagent-spawn', hasModelTurn: true, recorded: true },
   { name: 'subagent-multi', hasModelTurn: true, recorded: true },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },
