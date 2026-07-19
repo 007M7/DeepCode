@@ -19,7 +19,6 @@ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
-import type { ReactLoopAgent } from './agent.ts'
 import type { Inbox } from './inbox.ts'
 
 /** An Error with an optional machine-readable code (e.g., from LlmError or a throwing plugin). */
@@ -96,11 +95,13 @@ export interface LoopHandle {
 /**
  * Drive queued batches as durable turns until disposal. Plugin failures end the
  * current turn without terminating the driver.
- * @param ctx - the plugin context the loop reaches events (agent/…, session/flush) and services (systemPrompt, llm, tools) through.
- * @param agent - the agent this invocation drives for its whole lifetime (its inbox, session, and options).
+ * @param ctx - the plugin context the loop reaches its initiating Agent,
+ * events (agent/…, session/flush), and services (systemPrompt, llm, tools)
+ * through.
  * @param handle - the bridge to the agent's mutable state: status/abort setters plus the disposal and cancel-marker reads.
  */
-export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle): Promise<void> {
+export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
+  const agent = ctx.agents.requireInitiator()
   // Per-instance prefix and request-header state; conversation history remains in the session log.
   const transmission = createTransmissionLog()
 
@@ -138,7 +139,7 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     const turn = lastTurnNumber(session) + 1
     let terminalStopped = false
     try {
-      terminalStopped = await runTurn(ctx, events, agent, handle, turn, transmission)
+      terminalStopped = await runTurn(ctx, events, handle, turn, transmission)
     } catch (error: unknown) {
       // Pre-turn failure has no durable boundary to close; report it without appending outside a turn.
       const err = toError(error)
@@ -161,8 +162,9 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
 }
 
 async function runTurn(
-  ctx: Context, events: AgentEventDispatch, agent: ReactLoopAgent, handle: LoopHandle, turn: number, transmission: TransmissionLog,
+  ctx: Context, events: AgentEventDispatch, handle: LoopHandle, turn: number, transmission: TransmissionLog,
 ): Promise<boolean> {
+  const agent = ctx.agents.requireInitiator()
   const { session } = agent
 
   // Drain before opening the turn, but append only after `turn/start`.
@@ -262,7 +264,7 @@ async function runTurn(
 
       // Steering from the previous round's continuation listeners joins before
       // the request.
-      drainSteering(agent, handle.inbox, turn)
+      drainSteering(session, handle.inbox, turn)
 
       // The step's AbortController exists BEFORE any async pre-step work so a
       // dispose() or cancel() — in a synchronous turn-start listener or an
@@ -336,7 +338,7 @@ async function runTurn(
       let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
         stepOutcome = await runStep(
-          ctx, events, agent, handle, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
+          ctx, events, handle, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
       } catch (error: unknown) {
         stepOutcome = { error: toError(error) }
       } finally {
@@ -365,7 +367,7 @@ async function runTurn(
       if (stepReason) reason = stepReason
 
       // Steering that arrived during streaming/tool execution.
-      const steered = drainSteering(agent, handle.inbox, turn)
+      const steered = drainSteering(session, handle.inbox, turn)
 
       closeStep()
 
@@ -455,10 +457,10 @@ async function runTurn(
 }
 
 /** Drain the steering queue into the session. Returns whether any arrived. */
-function drainSteering(agent: ReactLoopAgent, inbox: Inbox, turn: number): boolean {
+function drainSteering(session: Session, inbox: Inbox, turn: number): boolean {
   const messages = inbox.drainSteering()
   for (const message of messages) {
-    agent.session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
+    session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
   }
   return messages.length > 0
 }
@@ -472,7 +474,6 @@ function drainSteering(agent: ReactLoopAgent, inbox: Inbox, turn: number): boole
 async function runStep(
   ctx: Context,
   events: AgentEventDispatch,
-  agent: ReactLoopAgent,
   handle: LoopHandle,
   turn: number,
   step: number,
@@ -482,6 +483,7 @@ async function runStep(
   transmission: TransmissionLog,
   signal: AbortSignal,
 ): Promise<{ hadToolCalls: boolean; finish: FinishReason }> {
+  const agent = ctx.agents.requireInitiator()
   const { session, options } = agent
 
   // Seed the first request from agent options and later requests from the logged header;
@@ -567,7 +569,7 @@ async function runStep(
   if (toolCalls.length === 0) return { hadToolCalls: false, finish: assembler.finish }
   return handle.withToolBatch(async (acceptContext) => {
     await executeToolCalls(
-      ctx, agent, turn, step, toolCalls, signal, handle.maxParallelToolCalls, acceptContext,
+      ctx, turn, step, toolCalls, signal, handle.maxParallelToolCalls, acceptContext,
     )
     return { hadToolCalls: true, finish: assembler.finish }
   })
