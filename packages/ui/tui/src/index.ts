@@ -1342,7 +1342,7 @@ export function mountTui(ctx: Context, config: Config, runtime: TuiRuntime): voi
 
 /** Cordis entry point using the process terminal; explicit TUI composition requires a TTY pair. */
 /* v8 ignore start -- production process wiring; fake-terminal tests cover mountTui/createTuiChat,
-   and the coding-agent PTY smoke covers the real entry */
+   and the repl-agent PTY smoke covers the real entry */
 export function apply(ctx: Context, config: Config): void {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('ui-tui: both stdin and stdout must be TTYs; use @deepseek-ai/dsh-stdio for pipes')

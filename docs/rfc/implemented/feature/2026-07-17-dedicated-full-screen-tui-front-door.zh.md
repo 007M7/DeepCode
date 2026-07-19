@@ -14,7 +14,7 @@ Status: implemented
 
 DeepSeek Harness 将 [`@deepseek-ai/dsh-tui`](../../../../packages/ui/tui/README.md) 作为独立的 Cordis 插件交付。该插件只负责终端输入与呈现；agent 生命周期、会话持久化、工具执行以及模型可见的提问工具仍由不同组合项负责。插件要求 stdin 和 stdout 均为 TTY；条件不满足时会失败，不会静默切换为逐行输出。
 
-应用组合层在挂载前选择具体的终端入口。`@deepseek-ai/dsh-stdio-demo` 可以根据两个进程流通过 `auto` 作出选择，`coding-agent` 和 `tui-agent` 叶节点则分别明确选择 readline 与 TUI。TUI 叶节点通过带断言的 include patch 复用 coding agent 的后端和工具组合，使三个可运行的 agent 叶节点保持对称，同时避免重复部署选项。
+应用组合层在挂载前选择具体的终端入口。`@deepseek-ai/dsh-stdio-demo` 可以根据两个进程流通过 `auto` 作出选择，`repl-agent` 和 `tui-agent` 叶节点则分别明确选择 readline 与 TUI。TUI 叶节点通过带断言的 include patch 复用 repl-agent 的后端和工具组合，使三个可运行的 agent 叶节点保持对称，同时避免重复部署选项。
 
 所选入口接收预创建 agent 使用的同一个新建或恢复 `SessionId`。入口先于 agent 组合挂载，等待相符的根 agent 出现，然后才进入全屏模式。因此，相符的 `agent-loop/config-start-failed` 事件会在接管屏幕前报告，并以状态码 1 退出。
 
@@ -38,7 +38,7 @@ agent 空闲时，编辑器输入调用 `agent.send()`；轮次运行中则调�
 
 - **把 readline 与全屏模式都保留在 `@deepseek-ai/dsh-stdio` 中**：不予采纳，因为逐行输出和差分 TTY 渲染具有不同的依赖、输入规则、日志所有权和资源清理义务。拆分为独立包可以让管道安全契约保持精简、明确。
 - **当任一进程流不是 TTY 时，让 TUI 插件静默降级**：不予采纳，因为回退会掩盖部署错误并改变交互语义。应用包可以通过 `auto` 选择入口；明确挂载的 TUI 会快速失败。
-- **把 TUI 接线与测试保留在 readline `coding-agent` 叶节点下**：不予采纳，因为一个叶节点会代表两个不同入口，也会破坏它与 `acp-agent` 的对称性。独立的 `tui-agent` 叶节点负责 TUI 浮层和测试，同时复用 coding agent 的后端组合。
+- **把 TUI 接线与测试保留在 readline `repl-agent` 叶节点下**：不予采纳，因为一个叶节点会代表两个不同入口，也会破坏它与 `acp-agent` 的对称性。独立的 `tui-agent` 叶节点负责 TUI 浮层和测试，同时复用 repl-agent 的后端组合。
 
 ## 后果
 

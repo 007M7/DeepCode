@@ -427,12 +427,12 @@ const APP_EXAMPLES = [
     summary: 'The echo demo swaps in a local mock LLM and teaching echo tool, then loads the stdio app package for the shared spine and terminal front door.',
   },
   {
-    id: 'coding',
-    rel: 'examples/coding-agent/composition.md',
-    title: 'Coding Agent App Composition',
-    label: 'examples/coding-agent',
-    config: 'examples/coding-agent/cordis.yml',
-    summary: 'The coding-agent demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.',
+    id: 'repl',
+    rel: 'examples/repl-agent/composition.md',
+    title: 'REPL Agent App Composition',
+    label: 'examples/repl-agent',
+    config: 'examples/repl-agent/cordis.yml',
+    summary: 'The REPL agent demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.',
   },
   {
     id: 'tui',
@@ -440,7 +440,7 @@ const APP_EXAMPLES = [
     title: 'TUI Agent App Composition',
     label: 'examples/tui-agent',
     config: 'examples/tui-agent/cordis.yml',
-    summary: 'The TUI agent reuses the coding-agent backend and tool composition while fixing the shared terminal app to the full-screen dsh-tui front door.',
+    summary: 'The TUI agent reuses the repl-agent backend and tool composition while fixing the shared terminal app to the full-screen dsh-tui front door.',
   },
   {
     id: 'cordis',
@@ -470,7 +470,7 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   if (pluginName === '@deepseek-ai/dsh-stdio-demo') {
     const frontDoor = exampleId === 'tui'
       ? '@deepseek-ai/dsh-tui<br/>pre-created main agent'
-      : exampleId === 'coding'
+      : exampleId === 'repl'
         ? '@deepseek-ai/dsh-stdio<br/>pre-created main agent'
         : 'dsh-tui (TTY) / dsh-stdio (pipes)<br/>pre-created main agent'
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'stdio')}["${frontDoor}"]`)
@@ -990,7 +990,7 @@ function renderIndex(docs: GraphDoc[]): string {
   const labels: Record<string, string> = {
     'docs/capability-seams.md': 'capability seams and core services',
     'examples/echo-agent/composition.md': 'echo-agent app composition',
-    'examples/coding-agent/composition.md': 'coding-agent app composition',
+    'examples/repl-agent/composition.md': 'repl-agent app composition',
     'examples/tui-agent/composition.md': 'tui-agent app composition',
     'examples/cordis-agent/composition.md': 'cordis-agent app composition',
     'examples/acp-agent/composition.md': 'acp-agent app composition',
@@ -1002,7 +1002,7 @@ function renderIndex(docs: GraphDoc[]): string {
   const modes: Record<string, string> = {
     'docs/capability-seams.md': 'hybrid generated',
     'examples/echo-agent/composition.md': 'hybrid generated',
-    'examples/coding-agent/composition.md': 'hybrid generated',
+    'examples/repl-agent/composition.md': 'hybrid generated',
     'examples/tui-agent/composition.md': 'hybrid generated',
     'examples/cordis-agent/composition.md': 'hybrid generated',
     'examples/acp-agent/composition.md': 'hybrid generated',
