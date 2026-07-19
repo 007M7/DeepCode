@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
@@ -341,14 +343,19 @@ describe('pi-tui chat lifecycle and transcript', () => {
   })
 
   it('formats large token totals and cwd variants', async () => {
+    const home = homedir()
     const homeResult = await setup({
-      cwd: process.env.HOME ?? process.cwd(),
+      cwd: home,
       beforeMount(session) {
         appendAssistant(session, [{ type: 'text', text: 'home' }], { inputTokens: 25_000, outputTokens: 10_000 })
       },
     })
     expect(homeResult.terminal.output).toContain('~  ↑25k ↓10k')
     await dispose(homeResult)
+
+    const childResult = await setup({ cwd: join(home, 'projects', 'dsh-tui') })
+    expect(childResult.terminal.output).toContain(join('~', 'projects', 'dsh-tui'))
+    await dispose(childResult)
 
     const unsetResult = await setup({ cwd: null })
     expect(unsetResult.terminal.output).toContain('cwd unset')
