@@ -390,7 +390,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
-  it('creates a new database and WAL sidecars owner-only without changing an existing directory mode', async () => {
+  it('creates a new database and WAL sidecars with owner-only modes without changing its parent mode', async () => {
     if (process.platform === 'win32') return
     const path = await freshDbPath()
     const dir = dirname(path)
@@ -421,7 +421,7 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     await fiber.dispose()
   })
 
-  it('surfaces database pre-creation errors independently of process privileges', async () => {
+  it('surfaces an invalid database path during pre-creation', async () => {
     const path = await freshDbPath()
     const b = await backend(`${path}\0`)
 

@@ -656,10 +656,11 @@ Requires: `sessions`
 export interface Config {
   /**
    * Filesystem path to the SQLite database file. The special value `:memory:`
-   * opens an in-process database (tests). Missing directories and the database
-   * are created with owner-only permissions; existing path modes are preserved.
-   * Parent directories writable by another principal are outside the backend's
-   * database-integrity boundary.
+   * opens an in-process database (tests). On filesystems with POSIX modes,
+   * missing directories and databases are created owner-only; existing path
+   * modes are preserved. Filesystem setup errors other than an existing database
+   * fail initialization. The backend does not protect integrity when another
+   * principal can replace the database entry in its parent directory.
    */
   path: string
   /**
@@ -682,7 +683,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:53`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:54`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-query`
 

@@ -36,9 +36,10 @@ function surfaceBindings(event: SessionEvent): [string | null, string | null] {
 }
 
 /**
- * Create a missing database owner-only while preserving an existing file's
- * mode. `DatabaseSync` cannot adopt this handle, so a parent directory writable
- * by another principal is outside the backend's database-integrity boundary.
+ * Exclusively create a missing database file with owner-only permissions.
+ * Existing files retain their modes, and errors other than `EEXIST` propagate.
+ * `DatabaseSync` reopens by path, so this does not protect integrity when
+ * another principal can replace the database entry in its parent directory.
  */
 async function createDatabaseFile(path: string): Promise<void> {
   try {
@@ -53,10 +54,11 @@ async function createDatabaseFile(path: string): Promise<void> {
 export interface Config {
   /**
    * Filesystem path to the SQLite database file. The special value `:memory:`
-   * opens an in-process database (tests). Missing directories and the database
-   * are created with owner-only permissions; existing path modes are preserved.
-   * Parent directories writable by another principal are outside the backend's
-   * database-integrity boundary.
+   * opens an in-process database (tests). On filesystems with POSIX modes,
+   * missing directories and databases are created owner-only; existing path
+   * modes are preserved. Filesystem setup errors other than an existing database
+   * fail initialization. The backend does not protect integrity when another
+   * principal can replace the database entry in its parent directory.
    */
   path: string
   /**
