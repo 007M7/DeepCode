@@ -43,7 +43,11 @@ function waitForLine(
 }
 
 describe('jsonrpc-agent keyless smoke', () => {
-  it('boots the real Cordis tree and serves initialize/shutdown over clean stdout', async () => {
+  it.each([
+    { label: 'accepts max-token results by default', envValue: undefined, expectedStatus: 'ok' },
+    { label: 'accepts max-token results when enabled through env', envValue: 'true', expectedStatus: 'ok' },
+    { label: 'reports max-token results as errors when disabled through env', envValue: 'false', expectedStatus: 'error' },
+  ])('$label', async ({ envValue, expectedStatus }) => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-agent-smoke-'))
     const modelRequests: Record<string, unknown>[] = []
     const modelServer = createServer((request, response) => {
@@ -55,7 +59,7 @@ describe('jsonrpc-agent keyless smoke', () => {
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.write('data: {"choices":[{"delta":{"role":"assistant","content":null}}]}\n\n')
         response.write('data: {"choices":[{"delta":{"content":"done"}}]}\n\n')
-        response.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}\n\n')
+        response.write('data: {"choices":[{"delta":{},"finish_reason":"length"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}\n\n')
         response.end('data: [DONE]\n\n')
       })
     })
@@ -76,6 +80,7 @@ describe('jsonrpc-agent keyless smoke', () => {
         DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
         DSH_CWD: root,
         DSH_SESSION_ROOT: join(root, '.sessions'),
+        ...(envValue === undefined ? {} : { DSH_MAX_TOKENS_AS_SUCCESS: envValue }),
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
@@ -112,6 +117,16 @@ describe('jsonrpc-agent keyless smoke', () => {
         method: 'session/prompt',
         params: { sessionId: 'main', contentBlocks: [{ type: 'text', text: 'inspect tools' }] },
       })}\n`)
+      const finished = await waitForLine(lines, value => value.method === 'session.finished', () => stderr)
+      expect(finished).toMatchObject({
+        jsonrpc: '2.0',
+        method: 'session.finished',
+        params: {
+          sessionId: 'main',
+          status: expectedStatus,
+          reason: { kind: 'max-tokens' },
+        },
+      })
       const prompt = await waitForLine(lines, value => value.id === 2, () => stderr)
       expect(prompt).toMatchObject({ jsonrpc: '2.0', id: 2, result: { accepted: true } })
       const tools = modelRequests[0]?.tools as { function?: { name?: string } }[]
@@ -143,4 +158,37 @@ describe('jsonrpc-agent keyless smoke', () => {
       await rm(root, { recursive: true, force: true })
     }
   }, 40_000)
+
+  it('rejects an invalid max-token success env value', async () => {
+    const child = spawn(process.execPath, [
+      '--expose-internals',
+      '--import',
+      'tsx',
+      binScript,
+      configPath,
+    ], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        DEEPSEEK_API_KEY: 'keyless-smoke-no-call',
+        DSH_MAX_TOKENS_AS_SUCCESS: 'sometimes',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => { stdout += chunk })
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk: string) => { stderr += chunk })
+
+    const exitCode = await new Promise<number | null>((resolve, reject) => {
+      child.once('error', reject)
+      child.once('exit', resolve)
+    })
+
+    expect(exitCode, stderr).toBe(1)
+    expect(stdout).toBe('')
+    expect(stderr).toContain('plugin(s) failed to load: @deepseek-ai/dsh-jsonrpc')
+  }, 10_000)
 })
