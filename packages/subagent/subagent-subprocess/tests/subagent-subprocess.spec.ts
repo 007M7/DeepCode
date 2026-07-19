@@ -200,7 +200,7 @@ describe('disposeChildProcess', () => {
 
   it('recognizes a child that exits synchronously on SIGTERM', async () => {
     const fake = new FakeChild({ diesOn: 'SIGTERM', synchronousExit: true })
-    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 }, 'linux')
     expect(fake.kills).toEqual(['SIGTERM'])
     expect(fake.signalCode).toBe('SIGTERM')
     expect(fake.listenerCount('exit')).toBe(0)
@@ -217,7 +217,7 @@ describe('disposeChildProcess', () => {
 
   it('recognizes a child already gone when the final exit wait begins', async () => {
     const fake = new FakeChild({ synchronousExit: true })
-    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 20 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 20 }, 'linux')
     expect(fake.kills).toEqual(['SIGTERM', 'SIGKILL'])
     expect(fake.signalCode).toBe('SIGKILL')
   })
