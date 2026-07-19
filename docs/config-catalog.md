@@ -209,11 +209,11 @@ Source: [`packages/bash/bash-sandbox/src/index.ts:27`](../packages/bash/bash-san
 ## `@deepseek-ai/dsh-cli-demo`
 
 ```ts config-catalog
-/** App config forwarded to the spine, pre-created agent, and JSONL backend. */
+/** App config forwarded to the spine, configured agent, and JSONL backend. */
 export interface Config {
-  /** Provider route for the `main` agent. */
+  /** Provider route for the configured agent. */
   provider: string
-  /** Model name for the `main` agent; a matching adapter must be registered. */
+  /** Model name for the configured agent; a matching adapter must be registered. */
   model: string
   /** Deployment persona forwarded to the system-prompt plugin. */
   persona?: string

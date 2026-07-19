@@ -25,7 +25,7 @@ Run the Code Mode overlay with `pnpm run demo:code-mode`, or pass `acp` for the 
 
 A non-interactive agent demo that accepts one positional task, runs one complete model/tool turn on the `@deepseek-ai/dsh-cli-demo` app, persists a fresh session, prints `text`, `json`, or `stream-json`, and exits.
 
-Run with: `pnpm run demo:headless -- "task"` (needs `DEEPSEEK_API_KEY`). See [headless-agent/README.md](headless-agent/README.md) for the wire contract, mutation and token risks, and the headless-owned snapshot suite.
+Run with: `pnpm run demo:headless -- "task"` (needs `DEEPSEEK_API_KEY`). See [headless-agent/README.md](headless-agent/README.md) for the output contract, safety boundaries, and snapshot suite.
 
 ## tui-agent
 

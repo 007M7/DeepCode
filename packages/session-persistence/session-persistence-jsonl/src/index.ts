@@ -57,7 +57,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   private root: string
   private coordinator: PersistenceCoordinator<number>
 
-  /** Runtime-only host-platform seam for directory-sync compatibility tests. */
+  /** Runtime host platform used to decide whether directory sync is supported. */
   readonly internals: { platform: NodeJS.Platform } = { platform: process.platform }
 
   constructor(ctx: Context, public config: Config) {

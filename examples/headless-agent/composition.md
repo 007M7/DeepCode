@@ -3,7 +3,7 @@
 
 # Headless Agent App Composition
 
-The headless demo combines the real DeepSeek adapter and coding capabilities with the one-shot app package, format-pure stdout, and one fresh persisted main session.
+The headless demo combines the real DeepSeek adapter and coding capabilities with the one-shot app package, format-pure stdout, and one fresh persisted top-level session.
 
 ```mermaid
 flowchart LR
@@ -16,7 +16,7 @@ flowchart LR
   cfg --> plugin_headless_cli_agent
   plugin_headless_cli_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
   plugin_headless_cli_agent --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
-  plugin_headless_cli_agent --> frontdoor_cli["one-shot driver<br/>format-pure stdout<br/>pre-created main agent"]
+  plugin_headless_cli_agent --> frontdoor_cli["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]
   bundle_agent_core --> spine_llm["ctx.llm"]
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]

@@ -7,8 +7,6 @@
  * zero-build dev path, resolving `@deepseek-ai/dsh-*` / `@cordisjs/*` through the tsconfig `paths`
  * map) or from built `lib/` under plain Node (resolving bare packages through real `exports`, as an
  * installed consumer does, while Node type-strips relative example-local TypeScript plugins).
- * Consolidating that spawn glue here retires the copies in the ACP snapshot harness and the example
- * e2e drivers (the `TODO(acp-test-harness)`).
  *
  * @module @deepseek-ai/dsh-loader-smoke
  */

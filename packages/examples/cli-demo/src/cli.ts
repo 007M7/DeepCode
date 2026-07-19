@@ -1,6 +1,6 @@
 /**
- * Covered command parser and one-turn driver for `dsh-cli-demo`. The executable
- * entry only installs process signal handlers and delegates here.
+ * Command parser and one-turn driver for `dsh-cli-demo`. The executable wrapper
+ * owns process signals; this module owns output, durability, and cleanup.
  * @module @deepseek-ai/dsh-cli-demo/cli
  */
 
@@ -44,9 +44,9 @@ export interface CliResult {
 export interface OneShotOptions {
   /** Exactly one nonblank user task. */
   readonly task: string
-  /** Optional cancellation signal owned by the process wrapper. */
+  /** Optional signal that cancels the selected agent. */
   readonly signal?: AbortSignal
-  /** Synchronous observer for each canonical event in the selected task turn. */
+  /** Synchronous task-turn observer; a throw cancels the agent and fails the run after flush. */
   readonly onEvent?: (sessionId: string, event: SessionEvent) => void
 }
 
@@ -91,12 +91,10 @@ class CliInterruptedError extends Error {
   }
 }
 
-/** Convert an unknown thrown value to an Error without losing its text. */
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error))
 }
 
-/** Render the reason carried by an AbortSignal. */
 function interruptionReason(signal: AbortSignal): string {
   return signal.reason === undefined ? 'interrupted' : String(signal.reason)
 }
@@ -145,7 +143,6 @@ export function parseCliArgs(args: readonly string[]): CliCommand {
   }
 }
 
-/** Add one model step's usage into a detached turn total. */
 function addUsage(total: TokenUsage | undefined, step: TokenUsage): TokenUsage {
   const next: TokenUsage = {
     inputTokens: (total?.inputTokens ?? 0) + step.inputTokens,
@@ -157,7 +154,6 @@ function addUsage(total: TokenUsage | undefined, step: TokenUsage): TokenUsage {
   return next
 }
 
-/** Select the text blocks from an assistant message, or undefined when it has none. */
 function assistantText(event: Extract<SessionEvent, { type: 'assistant/message' }>): string | undefined {
   const blocks = event.data.content.filter(block => block.type === 'text')
   return blocks.length === 0 ? undefined : blocks.map(block => block.text).join('')
@@ -189,8 +185,11 @@ async function waitForStartupIdle(agent: Agent, signal?: AbortSignal): Promise<v
  * Run one message-triggered turn on the configured top-level agent, aggregate its
  * final text and model usage, wait for idle plus an explicit persistence flush,
  * and return its durable ending. Only the selected agent's task turn reaches
- * `onEvent`; startup injections and unrelated sessions are ignored.
- * @param ctx - settled Loader root containing `ctx.agents` and `ctx.sessions`.
+ * `onEvent`; startup injections and unrelated sessions are ignored. The context
+ * must contain exactly one top-level agent. Signal abort cancels that agent; an
+ * abort before the correlated task turn rejects. An observer throw cancels the
+ * turn and is rethrown after the agent reaches idle and the session flushes.
+ * @param ctx - settled Loader root containing one agent plus `ctx.sessions`.
  * @param options - task, optional cancellation, and optional stream observer.
  * @returns the DSH-native result envelope after durable quiescence.
  */
@@ -291,7 +290,6 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
   }
 }
 
-/** Render one final result in the selected output encoding. */
 function renderResult(outputFormat: OutputFormat, result: CliResult): string {
   return outputFormat === 'text' ? `${result.result}\n` : `${JSON.stringify(result)}\n`
 }
@@ -315,9 +313,8 @@ export function formatTurnFailure(reason: TurnEndReason): string {
 }
 
 /**
- * Parse, boot, run, render, diagnose, and dispose one CLI invocation. Argument
- * and boot failures never write stdout; all booted contexts are disposed before
- * this promise resolves.
+ * Execute one CLI invocation. Argument and boot failures never write stdout;
+ * every booted context is disposed before this promise resolves.
  * @param args - arguments after the executable name.
  * @param runtime - optional injected process boundaries for tests and embedding.
  * @returns the ordinary process exit code; the thin bin overrides it for Unix signals.

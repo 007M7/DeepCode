@@ -1,6 +1,6 @@
 /**
  * Headless one-shot app composition: the default agent spine, JSONL session
- * persistence, and one pre-created `main` agent. The CLI driver owns task
+ * persistence, and one fresh top-level agent. The CLI driver owns task
  * submission and output; the app deliberately mounts no interactive or logging
  * front door so stdout remains protocol-pure.
  * @module @deepseek-ai/dsh-cli-demo
@@ -18,11 +18,11 @@ const DEFAULT_PERSISTENCE_ROOT = './.sessions'
 
 export const name = 'cli-demo'
 
-/** App config forwarded to the spine, pre-created agent, and JSONL backend. */
+/** App config forwarded to the spine, configured agent, and JSONL backend. */
 export interface Config {
-  /** Provider route for the `main` agent. */
+  /** Provider route for the configured agent. */
   provider: string
-  /** Model name for the `main` agent; a matching adapter must be registered. */
+  /** Model name for the configured agent; a matching adapter must be registered. */
   model: string
   /** Deployment persona forwarded to the system-prompt plugin. */
   persona?: string
@@ -51,7 +51,7 @@ export const Config: z<Config> = z.object({
 })
 
 /**
- * Compose the UI-less spine, a fresh `main` agent rooted at the process cwd,
+ * Compose the UI-less spine, a fresh top-level agent rooted at the process cwd,
  * and JSONL persistence. Swappable adapters, executors, and product tools stay
  * in the leaf `cordis.yml`.
  * @param ctx - app context that owns the composed child plugins.

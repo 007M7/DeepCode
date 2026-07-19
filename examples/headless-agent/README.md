@@ -13,7 +13,7 @@ pnpm run demo:headless --output-format json -- "summarize the implementation"
 pnpm run demo:headless --output-format stream-json -- "run the focused tests"
 ```
 
-Exactly one nonblank positional task is required; quote tasks containing spaces. There is no `-p` flag. `text` prints the last text-bearing assistant message, `json` prints one DSH-native result record, and `stream-json` emits the parent `main` session's canonical task-turn events before that record. Child sessions surface only through parent tool events and results.
+Exactly one nonblank positional task is required; quote tasks containing spaces. There is no `-p` flag. `text` prints the last text-bearing assistant message, `json` prints one DSH-native result record, and `stream-json` emits the top-level session's canonical task-turn events before that record. Child sessions surface only through parent tool events and results.
 
 Each invocation creates and persists a fresh session, runs all model and tool steps in one turn, flushes, disposes, and exits. This is non-interactive automation: there is no prompt, approval, resume, second turn, or stdin context. The configured tools can mutate the launch workspace, run commands, spawn child agents, and consume provider tokens.
 

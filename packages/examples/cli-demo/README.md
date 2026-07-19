@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-cli-demo
 
-Headless one-shot app and bin for running one agent task without a readline or editor client. The app composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), JSONL persistence, and one fresh `main` agent; the bin submits one task, waits through all model and tool steps, emits the selected result, disposes to quiescence, and exits.
+Headless one-shot app and bin for running one agent task without a readline or editor client. It composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), JSONL persistence, and exactly one fresh top-level agent. The bin submits the task, waits for its durable turn ending, renders the selected output, disposes to quiescence, and exits.
 
 The package mounts no console logger, readline UI, user-interaction service, or `ask_user_question` tool. Stdout is reserved for the selected output format; diagnostics use stderr.
 
@@ -8,16 +8,14 @@ The package mounts no console logger, readline UI, user-interaction service, or 
 
 | Key | Default | Routed to |
 |---|---|---|
-| `provider` | required | the pre-created `main` agent's provider route |
-| `model` | required | the pre-created `main` agent's model |
+| `provider` | required | the configured agent's provider route |
+| `model` | required | the configured agent's model |
 | `persona` | — | the deployment persona in `dsh-system-prompt` |
 | `toolOrder` | lexicographic | explicit model-facing tool order in `dsh-system-prompt` |
 | `tools` | `{ mode: 'native' }` | tool-registry presentation config through `dsh-agent-spine-demo` |
 | `skills` | owner defaults | skill registry, local provider, and model-facing skill tool |
 | `persistenceRoot` | `./.sessions` | JSONL session root |
 | `workspaceContext` | required | workspace-instruction byte budget, or `false` to disable loading |
-
-Each process creates a new session whose workspace cwd is the launch directory. The app has no resume setting.
 
 ## CLI contract
 
@@ -39,7 +37,7 @@ Loader configs with bare package specifiers require `node --expose-internals` or
 
 - `text` writes the last assistant message containing text, followed by one newline.
 - `json` writes one DSH-native result record: `{ type: "result", success, sessionId, turn, result, reason, usage? }`. `usage` sums every model step in the task turn.
-- `stream-json` writes each canonical event from the `main` session's task turn as `{ type: "session_event", sessionId, event }`, then the same result record. Child-agent activity appears only through the parent tool events and results.
+- `stream-json` writes each canonical event from the top-level session's task turn as `{ type: "session_event", sessionId, event }`, then the same result record. Child-agent activity appears only through the parent tool events and results.
 
 Only `reason.kind === "completed"` exits successfully. Other durable turn endings still emit partial text or a result record, add a stderr diagnostic, and exit nonzero. Argument and boot failures leave stdout empty. SIGINT and SIGTERM cancel active work, await disposal, and exit 130 and 143 respectively.
 
@@ -53,12 +51,12 @@ The headless-agent leaf supplies local bash, filesystem, skill, subagent, workfl
 
 ### One-shot task turn
 
-**What the model sees**: The positional task becomes one user message. Through `dsh-agent-spine-demo`, the `main` agent also receives configured workspace instructions and persona, the skill catalog, visible tool schemas, and retained tool results needed for later steps in the same turn.
+**What the model sees**: The positional task becomes one user message. Through `dsh-agent-spine-demo`, the top-level agent also receives configured workspace instructions and persona, the skill catalog, visible tool schemas, and retained tool results needed for later steps in the same turn.
 
 **Token effect**: The task, prompt sections, tool schemas, assistant output, and tool results consume tokens on each model step. JSON event streaming and final rendering add no model tokens; delegated child work has its own model usage and is not included in the parent result's `usage` total.
 
 ## Known Limitations and Deferred Work
 
-- **One fresh main session per process** — there is no resume, second prompt, stdin context, or concurrent top-level session in this app.
+- **One fresh top-level session per process** — its workspace cwd is the launch directory; there is no resume, second prompt, stdin context, or concurrent top-level session in this app.
 - **No interactive question or approval provider** — tools that require a human answer cannot complete unless a different leaf composes a non-interactive provider with explicit policy.
-- **Streaming is main-session-only** — child sessions are not flattened into the stream, and aggregate usage covers only model steps recorded on the parent task turn.
+- **Streaming is top-level-session-only** — child sessions are not flattened into the stream, and aggregate usage covers only model steps recorded on the parent task turn.

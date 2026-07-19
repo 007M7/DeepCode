@@ -13,7 +13,6 @@
       - deepseek-v4-pro
       - deepseek-v4-flash
 
-# Local executor for the app bundle's bash tool.
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
