@@ -220,6 +220,23 @@ export class ProjectEditSession implements FeatureProjectView {
     this.addedPlugins.add(entry.id)
   }
 
+  /**
+   * Mount a Cordis entry for an external dependency the package manager has already
+   * added (github or npm), without generating files or re-adding the dependency.
+   * @param id - stable Cordis config entry id.
+   * @param packageName - the installed dependency's package name.
+   */
+  addExternalPlugin(id: string, packageName: string): void {
+    this.assertOpen()
+    if (!this.manifest().npmDependency(packageName)) {
+      throw new Error(`external plugin dependency is not installed: ${packageName}`)
+    }
+    const cordis = this.cordis()
+    if (cordis.entry(id)) throw new Error(`Cordis config entry already exists: ${id}`)
+    cordis.addEntry({ id, name: packageName })
+    this.addedPlugins.add(id)
+  }
+
   /** Enable or disable one custom/manual Cordis config entry by stable id. */
   setCustomPluginDisabled(id: string, disabled: boolean): void {
     this.assertOpen()
