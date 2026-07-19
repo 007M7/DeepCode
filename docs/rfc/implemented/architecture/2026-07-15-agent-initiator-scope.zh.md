@@ -16,7 +16,9 @@ Harness 中存在两种有用但不同的上下文概念。Cordis `Context` 负�
 
 `currentInitiator()` 用于可选读取，`requireInitiator()` 抛出 `no initiating agent is active`，`withInitiator(agent, operation)` 保留操作返回的同步值或 Promise 本身。`withoutInitiator(operation)` 会建立清空边界，供不得继承 Agent 的工作使用。会话仍通过 `agent.session` 推导；轮次、步骤、工具调用、`signal`、模型、`cwd`、沙箱和授权继续由现有归属方管理。
 
-`AgentLoop` 已经注入 `ctx.agents`，并用 `agents.withInitiator(agent, ...)` 包裹每个具体驱动的完整 `runLoop` 生命周期。其包内私有的循环、轮次、步骤和工具调用辅助函数从 `ctx.agents` 恢复同一个 Agent，无需在函数签名中转发具体驱动。因此，并发驱动使用彼此独立的存储。子驱动的异步延续携带子 Agent；`withInitiator()` 返回后，调用方立即恢复之前的存储，而活动运行计数仍持续跟踪返回的 Promise，直到其结束。创建、持久化加载和尚未发布的 `setup(agentCtx)` 位于子驱动边界之外：由父 Agent 发起的创建使用父身份，而 `agentCtx.agent` 显式标识子 Agent。
+`AgentLoop` 已经注入 `ctx.agents`，并用 `agents.withInitiator(agent, ...)` 包裹每个具体驱动的完整 `runLoop` 生命周期。循环、轮次、步骤和工具调用的包内私有入口从 `ctx.agents` 恢复同一个 Agent，一次推导 `agent.session`，再由操作内辅助函数捕获该值，避免在浅层接口中转发具体驱动或 `Session`。若 `Session` 本身就是底层辅助函数的实际接口，该函数会保留狭窄的 `Session` 参数，而不会只为隐式查找而接收更宽泛的 `Context`。
+
+因此，并发驱动使用彼此独立的存储。子驱动的异步延续携带子 Agent；`withInitiator()` 返回后，调用方立即恢复之前的存储，而活动运行计数仍持续跟踪返回的 Promise，直到其结束。创建、持久化加载和尚未发布的 `setup(agentCtx)` 位于子驱动边界之外：由父 Agent 发起的创建使用父身份，而 `agentCtx.agent` 显式标识子 Agent。
 
 隐式身份不会取代显式契约。`ToolExecution.agent`、`AssembleContext.agent`、`GenerateOptions.sessionId`、任务归属、父子请求、`ctx.agent`、`agentCtx.agent`、审批与 hook 主体、`cwd` 选择、取消、worker 和进程消息、持久化记录及协议身份都保持显式传递。远程边界会把所需身份写入类型化请求，因为 ALS 只在进程内有效。
 
