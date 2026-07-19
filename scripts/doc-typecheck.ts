@@ -33,6 +33,7 @@ const KIND_BY_INFO: Record<string, BlockKind> = {
   'ts': 'check',
   'ts ignore-check': 'ignore',
   'ts type-equiv': 'type-equiv',
+  'ts type-equiv public-api': 'type-equiv',
   'ts cordis-catalog': 'cordis-catalog',
   'ts persistence-catalog': 'persistence-catalog',
   'ts config-catalog': 'config-catalog',

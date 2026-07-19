@@ -1,8 +1,10 @@
 /**
  * Verify every `ts type-equiv` block against the source symbol named by the
- * manifest. Blocks and entries have a one-to-one relationship; comparison
- * ignores whitespace and non-JSDoc comments but preserves declaration
- * structure and every original JSDoc comment.
+ * manifest. Ordinary entries preserve the complete declaration; `public-api`
+ * entries preserve a class's body-stripped public declaration. Blocks and
+ * entries have a one-to-one relationship; comparison ignores whitespace and
+ * non-JSDoc comments but preserves declaration structure and every original
+ * JSDoc comment.
  */
 
 import { globSync, readFileSync, existsSync } from 'node:fs'
@@ -22,6 +24,8 @@ interface ManifestEntry {
   symbol: string
   /** Source file (repo-relative) that exports the symbol. */
   source: string
+  /** Complete declaration (default), or a body-stripped public class API. */
+  projection?: 'public-api'
 }
 
 /** One extracted ` ```ts type-equiv ` block. */
@@ -31,6 +35,8 @@ interface EquivBlock {
   line: number
   /** Symbol name parsed from the block's declaration. */
   symbol: string
+  /** Complete declaration (default), or a body-stripped public class API. */
+  projection?: 'public-api'
   /** Block body (the pasted declaration). */
   code: string
 }
@@ -75,7 +81,7 @@ function extractEquivBlocks(docRel: string): EquivBlock[] {
   const text = readFileSync(resolve(root, docRel), 'utf8')
   const lines = text.split('\n')
   const blocks: EquivBlock[] = []
-  let open: { line: number; body: string[] } | null = null
+  let open: { line: number; body: string[]; projection?: 'public-api' } | null = null
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i] ?? ''
@@ -90,11 +96,19 @@ function extractEquivBlocks(docRel: string): EquivBlock[] {
       if (!symbol) {
         throw new Error(`verify-type-equiv: ${docRel}:${open.line} — type-equiv block has no parseable interface/type/class declaration`)
       }
-      blocks.push({ doc: docRel, line: open.line, symbol, code })
+      blocks.push({
+        doc: docRel,
+        line: open.line,
+        symbol,
+        code,
+        ...(open.projection === undefined ? {} : { projection: open.projection }),
+      })
       open = null
       continue
     }
-    if ((fence[2] ?? '').trim() === 'ts type-equiv') open = { line: i + 1, body: [] }
+    const info = (fence[2] ?? '').trim()
+    if (info === 'ts type-equiv') open = { line: i + 1, body: [] }
+    if (info === 'ts type-equiv public-api') open = { line: i + 1, body: [], projection: 'public-api' }
   }
   if (open) throw new Error(`verify-type-equiv: ${docRel}:${open.line} — unterminated type-equiv block`)
   return blocks
@@ -127,13 +141,77 @@ function sourceDeclaration(sourceRel: string, symbol: string): string | null {
   return null
 }
 
+/** Leading source JSDoc attached to one declaration or member. */
+function sourceJSDoc(text: string, node: ts.Node): string {
+  return ts.getJSDocCommentsAndTags(node)
+    .filter(ts.isJSDoc)
+    .map(doc => text.slice(doc.pos, doc.end))
+    .join('\n')
+}
+
+/** Whether a class member is part of its public declaration. */
+function isPublicMember(member: ts.ClassElement): boolean {
+  if (ts.isClassStaticBlockDeclaration(member)) return false
+  const name = ts.getNameOfDeclaration(member)
+  if (name && ts.isPrivateIdentifier(name)) return false
+  const modifiers = ts.canHaveModifiers(member) ? ts.getModifiers(member) : undefined
+  return !(modifiers?.some(modifier =>
+    modifier.kind === ts.SyntaxKind.PrivateKeyword
+    || modifier.kind === ts.SyntaxKind.ProtectedKeyword,
+  ) ?? false)
+}
+
+/** Remove an implementation body while retaining the source signature. */
+function bodylessMember(text: string, sf: ts.SourceFile, member: ts.ClassElement): string {
+  const start = member.getStart(sf)
+  let end = member.end
+  if (ts.isConstructorDeclaration(member) || ts.isMethodDeclaration(member)
+    || ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member)) {
+    if (member.body) end = member.body.getStart(sf)
+  }
+  if (ts.isPropertyDeclaration(member) && member.initializer) end = member.initializer.getStart(sf)
+  const signature = text.slice(start, end).trimEnd().replace(/;$/, '').replace(/=\s*$/, '').trimEnd()
+  return `${signature};`
+}
+
+/**
+ * Render a class as an ambient declaration containing only its public fields,
+ * constructor, accessors, and methods. Implementation bodies and private or
+ * protected members are deliberately absent; original class/member JSDoc is
+ * retained so the projection is the source-owned public contract.
+ */
+function sourcePublicApi(sourceRel: string, symbol: string): string | null {
+  const abs = resolve(root, sourceRel)
+  const text = readFileSync(abs, 'utf8')
+  const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, /* setParentNodes */ true)
+  for (const stmt of sf.statements) {
+    if (!ts.isClassDeclaration(stmt) || stmt.name?.text !== symbol) continue
+    const classDoc = sourceJSDoc(text, stmt)
+    const abstract = stmt.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AbstractKeyword) ? 'abstract ' : ''
+    const typeParameters = stmt.typeParameters?.map(parameter => parameter.getText(sf)).join(', ')
+    const heritage = stmt.heritageClauses?.map(clause => clause.getText(sf)).join(' ')
+    const header = `declare ${abstract}class ${symbol}${typeParameters ? `<${typeParameters}>` : ''}${heritage ? ` ${heritage}` : ''} {`
+    const members = stmt.members
+      .filter(isPublicMember)
+      .map((member) => {
+        const jsDoc = sourceJSDoc(text, member)
+        const declaration = bodylessMember(text, sf, member)
+        return jsDoc === '' ? declaration : `${jsDoc}\n${declaration}`
+      })
+    const declaration = [header, ...members.map(member => member.split('\n').map(line => `  ${line}`).join('\n')), '}'].join('\n')
+    return classDoc === '' ? declaration : `${classDoc}\n${declaration}`
+  }
+  return null
+}
+
 const manifestRaw = readFileSync(resolve(root, 'scripts/type-equiv.manifest.json'), 'utf8')
 const manifest = JSON.parse(manifestRaw) as { entries: ManifestEntry[] }
 const entries = manifest.entries
 
-// Key a block/entry by doc + symbol (a symbol may be documented in more than one
-// doc, but at most once per doc).
-const keyOf = (x: { doc: string; symbol: string }): string => `${x.doc}::${x.symbol}`
+// Key a block/entry by doc + symbol + projection. A symbol may be documented in
+// more than one doc, and a doc may carry both complete and projected forms.
+const keyOf = (x: { doc: string; symbol: string; projection?: 'public-api' }): string =>
+  `${x.doc}::${x.symbol}::${x.projection ?? 'declaration'}`
 
 // Collect every type-equiv block across ALL docs in scope — not only the docs
 // the manifest names — so a block in an unmanifested doc is found and reported
@@ -152,7 +230,7 @@ for (const d of [...new Set(entries.map(e => e.doc))]) {
   else if (!docSet.has(d)) errors.push(`manifest references ${d}, which is outside the scanned markdown scope (${MARKDOWN_GLOBS.join(', ')})`)
 }
 
-// Duplicate-block guard: the same symbol twice in one doc is ambiguous.
+// Duplicate-block guard: the same projected symbol twice in one doc is ambiguous.
 const blockByKey = new Map<string, EquivBlock>()
 for (const b of blocks) {
   const k = keyOf(b)
@@ -192,7 +270,9 @@ let verified = 0
 for (const e of entries) {
   const b = blockByKey.get(keyOf(e))
   if (!b) continue // already reported as an orphan entry
-  const decl = sourceDeclaration(e.source, e.symbol)
+  const decl = e.projection === 'public-api'
+    ? sourcePublicApi(e.source, e.symbol)
+    : sourceDeclaration(e.source, e.symbol)
   if (decl === null) {
     errors.push(`symbol ${e.symbol} not found in ${e.source} (manifest entry for ${e.doc})`)
     continue
