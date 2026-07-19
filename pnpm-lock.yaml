@@ -101,6 +101,9 @@ importers:
       '@deepseek-ai/dsh-acp-demo':
         specifier: workspace:*
         version: link:../packages/examples/acp-demo
+      '@deepseek-ai/dsh-agent-spine-demo':
+        specifier: workspace:*
+        version: link:../packages/examples/agent-spine-demo
       '@deepseek-ai/dsh-bash-local':
         specifier: workspace:*
         version: link:../packages/bash/bash-local
@@ -128,6 +131,9 @@ importers:
       '@deepseek-ai/dsh-hooks-codex':
         specifier: workspace:*
         version: link:../packages/hooks/hooks-codex
+      '@deepseek-ai/dsh-jsonrpc':
+        specifier: workspace:*
+        version: link:../packages/ui/jsonrpc
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../packages/llm/llm
@@ -146,6 +152,9 @@ importers:
       '@deepseek-ai/dsh-sandbox-local':
         specifier: workspace:*
         version: link:../packages/sandbox/sandbox-local
+      '@deepseek-ai/dsh-session-persistence-jsonl':
+        specifier: workspace:*
+        version: link:../packages/session-persistence/session-persistence-jsonl
       '@deepseek-ai/dsh-spill-local':
         specifier: workspace:*
         version: link:../packages/spill/spill-local

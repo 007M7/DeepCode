@@ -656,7 +656,7 @@ describe('HarnessSdkServer', () => {
         signal: new AbortController().signal,
       })
       const transport = new FakeTransport()
-      const server = new HarnessSdkServer(ctx, transport)
+      const server = new HarnessSdkServer(ctx, transport, { maxTokensAsSuccess: true })
 
       missedStartResult.resolve({ output: [], stopReason: 'max-tokens' })
       await missedStartRun.result
@@ -692,7 +692,7 @@ describe('HarnessSdkServer', () => {
           agentId: 'fallback-child-session',
           parentSessionId: 'fallback-parent',
           childSessionId: 'fallback-child-session',
-          status: 'error',
+          status: 'ok',
           stopReason: 'max-tokens',
           lastAssistantMessage: [],
         },
@@ -774,6 +774,24 @@ describe('HarnessSdkServer', () => {
 
       expect(server.finishedStatus(undefined)).toBe('error')
       expect(server.finishedStatus({ kind: 'max-tokens' })).toBe('error')
+      expect(server.finishedStatus({ kind: 'error' })).toBe('error')
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('can report max-token turn termination as an accepted evaluation result', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-max-tokens-success-'))
+    const ctx = await makeHarness(storageDir)
+    try {
+      const server = new HarnessSdkServer(ctx, new FakeTransport(), { maxTokensAsSuccess: true }) as unknown as {
+        finishedStatus(reason: unknown): 'ok' | 'error'
+        shutdown(): Promise<Record<string, never>>
+      }
+
+      expect(server.finishedStatus({ kind: 'max-tokens' })).toBe('ok')
       expect(server.finishedStatus({ kind: 'error' })).toBe('error')
       await server.shutdown()
     } finally {

@@ -64,7 +64,7 @@ export interface Config {
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
   toolBash?: NonNullable<agentCore.Config['toolBash']>
-  /** Generic background-task control-tool config forwarded through agent-core. */
+  /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
 }
 ```
@@ -140,12 +140,14 @@ export interface Config {
   skills?: SkillConfig
   /** Model-facing bash tool config, including this producer's background opt-in. */
   toolBash?: toolBash.Config
-  /** Generic background-task control-tool wait bounds. */
-  toolTasks?: toolTasks.Config
+  /** Generic background-task controls; set false to keep the task service without model-facing task tools. */
+  toolTasks?: toolTasks.Config | false
 }
 
 /** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
 export interface SkillConfig {
+  /** Mount the bundled local skill provider and model-facing skill tool (default true). */
+  enabled?: boolean
   /** Registry-level discovery cache settings. */
   registry?: SkillRegistryConfig
   /** Local filesystem skill provider settings. */
@@ -157,7 +159,7 @@ export interface SkillConfig {
 
 Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
 
-Source: [`packages/examples/agent-spine-demo/src/index.ts:57`](../packages/examples/agent-spine-demo/src/index.ts)
+Source: [`packages/examples/agent-spine-demo/src/index.ts:59`](../packages/examples/agent-spine-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -172,7 +174,9 @@ export interface Config {
   maxTimeoutMs?: number
   /** Per-stream in-memory output cap; overflow spills to a temp file. */
   maxOutputBytes?: number
-  /** Grace period between the SIGTERM and the SIGKILL escalation on a kill. */
+  /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
+  maxSpillBytes?: number
+  /** Grace period for kill escalation and for inherited pipes after shell exit. */
   graceMs?: number
 }
 ```
@@ -384,8 +388,10 @@ Source: [`packages/hooks/hooks-codex/src/index.ts:42`](../packages/hooks/hooks-c
 Requires: `agents`
 
 ```ts config-catalog
-/** Runtime-only test seams; no field is configurable from `cordis.yml`. */
+/** JSON-RPC deployment config plus runtime-only test seams. */
 export interface JsonRpcConfig {
+  /** Report max-token turn/subagent termination as a successful SDK result. */
+  maxTokensAsSuccess?: boolean
   /** Transport input override; production uses `process.stdin`. */
   input?: Readable
   /** Transport output override; production uses `process.stdout`. */
@@ -856,7 +862,7 @@ export interface Config {
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
   toolBash?: NonNullable<agentCore.Config['toolBash']>
-  /** Generic background-task control-tool config forwarded through agent-core. */
+  /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /**
    * If set, the pre-created agent RESUMES this persisted session id instead of

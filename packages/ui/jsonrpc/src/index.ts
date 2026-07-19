@@ -22,8 +22,10 @@ export const name = 'jsonrpc'
 // Only the agent factory is required; initialize reads the optional LLM seam with ctx.get().
 export const inject = ['agents']
 
-/** Runtime-only test seams; no field is configurable from `cordis.yml`. */
+/** JSON-RPC deployment config plus runtime-only test seams. */
 export interface JsonRpcConfig {
+  /** Report max-token turn/subagent termination as a successful SDK result. */
+  maxTokensAsSuccess?: boolean
   /** Transport input override; production uses `process.stdin`. */
   input?: Readable
   /** Transport output override; production uses `process.stdout`. */
@@ -32,7 +34,9 @@ export interface JsonRpcConfig {
   exit?: (code: number) => void
 }
 
-export const Config: Schema<JsonRpcConfig> = Schema.object({})
+export const Config: Schema<JsonRpcConfig> = Schema.object({
+  maxTokensAsSuccess: Schema.boolean().default(false),
+})
 
 /**
  * Serve SDK requests over the configured streams. Effect disposal shuts down
@@ -41,6 +45,8 @@ export const Config: Schema<JsonRpcConfig> = Schema.object({})
  * owns root-context disposal for EOF and signals.
  */
 export function apply(ctx: Context, config: JsonRpcConfig): void {
+  // Cordis applies the schema default before invoking the plugin.
+  const resolvedConfig = config as JsonRpcConfig & { maxTokensAsSuccess: boolean }
   // The later transport callback must dispose this plugin's fiber, not its ambient context.
   const fiber = ctx.fiber
   /* v8 ignore next -- production stdio wiring; tests always inject the runtime seams */
@@ -51,7 +57,9 @@ export function apply(ctx: Context, config: JsonRpcConfig): void {
   const exit = config.exit ?? ((code: number): void => { process.exit(code) })
 
   const transport = new JsonRpcLineTransport(input, output)
-  const server = new HarnessSdkServer(ctx, transport)
+  const server = new HarnessSdkServer(ctx, transport, {
+    maxTokensAsSuccess: resolvedConfig.maxTokensAsSuccess,
+  })
 
   // Share one exit task and attempt flush and disposal independently before exiting.
   let exitTask: Promise<void> | undefined
