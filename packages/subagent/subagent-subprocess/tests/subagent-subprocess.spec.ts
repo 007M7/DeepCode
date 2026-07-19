@@ -222,6 +222,21 @@ describe('disposeChildProcess', () => {
     expect(fake.signalCode).toBe('SIGKILL')
   })
 
+  it.each(['exitCode', 'signalCode'] as const)('accepts a late OS %s marker before the final forced wait', async (marker) => {
+    const fake = new FakeChild()
+    vi.spyOn(fake, 'kill').mockImplementation((signal) => {
+      fake.kills.push(signal)
+      queueMicrotask(() => {
+        if (marker === 'exitCode') fake.exitCode = 0
+        else fake.signalCode = 'SIGTERM'
+      })
+      return true
+    })
+
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 1, disposeGraceMs: 10 }, 'linux')
+    expect(fake.kills).toEqual(['SIGTERM'])
+  })
+
   it('walks the ladder for a child spawned without a stdin pipe', async () => {
     const fake = new FakeChild({ stdin: false, diesOn: 'SIGTERM', delayMs: 5 })
     await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 }, 'linux')
