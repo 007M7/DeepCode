@@ -22,5 +22,5 @@ Naming notes:
 - `src/types.ts` contains only types — no runtime code.
 - Tests live at package level under `tests/`, not `src/__tests__/`.
 - A package's README and JSDoc are part of the change: altered behavior (config keys, defaults, error codes, wire fields) updates them in the same commit. `doc-sync` gates what it can; apply [dsh-prose-standard](../.agents/skills/dsh-prose-standard/SKILL.md) for complete, concise prose and verify accuracy against code.
-- Package READMEs document model/token effects using the [canonical Model Experience format](../docs/cookbook/adding-a-package.md#4-write-the-package-readme).
+- Package READMEs document model, token, and KV-cache effects using the [canonical Model Experience format](../docs/cookbook/adding-a-package.md#4-write-the-package-readme).
 - Package READMEs put durable consumer gaps and non-obvious maintainer constraints under `## Known Limitations and Deferred Work`; ordinary cleanup stays in its TODO or RFC. Packages with none use a justified [allowlist entry](../scripts/verify-package-readme-limitations.ts) ([rationale](../docs/rfc/implemented/process/2026-07-10-readme-known-limitations-gate.md)).

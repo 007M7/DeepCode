@@ -56,6 +56,10 @@ Named `name` / `inject` / `Config` / `apply`, with **no default export**: the co
 
 None, as this keyless test adapter sends no request to a provider model; it only replays recorded assistant chunks into the test loop.
 
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
 ## Known Limitations and Deferred Work
 
 - **First-call-order script binding assumes sequential delegation** — a cut that runs sibling subagents concurrently (or a compaction summarize call landing mid-run) would bind live sessions to recorded scripts non-deterministically; a stronger keying is deferred until such a scenario exists (`XXX(concurrent-subagents)`).
