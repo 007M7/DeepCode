@@ -12,11 +12,11 @@ This RFC records the decision to add a third test tier — **snapshot tests** �
 
 ## Decision
 
-A snapshot test boots the real ACP example, drives its stdio protocol from a deterministic script, and compares normalized output with committed goldens. A session log recorded once from the real API supplies all later model streams. The fixture is the product's ordinary persisted JSONL.
+A snapshot test boots the real ACP example, drives its stdio protocol from a deterministic script, and compares normalized output with committed expected outputs. A session log recorded once from the real API supplies all later model streams. The fixture is the product's ordinary persisted JSONL.
 
 ### The fixture is the persisted session JSONL
 
-Each scenario's `session.jsonl` is harvested from a real run. `assistant/chunk` events reproduce the model streams; tool, message, and boundary events capture the harness behavior. One ordinary session artifact therefore serves as both replay source and behavioral golden.
+Each scenario's `session.jsonl` is harvested from a real run. `assistant/chunk` events reproduce the model streams; tool, message, and boundary events capture the harness behavior. One ordinary session artifact therefore serves as both replay source and behavioral expected output.
 
 ### Replay derives the model script from the log
 
@@ -48,12 +48,12 @@ Replay uses a `cordis.snapshot.yml` overlay that replaces the real adapter with 
 
 A snapshot run asserts **two** normalized surfaces, because the harness's external surfaces are distinct:
 
-1. The **stdout transcript** — the framed `session/update` JSON-RPC the editor sees. Catches regressions in the ACP bridge's event→update translation (`streamSessionEventUpdate`). Compared against a committed `stdout.golden.jsonl`.
+1. The **stdout transcript** — the framed `session/update` JSON-RPC the editor sees. Catches regressions in the ACP bridge's event→update translation (`streamSessionEventUpdate`). Compared against a committed `stdout.expected.jsonl`.
 2. The **re-persisted session JSONL**, normalized and compared with `session.jsonl`. The same fixture is both replay source and expected log. Prompt text is scrubbed; one scenario per header class pins readable prompt and tool content as described in the [header-pinning RFC](2026-07-06-pin-request-header-content-in-one-scenario.md). Override scenarios derive model behavior solely from their sidecar.
 
 The surfaces are complementary: stdout covers bridge projection, while JSONL covers loop, tool, and boundary structure that the projection omits.
 
-Normalization replaces session, cwd, protocol-id, timestamp, path, and process volatility while preserving deterministic sequence numbers. Scenarios constrain real bash use to stable commands. The stdout golden remains wire-shaped JSONL and every raw line must parse as JSON. Vitest updates only the stdout golden; normalized session equality never overwrites the replay fixture.
+Normalization replaces session, cwd, protocol-id, timestamp, path, and process volatility while preserving deterministic sequence numbers. Scenarios constrain real bash use to stable commands. The stdout expected output remains wire-shaped JSONL and every raw line must parse as JSON. Vitest updates only the stdout expected output; normalized session equality never overwrites the replay fixture.
 
 ### Isolation: normalization now, sandbox later
 
@@ -65,11 +65,11 @@ Tool determinism comes from a temporary cwd, scrubbed environment, fresh non-log
 
 ### Two subcommands, replay in the default gate
 
-`pnpm run test:snapshot` replays committed fixtures keylessly; `test:snapshot:record` uses the real API and rewrites the harvested session log and stdout golden. Missing fixtures fail loud. Every scenario carries `input.json`, `stdout.golden.jsonl`, and `session.jsonl`; no-model cases use a header-only log. `replay.override.json` is required only for scenarios marked `overridden`, because its presence replaces derived replay. Fixture guards reject missing, mismatched, and orphaned files. Both commands accept scenario filters.
+`pnpm run test:snapshot` replays committed fixtures keylessly; `test:snapshot:record` uses the real API and rewrites the harvested session log and stdout expected output. Missing fixtures fail loud. Every scenario carries `input.json`, `stdout.expected.jsonl`, and `session.jsonl`; no-model cases use a header-only log. `replay.override.json` is required only for scenarios marked `overridden`, because its presence replaces derived replay. Fixture guards reject missing, mismatched, and orphaned files. Both commands accept scenario filters.
 
 ## Alternatives considered
 
-- **A hand-authored `llm.json` of model chunks** — the earlier draft; reusing the real session log makes the fixture a genuine product of the system rather than a hand-built mock, and doubles it as a behavioral golden.
+- **A hand-authored `llm.json` of model chunks** — the earlier draft; reusing the real session log makes the fixture a genuine product of the system rather than a hand-built mock, and doubles it as a behavioral expected output.
 - **A byte-level HTTP-record library (Polly/nock/MSW)** — rejected: adapter-specific, awkward with streaming SSE, and lower-level than the thing under test.
 - **Synthesizing throw/cancel entries from `turn/end {kind:'error'|'aborted'}`** — rejected: it couples `llm-replay` to loop-internal turn-closing semantics, and the `turn/end` reason is lossy (it cannot distinguish a thrown 401 from a finish-error); the explicit `replay.override.json` sidecar is the cleaner seam.
 

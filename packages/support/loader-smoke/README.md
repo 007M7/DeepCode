@@ -10,6 +10,10 @@ This is support-tier test infrastructure, not product API.
 
 None, as this test-only harness boots example processes and inspects their streams without changing an assembled model request.
 
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
 ## Known Limitations and Deferred Work
 
 - **Built mode requires a prior build** — the config must also resolve every named package upward through `examples/node_modules`.

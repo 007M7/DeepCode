@@ -20,6 +20,10 @@ This package carries no loader hooks and no dev-mode surface: the `dsh-scripts` 
 
 Indirectly, through the plugin tree it loads, which determines the prompts, schemas, messages, and model adapter in the resulting application.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **Bare package specifiers depend on Loader internals** — production bins need `node --expose-internals` or the Loader's optional native fallback; an in-process caller without either must use resolvable relative/file specifiers or tsx path mapping.
