@@ -62,7 +62,7 @@
 
 门禁的边界很明确：通过门禁只说明两侧文件当前的 blob hash 与伴随记录吻合，并且结构签名一致，也就是说，这组内容曾被确认一致；它不代表这次确认可靠。门禁无法判断两种语言是否真正表达了相同的意思；这部分契约要由评审人把关。即使译文粗糙、表意有误，重新记录配对后仍能通过门禁，但绝不能通过人工评审。
 
-## ⑥ RFC 论证
+## ⑥ Agent Note 论证
 
 > Comparing git timestamps of the pair (no record) — rejected: formatting-only edits would false-positive, and a counterpart committed after an unrelated edit would false-negative; content identity is the only signal that means what the gate claims.
 
@@ -70,9 +70,9 @@
 
 ## ⑦ 推进策略（长段拆分示范）
 
-> **Rollout**: date-named RFCs don't wait for a batch — one dated on or after the manifest's `requiredSince` cutoff must merge with its pair, so each new date-named RFC is bilingual from birth. For the back-catalog, the `required` list in the manifest is the enforcement frontier, not the goal. […] Pairing a document is a commitment: every later edit to either side must carry the counterpart along, so grow the frontier at the pace translation review is actually resourced, not ahead of it.
+> **Rollout**: date-named Agent Notes don't wait for a batch — one dated on or after the manifest's `requiredSince` cutoff must merge with its pair, so each new date-named Agent Note is bilingual from birth. For the back-catalog, the `required` list in the manifest is the enforcement frontier, not the goal. […] Pairing a document is a commitment: every later edit to either side must carry the counterpart along, so grow the frontier at the pace translation review is actually resourced, not ahead of it.
 
-**推进**：日期命名的 RFC 无需等待批量翻译。只要文件名中的日期不早于 manifest（元数据清单）的 `requiredSince` 分界日期，合入时就必须配齐中英文，因此此类 RFC 从创建起就要求双语齐备。对于存量文档，manifest 中的 `required` 列表只是当前的执行红线，并非最终目标。（……）一旦文档完成配对，后续修改任一侧都必须同步更新另一侧。因此，应根据实际可投入的翻译评审能力逐步扩展执行红线，不能超前。
+**推进**：日期命名的 Agent Note 无需等待批量翻译。只要文件名中的日期不早于 manifest（元数据清单）的 `requiredSince` 分界日期，合入时就必须配齐中英文，因此此类 Agent Note 从创建起就要求双语齐备。对于存量文档，manifest 中的 `required` 列表只是当前的执行红线，并非最终目标。（……）一旦文档完成配对，后续修改任一侧都必须同步更新另一侧。因此，应根据实际可投入的翻译评审能力逐步扩展执行红线，不能超前。
 
 ## 从样例提炼的要点
 

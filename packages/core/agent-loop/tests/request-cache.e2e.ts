@@ -14,7 +14,7 @@ import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
  * multi-step tool turn (plus a follow-up turn) against the live DeepSeek API must report
  * `cacheReadTokens > 0` on every request after the first — the adapter maps the provider's
  * `prompt_cache_hit_tokens`, and the per-step usage recorded on `assistant/message` events is
- * the production observable for cache behavior (the reconstructability RFC's measurement
+ * the production observable for cache behavior (the reconstructability Agent Note's measurement
  * layer: prefix stability is corollary #1). Mocks establish append-extension;
  * this key-gated test establishes a real provider cache hit.
  */
