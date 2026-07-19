@@ -50,7 +50,7 @@ The concrete `Agent` class, its `Inbox`, `runLoop`, and instance-bound publicati
 
 ### Loop lifecycle (`loop.ts`)
 
-The driver owns one agent for its lifetime and runs inside `ctx.agents.withInitiator(agent, ...)`, so process-local asynchronous continuations can recover the initiating Agent. Creation, persistence load, and unpublished setup stay outside the driver boundary; explicit Agent fields remain authoritative at service, worker, process, persistence, and wire boundaries. The [agent service](../agent/README.md#initiating-agent-scope) owns propagation, teardown, and detached-work rules.
+The driver owns one agent for its lifetime and runs inside `ctx.agents.withInitiator(agent, ...)`. Package-private orchestration entry points recover the exact Agent, derive `agent.session` once, and let operation-local helpers capture it instead of forwarding the concrete driver or per-operation `Session` through shallow interfaces. A helper keeps an explicit `Session` when that is its actual interface, while creation, persistence load, unpublished setup, services, workers, processes, persistence, and wire protocols retain their explicit identities. The [agent service](../agent/README.md#initiating-agent-scope) owns propagation, teardown, and detached-work rules.
 
 Every provider call that reaches a successful finish appends exactly one `assistant/message` completion anchor, including content-less calls and `max-tokens` finishes. A successful `agent/step-result` stores its transformed content; a rejected result records empty content before the original failure continues. The anchor retains exact chunk provenance (`[]` for a stream with no chunks) and usage when available, while empty content stays out of derived message history.
 
