@@ -37,9 +37,17 @@ Like the JSONL backend, the plugin also installs the `session/event` → buffer 
 
 ### Resumed conversation history
 
-**What the model sees**: SQLite storage contributes no live prompt or schema. Loading restores the same surface history as JSONL and preserves prior headers for reconstruction; the new loop composes its current envelope. Each unanswered call in interrupted rows is balanced with the exact error text `Tool call interrupted by a crash; no result was recorded.` Row metadata and raw chunks are not messages.
+#### What the model sees
 
-**Token effect**: Zero live-request tokens. Resume restores retained history and pays the current envelope, plus the quoted repair result for each interrupted call.
+SQLite storage contributes no live prompt or schema. Loading restores the same surface history as JSONL and preserves prior headers for reconstruction; the new loop composes its current envelope. Each unanswered call in interrupted rows is balanced with the exact error text `Tool call interrupted by a crash; no result was recorded.` Row metadata and raw chunks are not messages.
+
+#### Token effect
+
+Zero live-request tokens. Resume restores retained history and pays the current envelope, plus the quoted repair result for each interrupted call.
+
+#### KV Cache effect
+
+SQLite storage does not mutate live request prefixes. A resumed loop can reuse provider cache only when its reconstructed history, current envelope, and model route match; crash-repair results append.
 
 ## Known Limitations and Deferred Work
 

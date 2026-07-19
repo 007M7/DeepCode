@@ -30,10 +30,10 @@ import {
 } from './normalize.ts'
 
 /** The readable system-prompt snapshot beside each header-pinning fixture. */
-const SYSTEM_PROMPT_SNAPSHOT = 'system-prompt.golden.md'
+const SYSTEM_PROMPT_SNAPSHOT = 'system-prompt.expected.md'
 
 /** The structured tool-schema snapshot beside each header-pinning fixture. */
-const TOOL_SCHEMAS_SNAPSHOT = 'tool-schemas.golden.json'
+const TOOL_SCHEMAS_SNAPSHOT = 'tool-schemas.expected.json'
 
 /** Stable session-log token standing in for the sidecar's initial schemas. */
 const TOOLS_TOKEN = '{{tools}}'
@@ -41,7 +41,7 @@ const TOOLS_TOKEN = '{{tools}}'
 /** A snapshot scenario and how its fixtures are produced. */
 export interface Scenario {
   name: string
-  /** Whether the scenario drives at least one model turn (so a JSONL golden applies). */
+  /** Whether the scenario drives at least one model turn (so a JSONL expected output applies). */
   hasModelTurn: boolean
   /**
    * Whether the run persists a comparable session log to diff against the
@@ -112,8 +112,8 @@ export interface SnapshotSuiteOptions {
   scenarios: Scenario[]
   /**
    * `replay` (keyless, the default tier), `record` (live API; re-records the
-   * `recorded` scenarios' fixtures and refreshes the Vitest goldens under
-   * `--update`), or `refresh` (keyless replay that rewrites stdout goldens and
+   * `recorded` scenarios' fixtures and refreshes the Vitest expected outputs under
+   * `--update`), or `refresh` (keyless replay that rewrites stdout expected outputs and
    * comparable session fixtures from the replay run). The caller derives this
    * from `$DSH_SNAPSHOT` — env reading stays outside this library.
    */
@@ -427,7 +427,7 @@ export function stabilizeRefreshLog(fresh: string, existing: string, replacement
 }
 
 /**
- * Register the suite: one test per scenario (the golden/log compares and
+ * Register the suite: one test per scenario (the expected-output and log comparisons and
  * the header-uniformity guard) plus the fixture guard block (no orphan
  * scenario dirs, required files present, exactly one pin per header class,
  * pinning fixtures well-formed, every JSONL prompt-scrubbed, non-pinning
@@ -467,7 +467,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
     for (const scenario of scenarios) {
       // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the `authored` ones
       // (sidecar-driven errors/cancel) are never re-recorded.
-      it.skipIf(RECORDING && !scenario.recorded)(`snapshot: ${scenario.name} matches the goldens`, async ({ expect }) => {
+      it.skipIf(RECORDING && !scenario.recorded)(`snapshot: ${scenario.name} matches the expected outputs`, async ({ expect }) => {
         const dir = join(snapshotsDir, scenario.name)
         const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
         const overrideFile = join(dir, 'replay.override.json')
@@ -573,9 +573,9 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
 
         const stdout = normalizeStdout(result.rawStdout, ctx)
         if (REFRESHING) {
-          await writeFile(join(dir, 'stdout.golden.jsonl'), stdout)
+          await writeFile(join(dir, 'stdout.expected.jsonl'), stdout)
         }
-        await expect(stdout).toMatchFileSnapshot(join(dir, 'stdout.golden.jsonl'))
+        await expect(stdout).toMatchFileSnapshot(join(dir, 'stdout.expected.jsonl'))
 
         // A model turn always produces a log worth comparing; a hook scenario can
         // produce one without a model turn (a `rejected` turn carrying `hook/*`).
@@ -651,7 +651,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
 
   describe('snapshot fixtures', () => {
     it('every scenario directory is registered (no orphans)', async () => {
-      // toMatchFileSnapshot does not prune orphaned golden/fixture files, so a
+      // toMatchFileSnapshot does not prune orphaned expected-output or fixture files, so a
       // renamed/removed scenario could leave a stale dir that nothing exercises.
       // Fail loud on any snapshots/<dir> not present in the scenario table.
       const entries = await readdir(snapshotsDir, { withFileTypes: true })
@@ -665,7 +665,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       for (const { name, overridden, pinsHeader } of scenarios) {
         const dir = join(snapshotsDir, name)
         expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
-        expect(existsSync(join(dir, 'stdout.golden.jsonl')), `${name}/stdout.golden.jsonl`).toBe(true)
+        expect(existsSync(join(dir, 'stdout.expected.jsonl')), `${name}/stdout.expected.jsonl`).toBe(true)
         expect(existsSync(join(dir, 'session.jsonl')), `${name}/session.jsonl`).toBe(true)
         expect(existsSync(join(dir, 'replay.override.json')), `${name}/replay.override.json presence must match \`overridden\``)
           .toBe(overridden === true)

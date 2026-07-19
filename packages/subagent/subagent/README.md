@@ -66,6 +66,10 @@ The model-facing tool collects synchronously by default: it awaits the child res
 
 Indirectly, through `dsh-tool-subagent`, which renders provider-specific schemas and foreground or generic-background results while child working context remains child-only.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **Runtime steering and continuation are seam-only capabilities** — `sendMessage` and `resume` have no model-facing consumer in the current tool.

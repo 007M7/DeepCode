@@ -22,6 +22,10 @@ Files land at `<root>/session-<hash>/​<random>-<safeName>`:
 
 Indirectly, through spill consumers that render the local path and `read`/`grep` retrieval guidance.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **Local spill files persist until external cleanup** — the backend has no session-lifecycle deletion or age-based retention policy, because persisted, resumed, and forked sessions may still reference a path.
