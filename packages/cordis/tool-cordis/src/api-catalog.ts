@@ -323,7 +323,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/post-step',
     mode: 'serial',
     signature: '\'agent/post-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void',
-    summary: 'Awaited serial checkpoint after the response, tool results, injected context, and steering are durable but before `step/end`.',
+    summary: 'Awaited serial checkpoint after the response, real or synthetic tool results, injected context, and steering are durable but before `step/end`.',
   },
   {
     name: 'agent/pre-step',

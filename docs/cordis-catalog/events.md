@@ -47,11 +47,11 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:310`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:311`](../../packages/core/agent/src/types.ts)
 
 ### `agent/post-step` — serial
 
-Awaited serial checkpoint after the response, tool results, injected context, and steering are durable but before `step/end`.
+Awaited serial checkpoint after the response, real or synthetic tool results, injected context, and steering are durable but before `step/end`. A cancelled tool batch reaches this checkpoint with an aborted signal.
 
 ```ts cordis-catalog
 'agent/post-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
@@ -59,7 +59,7 @@ Awaited serial checkpoint after the response, tool results, injected context, an
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:263`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:264`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -119,7 +119,7 @@ Recover a model-request failure after its failed step has closed. `retry` opens 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:277`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:278`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -179,7 +179,7 @@ Override whether the turn continues. The default continues after tool calls or s
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:287`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:288`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -191,7 +191,7 @@ Monotonic terminal-stop checkpoint after continuation and steering are folded; a
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:297`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:298`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 

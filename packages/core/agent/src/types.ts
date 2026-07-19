@@ -251,11 +251,12 @@ declare module 'cordis' {
      */
     'agent/step-result'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>
     /**
-     * Awaited serial checkpoint after the response, tool results, injected
-     * context, and steering are durable but before `step/end`.
-     * @param agent - the agent that completed the step.
+     * Awaited serial checkpoint after the response, real or synthetic tool
+     * results, injected context, and steering are durable but before `step/end`.
+     * A cancelled tool batch reaches this checkpoint with an aborted signal.
+     * @param agent - the agent whose step is settling.
      * @param turn - the open turn number.
-     * @param step - the completed step number.
+     * @param step - the open step number.
      * @param signal - the turn abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode serial
