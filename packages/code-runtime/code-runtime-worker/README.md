@@ -37,6 +37,10 @@ The SDK surface is the default/named `WorkerCodeRuntime` class plus `Config`. Th
 
 Indirectly, through Code Mode in [`dsh-tools`](../../core/tools/README.md), which renders this worker's capped printed or returned data and exact `[dsh-code-runtime-worker] log capture truncated at <maxLogBytes> bytes` and `… [truncated]` markers into a retained `run_code` result. Binding traffic and worker internals stay outside context.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **OS processes a program spawns survive termination** — `worker.terminate()` ends the thread only, weaker than bash-local's process-group kill; orphan cleanup is a deployment concern until a container backend exists.

@@ -70,15 +70,31 @@ Every MCP tool has two names: the raw MCP name (sent on the wire in `tools/call`
 
 ### Discovered MCP tools
 
-**What the model sees**: After initial discovery succeeds, each advertised MCP tool appears as a native tool named `mcp__<serverName>__<rawName>` (or its deterministic normalized form), with the server-provided description and input schema. A successful re-sync replaces the generation; plugin disposal removes it.
+#### What the model sees
 
-**Token effect**: Data-dependent schema cost is paid on every request while the tools are registered. Re-sync replaces rather than accumulates schemas, and the server-qualified name adds tokens to every tool definition and call.
+After initial discovery succeeds, each advertised MCP tool appears as a native tool named `mcp__<serverName>__<rawName>` (or its deterministic normalized form), with the server-provided description and input schema. A successful re-sync replaces the generation; plugin disposal removes it.
+
+#### Token effect
+
+Data-dependent schema cost is paid on every request while the tools are registered. Re-sync replaces rather than accumulates schemas, and the server-qualified name adds tokens to every tool definition and call.
+
+#### KV Cache effect
+
+Prefix-stable while the discovered tool set and schemas are unchanged. A re-sync that adds, removes, renames, or changes a tool replaces definitions and may invalidate reuse from the first changed schema token.
 
 ### Tool-call history and results
 
-**What the model sees**: The public tool name and JSON arguments remain in assistant history. Text result blocks are joined with newlines into one retained text result; image, audio, resource, and unsupported blocks become short placeholders, and MCP `isError` results follow the registry's model-visible error path.
+#### What the model sees
 
-**Token effect**: Arguments and mapped text are retained until compaction. Binary and resource payloads are discarded rather than added to context.
+The public tool name and JSON arguments remain in assistant history. Text result blocks are joined with newlines into one retained text result; image, audio, resource, and unsupported blocks become short placeholders, and MCP `isError` results follow the registry's model-visible error path.
+
+#### Token effect
+
+Arguments and mapped text are retained until compaction. Binary and resource payloads are discarded rather than added to context.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

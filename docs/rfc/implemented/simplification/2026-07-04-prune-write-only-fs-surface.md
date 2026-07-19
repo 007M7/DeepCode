@@ -23,7 +23,7 @@ A future permission/containment layer might want the pre-resolution path for err
 
 ## Verification
 
-The removed surfaces are gone — `STREAM_MIN_SIZE`/`streamMinSize` in `dsh-fs-local`, `FsTarget.inputPath`, `FsEditOutcome.replacements`/`.replaceAll`, and `FileReadOutcome.limit`/`.version` — while the request-side `replaceAll` (`FsEditRequest`) and the version fields on the other outcome types are untouched; the test fakes shrank with the types. `formatEditOutput`'s emitted text is unchanged for both `replace_all` branches, so no snapshot golden churned.
+The removed surfaces are gone — `STREAM_MIN_SIZE`/`streamMinSize` in `dsh-fs-local`, `FsTarget.inputPath`, `FsEditOutcome.replacements`/`.replaceAll`, and `FileReadOutcome.limit`/`.version` — while the request-side `replaceAll` (`FsEditRequest`) and the version fields on the other outcome types are untouched; the test fakes shrank with the types. `formatEditOutput`'s emitted text is unchanged for both `replace_all` branches, so no snapshot expected output churned.
 
 ## Consequences
 
