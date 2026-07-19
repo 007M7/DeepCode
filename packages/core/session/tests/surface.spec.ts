@@ -142,6 +142,11 @@ describe('SurfaceManager', () => {
   it('leaves incremental state unchanged when candidate validation fails', () => {
     const s = new Session(SessionId('atomic-validation'))
     s.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    const surface = s.surface
+    const nodes = surface.nodes
+
+    expect(nodes).toEqual(foldSurface(s.events).nodes)
+    expect(surface.replaceGeneration).toBe(0)
 
     expect(() => s.append(
       'assistant/message',
@@ -150,8 +155,16 @@ describe('SurfaceManager', () => {
     )).toThrow(/missing 0/)
 
     expect(s.events).toHaveLength(1)
+    expect(s.surface).toBe(surface)
+    expect(surface.nodes).toEqual([0])
+    expect(surface.replaceGeneration).toBe(0)
+    expect(surface.nodes).toEqual(foldSurface(s.events).nodes)
+
     s.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    expect(s.surface.nodes).toEqual([0, 1])
+    expect(surface.nodes).toBe(nodes)
+    expect(surface.nodes).toEqual([0, 1])
+    expect(surface.replaceGeneration).toBe(0)
+    expect(surface.nodes).toEqual(foldSurface(s.events).nodes)
   })
 
   it('foldSurface rejects a surface-eligible event without its mandatory marker', () => {

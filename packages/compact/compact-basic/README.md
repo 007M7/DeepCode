@@ -13,10 +13,10 @@ This backend owns the compaction policy:
 - **Convergence** — retry head-checkpoint compaction up to `compactionRetries`; reject a summary that does not shrink its source, and throw if retries cannot return below threshold.
 - **Summarization** — a direct `llm/stream` call uses the configured provider/model pair and cap, falling back to the latest logged request target and then the agent target, without running the loop-only `agent/request` seam. The input transcript preserves non-text blocks as tagged placeholders; only returned text enters the checkpoint, excluding reasoning and tool calls that would leak private reasoning or create an orphaned call.
 - **Framing** — the replacement user message marks established checkpoint context with `<compacted-summary>` tags. The raw summary remains on the provenance event, and later automatic cycles merge the prior checkpoint.
-- **Lifecycle** — `compactRegion()` requires its agent to own the exact target session and rejects mismatch before resolution or mutation; a valid call records its start, summary, replacement, and end. The serial `agent/pre-step` listener checks pressure before every step, outside an open step, so a tool-heavy turn remains compactable and the loop derives history once after mutation.
+- **Lifecycle** — `compactRegion()` mutates `agent.session` and records its start, summary, replacement, and end. The serial `agent/pre-step` listener checks pressure before every step, outside an open step, so a tool-heavy turn remains compactable and the loop derives history once after mutation.
 - **Failure handling** — an unmatched `compact/start` is an inert crash marker because no replacement landed. Recoverable failure records an error end and leaves the surface unchanged.
 
-`summarize()` is the sole subclass hook. A template- or remote-summarizer subclass can override it while pressure, retention, provenance, shrink validation, and shadowed-token accounting stay on `ctx.tokenMeter`. The hook returns the summary blocks together with the call envelope it used (`{ summary, provider, model, maxTokens? }`), which is logged on `compact/summary`.
+The protected `summarize()` method is the sole subclass hook. A template- or remote-summarizer subclass can override it while pressure, retention, provenance, shrink validation, and shadowed-token accounting stay on `ctx.tokenMeter`. The hook returns the summary blocks together with the call envelope it used (`{ summary, provider, model, maxTokens? }`), which is logged on `compact/summary`.
 
 ## Config (`BasicCompactConfig`)
 

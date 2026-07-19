@@ -1,10 +1,18 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import type { CreateSessionOptions, SessionEventType, SessionHeader, TodoItem } from '@deepseek-ai/dsh-session'
+import type { CreateSessionOptions, SessionEventType, SessionHeader, SessionSurface, TodoItem } from '@deepseek-ai/dsh-session'
 
 describe('Session', () => {
+  it('exposes one stable readonly surface view', () => {
+    const session = new Session(SessionId('surface-view'))
+    const surface = session.surface
+
+    expectTypeOf(surface).toEqualTypeOf<SessionSurface>()
+    expect(surface).toBe(session.surface)
+  })
+
   it('derives message history from the event log', () => {
     const session = new Session(SessionId('s1'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -1029,6 +1037,45 @@ describe('SessionStore', () => {
     expect(validations[1]!.event).toBe(appended)
     expect(session.events).toEqual([appended])
     expect(observed).toEqual([appended])
+  })
+
+  it('does not publish a surface transition rejected by internal dispatch', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('surface-dispatch-veto'))
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'source' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    const surface = session.surface
+    let reject = true
+    ctx.on('internal/dispatch', (_mode, name) => {
+      if (name === 'session/event' && reject) {
+        reject = false
+        throw new Error('reject surface candidate')
+      }
+    })
+
+    expect(() => session.append('assistant/message', {
+      provenance: { provider: 'mock', model: 'mock' },
+      turn: 1,
+      step: 1,
+      content: [{ type: 'text', text: 'replacement' }],
+    }, {
+      surfaceOp: { op: 'replace', start: 0, end: 0 },
+      sourceEventSeqs: [0],
+    })).toThrow('reject surface candidate')
+
+    expect(session.events).toHaveLength(1)
+    expect(surface.nodes).toEqual([0])
+    expect(surface.replaceGeneration).toBe(0)
+
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'next' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    expect(surface.nodes).toEqual([0, 1])
+    expect(surface.replaceGeneration).toBe(0)
   })
 
   it('resolves session/event dispatch before commit so instrumentation failure cannot hide a logged event', async () => {

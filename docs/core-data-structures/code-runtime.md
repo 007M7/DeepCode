@@ -9,6 +9,12 @@ Source: [`packages/code-runtime/code-runtime/src/types.ts`](../../packages/code-
 A `CodeRunRequest` carries **everything the runtime acts on** — per the "explicit > implicit at package seams" rule, defaulting (time budgets, output caps) is the implementation's validated config, never a hidden `??` inside `run()`:
 
 ```ts type-equiv
+/**
+ * One run: the program source plus everything the runtime acts on. Per the
+ * explicit-over-implicit convention, defaulting (time budgets, output caps)
+ * is the implementation's validated config — a request carries no optional
+ * tuning knobs for a hidden `??` to fill in.
+ */
 interface CodeRunRequest {
   /**
    * The program source, in the runtime's {@link ../index.ts | language}. It
@@ -31,6 +37,11 @@ interface CodeRunRequest {
 The result reports an error as a **field**, never a rejection of `run()` — reporting a failed program is the caller's job, not an exception path (mirroring `BashExecutor.run`'s resolve-on-failure contract):
 
 ```ts type-equiv
+/**
+ * The outcome of one run. An error is a FIELD on a resolved result, never a
+ * rejection of `run()` — reporting a failed program is the caller's job, not
+ * an exception path.
+ */
 interface CodeRunResult {
   /**
    * The program's completion value (its top-level `return`), when it ran to
@@ -51,6 +62,13 @@ interface CodeRunResult {
 Each `CodeBindingNamespace` becomes one global object of async callables inside the program (the Code Mode consumer passes one: `tools`). Arguments and resolutions must be structured-cloneable — a runtime may bridge calls across a serialization boundary — and a runtime treats binding names as hostile input (`__proto__` is an ordinary own property, never a prototype collision):
 
 ```ts type-equiv
+/**
+ * A named group of {@link CodeBindingFunction}s the runtime exposes to the
+ * program as one global object (e.g. `tools`). Function names are arbitrary
+ * strings — a runtime must treat names like `__proto__` or `constructor` as
+ * ordinary own properties (null-prototype construction), never as prototype
+ * collisions.
+ */
 interface CodeBindingNamespace {
   /** The global identifier the program sees (must be a valid JS identifier). */
   global: string
@@ -60,6 +78,14 @@ interface CodeBindingNamespace {
 ```
 
 ```ts type-equiv
+/**
+ * One host-side function exposed to the program as an async callable. The
+ * runtime bridges calls to it (possibly across a serialization boundary), so
+ * `args` and the resolution value MUST be structured-cloneable; a runtime
+ * rejects a non-cloneable value with a descriptive error rather than
+ * corrupting the run. A rejection of this function surfaces inside the
+ * program as a rejection of the corresponding call.
+ */
 type CodeBindingFunction = (args: unknown) => Promise<unknown>
 ```
 
@@ -70,6 +96,16 @@ Logs are plain strings in emission order. The runtime captures the program's con
 Failure kinds are **orthogonal outcomes reported independently** (per [defensive-patterns](../defensive-patterns.md)): a budget expiry is not an exception, an abort is not a timeout, and a substrate death (e.g. OOM) is neither:
 
 ```ts type-equiv
+/**
+ * Why a run failed. The kinds are orthogonal outcomes reported independently
+ * (per docs/defensive-patterns.md): a budget expiry is not an exception, an
+ * abort is not a timeout, and a substrate death is neither.
+ *
+ * - `'exception'` — the program threw or failed to parse/transform.
+ * - `'timeout'` — an implementation-owned budget expired; the message says which.
+ * - `'abort'` — {@link CodeRunRequest.signal} fired.
+ * - `'worker-exit'` — the execution substrate died without settling (e.g. OOM).
+ */
 interface CodeRunFailure {
   /** The failure class (see the interface doc for each kind's meaning). */
   kind: 'exception' | 'timeout' | 'abort' | 'worker-exit'

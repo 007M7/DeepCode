@@ -2,13 +2,13 @@
 
 Agent Client Protocol bridge over JSON-RPC stdio. Editors can create or resume agents, stream their events, answer questions and approvals, and render tool calls. One connection supports multiple isolated sessions; Zed is the primary compatibility target.
 
-It is a **client-driver / UI plugin**, the structured analogue of the readline `stdio-chat` plugin — NOT a loop change and NOT a [capability seam](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md). It consumes the existing `agent/*` event taxonomy, the `dsh-agent` create/resume factory, and `dsh-session-persistence`.
+It is a **client-driver / UI plugin**, the structured analogue of the terminal `dsh-tui`/`dsh-stdio` channels — NOT a loop change and NOT a [capability seam](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md). It consumes the existing `agent/*` event taxonomy, the `dsh-agent` create/resume factory, and `dsh-session-persistence`.
 
 ## Service / plugin
 
 `apply(ctx, config)` — wires an `AgentSideConnection` (from `@agentclientprotocol/sdk`) to `process.stdin`/`process.stdout` and implements the ACP `Agent` method surface.
 
-The plugin injects `agents`, `sessions`, `sessionPersistence`, `tools`, `userInteraction`, `llm`, and `systemPrompt`, never the concrete loop. Persistence backs `session/load`; the LLM catalog backs model selection; prompt assembly keeps model variables aligned with routing; tool definitions own presentation; user interaction maps agent questions to ACP forms.
+The plugin injects `agents`, `sessionPersistence`, `tools`, `userInteraction`, `llm`, and `systemPrompt`, never the concrete loop. Persistence backs `session/load`; the LLM catalog backs model selection; prompt assembly keeps model variables aligned with routing; tool definitions own presentation; user interaction maps agent questions to ACP forms.
 
 ### Config
 
@@ -37,7 +37,7 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 
 ## Multi-session
 
-Forward and reverse indexes route every event, prompt, cancel, and approval to one session. Each session permits one in-flight prompt; teardown drains all sessions in parallel. See the [multi-session RFC](../../../docs/rfc/implemented/feature/2026-06-14-acp-multi-session.md).
+One id-keyed record map plus exact agent-object checks route every event, prompt, cancel, and approval to one session. Each session permits one in-flight prompt; teardown drains all sessions in parallel. See the [multi-session RFC](../../../docs/rfc/implemented/feature/2026-06-14-acp-multi-session.md).
 
 ## Session config options
 

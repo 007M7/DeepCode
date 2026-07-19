@@ -19,6 +19,7 @@ import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 
 export const name = 'acp-demo'
+const DEFAULT_PERSISTENCE_ROOT = './.sessions'
 
 /**
  * App config: the swappable per-deployment values. `provider` and `model` configure the
@@ -70,9 +71,7 @@ export const Config: z<Config> = z.object({
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
   dshHome: z.string(),
-  // TODO(single-default-literal): share this schema default and the defensive
-  // apply() fallback through one named constant while retaining both boundaries.
-  persistenceRoot: z.string().default('./.sessions'),
+  persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
@@ -90,6 +89,6 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(agentCore, agentCore.pickSpineConfig(config))
   ctx.plugin(UserInteractionService)
-  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
+  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT })
   ctx.plugin(acp, { provider: config.provider, model: config.model })
 }

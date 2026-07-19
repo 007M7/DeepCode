@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { fsHarness, waitForIdle } from './harness.ts'
 
@@ -35,7 +34,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => 
     ctx = await fsHarness(workdir, SYSTEM)
     // agentLoop.create prepares a session with no cwd, so the provider default
     // (config.cwd = workdir) is the workspace.
-    const agent = ctx.agentLoop.create(AgentId('fs-e2e'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('fs-e2e'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.send([{ type: 'text', text:
       'Create a file named note.txt containing exactly the line: status: draft. '
@@ -65,7 +64,6 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => 
     try {
       ctx = await fsHarness(configDir, SYSTEM)
       const handle = await ctx.agents.create({
-        agentId: AgentId('fs-e2e-cwd'),
         sessionId: SessionId(`fs-e2e-cwd-${Date.now()}`),
         meta: { cwd: sessionDir },
         agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },

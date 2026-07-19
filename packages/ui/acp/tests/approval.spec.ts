@@ -4,9 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import { type Agent } from '@deepseek-ai/dsh-agent'
+
 import ApprovalService, { type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import { makeBridgeHarness, type BridgeHarness } from './harness.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 /**
  * The bridge's `approval/request` answerer: an ask for an agent the bridge
@@ -31,7 +33,7 @@ describe('acp bridge — approval answerer', () => {
   ): Promise<{ agent: Agent; request: ApprovalRequest }> {
     await h.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    const agent = h.ctx.agents.get(AgentId(sessionId))
+    const agent = h.ctx.agents.get(SessionId(sessionId))
     if (agent === undefined) throw new Error('newSession created no agent')
     // In production an ask always fires mid-turn (tool execution); open one so
     // request()'s turn-enclosure precondition holds for the direct drive below.
@@ -88,9 +90,12 @@ describe('acp bridge — approval answerer', () => {
     await harness.ctx.plugin(ApprovalService)
     harness.onPermission = () => ({ outcome: { outcome: 'selected', optionId: 'allow-once' } })
 
-    // Not created through the bridge: no bySession entry, so the answerer must
-    // call next() — nobody else answers, so the seam fails closed.
-    const foreign = { session: { events: [{ type: 'turn/start' }], append: () => ({}) } } as unknown as Agent
+    const { agent } = await ownedAgentRequest(harness)
+    // Even an impostor that claims the bridge-owned session id must delegate:
+    // ownership requires the exact Agent object stored in the session record.
+    const foreign = {
+      session: { id: agent.session.id, events: [{ type: 'turn/start' }], append: () => ({}) },
+    } as unknown as Agent
     await expect(harness.ctx.approval.request({ agent: foreign, toolName: 'echo', callId: CallId('c') }))
       .resolves.toBe('unavailable')
     expect(harness.permissionRequests).toHaveLength(0)
