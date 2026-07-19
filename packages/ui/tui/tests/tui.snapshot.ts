@@ -29,6 +29,7 @@ const CHECKPOINTS = [
   'cordis-tools-pending',
   'advanced-cards-collapsed',
   'advanced-cards-expanded',
+  'untrusted-controls',
   'question-dialog',
   'question-dialog-validation',
   'surface-before-compaction',
@@ -188,6 +189,9 @@ const ADVANCED_CARD_TOOLS: Record<string, ToolDefinition> = {
   })),
 }
 
+const CONTROL_PROBE = '\u001b]2;snapshot-controlled\u0007\t\u007f\u009b31m'
+const DISPLAYED_CONTROL_PROBE = String.raw`\x1b]2;snapshot-controlled\x07\x09\x7f\x9b31m`
+
 describe('TUI terminal-state snapshots', () => {
   it('pins an in-flight reasoning and Markdown stream', async () => {
     const harness = await setupSnapshot()
@@ -295,6 +299,82 @@ describe('TUI terminal-state snapshots', () => {
 
     await renderAfter(harness, () => { harness.terminal.send('\x0f') })
     await checkpoint('advanced-cards-expanded', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
+  })
+
+  it('renders terminal controls as inert text across transcripts, tools, dialogs, diagnostics, and title', async () => {
+    const tools = {
+      unsafe: visualTool(
+        'unsafe',
+        () => ({
+          card: 'terminal',
+          title: `Unsafe title ${CONTROL_PROBE}`,
+          description: `Unsafe description ${CONTROL_PROBE}`,
+          cwd: `/unsafe/${CONTROL_PROBE}`,
+        }),
+        () => ({
+          card: 'terminal',
+          output: `Unsafe output ${CONTROL_PROBE}`,
+          signal: `SIG${CONTROL_PROBE}`,
+        }),
+      ),
+    }
+    const harness = await setupSnapshot({
+      tools,
+      config: {
+        welcome: `Unsafe welcome ${CONTROL_PROBE}`,
+        title: `Unsafe terminal title ${CONTROL_PROBE}`,
+      },
+      beforeMount(session) {
+        appendUser(session, `Unsafe user ${CONTROL_PROBE}`)
+        appendAssistant(session, [
+          { type: 'reasoning', text: `Unsafe reasoning ${CONTROL_PROBE}` },
+          { type: 'text', text: `Unsafe assistant ${CONTROL_PROBE}` },
+        ])
+        appendToolCalls(session, [{ id: 'unsafe-1', name: 'unsafe', arguments: { value: CONTROL_PROBE } }])
+        appendToolResult(session, 'unsafe-1', [{ type: 'text', text: `Unsafe fallback ${CONTROL_PROBE}` }])
+        session.append('todo/write', {
+          todos: [{ content: `Unsafe todo ${CONTROL_PROBE}`, status: 'in_progress' }],
+        })
+        session.append('context/message', {
+          content: [{ type: 'text', text: `Unsafe context ${CONTROL_PROBE}` }],
+          source: { kind: 'plugin', plugin: `unsafe-${CONTROL_PROBE}` },
+        }, { surfaceOp: 'append' })
+        session.append('prompt/blocked', {
+          content: [{ type: 'text', text: 'blocked' }],
+          source: { kind: 'user' },
+          reason: `Unsafe policy ${CONTROL_PROBE}`,
+        })
+        session.append('turn/end', {
+          turn: 7,
+          reason: { kind: 'error', step: 2, message: `Unsafe turn error ${CONTROL_PROBE}` },
+        })
+      },
+    }, { columns: 100, rows: 34 })
+    expect(harness.terminal.title).toContain(DISPLAYED_CONTROL_PROBE)
+    expect(harness.terminal.title).not.toContain('\u001b')
+    expect(harness.terminal.title).not.toContain('\u009b')
+
+    const controller = new AbortController()
+    const beforeQuestion = harness.terminal.frames
+    const answer = harness.ctx.userInteraction.ask({
+      questions: [{
+        id: 'unsafe-question',
+        header: `Unsafe header ${CONTROL_PROBE}`,
+        question: `Unsafe question ${CONTROL_PROBE}`,
+        options: [{ label: `Unsafe option ${CONTROL_PROBE}`, description: `Unsafe detail ${CONTROL_PROBE}` }],
+      }],
+      signal: controller.signal,
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await harness.terminal.waitForFrame(beforeQuestion)
+    await renderAfter(harness, () => {
+      harness.ctx.emit('agent/error', harness.agent, 8, 3, new Error(`Unsafe live error ${CONTROL_PROBE}`))
+    })
+    await checkpoint('untrusted-controls', harness.terminal, { includeScrollback: true })
+
+    controller.abort()
+    await rejected
     await disposeSnapshot(harness)
   })
 

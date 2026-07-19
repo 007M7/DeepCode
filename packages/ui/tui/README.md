@@ -6,6 +6,8 @@ This package owns interactive terminal presentation and input only. It injects `
 
 The TUI rebuilds resumed history from the active session surface, renders Markdown responses and reasoning, applies each tool's `presentCall` / `presentResult` intent to terminal, diff, or generic cards, keeps the latest `todo/write` plan above the editor, and presents `ctx.userInteraction` questions as keyboard-driven overlays. Surface replacement events rebuild the transcript so compacted history does not reappear.
 
+Before model output, session events, tool presenters, questions, configuration, or diagnostics reach pi-tui's ANSI-aware renderers or the terminal title, the TUI renders C0 and C1 controls other than line feeds as visible `\xNN` text. Those sources cannot add terminal control sequences; the TUI and pi-tui retain ownership of terminal rendering and styling.
+
 While the agent is running, editor submissions call `agent.steer()`; otherwise they call `agent.send()`. Ctrl+C or Escape cancels a running turn. Ctrl+O expands tool cards, Ctrl+R toggles reasoning, Ctrl+L redraws, and Ctrl+D exits while idle. `/help`, `/clear`, `/cancel`, `/reasoning`, `/tools`, `/redraw`, and `/exit` provide the same actions without key chords.
 
 ## Config

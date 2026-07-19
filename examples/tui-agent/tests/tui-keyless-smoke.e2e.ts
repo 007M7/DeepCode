@@ -153,6 +153,12 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
   it('streams a response, answers a user-question dialog, completes the tool round-trip, and exits cleanly', async () => {
     const output = await runTuiLoaderSmoke({ config: scriptedConfigPath, scenario: 'conversation' })
     expect(output).toContain('I need one decision before I continue.')
+    expect(output).toContain(String.raw`\x1b]2;MODEL_CONTROLLED\x07`)
+    expect(output).toContain(String.raw`\x1b[999CMODEL_CURSOR`)
+    expect(output).toContain(String.raw`\x9b31mMODEL_C1`)
+    expect(output).not.toContain('\u001B]2;MODEL_CONTROLLED\u0007')
+    expect(output).not.toContain('\u001B[999CMODEL_CURSOR')
+    expect(output).not.toContain('\u009B31mMODEL_C1')
     expect(output).toContain('How should the scripted run proceed?')
     expect(output).toContain('Safe')
     expect(output).toContain('Decision received. Scripted TUI run complete.')

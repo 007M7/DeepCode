@@ -856,8 +856,8 @@ describe('terminal mounting', () => {
     ctx.agents.reportStartFailure(AgentId('other'), new Error('other failed'))
     expect(terminal.output).toBe('')
     expect(exit).not.toHaveBeenCalled()
-    ctx.agents.reportStartFailure(AgentId('main'), new Error('resume failed'))
-    expect(terminal.output).toBe('ui-tui: agent "main" failed to start: resume failed\n')
+    ctx.agents.reportStartFailure(AgentId('main'), new Error('resume \u001b]2;failure-controlled\u0007'))
+    expect(terminal.output).toBe('ui-tui: agent "main" failed to start: resume \\x1b]2;failure-controlled\\x07\n')
     expect(exit).toHaveBeenCalledWith(1)
 
     const session = ctx.sessions.create(SessionId('must-not-start'))

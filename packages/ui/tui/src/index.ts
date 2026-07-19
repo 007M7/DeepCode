@@ -179,6 +179,17 @@ function ansi(open: string, close: string, enabled: boolean): (text: string) => 
   return enabled ? text => `\x1b[${open}m${text}\x1b[${close}m` : text => text
 }
 
+const TERMINAL_CONTROL_PATTERN = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu
+
+/**
+ * Escape external C0/C1 controls before pi-tui adds application-owned ANSI.
+ * Line feeds remain structural so transcript and tool output retain their layout.
+ */
+function displayText(text: string): string {
+  return text.replace(TERMINAL_CONTROL_PATTERN, control =>
+    `\\x${control.charCodeAt(0).toString(16).padStart(2, '0')}`)
+}
+
 /**
  * Theme-agnostic palette built from the standard 16-color ANSI set plus SGR
  * attributes, which every terminal remaps to its active color scheme. Body
@@ -281,11 +292,11 @@ class HeaderComponent implements Component {
   render(width: number): string[] {
     const usable = Math.max(1, width - 4)
     const title = `${this.palette.bold(this.palette.accent('DEEPSEEK'))} ${this.palette.bold('HARNESS')}`
-    const model = this.agent.options.model ?? 'model unset'
-    const detail = `${this.agent.id}  •  ${model}  •  ${this.agent.session.id}`
+    const model = displayText(this.agent.options.model ?? 'model unset')
+    const detail = `${displayText(this.agent.id)}  •  ${model}  •  ${displayText(this.agent.session.id)}`
     const top = this.palette.accent(`╭${'─'.repeat(Math.max(0, width - 2))}╮`)
     const bottom = this.palette.accent(`╰${'─'.repeat(Math.max(0, width - 2))}╯`)
-    const lines = [title, this.palette.muted(this.welcome), this.palette.dim(detail)]
+    const lines = [title, this.palette.muted(displayText(this.welcome)), this.palette.dim(detail)]
       .flatMap(line => wrapTextWithAnsi(line, usable))
       .map((line) => {
         const clipped = truncateToWidth(line, usable, '')
@@ -330,8 +341,8 @@ class GutterBox implements Component {
 class UserMessageComponent extends GutterBox {
   constructor(text: string, palette: Palette, mdTheme: MarkdownTheme, label = 'You') {
     super(value => palette.accent(value))
-    this.addChild(new Text(palette.bold(palette.accent(label)), 0, 0))
-    this.addChild(new Markdown(text, 0, 0, mdTheme, { color: value => palette.text(value) }, {
+    this.addChild(new Text(palette.bold(palette.accent(displayText(label))), 0, 0))
+    this.addChild(new Markdown(displayText(text), 0, 0, mdTheme, { color: value => palette.text(value) }, {
       preserveOrderedListMarkers: true,
       preserveBackslashEscapes: true,
     }))
@@ -341,8 +352,8 @@ class UserMessageComponent extends GutterBox {
 class AssistantMessageComponent extends Container {
   constructor(content: readonly ContentBlock[], showReasoning: boolean, palette: Palette, mdTheme: MarkdownTheme) {
     super()
-    const reasoning = textBlocks(content, 'reasoning').trim()
-    const text = textBlocks(content, 'text').trim()
+    const reasoning = displayText(textBlocks(content, 'reasoning').trim())
+    const text = displayText(textBlocks(content, 'text').trim())
     if (reasoning && showReasoning) {
       this.addChild(new Spacer(1))
       this.addChild(new Text(palette.italic(palette.muted('Reasoning')), 1, 0))
@@ -422,19 +433,19 @@ function parseArguments(raw: string): ParsedArguments {
 }
 
 function pretty(value: unknown): string {
-  if (typeof value === 'string') return value
+  if (typeof value === 'string') return displayText(value)
   // The lib declaration narrows `unknown` to a string-returning overload, but
   // JSON.stringify returns undefined for runtime values such as symbols.
   const serialized = JSON.stringify(value, null, 2) as string | undefined
-  return serialized ?? String(value)
+  return displayText(serialized ?? String(value))
 }
 
 function diffLines(diff: FileDiff, palette: Palette): string[] {
-  const lines = [palette.bold(diff.path)]
+  const lines = [palette.bold(displayText(diff.path))]
   if (diff.oldText !== null) {
-    for (const line of diff.oldText.split('\n')) lines.push(palette.removed(`- ${line}`))
+    for (const line of displayText(diff.oldText).split('\n')) lines.push(palette.removed(`- ${line}`))
   }
-  for (const line of diff.newText.split('\n')) lines.push(palette.added(`+ ${line}`))
+  for (const line of displayText(diff.newText).split('\n')) lines.push(palette.added(`+ ${line}`))
   return lines
 }
 
@@ -460,10 +471,10 @@ class ToolCardComponent implements Component {
         const view = this.definition.presentCall(this.parsed.value)
         if (view !== undefined) return view
       } catch (error: unknown) {
-        return { card: 'generic', title: this.name, rawInput: `Presenter failed: ${String(error)}` }
+        return { card: 'generic', title: displayText(this.name), rawInput: `Presenter failed: ${String(error)}` }
       }
     }
-    return { card: 'generic', title: this.name, rawInput: this.parsed.value }
+    return { card: 'generic', title: displayText(this.name), rawInput: this.parsed.value }
   }
 
   updateResult(event: Extract<SessionEvent, { type: 'tool/result' }>['data']): void {
@@ -492,7 +503,7 @@ class ToolCardComponent implements Component {
     const isError = this.result?.isError ?? false
     const glyph = this.result === undefined ? this.palette.warning('◌') : isError ? this.palette.error('✕') : this.palette.success('✓')
     const body = this.renderBody()
-    const title = truncateToWidth(`${glyph} ${this.title()}`, Math.max(1, width - 4), '')
+    const title = truncateToWidth(`${glyph} ${displayText(this.title())}`, Math.max(1, width - 4), '')
     const visibleBody = this.expanded || body.length <= this.maxOutputLines
       ? body
       : [...body.slice(0, this.maxOutputLines), this.palette.dim(`… ${body.length - this.maxOutputLines} more lines (Ctrl+O to expand)`)]
@@ -514,17 +525,19 @@ class ToolCardComponent implements Component {
     if (view.card === 'terminal') {
       const pending = this.callView.card === 'terminal' ? this.callView : undefined
       const lines: string[] = []
-      if (pending?.description) lines.push(this.palette.muted(pending.description))
-      if (pending?.cwd) lines.push(this.palette.dim(pending.cwd))
+      if (pending?.description) lines.push(this.palette.muted(displayText(pending.description)))
+      if (pending?.cwd) lines.push(this.palette.dim(displayText(pending.cwd)))
       if (this.resultView?.card === 'terminal') {
-        if (this.resultView.output) lines.push(...this.resultView.output.split('\n'))
+        if (this.resultView.output) lines.push(...displayText(this.resultView.output).split('\n'))
         if (this.resultView.exitCode !== undefined) lines.push(this.palette.dim(`[exit ${this.resultView.exitCode}]`))
-        if (this.resultView.signal !== undefined) lines.push(this.palette.error(`[signal ${this.resultView.signal}]`))
+        if (this.resultView.signal !== undefined) {
+          lines.push(this.palette.error(`[signal ${displayText(this.resultView.signal)}]`))
+        }
       } else if (this.result === undefined) {
         // A pending terminal view is the call view itself; TerminalCallView requires a title.
-        lines.push(this.palette.code(`$ ${(pending as TerminalCallView).title}`))
+        lines.push(this.palette.code(`$ ${displayText((pending as TerminalCallView).title)}`))
       } else {
-        lines.push(...contentText(this.result.content).split('\n'))
+        lines.push(...displayText(contentText(this.result.content)).split('\n'))
       }
       return lines.filter(Boolean)
     }
@@ -536,7 +549,7 @@ class ToolCardComponent implements Component {
     }
     const content = view.content ?? this.result?.content
     const lines: string[] = []
-    if (content !== undefined) lines.push(...contentText(content).split('\n'))
+    if (content !== undefined) lines.push(...displayText(contentText(content)).split('\n'))
     const rawInput = this.result === undefined && this.callView.card === 'generic'
       ? this.callView.rawInput
       : undefined
@@ -565,7 +578,8 @@ class TodoComponent implements Component {
         : todo.status === 'in_progress'
           ? this.palette.warning('●')
           : this.palette.dim('○')
-      const text = todo.status === 'completed' ? this.palette.muted(todo.content) : todo.content
+      const content = displayText(todo.content)
+      const text = todo.status === 'completed' ? this.palette.muted(content) : content
       lines.push(truncateToWidth(`  ${prefix} ${text}`, width, ''))
     }
     return ['', ...lines]
@@ -584,8 +598,8 @@ function formatCwd(cwd: string | undefined): string {
   const home = homedir()
   const rel = relative(resolve(home), resolve(cwd))
   if (rel === '') return '~'
-  if (rel !== '..' && !rel.startsWith(`..${sep}`)) return `~${sep}${rel}`
-  return cwd
+  if (rel !== '..' && !rel.startsWith(`..${sep}`)) return displayText(`~${sep}${rel}`)
+  return displayText(cwd)
 }
 
 function sessionTokens(session: Session): { input: number; output: number } {
@@ -702,7 +716,7 @@ class QuestionDialog implements Component, Focusable {
   render(width: number): string[] {
     this.input.focused = this.focused
     const innerWidth = Math.max(1, width - 4)
-    const title = this.question.header ?? 'Question'
+    const title = displayText(this.question.header ?? 'Question')
     const topLabel = ` ${title} `
     const top = `╭${topLabel}${'─'.repeat(Math.max(0, width - visibleWidth(topLabel) - 2))}╮`
     const lines: string[] = [this.palette.accent(top)]
@@ -710,7 +724,7 @@ class QuestionDialog implements Component, Focusable {
       const clipped = truncateToWidth(line, innerWidth, '')
       lines.push(`${this.palette.accent('│')} ${clipped}${' '.repeat(Math.max(0, innerWidth - visibleWidth(clipped)))} ${this.palette.accent('│')}`)
     }
-    for (const line of wrapTextWithAnsi(this.palette.bold(this.question.question), innerWidth)) push(line)
+    for (const line of wrapTextWithAnsi(this.palette.bold(displayText(this.question.question)), innerWidth)) push(line)
     push('')
     if (this.mode === 'custom') {
       for (const line of this.input.render(innerWidth)) push(line)
@@ -729,8 +743,10 @@ class QuestionDialog implements Component, Focusable {
         const mark = this.question.multiSelect
           ? this.selected.has(index) ? this.palette.success('[x]') : '[ ]'
           : index === this.selectedIndex ? this.palette.accent('●') : this.palette.dim('○')
-        const description = option.description ? this.palette.muted(` — ${option.description}`) : ''
-        const line = `${cursor} ${mark} ${option.label}${description}`
+        const description = option.description
+          ? this.palette.muted(` — ${displayText(option.description)}`)
+          : ''
+        const line = `${cursor} ${mark} ${displayText(option.label)}${description}`
         push(index === this.selectedIndex ? this.palette.selected(line) : line)
       }
       if (options.length > this.maxVisible) push(this.palette.dim(`${this.selectedIndex + 1}/${options.length}`))
@@ -826,7 +842,7 @@ export function createTuiChat(
   ui.addChild(editor)
   ui.addChild(footer)
   ui.setFocus(editor)
-  runtime.terminal.setTitle(resolved.title)
+  runtime.terminal.setTitle(displayText(resolved.title))
 
   const requestRender = (): void => {
     footer.invalidate()
@@ -836,7 +852,7 @@ export function createTuiChat(
   const appendNotice = (message: string, kind: 'info' | 'warning' | 'error' = 'info'): void => {
     const color = kind === 'error' ? palette.error : kind === 'warning' ? palette.warning : palette.muted
     chat.addChild(new Spacer(1))
-    chat.addChild(new Text(color(message), 1, 0))
+    chat.addChild(new Text(color(displayText(message)), 1, 0))
     requestRender()
   }
 
@@ -876,7 +892,7 @@ export function createTuiChat(
   const renderEvent = (event: SessionEvent, options: { addHistory: boolean; renderChunks: boolean }): void => {
     switch (event.type) {
       case 'user/message': {
-        const text = contentText(event.data.content).trim()
+        const text = displayText(contentText(event.data.content).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme))
@@ -885,7 +901,7 @@ export function createTuiChat(
         break
       }
       case 'steering/message': {
-        const text = contentText(event.data.content).trim()
+        const text = displayText(contentText(event.data.content).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme, 'Steering'))
@@ -893,11 +909,11 @@ export function createTuiChat(
         break
       }
       case 'context/message': {
-        const text = contentText(event.data.content).trim()
+        const text = displayText(contentText(event.data.content).trim())
         if (text) {
           const source = event.data.source.kind === 'plugin' ? event.data.source.plugin : event.data.source.kind
           chat.addChild(new Spacer(1))
-          chat.addChild(new Text(palette.dim(`Context · ${source}`), 1, 0))
+          chat.addChild(new Text(palette.dim(`Context · ${displayText(source)}`), 1, 0))
           chat.addChild(new Text(palette.muted(text), 1, 0))
         }
         break
@@ -1291,7 +1307,7 @@ export function mountTui(ctx: Context, config: Config, runtime: TuiRuntime): voi
       }, 'ui-tui')
     },
     onFailed: (error) => {
-      runtime.terminal.write(`ui-tui: agent "${agentId}" failed to start: ${error.message}\n`)
+      runtime.terminal.write(displayText(`ui-tui: agent "${agentId}" failed to start: ${error.message}\n`))
       runtime.exit(1)
     },
   })

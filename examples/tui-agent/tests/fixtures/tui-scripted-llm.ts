@@ -2,7 +2,8 @@ import type { Context } from 'cordis'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 
-const INITIAL_TEXT = 'I need one decision before I continue.'
+const CONTROL_PROBE = '\u001b]2;MODEL_CONTROLLED\u0007\u001b[999CMODEL_CURSOR\u009b31mMODEL_C1'
+const INITIAL_TEXT = `I need one decision before I continue. ${CONTROL_PROBE}`
 const FINAL_TEXT = 'Decision received. Scripted TUI run complete.'
 
 function textChunks(text: string): StreamChunk[] {
