@@ -34,7 +34,7 @@ The spine is everything COMMON to every front door. The swappable and front-door
 - **the LLM adapter** — the bundle ships the abstract `llm` service; the leaf registers a concrete adapter on `ctx.llm` (`llm-deepseek`, `llm-pi-ai`, `llm-replay`).
 - **the bash executor** — the bundle ships `tool-bash` (the consumer schema); the leaf provides `ctx.bash` (`bash-local` or a sandboxed impl).
 - **non-local skill providers** — the bundle ships the skill registry, the local filesystem provider, and the `skill` tool; deployments can add other providers such as embedded or remote catalogs as siblings.
-- **presentation + per-app infra** — the stdio UI / ACP bridge, a console logger, `hmr`. These form the coupled "front-door cluster" that the app packages ([`dsh-stdio-demo`](../../examples/stdio-demo/README.md), [`dsh-acp-demo`](../../examples/acp-demo/README.md)) bake in. `timer` is in the spine (common to both, stdout-silent); a console logger is NOT (it writes to stdout, which the ACP bridge reserves for JSON-RPC).
+- **presentation + per-app infra** — the terminal (`dsh-tui` / `dsh-stdio`) or ACP front door and `hmr`. These form the coupled front-door cluster that the app packages ([`dsh-stdio-demo`](../../examples/stdio-demo/README.md), [`dsh-acp-demo`](../../examples/acp-demo/README.md)) bake in. `timer` is in the spine because it is common and stdout-silent; front doors own stdout and remain outside.
 
 This is the [interface/implementation/consumer seam](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md) raised to the composition level: the bundle owns the shared spine, the leaf owns the backends, the app package owns the front door.
 

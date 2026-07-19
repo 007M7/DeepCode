@@ -109,10 +109,22 @@ The echo demo does not need API credentials:
 pnpm run demo:echo
 ```
 
-The REPL agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
+The coding-agent REPL uses the line-oriented readline front door and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
 pnpm run demo:repl
+```
+
+The full-screen TUI reuses the coding-agent composition through the pi-tui front door and needs the same credentials:
+
+```sh
+pnpm run demo:tui
+```
+
+The self-referential cordis-agent demo can inspect and modify its live plugin runtime and needs the same credentials:
+
+```sh
+pnpm run demo:cordis
 ```
 
 The ACP server agent demo exposes the agent over JSON-RPC stdio and also needs `DEEPSEEK_API_KEY`:
