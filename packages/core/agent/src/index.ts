@@ -1,11 +1,14 @@
 /**
- * Agent registry service. Tracks live agents so plugins can find them without
- * depending on the concrete loop package. Agent creation belongs to the loop.
+ * Agent service: live registry, factory delegation, and process-local
+ * initiator scope. Concrete creation and driving belong to the loop.
  *
  * @module @deepseek-ai/dsh-agent
  */
 
-import { Context, getTraceable, Service, symbols } from 'cordis'
+import { Context, FiberState, getTraceable, Service, symbols } from 'cordis'
+import type { Fiber } from 'cordis'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { isPromise } from 'node:util/types'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
@@ -173,6 +176,8 @@ export interface AgentFactory {
 
 /** Thrown when create/resume is called before an agent factory is registered. */
 const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plugin)'
+const NO_INITIATOR_MESSAGE = 'no initiating agent is active'
+const DISPOSED_INITIATOR_MESSAGE = 'agent initiator scope is disposed'
 
 /** All mutable lifecycle state for one exact registry entry. */
 interface AgentEntry {
@@ -186,21 +191,38 @@ interface AgentEntry {
   detachRequested: boolean
 }
 
+/** One tracked boundary plus its inherited nesting chain. */
+interface InitiatorRun {
+  active: boolean
+  readonly parent: InitiatorRun | undefined
+}
+
 /** Plain holder prevents Cordis from tracing the factory field before the caller context is known. */
 interface FactorySlot {
   readonly target: AgentFactory
 }
 
 /**
- * Agent registry (`ctx.agents`): tracks live agents so UI, hook, and
- * orchestrator plugins can find them without depending on the concrete loop
- * package. Agent *creation* is provided by whichever plugin implements the
- * {@link AgentFactory} (`@deepseek-ai/dsh-agent-loop`), registered via
- * {@link setFactory}.
+ * Agent service (`ctx.agents`): tracks live agents and carries the initiating
+ * Agent through one process-local asynchronous driver chain. Agent *creation*
+ * is provided by whichever plugin implements the {@link AgentFactory}
+ * (`@deepseek-ai/dsh-agent-loop`), registered via {@link setFactory}.
+ *
+ * Initiator methods provide same-process causal attribution only. Ambient
+ * presence is neither liveness proof nor authorization; subjects and owners
+ * remain explicit, as does identity at worker, process, persistence, and wire
+ * boundaries. Returned Promise boundaries drain during teardown, except a
+ * nested lineage that starts an owning-fiber unload is excluded from its own drain.
  */
 export class AgentRegistry extends Service {
   private store = new Map<SessionId, AgentEntry>()
   private factory: FactorySlot | undefined
+  private readonly initiators = new AsyncLocalStorage<Agent | undefined>()
+  private readonly initiatorRuns = new AsyncLocalStorage<InitiatorRun>()
+  private initiatorState: 'active' | 'closing' | 'disposed' = 'active'
+  private activeInitiatorRuns = 0
+  private initiatorDrain: PromiseWithResolvers<void> | undefined
+  private initiatorDisposal: Promise<void> | undefined
 
   constructor(ctx: Context) {
     super(ctx, 'agents')
@@ -211,6 +233,75 @@ export class AgentRegistry extends Service {
     // accessor body never needs to resolve a scope itself. Effect-scoped:
     // unwinds with this service's fiber.
     ctx.accessor('agent', { get: () => undefined })
+    ctx.on('internal/status', (fiber) => {
+      if (fiber.state === FiberState.UNLOADING && this.hasLifecycleAncestor(fiber)) {
+        this.closeInitiators()
+      }
+    })
+    ctx.effect(function* (this: AgentRegistry) {
+      yield () => this.disposeInitiators()
+      yield () => { this.closeInitiators() }
+    }.bind(this), 'agents.initiatorLifecycle()')
+  }
+
+  /**
+   * Read the Agent that initiated the inherited asynchronous driver chain.
+   * Use this optional form for logging, tracing, metrics, or host attribution
+   * that also supports agentless calls. When a parent creates a child, setup
+   * reports the causal parent while `agentCtx.agent` identifies the child.
+   * @returns the inherited Agent, or `undefined` outside an initiator boundary
+   *   and inside an explicit clearing boundary.
+   * @throws when this service instance has been disposed.
+   */
+  currentInitiator(): Agent | undefined {
+    this.assertInitiatorsReadable()
+    return this.initiators.getStore()
+  }
+
+  /**
+   * Read the initiating Agent and fail when no initiator boundary is active.
+   * Use this for private helpers contractually below a driver, or for a
+   * deployment-owned outbound request whose contract forbids agentless calls.
+   * Generic or direct-call seams use optional lookup or explicit request fields.
+   * @returns the inherited Agent.
+   * @throws when no initiator is active or this service instance has been disposed.
+   */
+  requireInitiator(): Agent {
+    const agent = this.currentInitiator()
+    if (agent === undefined) throw new Error(NO_INITIATOR_MESSAGE)
+    return agent
+  }
+
+  /**
+   * Run an operation with one exact Agent as its process-local initiator. The
+   * exact synchronous value or Promise returned by the operation is preserved.
+   * Custom drivers and test harnesses wrap their complete returned foreground
+   * lifetime.
+   * A queue or wire receiver may establish this boundary only after validating
+   * explicit identity and resolving the exact live Agent; this method does neither.
+   * Detached work remains owned by the subsystem that starts it.
+   * @param agent - initiating Agent to inherit; presence is neither liveness proof nor authorization.
+   * @param operation - synchronous or asynchronous operation to invoke.
+   * @returns the exact value returned by `operation`.
+   * @throws when the initiator scope is closing/disposed, or when `operation` throws.
+   */
+  withInitiator<T>(agent: Agent, operation: () => T): T {
+    return this.runWithInitiator(agent, operation)
+  }
+
+  /**
+   * Run an operation inside a boundary that hides any inherited initiating
+   * Agent. The exact synchronous value or Promise is preserved.
+   * Use this while creating lazy shared timers, queue pumps, pool maintenance,
+   * watchers, or exporters so they do not inherit the first Agent that happens
+   * to initialize them. It clears only initiator attribution, not explicit
+   * fields, and does not own or drain detached resources.
+   * @param operation - synchronous or asynchronous operation to invoke without an initiator.
+   * @returns the exact value returned by `operation`.
+   * @throws when the initiator scope is closing/disposed, or when `operation` throws.
+   */
+  withoutInitiator<T>(operation: () => T): T {
+    return this.runWithInitiator(undefined, operation)
   }
 
   /**
@@ -470,6 +561,92 @@ export class AgentRegistry extends Service {
     return [...this.store.values()]
       .filter(entry => entry.owner === undefined)
       .map(entry => entry.agent)
+  }
+
+  /** Reject new initiator boundaries while inherited continuations drain. */
+  private closeInitiators(): void {
+    if (this.initiatorState === 'active') this.initiatorState = 'closing'
+  }
+
+  /** Wait for returned-Promise boundaries, then invalidate retained references. */
+  private disposeInitiators(): Promise<void> {
+    return (this.initiatorDisposal ??= (async () => {
+      this.closeInitiators()
+      this.releaseReentrantInitiatorRuns()
+      if (this.activeInitiatorRuns !== 0) {
+        this.initiatorDrain ??= Promise.withResolvers<void>()
+        await this.initiatorDrain.promise
+      }
+      this.initiatorState = 'disposed'
+      this.initiators.disable()
+      this.initiatorRuns.disable()
+    })())
+  }
+
+  /** Establish one tracked initiator or clearing boundary. */
+  private runWithInitiator<T>(agent: Agent | undefined, operation: () => T): T {
+    if (this.initiatorState !== 'active') throw new Error(DISPOSED_INITIATOR_MESSAGE)
+    const run: InitiatorRun = {
+      active: true,
+      parent: this.initiatorRuns.getStore(),
+    }
+    this.activeInitiatorRuns += 1
+    let result: T
+    try {
+      result = this.initiatorRuns.run(run, () => this.initiators.run(agent, operation))
+    } catch (error: unknown) {
+      this.releaseInitiatorRun(run)
+      throw error
+    }
+    if (isPromise(result)) {
+      try {
+        void Promise.prototype.then.call(
+          result,
+          () => { this.releaseInitiatorRun(run) },
+          () => { this.releaseInitiatorRun(run) },
+        )
+      } catch {
+        // A branded Promise may expose a failing @@species. Observer setup did
+        // not attach, so preserve the exact return without leaking the run.
+        this.releaseInitiatorRun(run)
+      }
+    } else {
+      this.releaseInitiatorRun(run)
+    }
+    return result
+  }
+
+  /** Whether one unloading fiber owns this service's lifecycle. */
+  private hasLifecycleAncestor(candidate: Fiber): boolean {
+    let fiber = this.ctx.fiber
+    while (true) {
+      if (fiber === candidate) return true
+      const parent = fiber.parent.fiber
+      if (parent === fiber) return false
+      fiber = parent
+    }
+  }
+
+  private assertInitiatorsReadable(): void {
+    if (this.initiatorState === 'disposed') throw new Error(DISPOSED_INITIATOR_MESSAGE)
+  }
+
+  /** Exclude the boundary chain that initiated this teardown from its own drain. */
+  private releaseReentrantInitiatorRuns(): void {
+    let run = this.initiatorRuns.getStore()
+    while (run !== undefined) {
+      this.releaseInitiatorRun(run)
+      run = run.parent
+    }
+  }
+
+  private releaseInitiatorRun(run: InitiatorRun): void {
+    if (!run.active) return
+    run.active = false
+    this.activeInitiatorRuns -= 1
+    if (this.activeInitiatorRuns !== 0) return
+    this.initiatorDrain?.resolve()
+    this.initiatorDrain = undefined
   }
 }
 

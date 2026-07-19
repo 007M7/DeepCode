@@ -11,6 +11,12 @@ Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables. The names
 ### ctx.bashEnv.register(contributor)
 
 ```ts website-api
+/**
+ * Register one environment contributor. Names and keys are unique; built-in
+ * keys are reserved. Registration is disposed with the calling plugin fiber.
+ * @param contributor - declared key ownership and per-execution resolver.
+ * @returns the disposer that unregisters the contribution.
+ */
 register(contributor: BashEnvContributor): () => void
 ```
 
@@ -25,6 +31,11 @@ Register one environment contributor. Names and keys are unique; built-in keys a
 ### ctx.bashEnv.collect(execution)
 
 ```ts website-api
+/**
+ * Build the trusted `DSH_*` snapshot for one bash tool execution.
+ * @param execution - the current tool execution.
+ * @returns an immutable environment overlay containing built-ins and current contributions.
+ */
 collect(execution: ToolExecution): DshEnvironment
 ```
 
@@ -39,6 +50,10 @@ Build the trusted `DSH_*` snapshot for one bash tool execution.
 ### ctx.bashEnv.list()
 
 ```ts website-api
+/**
+ * Enumerate plugin-contributed variables without executing their resolvers.
+ * @returns declarations sorted by environment variable name.
+ */
 list(): BashEnvVariableInfo[]
 ```
 

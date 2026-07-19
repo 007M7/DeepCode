@@ -11,6 +11,15 @@ Concrete agent factory and driver service.
 ### ctx.agentLoop.create(id, options?, meta?)
 
 ```ts website-api
+/**
+ * Create an agent and session under one caller-supplied identity, owned by
+ * the accessing fiber. Constructor-driven config calls mint a fresh combined
+ * id before entering this boundary.
+ * @param id - shared agent/session identity.
+ * @param options - concrete loop options.
+ * @param meta - optional fresh-session workspace metadata.
+ * @returns the published running agent.
+ */
 create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): Agent
 ```
 
@@ -27,6 +36,12 @@ Create an agent and session under one caller-supplied identity, owned by the acc
 ### ctx.agentLoop.createAgent(ownerCtx, options)
 
 ```ts website-api
+/**
+ * Create an owned agent on a caller-supplied session id.
+ * @param ownerCtx - caller context that structurally owns the transaction.
+ * @param options - identities, session seed/metadata, loop options, setup, and cancellation.
+ * @returns the published handle.
+ */
 async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>
 ```
 
@@ -42,6 +57,12 @@ Create an owned agent on a caller-supplied session id.
 ### ctx.agentLoop.resume(ownerCtx, options)
 
 ```ts website-api
+/**
+ * Resume an owned agent from the configured persistence service.
+ * @param ownerCtx - caller context that owns load, setup, and the live lifecycle.
+ * @param options - persisted identity, loop options, setup, and cancellation.
+ * @returns the published handle.
+ */
 async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 

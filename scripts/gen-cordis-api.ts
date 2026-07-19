@@ -1,8 +1,9 @@
 /**
  * Generate the model-facing Cordis API data module from the same event/service
- * collector as the documentation catalogs. It emits first-sentence docs, raw
- * signatures, transitive public type shapes, and inherited context entries,
- * without source pointers; output is deterministic and `--check` verifies it.
+ * collector as the documentation catalogs. It emits original declaration
+ * JSDoc, first-sentence summaries, raw signatures, transitive public type
+ * shapes, and inherited context entries, without source pointers; output is
+ * deterministic and `--check` verifies it.
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
@@ -88,22 +89,30 @@ function render(): string {
     ' * `pnpm run verify-cordis-api` in doc-sync).',
     ' *',
     ' * The machine-readable cordis API catalog `cordis_inspect` serves to the',
-    ' * model: harness services (summary + public method signatures), harness',
-    ' * events (mode + signature), and the inherited `ctx` surface. Produced by',
+    ' * model: harness services (summary + public method signatures/JSDoc),',
+    ' * harness events (mode + signature/JSDoc), and the inherited `ctx` surface. Produced by',
     ' * the same AST walk as docs/cordis-catalog, so this data and the rendered',
     ' * docs cannot diverge.',
     ' *',
     ' * @module @deepseek-ai/dsh-tool-cordis/api-catalog',
     ' */',
     '',
-    '/** One harness `ctx.<key>` service: its one-line summary and public method signatures. */',
+    '/** One public service method and its source-owned contract. */',
+    'export interface ServiceApiMethod {',
+    '  /** Public method signature with its body stripped. */',
+    '  signature: string',
+    '  /** Original method JSDoc, with only container indentation removed. */',
+    '  jsDoc: string',
+    '}',
+    '',
+    '/** One harness `ctx.<key>` service: its one-line summary and public methods. */',
     'export interface ServiceApiEntry {',
     '  /** The `ctx.<key>` name, e.g. `tools`. */',
     '  key: string',
     '  /** First sentence of the service class JSDoc. */',
     '  summary: string',
-    '  /** Public method signatures, bodies stripped, in source order. */',
-    '  methods: readonly string[]',
+    '  /** Public methods, bodies stripped, in source order. */',
+    '  methods: readonly ServiceApiMethod[]',
     '}',
     '',
     '/** One harness event: its dispatch mode, exact signature, and one-line summary. */',
@@ -114,6 +123,8 @@ function render(): string {
     '  mode: string',
     '  /** The exact listener signature, whitespace-normalized. */',
     '  signature: string',
+    '  /** Original event JSDoc, with only container indentation removed. */',
+    '  jsDoc: string',
     '  /** First sentence of the event JSDoc. */',
     '  summary: string',
     '}',
@@ -145,7 +156,12 @@ function render(): string {
       lines.push('    methods: [],')
     } else {
       lines.push('    methods: [')
-      for (const method of service.methods) lines.push(`      ${quote(method.signature)},`)
+      for (const method of service.methods) {
+        lines.push('      {')
+        lines.push(`        signature: ${quote(method.signature)},`)
+        lines.push(`        jsDoc: ${quote(method.jsDoc)},`)
+        lines.push('      },')
+      }
       lines.push('    ],')
     }
     lines.push('  },')
@@ -161,6 +177,7 @@ function render(): string {
     lines.push(`    name: ${quote(event.name)},`)
     lines.push(`    mode: ${quote(event.mode)},`)
     lines.push(`    signature: ${quote(event.signature)},`)
+    lines.push(`    jsDoc: ${quote(event.jsDoc)},`)
     lines.push(`    summary: ${quote(firstSentence(event.doc))},`)
     lines.push('  },')
   }

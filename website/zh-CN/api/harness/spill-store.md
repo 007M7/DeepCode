@@ -15,6 +15,11 @@ Semantics every implementation must honor:
 ### ctx.spillStore.saveText(input)
 
 ```ts website-api
+/**
+ * Persist `input.content` to a session-scoped spill artifact.
+ * @param input - the owner, provenance, suggested name, and full text to save.
+ * @returns the saved artifact's {@link SpillRef}; rejects on a storage failure.
+ */
 abstract saveText(input: SaveTextSpill): Promise<SpillRef>
 ```
 

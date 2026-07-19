@@ -156,10 +156,10 @@ const SERVICE_ROLES: ServiceRole[] = [
   {
     key: 'agents',
     pkg: 'agent',
-    title: 'Agent registry',
+    title: 'Agent service',
     mode: 'core',
     consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess', 'stdio-demo', 'invariants'],
-    note: 'Owns live Agent handles and the create/resume factory seam.',
+    note: 'Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation.',
   },
   {
     key: 'agentLoop',
