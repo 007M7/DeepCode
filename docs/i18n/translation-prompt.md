@@ -123,9 +123,9 @@ Follow the Good versions; these sentence-level examples illustrate error categor
 - Good: `A green gate does not mean the translation is correct.`
 
 ### Code block comments — never translate
-- Source code block contains: `# REPL agent demo (needs DEEPSEEK_API_KEY)`
-- Bad: `# REPL agent 演示（需要 DEEPSEEK_API_KEY）`
-- Good: `# REPL agent demo (needs DEEPSEEK_API_KEY)` (byte-identical)
+- Source code block contains: `# readline coding agent (needs DEEPSEEK_API_KEY)`
+- Bad: `# readline 编码 agent（需要 DEEPSEEK_API_KEY）`
+- Good: `# readline coding agent (needs DEEPSEEK_API_KEY)` (byte-identical)
 
 ### Language switcher — English to Chinese
 - Source: `English | [中文](README.zh.md)`

@@ -109,10 +109,22 @@ echo 演示不需要 API 凭证：
 pnpm run demo:echo
 ```
 
-REPL agent 演示使用真实的 DeepSeek 适配器，需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
+coding-agent REPL 使用面向行的 readline 前端，并需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
 
 ```sh
 pnpm run demo:repl
+```
+
+全屏 TUI 通过 pi-tui 前端复用 coding-agent 组装，并需要相同的凭证：
+
+```sh
+pnpm run demo:tui
+```
+
+自指的 cordis-agent 演示可以检查并修改其实时插件运行时，并需要相同的凭证：
+
+```sh
+pnpm run demo:cordis
 ```
 
 ACP 服务器 agent 演示通过 JSON-RPC stdio 暴露 agent，同样需要 `DEEPSEEK_API_KEY`：

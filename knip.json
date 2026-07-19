@@ -1,7 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "exclude": ["duplicates"],
-  "ignoreBinaries": ["bwrap", "sandbox-exec"],
+  "ignoreBinaries": ["bwrap", "python3", "sandbox-exec"],
   "ignoreWorkspaces": ["vendor/*", "python/sdk-runtime", "website"],
   "workspaces": {
     ".": {
@@ -10,6 +10,7 @@
     "examples": {
       "entry": [
         "echo-agent/src/*.ts",
+        "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "*/tests/**/*.e2e.ts",
         "*/tests/**/*.snapshot.ts"
       ],
@@ -115,6 +116,10 @@
     },
     "packages/ui/stdio": {
       "entry": ["tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/ui/tui": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.snapshot.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/examples/jsonrpc-demo": {
