@@ -107,6 +107,9 @@ importers:
       '@deepseek-ai/dsh-bash-sandbox':
         specifier: workspace:*
         version: link:../packages/bash/bash-sandbox
+      '@deepseek-ai/dsh-cli-demo':
+        specifier: workspace:*
+        version: link:../packages/examples/cli-demo
       '@deepseek-ai/dsh-code-runtime-worker':
         specifier: workspace:*
         version: link:../packages/code-runtime/code-runtime-worker
