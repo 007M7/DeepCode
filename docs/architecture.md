@@ -106,11 +106,11 @@ forever:
     checkpoint persistence and notify idle/running status
 ```
 
-Each step assembles ordered prompt sections, tool schemas, and `{{name}}` variables; unknown or valueless references fail the turn. `dsh-system-prompt` owns the harness identity and default persona, which an agent scope may shadow. The loop supplies `model` and `cwd` ([prompt-ownership RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
+Each step assembles ordered prompt sections, tool schemas, and `{{name}}` variables; unknown or valueless references fail the turn. `dsh-system-prompt` owns the harness identity and default persona, which an agent scope may shadow. The loop supplies `model` and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
 Tool-time context—including async `agent.inject()` notices and post-tool `additionalContexts`—settles, then follows recorded results. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering before signal closure. Leftovers become queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through turn close and flush, and discards later steering but preserves queued prompts.
 
-`dsh-compact-basic` handles pressure and canonical overflow at these checkpoints; retry requires a balanced surface replacement ([RFC](rfc/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)).
+`dsh-compact-basic` handles pressure and canonical overflow at checkpoints; retry requires a balanced surface replacement ([decision](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)).
 
 ### Failure Boundaries
 
@@ -126,7 +126,7 @@ Every session event is turn-enclosed. Reloading preserves an interrupted tail an
 
 ### Agent Scope
 
-Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, receive only that agent's dispatches, and unwind with it; async effects such as background-task cleanup are awaited. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. Typed resolvers derive carrier checks from merged `Events` signatures and `scopeTarget` ([semantic-gates RFC](rfc/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See the [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition controls](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs drivers inside `ctx.agents.withInitiator()`; private orchestration derives `agent.session`; other identities stay explicit ([RFC](rfc/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
+Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, receive only that agent's dispatches, and unwind with it; async effects such as background-task cleanup are awaited. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. Typed resolvers derive carrier checks from merged `Events` signatures and `scopeTarget` ([semantic gates](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See [agent scope](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition controls](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs drivers inside `ctx.agents.withInitiator()`; private orchestration derives `agent.session`; other identities stay explicit ([decision](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
 
 ## State
 
@@ -134,7 +134,7 @@ Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, re
 
 The session log is the source of truth. `deriveMessages()` projects session events into the `Message[]` sent to the model; raw `assistant/chunk` events stay in the log for replay and UI fidelity. Replay, fork, resume, transcript rendering, telemetry, and persistence all derive from the same event stream.
 
-**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, headers by folding `request/header` — and dev invariants assert this ([reconstructability RFC](rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, headers by folding `request/header` — and dev invariants assert this ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
 Durability is a plugin concern. Persistence backends buffer synchronous `session/event` notifications and the loop awaits a turn-end checkpoint before moving on. The `SessionPersistence` seam stores `SessionEvent` directly, with metadata in `SessionHeader`; JSONL and SQLite share one contract suite.
 
@@ -152,7 +152,7 @@ A swappable capability usually splits into **interface / implementation / consum
 
 Some seams bend the template deliberately: LLM combines interface and consumer because adapters implement it; filesystem wraps provider primitives with policy; web keeps search/fetch provider registries behind one service; skills and subagents use named providers. Subagents spawn fresh, fork a completed-turn prefix, or use ACP children ([subagent.md](core-data-structures/subagent.md)).
 
-`dsh-workspace-context` composes baselines on `agent/session-prefix` and appends `ctx.fs`-discovered nested changes on `tools/post-execute`; its [RFC](rfc/implemented/feature/2026-06-24-workspace-context.md) records isolation. `dsh-paths` owns shared paths.
+`dsh-workspace-context` composes baselines on `agent/session-prefix` and appends `ctx.fs`-discovered nested changes on `tools/post-execute`; its [decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md) records isolation. `dsh-paths` owns shared paths.
 
 ### Bundles And Apps
 
@@ -185,4 +185,4 @@ The [extension cookbook](cookbook/extension-cookbook.md) carries plugin skeleton
 - Exact event and service signatures in [events](cordis-catalog/events.md)
 - [services](cordis-catalog/services.md) catalogs
 - package contracts in the [package map](../packages/README.md)
-- [RFCs](rfc/README.md)
+- [Agent Notes](../.agents/notes/README.md)

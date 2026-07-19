@@ -496,7 +496,7 @@ export class Session {
    * The per-node pure function {@link deriveMessages} folds over the surface;
    * an external reconstructor (or the dev invariant) folds the same function
    * over a log prefix's surface to rebuild the exact messages any request was
-   * built from (the reconstructability RFC). The returned message wrapper is
+   * built from (the reconstructability Agent Note). The returned message wrapper is
    * fresh; its content reuses the logged event's already deep-frozen durable
    * data, so changing the wrapper cannot rewrite the log and changing content
    * throws.

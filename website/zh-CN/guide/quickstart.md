@@ -94,5 +94,5 @@ echo-agent 和 repl-agent 用的是同一个应用框架(`@deepseek-ai/dsh-stdio
 
 ## 下一步
 
-- [配置文件](./config) — 了解 `cordis.yml` 的完整语法
+- [配置文件](config) — 了解 `cordis.yml` 的完整语法
 - [开发插件](../develop/basic/) — 编写你自己的 tool 或后端

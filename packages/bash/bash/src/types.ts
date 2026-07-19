@@ -131,7 +131,7 @@ export interface BashRunResult {
    * short. Mutually exclusive with {@link aborted}: one fused deadline drives
    * both the timeout and the caller's cancellation, so a timeout and an abort
    * racing before process close report the single first-abort cause, not both
-   * (see the [timeout-library RFC](../../../../docs/rfc/implemented/architecture/2026-07-06-timeout-deadline-library.md)).
+   * (see the [timeout-library Agent Note](../../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md)).
    */
   timedOut: boolean
   /**

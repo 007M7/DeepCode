@@ -3,7 +3,7 @@
  * under deterministic server-qualified public names, and handles re-sync when
  * the server's tool list changes.
  *
- * Naming contract (see the mcp-client RFC "Naming invariants"): every MCP tool
+ * Naming contract (see the mcp-client Agent Note "Naming invariants"): every MCP tool
  * has the stable identity `(serverName, rawName)`; the model-facing public name
  * is `mcp__<serverName>__<rawName>`, normalized to the DeepSeek function-name
  * constraints. The raw name is only ever sent on the wire (`tools/call`); the

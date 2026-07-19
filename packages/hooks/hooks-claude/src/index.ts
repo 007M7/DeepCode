@@ -5,7 +5,7 @@
  * mapping; shared execution and parsing live in `dsh-hook-protocol`.
  * `updatedInput` is logged and warned but not honored. Bespoke behavior should
  * use typed native plugins on the same seams; see the
- * [hook-bridges RFC](../../../../docs/rfc/implemented/feature/2026-06-30-hook-bridges.md).
+ * [hook-bridges Agent Note](../../../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md).
  * @module @deepseek-ai/dsh-hooks-claude
  */
 

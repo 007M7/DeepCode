@@ -16,7 +16,7 @@ Files land at `<root>/session-<hash>/​<random>-<safeName>`:
 |---|---|---|
 | `root` | private 0700 temp dir | Root directory for spill files. Set to keep them under a known location. |
 
-`saveText` rejects on a real storage failure (permissions, ENOSPC); the spill policy treats a rejection as best-effort and keeps the inline result. See the seam README for the vocabulary and the [tool output spill RFC](../../../docs/rfc/implemented/architecture/2026-07-08-tool-output-spill-files.md) for the design.
+`saveText` rejects on a real storage failure (permissions, ENOSPC); the spill policy treats a rejection as best-effort and keeps the inline result. See the seam README for the vocabulary and the [tool output spill Agent Note](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) for the design.
 
 ## Model Experience
 

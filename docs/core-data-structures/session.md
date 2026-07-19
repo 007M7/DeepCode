@@ -101,7 +101,7 @@ interface SessionEventMap {
 
 ### `TodoItem` — one todo-list entry
 
-The unit of the `todo/write` event's whole-list snapshot. Deliberately minimal — a `content` line and a three-state `status` (no id, priority, or `activeForm`): the list is replaced wholesale on every write, so entries need no stable identity, and the status triple is exactly the ACP `PlanEntryStatus`, so a UI bridge can map a todo list onto an ACP `plan` 1:1 (synthesizing the priority ACP additionally requires). See the [todo_write RFC](../rfc/implemented/feature/2026-06-29-todo-write-tool.md).
+The unit of the `todo/write` event's whole-list snapshot. Deliberately minimal — a `content` line and a three-state `status` (no id, priority, or `activeForm`): the list is replaced wholesale on every write, so entries need no stable identity, and the status triple is exactly the ACP `PlanEntryStatus`, so a UI bridge can map a todo list onto an ACP `plan` 1:1 (synthesizing the priority ACP additionally requires). See the [todo_write Agent Note](../../.agents/notes/implemented/feature/2026-06-29-todo-write-tool.md).
 
 ```ts type-equiv
 /**
@@ -125,7 +125,7 @@ interface TodoItem {
 
 ### The request header event: `request/header`
 
-The request envelope — the `EpochHeader` (call config + rendered system prompt + assembled tool schemas + the session prefix) — is logged session state, so every conversation request is a pure function of the log (the reconstructability RFC). A full `request/header` snapshot with reason `'initial'` or `'resume'` records each loop-instance boundary; a later changed request records another full snapshot with reason `'change'`. `foldRequestHeader(events)` reconstructs the header by selecting the latest snapshot. The event is not a `SurfaceEventType`: it produces no LLM message.
+The request envelope — the `EpochHeader` (call config + rendered system prompt + assembled tool schemas + the session prefix) — is logged session state, so every conversation request is a pure function of the log (the reconstructability Agent Note). A full `request/header` snapshot with reason `'initial'` or `'resume'` records each loop-instance boundary; a later changed request records another full snapshot with reason `'change'`. `foldRequestHeader(events)` reconstructs the header by selecting the latest snapshot. The event is not a `SurfaceEventType`: it produces no LLM message.
 
 ```ts type-equiv
 /**
@@ -200,7 +200,7 @@ For `assistant/message`, a present `sourceEventSeqs: []` is a complete known-emp
 
 ## Surface types
 
-The five message-producing types (`SurfaceEventType` — `user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`) carry surface metadata declaring how they join the ordered derived surface. See the [session surface RFC](../rfc/implemented/architecture/2026-06-18-session-surface.md).
+The five message-producing types (`SurfaceEventType` — `user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`) carry surface metadata declaring how they join the ordered derived surface. See the [session surface Agent Note](../../.agents/notes/implemented/architecture/2026-06-18-session-surface.md).
 
 ### `SurfaceEventType` — the message-producing subset of event types
 
@@ -414,7 +414,7 @@ declare class Session {
    * The per-node pure function {@link deriveMessages} folds over the surface;
    * an external reconstructor (or the dev invariant) folds the same function
    * over a log prefix's surface to rebuild the exact messages any request was
-   * built from (the reconstructability RFC). The returned message wrapper is
+   * built from (the reconstructability Agent Note). The returned message wrapper is
    * fresh; its content reuses the logged event's already deep-frozen durable
    * data, so changing the wrapper cannot rewrite the log and changing content
    * throws.
@@ -502,13 +502,13 @@ interface TurnEndReasonMap {
 
 ## The turn-enclosure invariant
 
-Every session event lives **inside** a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See [the turn-enclosure invariant RFC](../rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md).
+Every session event lives **inside** a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See [the turn-enclosure invariant Agent Note](../../.agents/notes/implemented/architecture/2026-06-15-turn-enclosure-invariant.md).
 
 ## Plugin-contributed log-only events
 
 A plugin may declaration-merge extra `SessionEventMap` types. These are **log-only**: NOT `SurfaceEventType`s (they carry no `surfaceOp` and contribute nothing to derived history), but, like every event, they must sit inside an open turn. The full per-event enumeration — core and plugin-contributed alike, with payloads and provenance — is the generated [persistence log event catalog](../persistence-catalog.md); the compaction seam's `compact/*` semantics are discussed on [compaction.md](compaction.md).
 
-The hook bridges' `hook/invoked` / `hook/result` provenance pairs (from `@deepseek-ai/dsh-hook-protocol`) correlate by `handlerId`. The mid-turn hook points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`) fire inside the loop's open turn, so their `hook/*` records are turn-enclosed by construction. `SessionStart` gets no `hook/*` record — its injected `context/message` is the durable evidence — because it has no open turn to enclose one (see [the hook-bridges RFC](../rfc/implemented/feature/2026-06-30-hook-bridges.md)).
+The hook bridges' `hook/invoked` / `hook/result` provenance pairs (from `@deepseek-ai/dsh-hook-protocol`) correlate by `handlerId`. The mid-turn hook points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`) fire inside the loop's open turn, so their `hook/*` records are turn-enclosed by construction. `SessionStart` gets no `hook/*` record — its injected `context/message` is the durable evidence — because it has no open turn to enclose one (see [the hook-bridges Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)).
 
 ## Durability contract
 

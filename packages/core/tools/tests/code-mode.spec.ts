@@ -15,7 +15,7 @@ import type { SessionEventMap } from '@deepseek-ai/dsh-session'
 const testToolSignal = new AbortController().signal
 
 /**
- * Code Mode unit tier (per the RFC's plan): provider contribution per mode,
+ * Code Mode unit tier (per the Agent Note's plan): provider contribution per mode,
  * misconfiguration rejections, the run_code dispatch bridge (serialization,
  * abort, JSON normalization, error mapping, events, quiescence), and HMR
  * safety — all against an in-repo fake runtime, exactly the

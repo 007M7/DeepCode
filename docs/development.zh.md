@@ -2,11 +2,11 @@
 
 [English](development.md) | 中文
 
-本指南覆盖参与 DeepSeek Harness 开发所需的本地环境搭建、日常工作流与 CI 流程；设计动机与技术权衡请查阅相应 RFC。
+本指南覆盖参与 DeepSeek Harness 开发所需的本地环境搭建、日常工作流与 CI 流程；设计动机与技术权衡请查阅相应 Agent Note。
 
 ## 前置条件
 
-- Node.js 支持 22.19+ 与 24+。CI 覆盖 22.19、24 和 26；见 [Node 引擎下限 RFC](rfc/implemented/process/2026-07-06-node-engine-floor.md)。
+- Node.js 支持 22.19+ 与 24+。CI 覆盖 22.19、24 和 26；见 [Node 引擎下限 Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md)。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中固定使用 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，请先运行 `corepack enable`。
 - Git。
 - 可选：一个 DeepSeek API key，用于 REPL/ACP（Agent Client Protocol） agent（智能体）演示和真实 API 的 e2e 测试。
@@ -86,7 +86,6 @@ pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
 pnpm run verify-export-jsdoc    # fail if a module-level package export lacks complete JSDoc
 pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
 pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
-pnpm run gen-rfc-index          # regenerate the docs/rfc/README.md index tables from the RFC tree
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
 pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type

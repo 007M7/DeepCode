@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-tool-cordis
 
-The self-referential cordis toolset: three model-facing tools over the live runtime the agent runs inside. Design home — sandbox semantics, mount lifecycle, cross-mount composition, the generated API catalog, standing decisions: [the toolset RFC](../../../docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
+The self-referential cordis toolset: three model-facing tools over the live runtime the agent runs inside. Design home — sandbox semantics, mount lifecycle, cross-mount composition, the generated API catalog, standing decisions: [the toolset Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
 
 ## What it does
 
@@ -12,7 +12,7 @@ Exact model-facing schemas: [the generated tool catalog](../../../docs/tool-cata
 
 ## Trust stance
 
-The sandbox isolates globals but is not a security boundary. Node globals are absent or redirect to Cordis services such as `ctx.fs`, `ctx.web`, and `ctx.bash`, and writes to `globalThis` stay local, but host-realm helpers make escape possible. Mounted plugins receive a façade without framework internals, yet its allowed services affect the live runtime. Treat this toolset like bash access; see the [design and trust stance](../../../docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
+The sandbox isolates globals but is not a security boundary. Node globals are absent or redirect to Cordis services such as `ctx.fs`, `ctx.web`, and `ctx.bash`, and writes to `globalThis` stay local, but host-realm helpers make escape possible. Mounted plugins receive a façade without framework internals, yet its allowed services affect the live runtime. Treat this toolset like bash access; see the [design and trust stance](../../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
 
 ## Config
 

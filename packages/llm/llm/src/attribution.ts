@@ -1,7 +1,7 @@
 /**
  * Centralize the non-secret product identity every provider request sends as `User-Agent`, keeping
  * adapters from drifting. See
- * `docs/rfc/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md`.
+ * `.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md`.
  *
  * App-attribution vocabulary for provider requests.
  * @module @deepseek-ai/dsh-llm/attribution
