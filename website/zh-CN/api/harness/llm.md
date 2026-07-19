@@ -6,7 +6,7 @@
 
 The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L97)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L137)
 
 ### ctx.llm.registerAdapter(providers, adapter)
 
@@ -29,7 +29,7 @@ Register an adapter for the given provider routes. Throws `LlmError` with code `
 
 **Returns** the disposer that unregisters all of them.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L112)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L152)
 
 ### ctx.llm.listProviders()
 
@@ -45,7 +45,7 @@ Describe provider routes with a registered adapter.
 
 **Returns** detached provider metadata in registration order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L143)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L183)
 
 ### ctx.llm.listModels(provider)
 
@@ -65,7 +65,7 @@ Discover models advertised by one registered provider. Catalog membership is adv
 
 **Returns** detached model metadata in adapter-preferred order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L153)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L193)
 
 ### ctx.llm.stream(options)
 
@@ -91,4 +91,4 @@ Stream one model call as raw chunks (token-level deltas). Throws `LlmError` with
 
 **Returns** the chunk stream, possibly wrapped by `llm/stream` listeners.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L264)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L304)

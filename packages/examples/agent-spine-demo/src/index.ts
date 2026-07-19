@@ -25,6 +25,7 @@ import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as toolTasks from '@deepseek-ai/dsh-tool-tasks'
 import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agent-loop'
+import * as llmRetry from '@deepseek-ai/dsh-llm-retry'
 import { resolveDshHome } from '@deepseek-ai/dsh-home'
 
 export const name = 'agent-spine-demo'
@@ -77,6 +78,8 @@ export interface Config {
   toolBash?: toolBash.Config
   /** Generic background-task controls; set false to keep the task service without model-facing task tools. */
   toolTasks?: toolTasks.Config | false
+  /** Bounded transient model-request retry policy. */
+  llmRetry?: llmRetry.Config
 }
 
 /** The skill config schema exported for app packages that forward `skills`. */
@@ -93,6 +96,9 @@ export const ToolBashConfigSchema: z<toolBash.Config> = toolBash.Config
 /** The task-control-tool config schema exported for app packages that forward `toolTasks`. */
 export const ToolTasksConfigSchema: z<toolTasks.Config> = toolTasks.Config
 
+/** The bounded LLM retry schema exported for app packages that forward `llmRetry`. */
+export const LlmRetryConfigSchema: z<llmRetry.Config> = llmRetry.Config
+
 /** Intersect the owners' schemas so validation + defaulting stay identical. */
 export const Config = z.intersect([
   AgentLoop.Config,
@@ -104,7 +110,8 @@ export const Config = z.intersect([
     workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
     toolBash: ToolBashConfigSchema,
     toolTasks: z.union([z.const(false), ToolTasksConfigSchema]),
-  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks'>>,
+    llmRetry: LlmRetryConfigSchema,
+  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'llmRetry'>>,
 ]) as unknown as z<Config>
 
 /**
@@ -123,6 +130,7 @@ export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'a
     ...config.skills !== undefined ? { skills: config.skills } : {},
     ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
     ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
+    ...config.llmRetry !== undefined ? { llmRetry: config.llmRetry } : {},
   }
 }
 
@@ -159,6 +167,7 @@ export function apply(ctx: Context, config: Config): void {
     ctx.plugin(SkillLocal, Object.assign({}, config.skills?.local, { dshHome }))
   }
   ctx.plugin(AgentRegistry)
+  ctx.plugin(llmRetry, config.llmRetry ?? {})
   ctx.plugin(TaskService)
   ctx.plugin(invariants)
   ctx.plugin(toolBash, Object.assign({}, config.toolBash, { dshHome }))

@@ -48,6 +48,9 @@
       "path": "../../core/agent-loop"
     },
     {
+      "path": "../../llm/llm-retry"
+    },
+    {
       "path": "../../support/invariants"
     },
     {

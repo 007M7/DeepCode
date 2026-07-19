@@ -227,6 +227,22 @@ interface GenerateOptions {
 Why a model response stopped is a merge-extensible reason:
 
 ```ts type-equiv
+/** Serializable provider-boundary facts; policy decides whether they are retryable. */
+interface LlmFailure {
+  /** Human-readable provider or transport failure. */
+  readonly message: string
+  /** Stable provider-neutral machine-routing code. */
+  readonly code: string
+  /** HTTP status observed at the provider boundary, when available. */
+  readonly status?: number
+  /** Provider-requested delay in milliseconds, when valid and available. */
+  readonly retryAfterMs?: number
+  /** Opaque provider-issued request identifier for diagnostics. */
+  readonly requestId?: ProviderRequestId
+}
+```
+
+```ts type-equiv
 /**
  * Why a model response stopped.
  * Merge-extensible so adapters can surface provider-specific reasons.
@@ -235,8 +251,8 @@ interface FinishReasonMap {
   'stop': { kind: 'stop' }
   'tool-calls': { kind: 'tool-calls' }
   'max-tokens': { kind: 'max-tokens' }
-  'aborted': { kind: 'aborted' }
-  'error': { kind: 'error'; message: string; code?: string }
+  'aborted': { kind: 'aborted'; failure: LlmFailure }
+  'error': { kind: 'error'; failure: LlmFailure }
 }
 ```
 
@@ -445,14 +461,14 @@ type ContinuationDecision =
   | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
 ```
 
-`agent/request-error` receives the original `RequestError`, whose optional provider-neutral `code` supports stable routing without message parsing:
+`agent/request-error` receives the exact original `RequestError` beside its immutable `LlmFailure`, an immutable list of failures that already authorized another request in the consecutive sequence, the turn signal, and `next()`. Recovery plugins route on `failure.code`, not the live error's message; each policy counts only its own codes, and a successful request clears the history:
 
 ```ts type-equiv
 /** Model-request failure with an optional machine-routable provider code. */
 type RequestError = Error & { code?: string }
 ```
 
-It returns a `RequestErrorDecision`; `retry` opens a new numbered step after the recovery listener's durable mutation, while `fail` preserves that error:
+It returns a `RequestErrorDecision`; `retry` opens a new numbered step after the recovery listener's durable mutation, while `fail` retains the structured failure on `turn/end`:
 
 ```ts type-equiv
 /** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */

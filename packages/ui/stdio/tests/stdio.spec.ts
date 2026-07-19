@@ -290,6 +290,51 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toContain('\x1B[2mmid\x1B[0m')
   })
 
+  it('marks failed partial output at retry and terminal failure boundaries', async () => {
+    const { ctx, out } = await setup()
+    const session = makeSession('main')
+    ctx.emit('session/event', session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'partial' }))
+    ctx.emit('session/event', session, {
+      type: 'llm/retry',
+      seq: 1,
+      time: 0,
+      data: {
+        turn: 1,
+        step: 1,
+        retry: 1,
+        maxRetries: 2,
+        delayMs: 500,
+        failure: { message: 'backend busy', code: 'SERVER' },
+      },
+    })
+    ctx.emit('session/event', session, {
+      type: 'turn/end',
+      seq: 3,
+      time: 0,
+      data: { turn: 2, reason: { kind: 'error', step: 1, message: 'loop defect' } },
+    })
+    ctx.emit('session/event', session, chunkEvent({ type: 'text-delta', index: 0, text: 'also partial' }))
+    ctx.emit('session/event', session, {
+      type: 'turn/end',
+      seq: 2,
+      time: 0,
+      data: {
+        turn: 1,
+        reason: { kind: 'error', step: 2, failure: { message: 'still busy', code: 'SERVER' } },
+      },
+    })
+
+    expect(out.text()).toContain(
+      '\x1B[2mpartial\x1B[0m\n  [previous model attempt discarded; retry 1/2 in 500ms: backend busy]',
+    )
+    expect(out.text()).toContain(
+      'also partial\n  [model attempt failed; any partial output above is discarded: still busy]\n> ',
+    )
+    expect(out.text()).toContain(
+      '[model attempt failed; any partial output above is discarded: loop defect]\n> ',
+    )
+  })
+
   it('drops the target object on agent/disposed', async () => {
     const { ctx, out } = await setup()
     const agent = makeAgent('main')

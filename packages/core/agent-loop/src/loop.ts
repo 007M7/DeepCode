@@ -6,9 +6,9 @@
  */
 
 import type { Context } from 'cordis'
-import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, LlmFailure, Message } from '@deepseek-ai/dsh-llm'
 import { isDeepStrictEqual } from 'node:util'
-import { BlockAssembler, HarnessError, assertNever, deepFreeze, isLlmAdapterFailure } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, llmFailureOf } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
@@ -28,24 +28,27 @@ function toError(error: unknown): RequestError {
 
 /** Distinguishes final model-request failures from failures in later step processing. */
 class TerminalModelRequestFailure extends Error {
-  constructor(readonly requestError: RequestError) {
+  constructor(
+    readonly requestError: RequestError,
+    readonly failure: LlmFailure,
+  ) {
     super(requestError.message, { cause: requestError })
     this.name = 'TerminalModelRequestFailure'
   }
 }
 
 /** Convert terminal failure finishes into step errors; unknown extensible finishes remain successful. */
-function finishError(finish: FinishReason): RequestError | undefined {
+function finishError(finish: FinishReason): { error: RequestError; failure: LlmFailure } | undefined {
   switch (finish.kind) {
-    case 'error': {
-      const error: RequestError = new Error(finish.message)
-      if (finish.code !== undefined) error.code = finish.code
-      return error
-    }
+    case 'error':
     case 'aborted': {
-      const error: RequestError = new Error('model stream aborted')
-      error.code = 'ABORTED'
-      return error
+      const facts = finish.failure
+      const error = new LlmError(facts.message, facts.code, {
+        ...facts.status === undefined ? {} : { status: facts.status },
+        ...facts.retryAfterMs === undefined ? {} : { retryAfterMs: facts.retryAfterMs },
+        ...facts.requestId === undefined ? {} : { requestId: facts.requestId },
+      })
+      return { error, failure: error.failure }
     }
     // stop / tool-calls / max-tokens / plugin-added kinds → not a failure.
     default:
@@ -191,7 +194,7 @@ async function runTurn(
 
   let reason: TurnEndReason = { kind: 'completed' }
   let step = 0
-  let requestRetryAttempt = 0
+  let requestFailureHistory: readonly LlmFailure[] = Object.freeze([])
   let stepOpen = false
   let errorReported = false
   let terminalStopped = false
@@ -204,10 +207,12 @@ async function runTurn(
   }
 
   // Record the durable turn failure once and contain the live error notification.
-  const failTurn = (err: RequestError): void => {
+  const failTurn = (err: RequestError, failure?: LlmFailure): void => {
     if (errorReported) return
     errorReported = true
-    reason = { kind: 'error', step, ...errorData(err) }
+    reason = failure === undefined
+      ? { kind: 'error', step, ...errorData(err) }
+      : { kind: 'error', step, failure }
     try {
       events.emit('agent/error', turn, step, err)
     } catch {
@@ -353,14 +358,14 @@ async function runTurn(
 
       let stepOutcome:
         | { hadToolCalls: boolean; finish: FinishReason }
-        | { requestError: RequestError }
+        | { requestError: RequestError; failure: LlmFailure }
         | { error: RequestError }
       try {
         stepOutcome = await runStep(
           ctx, events, handle, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
       } catch (error: unknown) {
         if (error instanceof TerminalModelRequestFailure) {
-          stepOutcome = { requestError: error.requestError }
+          stepOutcome = { requestError: error.requestError, failure: error.failure }
         } else {
           stepOutcome = { error: toError(error) }
         }
@@ -383,7 +388,7 @@ async function runTurn(
         try {
           recoveryDecision = await events.waterfall(
             'agent/request-error', turn, step, stepOutcome.requestError,
-            requestRetryAttempt, abort.signal,
+            stepOutcome.failure, requestFailureHistory, abort.signal,
             () => Promise.resolve(defaultDecision),
           )
         } catch (recoveryError: unknown) {
@@ -404,10 +409,10 @@ async function runTurn(
         }
         switch (recoveryDecision.action) {
           case 'retry':
-            requestRetryAttempt += 1
+            requestFailureHistory = Object.freeze([...requestFailureHistory, stepOutcome.failure])
             continue
           case 'fail':
-            failTurn(stepOutcome.requestError)
+            failTurn(stepOutcome.requestError, stepOutcome.failure)
             break
           /* v8 ignore next -- closed-union exhaustiveness guard */
           default:
@@ -435,7 +440,7 @@ async function runTurn(
         break
       }
 
-      requestRetryAttempt = 0
+      requestFailureHistory = Object.freeze([])
 
       // Preserve max-token completion unless a later disposal, abort, or error wins.
       const stepReason = stepFinishReason(stepOutcome.finish)
@@ -635,13 +640,14 @@ async function runStep(
       assembler.push(chunk)
     }
   } catch (error: unknown) {
-    if (isLlmAdapterFailure(stream, error)) throw new TerminalModelRequestFailure(error)
+    const failure = llmFailureOf(stream, error)
+    if (failure !== undefined && error instanceof Error) throw new TerminalModelRequestFailure(error, failure)
     throw error
   }
 
   // Normalize failure finish chunks into the same path as thrown stream errors.
   const stepError = finishError(assembler.finish)
-  if (stepError) throw new TerminalModelRequestFailure(stepError)
+  if (stepError) throw new TerminalModelRequestFailure(stepError.error, stepError.failure)
 
   const recordAssistantMessage = (
     assembledContent: ContentBlock[],
