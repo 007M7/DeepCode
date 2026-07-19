@@ -1625,6 +1625,17 @@ async function handleDelegatedClick(event: MouseEvent): Promise<void> {
     return
   }
 
+  const openPath = target.closest<HTMLElement>('[data-open-path]')?.dataset.openPath
+  if (openPath !== undefined) {
+    try {
+      await window.dshDesktop.dev.openPath(openPath)
+      toast(t('dev.openedInEditor'))
+    } catch (error) {
+      toast(`${t('dev.openFailed')}: ${String(error)}`)
+    }
+    return
+  }
+
   const copyTarget = target.closest<HTMLElement>('[data-copy-target]')
   if (copyTarget !== null) {
     const graphTarget = state.graph.targets.get(copyTarget.dataset.copyTarget ?? '')
@@ -1875,7 +1886,15 @@ function devListSubtitle(artifact: DevArtifact): string {
   return artifact.subtitle
 }
 
+/** A source is editable through the OS editor only when it is a repository path. */
+function editableSourcePath(artifact: DevArtifact): string | undefined {
+  const source = artifact.source ?? ''
+  if (/^(packages|examples|plugins|cordis\.yml)/.test(source)) return source.replace(/\/$/, '')
+  return undefined
+}
+
 function renderDevArtifactDetail(artifact: DevArtifact): string {
+  const editablePath = editableSourcePath(artifact)
   return `
     <article class="dev-detail-card ${artifact.kind}">
       <header class="dev-detail-head">
@@ -1884,7 +1903,10 @@ function renderDevArtifactDetail(artifact: DevArtifact): string {
           <h3>${escapeHtml(artifact.title)}</h3>
           <p>${escapeHtml(artifact.subtitle)}</p>
         </div>
-        <em>${escapeHtml(artifact.status ?? artifact.kind)}</em>
+        <div class="dev-detail-actions">
+          ${editablePath === undefined ? '' : `<button type="button" data-open-path="${escapeHtml(editablePath)}">${escapeHtml(t('dev.openInEditor'))}</button>`}
+          <em>${escapeHtml(artifact.status ?? artifact.kind)}</em>
+        </div>
       </header>
       <section class="dev-detail-grid">
         ${renderDevFact(t('dev.source'), artifact.source ?? t('dev.unknown'))}

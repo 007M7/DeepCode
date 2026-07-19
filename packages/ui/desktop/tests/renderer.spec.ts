@@ -93,7 +93,7 @@ describe('desktop renderer chat lifecycle', () => {
       },
       trace: { read: async () => traceRead },
       feedback: { list: async () => [], add: async () => ({}) },
-      dev: { status: async () => ({ git: {} }) },
+      dev: { status: async () => ({ git: {} }), openPath: async () => ({}) },
     }
 
     await import('../src/app.ts')
@@ -276,7 +276,7 @@ describe('desktop renderer chat lifecycle', () => {
       },
       trace: { read: async () => traceRead },
       feedback: { list: async () => [], add: async () => ({}) },
-      dev: { status: async () => ({ git: {} }) },
+      dev: { status: async () => ({ git: {} }), openPath: async () => ({}) },
     }
 
     await import('../src/app.ts')

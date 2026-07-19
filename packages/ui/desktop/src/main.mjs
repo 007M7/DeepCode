@@ -529,6 +529,18 @@ function registerIpc() {
     shell.showItemInFolder(file)
     return { ok: true, path: file }
   })
+  // Develop stays read-first: editing routes to the user's editor instead of an
+  // in-app write path. Only repository paths may be opened.
+  ipcMain.handle('dev:open-path', async (_event, { path }) => {
+    const target = resolve(repoRoot, String(path))
+    if (target !== repoRoot && !target.startsWith(`${repoRoot}/`)) {
+      throw new Error(`path escapes the repository: ${String(path)}`)
+    }
+    if (!existsSync(target)) throw new Error(`path not found: ${String(path)}`)
+    const error = await shell.openPath(target)
+    if (error.length > 0) throw new Error(error)
+    return { ok: true, path: target }
+  })
   ipcMain.handle('trace:read', (_event, { sessionId }) => readTrace(String(sessionId)))
   ipcMain.handle('feedback:list', (_event, { sessionId, targetId }) => readFeedback(String(sessionId), targetId === undefined ? undefined : String(targetId)))
   ipcMain.handle('feedback:add', (_event, entry) => appendFeedback(entry))

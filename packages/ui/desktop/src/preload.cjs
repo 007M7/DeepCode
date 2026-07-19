@@ -39,6 +39,7 @@ const api = {
   },
   dev: {
     status: () => ipcRenderer.invoke('dev:status'),
+    openPath: (path) => ipcRenderer.invoke('dev:open-path', { path }),
   },
 }
 

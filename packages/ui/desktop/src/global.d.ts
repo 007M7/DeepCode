@@ -29,6 +29,7 @@ declare global {
       }
       dev: {
         status(): Promise<unknown>
+        openPath(path: string): Promise<unknown>
       }
     }
   }

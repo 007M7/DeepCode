@@ -2977,3 +2977,20 @@ dd {
 .empty-state p {
   text-wrap: pretty;
 }
+
+.dev-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dev-detail-actions button {
+  height: var(--control-md);
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 650;
+}
