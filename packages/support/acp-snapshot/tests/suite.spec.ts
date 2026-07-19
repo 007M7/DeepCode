@@ -48,6 +48,10 @@ const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.
 const REPLAY_SCENARIOS: Scenario[] = [
   { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'main' },
   { name: 'plain-turn', hasModelTurn: true, recorded: true, headerClass: 'main', configPath: AGENT.configPath },
+  // Two scripted children under a declared omission: one omits t1 (header pin
+  // minus the declared tool, prompt pin skipped), one keeps the full set (pin
+  // and prompt compared verbatim) — the childToolOmissions branches.
+  { name: 'child-omission', hasModelTurn: true, recorded: false, headerClass: 'main', childToolOmissions: ['t1'] },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },
   { name: 'authored-error', hasModelTurn: true, recorded: false, overridden: true, headerClass: 'main' },
