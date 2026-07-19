@@ -1,5 +1,4 @@
-// chat-side-drawer.js — right-side fold-out drawer for the Chat pane
-// (feat/chat-triple-view, lane-chat-triple).
+// chat-side-drawer.js — right-side fold-out drawer for the Chat pane.
 //
 // Three sections rendered in order:
 //   1. Current Turn — model / tokens / duration / latency / session id /

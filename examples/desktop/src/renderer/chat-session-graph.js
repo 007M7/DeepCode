@@ -1,5 +1,5 @@
 // chat-session-graph.js — pure-SVG DAG rendering of a session's turn
-// sequence for the Chat pane's Graph view (feat/chat-triple-view).
+// sequence for the Chat pane's Graph view.
 //
 // Nodes: user messages (grey), agent turns (accent), interrupted turns
 // (orange rim). Edges:
@@ -157,7 +157,6 @@ function renderSessionGraph(container, snapshot) {
     g.dataset.nodeKind = node.kind
     if (node.turnId) g.dataset.turnId = node.turnId
     if (node.turnId && snapshot && snapshot.selectedTurnId === node.turnId) {
-      g.classList && g.classList.add && g.classList.add('active')
       g.setAttribute('class', cls + ' active')
     }
     const circle = doc.createElementNS(SVG_NS, 'circle')

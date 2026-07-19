@@ -12144,7 +12144,7 @@ details.devtools-row[open] > .devtools-row-summary::before { transform: rotate(9
  * inside it, not against the viewport root. */
 .pane[data-pane="chat"] { position: relative; }
 /* ============================================================ */
-/* D lane: Rubric fusion (Rubrics + Growth + Runtime shared)    */
+/* Rubric-driven views (Rubrics + Growth + Runtime)             */
 /* ============================================================ */
 
 /* --- Rubrics view: hint card + per-tile stats strip --- */
@@ -12395,7 +12395,7 @@ details.devtools-row[open] > .devtools-row-summary::before { transform: rotate(9
   outline-offset: -2px;
 }
 /* ==========================================================================
- * Artifact panel — V2 (lane-artifact-v2, 2026-07-19)
+ * Artifact panel — tabbed views + version evolution
  *
  * The panel wraps the artifact-group with a top tab bar (List/Board/
  * Timeline). Keeps the L0 compact-row shape intact for List; Board and

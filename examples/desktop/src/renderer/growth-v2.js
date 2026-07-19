@@ -1,6 +1,6 @@
 // Growth — rubric-evolution time-series view.
 //
-// This page was the "compact-window evolution log" (task #140). It has been
+// This page was previously the "compact-window evolution log". It has been
 // re-authored as a rubric-score time-series view backed by the rubric-fusion
 // event log. Horizontal axis = time (day) or harness version; each series =
 // one rubric-dim; y = mean-01 score (or pass-rate, toggled by the header
