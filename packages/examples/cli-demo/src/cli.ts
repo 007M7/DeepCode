@@ -91,12 +91,27 @@ class CliInterruptedError extends Error {
   }
 }
 
+/** Render an arbitrary value without trusting its type traps or string coercion. */
+function renderUnknown(value: unknown): string {
+  try {
+    return String(value)
+  } catch {
+    return '[unrenderable thrown value]'
+  }
+}
+
+/** Normalize an arbitrary thrown value without letting inspection escape containment. */
 function toError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error))
+  try {
+    if (error instanceof Error) return error
+  } catch {
+    // A hostile proxy may throw during instanceof; use the total renderer below.
+  }
+  return new Error(renderUnknown(error))
 }
 
 function interruptionReason(signal: AbortSignal): string {
-  return signal.reason === undefined ? 'interrupted' : String(signal.reason)
+  return signal.reason === undefined ? 'interrupted' : renderUnknown(signal.reason)
 }
 
 /**

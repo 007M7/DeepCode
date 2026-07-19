@@ -199,6 +199,27 @@ describe('runOneShot and executeCli', () => {
     expect(stderr).toContain('boot exploded')
   })
 
+  it('contains a thrown value whose inspection and coercion both fail', async () => {
+    const hostile = new Proxy({}, {
+      getPrototypeOf: () => { throw new Error('prototype trap escaped') },
+      get: (target, key, receiver) => {
+        if (key === Symbol.toPrimitive) throw new Error('coercion escaped')
+        return Reflect.get(target, key, receiver) as unknown
+      },
+    })
+    let stdout = ''
+    let stderr = ''
+    const code = await executeCli(['task'], {
+      boot: async () => { throw hostile },
+      loadEnv: () => {},
+      writeStdout: (chunk) => { stdout += chunk },
+      writeStderr: (chunk) => { stderr += chunk },
+    })
+    expect(code).toBe(1)
+    expect(stdout).toBe('')
+    expect(stderr).toBe('dsh-cli-demo: [unrenderable thrown value]\n')
+  })
+
   it('interrupts Loader boot and contains every late boot outcome', async () => {
     const abort = new AbortController()
     const lateContext = new Context()
