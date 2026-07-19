@@ -1,5 +1,6 @@
 import { Context } from 'cordis'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
@@ -28,7 +29,7 @@ export async function cordisHarness(): Promise<Context> {
   return ctx
 }
 
-export function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+export function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {

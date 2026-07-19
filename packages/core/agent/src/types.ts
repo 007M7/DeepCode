@@ -80,7 +80,7 @@ export type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
 /** Why a session lifecycle began; seeded creates are `startup`, while persisted loads are `resume`. */
 export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
-/** Public agent handle; the concrete driver belongs to `@deepseek-ai/dsh-agent-loop`. */
+/** Public agent handle; its concrete implementation is internal to `@deepseek-ai/dsh-agent-loop`. */
 export interface Agent {
   /** The single identity shared with {@link session}. */
   readonly id: SessionId

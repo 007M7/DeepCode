@@ -10,7 +10,7 @@ The harness has a long-deferred seam for **subagents** — an agent delegating w
 
 The distinctive requirement — the one that shapes the whole design — is that **multiple subagent implementations must coexist at runtime**. A parent may want a cheap in-process child for a scoped subtask AND an isolated out-of-process child (over ACP) in the same session. The transports we foresee:
 
-- **in-process** — a child `ReactLoopAgent` on the same `Context` (the cheapest, and nearly free given the existing agent factory);
+- **in-process** — a child concrete `Agent` on the same `Context` (the cheapest, and nearly free given the existing agent factory);
 - **ACP** — act as an ACP *client* driving another agent process (which can be another instance of ourselves);
 - later: **A2A**, the **Codex app-server**, and the **Claude Code Agent SDK** — each the same out-of-process "start a child, prompt it, stream updates, cancel" shape as the ACP backend.
 

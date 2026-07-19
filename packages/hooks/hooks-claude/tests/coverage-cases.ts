@@ -6,7 +6,8 @@ import { Context } from 'cordis'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import { SubagentRunId } from '@deepseek-ai/dsh-subagent'
@@ -38,10 +39,10 @@ async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOp
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => { const d = ctx.on('agent/status', (s, st) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
 }
-function events(agent: ReactLoopAgent): SessionEvent[] { return [...agent.session.events] }
+function events(agent: Agent): SessionEvent[] { return [...agent.session.events] }
 /** Poll until `predicate` holds or the deadline passes — robust to detached
  * emit-listener hooks firing on a `.then` (a fixed sleep flakes under load). */
 async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10): Promise<void> {
@@ -466,8 +467,8 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const { SessionId } = await import('@deepseek-ai/dsh-session')
       const handle = await ctx.agents.create({ sessionId: SessionId('s1'), meta: { cwd: workspace }, agentOptions: { provider: 'mock', model: 'mock' } })
       handle.agent.send([{ type: 'text', text: 'go' }])
-      await waitForIdle(ctx, handle.agent as ReactLoopAgent)
-      expect(events(handle.agent as ReactLoopAgent).some(e => e.type === 'context/message'
+      await waitForIdle(ctx, handle.agent)
+      expect(events(handle.agent).some(e => e.type === 'context/message'
       && e.data.content.some(b => b.type === 'text' && b.text.includes(`dir=${workspace}`)))).toBe(true)
       await handle.dispose()
     })
@@ -664,7 +665,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const { SessionId } = await import('@deepseek-ai/dsh-session')
       const handle = await ctx.agents.create({ sessionId: SessionId('s1'), meta: { cwd: sessionDir }, agentOptions: { provider: 'mock', model: 'mock' } })
       handle.agent.send([{ type: 'text', text: 'go' }])
-      await waitForIdle(ctx, handle.agent as ReactLoopAgent)
+      await waitForIdle(ctx, handle.agent)
 
       expect(existsSync(marker)).toBe(true) // the marker landed in the SESSION dir
       const { readFileSync } = await import('node:fs')

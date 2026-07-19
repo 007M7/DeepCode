@@ -54,9 +54,9 @@ export interface TypeApiEntry {
 export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'agentLoop',
-    summary: 'Concrete ReactLoopAgent factory and driver service.',
+    summary: 'Concrete agent factory and driver service.',
     methods: [
-      'create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, \'cwd\'> = {}): ReactLoopAgent',
+      'create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, \'cwd\'> = {}): Agent',
       'async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>',
       'async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>',
     ],

@@ -4,9 +4,9 @@ import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type ContinuationStop } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type ContinuationStop } from '@deepseek-ai/dsh-agent'
 
-import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
@@ -23,7 +23,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
   return ctx
 }
 
-function send(agent: ReactLoopAgent, text = 'go'): Promise<void> {
+function send(agent: Agent, text = 'go'): Promise<void> {
   agent.send([{ type: 'text', text }])
   return agent.whenIdle()
 }
