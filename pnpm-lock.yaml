@@ -819,6 +819,9 @@ importers:
 
   packages/fs/fs-local:
     dependencies:
+      koffi:
+        specifier: ^3.1.0
+        version: 3.1.1
       schemastery:
         specifier: ^3.18.0
         version: 3.18.0
