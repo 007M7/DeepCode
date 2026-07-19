@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md: abc374d98fed8cac039f10d930fec332515c846e
-2026-07-10-after-call-compaction-pressure-and-overflow-recovery.zh.md: 5f6661c9fdc905048aaec56d9b0831a9a5a4548e
+2026-07-10-after-call-compaction-pressure-and-overflow-recovery.zh.md: ef13c64fc4c728e5b4fe9718ae8ef8b8ef9ecdd9
