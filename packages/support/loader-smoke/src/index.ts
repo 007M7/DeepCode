@@ -1,14 +1,12 @@
 /**
  * Shared subprocess harness for keyless example smokes that boot a real
- * `cordis.yml` through the stdio-agent bin and Cordis Loader.
+ * `cordis.yml` through an app bin and Cordis Loader.
  *
  * It also owns the mode-aware launch resolver every example subprocess harness shares
  * ({@link resolveExampleLaunch}): booting an example bin from TypeScript source under `tsx` (the
  * zero-build dev path, resolving `@deepseek-ai/dsh-*` / `@cordisjs/*` through the tsconfig `paths`
  * map) or from built `lib/` under plain Node (resolving bare packages through real `exports`, as an
  * installed consumer does, while Node type-strips relative example-local TypeScript plugins).
- * Consolidating that spawn glue here retires the copies in the ACP snapshot harness and the example
- * e2e drivers (the `TODO(acp-test-harness)`).
  *
  * @module @deepseek-ai/dsh-loader-smoke
  */
@@ -126,12 +124,14 @@ export interface LoaderSmokeOptions {
   readonly label: string
   /** Prefix for the isolated temporary process cwd. */
   readonly tempDirPrefix: string
-  /** Absolute stdio-agent bin SOURCE path (`<pkg>/src/bin.ts`); the `lib` bin is derived from it. */
+  /** Absolute app-bin source path (`<pkg>/src/bin.ts`); the `lib` bin is derived from it. */
   readonly binScript: string
   /** Explicit plain-Node entry for `lib` mode; intended for test fixtures outside a package `src/` tree. */
   readonly libBinScript?: string | undefined
-  /** Absolute real Loader config path. */
+  /** Absolute real Loader config path, passed as the sole bin argument by default. */
   readonly configPath: string
+  /** Complete argv after the bin path; overrides the default `[configPath]`. */
+  readonly binArgs?: readonly string[]
   /** Absolute repo tsconfig path used for unbuilt workspace-package resolution (required in `src` mode). */
   readonly tsconfigPath: string
   /** Boot from source via tsx (`src`) or built lib via plain Node (`lib`); defaults to the environment's mode. */
@@ -142,6 +142,10 @@ export interface LoaderSmokeOptions {
   readonly stdinLines?: readonly string[]
   /** Process deadline override for harness tests. */
   readonly processTimeoutMs?: number
+  /** Optional world-state setup run in the isolated cwd before process start. */
+  readonly prepare?: (cwd: string) => Promise<void> | void
+  /** Optional world-state assertion run in the isolated cwd before cleanup. */
+  readonly inspect?: (cwd: string) => Promise<void> | void
 }
 
 /** Captured output from a Loader smoke that exited successfully. */
@@ -162,17 +166,18 @@ export interface LoaderSmokeResult {
 export async function runLoaderSmoke(options: LoaderSmokeOptions): Promise<LoaderSmokeResult> {
   const cwd = await mkdtemp(join(tmpdir(), options.tempDirPrefix))
   const processTimeoutMs = options.processTimeoutMs ?? DEFAULT_PROCESS_TIMEOUT_MS
-  const launch = resolveExampleLaunch({
-    srcBin: options.binScript,
-    libBin: options.libBinScript,
-    configArgs: [options.configPath],
-    ...options.mode !== undefined ? { mode: options.mode } : {},
-    tsconfigPath: options.tsconfigPath,
-    exposeInternals: true,
-    env: { DSH_HOME: join(cwd, '.dsh'), DSH_AGENTS_HOME: join(cwd, '.agents'), ...options.env },
-  })
   try {
-    return await new Promise((resolve, reject) => {
+    await options.prepare?.(cwd)
+    const launch = resolveExampleLaunch({
+      srcBin: options.binScript,
+      libBin: options.libBinScript,
+      configArgs: options.binArgs ?? [options.configPath],
+      ...options.mode !== undefined ? { mode: options.mode } : {},
+      tsconfigPath: options.tsconfigPath,
+      exposeInternals: true,
+      env: { DSH_HOME: join(cwd, '.dsh'), DSH_AGENTS_HOME: join(cwd, '.agents'), ...options.env },
+    })
+    const result = await new Promise<LoaderSmokeResult>((resolve, reject) => {
       const child = spawn(launch.command, launch.args, {
         cwd,
         env: { ...process.env, ...launch.env },
@@ -217,6 +222,8 @@ export async function runLoaderSmoke(options: LoaderSmokeOptions): Promise<Loade
 
       child.stdin.end((options.stdinLines ?? []).map(line => `${line}\n`).join(''))
     })
+    await options.inspect?.(cwd)
+    return result
   } finally {
     await rm(cwd, { recursive: true, force: true })
   }
