@@ -1,9 +1,9 @@
 import { Readable, Writable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, type Agent, type AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { createStdioChat, mountStdio, type Config, type StdioRuntime } from '../src/index.ts'
@@ -67,8 +67,24 @@ function makeAgent(id: string, status: AgentStatus = 'idle'): Agent & {
 /** Register a fake configured agent and cross the supported startup-work boundary. */
 function registerReady(ctx: Context, agent: Agent, source: 'startup' | 'resume' = 'startup'): () => void {
   const dispose = ctx.agents.register(agent)
-  ctx.emit('agent/session-start', agent, source)
+  agentEvents(ctx, agent).emit('agent/session-start', source)
   return dispose
+}
+
+function emitAgentSessionStart(ctx: Context, agent: Agent, source: 'startup' | 'resume'): void {
+  agentEvents(ctx, agent).emit('agent/session-start', source)
+}
+
+function emitAgentStatus(ctx: Context, agent: Agent, status: AgentStatus): void {
+  agentEvents(ctx, agent).emit('agent/status', status)
+}
+
+function emitAgentDisposed(ctx: Context, agent: Agent): void {
+  agentEvents(ctx, agent).emit('agent/disposed')
+}
+
+function emitSessionEvent(ctx: Context, session: Session, event: SessionEvent): void {
+  ctx.emit(scopeTarget(session, undefined), 'session/event', session, event)
 }
 
 /** A session stub whose `header.id` matches an agent's, for `session/event` emits. */
@@ -192,23 +208,23 @@ describe('createStdioChat rendering', () => {
 
   it('renders text-delta chunks verbatim', async () => {
     const { ctx, out } = await setup()
-    ctx.emit('session/event', makeSession('main'), chunkEvent({ type: 'text-delta', index: 0, text: 'hello' }))
+    emitSessionEvent(ctx, makeSession('main'), chunkEvent({ type: 'text-delta', index: 0, text: 'hello' }))
     expect(out.text()).toContain('hello')
   })
 
   it('wraps reasoning-delta in the dim SGR and resets on the following text-delta', async () => {
     const { ctx, out } = await setup()
     const session = makeSession('main')
-    ctx.emit('session/event', session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'think' }))
-    ctx.emit('session/event', session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'more' }))
-    ctx.emit('session/event', session, chunkEvent({ type: 'text-delta', index: 0, text: 'answer' }))
+    emitSessionEvent(ctx, session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'think' }))
+    emitSessionEvent(ctx, session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'more' }))
+    emitSessionEvent(ctx, session, chunkEvent({ type: 'text-delta', index: 0, text: 'answer' }))
     expect(out.text()).toContain('\x1B[2mthinkmore\x1B[0m\nanswer')
   })
 
   it('ignores stream-chunk types it does not render', async () => {
     const { ctx, out } = await setup()
     const before = out.text()
-    ctx.emit('session/event', makeSession('main'), chunkEvent({ type: 'block-start', index: 0, blockType: 'text' }))
+    emitSessionEvent(ctx, makeSession('main'), chunkEvent({ type: 'block-start', index: 0, blockType: 'text' }))
     expect(out.text()).toBe(before)
   })
 
@@ -217,20 +233,20 @@ describe('createStdioChat rendering', () => {
     const agent = makeAgent('main')
     ctx.agents.register(agent)
     const session = agent.session
-    ctx.emit('session/event', session, {
+    emitSessionEvent(ctx, session, {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 3, trigger: { kind: 'message' } },
     } as SessionEvent)
     expect(out.text()).toContain('[main turn 3] ')
-    ctx.emit('session/event', session, {
+    emitSessionEvent(ctx, session, {
       type: 'turn/end', seq: 2, time: 0, data: { turn: 3, reason: { kind: 'completed' } },
-    } as SessionEvent)
+    })
     expect(out.text()).toContain('\n> ')
   })
 
   it('uses the session id as the label for a non-target session', async () => {
     const { ctx, out } = await setup()
     // No target exists, so the event's durable identity is the label.
-    ctx.emit('session/event', makeSession('orphan'), {
+    emitSessionEvent(ctx, makeSession('orphan'), {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 1, trigger: { kind: 'message' } },
     } as SessionEvent)
     expect(out.text()).toContain('[orphan turn 1] ')
@@ -253,7 +269,7 @@ describe('createStdioChat rendering', () => {
     await ctx.plugin(Object.assign((inner: Context) => {
       createStdioChat(inner, CONFIG, runtime)
     }, { inject: ['agents', 'userInteraction'] }))
-    ctx.emit('session/event', agent.session, {
+    emitSessionEvent(ctx, agent.session, {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 5, trigger: { kind: 'message' } },
     } as SessionEvent)
     expect(out.text()).toContain('[main turn 5] ')
@@ -266,14 +282,14 @@ describe('createStdioChat rendering', () => {
 
     const unrelated = makeAgent('unrelated')
     ctx.agents.register(unrelated)
-    ctx.emit('agent/session-start', unrelated, 'startup')
+    emitAgentSessionStart(ctx, unrelated, 'startup')
     const resumed = makeAgent('resumed')
     ;(resumed.session.header as { parentSession?: string }).parentSession = 'persisted-parent'
     ctx.agents.register(resumed)
     await new Promise(resolve => setImmediate(resolve))
     expect(resumed.sent).toEqual([])
 
-    ctx.emit('agent/session-start', resumed, 'resume')
+    emitAgentSessionStart(ctx, resumed, 'resume')
     await new Promise(resolve => setImmediate(resolve))
 
     expect(unrelated.sent).toEqual([])
@@ -283,10 +299,10 @@ describe('createStdioChat rendering', () => {
   it('resets dim styling at turn/end if a turn ends mid-reasoning', async () => {
     const { ctx, out } = await setup()
     const session = makeSession('main')
-    ctx.emit('session/event', session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'mid' }))
-    ctx.emit('session/event', session, {
+    emitSessionEvent(ctx, session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'mid' }))
+    emitSessionEvent(ctx, session, {
       type: 'turn/end', seq: 1, time: 0, data: { turn: 1, reason: { kind: 'completed' } },
-    } as SessionEvent)
+    })
     expect(out.text()).toContain('\x1B[2mmid\x1B[0m')
   })
 
@@ -297,7 +313,7 @@ describe('createStdioChat rendering', () => {
     dispose()
     // After disposal the event belongs to a non-target session, so its durable
     // identity is rendered directly.
-    ctx.emit('session/event', agent.session, {
+    emitSessionEvent(ctx, agent.session, {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 1, trigger: { kind: 'message' } },
     } as SessionEvent)
     expect(out.text()).toContain('[main turn 1] ')
@@ -307,8 +323,8 @@ describe('createStdioChat rendering', () => {
     const { ctx, out } = await setup()
     const target = makeAgent('main')
     ctx.agents.register(target)
-    ctx.emit('agent/disposed', makeAgent('other'))
-    ctx.emit('session/event', target.session, {
+    emitAgentDisposed(ctx, makeAgent('other'))
+    emitSessionEvent(ctx, target.session, {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 1, trigger: { kind: 'message' } },
     } as SessionEvent)
     expect(out.text()).toContain('[main turn 1] ')
@@ -326,7 +342,7 @@ describe('createStdioChat rendering', () => {
     input.feed('after hmr')
     await new Promise(resolve => setImmediate(resolve))
     expect(replacement.sent).toEqual([])
-    ctx.emit('agent/session-start', replacement, 'resume')
+    emitAgentSessionStart(ctx, replacement, 'resume')
     await new Promise(resolve => setImmediate(resolve))
 
     expect(prefixCollision.sent).toEqual([])
@@ -356,28 +372,28 @@ describe('createStdioChat rendering', () => {
       type: 'tool/call', seq: 1, time: 0,
       data: { turn: 1, step: 0, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
     } as SessionEvent
-    ctx.emit('session/event', session, callEvent)
+    emitSessionEvent(ctx, session, callEvent)
     expect(out.text()).toContain('[tool call] bash({"command":"ls"})')
 
     const resultEvent = {
       type: 'tool/result', seq: 2, time: 0,
       data: { turn: 1, step: 0, callId: 'c1', content: [{ type: 'text', text: 'file.txt' }], isError: false },
     } as SessionEvent
-    ctx.emit('session/event', session, resultEvent)
+    emitSessionEvent(ctx, session, resultEvent)
     expect(out.text()).toContain('[tool result] file.txt')
   })
 
   it('renders a todo/write session event as a glyphed checklist', async () => {
     const { ctx, out } = await setup()
     const session = {} as Session
-    ctx.emit('session/event', session, {
+    emitSessionEvent(ctx, session, {
       type: 'todo/write', seq: 1, time: 0,
       data: { todos: [
         { content: 'read the code', status: 'completed' },
         { content: 'write the fix', status: 'in_progress' },
         { content: 'run the tests', status: 'pending' },
       ] },
-    } as SessionEvent)
+    })
     const text = out.text()
     expect(text).toContain('[todos]')
     expect(text).toContain('[x] read the code')
@@ -387,19 +403,19 @@ describe('createStdioChat rendering', () => {
 
   it('resets dim styling when a todo/write interrupts reasoning', async () => {
     const { ctx, out } = await setup()
-    ctx.emit('session/event', {} as Session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'r' }))
-    ctx.emit('session/event', {} as Session, {
+    emitSessionEvent(ctx, {} as Session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'r' }))
+    emitSessionEvent(ctx, {} as Session, {
       type: 'todo/write', seq: 1, time: 0,
       data: { todos: [{ content: 'a task', status: 'pending' }] },
-    } as SessionEvent)
+    })
     expect(out.text()).toContain('\x1B[2mr\x1B[0m')
   })
 
   it('resets dim styling when a tool/call interrupts reasoning', async () => {
     const { ctx, out } = await setup()
     const session = {} as Session
-    ctx.emit('session/event', session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'r' }))
-    ctx.emit('session/event', session, {
+    emitSessionEvent(ctx, session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'r' }))
+    emitSessionEvent(ctx, session, {
       type: 'tool/call', seq: 1, time: 0,
       data: { turn: 1, step: 0, callId: 'c1', name: 'bash', arguments: '{}' },
     } as SessionEvent)
@@ -409,10 +425,10 @@ describe('createStdioChat rendering', () => {
   it('ignores session events it does not render', async () => {
     const { ctx, out } = await setup()
     const before = out.text()
-    ctx.emit('session/event', {} as Session, {
+    emitSessionEvent(ctx, {} as Session, {
       type: 'user/message', seq: 1, time: 0,
       data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } },
-    } as SessionEvent)
+    })
     expect(out.text()).toBe(before)
   })
 })
@@ -799,7 +815,7 @@ describe('createStdioChat input', () => {
     ctx.agents.register(agent)
     await new Promise(r => setImmediate(r))
     expect(agent.sent).toEqual([])
-    ctx.emit('agent/session-start', agent, 'startup')
+    emitAgentSessionStart(ctx, agent, 'startup')
     await new Promise(r => setImmediate(r))
     expect(agent.sent).toEqual([[{ type: 'text', text: 'nobody home' }]])
   })
@@ -860,9 +876,9 @@ describe('createStdioChat EOF exit', () => {
     // Work submitted but no 'running' observed yet — must NOT exit.
     expect(exit).not.toHaveBeenCalled()
     // The turn starts, then settles.
-    ctx.emit('agent/status', agent, 'running')
+    emitAgentStatus(ctx, agent, 'running')
     ;(agent as { status: AgentStatus }).status = 'idle'
-    ctx.emit('agent/status', agent, 'idle')
+    emitAgentStatus(ctx, agent, 'idle')
     await flushExit()
     expect(exit).toHaveBeenCalledWith(0)
   })
@@ -878,12 +894,12 @@ describe('createStdioChat EOF exit', () => {
     ctx.agents.register(agent)
     await new Promise(r => setImmediate(r))
     expect(agent.sent).toEqual([])
-    ctx.emit('agent/session-start', agent, 'startup')
+    emitAgentSessionStart(ctx, agent, 'startup')
     await new Promise(r => setImmediate(r))
     expect(agent.sent).toEqual([[{ type: 'text', text: 'work' }]])
-    ctx.emit('agent/status', agent, 'running')
+    emitAgentStatus(ctx, agent, 'running')
     ;(agent as { status: AgentStatus }).status = 'idle'
-    ctx.emit('agent/status', agent, 'idle')
+    emitAgentStatus(ctx, agent, 'idle')
     await flushExit()
     expect(exit).toHaveBeenCalledWith(0)
   })
@@ -913,14 +929,14 @@ describe('createStdioChat EOF exit', () => {
     registerReady(ctx, agent)
     input.feed('work')
     await new Promise(r => setImmediate(r))
-    ctx.emit('agent/status', agent, 'running') // sawRunning = true
+    emitAgentStatus(ctx, agent, 'running') // sawRunning = true
     input.finish()
     await new Promise(r => setImmediate(r)) // let readline 'close' set stdinClosed
     ;(agent as { status: AgentStatus }).status = 'idle'
     // Two idle signals while stdin is already closed: the first arms the timer,
     // the second must hit the already-scheduled guard, not arm a second.
-    ctx.emit('agent/status', agent, 'idle')
-    ctx.emit('agent/status', agent, 'idle')
+    emitAgentStatus(ctx, agent, 'idle')
+    emitAgentStatus(ctx, agent, 'idle')
     await flushExit()
     expect(exit).toHaveBeenCalledTimes(1)
   })
@@ -933,8 +949,8 @@ describe('createStdioChat EOF exit', () => {
     await new Promise(r => setImmediate(r))
     input.finish()
     const other = makeAgent('other')
-    ctx.emit('agent/status', other, 'running')
-    ctx.emit('agent/status', other, 'idle')
+    emitAgentStatus(ctx, other, 'running')
+    emitAgentStatus(ctx, other, 'idle')
     await flushExit()
     expect(exit).not.toHaveBeenCalled()
   })
@@ -945,11 +961,11 @@ describe('createStdioChat EOF exit', () => {
     registerReady(ctx, agent)
     input.feed('work')
     await new Promise(r => setImmediate(r))
-    ctx.emit('agent/status', agent, 'running')
+    emitAgentStatus(ctx, agent, 'running')
     ;(agent as { status: AgentStatus }).status = 'running'
     input.finish()
     // sawRunning is true, but the agent is still running — the idle gate holds.
-    ctx.emit('agent/status', agent, 'idle') // a stale/duplicate signal while status stays 'running'
+    emitAgentStatus(ctx, agent, 'idle') // a stale/duplicate signal while status stays 'running'
     await flushExit()
     expect(exit).not.toHaveBeenCalled()
   })
@@ -998,8 +1014,8 @@ describe('createStdioChat disposal (HMR safety)', () => {
     // After dispose, status transitions must neither throw nor schedule an exit
     // (the listener and the EOF-exit path are both torn down).
     expect(() => {
-      ctx.emit('agent/status', agent, 'running')
-      ctx.emit('agent/status', agent, 'idle')
+      emitAgentStatus(ctx, agent, 'running')
+      emitAgentStatus(ctx, agent, 'idle')
     }).not.toThrow()
     await flushExit()
     expect(exit).not.toHaveBeenCalled()

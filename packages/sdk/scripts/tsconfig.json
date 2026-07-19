@@ -6,8 +6,17 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../helper" },
-    { "path": "../../ui/app-boot" },
-    { "path": "../../../vendor/cordis" }
+    {
+      "path": "../helper"
+    },
+    {
+      "path": "../../ui/app-boot"
+    },
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../support/invariants"
+    }
   ]
 }

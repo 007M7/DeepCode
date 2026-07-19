@@ -1,7 +1,8 @@
 /**
  * Configurable registry for package-owned runtime invariant contributions.
- * Packages register checks from optional `./invariant` companion plugins;
- * ordinary package entrypoints stay independent of diagnostics.
+ * Every workspace package registers its name from a `./invariant` companion;
+ * ordinary package entrypoints stay independent of diagnostics, and packages
+ * without relational checks use an ownership-only installer.
  *
  * @module @deepseek-ai/dsh-invariants
  */

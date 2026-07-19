@@ -28,6 +28,9 @@
     },
     {
       "path": "../user-interaction"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

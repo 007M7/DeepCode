@@ -396,7 +396,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/support/invariants/src/index.ts:15`](../packages/support/invariants/src/index.ts)
+Source: [`packages/support/invariants/src/index.ts:16`](../packages/support/invariants/src/index.ts)
 
 ## `@deepseek-ai/dsh-jsonrpc`
 

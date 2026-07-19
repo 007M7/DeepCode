@@ -25,6 +25,9 @@
     },
     {
       "path": "../../util/timeout"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

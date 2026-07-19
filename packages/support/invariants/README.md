@@ -1,6 +1,6 @@
 # dsh-invariants
 
-Configurable registry service for package-owned runtime invariant checks. The root plugin registers `ctx.invariants`; it contains no product checks or product-package imports. Packages publish optional `./invariant` companion plugins that contribute their own assertions.
+Configurable registry service for package-owned runtime invariant checks. The root plugin registers `ctx.invariants`; it contains no product checks or product-package imports. Every workspace package publishes a `./invariant` companion that registers its exact npm package name.
 
 ## Service: `InvariantService` (`ctx.invariants`)
 
@@ -23,6 +23,10 @@ The service owns every registration fiber, while the returned disposer also belo
 `InvariantError` extends `Error`, carries stable `code: 'INVARIANT'`, and exposes the owning `packageName` without adding a product-package dependency to the service.
 
 ## Package companions
+
+An ownership-only generated baseline installs no listeners but still reserves its package name through the real service boundary. A package replaces that marked file when it gains a relational check, retaining the same registration. `pnpm run verify-package-invariants` checks every package's source registration, export, published files, dependencies, TypeScript reference, and bundle entry.
+
+Four companions currently install stateful checks:
 
 | Companion | Registration | Checks |
 |---|---|---|
@@ -50,7 +54,7 @@ ctx.plugin(InvariantService, {
 ctx.plugin(SessionInvariant)
 ```
 
-The standard agent spine mounts the service and all four companions. Custom compositions choose the companions they want and may disable or filter them without changing package entrypoints.
+The standard agent spine mounts the service and the four stateful companions. Custom compositions choose the companions they want and may disable or filter them without changing package entrypoints. Vitest mounts every package companion against an explicitly enabled service for ordinary Cordis roots, so baseline ownership and stateful checks execute across unit, snapshot, and e2e suites; focused invariant-service tests construct their own topology to exercise filtering and lifecycle behavior.
 
 ## Model Experience
 
@@ -58,6 +62,6 @@ None, as the service and companions observe runtime events and requests but neve
 
 ## Known Limitations and Deferred Work
 
-- The shipped checks cover only the four listed package contracts; a merge-extended event family has no family-specific assertion until its owner publishes one.
+- Stateful checks cover only the four listed package contracts; other companions reserve ownership but add no listeners until their packages gain relational assertions.
 - Request reconstruction covers frozen loop-built requests with a live session id; direct one-shot calls remain outside that companion's marker contract.
 - Regular-expression filters are fixed for the service lifetime; changing them requires ordinary Cordis plugin reload.

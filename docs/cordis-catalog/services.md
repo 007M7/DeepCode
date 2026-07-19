@@ -495,7 +495,7 @@ Package-owned invariant registry with global and regex-based selection.
 register(packageName: string, installer: InvariantInstaller): () => void
 ```
 
-Source: [`packages/support/invariants/src/index.ts:94`](../../packages/support/invariants/src/index.ts)
+Source: [`packages/support/invariants/src/index.ts:95`](../../packages/support/invariants/src/index.ts)
 
 ## `ctx.llm` — `LlmService`
 

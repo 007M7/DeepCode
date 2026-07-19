@@ -14,17 +14,15 @@ import { runCoordinatorContract, type CoordinatorFixture } from '../../session-p
 const dirs: string[] = []
 afterEach(async () => { for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true }) })
 
-async function expectParallelFlushError(promise: Promise<unknown>, message: RegExp): Promise<void> {
+async function expectFlushError(promise: Promise<unknown>, message: RegExp): Promise<void> {
   try {
     await promise
   } catch (error) {
-    expect(error).toBeInstanceOf(AggregateError)
-    const [cause] = (error as AggregateError).errors as unknown[]
-    expect(cause).toBeInstanceOf(Error)
-    expect((cause as Error).message).toMatch(message)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toMatch(message)
     return
   }
-  throw new Error('expected parallel flush to reject')
+  throw new Error('expected flush to reject')
 }
 
 async function freshDbPath(): Promise<string> {
@@ -502,7 +500,7 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     const b1 = await backend(path)
     const s1 = b1.ctx.sessions.create(SessionId('hmr-collide'))
     appendLog(s1, oneTurnLog())
-    await b1.ctx.parallel('session/flush', s1)
+    await b1.ctx.sessions.flush(s1)
     await b1.dispose()
 
     // A fresh context with an UNRELATED live session reusing the id meets a
@@ -513,9 +511,9 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     await ctx.plugin(Object.assign((inner: Context) => {
       session = inner.sessions.create(SessionId('hmr-collide'))
     }, { inject: ['sessions'] }))
-    session.append('turn/start', { turn: 9, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     await ctx.plugin(SessionPersistenceSqlite, { path })
-    await expectParallelFlushError(ctx.parallel('session/flush', session), /id collision/)
+    await expectFlushError(ctx.sessions.flush(session), /id collision/)
     await ctx.fiber.dispose()
   })
 })
@@ -567,18 +565,20 @@ describe('surface field round-trip', () => {
     const fiber = await ctx.plugin(SessionPersistenceSqlite, { path: ':memory:' })
     const session = ctx.sessions.create(SessionId('roundtrip-surface'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [0] })
+    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [2] })
+    session.append('step/end', { turn: 1, step: 1 })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await ctx.parallel('session/flush', session)
+    await ctx.sessions.flush(session)
     const loaded = await ctx.sessionPersistence.load(SessionId('roundtrip-surface'))
-    expect(loaded.events).toHaveLength(4)
-    const um = loaded.events[1]!
+    expect(loaded.events).toHaveLength(6)
+    const um = loaded.events[2]!
     expect((um as SurfaceEvent).surfaceOp).toBe('append')
     expect((um as SurfaceEvent).sourceEventSeqs).toBeUndefined()
-    const am = loaded.events[2]!
+    const am = loaded.events[3]!
     expect((am as SurfaceEvent).surfaceOp).toBe('append')
-    expect((am as SurfaceEvent).sourceEventSeqs).toEqual([0])
+    expect((am as SurfaceEvent).sourceEventSeqs).toEqual([2])
     await fiber.dispose()
   })
 
@@ -590,7 +590,7 @@ describe('surface field round-trip', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('steering/message', { turn: 1, content: [], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await ctx.parallel('session/flush', session)
+    await ctx.sessions.flush(session)
     const loaded = await ctx.sessionPersistence.load(SessionId('surface-noseq'))
     expect((loaded.events[1]! as SurfaceEvent).surfaceOp).toBe('append')
     expect((loaded.events[1]! as SurfaceEvent).sourceEventSeqs).toBeUndefined()

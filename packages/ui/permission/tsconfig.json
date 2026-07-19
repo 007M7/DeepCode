@@ -28,6 +28,9 @@
     },
     {
       "path": "../user-approval"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

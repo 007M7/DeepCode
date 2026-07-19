@@ -39,6 +39,7 @@ export default defineConfig({
   // through the root tsconfig paths map; the native option cannot do this.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
   test: {
+    setupFiles: ['./scripts/test-invariants.ts'],
     include: [
       'examples/*/tests/**/*.snapshot.ts',
       'packages/sdk/*/tests/**/*.snapshot.ts',
