@@ -207,6 +207,12 @@ interface FactorySlot {
  * Agent through one process-local asynchronous driver chain. Agent *creation*
  * is provided by whichever plugin implements the {@link AgentFactory}
  * (`@deepseek-ai/dsh-agent-loop`), registered via {@link setFactory}.
+ *
+ * Initiator methods provide same-process causal attribution only. Ambient
+ * presence is neither liveness proof nor authorization; subjects and owners
+ * remain explicit, as does identity at worker, process, persistence, and wire
+ * boundaries. Returned Promise boundaries drain during teardown, except a
+ * nested lineage that starts an owning-fiber unload is excluded from its own drain.
  */
 export class AgentRegistry extends Service {
   private store = new Map<SessionId, AgentEntry>()
@@ -240,7 +246,11 @@ export class AgentRegistry extends Service {
 
   /**
    * Read the Agent that initiated the inherited asynchronous driver chain.
-   * @returns the inherited Agent, or `undefined` outside a driver and inside an explicit clearing boundary.
+   * Use this optional form for logging, tracing, metrics, or host attribution
+   * that also supports agentless calls. When a parent creates a child, setup
+   * reports the causal parent while `agentCtx.agent` identifies the child.
+   * @returns the inherited Agent, or `undefined` outside an initiator boundary
+   *   and inside an explicit clearing boundary.
    * @throws when this service instance has been disposed.
    */
   currentInitiator(): Agent | undefined {
@@ -249,7 +259,10 @@ export class AgentRegistry extends Service {
   }
 
   /**
-   * Read the initiating Agent and fail when no driver boundary is active.
+   * Read the initiating Agent and fail when no initiator boundary is active.
+   * Use this for private helpers contractually below a driver, or for a
+   * deployment-owned outbound request whose contract forbids agentless calls.
+   * Generic or direct-call seams use optional lookup or explicit request fields.
    * @returns the inherited Agent.
    * @throws when no initiator is active or this service instance has been disposed.
    */
@@ -262,8 +275,11 @@ export class AgentRegistry extends Service {
   /**
    * Run an operation with one exact Agent as its process-local initiator. The
    * exact synchronous value or Promise returned by the operation is preserved.
-   * If its inherited async chain starts an owning-fiber unload, the nested
-   * boundary lineage is excluded from the drain so teardown cannot wait on itself.
+   * Custom drivers and test harnesses wrap their complete returned foreground
+   * lifetime.
+   * A queue or wire receiver may establish this boundary only after validating
+   * explicit identity and resolving the exact live Agent; this method does neither.
+   * Detached work remains owned by the subsystem that starts it.
    * @param agent - initiating Agent to inherit; presence is neither liveness proof nor authorization.
    * @param operation - synchronous or asynchronous operation to invoke.
    * @returns the exact value returned by `operation`.
@@ -276,8 +292,10 @@ export class AgentRegistry extends Service {
   /**
    * Run an operation inside a boundary that hides any inherited initiating
    * Agent. The exact synchronous value or Promise is preserved.
-   * If its inherited async chain starts an owning-fiber unload, the nested
-   * boundary lineage is excluded from the drain so teardown cannot wait on itself.
+   * Use this while creating lazy shared timers, queue pumps, pool maintenance,
+   * watchers, or exporters so they do not inherit the first Agent that happens
+   * to initialize them. It clears only initiator attribution, not explicit
+   * fields, and does not own or drain detached resources.
    * @param operation - synchronous or asynchronous operation to invoke without an initiator.
    * @returns the exact value returned by `operation`.
    * @throws when the initiator scope is closing/disposed, or when `operation` throws.

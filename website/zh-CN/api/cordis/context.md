@@ -12,6 +12,15 @@ A context is a proxy: normal property reads go through the service resolver, whi
 ### ctx.extend(meta?)
 
 ```ts website-api
+/**
+ * Create a child context with extra metadata on top of the current scope.
+ *
+ * The child prototypally inherits every property of this context; own
+ * properties of `meta` shadow the inherited ones. The parent is not mutated.
+ *
+ * @param meta — own properties (including symbol keys) to define on the child.
+ * @returns a child context inheriting from this one.
+ */
 extend(meta = {}): this
 ```
 
@@ -27,6 +36,18 @@ The child prototypally inherits every property of this context; own properties o
 ### ctx.isolate(name, label?)
 
 ```ts website-api
+/**
+ * Create a child context with an independent service scope for `name`.
+ *
+ * Below the returned context, reads and writes of the service `name`
+ * resolve against the new label instead of the parent's, so a different
+ * implementation can be provided without affecting the parent scope.
+ * Passing the same `label` to two `isolate()` calls joins their scopes.
+ *
+ * @param name — the service name to isolate.
+ * @param label — scope label to join; defaults to a fresh unique symbol.
+ * @returns a child context whose `name` service resolves in the new scope.
+ */
 isolate(name: string, label?: symbol)
 ```
 
@@ -43,6 +64,18 @@ Below the returned context, reads and writes of the service `name` resolve again
 ### ctx.intercept(name, config)
 
 ```ts website-api
+/**
+ * Add service-specific intercept config for plugins started below this
+ * context.
+ *
+ * Plugins loaded under the returned context see `config` merged into the
+ * service's resolved config (ancestor entries first; see
+ * `Service[symbols.resolveConfig]`). The parent context is not affected.
+ *
+ * @param name — the service name whose config to intercept.
+ * @param config — the intercept config to merge for that service.
+ * @returns a child context carrying the additional intercept entry.
+ */
 intercept<K extends InjectKey>(name: K, config: Context[K] extends { [symbols.config]: infer T } ? T : never): this
 intercept(name: string, config: any): this
 ```
@@ -60,6 +93,7 @@ Plugins loaded under the returned context see `config` merged into the service's
 ### ctx.root
 
 ```ts website-api
+/** The root context of the application (every child context shares it). @experimental */
 root: this
 ```
 
@@ -70,6 +104,7 @@ The root context of the application (every child context shares it). @experiment
 ### ctx.baseUrl
 
 ```ts website-api
+/** Base URL used to resolve relative plugin/module specifiers, if the runtime sets one. */
 baseUrl?: string
 ```
 
@@ -80,6 +115,7 @@ Base URL used to resolve relative plugin/module specifiers, if the runtime sets 
 ### ctx.events
 
 ```ts website-api
+/** The event bus. Its methods are also mixed onto `ctx` (`ctx.on`, `ctx.emit`, ...). */
 events: EventsService
 ```
 
@@ -90,6 +126,7 @@ The event bus. Its methods are also mixed onto `ctx` (`ctx.on`, `ctx.emit`, ...)
 ### ctx.logger
 
 ```ts website-api
+/** The logging service. Call `ctx.logger(name)` for a named logger. */
 logger: LoggerService
 ```
 
@@ -100,6 +137,7 @@ The logging service. Call `ctx.logger(name)` for a named logger.
 ### ctx.reflect
 
 ```ts website-api
+/** The reflection layer backing the context proxy (`ctx.get`, `ctx.provide`, ...). */
 reflect: ReflectService
 ```
 
@@ -110,6 +148,7 @@ The reflection layer backing the context proxy (`ctx.get`, `ctx.provide`, ...).
 ### ctx.registry
 
 ```ts website-api
+/** The plugin registry. Its methods are mixed onto `ctx` (`ctx.plugin`, `ctx.inject`). */
 registry: RegistryService
 ```
 
@@ -122,6 +161,7 @@ The plugin registry. Its methods are mixed onto `ctx` (`ctx.plugin`, `ctx.inject
 ### Context.effect
 
 ```ts website-api
+/** Symbol key under which a disposer exposes its {@link EffectMeta} diagnostics tree. */
 static readonly effect: unique symbol
 ```
 
@@ -132,6 +172,7 @@ Symbol key under which a disposer exposes its EffectMeta diagnostics tree.
 ### Context.filter
 
 ```ts website-api
+/** Symbol key for a context's listener filter, consulted on every event dispatch. */
 static readonly filter: unique symbol
 ```
 
@@ -142,6 +183,7 @@ Symbol key for a context's listener filter, consulted on every event dispatch.
 ### Context.isolate
 
 ```ts website-api
+/** Symbol key of the isolation map (see the `Context[symbols.isolate]` property). */
 static readonly isolate: unique symbol
 ```
 
@@ -152,6 +194,7 @@ Symbol key of the isolation map (see the `Context[symbols.isolate]` property).
 ### Context.intercept
 
 ```ts website-api
+/** Symbol key of the intercept map (see the `Context[symbols.intercept]` property). */
 static readonly intercept: unique symbol
 ```
 
@@ -162,6 +205,15 @@ Symbol key of the intercept map (see the `Context[symbols.intercept]` property).
 ### Context.is(value)
 
 ```ts website-api
+/**
+ * Returns true for Cordis context proxies and context prototypes.
+ *
+ * Works across realms and across multiple copies of cordis, because the
+ * brand is keyed by a global symbol rather than by `instanceof`.
+ *
+ * @param value — the value to test.
+ * @returns `true` if `value` is a Cordis context, narrowing its type.
+ */
 static is(value: any): value is Context
 ```
 
@@ -179,6 +231,14 @@ Works across realms and across multiple copies of cordis, because the brand is k
 ### ctx.get(name, strict?)
 
 ```ts website-api
+/**
+ * Read a service from the store without the inject requirement.
+ *
+ * @param name — the service name.
+ * @param strict — when `true` (default), only return implementations
+ * whose providing fiber is currently active.
+ * @returns the service value, or `undefined` when not (yet) provided.
+ */
 get<K extends string & keyof this>(name: K, strict?: boolean): undefined | this[K]
 get(name: string, strict?: boolean): any
 ```
@@ -195,6 +255,15 @@ Read a service from the store without the inject requirement.
 ### ctx.set(name, value)
 
 ```ts website-api
+/**
+ * Overwrite a provided service's value.
+ *
+ * Only the fiber that provided the service may set it; setting an
+ * unprovided name throws.
+ *
+ * @param name — the service name.
+ * @param value — the new service value.
+ */
 set<K extends string & keyof this>(name: K, value: undefined | this[K]): void
 set(name: string, value: any): void
 ```
@@ -210,6 +279,18 @@ Only the fiber that provided the service may set it; setting an unprovided name 
 ### ctx.provide(name, value)
 
 ```ts website-api
+/**
+ * Register a service implementation owned by the current fiber.
+ *
+ * The service becomes visible to dependents in the same isolation scope
+ * once the fiber is active; it is unregistered (waking dependents) when
+ * the returned disposer runs or the fiber unloads. Throws if the name is
+ * already provided in this scope or declared as an accessor.
+ *
+ * @param name — the service name.
+ * @param value — the service value.
+ * @returns a disposer that unregisters the service.
+ */
 provide<K extends string & keyof this>(name: K, value: undefined | this[K]): () => void
 provide(name: string, value?: any): () => void
 ```
@@ -227,6 +308,15 @@ The service becomes visible to dependents in the same isolation scope once the f
 ### ctx.accessor(name, options)
 
 ```ts website-api
+/**
+ * Define a computed context property backed by get/set hooks.
+ *
+ * The accessor is removed when the current fiber unloads. Throws if the
+ * name is already declared.
+ *
+ * @param name — the context property name.
+ * @param options — the `get` hook and optional `set` hook.
+ */
 accessor(name: string, options: Omit<Property.Accessor, 'type'>): void
 ```
 
@@ -241,6 +331,16 @@ The accessor is removed when the current fiber unloads. Throws if the name is al
 ### ctx.mixin(name, mixins)
 
 ```ts website-api
+/**
+ * Expose selected members of a service directly on `ctx`.
+ *
+ * Each mixed-in key becomes an accessor that forwards to the service
+ * (binding methods to it), so e.g. `ctx.on` forwards to `ctx.events.on`.
+ * Mixins are removed when the current fiber unloads.
+ *
+ * @param name — the context property holding the source service.
+ * @param mixins — keys to forward, or a source-key → ctx-key map.
+ */
 mixin<K extends string & keyof this>(name: K, mixins: (keyof this & keyof this[K])[] | Dict<string>): void
 mixin<T extends {}>(source: T, mixins: (keyof this & keyof T)[] | Dict<string>): void
 ```

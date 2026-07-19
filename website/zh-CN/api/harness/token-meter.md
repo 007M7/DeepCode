@@ -11,6 +11,7 @@ Replay owner for one service-wide estimator and isolated per-session folds.
 ### ctx.tokenMeter.contextWindow
 
 ```ts website-api
+/** Provider context-window capacity used by pressure consumers. */
 readonly contextWindow: number
 ```
 
@@ -21,6 +22,22 @@ Provider context-window capacity used by pressure consumers.
 ### ctx.tokenMeter.measure(session, requestHeader?)
 
 ```ts website-api
+/**
+ * Measure current request pressure and surface through the durable tail.
+ *
+ * Provider usage is reused only when the latest successful call's canonical
+ * request envelope matches `requestHeader` and its total is no lower than
+ * that call's full heuristic anchor; otherwise the complete envelope and
+ * surface are heuristically repriced.
+ *
+ * `requestHeader` affects request pressure only; surface fields always
+ * describe the current session surface. Every call clones those positional
+ * nodes, so measurement is O(surface).
+ *
+ * @param session - session to replay through its current durable tail.
+ * @param requestHeader - optional effective request envelope replacing the latest logged header.
+ * @returns a detached deeply immutable pressure and surface measurement.
+ */
 measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
 ```
 
@@ -38,6 +55,11 @@ Provider usage is reused only when the latest successful call's canonical reques
 ### ctx.tokenMeter.estimateMessage(message)
 
 ```ts website-api
+/**
+ * Heuristically price one model-visible message.
+ * @param message - message to price without mutation.
+ * @returns content and role-framing tokens under the fixed service heuristic.
+ */
 estimateMessage(message: Message): number
 ```
 

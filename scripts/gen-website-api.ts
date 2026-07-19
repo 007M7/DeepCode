@@ -20,11 +20,12 @@
  * cannot land undocumented without CI going red. Pages are English (the
  * planned zh translation flow arrives separately; see docs/i18n/README.md).
  *
- * Signature fences use the ` ```ts website-api ` info string: doc-typecheck
- * only processes its known info strings, so these bare (non-compilable)
- * signature fragments are skipped there, while VitePress still highlights the
- * `ts` token. The sidebar fragment `website/.vitepress/config/api-sidebar.json`
- * is generated alongside so navigation can never drift from the page set.
+ * Signature fences use the ` ```ts website-api ` info string and retain the
+ * declaration's original source JSDoc. doc-typecheck only processes its known
+ * info strings, so these bare (non-compilable) fragments are skipped there,
+ * while VitePress still highlights the `ts` token. The sidebar fragment
+ * `website/.vitepress/config/api-sidebar.json` is generated alongside so
+ * navigation can never drift from the page set.
  *
  *   `tsx scripts/gen-website-api.ts`          → write pages + sidebar
  *   `tsx scripts/gen-website-api.ts --check`  → exit 1 if committed copies are
@@ -64,6 +65,8 @@ interface MemberDoc {
   heading: string
   /** All overload signature lines (bodies stripped). */
   signatures: string[]
+  /** Original source JSDoc, dedented only from its containing declaration. */
+  jsDoc: string
   /** Description prose, one paragraph per line. */
   doc: string
   /** Parameter name → `@param` text, in declaration order. */
@@ -166,6 +169,20 @@ function load(rel: string): { sf: ts.SourceFile; text: string } {
 // The module-merge walk (cordisModuleBody / eventMembers / serviceClasses) is
 // shared with gen-cordis-catalog.ts via cordis-walk.ts.
 
+/** Original JSDoc with only the source container's indentation removed. */
+function sourceJSDoc(text: string, sf: ts.SourceFile, node: ts.Node): string {
+  const raw = rawJsDoc(text, node)
+  if (raw === '') return ''
+  const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
+  const lineStart = sf.getPositionOfLineAndCharacter(line, 0)
+  const indent = text.slice(lineStart, node.getStart(sf))
+  return raw.split('\n')
+    .map((sourceLine, index) => index > 0 && sourceLine.startsWith(indent)
+      ? sourceLine.slice(indent.length)
+      : sourceLine)
+    .join('\n')
+}
+
 /** Signature text of a member: full text minus body/initializer, whitespace
  * collapsed, trailing semicolon stripped. */
 function signatureOf(member: ts.Node, sf: ts.SourceFile): string {
@@ -219,7 +236,7 @@ function memberDoc(
   const first = group[0]
   if (!first) throw new Error(`gen-website-api: empty member group for ${name}`)
   // Doc from the first overload that carries JSDoc prose.
-  const rawDocs = group.map(m => rawJsDoc(text, m))
+  const rawDocs = group.map(m => sourceJSDoc(text, sf, m))
   const docIndex = rawDocs.findIndex(r => parseJsDoc(r).doc !== '')
   const raw = docIndex === -1 ? '' : (rawDocs[docIndex] ?? '')
   const doc = parseJsDoc(raw).doc
@@ -255,6 +272,7 @@ function memberDoc(
     signatures: (ts.isMethodDeclaration(first) && funcLike.length > 1
       ? funcLike.filter(m => ts.isMethodDeclaration(m) && !m.body)
       : group).map(m => signatureOf(m, sf)),
+    jsDoc: raw,
     doc,
     params,
     returns: returnsText,
@@ -424,8 +442,13 @@ function declPaste(rel: string, symbol: string): { doc: string; code: string; so
   if (matches.length === 0) throw new Error(`gen-website-api: declaration ${symbol} not found in ${rel}`)
   const first = matches[0]
   if (!first) throw new Error(`gen-website-api: declaration ${symbol} not found in ${rel}`)
-  const doc = parseJsDoc(rawJsDoc(text, first)).doc
-  const code = matches.map(s => stripBodies(s, sf).replace(/^export\s+(default\s+)?/, '')).join('\n\n')
+  const firstJSDoc = sourceJSDoc(text, sf, first)
+  const doc = parseJsDoc(firstJSDoc).doc
+  const code = matches.map((statement) => {
+    const jsDoc = sourceJSDoc(text, sf, statement)
+    const declaration = stripBodies(statement, sf).replace(/^export\s+(default\s+)?/, '')
+    return jsDoc === '' ? declaration : `${jsDoc}\n${declaration}`
+  }).join('\n\n')
   return { doc, code, source: pointer(rel, sf, first) }
 }
 
@@ -480,6 +503,8 @@ interface HarnessEvent {
   scope: string
   mode: Mode | null
   signature: string
+  /** Original source event JSDoc, dedented from its module/interface. */
+  jsDoc: string
   doc: string
   params: { name: string; text: string }[]
   source: string
@@ -494,7 +519,7 @@ function collectHarnessEvents(violations: string[]): HarnessEvent[] {
     const body = cordisModuleBody(sf)
     if (!body) continue
     for (const { name, member } of eventMembers(body, sf)) {
-      const raw = rawJsDoc(text, member)
+      const raw = sourceJSDoc(text, sf, member)
       const { doc, mode } = parseJsDoc(raw)
       if (!mode) violations.push(`event '${name}' (${pointer(rel, sf, member)}) is missing @mode.`)
       if (!doc) violations.push(`event '${name}' (${pointer(rel, sf, member)}) has no JSDoc prose.`)
@@ -509,7 +534,7 @@ function collectHarnessEvents(violations: string[]): HarnessEvent[] {
         const tag = tags.get(pname)
         if (tag) params.push({ name: pname, text: tag })
       }
-      events.push({ name, scope: name.split('/')[0] ?? name, mode, signature: signatureOf(member, sf), doc, params, source: pointer(rel, sf, member) })
+      events.push({ name, scope: name.split('/')[0] ?? name, mode, signature: signatureOf(member, sf), jsDoc: raw, doc, params, source: pointer(rel, sf, member) })
     }
   }
   return events.sort((a, b) => a.name.localeCompare(b.name))
@@ -548,6 +573,7 @@ function renderMember(prefix: string, m: MemberDoc): string[] {
   const call = m.heading === '' ? '' : m.heading
   lines.push(`### ${prefix}${m.name}${call}`, '')
   lines.push('```' + FENCE)
+  lines.push(m.jsDoc)
   for (const sig of m.signatures) lines.push(sig)
   lines.push('```', '')
   lines.push(...prose(m.doc), '')
@@ -620,7 +646,7 @@ function renderEventsPage(events: HarnessEvent[]): string {
     for (const e of events.filter(ev => ev.scope === scope)) {
       lines.push(`### ${e.name}`, '')
       lines.push(`**Mode:** \`${e.mode ?? 'unknown'}\``, '')
-      lines.push('```' + FENCE, e.signature, '```', '')
+      lines.push('```' + FENCE, e.jsDoc, e.signature, '```', '')
       lines.push(...prose(e.doc), '')
       if (e.params.length > 0) {
         for (const p of e.params) lines.push(`- \`${p.name}\` — ${unlink(p.text)}`)
@@ -652,6 +678,16 @@ export function generate(): Map<string, string> {
 
   const events = collectHarnessEvents(violations)
   files.set(`${PAGES_DIR}/harness/events.md`, renderEventsPage(events))
+
+  for (const [rel, content] of files) {
+    if (!rel.endsWith('.md')) continue
+    for (const match of content.matchAll(/^```ts website-api\n([\s\S]*?)\n```$/gm)) {
+      const body = match[1] ?? ''
+      if (!body.startsWith('/**')) {
+        violations.push(`${rel}: a ts website-api fence does not begin with original source JSDoc.`)
+      }
+    }
+  }
 
   reportViolations('gen-website-api', violations)
 
