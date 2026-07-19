@@ -15,6 +15,7 @@ import {
   normalizedToolSchemas,
   parseToolSchemasSnapshot,
   refreshFixtureReplacements,
+  scenarioSkipped,
   sessionFixtureNames,
   restorePinnedToolSchemas,
   stabilizeRefreshLog,
@@ -253,6 +254,23 @@ describe('stdoutGoldenVariants', () => {
     expect(stdoutGoldenVariants({ ...scenario, pinsNativeWindowsStdout: false }, 'win32')).toEqual([
       { file: 'stdout.golden.jsonl', cwdPathMode: 'canonical' },
     ])
+  })
+})
+
+describe('scenarioSkipped', () => {
+  const authored: Scenario = { name: 'authored', hasModelTurn: true, recorded: false }
+  const posix: Scenario = { name: 'posix-cancel', hasModelTurn: true, recorded: false, posixOnly: true }
+
+  it('skips authored scenarios only while recording', () => {
+    expect(scenarioSkipped(authored, true, 'linux')).toBe(true)
+    expect(scenarioSkipped(authored, false, 'linux')).toBe(false)
+  })
+
+  it('skips posixOnly scenarios on Windows and nowhere else', () => {
+    expect(scenarioSkipped(posix, false, 'win32')).toBe(true)
+    expect(scenarioSkipped(posix, false, 'linux')).toBe(false)
+    expect(scenarioSkipped(posix, false, 'darwin')).toBe(false)
+    expect(scenarioSkipped(authored, false, 'win32')).toBe(false)
   })
 })
 

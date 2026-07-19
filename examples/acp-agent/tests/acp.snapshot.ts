@@ -111,7 +111,9 @@ const SCENARIOS: Scenario[] = [
     configPath: WORKSPACE_CONTEXT_CONFIG,
   },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
-  { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true },
+  // Cancelling a live bash call relies on POSIX process-group termination;
+  // Windows bash process-tree kill is deferred with the Bash execution domain.
+  { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true, posixOnly: true },
   { name: 'subagent-spawn', hasModelTurn: true, recorded: true },
   { name: 'subagent-multi', hasModelTurn: true, recorded: true },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },

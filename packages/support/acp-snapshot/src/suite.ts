@@ -111,6 +111,32 @@ export interface Scenario {
    * exactly when the option is set.
    */
   pinsNativeWindowsStdout?: boolean
+  /**
+   * Whether the driven behavior needs POSIX process semantics the harness
+   * cannot exercise on Windows (e.g. cancelling a live bash tool call kills a
+   * detached process group). The scenario's run test is skipped on Windows;
+   * its fixtures stay guarded on every platform.
+   */
+  posixOnly?: boolean
+}
+
+/**
+ * Whether a scenario's run test is skipped for this mode and host: record mode
+ * skips authored (non-`recorded`) scenarios, and {@link Scenario.posixOnly}
+ * scenarios skip on Windows.
+ *
+ * @param scenario The scenario whose run test is being registered.
+ * @param recording Whether the suite runs in record mode.
+ * @param platform The running Node platform, injectable for unit coverage.
+ * @returns True when the scenario's run test must not execute.
+ */
+export function scenarioSkipped(
+  scenario: Scenario,
+  recording: boolean,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (recording && !scenario.recorded) return true
+  return scenario.posixOnly === true && platform === 'win32'
 }
 
 /** One stdout golden selected for a platform run. */
@@ -499,8 +525,9 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
   scenarioSuite('snapshot scenarios', () => {
     for (const scenario of scenarios) {
       // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the `authored` ones
-      // (sidecar-driven errors/cancel) are never re-recorded.
-      it.skipIf(RECORDING && !scenario.recorded)(`snapshot: ${scenario.name} matches the goldens`, async ({ expect }) => {
+      // (sidecar-driven errors/cancel) are never re-recorded. `posixOnly` scenarios skip on
+      // Windows, where their process semantics cannot be driven.
+      it.skipIf(scenarioSkipped(scenario, RECORDING))(`snapshot: ${scenario.name} matches the goldens`, async ({ expect }) => {
         const dir = join(snapshotsDir, scenario.name)
         const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
         const overrideFile = join(dir, 'replay.override.json')
