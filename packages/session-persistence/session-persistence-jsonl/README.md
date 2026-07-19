@@ -19,6 +19,8 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 |---|---|---|
 | `root` | `string` (required) | Root directory for all session files. **No default** — a `process.cwd()` default would scatter files as the process's cwd changes (bash calls, subprocesses). |
 
+`locate(meta)` returns `{ kind: 'jsonl', path }` using the resolved absolute root and the same cwd-bucket/id encoding as materialization. It performs no filesystem I/O: the target can be returned before the file exists, and an existing file contains only the last flushed prefix.
+
 ## Durability and crash semantics
 
 - **Lazy materialization.** `create(meta)` writes nothing; on the first `append`, the backend writes and `fsync`s a temporary file, publishes it without overwrite via a hard link, then `fsync`s the directory. A created-but-never-appended session leaves nothing on disk and is absent from `list`.

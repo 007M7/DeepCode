@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { collectEvents, collectServices } from '../../../../scripts/gen-cordis-catalog.ts'
+import { collectEvents, collectServices, renderEvents, renderServices } from '../../../../scripts/gen-cordis-catalog.ts'
 
 /** Write a fixture package exposing one `interface Events` block and return the
  * scan root to hand `collectEvents`. */
@@ -58,6 +58,8 @@ describe('gen-cordis-catalog collectEvents', () => {
     ))
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ name: 'fix/happened', scope: 'fix', mode: 'emit', doc: 'A thing happened.' })
+    expect(events[0]?.jsDoc).toBe('/**\n * A thing happened.\n * @param id - which thing.\n * @mode emit\n */')
+    expect(renderEvents(events)).toContain("```ts cordis-catalog\n/**\n * A thing happened.\n * @param id - which thing.\n * @mode emit\n */\n'fix/happened'(id: string): void\n```")
   })
 
   it('classifies a trailing-next signature as a waterfall', () => {
@@ -158,6 +160,11 @@ export class FixService {
     expect(services).toHaveLength(1)
     expect(services[0]).toMatchObject({ key: 'fix', type: 'FixService', abstract: false, doc: 'Fixture service.' })
     expect(services[0]?.methods).toHaveLength(3)
+    expect(services[0]?.methods[0]).toEqual({
+      signature: 'run(id: string): string',
+      jsDoc: '/**\n * Do the thing.\n * @param id - which thing to do.\n * @returns the outcome of doing it.\n */',
+    })
+    expect(renderServices(services)).toContain('```ts cordis-catalog\n/**\n * Do the thing.\n * @param id - which thing to do.\n * @returns the outcome of doing it.\n */\nrun(id: string): string\n\n/** Fire and forget (void needs no @returns). */\npoke(): void')
   })
 
   it('hard-errors on a public method with no JSDoc at all', () => {

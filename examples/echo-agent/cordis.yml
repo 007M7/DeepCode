@@ -16,17 +16,28 @@
 - id: echo-tool
   name: './src/echo-tool.ts'
 
-# Local bash executor: agent-core ships the `tool-bash` consumer schema, so the
+# Local bash executor: agent-spine-demo ships the `tool-bash` consumer schema, so the
 # leaf provides the executor it runs on (the echo demo doesn't drive bash, but
 # the tool is part of the shared spine).
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
 
-# The app pre-creates `main` on the mock model and supplies logging, persistence, and readline UI.
+# Local filesystem provider for agent-spine-demo's workspace-context loader. This
+# does not expose model-facing read/write/edit tools in the echo demo.
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.cwd()
+
+# The app pre-creates `main` on the mock model and supplies persistence plus
+# TTY-selected `dsh-tui`/`dsh-stdio` front doors; readline mode also owns logging.
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-demo'
   config:
+    provider: mock
     model: mock-echo
     persona: 'You are echo-agent, a demo agent.'
     welcome: 'echo-agent ready. Type a message ("echo <text>" triggers the tool).'
     persistenceRoot: './.sessions'
+    workspaceContext:
+      maxBytes: 65536

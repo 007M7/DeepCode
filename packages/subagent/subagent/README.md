@@ -50,7 +50,9 @@ Runtime features are optional methods on `SubagentRun`: `sendMessage?` steers a 
 
 `SubagentRun.result` resolves to `{ output, structured?, stopReason }`. Child-level failures resolve with a non-`completed` reason; only an infrastructure fault that the seam cannot represent may reject. `dispose()` is idempotent, cancels remaining work, and waits for the child resources to quiesce.
 
-The service emits `subagent/start` only after `start()` has fulfilled. It attaches the result observer before that synchronous notification, so even an already-settled child still produces `subagent/start` before `subagent/end`. In-process start observers can resolve the published child through `ctx.agents.get(info.id)`; remote providers need not publish a local agent.
+A local run publishes an ordinary child agent/session before `start()` fulfills, returns that shared session id as `SubagentRun.id`, exposes the exact child as `SubagentRun.localAgent`, and records `request.parent.session.id` in the child's `parentSession` header. Remote providers instead mint a parent-scoped lifecycle id and return `localAgent: undefined`.
+
+The service emits `subagent/start` only after `start()` has fulfilled. It attaches the result observer before that synchronous notification, so even an already-settled child still produces `subagent/start` before `subagent/end`. The pair shares a service-minted `runId`; its `local` flag is snapshotted from the provider's exact `localAgent`, so observers never infer run identity or locality from reusable provider/session names.
 
 Run events are scoped to the delegating parent. Every listener is independently contained: a synchronous throw or rejected returned promise is logged without starving peer listeners or changing the run.
 

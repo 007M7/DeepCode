@@ -16,11 +16,13 @@ flowchart LR
   cfg --> plugin_echo_echo_tool
   plugin_echo_bash["bash<br/>@deepseek-ai/dsh-bash-local"]
   cfg --> plugin_echo_bash
+  plugin_echo_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
+  cfg --> plugin_echo_fs_local
   plugin_echo_stdio_agent["stdio-agent<br/>@deepseek-ai/dsh-stdio-demo"]
   cfg --> plugin_echo_stdio_agent
   plugin_echo_stdio_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
   plugin_echo_stdio_agent --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
-  plugin_echo_stdio_agent --> frontdoor_stdio["readline UI<br/>console logger<br/>pre-created main agent"]
+  plugin_echo_stdio_agent --> frontdoor_stdio["dsh-tui (TTY) / dsh-stdio (pipes)<br/>pre-created main agent"]
   bundle_agent_core --> spine_llm["ctx.llm"]
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]
@@ -33,6 +35,7 @@ flowchart LR
 | `mock-llm` | `./src/mock-llm.ts` |
 | `echo-tool` | `./src/echo-tool.ts` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
+| `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `stdio-agent` | `@deepseek-ai/dsh-stdio-demo` |
 
 Source config: [`examples/echo-agent/cordis.yml`](cordis.yml).

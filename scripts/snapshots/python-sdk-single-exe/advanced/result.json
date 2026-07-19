@@ -253,7 +253,7 @@
             "workflow"
           ]
         },
-        "reason": "fallback"
+        "reason": "change"
       }
     },
     {
@@ -915,22 +915,29 @@
       }
     },
     {
-      "type": "request/header-delta",
+      "type": "request/header",
       "seq": 56,
       "time": 0,
       "data": {
-        "system": {
-          "keepStart": 62,
-          "keepEnd": 34,
-          "insert": []
+        "header": {
+          "config": {
+            "model": "smoke-model"
+          },
+          "system": "{{system}}",
+          "tools": [
+            "bash",
+            "bash_kill",
+            "bash_output",
+            "cordis_inspect",
+            "cordis_mount",
+            "cordis_unmount",
+            "run_code",
+            "skill",
+            "subagent",
+            "workflow"
+          ]
         },
-        "tools": {
-          "added": [],
-          "removed": [
-            "snapshot_double"
-          ],
-          "changed": []
-        }
+        "reason": "change"
       }
     },
     {
@@ -1396,7 +1403,7 @@
                 "workflow"
               ]
             },
-            "reason": "fallback"
+            "reason": "change"
           }
         }
       }
@@ -2358,22 +2365,29 @@
       "payload": {
         "sessionId": "{{parent}}",
         "event": {
-          "type": "request/header-delta",
+          "type": "request/header",
           "seq": 56,
           "time": 0,
           "data": {
-            "system": {
-              "keepStart": 62,
-              "keepEnd": 34,
-              "insert": []
+            "header": {
+              "config": {
+                "model": "smoke-model"
+              },
+              "system": "{{system}}",
+              "tools": [
+                "bash",
+                "bash_kill",
+                "bash_output",
+                "cordis_inspect",
+                "cordis_mount",
+                "cordis_unmount",
+                "run_code",
+                "skill",
+                "subagent",
+                "workflow"
+              ]
             },
-            "tools": {
-              "added": [],
-              "removed": [
-                "snapshot_double"
-              ],
-              "changed": []
-            }
+            "reason": "change"
           }
         }
       }

@@ -14,9 +14,9 @@ Flattening those members directly into `lefthook.yml` solves the local hook only
 
 [lefthook.yml](../../../../lefthook.yml) keeps one pre-push job named `full check` and runs `pnpm run check:pre-push`. That package script delegates to [scripts/run-gates.ts](../../../../scripts/run-gates.ts), the same bounded scheduler CI uses.
 
-The `pre-push` mode expands into leaf gates for the unit suite, snapshot suite, build, `hygiene` members, `doc-sync` members, and module-graph freshness. The leaf list keeps the same gate vocabulary as the package scripts, including RFC classification and RFC format, while the runner schedules independent checks concurrently and prints one timing/output block per gate.
+The `pre-push` mode expands into leaf gates for the unit suite, snapshot suite, build, `hygiene` members, `doc-sync` members, and module-graph freshness. The leaf list keeps the same gate vocabulary as the package scripts, including RFC classification and RFC format, while the runner schedules independent checks with four active top-level workers by default; `DSH_GATE_CONCURRENCY` overrides that bound.
 
-The build gate makes the hook self-contained from a clean worktree. `publint` and `verify-node-next-types` wait for that build output, while source-only gates continue in parallel.
+The build gate makes the hook self-contained from a clean worktree. `publint`, `verify-node-next-types`, and the pre-push form of `doc-typecheck` wait for that build output, while source-only gates continue in parallel.
 
 [scripts/publint-all.ts](../../../../scripts/publint-all.ts) discovers the package list from `packages/<group>/<pkg>` and runs `publint` with a worker pool sized from `availableParallelism()`. `DSH_PUBLINT_CONCURRENCY` can cap or raise the worker count for local machines and CI runners with different resource profiles. Results are buffered per package and printed in deterministic package order, so parallel execution does not scramble each package's log block.
 

@@ -1,7 +1,12 @@
 /**
- * Deterministic property tests for inbox scheduling: every sent message logs
- * once, turn numbers increase, and status follows idle→running→idle/disposed.
- * Schedules advance on status events rather than wall-clock sleeps.
+ * Property-based tests for the agent loop's inbox/turn scheduling (the
+ * property-testing RFC). Deterministic by construction: schedules are driven
+ * through the `agent/status` settle signal (no wall-clock sleeps), so a flake
+ * is a finding, not timing noise.
+ *
+ * Invariants: every sent message appears exactly once in the log (none lost);
+ * turn numbers strictly increase; status transitions follow the legal machine
+ * idle→running→idle (and →disposed at teardown).
  */
 
 import { describe, expect, it } from 'vitest'
@@ -9,11 +14,12 @@ import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
-import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import fc from 'fast-check'
 
 /** A never-exhausting adapter: every model call returns the same short reply. */
@@ -42,7 +48,7 @@ async function harness() {
 }
 
 /** Resolve on the agent's next transition to idle (event-based, not polled). */
-function nextIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function nextIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -55,7 +61,7 @@ function nextIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
 
 /** Record every status transition for the legal-machine assertion. Returns
  * the seen list plus a disposer for the listener (per the registry convention). */
-function recordStatus(ctx: Context, agent: ReactLoopAgent): { seen: string[]; dispose: () => void } {
+function recordStatus(ctx: Context, agent: Agent): { seen: string[]; dispose: () => void } {
   const seen: string[] = []
   const dispose = ctx.on('agent/status', (subject, status) => {
     if (subject === agent) seen.push(status)
@@ -63,13 +69,13 @@ function recordStatus(ctx: Context, agent: ReactLoopAgent): { seen: string[]; di
   return { seen, dispose }
 }
 
-function userMessageTexts(agent: ReactLoopAgent): string[] {
+function userMessageTexts(agent: Agent): string[] {
   return agent.session.events
     .filter(e => e.type === 'user/message')
     .map(e => (e.data as { content: { type: string; text?: string }[] }).content.map(b => b.text ?? '').join(''))
 }
 
-function turnNumbers(agent: ReactLoopAgent): number[] {
+function turnNumbers(agent: Agent): number[] {
   return agent.session.events
     .filter(e => e.type === 'turn/start')
     .map(e => (e.data as { turn: number }).turn)
@@ -90,7 +96,7 @@ describe('agent loop scheduling properties', () => {
       async (texts) => {
         const ctx = await harness()
         try {
-          const agent = ctx.agentLoop.create(AgentId('a'), { model: 'mock' })
+          const agent = ctx.agentLoop.create(SessionId('a'), { provider: 'mock', model: 'mock' })
           const { seen: trace } = recordStatus(ctx, agent)
           const idle = nextIdle(ctx, agent)
           // Send all in one synchronous tick: they queue before the loop wakes.
@@ -115,7 +121,7 @@ describe('agent loop scheduling properties', () => {
       async (texts) => {
         const ctx = await harness()
         try {
-          const agent = ctx.agentLoop.create(AgentId('a'), { model: 'mock' })
+          const agent = ctx.agentLoop.create(SessionId('a'), { provider: 'mock', model: 'mock' })
           for (const text of texts) {
             const idle = nextIdle(ctx, agent)
             agent.send([{ type: 'text', text }])
@@ -140,7 +146,7 @@ describe('agent loop scheduling properties', () => {
       async (steps) => {
         const ctx = await harness()
         try {
-          const agent = ctx.agentLoop.create(AgentId('a'), { model: 'mock' })
+          const agent = ctx.agentLoop.create(SessionId('a'), { provider: 'mock', model: 'mock' })
           // Capture before each send; the last waiter covers the final turn, and
           // awaiting an already-settled earlier waiter is harmless.
           let lastIdle: Promise<void> | undefined

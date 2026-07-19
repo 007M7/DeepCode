@@ -2,7 +2,7 @@
 
 Status: implemented
 
-> The full seam is shipped: the `dsh-subagent` interface, the `dsh-subagent-mock` test backend, and the `dsh-tool-subagent` consumer; the two in-process backends (`dsh-subagent-spawn`, `dsh-subagent-fork`); the nested-agent snapshot infrastructure ([per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md)); and the out-of-process `dsh-subagent-acp` backend ([its RFC](2026-06-22-acp-subagent-backend.md)).
+> The full seam is shipped: the `dsh-subagent` interface and `dsh-tool-subagent` consumer; the two in-process backends (`dsh-subagent-spawn`, `dsh-subagent-fork`); the nested-agent snapshot infrastructure ([per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md)); and the out-of-process `dsh-subagent-acp` backend ([its RFC](2026-06-22-acp-subagent-backend.md)).
 
 ## Problem
 
@@ -10,7 +10,7 @@ The harness has a long-deferred seam for **subagents** — an agent delegating w
 
 The distinctive requirement — the one that shapes the whole design — is that **multiple subagent implementations must coexist at runtime**. A parent may want a cheap in-process child for a scoped subtask AND an isolated out-of-process child (over ACP) in the same session. The transports we foresee:
 
-- **in-process** — a child `ReactLoopAgent` on the same `Context` (the cheapest, and nearly free given the existing agent factory);
+- **in-process** — a child concrete `Agent` on the same `Context` (the cheapest, and nearly free given the existing agent factory);
 - **ACP** — act as an ACP *client* driving another agent process (which can be another instance of ourselves);
 - later: **A2A**, the **Codex app-server**, and the **Claude Code Agent SDK** — each the same out-of-process "start a child, prompt it, stream updates, cancel" shape as the ACP backend.
 
@@ -32,7 +32,6 @@ A new package group `packages/subagent/`:
 | `@deepseek-ai/dsh-subagent-spawn` | implementation: a fresh in-process child via `ctx.agents.create` |
 | `@deepseek-ai/dsh-subagent-fork` | implementation: an in-process child seeded with a snapshot of the parent's log |
 | `@deepseek-ai/dsh-subagent-acp` | implementation: an ACP client driving a configured child process |
-| `@deepseek-ai/dsh-subagent-mock` | support: a scripted provider for testing the seam through the real load path |
 | `@deepseek-ai/dsh-tool-subagent` | consumer: the model-facing `subagent` tool over `ctx.subagents` |
 
 ### The primitive: async `start → SubagentRun`
@@ -62,7 +61,7 @@ Each subagent runs in its **own `Session`** (own id, `parentSession` lineage), p
 
 ## Testing
 
-The seam is tested through the real Cordis Loader/export path, which catches the export-shape failure described in [postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md). Registry tests cover reload safety, duplicate names, and start-time capability rejection; nested-agent scenarios replay keylessly through [per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md); in-process backends also have real-loop unit tests and a with-key e2e.
+Registry and tool tests replace only the nondeterministic child boundary with a package-local scripted provider while exercising the real `SubagentService`, lifecycle, task integration, and model-facing tool. Provider and consumer export shapes retain their Loader regression coverage for the failure described in [postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md). Registry tests cover reload safety, duplicate names, and start-time capability rejection; nested-agent scenarios replay keylessly through [per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md); in-process backends also have real-loop unit tests and a with-key e2e.
 
 ## Consequences
 

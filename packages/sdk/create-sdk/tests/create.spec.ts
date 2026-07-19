@@ -257,6 +257,7 @@ describe('CreateWizard and scaffolder', () => {
     expect(index).toContain('SdkBootContext')
     expect(index).toContain('ctx.agents.create')
     expect(index).toContain('agentOptions: { model: "deepseek-v4-flash" }')
+    expect(index).not.toContain('AgentId')
     const tsconfig = parseGeneratedTsConfig(await readFile(join(target, 'tsconfig.base.json'), 'utf8'))
     const manifest = parseGeneratedPackageManifest(await readFile(join(target, 'package.json'), 'utf8'))
     expect(tsconfig.compilerOptions.types).toEqual(['node'])
