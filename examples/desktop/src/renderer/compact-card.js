@@ -176,7 +176,10 @@ function buildDiffModel(data, extractText) {
  * @param {(bodyEl: HTMLElement) => void} [opts.fillPre]
  * @param {(bodyEl: HTMLElement) => void} [opts.fillPost]
  * @param {(bodyEl: HTMLElement) => void} [opts.fillMeta]
- * @returns {{ preBody: HTMLElement, postBody: HTMLElement, metaBody: HTMLElement }}
+ * @param {(bodyEl: HTMLElement) => void} [opts.fillConfig]  lane-ctx-deep F2 —
+ *   optional 4th tab "Config". Omit to keep the pre-fix three-tab shape
+ *   (the strip auto-hides the tab when the fill callback is not passed).
+ * @returns {{ preBody: HTMLElement, postBody: HTMLElement, metaBody: HTMLElement, configBody: HTMLElement|null }}
  */
 function mountTabs(parent, opts) {
   // Resolve doc without touching a bare `document` binding (renderer harness
@@ -193,11 +196,13 @@ function mountTabs(parent, opts) {
   strip.className = 'compact-card-tabstrip'
   strip.setAttribute('role', 'tablist')
   const initial = (opts && opts.initial) || 'post'
+  const hasConfig = opts && typeof opts.fillConfig === 'function'
   const tabs = [
     { id: 'pre',  label: 'Diff' },
     { id: 'post', label: 'Summary' },
     { id: 'meta', label: 'Policy & accounting' },
   ]
+  if (hasConfig) tabs.push({ id: 'config', label: 'Config' })
   const bodies = {}
   const buttons = {}
   for (const t of tabs) {
@@ -232,12 +237,13 @@ function mountTabs(parent, opts) {
     if (!target) return
     const id = target === buttons.pre ? 'pre'
       : target === buttons.post ? 'post'
-      : target === buttons.meta ? 'meta' : null
+      : target === buttons.meta ? 'meta'
+      : (hasConfig && target === buttons.config) ? 'config' : null
     if (id) activate(id)
   })
   strip.addEventListener('keydown', (ev) => {
     if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return
-    const order = ['pre', 'post', 'meta']
+    const order = hasConfig ? ['pre', 'post', 'meta', 'config'] : ['pre', 'post', 'meta']
     const active = order.find((id) => buttons[id].getAttribute('aria-selected') === 'true') || 'post'
     const idx = order.indexOf(active)
     const next = ev.key === 'ArrowRight' ? order[(idx + 1) % order.length] : order[(idx + order.length - 1) % order.length]
@@ -249,11 +255,18 @@ function mountTabs(parent, opts) {
   wrap.appendChild(bodies.pre)
   wrap.appendChild(bodies.post)
   wrap.appendChild(bodies.meta)
+  if (hasConfig) wrap.appendChild(bodies.config)
   parent.appendChild(wrap)
   if (opts && typeof opts.fillPre  === 'function') opts.fillPre(bodies.pre)
   if (opts && typeof opts.fillPost === 'function') opts.fillPost(bodies.post)
   if (opts && typeof opts.fillMeta === 'function') opts.fillMeta(bodies.meta)
-  return { preBody: bodies.pre, postBody: bodies.post, metaBody: bodies.meta }
+  if (hasConfig) opts.fillConfig(bodies.config)
+  return {
+    preBody: bodies.pre,
+    postBody: bodies.post,
+    metaBody: bodies.meta,
+    configBody: hasConfig ? bodies.config : null,
+  }
 }
 
 if (typeof module !== 'undefined' && module.exports) {

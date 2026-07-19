@@ -79,6 +79,13 @@
       saveProfile: pane.querySelector('#context-page-save-profile'),
       loadSample: pane.querySelector('#context-page-load-sample'),
       loadWorkflow: pane.querySelector('#context-page-load-workflow'),
+      // lane-ctx-deep additions:
+      topStrip: pane.querySelector('[data-context-topstrip]'),
+      windowBarTrack: pane.querySelector('#context-window-bar-track'),
+      windowBarLegend: pane.querySelector('#context-window-bar-legend'),
+      windowBarSummary: pane.querySelector('#context-window-bar-summary'),
+      interventionTrack: pane.querySelector('#context-intervention-track'),
+      interventionSummary: pane.querySelector('#context-intervention-summary'),
     }
 
     if (els.openRail) {
@@ -163,6 +170,12 @@
     if (els.body) els.body.classList.remove('is-empty')
     if (els.list) els.list.hidden = false
 
+    // lane-ctx-deep F1 + F3: render the top strip (window bar +
+    // intervention markers) alongside the per-turn rows.
+    renderWindowBar(events)
+    renderInterventionStrip(events)
+    if (els.topStrip) els.topStrip.hidden = false
+
     const rows = model.projectTurnRows(events)
     state.lastRows = rows
     if (els.subtitle) {
@@ -174,8 +187,156 @@
     renderRows(rows, events, model)
   }
 
+  // ---- lane-ctx-deep F1: Window occupancy stacked bar ----------------------
+
+  function renderWindowBar (events) {
+    if (!els || !els.windowBarTrack) return
+    const api = window.__dshContextWindowBreakdown
+    if (!api || typeof api.computeWindowBreakdown !== 'function') return
+    // Pull the wire budget from the active session if we can — mirrors
+    // context-meter's promotion path so the "% of budget" number reads the
+    // same number the statusbar shows.
+    const budgetTokens = readActiveBudgetTokens()
+    const view = api.computeWindowBreakdown(events, budgetTokens ? { budgetTokens } : undefined)
+    const track = els.windowBarTrack
+    track.innerHTML = ''
+    // Render five stacked segments in FAMILY_ORDER — zero-token slices get
+    // a 0-width segment so the CSS grid keeps its shape (helps DOM tests
+    // count the number of segments deterministically).
+    for (const slice of view.slices) {
+      const seg = document.createElement('div')
+      seg.className = `context-window-seg context-window-seg--${slice.family}`
+      seg.style.setProperty('--seg-pct', `${Math.max(0, slice.pct)}%`)
+      seg.dataset.family = slice.family
+      seg.dataset.tokens = String(slice.tokens)
+      seg.dataset.pct = String(slice.pct)
+      const suffix = slice.family === 'tool_defs' && view.toolsFromCalls
+        ? ' (estimated from tool/call names)'
+        : slice.family === 'thinking' && view.mode === 'approx'
+        ? ' (approx)'
+        : ''
+      seg.title = `${slice.label}: ${slice.tokens} tok (${slice.pct}%${suffix})`
+      seg.setAttribute('aria-label', seg.title)
+      track.appendChild(seg)
+    }
+    if (els.windowBarLegend) {
+      els.windowBarLegend.innerHTML = ''
+      for (const slice of view.slices) {
+        const row = document.createElement('span')
+        row.className = `context-window-legend-item context-window-legend-item--${slice.family}`
+        const dot = document.createElement('span')
+        dot.className = `context-window-legend-dot context-window-legend-dot--${slice.family}`
+        const label = document.createElement('span')
+        label.className = 'context-window-legend-label'
+        label.textContent = slice.label
+        const value = document.createElement('span')
+        value.className = 'context-window-legend-value muted'
+        value.textContent = slice.tokens > 0
+          ? `${slice.tokens.toLocaleString()} tok · ${slice.pct}%`
+          : '0'
+        row.appendChild(dot); row.appendChild(label); row.appendChild(value)
+        els.windowBarLegend.appendChild(row)
+      }
+    }
+    if (els.windowBarSummary) {
+      const bs = view.budgetSource === 'server' ? '' : ' (assumed)'
+      const modeTag = view.mode === 'precise' ? '' : ' · approx'
+      els.windowBarSummary.textContent = `${view.totalTokens.toLocaleString()} tok / ${view.budget.toLocaleString()} tok${bs} · ${view.budgetPct}% of budget${modeTag}`
+    }
+  }
+
+  function readActiveBudgetTokens () {
+    const meter = window.__dshContextMeter
+    const chat = window.__dshChat
+    if (!meter || !chat || typeof chat.getActiveSessionId !== 'function') return null
+    const sid = chat.getActiveSessionId()
+    if (!sid) return null
+    // Renderer stores per-session context trackers on the state map; peek at
+    // the snapshot when we can, otherwise fall back to null (which the
+    // model translates to the 128k assumed budget).
+    if (window.__dshRendererState && window.__dshRendererState.sessions) {
+      const meta = window.__dshRendererState.sessions.get(sid)
+      if (meta && meta.contextTracker && typeof meta.contextTracker.snapshot === 'function') {
+        const snap = meta.contextTracker.snapshot()
+        if (snap && snap.budgetSource === 'server' && Number.isFinite(snap.budget)) return snap.budget
+      }
+    }
+    return null
+  }
+
+  // ---- lane-ctx-deep F3: Intervention marker strip ------------------------
+
+  function renderInterventionStrip (events) {
+    if (!els || !els.interventionTrack) return
+    const api = window.__dshInterventionTimeline
+    if (!api || typeof api.collectInterventions !== 'function') return
+    const markers = api.collectInterventions(events)
+    const track = els.interventionTrack
+    track.innerHTML = ''
+
+    if (markers.length === 0) {
+      if (els.interventionSummary) els.interventionSummary.textContent = 'no interventions this session'
+      const empty = document.createElement('div')
+      empty.className = 'context-intervention-empty muted small'
+      empty.textContent = 'No edit-rerun, fork, or steer events yet.'
+      track.appendChild(empty)
+      return
+    }
+
+    // The strip is a timeline: position each marker by its seq relative to
+    // min/max seq so early interventions cluster left and late ones cluster
+    // right. Density permitting, this reads like a Perforce swarm marker
+    // strip — a scannable audit of user overrides.
+    const minSeq = markers[0].seq
+    const maxSeq = markers[markers.length - 1].seq
+    const span = Math.max(1, maxSeq - minSeq)
+
+    for (const m of markers) {
+      const pct = span > 0 ? ((m.seq - minSeq) / span) * 100 : 50
+      const marker = document.createElement('button')
+      marker.type = 'button'
+      marker.className = `context-intervention-marker context-intervention-marker--${m.kind}`
+      marker.style.setProperty('--marker-pos', `${pct}%`)
+      marker.dataset.kind = m.kind
+      marker.dataset.seq = String(m.seq)
+      marker.dataset.turn = String(m.turn)
+      marker.textContent = m.glyph
+      const previewLine = m.preview ? ` — ${m.preview}` : ''
+      marker.title = `${m.label} · turn ${m.turn} · seq ${m.seq}${previewLine}`
+      marker.setAttribute('aria-label', marker.title)
+      marker.addEventListener('click', () => jumpToInterventionSeq(m.seq))
+      track.appendChild(marker)
+    }
+
+    // Summary line — count per kind. Uses the model's summariser so tests
+    // can lock the same shape.
+    if (els.interventionSummary) {
+      const roll = api.summariseInterventions(markers)
+      const parts = roll.map((r) => `${r.count} ${r.label.toLowerCase()}${r.count === 1 ? '' : 's'}`)
+      els.interventionSummary.textContent = parts.length > 0 ? parts.join(' · ') : 'no interventions'
+    }
+  }
+
+  function jumpToInterventionSeq (seq) {
+    // Same pattern as buildJumpBtn — switch to Chat, then scroll to the
+    // stream row with the matching data-seq (or data-first-seq for turn
+    // headers).
+    const tabs = window.__dshTabs
+    if (tabs && typeof tabs.switchTo === 'function') tabs.switchTo('chat')
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const stream = document.getElementById('stream')
+      if (!stream) return
+      const target = stream.querySelector(`[data-seq="${seq}"]`)
+        || stream.querySelector(`[data-first-seq="${seq}"]`)
+      if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }))
+  }
+
   function renderEmpty () {
     if (!els) return
+    if (els.topStrip) els.topStrip.hidden = true
     if (els.list) {
       els.list.innerHTML = ''
       // Hide the empty rows container so it doesn't reserve grid track

@@ -1184,6 +1184,26 @@
                top when it shows. The duplicate "No context activity …" head
                was removed — the header subtitle already carries that line
                (see context-page.js renderEmpty()). -->
+        <!-- lane-ctx-deep (task #51 F1): window occupancy stacked bar
+             + F3: intervention marker strip. Both sit above the two-column
+             body so the "at a glance" chrome reads top-down. -->
+        <section class="context-page-topstrip" data-context-topstrip hidden>
+          <div class="context-window-bar" data-context-window-bar aria-label="Context window occupancy by family">
+            <div class="context-window-bar-head">
+              <span class="context-window-bar-title">Window occupancy</span>
+              <span id="context-window-bar-summary" class="context-window-bar-summary muted small"></span>
+            </div>
+            <div id="context-window-bar-track" class="context-window-bar-track" role="img" aria-label="Stacked family proportions"></div>
+            <div id="context-window-bar-legend" class="context-window-bar-legend"></div>
+          </div>
+          <div class="context-intervention-strip" data-context-intervention-strip aria-label="Human intervention markers">
+            <div class="context-intervention-head">
+              <span class="context-intervention-title">Interventions</span>
+              <span id="context-intervention-summary" class="context-intervention-summary muted small">no interventions</span>
+            </div>
+            <div id="context-intervention-track" class="context-intervention-track" role="list"></div>
+          </div>
+        </section>
         <section class="context-page-body" data-context-body>
           <div id="context-page-empty" class="context-page-empty" hidden>
             <div class="context-page-empty-note muted small">Load a sample session to see the page shape, or start a chat from the Chat tab and come back.</div>
@@ -1360,6 +1380,11 @@
   <script src="./context-meter.js"></script>
   <script src="./compact-badge.js"></script>
   <script src="./compact-card.js"></script>
+  <!-- lane-ctx-deep (task #51 F2/F4): compact Config tab + subagent
+       drill-down view models. Loaded before subagent-view.js so
+       buildInlineSubagentTrace can pick up the drill-down helpers. -->
+  <script src="./compact-config-model.js"></script>
+  <script src="./subagent-drilldown.js"></script>
   <script src="./context-rail.js"></script>
   <script src="./workflow-view.js"></script>
   <script src="./subagent-view.js"></script>
@@ -1427,6 +1452,10 @@
        window.__dshInjectFamily; the switchTo('context') hook in
        renderer.js drives its refresh on tab entry. -->
   <script src="./context-page-model.js"></script>
+  <!-- lane-ctx-deep (task #51 F1/F3): window family breakdown +
+       intervention marker projections consumed by context-page.js. -->
+  <script src="./context-window-breakdown.js"></script>
+  <script src="./intervention-timeline.js"></script>
   <script src="./context-page.js"></script>
   <!-- Tracing page (#225). Loads after context-page so it can share the
        __dshChat + __dshTraceAgg + __dshTraceTriView surfaces; the

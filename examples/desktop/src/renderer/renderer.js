@@ -3543,6 +3543,7 @@ function appendCompactMarker(event, meta, sessionId) {
           }
           bodyEl.appendChild(dl)
         },
+        fillConfig: buildCompactConfigTabFiller(sessionId),
       })
     } else {
       // Fallback: pre-refactor .body + shadowed-expander layout kept alive
@@ -3566,6 +3567,94 @@ function appendCompactMarker(event, meta, sessionId) {
   const data = event.data || event
   const suffix = data && data.error ? ` (error: ${data.error})` : ''
   appendSystem(`${event.type}${suffix}`)
+}
+
+// -- lane-ctx-deep F2: compact-card Config tab filler -----------------------
+//
+// The Config tab is an info-only entrance to compaction policy. Reads from
+// __dshCompactConfigModel and renders threshold + strategy + trigger count
+// + a progress bar showing "tokens until next compact". A footer note
+// points the user at Settings for the actual editor — this surface is a
+// window into the policy, not the editor.
+//
+// Returned callback closes over the sessionId so buildCompactConfigView
+// can walk the right cachedEvents at fill time (compact-card mounts tabs
+// synchronously today; if that shifts to lazy, the closure keeps working).
+
+function buildCompactConfigTabFiller(sessionId) {
+  return function fillConfigTab(bodyEl) {
+    const api = window.__dshCompactConfigModel
+    if (!api || typeof api.buildCompactConfigView !== 'function') {
+      const p = document.createElement('div')
+      p.className = 'compact-card-tab-empty muted small'
+      p.textContent = 'compact-config-model.js failed to load — Config tab is inert.'
+      bodyEl.appendChild(p)
+      return
+    }
+    const events = readSessionEventsSafe(sessionId)
+    const budget = readSessionBudgetSafe(sessionId)
+    const view = api.buildCompactConfigView(events, budget ? { budgetTokens: budget } : undefined)
+
+    // Key/value list, same look as fillMeta so the two tabs read as siblings.
+    const dl = document.createElement('dl')
+    dl.className = 'compact-card-tab-meta compact-config-list'
+    const rows = [
+      { label: 'Threshold', value: `${view.thresholdTokens.toLocaleString()} tok${view.thresholdSource === 'assumed' ? ' (assumed)' : ''}` },
+      { label: 'Strategy',  value: view.strategyName },
+      { label: 'Model',     value: view.model || 'unknown' },
+      { label: 'Summary cap', value: view.maxSummaryTokens != null ? `≤${view.maxSummaryTokens} tok` : 'unknown' },
+      { label: 'Triggers fired', value: `${view.triggersFired} this session` },
+      { label: 'Tokens since last compact', value: `${view.tokensSinceLastCompact.toLocaleString()} tok` },
+      { label: 'Tokens until next', value: `${view.tokensUntilNext.toLocaleString()} tok` },
+    ]
+    for (const row of rows) {
+      const dt = document.createElement('dt'); dt.textContent = row.label
+      const dd = document.createElement('dd'); dd.textContent = row.value
+      dl.appendChild(dt); dl.appendChild(dd)
+    }
+    bodyEl.appendChild(dl)
+
+    // Progress bar: distance to next compact.
+    const progWrap = document.createElement('div')
+    progWrap.className = `compact-config-progress compact-config-progress--${view.progressLevel}`
+    const progHead = document.createElement('div')
+    progHead.className = 'compact-config-progress-head'
+    const progTitle = document.createElement('span')
+    progTitle.className = 'compact-config-progress-title'
+    progTitle.textContent = 'Progress to next compact'
+    const progPct = document.createElement('span')
+    progPct.className = 'compact-config-progress-pct muted small'
+    progPct.textContent = `${Math.min(100, Math.round(view.progressPct))}%`
+    progHead.appendChild(progTitle); progHead.appendChild(progPct)
+    const progTrack = document.createElement('div')
+    progTrack.className = 'compact-config-progress-track'
+    const progFill = document.createElement('div')
+    progFill.className = 'compact-config-progress-fill'
+    progFill.style.setProperty('--fill-pct', `${Math.min(100, Math.max(0, view.progressPct))}%`)
+    progTrack.appendChild(progFill)
+    progWrap.appendChild(progHead)
+    progWrap.appendChild(progTrack)
+    bodyEl.appendChild(progWrap)
+
+    // Footer note: this tab is a window, not an editor.
+    const note = document.createElement('div')
+    note.className = 'compact-config-note muted small'
+    note.textContent = 'Read-only view of the current policy. Adjust in Settings › Compaction (restart-required until session/set-compact-policy lands, gap G2).'
+    bodyEl.appendChild(note)
+  }
+}
+
+function readSessionEventsSafe(sessionId) {
+  const meta = state.sessions && state.sessions.get && state.sessions.get(sessionId)
+  return (meta && Array.isArray(meta.cachedEvents)) ? meta.cachedEvents : []
+}
+function readSessionBudgetSafe(sessionId) {
+  const meta = state.sessions && state.sessions.get && state.sessions.get(sessionId)
+  if (meta && meta.contextTracker && typeof meta.contextTracker.snapshot === 'function') {
+    const snap = meta.contextTracker.snapshot()
+    if (snap && snap.budgetSource === 'server' && Number.isFinite(snap.budget)) return snap.budget
+  }
+  return null
 }
 
 // -- shadowed-events expander -------------------------------

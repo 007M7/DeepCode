@@ -403,9 +403,146 @@ function buildInlineSubagentTrace(doc, spec, opts = {}) {
   body.className = 'subagent-trace-body';
   const card = buildSubagentCard(doc, spec, { ...opts, omitHead: true });
   body.appendChild(card);
+
+  // lane-ctx-deep F4: drill-down tabs (Tool defs / Inbound query). Appended
+  // after the card sections so a reader sees the "how the child was
+  // instrumented" summary at the foot of the subagent trace. Skipped when
+  // the drilldown module isn't loaded (test harness stubs the shell out).
+  appendSubagentDrilldownTabs(doc, body, spec);
+
   wrap.appendChild(body);
 
   return wrap;
+}
+
+/**
+ * Render two tabs — "Tool defs" and "Inbound query" — using the pure
+ * `buildSubagentDrilldown` view model. Exposed for tests via the module
+ * exports so a headless assertion can build the tabs without wrapping the
+ * whole inline trace.
+ */
+function appendSubagentDrilldownTabs(doc, parent, spec) {
+  const api = (typeof window !== 'undefined' && window.__dshSubagentDrilldown)
+    || (typeof require === 'function' ? tryRequireDrilldown() : null);
+  if (!api || typeof api.buildSubagentDrilldown !== 'function') return;
+  const view = api.buildSubagentDrilldown(spec || {});
+
+  // Skip if we have nothing at all to show — an empty view would just add
+  // dead chrome to the subagent card.
+  if (view.toolDefsSource === 'empty' && view.inboundQuery.source === 'empty') return;
+
+  const wrap = doc.createElement('div');
+  wrap.className = 'subagent-drilldown';
+  const strip = doc.createElement('div');
+  strip.className = 'subagent-drilldown-tabstrip';
+  strip.setAttribute('role', 'tablist');
+
+  const tabs = [
+    { id: 'tooldefs', label: `Tool defs (${view.toolDefs.length})` },
+    { id: 'inbound',  label: 'Inbound query' },
+  ];
+  const bodies = {};
+  const buttons = {};
+  for (const t of tabs) {
+    const btn = doc.createElement('button');
+    btn.type = 'button';
+    btn.className = 'subagent-drilldown-tab';
+    btn.textContent = t.label;
+    btn.setAttribute('role', 'tab');
+    btn.dataset.tab = t.id;
+    const isActive = t.id === 'tooldefs';
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    btn.tabIndex = isActive ? 0 : -1;
+    strip.appendChild(btn);
+    buttons[t.id] = btn;
+    const body = doc.createElement('div');
+    body.className = 'subagent-drilldown-panel';
+    body.setAttribute('role', 'tabpanel');
+    body.hidden = !isActive;
+    bodies[t.id] = body;
+  }
+
+  // Tool defs panel — list one row per tool. Marks whether the list was
+  // explicitly reported or inferred from tool/call names so a reader knows
+  // whether they're seeing "what the child could do" vs "what it happened
+  // to reach for".
+  const tdBody = bodies.tooldefs;
+  const tdHead = doc.createElement('div');
+  tdHead.className = 'subagent-drilldown-head muted small';
+  tdHead.textContent = view.toolDefsSource === 'explicit'
+    ? `${view.toolDefs.length} tool${view.toolDefs.length === 1 ? '' : 's'} available at start`
+    : view.toolDefsSource === 'inferred'
+    ? `${view.toolDefs.length} tool${view.toolDefs.length === 1 ? '' : 's'} observed (inferred from tool/call events)`
+    : 'no tool activity recorded';
+  tdBody.appendChild(tdHead);
+  if (view.toolDefs.length > 0) {
+    const list = doc.createElement('ul');
+    list.className = 'subagent-drilldown-toollist';
+    for (const t of view.toolDefs) {
+      const li = doc.createElement('li');
+      li.className = 'subagent-drilldown-toolrow';
+      const name = doc.createElement('code');
+      name.className = 'subagent-drilldown-toolname';
+      name.textContent = t.name;
+      li.appendChild(name);
+      if (t.sampleArgs) {
+        const args = doc.createElement('span');
+        args.className = 'subagent-drilldown-toolargs muted small';
+        args.textContent = t.sampleArgs;
+        li.appendChild(args);
+      }
+      if (t.firstSeq) {
+        const seq = doc.createElement('span');
+        seq.className = 'subagent-drilldown-toolseq muted small';
+        seq.textContent = `seq ${t.firstSeq}`;
+        li.appendChild(seq);
+      }
+      list.appendChild(li);
+    }
+    tdBody.appendChild(list);
+  }
+
+  // Inbound query panel — verbatim seed prompt text, plus a hint chip
+  // stating where it came from (explicit spec vs. seed-event mining).
+  const inb = bodies.inbound;
+  const inbHead = doc.createElement('div');
+  inbHead.className = 'subagent-drilldown-head muted small';
+  inbHead.textContent = view.inboundQuery.source === 'explicit'
+    ? 'From parent invocation (explicit)'
+    : view.inboundQuery.source === 'seed-event'
+    ? `From child seed user/message${view.inboundQuery.seq ? ` at seq ${view.inboundQuery.seq}` : ''}`
+    : 'No inbound query recorded';
+  inb.appendChild(inbHead);
+  if (view.inboundQuery.text) {
+    const q = doc.createElement('blockquote');
+    q.className = 'subagent-drilldown-query';
+    q.textContent = view.inboundQuery.text;
+    inb.appendChild(q);
+  }
+
+  const activate = (id) => {
+    for (const t of tabs) {
+      const on = t.id === id;
+      buttons[t.id].setAttribute('aria-selected', on ? 'true' : 'false');
+      buttons[t.id].tabIndex = on ? 0 : -1;
+      bodies[t.id].hidden = !on;
+    }
+  };
+  strip.addEventListener('click', (ev) => {
+    const target = ev && ev.target;
+    if (!target) return;
+    const id = target === buttons.tooldefs ? 'tooldefs' : target === buttons.inbound ? 'inbound' : null;
+    if (id) activate(id);
+  });
+
+  wrap.appendChild(strip);
+  wrap.appendChild(bodies.tooldefs);
+  wrap.appendChild(bodies.inbound);
+  parent.appendChild(wrap);
+}
+
+function tryRequireDrilldown() {
+  try { return require('./subagent-drilldown.js'); } catch (_) { return null; }
 }
 
 // Local name is prefixed to avoid the load-time `const api` collision
@@ -419,6 +556,7 @@ const subagentViewApi = {
   buildInlineSubagentTrace,
   renderStatusToken,
   subagentLastMessagePreview,
+  appendSubagentDrilldownTabs,
 };
 if (typeof module !== 'undefined' && module.exports) module.exports = subagentViewApi;
 if (typeof window !== 'undefined') window.__dshSubagentView = subagentViewApi;

@@ -11626,6 +11626,299 @@ details.devtools-row[open] > .devtools-row-summary::before { transform: rotate(9
 /* once JS finishes booting, but robust against the first-paint race.       */
 .onboarding[hidden] { display: none !important; }
 
+/* ==========================================================================
+   lane-ctx-deep — task #51 Context page deepening (F1–F4).
+   Appended at file tail per team-lead's conflict-face rule; nothing above
+   this comment is touched by lane-ctx-deep so a rebase against test-real
+   collapses to a trailing block only. Rules under each F# group.
+   ========================================================================== */
+
+/* F1 + F3: Top strip shell (window bar + intervention markers). Sits above
+   the two-column body and reads as a "session dashboard" band. */
+.context-page-topstrip {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+@media (max-width: 900px) {
+  .context-page-topstrip { grid-template-columns: 1fr; }
+}
+.context-page-topstrip[hidden] { display: none; }
+
+/* --- F1: Window occupancy stacked bar ------------------------------------ */
+
+.context-window-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.context-window-bar-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.context-window-bar-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+.context-window-bar-summary {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.context-window-bar-track {
+  display: flex;
+  width: 100%;
+  height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-elev);
+}
+.context-window-seg {
+  height: 100%;
+  width: var(--seg-pct, 0%);
+  min-width: 0;
+  transition: width 200ms ease;
+}
+.context-window-seg--system_prompt { background: color-mix(in oklab, var(--tint-purple) 55%, var(--bg-elev)); }
+.context-window-seg--tool_defs     { background: color-mix(in oklab, var(--tint-blue) 55%, var(--bg-elev)); }
+.context-window-seg--thinking      { background: color-mix(in oklab, var(--tint-yellow) 55%, var(--bg-elev)); }
+.context-window-seg--responses     { background: color-mix(in oklab, var(--ok) 55%, var(--bg-elev)); }
+.context-window-seg--injections    { background: color-mix(in oklab, var(--accent) 55%, var(--bg-elev)); }
+.context-window-seg:hover {
+  filter: brightness(1.1);
+  outline: 1px solid var(--text);
+  outline-offset: -1px;
+}
+.context-window-bar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  font-size: 11px;
+}
+.context-window-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.context-window-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.context-window-legend-dot--system_prompt { background: color-mix(in oklab, var(--tint-purple) 55%, var(--bg-elev)); }
+.context-window-legend-dot--tool_defs     { background: color-mix(in oklab, var(--tint-blue) 55%, var(--bg-elev)); }
+.context-window-legend-dot--thinking      { background: color-mix(in oklab, var(--tint-yellow) 55%, var(--bg-elev)); }
+.context-window-legend-dot--responses     { background: color-mix(in oklab, var(--ok) 55%, var(--bg-elev)); }
+.context-window-legend-dot--injections    { background: color-mix(in oklab, var(--accent) 55%, var(--bg-elev)); }
+.context-window-legend-value {
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+/* --- F3: Intervention marker strip --------------------------------------- */
+
+.context-intervention-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.context-intervention-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.context-intervention-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+.context-intervention-track {
+  position: relative;
+  height: 32px;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: var(--bg-elev);
+}
+.context-intervention-empty {
+  padding: 6px 8px;
+  font-style: italic;
+}
+.context-intervention-marker {
+  position: absolute;
+  top: 50%;
+  left: var(--marker-pos, 50%);
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 100ms ease, box-shadow 100ms ease;
+}
+.context-intervention-marker:hover,
+.context-intervention-marker:focus-visible {
+  transform: translate(-50%, -50%) scale(1.15);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+  z-index: 2;
+}
+.context-intervention-marker--edit-rerun {
+  background: color-mix(in oklab, var(--tint-yellow) 40%, var(--surface));
+  border-color: color-mix(in oklab, var(--tint-yellow) 55%, var(--border));
+}
+.context-intervention-marker--fork {
+  background: color-mix(in oklab, var(--tint-blue) 40%, var(--surface));
+  border-color: color-mix(in oklab, var(--tint-blue) 55%, var(--border));
+}
+.context-intervention-marker--steer {
+  background: color-mix(in oklab, var(--accent) 40%, var(--surface));
+  border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
+}
+
+/* --- F2: Compact card Config tab ---------------------------------------- */
+
+.compact-config-list {
+  margin: 0 0 var(--space-3) 0;
+}
+.compact-config-progress {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elev);
+}
+.compact-config-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.compact-config-progress-title {
+  font-weight: 600;
+  font-size: 12px;
+}
+.compact-config-progress-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--muted) 15%, var(--bg-elev));
+}
+.compact-config-progress-fill {
+  height: 100%;
+  width: var(--fill-pct, 0%);
+  transition: width 200ms ease;
+  background: color-mix(in oklab, var(--ok) 55%, var(--bg-elev));
+}
+.compact-config-progress--warn .compact-config-progress-fill {
+  background: color-mix(in oklab, var(--tint-yellow) 65%, var(--bg-elev));
+}
+.compact-config-progress--high .compact-config-progress-fill {
+  background: color-mix(in oklab, var(--warn) 65%, var(--bg-elev));
+}
+.compact-config-progress--critical .compact-config-progress-fill {
+  background: color-mix(in oklab, var(--err) 65%, var(--bg-elev));
+}
+.compact-config-note {
+  margin-top: var(--space-2);
+  padding: var(--space-1) 0;
+  border-top: 1px dashed var(--border);
+  padding-top: var(--space-2);
+}
+
+/* --- F4: Subagent drill-down tabs --------------------------------------- */
+
+.subagent-drilldown {
+  margin-top: var(--space-2);
+  border-top: 1px dashed var(--border);
+  padding-top: var(--space-2);
+}
+.subagent-drilldown-tabstrip {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.subagent-drilldown-tab {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  background: var(--bg-elev);
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--mono);
+  cursor: pointer;
+}
+.subagent-drilldown-tab[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+  border-bottom: 1px solid var(--surface);
+  position: relative;
+  z-index: 1;
+}
+.subagent-drilldown-panel {
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  border-radius: 0 4px 4px 4px;
+  background: var(--surface);
+  font-size: 12px;
+}
+.subagent-drilldown-panel[hidden] { display: none; }
+.subagent-drilldown-head { margin-bottom: 4px; }
+.subagent-drilldown-toollist {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.subagent-drilldown-toolrow {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.subagent-drilldown-toolname {
+  font-family: var(--mono);
+  color: color-mix(in oklab, blue 60%, var(--text));
+}
+.subagent-drilldown-toolargs {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.subagent-drilldown-toolseq {
+  font-family: var(--mono);
+  flex: 0 0 auto;
+}
+.subagent-drilldown-query {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--accent);
+  background: color-mix(in oklab, var(--accent) 5%, var(--bg-elev));
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  color: var(--text);
+}
+
 /* -- Chat triple view: side drawer + view switcher + session graph -------
  * lane-chat-triple. The Chat pane grows a right-side fold-out drawer
  * (turn/session metadata + history list) and a top-level view switcher

@@ -134,6 +134,15 @@ const NON_IIFE_ALLOWLIST = new Set([
   // for renderer). Same shape as inject-family.js / raw-inject.js — just
   // one `wireDetailsAria(details, summary)` helper, no functions collide.
   'details-aria.js',
+  // lane-ctx-deep (task #51, 2026-07-19) Context-page deepening. Four
+  // dual-exported pure modules — same shape as inject-family.js /
+  // context-page-model.js. CommonJS require for node --test,
+  // `window.__dsh*` handle for the renderer. No top-level function names
+  // collide with the shared renderer scope.
+  'context-window-breakdown.js',
+  'intervention-timeline.js',
+  'compact-config-model.js',
+  'subagent-drilldown.js',
 ])
 
 function listRendererScripts() {
