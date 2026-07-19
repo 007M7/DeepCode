@@ -286,7 +286,7 @@ export class HeadlessTerminal implements Terminal {
     return violations
   }
 
-  /** Serialize terminal cells and metadata into a stable, reviewable golden. */
+  /** Serialize terminal cells and metadata into a stable, reviewable expected output. */
   async snapshot(options: TerminalSnapshotOptions = {}): Promise<string> {
     await this.flush()
     const buffer = this.emulator.buffer.active
