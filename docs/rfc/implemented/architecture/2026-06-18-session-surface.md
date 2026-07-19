@@ -31,7 +31,7 @@ export type SurfaceOp =
 
 ### SurfaceManager: delta-based, not full rebuild
 
-A `SurfaceManager` class (private to `Session`) maintains one ordered `number[]` of event seqs. It tracks `_lastProcessedSeq` and processes only the new events since the last access rather than rescanning the entire log. Because the log is append-only, prior events never change; a seeded log is simply the initial suffix folded on first access. Replace locates its inclusive endpoints by array position and splices the replacement seq into that range; no link objects or seq-to-node map duplicate the order.
+A `Session` owns one `SurfaceManager` that maintains an ordered `number[]` of event seqs. The manager validates each seed or append candidate without applying it before commit, then processes only committed events since its previous synchronization rather than rescanning the entire log. `Session.surface` exposes the same manager through the readonly `SessionSurface` contract, so acceptance, derived history, compaction, and workspace context share one incremental state. Replace locates its inclusive endpoints by array position and splices the replacement seq into that range; no second manager, link objects, or seq-to-node map duplicates the order.
 
 Delta processing is O(1) when no new events and O(new events) when new events arrive.
 
@@ -60,7 +60,7 @@ Every surface-eligible event must carry `surfaceOp` or it would disappear from d
 
 ## Consequences
 
-- **`packages/core/session`**: `surface.ts` (`SurfaceManager`) maintains one ordered seq array; `SurfaceOp`/`SurfaceIntent` and the top-level session-event fields record how entries join it. `append()` requires a `SurfaceIntent` for surface events, `deriveMessages()` walks the surface as the sole derivation path, and `repair.ts` emits surface-aware closers. The seed constructor rejects a surface-eligible seed event missing its `surfaceOp` marker (see § Invariants).
+- **`packages/core/session`**: `surface.ts` (`SurfaceManager`) maintains one ordered seq array for candidate acceptance and live projection; `SessionSurface` is its readonly public view. `SurfaceOp`/`SurfaceIntent` and the top-level session-event fields record how entries join it. `append()` requires a `SurfaceIntent` for surface events, `deriveMessages()` walks the surface as the sole derivation path, and `repair.ts` emits surface-aware closers. The seed constructor rejects a surface-eligible seed event missing its `surfaceOp` marker (see § Invariants).
 - **`packages/core/agent-loop`**: All surface-capable appends pass surface opts. Chunk seqs are collected for `assistant/message` provenance; `tool/call` seqs are captured for `tool/result` provenance.
 - **`packages/session-persistence/session-persistence-sqlite`**: Two new nullable TEXT columns (`source_event_seqs`, `surface_op`) on the `events` table; `SCHEMA_VERSION` bumped (bump-and-reject, no migration).
 - **`packages/support/invariants`**: Surface-related validation rules.
