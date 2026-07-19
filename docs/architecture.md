@@ -83,7 +83,7 @@ forever:
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
       agent/request (config only) -> log request/header -> llm/stream (frozen)
-      on final adapter failure or terminal in-band error/aborted finish:
+      on final adapter-path or terminal in-band failure:
         'step/end'
         agent/request-error(original error, consecutive retry attempt, signal)
         retry in the next numbered step or preserve the original error
@@ -108,15 +108,15 @@ forever:
 
 Each step assembles ordered prompt sections, tool schemas, and `{{name}}` variables; unknown or valueless references fail the turn. `dsh-system-prompt` owns the harness identity and default persona, which an agent scope may shadow. The loop supplies `model` and `cwd` ([prompt-ownership RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Context accepted during tool execution—including async `agent.inject()` notices and post-tool `additionalContexts`—waits for settlement, then follows every recorded result. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering while the step signal remains open. Ordinary leftover steering becomes queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through turn close and flush, and discards later steering while preserving queued prompts.
+Context accepted during tool execution—including async `agent.inject()` notices and post-tool `additionalContexts`—waits for settlement, then follows every recorded result. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering before signal closure. Leftover steering becomes queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through turn close and flush, and discards later steering while preserving queued prompts.
 
-`dsh-compact-basic` uses those checkpoints for routed-envelope pressure and canonical-overflow recovery; only a tool-balanced surface replacement authorizes retry ([RFC](rfc/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)).
+`dsh-compact-basic` handles pressure and canonical overflow at these checkpoints; retry requires a balanced surface replacement ([RFC](rfc/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)).
 
 ### Failure Boundaries
 
-The turn is the containment boundary. Final adapter selection, dispatch, iteration, and terminal in-band failures close the step before `agent/request-error`; retry reconstructs a new numbered step, while the default preserves the provider error. Attempts reset after success.
+The turn is the containment boundary. Final adapter-path and terminal in-band failures close the step before `agent/request-error`; retry starts a new numbered step, while the default preserves the provider error. Attempts reset on success.
 
-Other plugin and step failures use `agent/error`. Cancellation and disposal beat recovery; undispatched model tool calls receive synthetic `tool/call` and `ABORTED` result pairs before turn closure. `cancel()` clears queues and aborts active work; disposal awaits quiescence before unregistering.
+Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched model tool calls receive synthetic `tool/call` and `ABORTED` result pairs before turn closure. `cancel()` clears queues and aborts active work; disposal awaits quiescence before unregistering.
 
 Every session event is turn-enclosed. Reloading preserves an interrupted tail and closes it with a synthetic `interrupted` turn end. Failures after durable turn close report only through `agent/error` because no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
 
