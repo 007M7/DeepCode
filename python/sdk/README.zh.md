@@ -23,7 +23,7 @@ from deepseek_harness import DeepSeekHarness
 with DeepSeekHarness(
     provider="deepseek",
     model="deepseek-v4-flash",
-    cordis="examples/dsbench-coding-agent/cordis.yml",
+    cordis="examples/jsonrpc-agent/cordis.yml",
 ) as harness:
     result = harness.run("Make the requested code change.")
 ```

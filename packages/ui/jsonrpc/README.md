@@ -8,7 +8,7 @@ The `jsonrpc` plugin serves newline-delimited JSON-RPC over stdio so out-of-proc
 
 ## Config
 
-There are no `cordis.yml` keys. `JsonRpcConfig.input`, `output`, and `exit` are runtime-only transport seams; production uses process stdio and `process.exit`.
+`maxTokensAsSuccess` defaults to `false`. Set it to `true` for evaluation hosts that distinguish an accepted, token-limited agent result from an infrastructure failure. `JsonRpcConfig.input`, `output`, and `exit` are runtime-only transport seams; production uses process stdio and `process.exit`.
 
 ## stdout is the protocol
 
