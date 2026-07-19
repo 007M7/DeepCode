@@ -8,7 +8,6 @@ import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Config, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap } from '@deepseek-ai/dsh-session'
@@ -59,7 +58,7 @@ async function setup(options: SetupOptions = {}) {
 
 /** Mint one production-shaped agent scope that can register scoped tool policy. */
 async function mintAgentScope(ctx: Context, name = 'scoped'): Promise<{ scope: Scope; agent: Agent }> {
-  const agent = { id: AgentId(name) } as Agent
+  const agent = { id: SessionId(name) } as Agent
   let scope!: Scope
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
     { inject: ['tools', 'systemPrompt'] }))

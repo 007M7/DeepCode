@@ -27,17 +27,18 @@ class StubCompactService extends CompactService {
   }
 
   override async compactRegion(
-    session: Session,
     start: number,
     end: number,
-    _agent: CompactAgentContext,
+    agent: CompactAgentContext,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
     this.lastSignal = signal
+    const session = agent.session
+    const summary = [{ type: 'text' as const, text: 'stub' }]
     // Minimal stub honoring the lock + log-only event contract.
     const startEvent = session.append('compact/start', { turn: 0 })
     const summaryEvent = session.append('compact/summary', {
-      summary: [{ type: 'text', text: 'stub' }],
+      summary,
       shadowedRange: { start, end },
       shadowedSeqs: [],
       shadowedTokenCount: 0,
@@ -49,7 +50,7 @@ class StubCompactService extends CompactService {
       startSeq: startEvent.seq,
       summarySeq: summaryEvent.seq,
       endSeq: endEvent.seq,
-      summary: [{ type: 'text', text: 'stub' }],
+      summary,
       shadowedRange: { start, end },
       shadowedSeqs: [],
       shadowedTokenCount: 0,
@@ -89,7 +90,7 @@ describe('CompactService seam', () => {
     const svc = new StubCompactService(ctx)
     const session = new Session(SessionId('s'))
 
-    const result = await svc.compactRegion(session, 0, 0, stubAgent(session, 'm'))
+    const result = await svc.compactRegion(0, 0, stubAgent(session, 'm'))
 
     const startEvent = session.events.find(e => e.type === 'compact/start')
     expect(startEvent).toBeDefined()
@@ -97,8 +98,12 @@ describe('CompactService seam', () => {
     // verify the runtime value is absent.
     const raw = startEvent as unknown as { surfaceOp?: unknown }
     expect(raw.surfaceOp).toBeUndefined()
+    expect(result.summary).toEqual([{ type: 'text', text: 'stub' }])
     expect(result.summarySeq).toBeGreaterThan(result.startSeq)
     expect(result.endSeq).toBeGreaterThan(result.summarySeq)
+    expect(result.shadowedRange).toEqual({ start: 0, end: 0 })
+    expect(session.events.filter(e => e.type.startsWith('compact/')).map(e => e.type))
+      .toEqual(['compact/start', 'compact/summary', 'compact/end'])
   })
 
   it('threads the cancellation signal through to the backend', async () => {
@@ -107,7 +112,7 @@ describe('CompactService seam', () => {
     const session = new Session(SessionId('s'))
     const controller = new AbortController()
 
-    await svc.compactRegion(session, 0, 0, stubAgent(session, 'm'), controller.signal)
+    await svc.compactRegion(0, 0, stubAgent(session, 'm'), controller.signal)
     expect(svc.lastSignal).toBe(controller.signal)
 
     await svc.compactIfNeeded(stubAgent(session), '', [], controller.signal)

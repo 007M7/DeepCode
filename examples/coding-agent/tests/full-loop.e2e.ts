@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 /**
  * The first place a REAL model meets the REAL bash tool: the cheap canary
@@ -28,7 +28,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('full loop: real model + real bas
   it('runs a bash command on request and reports its output', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-full-loop-e2e-'))
     ctx = await codingHarness(workdir, { persona: SYSTEM_PROMPT })
-    const agent = ctx.agentLoop.create(AgentId('e2e-loop'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('e2e-loop'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.send([{ type: 'text', text: 'Run `echo e2e-ok` with the bash tool and tell me its exact output.' }])
     await waitForIdle(ctx, agent)

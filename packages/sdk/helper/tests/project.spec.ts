@@ -167,6 +167,12 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(index).toContain('SdkBootContext')
     expect(index).toContain('agents.create')
     expect(index).toContain('boot.args.resume')
+    expect(index).not.toContain('AgentId')
+    expect(index).toContain('const sessionId = SessionId(resume ?? `main-session-${randomUUID()}`)')
+    expect(index).toContain('process.env.DSH_SDK_SESSION_ID = sessionId')
+    expect(index).toContain('resumeSessionId: sessionId')
+    expect(index).toContain('await ctx.fiber.dispose()')
+    expect(index).toContain("new AggregateError([error, disposeError], 'stdio startup and cleanup failed')")
     expect(project.packageManifest().scripts).toEqual({
       dev: 'dsh-sdk dev index.ts -- --model="deepseek-v4-flash"',
       build: 'dsh-sdk build',
@@ -175,7 +181,11 @@ describe('SdkProject and ProjectEditSession', () => {
       config: 'dsh-sdk config',
     })
     expect(await readFile(join(project.root, '.env.example'), 'utf8')).toContain('EXA_API_KEY=')
-    expect(project.cordis.entry('stdio')?.config).toMatchObject({ agent: 'main' })
+    expect(project.cordis.entry('stdio')?.config?.sessionId).toMatchObject({
+      source: 'process.env.DSH_SDK_SESSION_ID',
+    })
+    expect(await readFile(join(project.root, 'cordis.yml'), 'utf8'))
+      .toContain('sessionId: !!js process.env.DSH_SDK_SESSION_ID')
     expect(project.cordis.entry('stdio')?.config).not.toHaveProperty('model')
     expect(project.cordis.entry('agent-loop')?.config).toEqual({ agents: [] })
     expect(project.cordis.entry('system-prompt')?.config?.persona).toContain('{{cwd}}')
@@ -286,7 +296,10 @@ describe('SdkProject and ProjectEditSession', () => {
     const embed = (await embedEdit.commit()).project
     expect(embed.profile.runInterface).toBe('embed')
     expect(await readFile(join(embed.root, 'README.md'), 'utf8')).toContain('Embed the harness')
-    expect(await readFile(join(embed.root, 'index.ts'), 'utf8')).toContain('agents.create')
+    const embedIndex = await readFile(join(embed.root, 'index.ts'), 'utf8')
+    expect(embedIndex).toContain('agents.create')
+    expect(embedIndex).toContain("import { SessionId } from '@deepseek-ai/dsh-session'")
+    expect(embedIndex).not.toContain('AgentId')
 
     await writeFile(join(embed.root, 'README.md'), '# Custom README\n')
     const modified = await SdkProject.open(embed.root)
@@ -862,6 +875,12 @@ describe('extension points', () => {
         resource.kind === 'cordis-config-entry' && resource.entry.id === 'acp')
     expect(acpEntry?.entry.id).toBe('acp')
     expect(acpEntry?.validateConfig?.({ model: '' })).toHaveLength(1)
+    const stdioEntry = builtins.get(featureId('app')).contribution(selection('app', ['stdio']), profile).resources
+      .find((resource): resource is CordisConfigEntryResource =>
+        resource.kind === 'cordis-config-entry' && resource.entry.id === 'stdio')
+    expect(stdioEntry?.validateConfig?.({ welcome: 'ready', sessionId: 1 })).toEqual([
+      'sessionId must be a non-empty string',
+    ])
     const embedOption = app.options.find(option => option.id === 'embed')
     expect(embedOption?.markerConfigEntries(profile)).toEqual([])
     expect(embedOption?.contribution(profile, {}).resources.map(resource => resource.kind)).toEqual([

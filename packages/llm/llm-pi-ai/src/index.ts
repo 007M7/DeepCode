@@ -27,12 +27,8 @@ import { Config, resolveProfiles } from './config.ts'
 
 export { PiAiAdapter } from './adapter.ts'
 export type { PiAiAdapterOptions } from './adapter.ts'
-export { Config, resolveProfiles } from './config.ts'
+export { Config } from './config.ts'
 export type { PiAiProviderProfile } from './config.ts'
-export { toPiContext } from './context.ts'
-export { toPiReplayState } from './replay.ts'
-export type { PiAiReplayState } from './replay.ts'
-export { mapStopReason, mapUsage, toStreamChunks } from './stream.ts'
 
 export const name = 'llm-pi-ai'
 export const inject = ['llm']

@@ -5,25 +5,11 @@
  * @module @deepseek-ai/dsh-agent/types
  */
 
-import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Context } from 'cordis'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, LlmCallConfig, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContextEnvelope, JsonValue, Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-
-/** Identifies one live agent in the registry. */
-export type AgentId = Branded<'AgentId'>
-
-/**
- * Brand a string as an {@link AgentId}.
- * @param id - the raw agent id string.
- * @returns the same string, branded (a compile-time cast — no runtime cost).
- */
-export function AgentId(id: string): AgentId {
-  return id as AgentId
-}
-import type { ContextEnvelope, JsonValue, Session } from '@deepseek-ai/dsh-session'
-
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
     /** Agent for this assembly; absent on diagnostics. When present, `scope` must identify the same agent. */
@@ -94,9 +80,10 @@ export type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
 /** Why a session lifecycle began; seeded creates are `startup`, while persisted loads are `resume`. */
 export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
-/** Public agent handle; the concrete driver belongs to `@deepseek-ai/dsh-agent-loop`. */
+/** Public agent handle; its concrete implementation is internal to `@deepseek-ai/dsh-agent-loop`. */
 export interface Agent {
-  readonly id: AgentId
+  /** The single identity shared with {@link session}. */
+  readonly id: SessionId
   readonly options: AgentOptions
   readonly session: Session
   readonly status: AgentStatus
@@ -117,10 +104,11 @@ export interface Agent {
   steer(content: ContentBlock[], options?: SendOptions): void
 
   /**
-   * Append model-facing context without running the model. Idle injection uses
-   * a one-shot turn and durability checkpoint, while injection during an open
-   * turn joins it at the current log position. Disposal awaits idle checkpoints;
-   * flush failures are reported through `agent/error`, not thrown to the caller.
+   * Append detached model-facing context without running the model. An open-turn
+   * injection joins at the current log position unless the current tool batch is
+   * executing; then it waits FIFO until that batch settles and drains before turn
+   * close even when interrupted. Idle injection uses a one-shot turn and durability
+   * checkpoint. Disposal awaits idle checkpoints; flush failures report through `agent/error`.
    */
   inject(content: ContentBlock[], options?: InjectOptions): void
 

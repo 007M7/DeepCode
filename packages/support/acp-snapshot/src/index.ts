@@ -1,13 +1,23 @@
 /**
- * ACP snapshot suite kit: subprocess scenario harness, pure golden normalizers, and the Vitest
- * suite factory behind `pnpm run test:snapshot`. Because this entry exports `suite.ts`, importing
- * it requires a Vitest run.
+ * ACP snapshot suite kit — the shared machinery behind the keyless snapshot
+ * tier (`pnpm run test:snapshot`). Four layers, composable per example: the
+ * shared subprocess/client launcher ({@link launchAcpTestAgent}), the scripted
+ * scenario harness ({@link runScenario}), the pure golden normalizers
+ * ({@link normalizeStdout} / {@link normalizeSessionLog} /
+ * {@link scrubRequestHeaders} / {@link scrubSystemPrompts}), and the suite
+ * factory ({@link defineAcpSnapshotSuite}) that registers a scenario table as a
+ * full describe/it tree. Ordinary ACP e2e tests can use the launcher directly;
+ * an example's `*.snapshot.ts` supplies only its {@link AgentUnderTest} paths,
+ * snapshots directory, and {@link Scenario} table.
+ *
+ * NOTE: ./suite.ts imports vitest, so this package is importable only inside a
+ * vitest run — a support-tier constraint stated in the README.
+ *
  * @module @deepseek-ai/dsh-acp-snapshot
  */
 
 export {
   runScenario,
-  type AgentUnderTest,
   type HarvestedLog,
   type InputScript,
   type InputStep,
@@ -15,6 +25,12 @@ export {
   type RunOptions,
   type RunResult,
 } from './harness.ts'
+export {
+  launchAcpTestAgent,
+  type AcpTestLaunchOptions,
+  type AgentUnderTest,
+  type LaunchedAcpTestAgent,
+} from './launcher.ts'
 export {
   normalizeSessionLog,
   normalizeStdout,

@@ -83,7 +83,7 @@ describe('dsh-acp-demo composition', () => {
   })
 
   it('defaults the persistence root when omitted', async () => {
-    // Exercises the `?? './.sessions'` fallback for a direct-apply caller that
+    // Exercises the `DEFAULT_PERSISTENCE_ROOT` fallback for a direct-apply caller that
     // bypasses the schema's `.default(...)`: call `apply` directly (not via
     // `ctx.plugin`, which validates+defaults the config first) with no
     // persistenceRoot, so the runtime fallback is the one that fires.
@@ -124,6 +124,19 @@ describe('dsh-acp-demo composition', () => {
     const ctx = await mount({ provider: 'mock', model: 'mock', persona: 'hi', dshHome: skills.local!.dshHome!, skills, workspaceContext: false })
     ctx.skills.register({ name: 'acp-skill', description: 'ACP skill', source: 'runtime', content: 'body' })
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `acp-skill`: ACP...')
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards maxParallelToolCalls to the bundled agent loop', async () => {
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      maxParallelToolCalls: 3,
+      persistenceRoot: '/tmp/dsh-acp-demo-test-parallel',
+      skills: await isolatedSkillsConfig(),
+      workspaceContext: false,
+    })
+    expect(ctx.get('agentLoop')?.config.maxParallelToolCalls).toBe(3)
     await ctx.fiber.dispose()
   })
 
