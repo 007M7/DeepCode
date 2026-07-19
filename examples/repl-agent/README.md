@@ -1,6 +1,6 @@
 # repl-agent
 
-The repl-agent wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + workflows + `todo_write` + readline chat + JSONL persistence, loaded from `cordis.yml`. The sibling [`tui-agent`](../tui-agent/README.md) fixes the same agent composition to the full-screen terminal front door.
+The repl-agent wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + workflows and fresh-agent Ralph iteration + `todo_write` + readline chat + JSONL persistence, loaded from `cordis.yml`. The sibling [`tui-agent`](../tui-agent/README.md) fixes the same agent composition to the full-screen terminal front door.
 
 ## Run it
 
@@ -52,7 +52,7 @@ This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads
 | `stdio-agent` (`@deepseek-ai/dsh-stdio-demo`) | the app bundle: the agent-spine demo + JSONL persistence + the configured terminal channel + a pre-created `main` agent. This leaf fixes `ui.mode` to `readline`; `tui-agent` owns the corresponding TUI leaf |
 | `subagent`, `subagent-spawn`, `subagent-fork` | the subagent provider registry plus the two in-process backends: a fresh child and a child seeded with the parent's completed-turn prefix |
 | `tool-subagent`, `tool-subagent-fork` | two model-facing `dsh-tool-subagent` loads, each bound to a different provider and exposed under a distinct tool name (`subagent`, `subagent_fork`) |
-| `workflow-workerthread`, `tool-workflow` | the worker-thread workflow engine and its model-facing `workflow` tool, with child calls routed through the spawn backend |
+| `workflow-workerthread`, `tool-workflow`, `tool-ralph` | the worker-thread engine, general model-written `workflow` tool, and separate fixed fresh-agent `ralph` consumer, with children routed through spawn |
 | `tool-todo` | the model-facing `todo_write` tool; writes the whole task list to the session log and renders as a persistent TUI plan or readline checklist |
 | `fs-local`, `fs-policy`, `tool-fs` | the filesystem stack: the local `ctx.fs` provider, the read-before-write/edit policy gate (on the `fs/*` event gate), and the model-facing `read`/`write`/`edit` tools. Relative paths resolve against the session workspace |
 

@@ -232,6 +232,26 @@ describe('dsh-workflow-workerthread', () => {
       expect(provider.runs[0]!.request.agentOptions).toEqual({ provider: 'openai' })
     })
 
+    it('a start-request provider override selects every child without changing the engine default', async () => {
+      const { ctx, parent, provider } = await setup()
+      const selected = new StubProvider('selected', () => text('selected reply'))
+      ctx.subagents.registerProvider(selected)
+
+      const overridden = ctx.workflows.start({
+        ...scripted("return await agent('route this run')"),
+        parent,
+        subagentProvider: 'selected',
+      })
+      expect((await overridden.result).value).toBe('selected reply')
+      await overridden.dispose()
+      expect(selected.runs).toHaveLength(1)
+      expect(provider.runs).toHaveLength(0)
+
+      const ordinary = await run(ctx, parent, scripted("return await agent('use the default')"))
+      expect(ordinary.value).toBe('stub reply')
+      expect(provider.runs).toHaveLength(1)
+    })
+
     it('a fatal hook error inside the worker kills the script and reports the error', async () => {
       const { ctx, parent } = await setup()
       const result = await run(ctx, parent, scripted("return await parallel([() => agent('x', { isolation: 'worktree' })])"))

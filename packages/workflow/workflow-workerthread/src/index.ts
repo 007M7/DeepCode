@@ -137,6 +137,7 @@ class WorkerWorkflowEngine extends WorkflowService {
     // the now-inactive engine fiber and break the seam's holder-owned lifetime.
     const runCtx = this.ctx
     const subagents = runCtx.subagents
+    const subagentProvider = request.subagentProvider ?? this.config.provider
     const workerRun = new WorkerRun(
       runCtx,
       subagents,
@@ -144,7 +145,7 @@ class WorkerWorkflowEngine extends WorkflowService {
       meta,
       request.parent,
       init,
-      this.config.provider,
+      subagentProvider,
       this.config.disposeGraceMs,
       {
         phase: (title) => { this.emitWorkflowEvent('workflow/phase', info, title) },

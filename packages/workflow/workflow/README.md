@@ -10,7 +10,7 @@ The workflow seam (`ctx.workflows`) executes a model-written orchestration scrip
 
 A run is holder-owned. Engine-plugin unload prevents new starts but does not revoke accepted runs. The holder must call `dispose()` on every path; disposal cancels remaining work and reaches or abandons quiescence within the documented bound.
 
-`WorkflowStartRequest` contains `{ meta, script, args?, parent, signal? }`. `parent` attributes every child agent to the invoking agent. `meta` and `args` are plain data, not script fragments.
+`WorkflowStartRequest` contains `{ meta, script, args?, subagentProvider?, parent, signal? }`. `parent` attributes every child agent to the invoking agent. `subagentProvider` optionally routes every child in that run without exposing provider choice to the script; omission uses the engine's configured provider. `meta` and `args` are plain data, not script fragments.
 
 `WorkflowRun` exposes `{ id, meta, result, cancel(reason?), dispose() }`. `WorkflowResult` contains `{ value, stopReason, error?, agentsStarted }`; `value` is plain JSON data or `null`.
 
