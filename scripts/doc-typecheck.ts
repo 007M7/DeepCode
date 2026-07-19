@@ -1,6 +1,6 @@
 /**
  * Typecheck Markdown `ts` fences against the workspace API. `ignore-check` fences are reported as
- * opt-outs; generated catalog fragments and `type-equiv` blocks are skipped here because their
+ * opt-outs; generated catalog fragments and source-equivalence blocks are skipped here because their
  * owning gates verify them. A build-coordinated mode consumes existing declarations without emit.
  */
 
@@ -33,6 +33,7 @@ const KIND_BY_INFO: Record<string, BlockKind> = {
   'ts': 'check',
   'ts ignore-check': 'ignore',
   'ts type-equiv': 'type-equiv',
+  'ts public-api': 'type-equiv',
   'ts cordis-catalog': 'cordis-catalog',
   'ts persistence-catalog': 'persistence-catalog',
   'ts config-catalog': 'config-catalog',

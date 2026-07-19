@@ -145,13 +145,13 @@ Pick the tag that matches the urgency so anyone scanning the code can tell a rel
 
 ## Documenting types verbatim (`ts type-equiv`)
 
-The [core data structures](core-data-structures/core.md) docs paste real type declarations together with their original JSDoc so a reader sees the exact shape and source contract. To keep a paste from drifting when source changes, fence it as ` ```ts type-equiv ` (instead of ` ```ts `) and register it in `scripts/type-equiv.manifest.json` with the source file and symbol it mirrors:
+The [core data structures](core-data-structures/core.md) docs paste source-equivalent declarations together with their original JSDoc so a reader sees the exact shape and source contract. To keep a paste from drifting when source changes, fence it as ` ```ts type-equiv ` (instead of ` ```ts `) and register it in `scripts/type-equiv.manifest.json` with the source file and symbol it mirrors:
 
 ```json
 { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" }
 ```
 
-`pnpm run verify-type-equiv` (part of `doc-sync`) then extracts that symbol's declaration and attached JSDoc from source via the TypeScript parser and asserts the block matches both. Comparison ignores whitespace and non-JSDoc comments but requires every original JSDoc comment, including member documentation, so readers see the source contract beside the exact shape. The gate also enforces a 1:1 correspondence: every `ts type-equiv` block has exactly one manifest entry and vice-versa, so a block can't go silently unchecked and a stale entry can't linger. `doc-typecheck` skips `ts type-equiv` blocks (they aren't standalone-compilable) and excludes them from its opt-out ratio. When you change a documented declaration or its JSDoc, the gate fails until you update the paste; when you add or remove a block, update the manifest in the same change.
+`pnpm run verify-type-equiv` (part of `doc-sync`) then extracts that symbol's declaration and attached JSDoc from source via the TypeScript parser and asserts the block matches both. For a class whose implementation bodies do not belong in the catalog, use ` ```ts public-api ` and set `"projection": "public-api"`; the checked projection retains the public fields, constructor, accessors, methods, and original class/member JSDoc while omitting bodies and private or protected members. Comparison ignores whitespace and non-JSDoc comments but requires every original JSDoc comment, including member documentation, so readers see the source contract beside the exact shape. The gate also enforces a 1:1 correspondence by document, symbol, and projection, so a block can't go silently unchecked and a stale entry can't linger. `doc-typecheck` skips both fence kinds (they aren't standalone-compilable) and excludes them from its opt-out ratio. When you change a documented declaration or its JSDoc, the gate fails until you update the paste; when you add or remove a block, update the manifest in the same change.
 
 ## Architecture context
 
