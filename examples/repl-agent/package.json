@@ -1,5 +1,5 @@
 {
-  "name": "coding-agent-example",
+  "name": "repl-agent-example",
   "private": true,
   "version": "0.0.1",
   "type": "module",

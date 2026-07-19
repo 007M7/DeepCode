@@ -25,7 +25,7 @@ import * as WorkspaceContext from '@deepseek-ai/dsh-workspace-context'
  * each `tool/code-dispatch`. The keyless Loader smoke is in the sibling test.
  */
 
-const PERSONA = 'You are coding-agent. You work by writing TypeScript programs for run_code: '
+const PERSONA = 'You are a coding agent. You work by writing TypeScript programs for run_code: '
   + 'batch related tool work into one program and print or return ONLY the findings that matter.'
 const WORKSPACE_PROBE = 'dragonfruit-8675309'
 
