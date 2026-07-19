@@ -103,14 +103,14 @@ const SCENARIOS: Scenario[] = [
     configPath: WORKSPACE_CONTEXT_CONFIG,
   },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
-  { name: 'subagent-spawn', hasModelTurn: true, recorded: true, childSessions: 1 },
-  { name: 'subagent-multi', hasModelTurn: true, recorded: true, childSessions: 2 },
-  { name: 'subagent-fork', hasModelTurn: true, recorded: true, childSessions: 1 },
-  { name: 'subagent-mixed', hasModelTurn: true, recorded: true, childSessions: 2 },
+  { name: 'subagent-spawn', hasModelTurn: true, recorded: true },
+  { name: 'subagent-multi', hasModelTurn: true, recorded: true },
+  { name: 'subagent-fork', hasModelTurn: true, recorded: true },
+  { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
   // The workflow tool: the model writes a one-child orchestration script; the
   // child runs as a spawn subagent under the worker-thread engine (its session is the
   // child fixture), and the tool result carries the script's return value.
-  { name: 'workflow-run', hasModelTurn: true, recorded: true, childSessions: 1 },
+  { name: 'workflow-run', hasModelTurn: true, recorded: true },
   // Authored counterpart to the packaged Python SDK snapshot: mount a live marker, inspect it
   // through Code Mode, run direct and workflow children, then unmount it. The extra Code Mode and
   // Cordis plugins require their own request-header pin; the fixture tests deterministic composition.
@@ -118,7 +118,6 @@ const SCENARIOS: Scenario[] = [
     name: 'advanced-toolchain',
     hasModelTurn: true,
     recorded: false,
-    childSessions: 2,
     pinsHeader: true,
     headerClass: 'advanced',
     configPath: ADVANCED_CONFIG,
@@ -135,9 +134,6 @@ const SCENARIOS: Scenario[] = [
   { name: 'hook-cc-promptsubmit-context', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-deny', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-ask', hasModelTurn: true, recorded: true },
-  // TODO(hook-snapshot-noise): re-record the PostToolUse block fixtures with a
-  // self-limiting prompt or hook so one rejected result proves the seam without
-  // repeated block/retry cycles in the committed JSONL.
   { name: 'hook-cc-posttool-block', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-posttool-context', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-stop-continue', hasModelTurn: true, recorded: true },

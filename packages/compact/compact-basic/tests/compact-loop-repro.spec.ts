@@ -4,13 +4,13 @@ import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-a
 import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { AgentId } from '@deepseek-ai/dsh-agent'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
-import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type SurfaceEvent } from '@deepseek-ai/dsh-session'
 
 /**
  * CBR-001 regression through the real loop. A replacement checkpoint has a high
@@ -83,7 +83,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
   return { ctx, compact }
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -98,7 +98,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
   it('the head checkpoint the loop lands is a balanced cut on both sides', async () => {
     const { ctx } = await harness(8)
     try {
-      const agent = ctx.agentLoop.create(AgentId('repro'), { provider: 'mock', model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('repro'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'do a long multi-step task' }])
       await waitForIdle(ctx, agent)
 

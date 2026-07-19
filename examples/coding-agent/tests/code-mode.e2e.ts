@@ -8,8 +8,9 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
-import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -72,7 +73,7 @@ async function workspaceCodeModeHarness(): Promise<Context> {
   return harness
 }
 
-function waitForIdle(harness: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(harness: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = harness.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -87,7 +88,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
   it('collapses the wire tool list to [run_code], bridges sub-calls, and returns curated output', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-e2e-'))
     ctx = await codeModeHarness(workdir)
-    const agent = ctx.agentLoop.create(AgentId('e2e-code-mode'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('e2e-code-mode'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',
@@ -136,7 +137,6 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     await writeFile(join(workdir, 'pkg/deep/task.txt'), 'Touch this file to discover the nested instructions.\n')
     ctx = await workspaceCodeModeHarness()
     const handle = await ctx.agents.create({
-      agentId: AgentId('e2e-code-mode-workspace'),
       sessionId: SessionId('e2e-code-mode-workspace-session'),
       meta: { cwd: workdir },
       agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
@@ -146,7 +146,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
       type: 'text',
       text: 'Use one run_code program to call tools.read on pkg/deep/task.txt. After it finishes, answer: Code Mode workspace handshake?',
     }])
-    await waitForIdle(ctx, handle.agent as ReactLoopAgent)
+    await waitForIdle(ctx, handle.agent)
 
     const events: SessionEvent[] = [...handle.agent.session.events]
     const dispatch = events.find(event => event.type === 'tool/code-dispatch' && event.data.name === 'read')

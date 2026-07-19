@@ -21,12 +21,8 @@ export interface SchemaProp {
   /** Enum of allowed values (strings only). */
   enum?: string[]
   /**
-   * Default value, emitted into the JSON Schema only (validation never applies
-   * it — see the validator note below).
-   *
-   * XXX(unused-default): no tool definition in the repo sets `default`; it rides
-   * into the wire schema for a model that no tool surfaces it to. Drop the field
-   * and its converter line unless a real tool needs a model-visible default.
+   * Model-visible JSON Schema default annotation. Validation does not apply it;
+   * dynamic tool mounts may supply it even though first-party definitions do not.
    */
   default?: unknown
   /** Nested properties for type: 'object'. */

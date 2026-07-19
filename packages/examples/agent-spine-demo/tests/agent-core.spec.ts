@@ -6,7 +6,7 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
-import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -86,10 +86,10 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-function waitForMainIdle(ctx: Context): Promise<void> {
+function waitForIdle(ctx: Context, target: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (agent, status) => {
-      if (agent.id === 'main' && status === 'idle') {
+      if (agent === target && status === 'idle') {
         dispose()
         resolve()
       }
@@ -129,17 +129,19 @@ describe('dsh-agent-spine-demo bundle', () => {
 
   it('defaults the agents list to empty (no pre-created agents)', async () => {
     const ctx = await mount({ workspaceContext: false })
-    expect(ctx.get('agents')?.get(AgentId('main'))).toBeUndefined()
+    expect(ctx.get('agents')?.get(SessionId('main'))).toBeUndefined()
     await ctx.fiber.dispose()
   })
 
   it('forwards a pre-created agent to the loop and the persona to system-prompt', async () => {
     const ctx = await mount({
-      agents: [{ id: AgentId('main'), provider: 'mock', model: 'mock' }],
+      agents: [{ id: SessionId('main'), provider: 'mock', model: 'mock' }],
       persona: 'You are main.',
       workspaceContext: false,
     })
-    expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
+    const agent = ctx.get('agents')?.list()[0]
+    expect(agent?.id).toBe(agent?.session.id)
+    expect(agent?.id).toMatch(/^main-session-/)
     const assembly = await ctx.get('systemPrompt')!.assemble()
     expect(assembly.sections.find(s => s.name === 'deployment:persona')?.text).toBe('You are main.')
     await ctx.fiber.dispose()
@@ -147,7 +149,7 @@ describe('dsh-agent-spine-demo bundle', () => {
 
   it('forwards the global maxParallelToolCalls config to agent-loop', async () => {
     const ctx = await mount({
-      agents: [{ id: AgentId('main'), provider: 'mock', model: 'mock' }],
+      agents: [{ id: SessionId('main'), provider: 'mock', model: 'mock' }],
       maxParallelToolCalls: 3,
       workspaceContext: false,
     })
@@ -178,7 +180,6 @@ describe('dsh-agent-spine-demo bundle', () => {
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       ctx.llm.registerAdapter(['mock'], adapter)
       const handle = await ctx.agents.create({
-        agentId: AgentId('main'),
         sessionId: SessionId('main-session'),
         meta: { cwd: root },
         agentOptions: { provider: 'mock', model: 'mock' },
@@ -186,7 +187,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       const agent = handle.agent
 
       agent.send([{ type: 'text', text: 'hi' }])
-      await waitForMainIdle(ctx)
+      await waitForIdle(ctx, agent)
 
       const sentText = adapter.requests[0]?.messages.map(messageText).join('\n')
       expect(sentText).toContain('hi')
@@ -209,14 +210,13 @@ describe('dsh-agent-spine-demo bundle', () => {
       const ctx = await mount({ workspaceContext: { maxBytes: 0 } })
       ctx.llm.registerAdapter(['mock'], adapter)
       const handle = await ctx.agents.create({
-        agentId: AgentId('main'),
         sessionId: SessionId('main-disabled-session'),
         meta: { cwd: root },
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
       handle.agent.send([{ type: 'text', text: 'hi' }])
-      await waitForMainIdle(ctx)
+      await waitForIdle(ctx, handle.agent)
 
       expect(adapter.requests[0]?.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
       await handle.dispose()
@@ -299,14 +299,13 @@ describe('dsh-agent-spine-demo bundle', () => {
         content: 'body',
       })
       const handle = await ctx.agents.create({
-        agentId: AgentId('main'),
         sessionId: SessionId('prefix-order-session'),
         meta: { cwd: root },
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
       handle.agent.send([{ type: 'text', text: 'hi' }])
-      await waitForMainIdle(ctx)
+      await waitForIdle(ctx, handle.agent)
 
       expect(messageText(adapter.requests[0]?.messages[0])).toContain('workspace rule before skills')
       expect(messageText(adapter.requests[0]?.messages[1])).toContain('prefix-order-skill')
