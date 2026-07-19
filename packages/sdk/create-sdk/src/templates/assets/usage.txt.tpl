@@ -9,3 +9,6 @@ Options:
   --interface <acp|stdio|embed>
   --pm <npm|pnpm|yarn>
   --install / --no-install
+  --config <path>
+  --config-json <json>
+  --json
