@@ -56,9 +56,9 @@ export interface AcpRunSpec {
    */
   disposeEofGraceMs: number
   /**
-   * POSIX grace period (ms) between `SIGTERM` and `SIGKILL` in
-   * {@link SubagentRun.dispose}; unused on Windows. The plugin fills this from
-   * its `disposeGraceMs` config.
+   * Termination confirmation window (ms) in {@link SubagentRun.dispose}; POSIX applies it after
+   * `SIGTERM` and `SIGKILL`, while Windows applies it after direct forced termination. The plugin
+   * fills this from its `disposeGraceMs` config.
    */
   disposeGraceMs: number
   /**

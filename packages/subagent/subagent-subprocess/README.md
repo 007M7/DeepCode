@@ -20,9 +20,9 @@ The platform-aware dispose ladder resolves only once the child has ACTUALLY exit
 
 1. stdin EOF (when stdin is piped), then wait `graces.disposeEofGraceMs` — a cooperative child quiesces on its own, its flushes and nested-subprocess teardown intact;
 2. on POSIX, `SIGTERM`, then wait `graces.disposeGraceMs`;
-3. force termination and await exit — `SIGKILL` on POSIX and Node's `TerminateProcess` mapping on Windows.
+3. force termination — `SIGKILL` on POSIX and Node's `TerminateProcess` mapping on Windows — then wait at most `graces.disposeGraceMs` for exit; a signal error or missing exit rejects disposal.
 
-The two graces (`DisposeLadderGraces`) come from the consuming plugin's `disposeEofGraceMs`/`disposeGraceMs` Config fields; `disposeGraceMs` is unused on Windows because Node maps `SIGTERM` and `SIGKILL` to the same forced termination. The EOF window is deliberately separate and usually wider, since cooperative teardown may await a signal-trapping grandchild plus a final flush.
+The two graces (`DisposeLadderGraces`) come from the consuming plugin's `disposeEofGraceMs`/`disposeGraceMs` Config fields. POSIX uses `disposeGraceMs` after both the graceful and forced signals; Windows skips the redundant graceful signal but uses it to bound forced-exit confirmation. The EOF window is deliberately separate and usually wider, since cooperative teardown may await a signal-trapping grandchild plus a final flush.
 
 The exit waits are internal to this ladder. They clean up their timer and listener on either outcome, so escalation never accumulates listeners on the child.
 

@@ -234,6 +234,71 @@ describe('disposeChildProcess', () => {
     expect(fake.kills).toEqual(['SIGKILL'])
     expect(fake.signalCode).toBe('SIGKILL')
   })
+
+  it('propagates a forced-termination error without waiting for the grace', async () => {
+    const fake = new FakeChild()
+    const failure = Object.assign(new Error('kill EPERM'), { code: 'EPERM' })
+    vi.spyOn(fake, 'kill').mockImplementation((signal) => {
+      fake.kills.push(signal)
+      fake.emit('error', failure)
+      return false
+    })
+
+    await expect(disposeChildProcess(
+      asChild(fake),
+      { disposeEofGraceMs: 1, disposeGraceMs: 1000 },
+      'win32',
+    )).rejects.toBe(failure)
+    expect(fake.kills).toEqual(['SIGKILL'])
+    expect(fake.listenerCount('error')).toBe(0)
+    expect(fake.listenerCount('exit')).toBe(0)
+  })
+
+  it('wraps a synchronous forced-termination exception and removes its listeners', async () => {
+    const fake = new FakeChild()
+    const failure = new Error('invalid signal state')
+    vi.spyOn(fake, 'kill').mockImplementation(() => { throw failure })
+
+    await expect(disposeChildProcess(
+      asChild(fake),
+      { disposeEofGraceMs: 1, disposeGraceMs: 1000 },
+      'win32',
+    )).rejects.toMatchObject({ message: 'SIGKILL failed', cause: failure })
+    expect(fake.listenerCount('error')).toBe(0)
+    expect(fake.listenerCount('exit')).toBe(0)
+  })
+
+  it('bounds a refused forced termination that produces no error or exit', async () => {
+    const fake = new FakeChild()
+    vi.spyOn(fake, 'kill').mockImplementation((signal) => {
+      fake.kills.push(signal)
+      return false
+    })
+
+    await expect(disposeChildProcess(
+      asChild(fake),
+      { disposeEofGraceMs: 1, disposeGraceMs: 10 },
+      'win32',
+    )).rejects.toThrow('child process did not exit within 10ms after SIGKILL was refused')
+    expect(fake.listenerCount('error')).toBe(0)
+    expect(fake.listenerCount('exit')).toBe(0)
+  })
+
+  it('bounds an accepted forced termination that never reports exit', async () => {
+    const fake = new FakeChild()
+    vi.spyOn(fake, 'kill').mockImplementation((signal) => {
+      fake.kills.push(signal)
+      return true
+    })
+
+    await expect(disposeChildProcess(
+      asChild(fake),
+      { disposeEofGraceMs: 1, disposeGraceMs: 10 },
+      'win32',
+    )).rejects.toThrow('child process did not exit within 10ms after SIGKILL was accepted')
+    expect(fake.listenerCount('error')).toBe(0)
+    expect(fake.listenerCount('exit')).toBe(0)
+  })
 })
 
 describe('createIsolatedConfigDir', () => {

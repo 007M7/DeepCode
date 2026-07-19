@@ -866,7 +866,7 @@ export interface Config {
    * before the parent escalates to a signal.
    */
   disposeEofGraceMs?: number
-  /** POSIX grace period (ms) between `SIGTERM` and `SIGKILL`; unused on Windows. */
+  /** Termination confirmation window (ms), including forced exit on every platform. */
   disposeGraceMs?: number
 }
 
