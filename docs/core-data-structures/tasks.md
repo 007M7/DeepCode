@@ -1,6 +1,6 @@
 # Background Task Runtime
 
-Types shared by long-running producers, `ctx.tasks`, and task control surfaces. The [runtime RFC](../rfc/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) owns the design; this page records the literal shapes from [`packages/tasks/tasks/src/types.ts`](../../packages/tasks/tasks/src/types.ts).
+Types shared by long-running producers, `ctx.tasks`, and task control surfaces. The [runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) owns the design; this page records the literal shapes from [`packages/tasks/tasks/src/types.ts`](../../packages/tasks/tasks/src/types.ts).
 
 ## Ids and status
 

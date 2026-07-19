@@ -1,6 +1,6 @@
 # Human Commands
 
-The human-command seam of [`dsh-commands`](../../packages/ui/commands). TUI and ACP adapters use it to discover and directly execute plugin-owned commands for an exact agent without creating a model message. The [command RFC](../rfc/implemented/feature/2026-07-19-plugin-command-registration.md) owns dispatch and lifecycle rationale; the [package README](../../packages/ui/commands/README.md) owns composition and limitations.
+The human-command seam of [`dsh-commands`](../../packages/ui/commands). TUI and ACP adapters use it to discover and directly execute plugin-owned commands for an exact agent without creating a model message. The [command Agent Note](../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) owns dispatch and lifecycle rationale; the [package README](../../packages/ui/commands/README.md) owns composition and limitations.
 
 Source: [`packages/ui/commands/src/index.ts`](../../packages/ui/commands/src/index.ts)
 

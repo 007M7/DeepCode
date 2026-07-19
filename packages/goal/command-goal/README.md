@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-command-goal
 
-Human-facing `/goal` control over [`ctx.goals`](../goal/README.md). The plugin registers one global command through [`ctx.commands`](../../ui/commands/README.md); TUI and ACP discover and execute it without a model turn. The [human goal-command RFC](../../../docs/rfc/implemented/feature/2026-07-19-human-goal-command.md) owns the UX and composition decisions.
+Human-facing `/goal` control over [`ctx.goals`](../goal/README.md). The plugin registers one global command through [`ctx.commands`](../../ui/commands/README.md); TUI and ACP discover and execute it without a model turn. The [human goal-command Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-human-goal-command.md) owns the UX and composition decisions.
 
 ## Command contract
 

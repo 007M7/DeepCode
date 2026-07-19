@@ -1,6 +1,6 @@
 # `@deepseek-ai/dsh-helper`
 
-Shared project domain and infrastructure for `create-sdk` and `dsh-sdk config`. `SdkProject` is a read-only snapshot; `ProjectEditSession` is the only mutation and commit boundary. The [SDK architecture RFC](../../../docs/rfc/proposed/architecture/2026-07-15-sdk-project-editing-architecture.md) owns the rationale.
+Shared project domain and infrastructure for `create-sdk` and `dsh-sdk config`. `SdkProject` is a read-only snapshot; `ProjectEditSession` is the only mutation and commit boundary. The [SDK architecture Agent Note](../../../.agents/notes/proposed/architecture/2026-07-15-sdk-project-editing-architecture.md) owns the rationale.
 
 The package owns the builtin typed-spec catalog, provider/app behavior entities, structured project file objects, helper-owned project templates, the shared typed `TextTemplate` renderer, package-manager strategies, local-plugin blueprints, typed questions, and the clack prompt adapter. It never boots a Cordis application.
 
