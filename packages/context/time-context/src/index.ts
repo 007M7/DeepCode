@@ -8,7 +8,6 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { Message } from '@deepseek-ai/dsh-llm'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'time-context'
@@ -162,8 +161,6 @@ export function apply(ctx: Context, config: Config): void {
     agent: Agent,
     turn: number,
     step: number,
-    _fullSystemPrompt: string,
-    _sessionPrefix: readonly Message[],
     signal: AbortSignal,
   ) => {
     if (signal.aborted) return

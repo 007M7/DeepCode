@@ -37,11 +37,10 @@ export type { AgentUnderTest } from './launcher.ts'
  * (random) session id into a `{{sessionId}}` variable that later steps
  * reference, since a committed file cannot know the id in advance.
  *
- * `promptAndCancel` sends a prompt WITHOUT awaiting its response, waits until
- * the client observes the first streamed `agent_message_chunk` (so the emitted
- * frames deterministically precede the cancellation), then cancels the turn —
- * the only way to exercise a cancel deterministically (a plain `prompt` step
- * awaits the response, which a cancel/hang scenario would block on forever).
+ * `promptAndCancel` starts a prompt without awaiting completion, waits until
+ * the client observes the selected update (`agent_message_chunk` by default),
+ * then cancels and awaits completion. A named `waitForToolCallUpdate` keeps the
+ * step open for a terminal tool update that may follow the prompt response.
  */
 export type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
@@ -49,7 +48,12 @@ export type InputStep =
   | { op: 'newSessionExpectError'; additionalDirectories?: string[] }
   | { op: 'prompt'; text: string }
   | { op: 'promptExpectError'; text: string }
-  | { op: 'promptAndCancel'; text: string }
+  | {
+    op: 'promptAndCancel'
+    text: string
+    afterUpdate?: 'agent_message_chunk' | 'tool_call'
+    waitForToolCallUpdate?: string
+  }
   | { op: 'cancel' }
   | { op: 'setConfigOption'; configId: string; value: string }
   | { op: 'setConfigOptionExpectError'; configId: string; value: string }
@@ -342,17 +346,19 @@ async function runStep(
     case 'promptAndCancel': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: promptAndCancel before newSession')
-      // Dispatch the prompt WITHOUT awaiting (a hang fixture never resolves on
-      // its own). To pin frame order deterministically, wait until the client
-      // has OBSERVED the hang's streamed agent_message_chunk before cancelling —
-      // so those update frames always precede the cancelled prompt response in
-      // the transcript (without this, the late chunk and the response race).
-      // Then cancel and await the prompt, which the bridge settles as
-      // `cancelled` once the abort propagates.
+      // Dispatch without awaiting because the fixture does not settle on its
+      // own. Waiting for the selected update pins it before cancellation and
+      // the cancelled prompt response in the transcript.
       const promptDone = client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
-      await waitForUpdate(u => u.sessionUpdate === 'agent_message_chunk')
+      const afterUpdate = step.afterUpdate ?? 'agent_message_chunk'
+      await waitForUpdate(u => u.sessionUpdate === afterUpdate)
+      // Arm this before cancellation so a fast tool drain cannot outrun the waiter.
+      const toolCallUpdateDone = step.waitForToolCallUpdate === undefined
+        ? undefined
+        : waitForUpdate(u => u.sessionUpdate === 'tool_call_update' && u.toolCallId === step.waitForToolCallUpdate)
       await client.cancel({ sessionId })
       await promptDone
+      if (toolCallUpdateDone !== undefined) await toolCallUpdateDone
       return
     }
     case 'cancel': {

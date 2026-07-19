@@ -115,7 +115,7 @@ export class PiAiAdapter extends LlmAdapter {
         // Harness-owned and therefore win collisions.
         headers: requestHeaders(profile.headers),
       })
-      yield* toStreamChunks(events)
+      yield* toStreamChunks(events, model.contextWindow)
     } finally {
       options.signal?.removeEventListener('abort', onCallerAbort)
       controller.abort('consumer stopped streaming')
