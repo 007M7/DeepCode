@@ -5,7 +5,8 @@
  * @module @deepseek-ai/dsh-agent
  */
 
-import { Context, getTraceable, Service, symbols } from 'cordis'
+import { Context, FiberState, getTraceable, Service, symbols } from 'cordis'
+import type { Fiber } from 'cordis'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { isPromise } from 'node:util/types'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
@@ -190,6 +191,12 @@ interface AgentEntry {
   detachRequested: boolean
 }
 
+/** One tracked boundary plus its inherited nesting chain. */
+interface InitiatorRun {
+  active: boolean
+  readonly parent: InitiatorRun | undefined
+}
+
 /** Plain holder prevents Cordis from tracing the factory field before the caller context is known. */
 interface FactorySlot {
   readonly target: AgentFactory
@@ -205,6 +212,7 @@ export class AgentRegistry extends Service {
   private store = new Map<SessionId, AgentEntry>()
   private factory: FactorySlot | undefined
   private readonly initiators = new AsyncLocalStorage<Agent | undefined>()
+  private readonly initiatorRuns = new AsyncLocalStorage<InitiatorRun>()
   private initiatorState: 'active' | 'closing' | 'disposed' = 'active'
   private activeInitiatorRuns = 0
   private initiatorDrain: PromiseWithResolvers<void> | undefined
@@ -219,6 +227,11 @@ export class AgentRegistry extends Service {
     // accessor body never needs to resolve a scope itself. Effect-scoped:
     // unwinds with this service's fiber.
     ctx.accessor('agent', { get: () => undefined })
+    ctx.on('internal/status', (fiber) => {
+      if (fiber.state === FiberState.UNLOADING && this.hasLifecycleAncestor(fiber)) {
+        this.closeInitiators()
+      }
+    })
     ctx.effect(function* (this: AgentRegistry) {
       yield () => this.disposeInitiators()
       yield () => { this.closeInitiators() }
@@ -249,6 +262,8 @@ export class AgentRegistry extends Service {
   /**
    * Run an operation with one exact Agent as its process-local initiator. The
    * exact synchronous value or Promise returned by the operation is preserved.
+   * If its inherited async chain starts an owning-fiber unload, the nested
+   * boundary lineage is excluded from the drain so teardown cannot wait on itself.
    * @param agent - initiating Agent to inherit; presence is neither liveness proof nor authorization.
    * @param operation - synchronous or asynchronous operation to invoke.
    * @returns the exact value returned by `operation`.
@@ -261,6 +276,8 @@ export class AgentRegistry extends Service {
   /**
    * Run an operation inside a boundary that hides any inherited initiating
    * Agent. The exact synchronous value or Promise is preserved.
+   * If its inherited async chain starts an owning-fiber unload, the nested
+   * boundary lineage is excluded from the drain so teardown cannot wait on itself.
    * @param operation - synchronous or asynchronous operation to invoke without an initiator.
    * @returns the exact value returned by `operation`.
    * @throws when the initiator scope is closing/disposed, or when `operation` throws.
@@ -537,42 +554,77 @@ export class AgentRegistry extends Service {
   private disposeInitiators(): Promise<void> {
     return (this.initiatorDisposal ??= (async () => {
       this.closeInitiators()
+      this.releaseReentrantInitiatorRuns()
       if (this.activeInitiatorRuns !== 0) {
         this.initiatorDrain ??= Promise.withResolvers<void>()
         await this.initiatorDrain.promise
       }
       this.initiatorState = 'disposed'
       this.initiators.disable()
+      this.initiatorRuns.disable()
     })())
   }
 
   /** Establish one tracked initiator or clearing boundary. */
   private runWithInitiator<T>(agent: Agent | undefined, operation: () => T): T {
     if (this.initiatorState !== 'active') throw new Error(DISPOSED_INITIATOR_MESSAGE)
+    const run: InitiatorRun = {
+      active: true,
+      parent: this.initiatorRuns.getStore(),
+    }
     this.activeInitiatorRuns += 1
     let result: T
     try {
-      result = this.initiators.run(agent, operation)
+      result = this.initiatorRuns.run(run, () => this.initiators.run(agent, operation))
     } catch (error: unknown) {
-      this.releaseInitiatorRun()
+      this.releaseInitiatorRun(run)
       throw error
     }
     if (isPromise(result)) {
-      void result.then(
-        () => { this.releaseInitiatorRun() },
-        () => { this.releaseInitiatorRun() },
-      )
+      try {
+        void Promise.prototype.then.call(
+          result,
+          () => { this.releaseInitiatorRun(run) },
+          () => { this.releaseInitiatorRun(run) },
+        )
+      } catch {
+        // A branded Promise may expose a failing @@species. Observer setup did
+        // not attach, so preserve the exact return without leaking the run.
+        this.releaseInitiatorRun(run)
+      }
     } else {
-      this.releaseInitiatorRun()
+      this.releaseInitiatorRun(run)
     }
     return result
+  }
+
+  /** Whether one unloading fiber owns this service's lifecycle. */
+  private hasLifecycleAncestor(candidate: Fiber): boolean {
+    let fiber = this.ctx.fiber
+    while (true) {
+      if (fiber === candidate) return true
+      const parent = fiber.parent.fiber
+      if (parent === fiber) return false
+      fiber = parent
+    }
   }
 
   private assertInitiatorsReadable(): void {
     if (this.initiatorState === 'disposed') throw new Error(DISPOSED_INITIATOR_MESSAGE)
   }
 
-  private releaseInitiatorRun(): void {
+  /** Exclude the boundary chain that initiated this teardown from its own drain. */
+  private releaseReentrantInitiatorRuns(): void {
+    let run = this.initiatorRuns.getStore()
+    while (run !== undefined) {
+      this.releaseInitiatorRun(run)
+      run = run.parent
+    }
+  }
+
+  private releaseInitiatorRun(run: InitiatorRun): void {
+    if (!run.active) return
+    run.active = false
     this.activeInitiatorRuns -= 1
     if (this.activeInitiatorRuns !== 0) return
     this.initiatorDrain?.resolve()

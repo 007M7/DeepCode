@@ -12,7 +12,7 @@ Harness 中存在两种有用但不同的上下文概念。Cordis `Context` 负�
 
 ## 决策
 
-必需的 `ctx.agents` 服务使用 Node `AsyncLocalStorage` 携带发起 Agent。它直接存储同一个 `Agent`，不引入只有一个字段的帧；[核心数据目录](../../../core-data-structures/core.md#initiating-agent)标明了所携带的类型。
+必需的 `ctx.agents` 服务使用 Node `AsyncLocalStorage` 携带发起 Agent。它直接存储同一个 `Agent`，不引入只有一个字段的帧；另一个私有运行标记只记录嵌套边界的谱系，供 teardown 记账使用，不携带身份。[核心数据目录](../../../core-data-structures/core.md#initiating-agent)标明了所携带的类型。
 
 `currentInitiator()` 用于可选读取，`requireInitiator()` 抛出 `no initiating agent is active`，`withInitiator(agent, operation)` 保留操作返回的同步值或 Promise 本身。`withoutInitiator(operation)` 会建立清空边界，供不得继承 Agent 的工作使用。会话仍通过 `agent.session` 推导；轮次、步骤、工具调用、`signal`、模型、`cwd`、沙箱和授权继续由现有归属方管理。
 
@@ -20,7 +20,7 @@ Harness 中存在两种有用但不同的上下文概念。Cordis `Context` 负�
 
 隐式身份不会取代显式契约。`ToolExecution.agent`、`AssembleContext.agent`、`GenerateOptions.sessionId`、任务归属、父子请求、`ctx.agent`、`agentCtx.agent`、审批与 hook 主体、`cwd` 选择、取消、worker 和进程消息、持久化记录及协议身份都保持显式传递。远程边界会把所需身份写入类型化请求，因为 ALS 只在进程内有效。
 
-`AgentRegistry` 管理一个有序的发起方生命周期。teardown 会先拒绝新边界；移除 `ctx.agents` 后，AgentLoop 等注入方开始排空，注册表随后等待活动的返回 Promise 边界，最后调用 `AsyncLocalStorage.disable()`。排空期间，进行中代码可通过保留的服务引用继续调用 `currentInitiator()` 和 `requireInitiator()`；dispose 后，发起方方法会抛出 `agent initiator scope is disposed`。根 Context dispose 可能并发启动同级 fiber 的 teardown，因此除 Cordis 依赖顺序外仍必须统计活动边界。
+`AgentRegistry` 管理一个有序的发起方生命周期。teardown 会先拒绝新边界；移除 `ctx.agents` 后，AgentLoop 等注入方开始排空，注册表随后等待活动的返回 Promise 边界，最后调用 `AsyncLocalStorage.disable()`。如果某个边界继承的异步调用链启动所属 Cordis fiber 的卸载，私有运行标记谱系会从排空范围中释放该嵌套边界链，从而避免 teardown 等待自身完成，同时继续排空无关边界。在普通排空期间，进行中代码可通过保留的服务引用继续调用 `currentInitiator()` 和 `requireInitiator()`；dispose 后，发起方方法会抛出 `agent initiator scope is disposed`。根 Context dispose 可能并发启动同级 fiber 的 teardown，因此除 Cordis 依赖顺序外仍必须统计活动边界。
 
 发起方作用域不负责管理脱离返回链的工作：注册表排空只跟踪 `withInitiator()` 或 `withoutInitiator()` 返回的 Promise。边界内创建的异步资源会继承其存储，直到自身结束或 ALS 被禁用；所属 seam 必须显式停止未纳入返回 Promise 的工作。Agent 所有前台工作会把完整生命周期纳入返回值，并保留显式取消契约。无关的定时器、队列和部署基础设施在 `withoutInitiator(operation)` 下启动；队列、worker、进程和协议边界必须序列化身份，不能期待 ALS 传播。
 
@@ -30,7 +30,7 @@ Harness 中存在两种有用但不同的上下文概念。Cordis `Context` 负�
 
 ## 验证
 
-Agent 服务测试锁定可选与必需读取、同步值和跨 realm Promise 的引用身份、并发、嵌套及清空边界、同步抛错或 Promise 拒绝后的恢复、排空顺序及保留引用的错误。AgentLoop 集成测试锁定并发与嵌套驱动、无 Agent 调用、AgentRegistry 重启、根 Context 销毁，以及包内私有的循环和工具调度通过隐式查找完成。组合、模块图、构建及运行时闭包检查确保默认组合包、SDK 主干、Python 运行时闭包及直接 AgentLoop harness 通过 `ctx.agents` 完成接线，无需其他提供方。
+Agent 服务测试锁定可选与必需读取、同步值和跨 realm Promise 的引用身份、内建 Promise 结束状态观察、并发、嵌套及清空边界、同步抛错或 Promise 拒绝后的恢复、普通与重入排空顺序及保留引用的错误。AgentLoop 集成测试锁定并发与嵌套驱动、无 Agent 调用、AgentRegistry 重启、根 Context 销毁，以及包内私有的循环和工具调度通过隐式查找完成。组合、模块图、构建及运行时闭包检查确保默认组合包、SDK 主干、Python 运行时闭包及直接 AgentLoop harness 通过 `ctx.agents` 完成接线，无需其他提供方。
 
 测试替身形式的宿主感知传输层在内部推导 `X-Harness-Session-Id`，并验证工具 schema 与记录参数都不包含身份字段。服务有意不排空边界操作所返回 Promise 之外的异步工作；这类工作仍由所属方的显式停止契约管理。
 

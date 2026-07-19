@@ -68,6 +68,8 @@ requireInitiator(): Agent
 /**
  * Run an operation with one exact Agent as its process-local initiator. The
  * exact synchronous value or Promise returned by the operation is preserved.
+ * If its inherited async chain starts an owning-fiber unload, the nested
+ * boundary lineage is excluded from the drain so teardown cannot wait on itself.
  * @param agent - initiating Agent to inherit; presence is neither liveness proof nor authorization.
  * @param operation - synchronous or asynchronous operation to invoke.
  * @returns the exact value returned by `operation`.
@@ -78,6 +80,8 @@ withInitiator<T>(agent: Agent, operation: () => T): T
 /**
  * Run an operation inside a boundary that hides any inherited initiating
  * Agent. The exact synchronous value or Promise is preserved.
+ * If its inherited async chain starts an owning-fiber unload, the nested
+ * boundary lineage is excluded from the drain so teardown cannot wait on itself.
  * @param operation - synchronous or asynchronous operation to invoke without an initiator.
  * @returns the exact value returned by `operation`.
  * @throws when the initiator scope is closing/disposed, or when `operation` throws.
@@ -198,7 +202,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:204`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:211`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
