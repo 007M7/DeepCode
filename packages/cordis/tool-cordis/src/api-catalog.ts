@@ -63,8 +63,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'agents',
-    summary: 'Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package.',
+    summary: 'Agent service (`ctx.agents`): tracks live agents and carries the initiating Agent through one process-local asynchronous driver chain.',
     methods: [
+      'currentInitiator(): Agent | undefined',
+      'requireInitiator(): Agent',
+      'withInitiator<T>(agent: Agent, operation: () => T): T',
+      'withoutInitiator<T>(operation: () => T): T',
       'setFactory(factory: AgentFactory): () => void',
       'async create(options: CreateAgentOptions): Promise<AgentHandle>',
       'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',

@@ -48,9 +48,46 @@ Source: [`packages/core/agent-loop/src/index.ts:407`](../../packages/core/agent-
 
 ## `ctx.agents` — `AgentRegistry`
 
-Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package. Agent *creation* is provided by whichever plugin implements the AgentFactory (`@deepseek-ai/dsh-agent-loop`), registered via setFactory.
+Agent service (`ctx.agents`): tracks live agents and carries the initiating Agent through one process-local asynchronous driver chain. Agent *creation* is provided by whichever plugin implements the AgentFactory (`@deepseek-ai/dsh-agent-loop`), registered via setFactory.
 
 ```ts cordis-catalog
+/**
+ * Read the Agent that initiated the inherited asynchronous driver chain.
+ * @returns the inherited Agent, or `undefined` outside a driver and inside an explicit clearing boundary.
+ * @throws when this service instance has been disposed.
+ */
+currentInitiator(): Agent | undefined
+
+/**
+ * Read the initiating Agent and fail when no driver boundary is active.
+ * @returns the inherited Agent.
+ * @throws when no initiator is active or this service instance has been disposed.
+ */
+requireInitiator(): Agent
+
+/**
+ * Run an operation with one exact Agent as its process-local initiator. The
+ * exact synchronous value or Promise returned by the operation is preserved.
+ * If its inherited async chain starts an owning-fiber unload, the nested
+ * boundary lineage is excluded from the drain so teardown cannot wait on itself.
+ * @param agent - initiating Agent to inherit; presence is neither liveness proof nor authorization.
+ * @param operation - synchronous or asynchronous operation to invoke.
+ * @returns the exact value returned by `operation`.
+ * @throws when the initiator scope is closing/disposed, or when `operation` throws.
+ */
+withInitiator<T>(agent: Agent, operation: () => T): T
+
+/**
+ * Run an operation inside a boundary that hides any inherited initiating
+ * Agent. The exact synchronous value or Promise is preserved.
+ * If its inherited async chain starts an owning-fiber unload, the nested
+ * boundary lineage is excluded from the drain so teardown cannot wait on itself.
+ * @param operation - synchronous or asynchronous operation to invoke without an initiator.
+ * @returns the exact value returned by `operation`.
+ * @throws when the initiator scope is closing/disposed, or when `operation` throws.
+ */
+withoutInitiator<T>(operation: () => T): T
+
 /**
  * Register the agent-creation factory (the loop calls this on construction,
  * effect-scoped). A traced Cordis service is canonicalized to its concrete
@@ -165,7 +202,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:201`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:211`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
