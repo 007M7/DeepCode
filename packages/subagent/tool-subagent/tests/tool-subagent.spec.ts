@@ -9,18 +9,17 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import TaskService from '@deepseek-ai/dsh-tasks'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
-import * as mock from '@deepseek-ai/dsh-subagent-mock'
+import * as mock from './scripted-provider.ts'
 import * as tool from '../src/index.ts'
 import { runOutcome, settleRun } from '../src/index.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
 /**
  * Drives the REAL plugin body: mounts `dsh-tool-subagent` on a real
- * `ToolRegistry` + `SubagentService`, with the real `dsh-subagent-mock` as the
- * backend, and invokes the registered `subagent` tool through
- * `ctx.tools.execute`. The mock is the genuine collaborator (we mock only the
- * "child agent", the expensive/non-deterministic boundary) — everything
- * downstream of the tool is the shipping code path.
+ * `ToolRegistry` + `SubagentService`, with a package-local scripted child
+ * boundary, and invokes the registered `subagent` tool through
+ * `ctx.tools.execute`. Everything downstream of the child boundary is the
+ * shipping code path.
  */
 
 /** A minimal parent Agent — the tool reads `agent.id` for `parent`. */
@@ -33,7 +32,7 @@ async function setup(toolConfig: tool.Config, mockConfig: Partial<mock.Config> =
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(SubagentService)
-  await ctx.plugin(mock, { name: 'mock', ...mockConfig })
+  await mock.mountScriptedProvider(ctx, { name: 'mock', ...mockConfig })
   await ctx.plugin(tool, toolConfig)
   return ctx
 }
@@ -131,8 +130,8 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(SubagentService)
-    await ctx.plugin(mock, { name: 'spawn', reply: 'from spawn' })
-    await ctx.plugin(mock, { name: 'acp', reply: 'from acp' })
+    await mock.mountScriptedProvider(ctx, { name: 'spawn', reply: 'from spawn' })
+    await mock.mountScriptedProvider(ctx, { name: 'acp', reply: 'from acp' })
     await ctx.plugin(tool, { provider: 'spawn', toolName: 'subagent' })
     await ctx.plugin(tool, { provider: 'acp', toolName: 'subagent_acp' })
 
@@ -249,7 +248,7 @@ describe('dsh-tool-subagent', () => {
     tool.apply(ctx, { provider: 'mock' })
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(false)
     // Backend arrives (as a delayed sibling fiber would): the tool appears.
-    await ctx.plugin(mock, { name: 'mock', reply: 'late but fine' })
+    await mock.mountScriptedProvider(ctx, { name: 'mock', reply: 'late but fine' })
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
     expect(text(result)).toBe('late but fine')
@@ -260,7 +259,7 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(SubagentService)
-    const backend = await ctx.plugin(mock, { name: 'mock' }) // fresh conversation (descriptor: false)
+    const backend = await mock.mountScriptedProvider(ctx, { name: 'mock' }) // fresh conversation (descriptor: false)
     await ctx.plugin(tool, { provider: 'mock' })
     expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('does not see this conversation')
 
@@ -270,7 +269,7 @@ describe('dsh-tool-subagent', () => {
 
     // Backend reloads with a DIFFERENT conversation-history descriptor: the wording is re-derived
     // from the fresh provider, not served stale from the first mount.
-    await ctx.plugin(mock, { name: 'mock', inheritsParentContext: true })
+    await mock.mountScriptedProvider(ctx, { name: 'mock', inheritsParentContext: true })
     expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('inherits this conversation')
   })
 
@@ -281,7 +280,7 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(SubagentService)
 
     // Arm 1: a mounted tool dies with its plugin fiber; the provider survives.
-    await ctx.plugin(mock, { name: 'mock' })
+    await mock.mountScriptedProvider(ctx, { name: 'mock' })
     const mounted = await ctx.plugin(tool, { provider: 'mock' })
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
     await mounted.dispose()
@@ -293,7 +292,7 @@ describe('dsh-tool-subagent', () => {
     // live plugin owns (the zombie mount).
     const waiting = await ctx.plugin(tool, { provider: 'later', toolName: 'subagent_later' })
     await waiting.dispose()
-    await ctx.plugin(mock, { name: 'later' })
+    await mock.mountScriptedProvider(ctx, { name: 'later' })
     expect(ctx.tools.schemas().some(s => s.name === 'subagent_later')).toBe(false)
   })
 
@@ -302,11 +301,11 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(SubagentService)
-    await ctx.plugin(mock, { name: 'mock' })
+    await mock.mountScriptedProvider(ctx, { name: 'mock' })
     await ctx.plugin(tool, { provider: 'mock' })
     // An unrelated provider registering (added-event with another name) and
     // unregistering (removed-event with another name) must not touch the tool.
-    const other = await ctx.plugin(mock, { name: 'other', inheritsParentContext: true })
+    const other = await mock.mountScriptedProvider(ctx, { name: 'other', inheritsParentContext: true })
     expect(ctx.tools.schemas().filter(s => s.name === 'subagent')).toHaveLength(1)
     expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('does not see this conversation')
     await other.dispose()
