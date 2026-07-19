@@ -30,6 +30,9 @@ export function mapUsage(usage: PiUsage): TokenUsage {
 function classifyPiAiError(message: string): string {
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
+  // TODO: Classify the full message with pi-ai's isContextOverflow() and the
+  // resolved model's contextWindow so provider-specific and usage-based overflows
+  // reach automatic compaction.
   if (isContextWindowExceededError(message)) return CONTEXT_WINDOW_EXCEEDED_CODE
   if (/\b400\b|invalid.?request/i.test(message)) return 'INVALID_REQUEST'
   if (/\b5\d\d\b/.test(message)) return 'SERVER'
