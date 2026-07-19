@@ -14,7 +14,6 @@ import SystemPrompt, { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import type { Config as SystemPromptConfig } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
@@ -25,7 +24,6 @@ async function harness(adapter: MockAdapter, toolOrder?: SystemPromptConfig['too
   await ctx.plugin(SystemPrompt, { persona: 'stable base', ...toolOrder !== undefined ? { toolOrder } : {} })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentExecutionProvider)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx

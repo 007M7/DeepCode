@@ -5,7 +5,6 @@ import SessionStore, { SessionId, type TurnEndReason } from '@deepseek-ai/dsh-se
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent, type ContinuationStop } from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
@@ -18,7 +17,6 @@ async function harness(adapter: MockAdapter): Promise<Context> {
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(Invariants)
-  await ctx.plugin(AgentExecutionProvider)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx

@@ -8,7 +8,6 @@ import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import LlmService, { CallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { type Agent, type HookContext } from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -1587,7 +1586,6 @@ describe('dynamic nested workspace context injection', () => {
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRegistry)
       await ctx.plugin(AgentRegistry)
-      await ctx.plugin(AgentExecutionProvider)
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       await ctx.plugin(ToolFs)
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })

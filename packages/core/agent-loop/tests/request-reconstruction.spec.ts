@@ -13,7 +13,6 @@ import SessionStore, { Session, SessionId, foldRequestHeader } from '@deepseek-a
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
@@ -24,7 +23,6 @@ async function harness(adapter: MockAdapter, persona = 'stable base') {
   await ctx.plugin(SystemPrompt, { persona })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentExecutionProvider)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx

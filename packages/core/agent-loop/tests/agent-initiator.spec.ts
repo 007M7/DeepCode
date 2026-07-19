@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Context, FiberState, type Fiber } from 'cordis'
+import { Context, type Fiber } from 'cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
-import type { AgentExecutionService } from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LlmService, { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -13,7 +11,7 @@ import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 interface Harness {
   ctx: Context
-  providerFiber: Fiber
+  agentsFiber: Fiber
   loopFiber: Fiber
 }
 
@@ -23,11 +21,10 @@ async function harness(adapter: LlmAdapter): Promise<Harness> {
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
-  const providerFiber = await ctx.plugin(AgentExecutionProvider)
+  const agentsFiber = await ctx.plugin(AgentRegistry)
   const loopFiber = await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
-  return { ctx, providerFiber, loopFiber }
+  return { ctx, agentsFiber, loopFiber }
 }
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
@@ -56,12 +53,12 @@ class OverlapAdapter extends LlmAdapter {
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const before = this.ctx.agentExecution.require().agent
+    const before = this.ctx.agents.requireInitiator()
     this.starts += 1
     if (this.starts === 2) this.bothStarted.resolve(true)
     await this.bothStarted.promise
     await Promise.resolve()
-    const after = this.ctx.agentExecution.require().agent
+    const after = this.ctx.agents.requireInitiator()
     this.observations.push({ sessionId: options.sessionId, before, after })
     yield* textResponse('done')
   }
@@ -71,12 +68,12 @@ class OverlapAdapter extends LlmAdapter {
 class TestCapabilityTransport {
   readonly requests: { path: string; headers: Record<string, string> }[] = []
 
-  constructor(private readonly execution: AgentExecutionService) {}
+  constructor(private readonly agents: AgentRegistry) {}
 
   async request(path: string): Promise<Record<string, string>> {
     await Promise.resolve()
     const headers = {
-      'X-Harness-Session-Id': this.execution.require().agent.session.id,
+      'X-Harness-Session-Id': this.agents.requireInitiator().session.id,
     }
     this.requests.push({ path, headers })
     return headers
@@ -89,11 +86,11 @@ class ReloadAdapter extends LlmAdapter {
   firstAgentDuringAbort: Agent | undefined
   laterAgent: Agent | undefined
   calls = 0
-  execution: AgentExecutionService | undefined
+  agents: AgentRegistry | undefined
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const execution = this.execution
-    if (execution === undefined) throw new Error('execution service missing')
+    const agents = this.agents
+    if (agents === undefined) throw new Error('agent service missing')
     this.calls += 1
     if (this.calls === 1) {
       this.firstStarted.resolve(true)
@@ -105,18 +102,18 @@ class ReloadAdapter extends LlmAdapter {
         })
       } catch (error: unknown) {
         await Promise.resolve()
-        this.firstAgentDuringAbort = execution.require().agent
+        this.firstAgentDuringAbort = agents.requireInitiator()
         throw error
       }
       return
     }
     await Promise.resolve()
-    this.laterAgent = execution.require().agent
+    this.laterAgent = agents.requireInitiator()
     yield* textResponse('reloaded')
   }
 }
 
-describe('AgentLoop execution context', () => {
+describe('AgentLoop initiator scope', () => {
   it('keeps overlapping driver continuations bound to their exact Agents', async () => {
     const ctx = new Context()
     const adapter = new OverlapAdapter(ctx)
@@ -125,7 +122,6 @@ describe('AgentLoop execution context', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(AgentLoop, { agents: [] })
     ctx.llm.registerAdapter(['mock'], adapter)
 
@@ -142,7 +138,7 @@ describe('AgentLoop execution context', () => {
       { sessionId: a.session.id, before: a, after: a },
       { sessionId: b.session.id, before: b, after: b },
     ]))
-    expect(ctx.agentExecution.current()).toBeUndefined()
+    expect(ctx.agents.currentInitiator()).toBeUndefined()
     await ctx.fiber.dispose()
   })
 
@@ -170,7 +166,7 @@ describe('AgentLoop execution context', () => {
           sessionId: SessionId('child-session'),
           agentOptions: { provider: 'mock', model: 'mock' },
           setup: (agentCtx) => {
-            parentDuringSetup = ctx.agentExecution.require().agent
+            parentDuringSetup = ctx.agents.requireInitiator()
             explicitChild = agentCtx.agent
             agentCtx.tools.register(defineTool({
               name: 'observe-child',
@@ -178,7 +174,7 @@ describe('AgentLoop execution context', () => {
               parameters: {},
               execute: async () => {
                 await Promise.resolve()
-                childDuringDriver = ctx.agentExecution.require().agent
+                childDuringDriver = ctx.agents.requireInitiator()
                 return [{ type: 'text', text: 'observed' }]
               },
             }))
@@ -187,7 +183,7 @@ describe('AgentLoop execution context', () => {
         child = handle.agent
         send(handle.agent, 'run child')
         await handle.agent.whenIdle()
-        parentAfterChild = ctx.agentExecution.require().agent
+        parentAfterChild = ctx.agents.requireInitiator()
         await handle.dispose()
         return [{ type: 'text', text: 'child completed' }]
       },
@@ -205,7 +201,7 @@ describe('AgentLoop execution context', () => {
     expect(explicitChild).toBe(child)
     expect(childDuringDriver).toBe(child)
     expect(parentAfterChild).toBe(parentHandle.agent)
-    expect(ctx.agentExecution.current()).toBeUndefined()
+    expect(ctx.agents.currentInitiator()).toBeUndefined()
     await parentHandle.dispose()
     await ctx.fiber.dispose()
   })
@@ -216,7 +212,7 @@ describe('AgentLoop execution context', () => {
       textResponse('done'),
     ])
     const { ctx } = await harness(adapter)
-    const transport = new TestCapabilityTransport(ctx.agentExecution)
+    const transport = new TestCapabilityTransport(ctx.agents)
     let directAmbient: Agent | undefined
     let captured: Agent | undefined
 
@@ -226,7 +222,7 @@ describe('AgentLoop execution context', () => {
       parameters: {},
       execute: async () => {
         await Promise.resolve()
-        directAmbient = ctx.agentExecution.current()?.agent
+        directAmbient = ctx.agents.currentInitiator()
         return [{ type: 'text', text: 'ok' }]
       },
     }))
@@ -235,7 +231,7 @@ describe('AgentLoop execution context', () => {
       description: 'call the test capability transport',
       parameters: { path: { type: 'string' } },
       execute: async (args) => {
-        captured = ctx.agentExecution.require().agent
+        captured = ctx.agents.requireInitiator()
         const path = (args as { path: string }).path
         const headers = await transport.request(path)
         return [{ type: 'text', text: JSON.stringify(headers) }]
@@ -271,43 +267,15 @@ describe('AgentLoop execution context', () => {
 
     await handle.dispose()
     expect(captured?.status).toBe('disposed')
-    expect(ctx.agentExecution.current()).toBeUndefined()
+    expect(ctx.agents.currentInitiator()).toBeUndefined()
     await ctx.fiber.dispose()
   })
 
-  it('keeps AgentLoop inactive until the mandatory provider appears', async () => {
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(AgentRegistry)
-    const loopFiber = ctx.plugin(AgentLoop, { agents: [] })
-    await Promise.resolve()
-    expect(loopFiber.state).toBe(FiberState.PENDING)
-
-    await ctx.plugin(AgentExecutionProvider)
-    await loopFiber
-    expect(loopFiber.state).toBe(FiberState.ACTIVE)
-    await ctx.fiber.dispose()
-  })
-
-  it('drains the old driver before disabling ALS during provider restart', async () => {
-    const ctx = new Context()
+  it('drains the old driver before disabling ALS during agent-service restart', async () => {
     const adapter = new ReloadAdapter()
-    const { providerFiber, loopFiber } = await (async (): Promise<Harness> => {
-      await ctx.plugin(LlmService)
-      await ctx.plugin(SessionStore)
-      await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRegistry)
-      await ctx.plugin(AgentRegistry)
-      const mountedProvider = await ctx.plugin(AgentExecutionProvider)
-      const mountedLoop = await ctx.plugin(AgentLoop, { agents: [] })
-      ctx.llm.registerAdapter(['mock'], adapter)
-      return { ctx, providerFiber: mountedProvider, loopFiber: mountedLoop }
-    })()
-    const oldService = ctx.agentExecution
-    adapter.execution = oldService
+    const { ctx, agentsFiber, loopFiber } = await harness(adapter)
+    const oldService = ctx.agents
+    adapter.agents = oldService
     const oldHandle = await ctx.agents.create({
       sessionId: SessionId('before-restart-session'),
       agentOptions: { provider: 'mock', model: 'mock' },
@@ -316,14 +284,14 @@ describe('AgentLoop execution context', () => {
     send(oldAgent, 'block')
     await adapter.firstStarted.promise
 
-    await providerFiber.restart()
+    await agentsFiber.restart()
     await loopFiber.await()
     expect(adapter.firstAgentDuringAbort?.id).toBe(oldAgent.id)
     expect(adapter.firstAgentDuringAbort?.session).toBe(oldAgent.session)
     expect(oldAgent.status).toBe('disposed')
-    expect(() => oldService.current()).toThrow('agent execution service is disposed')
-    expect(ctx.agentExecution).not.toBe(oldService)
-    adapter.execution = ctx.agentExecution
+    expect(() => oldService.currentInitiator()).toThrow('agent initiator scope is disposed')
+    expect(ctx.agents).not.toBe(oldService)
+    adapter.agents = ctx.agents
 
     const newHandle = await ctx.agents.create({
       sessionId: SessionId('after-restart-session'),
@@ -346,11 +314,10 @@ describe('AgentLoop execution context', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(AgentLoop, { agents: [] })
     ctx.llm.registerAdapter(['mock'], adapter)
-    const service = ctx.agentExecution
-    adapter.execution = service
+    const service = ctx.agents
+    adapter.agents = service
     const handle = await ctx.agents.create({
       sessionId: SessionId('root-dispose-session'),
       agentOptions: { provider: 'mock', model: 'mock' },
@@ -363,6 +330,6 @@ describe('AgentLoop execution context', () => {
     expect(adapter.firstAgentDuringAbort?.id).toBe(agent.id)
     expect(adapter.firstAgentDuringAbort?.session).toBe(agent.session)
     expect(agent.status).toBe('disposed')
-    expect(() => service.current()).toThrow('agent execution service is disposed')
+    expect(() => service.currentInitiator()).toThrow('agent initiator scope is disposed')
   })
 })

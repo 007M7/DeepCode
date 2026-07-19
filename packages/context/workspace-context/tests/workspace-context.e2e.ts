@@ -9,7 +9,6 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import * as WorkspaceContext from '@deepseek-ai/dsh-workspace-context'
@@ -44,7 +43,6 @@ async function harness(): Promise<{ ctx: Context; agent: Agent }> {
   await ctx.plugin(LocalFileSystem, { cwd: '/' })
   await ctx.plugin(ToolFs)
   await ctx.plugin(WorkspaceContext, { maxBytes: 65536 })
-  await ctx.plugin(AgentExecutionProvider)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LlmDeepSeek, { models: [{ id: 'deepseek-v4-flash' }] })
   const handle = await ctx.agents.create({

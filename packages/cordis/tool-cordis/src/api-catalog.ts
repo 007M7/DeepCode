@@ -53,15 +53,6 @@ export interface TypeApiEntry {
 /** Every harness `ctx.<key>` service, sorted by key. */
 export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
-    key: 'agentExecution',
-    summary: 'Ambient Agent identity within one process-local asynchronous chain.',
-    methods: [
-      'current(): AgentExecution | undefined',
-      'require(): AgentExecution',
-      'run<T>(execution: AgentExecution | undefined, operation: () => T): T',
-    ],
-  },
-  {
     key: 'agentLoop',
     summary: 'Concrete agent factory and driver service.',
     methods: [
@@ -72,8 +63,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'agents',
-    summary: 'Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package.',
+    summary: 'Agent service (`ctx.agents`): tracks live agents and carries the initiating Agent through one process-local asynchronous driver chain.',
     methods: [
+      'currentInitiator(): Agent | undefined',
+      'requireInitiator(): Agent',
+      'withInitiator<T>(agent: Agent, operation: () => T): T',
+      'withoutInitiator<T>(operation: () => T): T',
       'setFactory(factory: AgentFactory): () => void',
       'async create(options: CreateAgentOptions): Promise<AgentHandle>',
       'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
@@ -551,10 +546,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Agent',
     declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: InjectOptions): void;\n    cancel(reason?: string): void;\n    whenIdle(): Promise<void>;\n}',
-  },
-  {
-    name: 'AgentExecution',
-    declaration: 'export interface AgentExecution {\n    readonly agent: Agent;\n}',
   },
   {
     name: 'AgentFactory',

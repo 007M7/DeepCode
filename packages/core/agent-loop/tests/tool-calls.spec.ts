@@ -11,7 +11,6 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmService from '@deepseek-ai/dsh-llm'
 import ToolRegistry, { defineTool, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
@@ -22,7 +21,6 @@ async function harness(adapter: MockAdapter, maxParallelToolCalls?: number) {
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentExecutionProvider)
   await ctx.plugin(AgentLoop, {
     agents: [],
     ...maxParallelToolCalls === undefined ? {} : { maxParallelToolCalls },
@@ -346,7 +344,6 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     await ctx.plugin(SystemPrompt, { persona: '' })
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
     ctx.llm.registerAdapter(['mock'], adapter)
     const gated = gatedParallelTool('p')

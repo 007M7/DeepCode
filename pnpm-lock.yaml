@@ -435,9 +435,6 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
-      '@deepseek-ai/dsh-agent-execution':
-        specifier: workspace:^
-        version: link:../../core/agent-execution
       '@deepseek-ai/dsh-agent-loop':
         specifier: workspace:^
         version: link:../../core/agent-loop
@@ -533,15 +530,6 @@ importers:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
 
-  packages/core/agent-execution:
-    devDependencies:
-      '@deepseek-ai/dsh-agent':
-        specifier: workspace:^
-        version: link:../agent
-      cordis:
-        specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
-
   packages/core/agent-loop:
     dependencies:
       schemastery:
@@ -551,9 +539,6 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../agent
-      '@deepseek-ai/dsh-agent-execution':
-        specifier: workspace:^
-        version: link:../agent-execution
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -704,9 +689,6 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
-      '@deepseek-ai/dsh-agent-execution':
-        specifier: workspace:^
-        version: link:../../core/agent-execution
       '@deepseek-ai/dsh-agent-loop':
         specifier: workspace:^
         version: link:../../core/agent-loop
@@ -1698,9 +1680,6 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
-      '@deepseek-ai/dsh-agent-execution':
-        specifier: workspace:^
-        version: link:../../core/agent-execution
       '@deepseek-ai/dsh-agent-loop':
         specifier: workspace:^
         version: link:../../core/agent-loop
@@ -2353,9 +2332,6 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
-      '@deepseek-ai/dsh-agent-execution':
-        specifier: workspace:^
-        version: link:../../core/agent-execution
       '@deepseek-ai/dsh-agent-loop':
         specifier: workspace:^
         version: link:../../core/agent-loop
@@ -2413,9 +2389,6 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../packages/core/agent
-      '@deepseek-ai/dsh-agent-execution':
-        specifier: workspace:^
-        version: link:../../packages/core/agent-execution
       '@deepseek-ai/dsh-agent-loop':
         specifier: workspace:^
         version: link:../../packages/core/agent-loop

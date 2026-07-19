@@ -23,10 +23,6 @@
   ],
   "harness": [
     {
-      "text": "ctx.agentExecution",
-      "link": "/zh-CN/api/harness/agent-execution"
-    },
-    {
       "text": "ctx.agentLoop",
       "link": "/zh-CN/api/harness/agent-loop"
     },

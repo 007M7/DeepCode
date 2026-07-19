@@ -35,7 +35,7 @@ import { globSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import ts from 'typescript'
 import { checkParams, checkReturns, parseJsDoc, parseTags, pointer, rawJsDoc, reportViolations, type Mode } from './jsdoc.ts'
-import { cordisModuleBody, eventMembers, serviceDeclarations } from './cordis-walk.ts'
+import { cordisModuleBody, eventMembers, serviceClasses } from './cordis-walk.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -195,18 +195,6 @@ function isPublicInstance(member: ts.ClassElement): boolean {
   if (!member.name) return false
   if (ts.isComputedPropertyName(member.name) || ts.isPrivateIdentifier(member.name)) return false
   return !member.name.getText().startsWith('_')
-}
-
-type HarnessServiceMember = ts.MethodDeclaration | ts.MethodSignature | ts.PropertyDeclaration
-  | ts.PropertySignature | ts.GetAccessorDeclaration
-
-/** Whether a class/interface service member is renderable public API. */
-function isPublicServiceMember(member: HarnessServiceMember): boolean {
-  if (ts.isMethodSignature(member) || ts.isPropertySignature(member)) {
-    if (ts.isComputedPropertyName(member.name)) return false
-    return !member.name.getText().startsWith('_')
-  }
-  return isPublicInstance(member)
 }
 
 /** Whether a class member is renderable public STATIC API. */
@@ -465,15 +453,14 @@ function collectHarnessServices(violations: string[]): HarnessService[] {
     // Manifest shape is repo-owned; `name` is the one field read here.
     const manifest = JSON.parse(readFileSync(pkgJson, 'utf8')) as { name: string }
     const pkg = manifest.name
-    for (const { key, type, declaration, abstract, doc: declarationDoc } of serviceDeclarations(body, sf, rel, violations)) {
-      const groups = new Map<string, HarnessServiceMember[]>()
-      for (const member of declaration.members) {
+    for (const { key, type, cls, abstract, doc: clsDoc } of serviceClasses(body, sf, rel, violations)) {
+      const groups = new Map<string, (ts.MethodDeclaration | ts.PropertyDeclaration | ts.GetAccessorDeclaration)[]>()
+      for (const member of cls.members) {
         // Public properties are API too: ctx.codeRuntime.language/isolation
         // are readonly descriptors consumers key presentation off.
-        const renderable = ts.isMethodDeclaration(member) || ts.isMethodSignature(member)
-          || ts.isPropertyDeclaration(member) || ts.isPropertySignature(member) || ts.isGetAccessorDeclaration(member)
+        const renderable = ts.isMethodDeclaration(member) || ts.isPropertyDeclaration(member) || ts.isGetAccessorDeclaration(member)
         if (!renderable) continue
-        if (!isPublicServiceMember(member)) continue
+        if (!isPublicInstance(member)) continue
         const name = member.name.getText(sf)
         const group = groups.get(name) ?? []
         group.push(member)
@@ -481,7 +468,7 @@ function collectHarnessServices(violations: string[]): HarnessService[] {
       }
       const members = [...groups.entries()].map(([name, group]) =>
         memberDoc(`ctx.${key}.${name} (${rel})`, name, group, rel, violations))
-      services.push({ key, type, abstract, doc: declarationDoc, members, source: pointer(rel, sf, declaration), pkg })
+      services.push({ key, type, abstract, doc: clsDoc, members, source: pointer(rel, sf, cls), pkg })
     }
   }
   return services.sort((a, b) => a.key.localeCompare(b.key))

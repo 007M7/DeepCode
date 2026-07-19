@@ -18,7 +18,6 @@ import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools
 import SkillService, { type Config as SkillRegistryConfig } from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import TaskService from '@deepseek-ai/dsh-tasks'
 import * as invariants from '@deepseek-ai/dsh-invariants'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
@@ -154,7 +153,6 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(SkillService, config.skills?.registry ?? {})
   ctx.plugin(SkillLocal, Object.assign({}, config.skills?.local, { dshHome }))
   ctx.plugin(AgentRegistry)
-  ctx.plugin(AgentExecutionProvider)
   ctx.plugin(TaskService)
   ctx.plugin(invariants)
   ctx.plugin(toolBash, Object.assign({}, config.toolBash, { dshHome }))

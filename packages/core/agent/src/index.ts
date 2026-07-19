@@ -1,11 +1,13 @@
 /**
- * Agent registry service. Tracks live agents so plugins can find them without
- * depending on the concrete loop package. Agent creation belongs to the loop.
+ * Agent service: live registry, factory delegation, and process-local
+ * initiator scope. Concrete creation and driving belong to the loop.
  *
  * @module @deepseek-ai/dsh-agent
  */
 
 import { Context, getTraceable, Service, symbols } from 'cordis'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { isPromise } from 'node:util/types'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
@@ -173,6 +175,8 @@ export interface AgentFactory {
 
 /** Thrown when create/resume is called before an agent factory is registered. */
 const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plugin)'
+const NO_INITIATOR_MESSAGE = 'no initiating agent is active'
+const DISPOSED_INITIATOR_MESSAGE = 'agent initiator scope is disposed'
 
 /** All mutable lifecycle state for one exact registry entry. */
 interface AgentEntry {
@@ -192,15 +196,19 @@ interface FactorySlot {
 }
 
 /**
- * Agent registry (`ctx.agents`): tracks live agents so UI, hook, and
- * orchestrator plugins can find them without depending on the concrete loop
- * package. Agent *creation* is provided by whichever plugin implements the
- * {@link AgentFactory} (`@deepseek-ai/dsh-agent-loop`), registered via
- * {@link setFactory}.
+ * Agent service (`ctx.agents`): tracks live agents and carries the initiating
+ * Agent through one process-local asynchronous driver chain. Agent *creation*
+ * is provided by whichever plugin implements the {@link AgentFactory}
+ * (`@deepseek-ai/dsh-agent-loop`), registered via {@link setFactory}.
  */
 export class AgentRegistry extends Service {
   private store = new Map<SessionId, AgentEntry>()
   private factory: FactorySlot | undefined
+  private readonly initiators = new AsyncLocalStorage<Agent | undefined>()
+  private initiatorState: 'active' | 'closing' | 'disposed' = 'active'
+  private activeInitiatorRuns = 0
+  private initiatorDrain: PromiseWithResolvers<void> | undefined
+  private initiatorDisposal: Promise<void> | undefined
 
   constructor(ctx: Context) {
     super(ctx, 'agents')
@@ -211,6 +219,54 @@ export class AgentRegistry extends Service {
     // accessor body never needs to resolve a scope itself. Effect-scoped:
     // unwinds with this service's fiber.
     ctx.accessor('agent', { get: () => undefined })
+    ctx.effect(function* (this: AgentRegistry) {
+      yield () => this.disposeInitiators()
+      yield () => { this.closeInitiators() }
+    }.bind(this), 'agents.initiatorLifecycle()')
+  }
+
+  /**
+   * Read the Agent that initiated the inherited asynchronous driver chain.
+   * @returns the inherited Agent, or `undefined` outside a driver and inside an explicit clearing boundary.
+   * @throws when this service instance has been disposed.
+   */
+  currentInitiator(): Agent | undefined {
+    this.assertInitiatorsReadable()
+    return this.initiators.getStore()
+  }
+
+  /**
+   * Read the initiating Agent and fail when no driver boundary is active.
+   * @returns the inherited Agent.
+   * @throws when no initiator is active or this service instance has been disposed.
+   */
+  requireInitiator(): Agent {
+    const agent = this.currentInitiator()
+    if (agent === undefined) throw new Error(NO_INITIATOR_MESSAGE)
+    return agent
+  }
+
+  /**
+   * Run an operation with one exact Agent as its process-local initiator. The
+   * exact synchronous value or Promise returned by the operation is preserved.
+   * @param agent - initiating Agent to inherit; presence is neither liveness proof nor authorization.
+   * @param operation - synchronous or asynchronous operation to invoke.
+   * @returns the exact value returned by `operation`.
+   * @throws when the initiator scope is closing/disposed, or when `operation` throws.
+   */
+  withInitiator<T>(agent: Agent, operation: () => T): T {
+    return this.runWithInitiator(agent, operation)
+  }
+
+  /**
+   * Run an operation inside a boundary that hides any inherited initiating
+   * Agent. The exact synchronous value or Promise is preserved.
+   * @param operation - synchronous or asynchronous operation to invoke without an initiator.
+   * @returns the exact value returned by `operation`.
+   * @throws when the initiator scope is closing/disposed, or when `operation` throws.
+   */
+  withoutInitiator<T>(operation: () => T): T {
+    return this.runWithInitiator(undefined, operation)
   }
 
   /**
@@ -470,6 +526,57 @@ export class AgentRegistry extends Service {
     return [...this.store.values()]
       .filter(entry => entry.owner === undefined)
       .map(entry => entry.agent)
+  }
+
+  /** Reject new initiator boundaries while inherited continuations drain. */
+  private closeInitiators(): void {
+    if (this.initiatorState === 'active') this.initiatorState = 'closing'
+  }
+
+  /** Wait for returned-Promise boundaries, then invalidate retained references. */
+  private disposeInitiators(): Promise<void> {
+    return (this.initiatorDisposal ??= (async () => {
+      this.closeInitiators()
+      if (this.activeInitiatorRuns !== 0) {
+        this.initiatorDrain ??= Promise.withResolvers<void>()
+        await this.initiatorDrain.promise
+      }
+      this.initiatorState = 'disposed'
+      this.initiators.disable()
+    })())
+  }
+
+  /** Establish one tracked initiator or clearing boundary. */
+  private runWithInitiator<T>(agent: Agent | undefined, operation: () => T): T {
+    if (this.initiatorState !== 'active') throw new Error(DISPOSED_INITIATOR_MESSAGE)
+    this.activeInitiatorRuns += 1
+    let result: T
+    try {
+      result = this.initiators.run(agent, operation)
+    } catch (error: unknown) {
+      this.releaseInitiatorRun()
+      throw error
+    }
+    if (isPromise(result)) {
+      void result.then(
+        () => { this.releaseInitiatorRun() },
+        () => { this.releaseInitiatorRun() },
+      )
+    } else {
+      this.releaseInitiatorRun()
+    }
+    return result
+  }
+
+  private assertInitiatorsReadable(): void {
+    if (this.initiatorState === 'disposed') throw new Error(DISPOSED_INITIATOR_MESSAGE)
+  }
+
+  private releaseInitiatorRun(): void {
+    this.activeInitiatorRuns -= 1
+    if (this.activeInitiatorRuns !== 0) return
+    this.initiatorDrain?.resolve()
+    this.initiatorDrain = undefined
   }
 }
 

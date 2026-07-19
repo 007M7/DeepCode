@@ -2,7 +2,7 @@
  * Shared AST walkers for the cordis documentation generators
  * (`gen-cordis-catalog.ts`, `gen-website-api.ts`): locating the cordis module
  * merge in a source file, enumerating its `interface Events` members, and
- * resolving the `interface Context` service keys to their service declarations.
+ * resolving the `interface Context` service keys to their service classes.
  * One walk, two renderers — the catalog and the website page carry different
  * prose but must agree on WHAT exists.
  */
@@ -50,50 +50,45 @@ function contextKeyMap(body: ts.ModuleBlock, sf: ts.SourceFile): Map<string, str
   return keyToType
 }
 
-/** One `ctx.<key>` service declaration resolved from a Context merge. */
-export interface ServiceDeclaration {
+/** One `ctx.<key>` service class resolved from a Context merge. */
+export interface ServiceClass {
   key: string
   type: string
-  declaration: ts.ClassDeclaration | ts.InterfaceDeclaration
+  cls: ts.ClassDeclaration
   abstract: boolean
-  /** Declaration-level JSDoc prose (empty string when missing — also reported). */
+  /** Class-level JSDoc prose (empty string when missing — also reported). */
   doc: string
 }
 
 /**
- * Resolve each `ctx.<key>` of a merge to the service class or interface declared in the
+ * Resolve each `ctx.<key>` of a merge to the service class declared in the
  * same file. A key whose type is not a class here (a Pick-mixin member, e.g.
- * timer helpers) is skipped. A declaration without JSDoc prose is reported into
+ * timer helpers) is skipped. A class without JSDoc prose is reported into
  * `violations` (named `where` by the caller's gate).
  *
  * @param body — the cordis module merge body.
  * @param sf — the source file containing the merge.
  * @param rel — repo-relative path of `sf`, for violation pointers.
  * @param violations — sink for JSDoc-completeness violations.
- * @returns the resolved service declarations, in Context-declaration order.
+ * @returns the resolved service classes, in Context-declaration order.
  */
-export function serviceDeclarations(
+export function serviceClasses(
   body: ts.ModuleBlock,
   sf: ts.SourceFile,
   rel: string,
   violations: string[],
-): ServiceDeclaration[] {
+): ServiceClass[] {
   const text = sf.getFullText()
-  const out: ServiceDeclaration[] = []
+  const out: ServiceClass[] = []
   for (const [key, type] of contextKeyMap(body, sf)) {
-    const declaration = sf.statements.find(
-      (s): s is ts.ClassDeclaration | ts.InterfaceDeclaration =>
-        (ts.isClassDeclaration(s) || ts.isInterfaceDeclaration(s)) && s.name?.text === type,
+    const cls = sf.statements.find(
+      (s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === type,
     )
-    if (!declaration) continue // a Pick-mixin member, not a service declaration here
-    const abstract = ts.isInterfaceDeclaration(declaration)
-      || (declaration.modifiers?.some(m => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false)
-    const doc = parseJsDoc(rawJsDoc(text, declaration)).doc
-    if (!doc) {
-      const kind = ts.isInterfaceDeclaration(declaration) ? 'interface' : 'class'
-      violations.push(`service ctx.${key} (${pointer(rel, sf, declaration)}): ${kind} ${type} has no JSDoc.`)
-    }
-    out.push({ key, type, declaration, abstract, doc })
+    if (!cls) continue // a Pick-mixin member, not a class here
+    const abstract = cls.modifiers?.some(m => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false
+    const doc = parseJsDoc(rawJsDoc(text, cls)).doc
+    if (!doc) violations.push(`service ctx.${key} (${pointer(rel, sf, cls)}): class ${type} has no JSDoc.`)
+    out.push({ key, type, cls, abstract, doc })
   }
   return out
 }

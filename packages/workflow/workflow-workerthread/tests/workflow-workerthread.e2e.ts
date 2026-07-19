@@ -5,7 +5,6 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import SubagentService from '@deepseek-ai/dsh-subagent'
@@ -35,7 +34,6 @@ async function harness(): Promise<Context> {
   await built.plugin(SystemPrompt)
   await built.plugin(ToolRegistry)
   await built.plugin(AgentRegistry)
-  await built.plugin(AgentExecutionProvider)
   await built.plugin(AgentLoop, { agents: [] })
   await built.plugin(LlmDeepSeek)
   await built.plugin(SubagentService)

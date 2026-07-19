@@ -9,7 +9,7 @@ import { globSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { checkParams, checkReturns, parseJsDoc, parseTags, pointer, rawJsDoc, reportViolations, type Mode } from './jsdoc.ts'
-import { cordisModuleBody, eventMembers, serviceDeclarations } from './cordis-walk.ts'
+import { cordisModuleBody, eventMembers, serviceClasses } from './cordis-walk.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT_EVENTS = 'docs/cordis-catalog/events.md'
@@ -27,8 +27,6 @@ const FENCE = 'ts cordis-catalog'
 // TODO(catalog-type-links): verify or generate link-map coverage.
 export const LINK_MAP: Record<string, string> = {
   Agent: 'core.md',
-  AgentExecution: 'core.md',
-  AgentExecutionService: 'core.md',
   ContentBlock: 'core.md',
   Message: 'core.md',
   MessageSource: 'core.md',
@@ -74,6 +72,8 @@ interface EventEntry {
   scope: string
   /** Full signature text (the method-signature member, JSDoc stripped). */
   signature: string
+  /** Original declaration JSDoc, dedented from its containing interface. */
+  jsDoc: string
   /** Dispatch mode from the `@mode` tag. */
   mode: Mode
   /** Description prose (JSDoc minus the `@mode` tag), one line per paragraph. */
@@ -82,19 +82,27 @@ interface EventEntry {
   source: string
 }
 
+/** One public service method and the source contract attached to it. */
+interface ServiceMethodEntry {
+  /** Public method signature (body stripped). */
+  signature: string
+  /** Original method JSDoc, dedented from its containing class. */
+  jsDoc: string
+}
+
 /** One harness service, extracted from an `interface Context` block. */
 interface ServiceEntry {
   /** The `ctx.<key>` name, e.g. `llm`. */
   key: string
   /** The service class/interface name, e.g. `LlmService`. */
   type: string
-  /** Whether the service declaration is abstract (a seam interface). */
+  /** Whether the service class is abstract (a seam interface). */
   abstract: boolean
-  /** Declaration-level JSDoc prose, one line per paragraph. */
+  /** Class-level JSDoc prose, one line per paragraph. */
   doc: string
-  /** Public method signatures (bodies stripped), in source order. */
-  methods: string[]
-  /** Source pointer of the service declaration. */
+  /** Public methods (bodies stripped), in source order. */
+  methods: ServiceMethodEntry[]
+  /** Source pointer of the class declaration. */
   source: string
 }
 
@@ -115,6 +123,22 @@ function memberSignature(member: ts.TypeElement | ts.ClassElement, sf: ts.Source
   const body = (member as { body?: ts.Node }).body
   const sig = body ? full.slice(0, full.length - body.getText(sf).length) : full
   return sig.replace(/\s*;?\s*$/, '').replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Copy a node's original JSDoc while removing only the indentation imposed by
+ * its containing interface or class.
+ */
+function jsDocText(text: string, sf: ts.SourceFile, node: ts.Node): string {
+  const raw = rawJsDoc(text, node)
+  if (!raw) return ''
+  const start = text.lastIndexOf(raw, node.getStart(sf))
+  const { line } = sf.getLineAndCharacterOfPosition(start)
+  const lineStart = sf.getPositionOfLineAndCharacter(line, 0)
+  const indent = text.slice(lineStart, start)
+  return raw.split('\n')
+    .map((lineText, index) => index > 0 && lineText.startsWith(indent) ? lineText.slice(indent.length) : lineText)
+    .join('\n')
 }
 
 /** Walk every harness `interface Events` block and extract its events, hard-
@@ -157,15 +181,15 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
       const { params } = parseTags(raw)
       checkParams(where, 'event', member.parameters, params, sf,
         p => (ts.isIdentifier(p.name) && p.name.text === 'this') || (hasNext && p === last), violations)
-      if (mode) entries.push({ name, scope: name.split('/')[0] ?? name, signature, mode, doc, source: src })
+      if (mode) entries.push({ name, scope: name.split('/')[0] ?? name, signature, jsDoc: jsDocText(text, sf, member), mode, doc, source: src })
     }
   }
   reportViolations('gen-cordis-catalog', violations)
   return entries
 }
 
-/** Walk every harness `interface Context` block + its service declaration, hard-
- * erroring (aggregated) on any JSDoc-completeness violation: a declaration or public
+/** Walk every harness `interface Context` block + its service class, hard-
+ * erroring (aggregated) on any JSDoc-completeness violation: a class or public
  * method without JSDoc prose, an undocumented parameter, a stale `@param`, a
  * missing `@returns` on a non-void method, or an inferred (unannotated) return
  * type the pure-AST walk cannot classify.
@@ -180,11 +204,11 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
     const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true)
     const body = cordisModuleBody(sf)
     if (!body) continue
-    // Resolve each ctx key to its service declaration (shared walk) and emit an entry.
-    for (const { key, type, declaration, abstract, doc: declarationDoc } of serviceDeclarations(body, sf, rel, violations)) {
-      const methods: string[] = []
-      for (const member of declaration.members) {
-        if (!ts.isMethodDeclaration(member) && !ts.isMethodSignature(member)) continue
+    // Resolve each ctx key to its service class (shared walk) and emit an entry.
+    for (const { key, type, cls, abstract, doc: clsDoc } of serviceClasses(body, sf, rel, violations)) {
+      const methods: ServiceMethodEntry[] = []
+      for (const member of cls.members) {
+        if (!ts.isMethodDeclaration(member)) continue
         // Only instance methods callable through `ctx.<key>` are surface;
         // private, protected, and static methods are not.
         const nonPublic = member.modifiers?.some(m =>
@@ -195,9 +219,9 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
         if (nonPublic) continue
         const memberName = member.name.getText(sf)
         if (memberName.startsWith('[')) continue // computed/symbol members
-        methods.push(memberSignature(member, sf))
         const where = `service method ctx.${key}.${memberName} (${pointer(rel, sf, member)})`
         const raw = rawJsDoc(text, member)
+        methods.push({ signature: memberSignature(member, sf), jsDoc: jsDocText(text, sf, member) })
         if (!raw) { violations.push(`${where} has no JSDoc.`); continue }
         if (!parseJsDoc(raw).doc) violations.push(`${where} has no description prose above its block tags.`)
         const { params, returns } = parseTags(raw)
@@ -212,9 +236,9 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
         key,
         type,
         abstract,
-        doc: declarationDoc,
+        doc: clsDoc,
         methods,
-        source: pointer(rel, sf, declaration),
+        source: pointer(rel, sf, cls),
       })
     }
   }
@@ -277,7 +301,7 @@ function typeLinks(signature: string): string {
 function renderEvent(e: EventEntry): string[] {
   const out = [`### \`${e.name}\` — ${e.mode}`, '']
   if (e.doc) out.push(e.doc, '')
-  out.push('```' + FENCE, e.signature, '```', '')
+  out.push('```' + FENCE, e.jsDoc, e.signature, '```', '')
   const links = typeLinks(e.signature)
   if (links) out.push(links, '')
   out.push(`Source: [\`${e.source}\`](../../${e.source.split(':')[0]})`, '')
@@ -290,8 +314,13 @@ function renderService(s: ServiceEntry): string[] {
   const out = [`## \`ctx.${s.key}\` — \`${s.type}\`${kind}`, '']
   if (s.doc) out.push(s.doc, '')
   if (s.methods.length) {
-    out.push('```' + FENCE, ...s.methods, '```', '')
-    const links = typeLinks(s.methods.join('\n'))
+    const declarations = s.methods.flatMap((method, index) => [
+      ...(index > 0 ? [''] : []),
+      method.jsDoc,
+      method.signature,
+    ])
+    out.push('```' + FENCE, ...declarations, '```', '')
+    const links = typeLinks(s.methods.map(method => method.signature).join('\n'))
     if (links) out.push(links, '')
   }
   out.push(`Source: [\`${s.source}\`](../../${s.source.split(':')[0]})`, '')
@@ -306,15 +335,15 @@ const BANNER = [
 ]
 
 /** The shared GENERATED + freshness-gate + fence notice paragraph. */
-const GATE_NOTICE = 'This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verified fresh by `pnpm run verify-cordis-catalog` (part of `doc-sync`) — do not edit it by hand. Signature blocks use a `ts cordis-catalog` fence (skipped by doc-typecheck, since a bare signature is not standalone-compilable). Type names in a signature link to the page that documents them.'
+const GATE_NOTICE = 'This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verified fresh by `pnpm run verify-cordis-catalog` (part of `doc-sync`) — do not edit it by hand. Signature blocks use a `ts cordis-catalog` fence and include the original source JSDoc immediately before each event or service method. doc-typecheck skips these bare declaration fragments; type names in a signature link to the page that documents them.'
 
 /** Render the events catalog (pure, deterministic given sorted inputs). */
-function renderEvents(events: EventEntry[]): string {
+export function renderEvents(events: EventEntry[]): string {
   const lines: string[] = [
     ...BANNER,
     '# Cordis Events Catalog',
     '',
-    'Every cordis event a plugin can listen to: exact signature, dispatch mode, and the declaration\'s JSDoc. This is one axis of the **wiring** reference a plugin author works against — the callable `ctx.<key>` surface is the sibling [services catalog](services.md), and [core-data-structures/](../core-data-structures/core.md) catalogs the *data structures* these signatures move around.',
+    'Every cordis event a plugin can listen to: exact signature, dispatch mode, and original declaration JSDoc. This is one axis of the **wiring** reference a plugin author works against — the callable `ctx.<key>` surface is the sibling [services catalog](services.md), and [core-data-structures/](../core-data-structures/core.md) catalogs the *data structures* these signatures move around.',
     '',
     GATE_NOTICE,
     '',
@@ -344,12 +373,12 @@ function renderEvents(events: EventEntry[]): string {
 }
 
 /** Render the services catalog (pure, deterministic given sorted inputs). */
-function renderServices(services: ServiceEntry[]): string {
+export function renderServices(services: ServiceEntry[]): string {
   const lines: string[] = [
     ...BANNER,
     '# Cordis Services Catalog',
     '',
-    'Every `ctx.<key>` service a plugin can call: the exact public interface plus the class JSDoc. This is one axis of the **wiring** reference a plugin author works against — the events a plugin listens to are the sibling [events catalog](events.md), and [core-data-structures/](../core-data-structures/core.md) catalogs the *data structures* these signatures move around. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.',
+    'Every `ctx.<key>` service a plugin can call: the exact public interface with original method JSDoc, plus the class JSDoc. This is one axis of the **wiring** reference a plugin author works against — the events a plugin listens to are the sibling [events catalog](events.md), and [core-data-structures/](../core-data-structures/core.md) catalogs the *data structures* these signatures move around. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.',
     '',
     GATE_NOTICE,
     '',

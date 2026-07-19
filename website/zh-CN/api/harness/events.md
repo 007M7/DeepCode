@@ -228,7 +228,7 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 - `sessionId` — exact shared agent/session identity that failed startup.
 - `error` — persistence, setup, or publication failure.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L363)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L362)
 
 ## approval/*
 

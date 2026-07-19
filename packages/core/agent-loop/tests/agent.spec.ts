@@ -5,7 +5,6 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { bindReactLoopAgentContext, prepareReactLoopAgent, type ReactLoopAgent } from '../src/agent.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
@@ -21,7 +20,6 @@ async function harness(adapter: MockAdapter) {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentExecutionProvider)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
@@ -56,7 +54,6 @@ function send(agent: Agent, text: string) {
 describe('Agent', () => {
   it('rejects access before context binding and a second driver for one session', async () => {
     const ctx = new Context()
-    await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('exclusive-driver'))
     const prepared = prepareReactLoopAgent(
@@ -266,8 +263,8 @@ describe('Agent', () => {
     // test seam. Then call its disposer twice — the second call hits the
     // early-return branch.
     const ctx = new Context()
-    await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
     const session = ctx.sessions.create(SessionId('test'))
     const prepared = prepareReactLoopAgent(
       ctx, SessionId('bare'), { provider: 'mock', model: 'mock' }, session, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
@@ -386,7 +383,6 @@ describe('Agent', () => {
     // `done` (loop exit), not an eager resolve. A bare Agent + direct
     // internal driver disposer keeps the emit synchronous.
     const ctx = new Context()
-    await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(LlmService)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SystemPrompt)

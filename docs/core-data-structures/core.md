@@ -403,49 +403,9 @@ interface Agent {
 
 The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
 
-## Agent execution context
+## Initiating Agent
 
-`AgentExecution` is the process-local ambient frame established around a concrete driver's lifetime. It holds the exact Agent object rather than duplicating Session or step state; ambient presence is neither liveness proof nor authorization.
-
-Source: [`packages/core/agent-execution/src/types.ts`](../../packages/core/agent-execution/src/types.ts)
-
-```ts type-equiv
-interface AgentExecution {
-  readonly agent: Agent
-}
-```
-
-The mandatory service reads, requires, establishes, or explicitly clears that frame. `run()` preserves the operation's exact synchronous value or Promise.
-
-Source: [`packages/core/agent-execution/src/index.ts`](../../packages/core/agent-execution/src/index.ts)
-
-```ts type-equiv
-interface AgentExecutionService {
-  /**
-   * Read the active execution without requiring one.
-   * @returns the inherited execution, or `undefined` outside/inside a cleared boundary.
-   * @throws when this service instance has been disposed.
-   */
-  current(): AgentExecution | undefined
-
-  /**
-   * Read the active execution and fail when no boundary is active.
-   * @returns the inherited execution.
-   * @throws when no execution is active or this service instance has been disposed.
-   */
-  require(): AgentExecution
-
-  /**
-   * Run an operation inside an execution boundary. Passing `undefined` clears
-   * an inherited execution; the exact synchronous value or Promise is returned.
-   * @param execution - execution to inherit, or `undefined` for a clearing boundary.
-   * @param operation - synchronous or asynchronous operation to invoke.
-   * @returns the exact value returned by `operation`.
-   * @throws when this service is closing/disposed, or when `operation` throws.
-   */
-  run<T>(execution: AgentExecution | undefined, operation: () => T): T
-}
-```
+The process-local initiator carried by `ctx.agents` is the exact `Agent` above, not a separate frame or copied identity. Ambient presence is neither liveness proof nor authorization; the [initiator-scope decision](../rfc/implemented/architecture/2026-07-15-agent-initiator-scope.md) owns its lifetime and boundary rules.
 
 ## Interception decisions
 

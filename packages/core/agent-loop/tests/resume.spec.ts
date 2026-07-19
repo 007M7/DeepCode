@@ -11,7 +11,6 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
@@ -31,7 +30,6 @@ async function mountPersistentHarness(root: string, adapter: MockAdapter): Promi
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentExecutionProvider)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SessionPersistenceJsonl, { root })
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -139,7 +137,6 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(SystemPrompt)
     await ctx2.plugin(ToolRegistry)
     await ctx2.plugin(AgentRegistry)
-    await ctx2.plugin(AgentExecutionProvider)
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
@@ -168,7 +165,6 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(SystemPrompt)
     await ctx2.plugin(ToolRegistry)
     await ctx2.plugin(AgentRegistry)
-    await ctx2.plugin(AgentExecutionProvider)
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
@@ -383,7 +379,6 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentExecutionProvider)
     const loopFiber = await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SessionPersistenceJsonl, { root })
     ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('next')]))
@@ -445,7 +440,6 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(SystemPrompt)
     await ctx2.plugin(ToolRegistry)
     await ctx2.plugin(AgentRegistry)
-    await ctx2.plugin(AgentExecutionProvider)
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
@@ -499,7 +493,6 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(SystemPrompt)
     await ctx2.plugin(ToolRegistry)
     await ctx2.plugin(AgentRegistry)
-    await ctx2.plugin(AgentExecutionProvider)
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
@@ -529,7 +522,6 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(SystemPrompt)
     await ctx2.plugin(ToolRegistry)
     await ctx2.plugin(AgentRegistry)
-    await ctx2.plugin(AgentExecutionProvider)
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
@@ -560,7 +552,6 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(AgentLoop, { agents: [] })
     ctx.llm.registerAdapter(['mock'], adapter)
     await expect(ctx.agents.resume({ resumeSessionId: SessionId('nope') }))

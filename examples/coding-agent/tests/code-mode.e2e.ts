@@ -9,7 +9,6 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
@@ -49,7 +48,6 @@ async function codeModeHarness(cwd: string): Promise<Context> {
   await harness.plugin(SystemPrompt, { persona: PERSONA })
   await harness.plugin(ToolRegistry, { mode: 'code' })
   await harness.plugin(AgentRegistry)
-  await harness.plugin(AgentExecutionProvider)
   await harness.plugin(AgentLoop, { agents: [] })
   await harness.plugin(LlmDeepSeek)
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
@@ -68,7 +66,6 @@ async function workspaceCodeModeHarness(): Promise<Context> {
   await harness.plugin(LocalFileSystem, { cwd: '/' })
   await harness.plugin(ToolFs)
   await harness.plugin(WorkspaceContext, { maxBytes: 65536 })
-  await harness.plugin(AgentExecutionProvider)
   await harness.plugin(AgentLoop, { agents: [] })
   await harness.plugin(LlmDeepSeek, { models: [{ id: 'deepseek-v4-flash' }] })
   await harness.plugin(WorkerCodeRuntime, {})

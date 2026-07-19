@@ -25,7 +25,7 @@ The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loo
 
 ### Injected services
 
-`agents`, `agentExecution`, `sessions`, `llm`, `tools`, `systemPrompt` — all six interface services. The loop cannot activate without `agentExecution`; the default bundle loads its provider before the loop.
+`agents`, `sessions`, `llm`, `tools`, `systemPrompt` — all five interface services.
 
 ### Configuration (schemastery)
 
@@ -50,7 +50,7 @@ The concrete `Agent` class, its `Inbox`, `runLoop`, and instance-bound publicati
 
 ### Loop lifecycle (`loop.ts`)
 
-The driver owns one agent for its lifetime and runs inside `ctx.agentExecution.run({ agent }, ...)`, so process-local asynchronous continuations can recover the initiating Agent. Creation, persistence load, and unpublished setup stay outside the driver boundary; explicit Agent fields remain authoritative at service, worker, process, persistence, and wire boundaries. The [execution-context package](../agent-execution/README.md) owns propagation, teardown, and detached-work rules.
+The driver owns one agent for its lifetime and runs inside `ctx.agents.withInitiator(agent, ...)`, so process-local asynchronous continuations can recover the initiating Agent. Creation, persistence load, and unpublished setup stay outside the driver boundary; explicit Agent fields remain authoritative at service, worker, process, persistence, and wire boundaries. The [agent service](../agent/README.md#initiating-agent-scope) owns propagation, teardown, and detached-work rules.
 
 Every provider call that reaches a successful finish appends exactly one `assistant/message` completion anchor, including content-less calls and `max-tokens` finishes. A successful `agent/step-result` stores its transformed content; a rejected result records empty content before the original failure continues. The anchor retains exact chunk provenance (`[]` for a stream with no chunks) and usage when available, while empty content stays out of derived message history.
 
