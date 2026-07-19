@@ -309,7 +309,7 @@ interface SurfaceFoldResult {
 
 The body-stripped declaration keeps the plain class's public constructor, state accessors, append boundary, and history projections synchronized with source. Store operations remain in the generated [`ctx.sessions` service catalog](../cordis-catalog/services.md#ctxsessions--sessionstore).
 
-```ts type-equiv public-api
+```ts public-api
 /**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
  *

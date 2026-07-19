@@ -1,10 +1,10 @@
 /**
- * Verify every `ts type-equiv` block against the source symbol named by the
- * manifest. Ordinary entries preserve the complete declaration; `public-api`
- * entries preserve a class's body-stripped public declaration. Blocks and
- * entries have a one-to-one relationship; comparison ignores whitespace and
- * non-JSDoc comments but preserves declaration structure and every original
- * JSDoc comment.
+ * Verify every `ts type-equiv` and `ts public-api` block against the source
+ * symbol named by the manifest. Ordinary entries preserve the complete
+ * declaration; `public-api` entries preserve a class's body-stripped public
+ * declaration. Blocks and entries have a one-to-one relationship; comparison
+ * ignores whitespace and non-JSDoc comments but preserves declaration
+ * structure and every original JSDoc comment.
  */
 
 import { globSync, readFileSync, existsSync } from 'node:fs'
@@ -16,9 +16,9 @@ const root = resolve(import.meta.dirname, '..')
 /** Scan doc-typecheck's full Markdown scope so unmanifested blocks also fail. */
 const MARKDOWN_GLOBS = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md', 'website/zh-CN/**/*.md']
 
-/** One manifest entry: a documented type-equiv block and its source symbol. */
+/** One manifest entry: a source-equivalence block and its source symbol. */
 interface ManifestEntry {
-  /** Doc file (repo-relative) containing the ` ```ts type-equiv ` block. */
+  /** Doc file (repo-relative) containing the source-equivalence block. */
   doc: string
   /** The declared symbol the block must match (e.g. `SessionEvent`). */
   symbol: string
@@ -28,7 +28,7 @@ interface ManifestEntry {
   projection?: 'public-api'
 }
 
-/** One extracted ` ```ts type-equiv ` block. */
+/** One extracted ` ```ts type-equiv ` or ` ```ts public-api ` block. */
 interface EquivBlock {
   doc: string
   /** 1-based line of the opening fence (for diagnostics). */
@@ -64,7 +64,7 @@ function stripExport(code: string): string {
   return code.replace(/^export\s+(default\s+)?/, '')
 }
 
-/** Parse the declared symbol name from a type-equiv block body. */
+/** Parse the declared symbol name from a source-equivalence block body. */
 function blockSymbol(code: string): string | null {
   const sf = ts.createSourceFile('type-equiv.ts', code, ts.ScriptTarget.Latest, /* setParentNodes */ false, ts.ScriptKind.TS)
   for (const stmt of sf.statements) {
@@ -76,7 +76,7 @@ function blockSymbol(code: string): string | null {
   return null
 }
 
-/** Extract every ` ```ts type-equiv ` block from one Markdown file. */
+/** Extract every source-equivalence block from one Markdown file. */
 function extractEquivBlocks(docRel: string): EquivBlock[] {
   const text = readFileSync(resolve(root, docRel), 'utf8')
   const lines = text.split('\n')
@@ -107,8 +107,11 @@ function extractEquivBlocks(docRel: string): EquivBlock[] {
       continue
     }
     const info = (fence[2] ?? '').trim()
+    if (info === 'ts type-equiv public-api') {
+      throw new Error(`verify-type-equiv: ${docRel}:${i + 1} — use the concise \`ts public-api\` fence`)
+    }
     if (info === 'ts type-equiv') open = { line: i + 1, body: [] }
-    if (info === 'ts type-equiv public-api') open = { line: i + 1, body: [], projection: 'public-api' }
+    if (info === 'ts public-api') open = { line: i + 1, body: [], projection: 'public-api' }
   }
   if (open) throw new Error(`verify-type-equiv: ${docRel}:${open.line} — unterminated type-equiv block`)
   return blocks
