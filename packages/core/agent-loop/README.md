@@ -72,21 +72,45 @@ Everything that goes beyond "call the model, run the tools, repeat" belongs to p
 
 ### Complete conversation request
 
-**What the model sees**: For each step, the loop sends the rendered per-agent system prompt, visible tool schemas, the frozen session prefix, and the session's derived messages. It supplies `model` and `cwd` variable values but no additional fixed prose.
+#### What the model sees
 
-**Token effect**: System text, schemas, and prefix are paid again on every step. Per-agent scoping chooses the initial contributions, while the authoritative assembly waterfall can alter the final request and makes its listener responsible for protocol coherence.
+For each step, the loop sends the rendered per-agent system prompt, visible tool schemas, the frozen session prefix, and the session's derived messages. It supplies `model` and `cwd` variable values but no additional fixed prose.
+
+#### Token effect
+
+System text, schemas, and prefix are paid again on every step. Per-agent scoping chooses the initial contributions, while the authoritative assembly waterfall can alter the final request and makes its listener responsible for protocol coherence.
+
+#### KV Cache effect
+
+Append-only only while system text, schemas, session prefix, and earlier history remain byte-identical under the same provider and model route. A token-bearing assembly rewrite or composition change may invalidate reuse from the first altered request token.
 
 ### Retained message history
 
-**What the model sees**: Accepted user messages, assistant messages, tool calls and results, injected context, and steering are logged and sent on later steps. Raw stream chunks, lifecycle boundaries, and other log-only events are excluded.
+#### What the model sees
 
-**Token effect**: Input grows with every surface message until a compaction replacement shadows older nodes; a multi-step tool turn resends the accumulated prefix and history each step.
+Accepted user messages, assistant messages, tool calls and results, injected context, and steering are logged and sent on later steps. Raw stream chunks, lifecycle boundaries, and other log-only events are excluded.
+
+#### Token effect
+
+Input grows with every surface message until a compaction replacement shadows older nodes; a multi-step tool turn resends the accumulated prefix and history each step.
+
+#### KV Cache effect
+
+Ordinary history growth is append-only and preserves reusable entries. A surface replacement or compaction invalidates reuse from the first shadowed history token.
 
 ### Undispatched calls after cancellation
 
-**What the model sees**: If a later request replays an aborted step, each tool call that cancellation prevented from dispatching has the error result text `Error: tool call skipped because the step was aborted before execution`.
+#### What the model sees
 
-**Token effect**: One fixed error result per skipped call remains in history until compaction shadows it.
+If a later request replays an aborted step, each tool call that cancellation prevented from dispatching has the error result text `Error: tool call skipped because the step was aborted before execution`.
+
+#### Token effect
+
+One fixed error result per skipped call remains in history until compaction shadows it.
+
+#### KV Cache effect
+
+Append-only; each synthetic result follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

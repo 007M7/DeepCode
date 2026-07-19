@@ -25,6 +25,10 @@ Consumers: [`@deepseek-ai/dsh-bash-sandbox`](../../bash/bash-sandbox/); see [the
 
 Indirectly, through [`dsh-bash-sandbox`](../../bash/bash-sandbox/README.md) and [`dsh-tool-bash`](../../bash/tool-bash/README.md), which render this provider's enforcement and denial facts while the [`dsh-sandbox`](../sandbox/README.md) seam owns the `SANDBOX_UNAVAILABLE` text and runner selection and profiles stay outside context.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **Windows has no runner** — `win32` fails closed with `SANDBOX_UNAVAILABLE`; an AppContainer-family backend is deferred.

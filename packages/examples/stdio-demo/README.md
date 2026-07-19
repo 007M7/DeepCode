@@ -79,15 +79,31 @@ Swap `llm-deepseek` for a `mock-llm` leaf plugin and you have the echo demo — 
 
 ### Composed terminal agent request
 
-**What the model sees**: Through `dsh-agent-spine-demo`, the `main` agent receives the harness identity, configured persona, skill catalog, and visible tools; this app also composes the generated [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user). Each terminal submission becomes a user message; submissions made while the agent runs steer the active turn.
+#### What the model sees
 
-**Token effect**: Child prompt and schema costs repeat per request; user input and tool history grow until compaction. Terminal banners, logger output, cards, and rendered transcripts add zero model tokens.
+Through `dsh-agent-spine-demo`, the `main` agent receives the harness identity, configured persona, skill catalog, and visible tools; this app also composes the generated [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user). Each terminal submission becomes a user message; submissions made while the agent runs steer the active turn.
+
+#### Token effect
+
+Child prompt and schema costs repeat per request; user input and tool history grow until compaction. Terminal banners, logger output, cards, and rendered transcripts add zero model tokens.
+
+#### KV Cache effect
+
+User and tool history is append-only while the composed prompt, schemas, child model route, and session prefix remain fixed. A composition change or compaction may invalidate reuse from its first changed token; terminal rendering has no cache effect.
 
 ### Human-answer result
 
-**What the model sees**: Through `dsh-tool-ask-user`, successful terminal answers use that package's exact compact JSON shape. Interruption becomes exactly `Error: ask_user_question was interrupted before the user answered`; a closed stdin becomes `Error: ask_user_question cannot be answered because stdin is closed`.
+#### What the model sees
 
-**Token effect**: Only a completed or failed tool call adds retained result tokens; prompts printed while waiting are terminal-only.
+Through `dsh-tool-ask-user`, successful terminal answers use that package's exact compact JSON shape. Interruption becomes exactly `Error: ask_user_question was interrupted before the user answered`; a closed stdin becomes `Error: ask_user_question cannot be answered because stdin is closed`.
+
+#### Token effect
+
+Only a completed or failed tool call adds retained result tokens; prompts printed while waiting are terminal-only.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

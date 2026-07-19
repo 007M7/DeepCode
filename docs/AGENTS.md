@@ -43,7 +43,7 @@ When the gate goes red:
 2. **Condense** content that belongs here but can be shorter.
 3. **Raise** the ceiling only when the words truly need the space; justify the manifest diff in the PR. A too-low ceiling is a budget bug.
 
-Ceilings are guardrails, not reduction targets. Retain at least 5% headroom; lower a ceiling only when the document's durable contract still has room, and raise it when necessary content would otherwise be deleted. Targets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file ≤ 1,250; `packages/README.md` ≤ 600. Review and the slop checklist govern unbudgeted tiers.
+Ceilings are guardrails, not reduction targets. Retain at least 5% headroom; lower a ceiling only when the document's durable contract still has room, and raise it when necessary content would otherwise be deleted. Targets: root `AGENTS.md` ≤ 1,600 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except `packages/AGENTS.md` ≤ 650 and this file ≤ 1,250; `packages/README.md` ≤ 600. Review and the slop checklist govern unbudgeted tiers.
 
 ## The slop checklist
 

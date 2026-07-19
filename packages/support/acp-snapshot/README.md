@@ -46,6 +46,10 @@ Constraints: `suite.ts` imports vitest, so the package entry is importable only 
 
 None, as this test-only harness records, normalizes, and compares ACP transcripts without changing the agent's assembled model request.
 
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
 ## Known Limitations and Deferred Work
 
 - **Session harvest is JSONL-only** — `runScenario` collects persisted `.jsonl` logs, so an example composed over the SQLite persistence backend has no snapshot path.

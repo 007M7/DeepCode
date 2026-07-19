@@ -85,21 +85,45 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 
 ### Derived message history
 
-**What the model sees**: The model receives projections of `user/message`, `assistant/message`, and `tool/result` surface entries verbatim. A `context/message` is a user-role message containing exactly `<context source="<source-kind>">`, its content blocks, and `</context>`; `steering/message` uses the identical `<steering source="<source-kind>">` / `</steering>` wrapper. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
+#### What the model sees
 
-**Token effect**: Appended surface entries are resent on later steps. A `replace` surface operation removes the shadowed entries from future inputs without deleting their raw log records.
+The model receives projections of `user/message`, `assistant/message`, and `tool/result` surface entries verbatim. A `context/message` is a user-role message containing exactly `<context source="<source-kind>">`, its content blocks, and `</context>`; `steering/message` uses the identical `<steering source="<source-kind>">` / `</steering>` wrapper. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
+
+#### Token effect
+
+Appended surface entries are resent on later steps. A `replace` surface operation removes the shadowed entries from future inputs without deleting their raw log records.
+
+#### KV Cache effect
+
+Appended surface entries preserve reusable prefixes. A `replace` operation invalidates reuse from the first shadowed message even though the underlying event log stays append-only.
 
 ### Crash-repair result
 
-**What the model sees**: If a persisted turn ended with unanswered tool calls, each synthetic error result contains exactly `Tool call interrupted by a crash; no result was recorded.`
+#### What the model sees
 
-**Token effect**: Zero tokens in an intact session. Each repaired call adds this retained error text on resume.
+If a persisted turn ended with unanswered tool calls, each synthetic error result contains exactly `Tool call interrupted by a crash; no result was recorded.`
+
+#### Token effect
+
+Zero tokens in an intact session. Each repaired call adds this retained error text on resume.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ### Logged request header
 
-**What the model sees**: The session reconstructs the system prompt, tool schemas, call config, and session prefix that the loop actually sent. Header events do not add a second copy to message history; the prefix is prepended outside `deriveMessages()`.
+#### What the model sees
 
-**Token effect**: Zero duplicate tokens from logging. The reconstructed prefix, system text, and schemas still incur their normal per-request cost.
+The session reconstructs the system prompt, tool schemas, call config, and session prefix that the loop actually sent. Header events do not add a second copy to message history; the prefix is prepended outside `deriveMessages()`.
+
+#### Token effect
+
+Zero duplicate tokens from logging. The reconstructed prefix, system text, and schemas still incur their normal per-request cost.
+
+#### KV Cache effect
+
+Logging causes no invalidation, and exact reconstruction preserves request-prefix identity. A later header with changed prefix, prompt, or schemas may invalidate reuse from its first difference.
 
 ## Known Limitations and Deferred Work
 
