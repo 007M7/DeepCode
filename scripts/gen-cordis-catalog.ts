@@ -1,8 +1,8 @@
 /**
  * Generate the Cordis event and service catalogs from static declarations.
- * The walk enforces event modes plus JSDoc parameter/return completeness;
- * inherited Cordis services come from the curated table below. `--check`
- * verifies both committed artifacts.
+ * The walk enforces event modes, JSDoc parameter/return completeness, and
+ * signature type-link coverage; inherited Cordis services come from the
+ * curated table below. `--check` verifies both committed artifacts.
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
@@ -20,48 +20,196 @@ const OUT_SERVICES = 'docs/cordis-catalog/services.md'
 const FENCE = 'ts cordis-catalog'
 
 /**
- * One primary core-data-structures page per signature type, shared by the
- * Cordis and config catalogs; union names intentionally do not reuse the
- * type-equivalence manifest's map-symbol entries.
+ * One primary core-data-structures page per project type used by a generated
+ * signature. This stays curated because union names intentionally do not
+ * reuse the type-equivalence manifest's map-symbol entries and some symbols
+ * appear on more than one page.
  */
-// TODO(catalog-type-links): verify or generate link-map coverage.
 export const LINK_MAP: Record<string, string> = {
   Agent: 'core.md',
+  AgentOptions: 'core.md',
+  AgentStatus: 'core.md',
   ContentBlock: 'core.md',
-  Message: 'core.md',
-  MessageSource: 'core.md',
+  ContinuationDecision: 'core.md',
+  ContinuationStop: 'core.md',
   GenerateOptions: 'core.md',
   LlmCallConfig: 'core.md',
+  LlmModelInfo: 'core.md',
+  LlmProviderInfo: 'core.md',
+  Message: 'core.md',
+  MessageSource: 'core.md',
+  PromptDecision: 'core.md',
   SessionEvent: 'core.md',
+  SessionId: 'core.md',
   SessionStartSource: 'core.md',
-  StreamChunk: 'llm-streaming.md',
-  TurnEndReason: 'session.md',
-  ToolDefinition: 'tools.md',
-  ToolExecution: 'tools.md',
-  ToolExecutionMode: 'tools.md',
-  ToolExecutionInput: 'tools.md',
-  ToolExecutionResult: 'tools.md',
-  ToolExecutionToken: 'tools.md',
   ApprovalOutcome: 'approval.md',
   ApprovalPolicy: 'approval.md',
   ApprovalRequest: 'approval.md',
+  ApprovalService: 'approval.md',
   BashExecRequest: 'bash.md',
   BashExecSpec: 'bash.md',
+  BashProcess: 'bash.md',
   BashRunResult: 'bash.md',
-  ConfinedArgv: 'sandbox.md',
-  SandboxMode: 'sandbox.md',
-  SandboxPolicy: 'sandbox.md',
+  DshEnvironment: 'bash.md',
   CodeRunRequest: 'code-runtime.md',
   CodeRunResult: 'code-runtime.md',
+  CompactionResult: 'compaction.md',
+  FileReadOutcome: 'filesystem.md',
+  FsDirEntry: 'filesystem.md',
   FsEditOutcome: 'filesystem.md',
   FsEditRequest: 'filesystem.md',
   FsInfo: 'filesystem.md',
+  FsPathInfo: 'filesystem.md',
+  FsPolicyExec: 'filesystem.md',
   FsTarget: 'filesystem.md',
   FsVersion: 'filesystem.md',
   FsWriteIntent: 'filesystem.md',
   FsWriteOutcome: 'filesystem.md',
-  FsPolicyExec: 'filesystem.md',
-  FileReadOutcome: 'filesystem.md',
+  LlmAdapter: 'llm-streaming.md',
+  LlmService: 'llm-streaming.md',
+  StreamChunk: 'llm-streaming.md',
+  CreateSessionOptions: 'persistence.md',
+  SessionHeader: 'persistence.md',
+  SessionLocation: 'persistence.md',
+  ConfinedArgv: 'sandbox.md',
+  SandboxMode: 'sandbox.md',
+  SandboxPolicy: 'sandbox.md',
+  ScopeKey: 'scope.md',
+  Scoped: 'scope.md',
+  EpochHeader: 'session.md',
+  Session: 'session.md',
+  TurnEndReason: 'session.md',
+  SessionEventReadRequest: 'session-query.md',
+  SessionEventRecord: 'session-query.md',
+  SessionEventTrace: 'session-query.md',
+  SessionEventTraceRequest: 'session-query.md',
+  SessionEventWindow: 'session-query.md',
+  SessionLineageTrace: 'session-query.md',
+  SessionRecord: 'session-query.md',
+  SkillDefinition: 'skills.md',
+  SkillLookupOptions: 'skills.md',
+  SkillProvider: 'skills.md',
+  SkillRegistration: 'skills.md',
+  SkillSummary: 'skills.md',
+  SaveTextSpill: 'spill.md',
+  SpillRef: 'spill.md',
+  SubagentProvider: 'subagent.md',
+  SubagentRun: 'subagent.md',
+  SubagentService: 'subagent.md',
+  SubagentStartRequest: 'subagent.md',
+  AssembleContext: 'system-prompt.md',
+  PromptSection: 'system-prompt.md',
+  SystemPrompt: 'system-prompt.md',
+  ToolProviderResult: 'system-prompt.md',
+  TaskDoneListener: 'tasks.md',
+  TaskId: 'tasks.md',
+  TaskRead: 'tasks.md',
+  TaskSnapshot: 'tasks.md',
+  TaskStart: 'tasks.md',
+  TokenMeasurement: 'token-meter.md',
+  PostToolDecision: 'tools.md',
+  PreToolDecision: 'tools.md',
+  ToolDefinition: 'tools.md',
+  ToolExecution: 'tools.md',
+  ToolExecutionInput: 'tools.md',
+  ToolExecutionMode: 'tools.md',
+  ToolExecutionResult: 'tools.md',
+  ToolExecutionToken: 'tools.md',
+  ToolGuard: 'tools.md',
+  ToolRegistry: 'tools.md',
+  ToolRestriction: 'tools.md',
+  ToolSchema: 'tools.md',
+  AskUserQuestionAnswer: 'user-interaction.md',
+  AskUserQuestionRequest: 'user-interaction.md',
+  UserInteractionProvider: 'user-interaction.md',
+  WebFetchProvider: 'web.md',
+  WebFetchRequest: 'web.md',
+  WebFetchResult: 'web.md',
+  WebSearchProvider: 'web.md',
+  WebSearchRequest: 'web.md',
+  WebSearchResult: 'web.md',
+  WorkflowRun: 'workflow.md',
+  WorkflowRunInfo: 'workflow.md',
+  WorkflowStartRequest: 'workflow.md',
+}
+
+/** TypeScript lib and pinned framework types that have no repository-owned data page. */
+const FOUNDATION_TYPE_NAMES = new Set([
+  'AbortSignal',
+  'AsyncIterable',
+  'Context',
+  'Error',
+  'Pick',
+  'Promise',
+  'Readonly',
+])
+
+/** Project types deliberately documented outside the core-data catalog. */
+const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  AgentFactory: 'agent creation seam is owned by packages/core/agent/README.md',
+  AgentHandle: 'agent ownership handle is owned by packages/core/agent/README.md',
+  BashEnvContributor: 'service-local extension type is owned by packages/bash/tool-bash/src/index.ts',
+  BashEnvVariableInfo: 'service-local metadata type is owned by packages/bash/tool-bash/src/index.ts',
+  CompactAgentContext: 'compaction service input is owned by packages/compact/compact/src/index.ts',
+  CreateAgentOptions: 'agent creation contract is owned by packages/core/agent/README.md',
+  PresetOption: 'deployment menu metadata is owned by packages/ui/permission/README.md',
+  PresetSpec: 'deployment preset composition is owned by packages/ui/permission/README.md',
+  PromptAssembly: 'assembly result is owned by packages/core/system-prompt/README.md',
+  ResumeAgentOptions: 'agent resume contract is owned by packages/core/agent/README.md',
+  SessionForkSource: 'service-local fork input is owned by packages/core/session/src/index.ts',
+  SubagentRunEndInfo: 'event-local snapshot is owned by packages/subagent/subagent/src/index.ts',
+  SubagentRunInfo: 'event-local snapshot is owned by packages/subagent/subagent/src/index.ts',
+  WorkflowAgentEndInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
+  WorkflowAgentInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
+  WorkflowResultInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
+}
+
+/** Collect named references from parameter, generic-constraint/default, and return types. */
+function signatureTypeNames(member: ts.MethodSignature | ts.MethodDeclaration, sf: ts.SourceFile): string[] {
+  const declared = new Set(member.typeParameters?.map(parameter => parameter.name.text) ?? [])
+  const referenced = new Set<string>()
+  const visit = (node: ts.Node): void => {
+    if (ts.isTypeReferenceNode(node)) referenced.add(node.typeName.getText(sf))
+    if (ts.isTypeQueryNode(node)) referenced.add(node.exprName.getText(sf))
+    ts.forEachChild(node, visit)
+  }
+  for (const parameter of member.typeParameters ?? []) {
+    if (parameter.constraint) visit(parameter.constraint)
+    if (parameter.default) visit(parameter.default)
+  }
+  for (const parameter of member.parameters) {
+    if (parameter.type) visit(parameter.type)
+  }
+  if (member.type) visit(member.type)
+  return [...referenced].filter(name => !declared.has(name)).sort()
+}
+
+/** Append fail-closed signature type-link violations with actionable ownership choices. */
+function checkTypeLinks(
+  where: string,
+  member: ts.MethodSignature | ts.MethodDeclaration,
+  sf: ts.SourceFile,
+  violations: string[],
+): void {
+  for (const name of signatureTypeNames(member, sf)) {
+    if (Object.hasOwn(LINK_MAP, name)
+      || FOUNDATION_TYPE_NAMES.has(name)
+      || Object.hasOwn(TYPE_LINK_EXEMPTIONS, name)) continue
+    violations.push(
+      `${where} references unclassified type '${name}'. Add it to LINK_MAP with its core-data-structures page, `
+      + 'to FOUNDATION_TYPE_NAMES if TypeScript or Cordis owns it, or to TYPE_LINK_EXEMPTIONS with '
+      + 'the non-catalog documentation owner.',
+    )
+  }
+}
+
+/** Throw one aggregated diagnostic for every unclassified signature type. */
+function reportTypeLinkViolations(gate: string, violations: string[]): void {
+  if (violations.length === 0) return
+  throw new Error(
+    `${gate}: ${violations.length} signature type-link coverage violation(s):\n`
+    + violations.map(violation => `  ${violation}`).join('\n'),
+  )
 }
 
 /** One harness event, extracted from an `interface Events` block. */
@@ -148,6 +296,7 @@ function jsDocText(text: string, sf: ts.SourceFile, node: ts.Node): string {
 export function collectEvents(scanRoot: string = root): EventEntry[] {
   const entries: EventEntry[] = []
   const violations: string[] = []
+  const typeLinkViolations: string[] = []
   for (const rel of globSync('packages/*/*/src/*.ts', { cwd: scanRoot }).map(s => s.split(sep).join('/')).sort()) {
     const abs = resolve(scanRoot, rel)
     const text = readFileSync(abs, 'utf8')
@@ -161,6 +310,7 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
       const { doc, mode } = parseJsDoc(raw)
       const src = pointer(rel, sf, member)
       const where = `event '${name}' (${src})`
+      checkTypeLinks(where, member, sf, typeLinkViolations)
       if (!mode) {
         violations.push(`${where} is missing an @mode tag. Add '@mode emit|waterfall|parallel|serial' to its JSDoc (see AGENTS.md).`)
       }
@@ -185,6 +335,7 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
     }
   }
   reportViolations('gen-cordis-catalog', violations)
+  reportTypeLinkViolations('gen-cordis-catalog', typeLinkViolations)
   return entries
 }
 
@@ -197,6 +348,7 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
 export function collectServices(scanRoot: string = root): ServiceEntry[] {
   const entries: ServiceEntry[] = []
   const violations: string[] = []
+  const typeLinkViolations: string[] = []
   for (const rel of globSync('packages/*/*/src/index.ts', { cwd: scanRoot }).map(s => s.split(sep).join('/')).sort()) {
     const abs = resolve(scanRoot, rel)
     const text = readFileSync(abs, 'utf8')
@@ -220,6 +372,7 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
         const memberName = member.name.getText(sf)
         if (memberName.startsWith('[')) continue // computed/symbol members
         const where = `service method ctx.${key}.${memberName} (${pointer(rel, sf, member)})`
+        checkTypeLinks(where, member, sf, typeLinkViolations)
         const raw = rawJsDoc(text, member)
         methods.push({ signature: memberSignature(member, sf), jsDoc: jsDocText(text, sf, member) })
         if (!raw) { violations.push(`${where} has no JSDoc.`); continue }
@@ -243,6 +396,7 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
     }
   }
   reportViolations('gen-cordis-catalog', violations)
+  reportTypeLinkViolations('gen-cordis-catalog', typeLinkViolations)
   return entries.sort((a, b) => a.key.localeCompare(b.key))
 }
 
