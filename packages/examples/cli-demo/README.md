@@ -10,10 +10,14 @@ The package mounts no console logger, readline UI, user-interaction service, or 
 |---|---|---|
 | `provider` | required | the configured agent's provider route |
 | `model` | required | the configured agent's model |
+| `maxParallelToolCalls` | agent-loop default | positive-integer concurrent tool-call cap; `1` is serial |
 | `persona` | — | the deployment persona in `dsh-system-prompt` |
 | `toolOrder` | lexicographic | explicit model-facing tool order in `dsh-system-prompt` |
 | `tools` | `{ mode: 'native' }` | tool-registry presentation config through `dsh-agent-spine-demo` |
+| `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness home exposed to model bash and used by local skill discovery |
 | `skills` | owner defaults | skill registry, local provider, and model-facing skill tool |
+| `toolBash` | owner defaults | model-facing bash config, including this producer's background opt-in |
+| `toolTasks` | owner defaults | generic `task_output` wait bounds |
 | `persistenceRoot` | `./.sessions` | JSONL session root |
 | `workspaceContext` | required | workspace-instruction byte budget, or `false` to disable loading |
 

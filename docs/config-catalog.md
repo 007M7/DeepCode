@@ -215,16 +215,24 @@ export interface Config {
   provider: string
   /** Model name for the configured agent; a matching adapter must be registered. */
   model: string
+  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
+  maxParallelToolCalls?: number
   /** Deployment persona forwarded to the system-prompt plugin. */
   persona?: string
   /** Explicit model-facing tool order forwarded to the system-prompt plugin. */
   toolOrder?: string[]
   /** Tool-registry presentation config forwarded through agent-spine-demo. */
   tools?: ToolsConfig
+  /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
+  dshHome?: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** Skill registry, local-provider, and model-facing consumer config. */
   skills?: agentCore.SkillConfig
+  /** Model-facing bash tool config forwarded through agent-spine-demo. */
+  toolBash?: NonNullable<agentCore.Config['toolBash']>
+  /** Generic background-task control-tool config forwarded through agent-spine-demo. */
+  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
 }

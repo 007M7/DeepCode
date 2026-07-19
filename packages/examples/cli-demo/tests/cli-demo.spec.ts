@@ -4,9 +4,10 @@ import { join } from 'node:path'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
-import type { Message } from '@deepseek-ai/dsh-llm'
+import { CallId, type Message } from '@deepseek-ai/dsh-llm'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
-import { afterEach, describe, expect, it } from 'vitest'
+import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as cliDemo from '../src/index.ts'
 
 const contexts: Context[] = []
@@ -19,8 +20,9 @@ async function skillConfig(catalogDescriptionMaxLength?: number): Promise<NonNul
   }
 }
 
-async function mount(config: cliDemo.Config): Promise<Context> {
+async function mount(config: cliDemo.Config, withBash = false): Promise<Context> {
   const ctx = new Context()
+  if (withBash) ctx.provide('bash', { sandboxMode: undefined })
   contexts.push(ctx)
   await ctx.plugin(cliDemo, config)
   await new Promise(resolve => setTimeout(resolve, 80))
@@ -102,6 +104,46 @@ describe('dsh-cli-demo app composition', () => {
       'task_list',
       'task_output',
     ])
+  })
+
+  it('forwards the complete shared spine configuration', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-cli-demo-home-'))
+    const agentsHome = await mkdtemp(join(tmpdir(), 'dsh-cli-demo-agents-'))
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      maxParallelToolCalls: 3,
+      dshHome,
+      skills: { local: { agentsHome } },
+      toolBash: { enableRunInBackground: false },
+      toolTasks: { waitTimeoutMs: 7, maxWaitTimeoutMs: 11 },
+      workspaceContext: false,
+    }, true)
+
+    expect(ctx.get('agentLoop')?.config.maxParallelToolCalls).toBe(3)
+    const execution: ToolExecution = {
+      token: Symbol('cli-demo-dsh-home-test') as ToolExecution['token'],
+      callId: CallId('cli-demo-dsh-home'),
+      name: 'bash',
+      arguments: { command: 'true' },
+    }
+    expect(ctx.bashEnv.collect(execution)).toMatchObject({ DSH_HOME: dshHome })
+    const bash = ctx.tools.schemas().find(tool => tool.name === 'bash')
+    expect(Object.keys((bash!.parameters as { properties: Record<string, unknown> }).properties))
+      .not.toContain('run_in_background')
+
+    const id = ctx.tasks.start({
+      kind: 'bash',
+      label: 'config forwarding probe',
+      run: () => ({ cancel: () => {}, done: Promise.resolve({ status: 'completed' }) }),
+    })
+    const wait = vi.spyOn(ctx.tasks, 'wait')
+    await ctx.tools.execute({
+      callId: CallId('cli-demo-task-config'),
+      name: 'task_output',
+      arguments: { task_id: id, wait: true },
+    })
+    expect(wait).toHaveBeenCalledWith(id, 7, undefined, undefined)
   })
 
   it('exposes the Loader-safe namespace plugin shape and schema', () => {
