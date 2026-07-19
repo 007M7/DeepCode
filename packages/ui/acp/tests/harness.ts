@@ -9,6 +9,7 @@ import { CallId, type GenerateOptions, type LlmModelInfo, type LlmProviderInfo, 
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import CommandService from '@deepseek-ai/dsh-commands'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
@@ -210,6 +211,7 @@ export async function makeBridgeHarness(options: {
   await mountAgentLoopTestDependencies(ctx, {
     systemPrompt: { persona: options.persona ?? '' },
   })
+  await ctx.plugin(CommandService)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SessionPersistenceJsonl, { root: options.storageDir })
   await ctx.plugin(UserInteractionService)

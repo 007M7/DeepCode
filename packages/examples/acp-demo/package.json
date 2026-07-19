@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-acp-demo",
-  "description": "ACP server app: the agent-spine-demo bundle + JSONL persistence + the ACP bridge (no stdout logger, no hmr, no pre-created agents), with a bin to boot a leaf cordis.yml over JSON-RPC stdio",
+  "description": "ACP server app: agent spine + human commands + JSONL persistence + ACP bridge (no stdout logger, hmr, or pre-created agents), with a JSON-RPC stdio bin",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -34,6 +34,7 @@
     "@cordisjs/plugin-loader": "^1.0.0-rc.5",
     "@deepseek-ai/dsh-app-boot": "^0.0.1",
     "@deepseek-ai/dsh-acp": "^0.0.1",
+    "@deepseek-ai/dsh-commands": "^0.0.1",
     "@deepseek-ai/dsh-agent-spine-demo": "^0.0.1",
     "@deepseek-ai/dsh-workspace-context": "^0.0.1",
     "@deepseek-ai/dsh-session-persistence-jsonl": "^0.0.1",
@@ -47,6 +48,7 @@
     "@cordisjs/plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-acp": "workspace:^",
+    "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-spine-demo": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",

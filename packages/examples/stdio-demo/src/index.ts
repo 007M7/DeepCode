@@ -1,9 +1,9 @@
 /**
  * The stdio chat app: the default agent spine ({@link @deepseek-ai/dsh-agent-spine-demo}) plus the
- * coupled front-door cluster a terminal chat needs — TTY-selected pi-tui/readline
- * presentation, JSONL session persistence, the user-interaction seam with its
- * `ask_user_question` tool, and one pre-created agent whose exact shared
- * agent/session identity the selected UI drives under its `main` display label.
+ * coupled front-door cluster a terminal chat needs — the command registry,
+ * TTY-selected pi-tui/readline presentation, JSONL session persistence, the
+ * user-interaction seam with its `ask_user_question` tool, and one pre-created
+ * agent whose exact shared identity the selected UI drives as `main`.
  * Swappable adapters, executors, optional tools, and HMR stay in the leaf. This
  * Loader plugin intentionally exposes named exports only; a default export
  * would hide its `Config` schema (see docs/postmortem/0001).
@@ -16,6 +16,7 @@ import ConsoleExporter from '@cordisjs/plugin-logger-console'
 import z from 'schemastery'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
+import CommandService from '@deepseek-ai/dsh-commands'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -145,6 +146,7 @@ export function composeTerminalApp(ctx: Context, config: Config, isTTY: boolean)
   const sessionId = SessionId(resumeSessionId ?? `main-session-${randomUUID()}`)
   const mode = resolveTerminalMode(config.ui, isTTY)
   if (mode === 'readline') ctx.plugin(ConsoleExporter)
+  ctx.plugin(CommandService)
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT })
   ctx.plugin(UserInteractionService)
   if (mode === 'tui') {

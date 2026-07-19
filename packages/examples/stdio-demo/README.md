@@ -11,6 +11,7 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 | Plugin | Why it is here |
 |---|---|
 | `@deepseek-ai/dsh-agent-spine-demo` | the spine, pre-creating a `main` agent from this app's provider/model pair with `process.cwd()` as the fresh session cwd and carrying its `persona` |
+| `@deepseek-ai/dsh-commands` | the human-command registry consumed by the TUI front door and optional command plugins |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by confirmation tools |
 | `@deepseek-ai/dsh-tool-ask-user` | the model-facing `ask_user_question` tool |
@@ -79,7 +80,7 @@ Swap `llm-deepseek` for a `mock-llm` leaf plugin and you have the echo demo — 
 
 ### Composed terminal agent request
 
-**What the model sees**: Through `dsh-agent-spine-demo`, the `main` agent receives the harness identity, configured persona, skill catalog, and visible tools; this app also composes the generated [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user). Each terminal submission becomes a user message; submissions made while the agent runs steer the active turn.
+**What the model sees**: Through `dsh-agent-spine-demo`, the `main` agent receives the harness identity, configured persona, skill catalog, and visible tools; this app also composes the generated [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user). Each ordinary terminal submission becomes a user message; submissions made while the agent runs steer the active turn. TUI commands remain outside model context.
 
 **Token effect**: Child prompt and schema costs repeat per request; user input and tool history grow until compaction. Terminal banners, logger output, cards, and rendered transcripts add zero model tokens.
 

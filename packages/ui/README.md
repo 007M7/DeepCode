@@ -5,6 +5,7 @@ Integrations that expose the agent to an external editor or client. These are **
 | Package | Role | ctx key |
 |---|---|---|
 | `acp/` | Agent Client Protocol bridge: serves the agent to an ACP editor (Zed) over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
+| `commands/` | Human-command registry: discovery metadata, scoped shadowing, surface filtering, cancellation, and direct UI dispatch | `ctx.commands` |
 | `user-approval/` | One-shot user-approval mechanism, closed outcome vocabulary, audit events, and per-session approval policy | `ctx.approval` |
 | `permission/` | User-facing permission presets (`workspace-write`/`danger-full-access`): one product-level select bundling the sandbox-mode and approval-policy knobs, written through to their session events | `ctx.permission` |
 | `user-interaction/` | Abstract human question/answer seam used by UI-backed confirmation tools | `ctx.userInteraction` |
@@ -14,7 +15,7 @@ Integrations that expose the agent to an external editor or client. These are **
 | `jsonrpc/` | Stdio JSON-RPC server for out-of-process SDK clients | (drives `ctx.agents`) |
 | `app-boot/` | Shared boot glue for the app bins: `.env` loading, fail-loud Loader guards, snapshot-aware config resolution, the settle-the-tree boot sequence | (library for the bins) |
 
-A UI integration is a client-driver plugin, not a loop change and not a capability seam: it consumes the existing `agent/*` event taxonomy and the `dsh-agent` factory. The `jsonrpc` plugin is the SDK-client sibling of the `acp` bridge (a JSON-RPC server over `ctx.agents` for out-of-process SDK clients rather than editors). The [`stdio`](stdio/README.md) and [`tui`](tui/README.md) plugins are the two terminal front doors: one is line-oriented for pipes, the other is interactive for TTYs. App bundles and SDK projects compose the appropriate channel explicitly with the services and tools their product profile selects.
+A UI integration is a client-driver plugin, not a loop change and not a capability seam: it consumes the existing `agent/*` event taxonomy and the `dsh-agent` factory. The `jsonrpc` plugin is the SDK-client sibling of the `acp` bridge (a JSON-RPC server over `ctx.agents` for out-of-process SDK clients rather than editors). The [`stdio`](stdio/README.md) and [`tui`](tui/README.md) plugins are the two terminal front doors: one is line-oriented for pipes, the other is interactive for TTYs. [`commands`](commands/README.md) is their human-only discovery and dispatch plane; command input and output do not become model messages. App bundles and SDK projects compose the appropriate channel explicitly with the services and tools their product profile selects.
 
 `user-approval`, `user-interaction`, and `tool-ask-user` live here because asking a human is a UI-backed product affordance, not part of the providerless core spine. `user-approval` owns the one-shot `ctx.approval` decision mechanism and its policy tier; answerers remain with their UI channel owners. `user-interaction` remains provider-neutral (`ctx.userInteraction`), while `tool-ask-user` is its model-facing consumer and the app/bridge packages provide concrete providers.
 

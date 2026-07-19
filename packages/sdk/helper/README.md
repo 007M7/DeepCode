@@ -6,7 +6,7 @@ The package owns the builtin typed-spec catalog, provider/app behavior entities,
 
 All business and document validation completes before commit writes any affected file. Commit detects external edits made after the session opened, but deliberately provides no cross-file rollback after writing starts.
 
-Builtin features are provider, bash, app, persistence, HMR, filesystem, todo, skill, web, subagent, workflow, compaction, hooks, repeat-tool guard, timeout policy, and ask-user. The catalog owns feature options, required and non-default Cordis plugin config, feature requirements, resource contribution, and round-trip markers; create and config use the same registry and configurator.
+Builtin features are provider, bash, app, persistence, HMR, filesystem, todo, skill, web, subagent, workflow, compaction, hooks, repeat-tool guard, timeout policy, and ask-user. The catalog owns feature options, required and non-default Cordis plugin config, feature requirements, resource contribution, and round-trip markers; create and config use the same registry and configurator. The ACP app option contributes the human-command and user-interaction services before the bridge.
 
 `SdkProject.open()` requires only readable root `package.json` and `cordis.yml`. A Cordis config entry anchors feature installation; a package present only through a linked NPM dependency closure leaves the feature absent. Once an owned Cordis config entry exists, an incomplete resource shape is `inconsistent` and cannot be modified automatically.
 

@@ -11,6 +11,7 @@ stdout is the ACP JSON-RPC channel, so the cluster is defined as much by what it
 | Plugin | Why |
 |---|---|
 | `@deepseek-ai/dsh-agent-spine-demo` | the spine, pre-creating **no** agents (ACP `session/new` creates them on demand) |
+| `@deepseek-ai/dsh-commands` | the human-command registry used for ACP discovery and direct slash dispatch |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by clients that can complete ACP elicitation requests |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log (the bridge advertises `loadSession`) |
 | `@deepseek-ai/dsh-acp` | the bridge that owns stdout for JSON-RPC and provides ACP-backed user answers when a leaf explicitly exposes a user-question tool |

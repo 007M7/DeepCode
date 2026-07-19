@@ -146,6 +146,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
   },
   {
+    key: 'commands',
+    pkg: 'commands',
+    title: 'Human command registry',
+    mode: 'core',
+    consumers: ['tui', 'acp'],
+    note: 'Plugins register direct human commands; TUI and ACP resolve each agent and surface without sending the invocation to the model.',
+  },
+  {
     key: 'skills',
     pkg: 'skill',
     title: 'Skill provider registry',

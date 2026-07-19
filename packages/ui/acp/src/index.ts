@@ -18,6 +18,7 @@ import {
   RequestError,
   type Agent as AcpAgent,
   type AuthenticateRequest,
+  type AvailableCommand,
   type CancelNotification,
   type ContentBlock as AcpContentBlock,
   type CreateElicitationRequest,
@@ -45,6 +46,7 @@ import {
 import type { ContentBlock, LlmCallConfig, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-commands'
 import { SessionId } from '@deepseek-ai/dsh-session'
 // Side-effect type import: resolves `ctx.get('permission')` to the service.
 import type {} from '@deepseek-ai/dsh-permission'
@@ -76,11 +78,20 @@ import {
 
 export const name = 'acp'
 // Interface services back loading, presentation, interaction, and prompt assembly.
-export const inject = ['agents', 'sessionPersistence', 'tools', 'userInteraction', 'llm', 'systemPrompt']
+export const inject = ['agents', 'commands', 'sessionPersistence', 'tools', 'userInteraction', 'llm', 'systemPrompt']
 
 /** Preserve invalid-parameter detail in the SDK wire error message. */
 function invalidParams(detail: string): RequestError {
   return RequestError.invalidParams(undefined, detail)
+}
+
+/** Render arbitrary thrown values without trusting their string coercion. */
+function renderThrown(value: unknown): string {
+  try {
+    return String(value)
+  } catch {
+    return '<unrenderable thrown value>'
+  }
 }
 
 /** Preserve failed-turn detail; plain handler errors become a generic wire internal error. */
@@ -259,6 +270,8 @@ interface SessionRecord {
     reject: (error: Error) => void
     turn: number | undefined
   } | undefined
+  /** Abort owner for a direct slash-command request, mutually exclusive with `inflight`. */
+  commandAbort: AbortController | undefined
   /** Last idle switch per knob, anchored before the next prompt assembles. */
   pendingSwitches: { preset?: string }
 }
@@ -273,6 +286,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // ACP handlers execute outside this plugin's injection scope, so capture
   // injected services during apply(); lazy service reads in a handler fail.
   const agents = ctx.agents
+  const commands = ctx.commands
   const llm = ctx.llm
   const sessionPersistence = ctx.sessionPersistence
   const logger = ctx.logger
@@ -466,6 +480,30 @@ export function apply(ctx: Context, config: AcpConfig): void {
       logger.warn(`acp: session/update failed: ${String(error)}`)
     })
   }
+
+  /** Project the effective registry view onto ACP discovery metadata. */
+  const availableCommands = (agent: Agent): AvailableCommand[] => commands.list(agent, 'acp').map(command => ({
+    name: command.name,
+    description: command.description,
+    ...command.input === undefined ? {} : { input: { hint: command.input.hint } },
+  }))
+
+  /** Push the protocol's full-snapshot command catalog for one live session. */
+  const notifyCommands = (rec: SessionRecord): void => {
+    notify({
+      sessionId: rec.agent.session.id,
+      update: {
+        sessionUpdate: 'available_commands_update',
+        availableCommands: availableCommands(rec.agent),
+      },
+    })
+  }
+
+  // Registration and HMR removal can affect global or one scoped view; refresh
+  // every bridge-owned session and let the registry resolve each exact agent.
+  ctx.on('commands/change', () => {
+    for (const rec of sessions.values()) notifyCommands(rec)
+  })
 
   /** Settle the in-flight prompt with a stop reason, exactly once (no-op if none pending). */
   const settlePrompt = (rec: SessionRecord, reason: StopReason): void => {
@@ -680,8 +718,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
           terminalEnabled: terminalOutputCap,
           target,
           inflight: undefined,
+          commandAbort: undefined,
           pendingSwitches: {},
         })
+        notifyCommands(requireSession(sessionId))
         const configOptions = configOptionsFor(handle.agent, directory)
         return { sessionId, ...configOptions.length > 0 ? { configOptions } : {} }
       },
@@ -762,6 +802,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             terminalEnabled,
             target,
             inflight: undefined,
+            commandAbort: undefined,
             pendingSwitches: {},
           }
           sessions.set(sessionId, record)
@@ -786,6 +827,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           for (const event of agent.session.events) {
             streamSessionEventUpdate(sessionId, event, notify, replayPresenter, replayTerminal)
           }
+          notifyCommands(record)
           const configOptions = configOptionsFor(agent, directory)
           return configOptions.length > 0 ? { configOptions } : {}
         } finally {
@@ -796,7 +838,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       async prompt(params: PromptRequest): Promise<PromptResponse> {
         assertOpen()
         const rec = requireSession(SessionId(params.sessionId))
-        if (rec.inflight !== undefined) {
+        if (rec.inflight !== undefined || rec.commandAbort !== undefined) {
           throw invalidParams('a prompt is already in flight for this session')
         }
         if (promptHasUnsupportedContent(params.prompt)) {
@@ -808,6 +850,52 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // queue no work, no turn would start, and the RPC would hang forever
           // waiting for a settle that never comes.
           throw invalidParams('empty prompt')
+        }
+        // ACP command prompts may carry additional supported content blocks.
+        // The same lossless flattening used for model prompts supplies their
+        // unstructured command input; unsupported kinds were rejected above.
+        const commandLine = text.startsWith('/') ? text : undefined
+        if (commandLine !== undefined) {
+          const controller = new AbortController()
+          rec.commandAbort = controller
+          try {
+            const result = await commands.execute(rec.agent, 'acp', commandLine, controller.signal)
+            if (result !== undefined && result.text !== undefined && result.text !== '') {
+              notify({
+                sessionId: rec.agent.session.id,
+                update: {
+                  sessionUpdate: 'agent_message_chunk',
+                  content: {
+                    type: 'text',
+                    text: result.kind === 'error' ? `Error: ${result.text}` : result.text,
+                  },
+                },
+              })
+            } else if (result === undefined) {
+              notify({
+                sessionId: rec.agent.session.id,
+                update: {
+                  sessionUpdate: 'agent_message_chunk',
+                  content: { type: 'text', text: `Error: unknown command: ${commandLine}` },
+                },
+              })
+            }
+            return { stopReason: 'end_turn' }
+          } catch (error: unknown) {
+            if (controller.signal.aborted) return { stopReason: 'cancelled' }
+            const rendered = renderThrown(error)
+            logger.warn(`acp: command failed: ${rendered}`)
+            notify({
+              sessionId: rec.agent.session.id,
+              update: {
+                sessionUpdate: 'agent_message_chunk',
+                content: { type: 'text', text: `Error: command failed: ${rendered}` },
+              },
+            })
+            return { stopReason: 'end_turn' }
+          } finally {
+            rec.commandAbort = undefined
+          }
         }
         // Install the in-flight slot BEFORE send() (send does not synchronously
         // flip status to running; the session/event listener records the turn
@@ -835,8 +923,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // settle it, because cancel() may drop the turn before any turn/end is
         // emitted, and removing this direct settle would move the RPC's
         // resolution onto a later observer path, changing its timing.
-        rec.agent.cancel('session/cancel')
-        settlePrompt(rec, 'cancelled')
+        if (rec.commandAbort !== undefined) {
+          rec.commandAbort.abort(new Error('session/cancel'))
+        } else {
+          rec.agent.cancel('session/cancel')
+          settlePrompt(rec, 'cancelled')
+        }
         return Promise.resolve()
       },
 
@@ -950,6 +1042,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     quiescing = (async () => {
       await Promise.all(recs.map(async (rec) => {
         settlePrompt(rec, 'cancelled')
+        rec.commandAbort?.abort(new Error('ACP connection closed'))
         // Per-agent dispose (the AgentHandle disposer): unregister this agent,
         // stop its loop (sets disposed + aborts the in-flight step), await
         // quiescence (the loop exit + final flush), and remove its session — so

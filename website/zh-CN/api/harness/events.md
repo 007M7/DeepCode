@@ -2,7 +2,7 @@
 
 # Harness events
 
-Every event the harness packages declare on the cordis event bus (44 total), grouped by scope. The **mode** is the dispatch semantics (`emit` fire-and-forget, `parallel` awaited, `serial` first-bail, `waterfall` veto-chain — a waterfall listener MUST call `next()` to delegate).
+Every event the harness packages declare on the cordis event bus (45 total), grouped by scope. The **mode** is the dispatch semantics (`emit` fire-and-forget, `parallel` awaited, `serial` first-bail, `waterfall` veto-chain — a waterfall listener MUST call `next()` to delegate).
 
 ## agent/*
 
@@ -471,6 +471,25 @@ Ask composed answerers for one decision. Return an outcome to claim the request 
 - `req` — the pending decision (agent, tool identity, reason, signal).
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/user-approval/src/index.ts#L31)
+
+## commands/*
+
+### commands/change
+
+**Mode:** `emit`
+
+```ts website-api
+/**
+ * A command was registered or unregistered. This is an unfiltered registry
+ * notification because a global or scoped change may affect any UI view.
+ * @mode emit
+ */
+'commands/change'(): void
+```
+
+A command was registered or unregistered. This is an unfiltered registry notification because a global or scoped change may affect any UI view.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L93)
 
 ## fs/*
 

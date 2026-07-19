@@ -47,6 +47,10 @@
       "link": "/zh-CN/api/harness/code-runtime"
     },
     {
+      "text": "ctx.commands",
+      "link": "/zh-CN/api/harness/commands"
+    },
+    {
       "text": "ctx.compact",
       "link": "/zh-CN/api/harness/compact"
     },
