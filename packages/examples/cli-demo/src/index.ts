@@ -61,7 +61,7 @@ export const Config: z<Config> = z.object({
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
   toolBash: agentCore.ToolBashConfigSchema,
-  toolTasks: agentCore.ToolTasksConfigSchema,
+  toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
 /* jscpd:ignore-end */
