@@ -1,7 +1,0 @@
-{
-  "name": "dsbench-coding-agent-example",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "description": "DSBench JSON-RPC coding-agent composition"
-}

@@ -33,9 +33,9 @@ The full-screen terminal sibling of `repl-agent`: it reuses the same coding back
 
 Run with: `pnpm run demo:tui` (needs `DEEPSEEK_API_KEY`). See [tui-agent/README.md](tui-agent/README.md) for controls and composition.
 
-## dsbench-coding-agent
+## jsonrpc-agent
 
-The unattended SDK composition used by DSBench: JSON-RPC stdio, foreground-only `bash`, `read` / `write` / `edit`, one foreground `subagent`, `todo_write`, JSONL persistence, and compaction. It excludes terminal UI, stdout logging, approvals, skills, and background task controls. See [dsbench-coding-agent/README.md](dsbench-coding-agent/README.md).
+An unattended coding agent driven through the Python SDK: JSON-RPC stdio, foreground-only `bash`, `read` / `write` / `edit`, one foreground `subagent`, `todo_write`, JSONL persistence, and compaction. It excludes terminal UI, stdout logging, approvals, skills, and background task controls. See [jsonrpc-agent/README.md](jsonrpc-agent/README.md).
 
 ## cordis-agent
 

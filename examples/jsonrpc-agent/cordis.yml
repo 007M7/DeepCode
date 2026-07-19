@@ -1,4 +1,4 @@
-# DSBench deployment for the bundled dsh-jsonrpc-agent runtime.
+# Unattended coding-agent deployment for the bundled dsh-jsonrpc-agent runtime.
 # stdout is reserved for JSON-RPC; do not add a console logger or terminal UI.
 
 - id: jsonrpc
@@ -21,7 +21,7 @@
 - id: agent-spine
   name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
-    persona: !!js process.env.DSH_SYSTEM_PROMPT ?? 'You are a coding agent driven by DSBench.'
+    persona: !!js process.env.DSH_SYSTEM_PROMPT ?? 'You are a coding agent.'
     workspaceContext: false
     skills:
       enabled: false

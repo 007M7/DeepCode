@@ -28,7 +28,7 @@ function waitForLine(
             return
           }
         } catch {
-          reject(new Error(`non-JSON stdout from DSBench runtime: ${line}`))
+          reject(new Error(`non-JSON stdout from JSON-RPC agent runtime: ${line}`))
           return
         }
       }
@@ -42,9 +42,9 @@ function waitForLine(
   })
 }
 
-describe('dsbench-coding-agent keyless smoke', () => {
+describe('jsonrpc-agent keyless smoke', () => {
   it('boots the real Cordis tree and serves initialize/shutdown over clean stdout', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'dsh-dsbench-smoke-'))
+    const root = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-agent-smoke-'))
     const modelRequests: Record<string, unknown>[] = []
     const modelServer = createServer((request, response) => {
       let body = ''
