@@ -4158,6 +4158,100 @@ function refreshRailIfOpen() { if (isRailOpen()) refreshRail() }
 if (ctxRailBtn) ctxRailBtn.addEventListener('click', () => setRailOpen(!isRailOpen()))
 if (ctxRailDrawerCloseBtn) ctxRailDrawerCloseBtn.addEventListener('click', () => setRailOpen(false))
 
+// -- feat/chat-triple-view: side drawer + Graph tab ------------------------
+// Right-side drawer with Current Turn / Session Overview / History; the
+// Chat pane also grows a List | Graph tab strip that swaps stream vs the
+// Session Graph DAG. Both surfaces read the same cachedEvents ring the
+// Context Rail already projects, so no new wire is required.
+const chatPaneEl = document.querySelector('.pane[data-pane="chat"]')
+const chatSideDrawerBtn = document.getElementById('chat-side-drawer-btn')
+const chatSideDrawerEl = document.getElementById('chat-side-drawer')
+const chatSideDrawerBodyEl = document.getElementById('chat-side-drawer-body')
+const chatSideDrawerCloseBtn = document.getElementById('chat-side-drawer-close')
+const chatSessionGraphEl = document.getElementById('chat-session-graph')
+const chatViewTabEls = document.querySelectorAll('.chat-view-tab')
+
+// Default the pane to List. The absence of the attribute would leave the
+// CSS selectors idle and both children visible.
+if (chatPaneEl && !chatPaneEl.dataset.chatView) {
+  chatPaneEl.dataset.chatView = 'list'
+}
+function isChatDrawerOpen() {
+  return !!(chatSideDrawerEl && !chatSideDrawerEl.classList.contains('hidden'))
+}
+function setChatDrawerOpen(open) {
+  if (!chatSideDrawerEl) return
+  chatSideDrawerEl.classList.toggle('hidden', !open)
+  chatSideDrawerEl.setAttribute('aria-hidden', open ? 'false' : 'true')
+  if (chatSideDrawerBtn) chatSideDrawerBtn.setAttribute('aria-expanded', open ? 'true' : 'false')
+  if (open) refreshChatSideDrawer()
+}
+function refreshChatSideDrawer() {
+  if (!isChatDrawerOpen() || !chatSideDrawerBodyEl) return
+  const api = window.__dshChatSideDrawer
+  if (!api || typeof api.renderChatSideDrawer !== 'function') return
+  const meta = state.activeSessionId ? state.sessions.get(state.activeSessionId) : null
+  const events = (meta && Array.isArray(meta.cachedEvents)) ? meta.cachedEvents : []
+  api.renderChatSideDrawer(chatSideDrawerBodyEl, {
+    sessionId: state.activeSessionId || '',
+    model: meta && (meta.model || (meta.header && meta.header.model)) || '',
+    events,
+    selectedTurnId: null,
+    onSelect(row) {
+      if (!row || !row.turnId) return
+      const target = streamEl && streamEl.querySelector(`[data-turn-id="${row.turnId}"]`)
+      if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    },
+  })
+}
+function refreshChatSideDrawerIfOpen() { if (isChatDrawerOpen()) refreshChatSideDrawer() }
+if (chatSideDrawerBtn) {
+  chatSideDrawerBtn.addEventListener('click', () => setChatDrawerOpen(!isChatDrawerOpen()))
+}
+if (chatSideDrawerCloseBtn) {
+  chatSideDrawerCloseBtn.addEventListener('click', () => setChatDrawerOpen(false))
+}
+
+function setChatView(view) {
+  if (!chatPaneEl) return
+  const v = view === 'graph' ? 'graph' : 'list'
+  chatPaneEl.dataset.chatView = v
+  for (const btn of chatViewTabEls) {
+    const active = btn.dataset.chatViewTab === v
+    btn.classList.toggle('active', active)
+    btn.setAttribute('aria-selected', active ? 'true' : 'false')
+  }
+  if (v === 'graph') refreshSessionGraph()
+}
+function refreshSessionGraph() {
+  if (!chatSessionGraphEl) return
+  const api = window.__dshChatSessionGraph
+  if (!api || typeof api.renderSessionGraph !== 'function') return
+  const meta = state.activeSessionId ? state.sessions.get(state.activeSessionId) : null
+  const events = (meta && Array.isArray(meta.cachedEvents)) ? meta.cachedEvents : []
+  api.renderSessionGraph(chatSessionGraphEl, {
+    sessionId: state.activeSessionId || '',
+    events,
+    onSelect(node) {
+      if (!node || !node.turnId) return
+      // Jump to the turn in the List view and focus it.
+      setChatView('list')
+      const target = streamEl && streamEl.querySelector(`[data-turn-id="${node.turnId}"]`)
+      if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    },
+  })
+}
+function refreshSessionGraphIfActive() {
+  if (chatPaneEl && chatPaneEl.dataset.chatView === 'graph') refreshSessionGraph()
+}
+for (const btn of chatViewTabEls) {
+  btn.addEventListener('click', () => setChatView(btn.dataset.chatViewTab))
+}
+
 function formatTokens(n) {
   if (!Number.isFinite(n)) return '—'
   if (n < 1000) return String(n)
@@ -4416,6 +4510,17 @@ function onSessionEvent(sessionId, event) {
     // §1.3 A/B classifier gate: track turn count so hooks-*
     // demotes from family A (SessionStart) to family B on later turns.
     meta.turnCount = (meta.turnCount || 0) + 1
+    // feat/chat-triple-view: once the current turn container exists in the
+    // stream, stamp its turnId from the start event so the drawer/graph
+    // can address it. Same {turnId, turn_id, fallback t{n}} shape as
+    // chat-side-drawer.deriveTurnRows so both surfaces agree.
+    const startDataForTurnId = event.data || {}
+    const derivedTurnId = startDataForTurnId.turnId || startDataForTurnId.turn_id
+      || `t${meta.turnCount - 1}`
+    if (sessionId === state.activeSessionId && state.currentTurn && state.currentTurn.section) {
+      state.currentTurn.section.dataset.turnId = derivedTurnId
+      state.currentTurn.section.dataset.turnIndex = String(meta.turnCount - 1)
+    }
     // Ticket B §B-4 (2026-07-16): a new turn starting means the previous
     // error/cancel is no longer the current state — drop the derived
     // lastError so the row stops rendering ✕ interrupted while a fresh
@@ -4467,6 +4572,12 @@ function onSessionEvent(sessionId, event) {
   // list so inject/compact/recall events stream in live alongside the
   // message bubbles. No-op when the drawer is closed.
   refreshRailIfOpen()
+  // feat/chat-triple-view: keep the right-side detail drawer + Session Graph
+  // in sync with the same event tick. Both no-op when their surface is
+  // hidden, so this is cheap when the user hasn't opened the drawer /
+  // switched to Graph yet.
+  refreshChatSideDrawerIfOpen()
+  refreshSessionGraphIfActive()
 
   // §2.3 (batch 6) template triggers: pure module decides whether the event
   // qualifies for a template card (T2 error recovery / T4 artifact preview /

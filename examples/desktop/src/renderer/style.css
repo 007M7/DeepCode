@@ -40,6 +40,18 @@
   --accent-strong: #1d4ed8;
   --accent-soft: rgba(37, 99, 235, 0.12);
 
+  /* density-spec §7: turn edge tokens read across the chat stream.
+   * --turn-action-edge  paints the left rail of a sealed action turn
+   *   (reasoning + text + tool-call cluster reads as one blue-edged block).
+   * --turn-output-edge  paints the left rail of a tool-result row so the
+   *   result reads as grey-edged echo below the action's blue.
+   * --turn-interrupt-marker paints the small orange sliver that appears
+   *   at the head of an interruption row so a reader tracking the rail
+   *   sees the seam. Kept as brand-neutral defaults; swap here to reskin. */
+  --turn-action-edge: var(--accent);
+  --turn-output-edge: var(--border-strong);
+  --turn-interrupt-marker: #ea580c;
+
   /* Semantic */
   --ok: #16a34a;
   --ok-soft: rgba(22, 163, 74, 0.12);
@@ -143,6 +155,9 @@
     --accent: #4f8bff;
     --accent-strong: #6ea3ff;
     --accent-soft: rgba(79, 139, 255, 0.18);
+    --turn-action-edge: var(--accent);
+    --turn-output-edge: var(--border-strong);
+    --turn-interrupt-marker: #f97316;
     --user-bubble: #22262f;
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.5);
@@ -168,6 +183,9 @@
   --accent: #4f8bff;
   --accent-strong: #6ea3ff;
   --accent-soft: rgba(79, 139, 255, 0.18);
+  --turn-action-edge: var(--accent);
+  --turn-output-edge: var(--border-strong);
+  --turn-interrupt-marker: #f97316;
   --user-bubble: #22262f;
 }
 * { box-sizing: border-box; }
@@ -6676,12 +6694,40 @@ textarea:focus-visible {
 .assistant-turn {
   display: block;
   border: 1px solid transparent;      /* no card outline by default */
-  border-left: 2px solid var(--border);
+  /* density-spec §7 tokens: sealed action turn wears the accent rail so a
+   * reasoning + text + tool-call cluster reads as one blue-edged block. */
+  border-left: 2px solid var(--turn-action-edge);
   padding: 0 0 0 12px;
   margin: 8px 0;
 }
 .assistant-turn[data-turn-status="streaming"] {
   border-left-color: var(--accent-soft);
+}
+/* Grey-edge output rows: tool results and any turn-child painted with
+ * .turn-output-edge (renderer stamps it on rows that echo external output
+ * back into the turn). Reads as a muted echo below the blue action edge. */
+.assistant-turn > .turn-body > .tool-result-row {
+  border-left: 2px solid var(--turn-output-edge);
+  margin-left: -14px;                  /* align inner edge with turn rail */
+  padding-left: 12px;
+}
+.assistant-turn > .turn-body > .turn-output-edge {
+  border-left: 2px solid var(--turn-output-edge);
+  margin-left: -14px;
+  padding-left: 12px;
+}
+/* Interruption marker: an orange sliver planted at the head of a row that
+ * broke the streaming turn (user cancel, guard reject). Two-pixel high
+ * dash on the left rail so a reader scanning the edge column sees the
+ * seam without adding a full-row banner. */
+.assistant-turn .turn-interrupt-marker {
+  display: block;
+  width: 4px;
+  height: 12px;
+  background: var(--turn-interrupt-marker);
+  border-radius: 2px;
+  margin: 0 6px 0 -16px;
+  flex: 0 0 auto;
 }
 .assistant-turn > .turn-rule {
   height: 1px; background: transparent; margin: 0 0 6px 0;
@@ -11579,3 +11625,228 @@ details.devtools-row[open] > .devtools-row-summary::before { transform: rotate(9
 /* default display (this one is `display: flex`) — behaviourally identical */
 /* once JS finishes booting, but robust against the first-paint race.       */
 .onboarding[hidden] { display: none !important; }
+
+/* -- Chat triple view: side drawer + view switcher + session graph -------
+ * lane-chat-triple. The Chat pane grows a right-side fold-out drawer
+ * (turn/session metadata + history list) and a top-level view switcher
+ * that toggles the main stream between List (default) and Graph (a
+ * DAG over the session's turn sequence, drawn as pure SVG). */
+
+/* View switcher tab strip. Sits between the header and the stream on the
+ * Chat pane. Two buttons, active one carries the accent underline. */
+.chat-view-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 20px 0 20px;
+  border-bottom: 1px solid var(--divider);
+  background: var(--bg);
+  flex: 0 0 auto;
+}
+.chat-view-tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.chat-view-tab:hover { color: var(--text); }
+.chat-view-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Chat header gets an icon button that toggles the side drawer. */
+.chat-side-drawer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.chat-side-drawer-toggle[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Right-side drawer: fixed 320px width, slides in from the right edge of
+ * the Chat pane. Hidden by default via [hidden]; script toggles that. */
+.chat-side-drawer {
+  position: absolute;
+  top: var(--header-h);
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  background: var(--bg-elev);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 20;
+  box-shadow: var(--shadow-2);
+}
+.chat-side-drawer.hidden { display: none; }
+.chat-side-drawer-head {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--divider);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chat-side-drawer-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+.chat-side-drawer-close {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.chat-side-drawer-close:hover { color: var(--text); }
+.chat-side-drawer-body {
+  overflow-y: auto;
+  padding: 8px 0;
+  flex: 1;
+}
+.chat-side-drawer-section {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--divider);
+}
+.chat-side-drawer-section:last-child { border-bottom: 0; }
+.chat-side-drawer-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+.chat-side-drawer-meta {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 4px 8px;
+  font-size: 12px;
+}
+.chat-side-drawer-meta dt {
+  color: var(--muted);
+  font-weight: 400;
+  margin: 0;
+}
+.chat-side-drawer-meta dd {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.chat-side-drawer-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.chat-side-drawer-history-item {
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--text);
+}
+.chat-side-drawer-history-item:hover {
+  background: var(--surface-hover);
+}
+.chat-side-drawer-history-item.active {
+  background: var(--accent-soft);
+}
+.chat-side-drawer-history-role {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  min-width: 42px;
+  flex: 0 0 auto;
+  text-transform: uppercase;
+}
+.chat-side-drawer-history-summary {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.chat-side-drawer-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px 4px;
+}
+
+/* Session Graph view. Hidden when the List tab is active; when Graph is
+ * active the stream container gets [data-chat-view="graph"] and the
+ * inline .chat-session-graph replaces its content area. */
+.chat-session-graph {
+  padding: 20px;
+  overflow: auto;
+  height: 100%;
+}
+.chat-session-graph[hidden] { display: none; }
+.chat-session-graph-empty {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 40px 20px;
+}
+.chat-session-graph svg {
+  display: block;
+  max-width: 100%;
+}
+.chat-session-graph .graph-node {
+  cursor: pointer;
+}
+.chat-session-graph .graph-node circle {
+  fill: var(--bg-elev);
+  stroke: var(--turn-action-edge);
+  stroke-width: 2;
+}
+.chat-session-graph .graph-node.node-user circle {
+  stroke: var(--muted);
+}
+.chat-session-graph .graph-node.node-interrupt circle {
+  stroke: var(--turn-interrupt-marker);
+}
+.chat-session-graph .graph-node.active circle {
+  fill: var(--accent-soft);
+}
+.chat-session-graph .graph-node text {
+  fill: var(--text);
+  font-size: 11px;
+  font-family: var(--mono);
+}
+.chat-session-graph .graph-edge {
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  fill: none;
+}
+.chat-session-graph .graph-edge.edge-fork {
+  stroke-dasharray: 4 3;
+}
+.chat-session-graph .graph-edge.edge-interrupt {
+  stroke: var(--turn-interrupt-marker);
+  stroke-width: 2;
+}
+
+/* Stream shows only for [data-chat-view="list"], graph only for
+ * [data-chat-view="graph"]. The pane is the parent that carries the
+ * data attribute so a single toggle switches both children. */
+.pane[data-pane="chat"][data-chat-view="graph"] .stream { display: none; }
+.pane[data-pane="chat"][data-chat-view="list"] .chat-session-graph { display: none; }
+
+/* Give the pane a positioning context so the absolute drawer anchors
+ * inside it, not against the viewport root. */
+.pane[data-pane="chat"] { position: relative; }

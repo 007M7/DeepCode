@@ -305,6 +305,15 @@
             <!-- Quick chat launcher. The global shortcut ⌘⇧Space also
                  toggles this overlay; keeping a visible button makes it
                  discoverable for users who never learn shortcuts. -->
+            <!-- feat/chat-triple-view: right-side drawer toggle. When
+                 clicked, adds/removes `hidden` on #chat-side-drawer.
+                 Aria-expanded flips so the button styles as "on" when
+                 the drawer is open. -->
+            <button id="chat-side-drawer-btn" class="ghost small chat-side-drawer-toggle"
+                    aria-expanded="false" title="Toggle chat detail drawer" aria-label="Toggle chat detail drawer">
+              <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M3 3.5h14v13h-14zM13 3.5v13"/></svg>
+              <span>Details</span>
+            </button>
             <button id="quickchat-open" class="ghost small" title="Quick chat (⌘⇧Space)" aria-label="Open quick chat">
               <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M3 5.5A2.5 2.5 0 0 1 5.5 3h9A2.5 2.5 0 0 1 17 5.5v6A2.5 2.5 0 0 1 14.5 14H9l-4 3v-3H5.5A2.5 2.5 0 0 1 3 11.5z"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M7.5 8.5h5M7.5 6.5h5"/></svg>
               <span>Quick chat</span>
@@ -395,6 +404,16 @@
             </div>
           </div>
         </header>
+        <!-- feat/chat-triple-view: view switcher tabs (List | Graph).
+             The `data-chat-view` attribute on the parent .pane[data-pane="chat"]
+             swaps which child (stream vs graph container) is visible. Default
+             is "list" so first-paint stays identical to previous versions. -->
+        <div class="chat-view-tabs" role="tablist" aria-label="Chat view">
+          <button class="chat-view-tab active" data-chat-view-tab="list"
+                  role="tab" aria-selected="true" type="button">List</button>
+          <button class="chat-view-tab" data-chat-view-tab="graph"
+                  role="tab" aria-selected="false" type="button">Graph</button>
+        </div>
         <section id="stream" class="stream" aria-live="polite">
           <!-- Fresh-eyes P0 (2026-07-18): the empty-welcome block used to
                vanish forever the moment New session ran (renderer.js clears
@@ -587,6 +606,28 @@
           </header>
           <div class="context-rail-drawer-body" id="context-rail-drawer-body">
             <div class="context-rail-empty">Open a session to see its context timeline.</div>
+          </div>
+        </aside>
+        <!-- feat/chat-triple-view: Session Graph mount point. Painted by
+             chat-session-graph.js when the Graph tab is active. Kept in the
+             chat pane so it inherits the composer/statusbar shell — the
+             view switcher only swaps the .stream vs this container. -->
+        <div class="chat-session-graph" id="chat-session-graph" role="region"
+             aria-label="Session graph">
+          <div class="chat-session-graph-empty">Switch to Graph to see this session's turn DAG.</div>
+        </div>
+        <!-- feat/chat-triple-view: right-side detail drawer. Rendered by
+             chat-side-drawer.js on toggle. `.hidden` class collapses; the
+             #chat-side-drawer-btn button in the header flips it. -->
+        <aside class="chat-side-drawer hidden" id="chat-side-drawer"
+               aria-label="Chat detail drawer">
+          <header class="chat-side-drawer-head">
+            <span class="chat-side-drawer-title">Details</span>
+            <button type="button" class="chat-side-drawer-close" id="chat-side-drawer-close"
+                    aria-label="Close detail drawer" title="Close">&times;</button>
+          </header>
+          <div class="chat-side-drawer-body" id="chat-side-drawer-body">
+            <div class="chat-side-drawer-empty">Open a session to see turn metadata and history.</div>
           </div>
         </aside>
       </section>
@@ -1335,6 +1376,8 @@
   <script src="./turn-flow-glyph.js"></script><!-- task #201 / trace-viz §4d: inline turn-flow shape glyph -->
   <script src="./details-aria.js"></script><!-- fix/expand-affordance 2026-07-18: <details> [open] → summary aria-expanded reflection helper -->
   <script src="./assistant-turn.js"></script><!-- task #162 rec 22-bis: assistant-turn container (consumes the three above) -->
+  <script src="./chat-side-drawer.js"></script><!-- feat/chat-triple-view: right-side turn/session detail drawer -->
+  <script src="./chat-session-graph.js"></script><!-- feat/chat-triple-view: session DAG (turn nodes + fork/interrupt edges) -->
 
   <script src="./event-filter.js"></script>
   <script src="./capabilities.js"></script>
