@@ -26,9 +26,7 @@ import { apply } from '@deepseek-ai/dsh-mcp-client/src/index.ts'
 import { publicToolName } from '@deepseek-ai/dsh-mcp-client/src/tools.ts'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
 
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 const fixtureServerPath = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
-const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 
 // Resolve package-local .bin for pnpm-hoisted MCP server binaries.
 const packageDir = fileURLToPath(new URL('..', import.meta.url))
@@ -86,8 +84,8 @@ describe('fixture server — controlled scenarios', () => {
     transport: 'stdio',
     serverName: 'fixture',
     command: process.execPath,
-    args: ['--import', tsxLoader, fixtureServerPath],
-    env: { TSX_TSCONFIG_PATH: repoTsconfig },
+    args: [fixtureServerPath],
+    env: {},
     cwd: packageDir,
     toolCallTimeoutMs: 15_000,
   }
@@ -170,8 +168,8 @@ describe('fixture server — duplicate serverName', () => {
       transport: 'stdio',
       serverName: 'dup',
       command: process.execPath,
-      args: ['--import', tsxLoader, fixtureServerPath],
-      env: { TSX_TSCONFIG_PATH: repoTsconfig },
+      args: [fixtureServerPath],
+      env: {},
       cwd: packageDir,
       toolCallTimeoutMs: 15_000,
     }
@@ -191,8 +189,8 @@ describe('fixture server — disposal', () => {
       transport: 'stdio',
       serverName: 'fixture',
       command: process.execPath,
-      args: ['--import', tsxLoader, fixtureServerPath],
-      env: { TSX_TSCONFIG_PATH: repoTsconfig },
+      args: [fixtureServerPath],
+      env: {},
       cwd: packageDir,
       toolCallTimeoutMs: 15_000,
     })

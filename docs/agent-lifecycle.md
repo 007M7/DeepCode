@@ -39,10 +39,19 @@ sequenceDiagram
   else model request succeeded
   Driver->>Hooks: <code>agent/step-result</code> waterfall
   Driver->>Session: <code>assistant/message</code>
-  Driver->>Session: <code>tool/call</code>
-  Driver->>Tools: execute through pre and post waterfalls
-  Tools-->>Session: tool-owned events when applicable
-  Driver->>Session: <code>tool/result</code>, post-tool context, and steering
+  Driver->>Tools: classify pending call by executionMode
+  loop barriers and bounded rolling pool, reclassify before start
+    opt call starts
+      Driver->>Session: <code>tool/call</code>
+      Driver->>Tools: ordered pre, concurrent execute
+      Tools-->>Session: tool-owned events when applicable
+    end
+    opt next model-order result ready
+      Driver->>Tools: ordered post
+      Driver->>Session: <code>tool/result</code>
+    end
+  end
+  Driver->>Session: post-tool context and steering
   Driver->>Hooks: <code>agent/post-step</code> serial checkpoint
   Driver->>Session: <code>step/end</code>
   Driver->>Hooks: <code>agent/turn-continuation</code> waterfall

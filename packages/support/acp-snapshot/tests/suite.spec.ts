@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,18 +6,16 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { defineAcpSnapshotSuite, type HarvestedLog, type Scenario } from '../src/index.ts'
 import {
-  childFixturePaths,
   fixtureContext,
   formatSystemPromptSnapshot,
+  headerChangeCount,
   formatToolSchemasSnapshot,
-  headerDeltaCount,
   normalizedHeaders,
-  normalizedSystemPromptDeltas,
   normalizedSystemPrompts,
-  normalizedToolSchemaDeltas,
   normalizedToolSchemas,
   parseToolSchemasSnapshot,
   refreshFixtureReplacements,
+  sessionFixtureNames,
   restorePinnedToolSchemas,
   stabilizeRefreshLog,
   unknownToolCallIds,
@@ -34,9 +32,11 @@ import {
  * spec once with `ACP_SNAPSHOT_SPEC_BOOTSTRAP=1`, then review and commit the resulting tree.
  */
 
+const fakeAgent = fileURLToPath(new URL('./fixtures/fake-acp-agent.ts', import.meta.url))
 const AGENT = {
-  binScript: fileURLToPath(new URL('./fixtures/fake-acp-agent.ts', import.meta.url)),
-  configPath: fileURLToPath(new URL('./fixtures/fake-acp-agent.ts', import.meta.url)),
+  binScript: fakeAgent,
+  libBinScript: fakeAgent,
+  configPath: fakeAgent,
   tsconfigPath: fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url)),
 }
 
@@ -45,8 +45,8 @@ const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.
 
 // Replay pins explicit header classes; recording covers the default fallback.
 const REPLAY_SCENARIOS: Scenario[] = [
-  { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'main' },
-  { name: 'plain-turn', hasModelTurn: true, recorded: true, childSessions: 1, headerClass: 'main', configPath: AGENT.configPath },
+  { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'main' },
+  { name: 'plain-turn', hasModelTurn: true, recorded: true, headerClass: 'main', configPath: AGENT.configPath },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },
   { name: 'authored-error', hasModelTurn: true, recorded: false, overridden: true, headerClass: 'main' },
@@ -54,7 +54,7 @@ const REPLAY_SCENARIOS: Scenario[] = [
 
 const RECORD_SCENARIOS: Scenario[] = [
   { name: 'rec-pin', hasModelTurn: true, recorded: true, pinsHeader: true },
-  { name: 'rec-child', hasModelTurn: true, recorded: true, childSessions: 1 },
+  { name: 'rec-child', hasModelTurn: true, recorded: true },
   // recorded:false in record mode → registered but skipped (never re-recorded).
   { name: 'rec-skip', hasModelTurn: true, recorded: false, overridden: true },
 ]
@@ -64,7 +64,13 @@ const RECORD_SCENARIOS: Scenario[] = [
 // committed record fixtures/goldens in place.
 const BOOTSTRAP = process.env.ACP_SNAPSHOT_SPEC_BOOTSTRAP === '1'
 const recordDir = BOOTSTRAP ? RECORD_SRC : mkdtempSync(join(tmpdir(), 'acp-snap-record-suite-'))
-if (!BOOTSTRAP) cpSync(RECORD_SRC, recordDir, { recursive: true })
+if (!BOOTSTRAP) {
+  cpSync(RECORD_SRC, recordDir, { recursive: true })
+  // Record mode owns its output inventory: a new scenario has no primary yet,
+  // while a changed child count can leave old numbered fixtures behind.
+  rmSync(join(recordDir, 'rec-pin', 'session.jsonl'))
+  writeFileSync(join(recordDir, 'rec-child', 'session.2.jsonl'), 'stale child\n')
+}
 const refreshDir = mkdtempSync(join(tmpdir(), 'acp-snap-refresh-suite-'))
 cpSync(REPLAY_DIR, refreshDir, { recursive: true })
 staleRefreshFixtures(refreshDir)
@@ -76,7 +82,7 @@ afterAll(async () => {
 function staleRefreshFixtures(dir: string): void {
   writeFileSync(join(dir, 'plain-turn', 'stdout.golden.jsonl'), 'stale stdout\n')
   writeFileSync(join(dir, 'pin-turn', 'system-prompt.golden.md'), 'STALE PROMPT\n')
-  writeFileSync(join(dir, 'pin-turn', 'tool-schemas.golden.json'), '{"initial":[{"name":"stale"}],"deltas":[]}\n')
+  writeFileSync(join(dir, 'pin-turn', 'tool-schemas.golden.json'), '{"initial":[{"name":"stale"}],"changes":[]}\n')
 
   const plainBehaviorFile = join(dir, 'plain-turn', 'behavior.json')
   const plainBehavior = JSON.parse(readFileSync(plainBehaviorFile, 'utf8')) as Record<string, unknown>
@@ -127,7 +133,9 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
     expect(readFileSync(join(refreshDir, 'pin-turn', 'system-prompt.golden.md'), 'utf8')).toBe([
       'SYS PROMPT',
       '',
-      '<!-- request/header-delta 1: keepStart=1, keepEnd=0 -->',
+      '<!-- request/header change 1 -->',
+      '',
+      'SYS PROMPT',
       '',
       'NEW PROMPT LINE',
       '',
@@ -135,6 +143,13 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
     const schemas = readFileSync(join(refreshDir, 'pin-turn', 'tool-schemas.golden.json'), 'utf8')
     expect(schemas).toContain('"description": "D1"')
     expect(schemas).not.toContain('"name":"stale"')
+  })
+})
+
+describe('defineAcpSnapshotSuite: record inventory write-back', () => {
+  it('creates a missing primary fixture and prunes stale child fixtures', () => {
+    expect(readFileSync(join(recordDir, 'rec-pin', 'session.jsonl'), 'utf8')).toContain('"type":"session"')
+    expect(() => readFileSync(join(recordDir, 'rec-child', 'session.2.jsonl'), 'utf8')).toThrow()
   })
 })
 
@@ -177,13 +192,41 @@ describe('defineAcpSnapshotSuite: registration contract', () => {
   })
 })
 
-describe('childFixturePaths', () => {
-  it('yields one sibling path per child, 1-based', () => {
-    expect(childFixturePaths('/snap/s', 2)).toEqual(['/snap/s/session.1.jsonl', '/snap/s/session.2.jsonl'])
+describe('sessionFixtureNames', () => {
+  it('orders the primary and contiguous child fixtures while ignoring other files', () => {
+    expect(sessionFixtureNames([
+      'stdout.golden.jsonl',
+      'session.2.jsonl',
+      'session.jsonl',
+      'session.1.jsonl',
+      'input.json',
+    ])).toEqual(['session.jsonl', 'session.1.jsonl', 'session.2.jsonl'])
   })
 
-  it('yields nothing for a single-session scenario', () => {
-    expect(childFixturePaths('/snap/s', 0)).toEqual([])
+  it('accepts a primary-only scenario', () => {
+    expect(sessionFixtureNames(['session.jsonl'])).toEqual(['session.jsonl'])
+  })
+
+  it('rejects a directory without the primary fixture', () => {
+    expect(() => sessionFixtureNames(['session.1.jsonl'])).toThrow('missing session.jsonl')
+  })
+
+  it('rejects gapped child fixtures', () => {
+    expect(() => sessionFixtureNames(['session.jsonl', 'session.2.jsonl']))
+      .toThrow('expected session.1.jsonl, found session.2.jsonl')
+  })
+
+  it.each(['session.0.jsonl', 'session.child.jsonl', 'session.01.jsonl'])(
+    'rejects invalid child fixture name %s',
+    (name) => {
+      expect(() => sessionFixtureNames(['session.jsonl', name]))
+        .toThrow(`invalid child session fixture name: ${name}`)
+    },
+  )
+
+  it('rejects duplicate child indexes', () => {
+    expect(() => sessionFixtureNames(['session.jsonl', 'session.1.jsonl', 'session.1.jsonl']))
+      .toThrow('expected session.2.jsonl, found session.1.jsonl')
   })
 })
 
@@ -262,65 +305,41 @@ describe('normalizedToolSchemas', () => {
   })
 })
 
-describe('normalizedToolSchemaDeltas', () => {
-  it('extracts and normalizes object-valued schema edits', () => {
-    const log = [
-      '{"type":"request/header-delta","data":{"tools":{"added":[{"name":"read","description":"work in /w"}]}}}',
-      '{"type":"request/header-delta","data":{"tools":null}}',
-      '{"type":"request/header-delta","data":{"tools":"invalid"}}',
-      '{"type":"request/header-delta","data":{"tools":[]}}',
-      '{"type":"request/header-delta","data":{"system":{"insert":[]}}}',
-      '{"type":"request/header","data":{"tools":{"added":[]}}}',
-      '',
-    ].join('\n')
-    expect(normalizedToolSchemaDeltas(log, { sessionIds: [], cwd: '/w' })).toEqual([
-      { added: [{ name: 'read', description: 'work in {{cwd}}' }] },
-    ])
-  })
-})
-
-describe('normalizedSystemPromptDeltas', () => {
-  it('extracts and normalizes well-formed system edits', () => {
-    const log = [
-      '{"type":"request/header-delta","data":{"system":{"keepStart":1,"keepEnd":0,"insert":["work in /w"]}}}',
-      '{"type":"request/header-delta","data":{"tools":{"replace":[]}}}',
-      '{"type":"request/header-delta","data":{"system":{"keepStart":"1","keepEnd":0,"insert":[]}}}',
-      '{"type":"request/header-delta","data":{"system":{"keepStart":1,"keepEnd":0,"insert":[null]}}}',
-      '',
-    ].join('\n')
-    expect(normalizedSystemPromptDeltas(log, { sessionIds: [], cwd: '/w' })).toEqual([
-      { keepStart: 1, keepEnd: 0, insert: ['work in {{cwd}}'] },
-    ])
-  })
-})
-
 describe('formatSystemPromptSnapshot', () => {
   it('adds a missing terminal newline without changing an existing one', () => {
     expect(formatSystemPromptSnapshot('prompt')).toBe('prompt\n')
     expect(formatSystemPromptSnapshot('prompt\n')).toBe('prompt\n')
   })
 
-  it('renders readable system-prompt delta sections', () => {
-    expect(formatSystemPromptSnapshot('prompt', [
-      { keepStart: 1, keepEnd: 0, insert: ['new', 'lines'] },
-    ])).toBe('prompt\n\n<!-- request/header-delta 1: keepStart=1, keepEnd=0 -->\n\nnew\nlines\n')
+  it('renders readable changed-prompt sections', () => {
+    expect(formatSystemPromptSnapshot('prompt', ['new\nlines']))
+      .toBe('prompt\n\n<!-- request/header change 1 -->\n\nnew\nlines\n')
   })
 
-  it('does not double the newline of a delta insert with a trailing blank line', () => {
-    expect(formatSystemPromptSnapshot('prompt\n', [
-      { keepStart: 2, keepEnd: 1, insert: ['tail', ''] },
-    ])).toBe('prompt\n\n<!-- request/header-delta 1: keepStart=2, keepEnd=1 -->\n\ntail\n')
+  it('does not double the newline of a changed prompt', () => {
+    expect(formatSystemPromptSnapshot('prompt\n', ['changed\n']))
+      .toBe('prompt\n\n<!-- request/header change 1 -->\n\nchanged\n')
+  })
+})
+
+describe('headerChangeCount', () => {
+  it('counts changed request headers, ignoring anchors, blanks, and other lines', () => {
+    const change = JSON.stringify({ type: 'request/header', seq: 2, time: 9, data: { reason: 'change' } })
+    const anchor = JSON.stringify({ type: 'request/header', seq: 0, time: 9, data: { reason: 'initial' } })
+    const other = JSON.stringify({ type: 'turn/start', seq: 1, time: 9, data: {} })
+    expect(headerChangeCount(`${anchor}\n${other}\n\n${change}\n${change}\n`)).toBe(2)
+    expect(headerChangeCount(`${anchor}\n`)).toBe(0)
   })
 })
 
 describe('tool-schema snapshots', () => {
   const snapshot = {
     initial: [{ name: 'read', description: 'Read a file.' }],
-    deltas: [{ added: [{ name: 'grep', description: 'Search files.' }] }],
+    changes: [[{ name: 'grep', description: 'Search files.' }]],
   }
 
   it('formats and parses canonical structured JSON', () => {
-    const formatted = formatToolSchemasSnapshot(snapshot.initial, snapshot.deltas)
+    const formatted = formatToolSchemasSnapshot(snapshot.initial, snapshot.changes)
     expect(formatted).toBe(`${JSON.stringify(snapshot, null, 2)}\n`)
     expect(parseToolSchemasSnapshot(formatted)).toEqual(snapshot)
   })
@@ -329,29 +348,21 @@ describe('tool-schema snapshots', () => {
     expect(() => parseToolSchemasSnapshot('null')).toThrow(/must be an object/)
     expect(() => parseToolSchemasSnapshot('"invalid"')).toThrow(/must be an object/)
     expect(() => parseToolSchemasSnapshot('[]')).toThrow(/must be an object/)
-    expect(() => parseToolSchemasSnapshot('{"initial":{},"deltas":[]}')).toThrow(/array-valued/)
-    expect(() => parseToolSchemasSnapshot('{"initial":[],"deltas":{}}')).toThrow(/array-valued/)
+    expect(() => parseToolSchemasSnapshot('{"initial":{},"changes":[]}')).toThrow(/array-valued/)
+    expect(() => parseToolSchemasSnapshot('{"initial":[],"changes":{}}')).toThrow(/array-valued/)
+    expect(() => parseToolSchemasSnapshot('{"initial":[],"changes":[{}]}')).toThrow(/array-valued/)
   })
 
   it('restores initial schemas into the pinned header token', () => {
-    expect(restorePinnedToolSchemas({ system: '{{system}}', tools: '{{tools}}' }, snapshot))
+    expect(restorePinnedToolSchemas({ system: '{{system}}', tools: '{{tools}}' }, snapshot.initial))
       .toEqual({ system: '{{system}}', tools: snapshot.initial })
   })
 
   it('rejects invalid headers and a missing tool token', () => {
-    expect(() => restorePinnedToolSchemas(null, snapshot)).toThrow(/must be an object/)
-    expect(() => restorePinnedToolSchemas('invalid', snapshot)).toThrow(/must be an object/)
-    expect(() => restorePinnedToolSchemas([], snapshot)).toThrow(/must be an object/)
-    expect(() => restorePinnedToolSchemas({ tools: [] }, snapshot)).toThrow(/must equal/)
-  })
-})
-
-describe('headerDeltaCount', () => {
-  it('counts request/header-delta events, ignoring blanks and other lines', () => {
-    const delta = JSON.stringify({ type: 'request/header-delta', seq: 2, time: 9, data: {} })
-    const other = JSON.stringify({ type: 'request/header', seq: 0, time: 9, data: {} })
-    expect(headerDeltaCount(`${other}\n\n${delta}\n${delta}\n`)).toBe(2)
-    expect(headerDeltaCount(`${other}\n`)).toBe(0)
+    expect(() => restorePinnedToolSchemas(null, snapshot.initial)).toThrow(/must be an object/)
+    expect(() => restorePinnedToolSchemas('invalid', snapshot.initial)).toThrow(/must be an object/)
+    expect(() => restorePinnedToolSchemas([], snapshot.initial)).toThrow(/must be an object/)
+    expect(() => restorePinnedToolSchemas({ tools: [] }, snapshot.initial)).toThrow(/must equal/)
   })
 })
 

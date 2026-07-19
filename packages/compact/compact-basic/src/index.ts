@@ -20,7 +20,6 @@ import type {
   ResolvedConfig,
 } from './types.ts'
 
-export { resolveConfig } from './config.ts'
 export type {
   BasicCompactConfig,
   ResolvedConfig,
@@ -46,6 +45,7 @@ export class BasicCompactService extends CompactService {
   static Config: z<BasicCompactConfig> = z.object({
     thresholdRatio: z.number().default(0.8),
     retainTokens: z.number().step(1),
+    summarizationProvider: z.string().default(''),
     summarizationModel: z.string().default(''),
     maxTokens: z.number().step(1).min(1).default(8192),
     compactionRetries: z.number().step(1).min(0).default(1),
@@ -126,11 +126,11 @@ export class BasicCompactService extends CompactService {
    * @param signal - optional cancellation forwarded to the adapter.
    * @returns safe text summary blocks and exact auxiliary-call provenance.
    */
-  async summarize(
+  protected async summarize(
     text: string,
     agent: Agent,
     signal?: AbortSignal,
-  ): Promise<{ summary: ContentBlock[]; model: string; maxTokens?: number }> {
+  ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
     return summarizeWithLlm(this.ctx, this.config, text, agent, signal)
   }
 
@@ -156,7 +156,7 @@ export class BasicCompactService extends CompactService {
       const measurement = meter.measure(agent.session)
       const range = selectCompactableRange(agent.session, measurement, 0)
       if (range === null) return null
-      return this.compactRegion(agent.session, range.start, range.end, agent, signal)
+      return this.compactRegion(range.start, range.end, agent, signal)
     }
 
     const threshold = Math.floor(meter.contextWindow * this.config.thresholdRatio)
@@ -172,7 +172,7 @@ export class BasicCompactService extends CompactService {
         /* v8 ignore next -- paired with the defensive post-success branch above. */
         break
       }
-      result = await this.compactRegion(agent.session, range.start, range.end, agent, signal)
+      result = await this.compactRegion(range.start, range.end, agent, signal)
       measurement = meter.measure(agent.session)
       if (measurement.totalTokens < threshold) return result
     }
@@ -184,10 +184,8 @@ export class BasicCompactService extends CompactService {
   }
 
   /**
-   * Compact one inclusive positional surface range using the effective
-   * token meter for all retention and shrink pricing. Reject an agent that does
-   * not own the exact target before any mutation.
-   * @param session - session whose surface is mutated; must equal `agent.session`.
+   * Compact one inclusive positional range from the agent-owned surface using
+   * the effective token meter for all retention and shrink pricing.
    * @param start - inclusive first surface-node seq.
    * @param end - inclusive last surface-node seq.
    * @param agent - owner of the target session, used by the summarizer.
@@ -195,15 +193,12 @@ export class BasicCompactService extends CompactService {
    * @returns the successful durable compaction result.
    */
   override async compactRegion(
-    session: Session,
     start: number,
     end: number,
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
-    if (session !== agent.session) {
-      throw new Error('compactRegion: agent.session must be the exact target session')
-    }
+    const session = agent.session
     return compactSurfaceRegion({
       meter: this.ctx.tokenMeter,
       summarize: (text, owner, abort) => this.summarize(text, owner, abort),

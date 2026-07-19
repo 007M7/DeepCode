@@ -19,15 +19,17 @@ Both methods are **abstract** — the backend owns trigger policy, retention, ev
 | Member | Semantics |
 |---|---|
 | `compactIfNeeded(agent, trigger, signal)` | Consider automatic compaction for `trigger: 'pressure' \| 'context-overflow'`. A pressure trigger may apply the backend's threshold and retained-tail policy; a confirmed overflow may force a useful balanced reduction. Returns the `CompactionResult`, or `null` when no safe range exists. A backend's summarization request is a direct `ctx.llm.stream()` call (not a loop step), so per-call interception happens at `llm/stream`. |
-| `compactRegion(session, start, end, agent, signal?)` | Forcibly summarize surface nodes `[start, end]` (inclusive seqs) into a single replacement node. The agent must own the exact target (`session === agent.session`); a backend rejects mismatch before model resolution, lock acquisition, summarization, or log mutation. **Throws** if a compaction is already in progress, if `start`/`end` aren't surface nodes, or if `start` is positioned after `end` on the surface. The range is a SURFACE-POSITION span, not a numeric seq interval — after a prior replace lands a fresh high-seq summary node at the shadowed range's position, surface order no longer tracks seq order. |
+| `compactRegion(start, end, agent, signal?)` | Forcibly summarize surface nodes `[start, end]` (inclusive seqs) from `agent.session` into a single replacement node. **Throws** if a compaction is already in progress, if `start`/`end` aren't surface nodes, or if `start` is positioned after `end` on the surface. The range is a SURFACE-POSITION span, not a numeric seq interval — after a prior replace lands a fresh high-seq summary node at the shadowed range's position, surface order no longer tracks seq order. |
+
+`CompactionResult` keeps the raw summary and bookkeeping-event seqs available to callers alongside the shadowed range and token accounting; its drift-checked shape lives in the [compaction data-structure reference](../../../docs/core-data-structures/compaction.md#compactionresult).
 
 `compactIfNeeded` takes a required `signal`; `compactRegion`'s is optional. A backend that summarizes via `ctx.llm.stream()` **must** forward it into the call's `GenerateOptions.signal`, so an abort or fiber dispose tears down the in-flight summarization instead of leaving an orphaned model call running past the cancellation. The turn that the `compact/*` events belong to is recoverable from the owned session's log (the currently-open turn), so the backend stamps it from the log rather than trusting a caller-supplied value.
 
 ## Tool-pairing boundaries
 
-The interface exports `toolPairingBalancedBefore(session, node)` and `toolPairingBalancedAfter(session, node)` for snapping and validating compaction edges. A safe edge has no unanswered assistant tool call crossing it. Each helper identifies the node by seq alone and answers from balances cached per cut in current surface order, so a stale caller-held `node.next` cannot choose the cut.
+The interface exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for snapping and validating compaction edges. A safe edge has no unanswered assistant tool call crossing it. Each helper validates that the event sequence is in the current surface and answers from balances cached per cut in surface order.
 
-The private per-session cache is keyed by `session.surface.replaceGeneration` and the processed surface-node count. An unchanged generation extends the fold with unseen tail nodes only; a log-only append with no new surface node does no event reads, while a replacement generation rebuilds current membership and balances. Missing event seqs and a `tool/result` without a preceding open call reject as corrupt surface state.
+The private per-session cache is keyed by `session.surface.replaceGeneration` and the processed surface-entry count. An unchanged generation extends the fold with unseen tail entries only; a log-only append with no new surface entry does no event reads, while a replacement generation rebuilds current membership and balances. Missing event seqs and a `tool/result` without a preceding open call reject as corrupt surface state.
 
 ## Surface contract
 
@@ -35,7 +37,7 @@ The private per-session cache is keyed by `session.surface.replaceGeneration` an
 
 1. appends `compact/start` (log-only) — acquires the lock,
 2. summarizes the range,
-3. appends `compact/summary` (log-only) — provenance: summary, range, shadowed seqs, token count,
+3. appends `compact/summary` (log-only) — provenance: summary, range, shadowed seqs, token count, and provider/model call envelope,
 4. appends a single `user/message` with `surfaceOp: { op: 'replace', start, end }` carrying the summary — **the only surface mutation**,
 5. appends `compact/end` (log-only) — releases the lock.
 

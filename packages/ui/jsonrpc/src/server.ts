@@ -1,8 +1,6 @@
 /**
- * JSON-RPC methods and notifications for SDK clients. Requests are
- * `initialize`, repeated `session/prompt`, then `shutdown`; notifications carry
- * durable session events, settled turns, and subagent lineage/outcomes. The
- * external `cordis.yml` owns plugins, persistence, and the adapter set.
+ * JSON-RPC method and notification surface for out-of-process harness SDKs.
+ * The surrounding context owns plugins, persistence, and configured adapters.
  *
  * @module @deepseek-ai/dsh-jsonrpc/server
  */
@@ -10,31 +8,31 @@
 import type { Context } from 'cordis'
 import { resolve } from 'node:path'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { AgentHandle } from '@deepseek-ai/dsh-agent'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
 import { SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import type SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type { JsonRpcTransportPeer } from './transport.ts'
 
-/** One-time SDK initialization parameters. */
+/** Parameters for the process-wide SDK handshake. */
 export interface InitializeParams {
   /** Working directory recorded on every SDK-created session's header. */
   cwd: string
+  /** Provider route every SDK-created agent runs on. */
+  provider: string
   /** Model name every SDK-created agent runs on (see {@link HarnessSdkServer.initialize} for adapter fallback). */
   model: string
 }
 
-/** SDK handshake result. */
+/** Wire-stable server identity returned by initialization. */
 export interface InitializeResult {
   /** Wire-stable server identity (`deepseek-harness-sdk-runtime`) and version. */
   serverInfo: { name: string; version: string }
 }
 
-/**
- * Parameters of a `session/prompt` request: one user turn on one SDK session,
- * with at most one in flight per session.
- */
+/** One user turn on one SDK session. */
 export interface SessionPromptParams {
   /** The SDK-side session id; an unknown id lazily creates the agent+session pair. */
   sessionId: string
@@ -42,7 +40,7 @@ export interface SessionPromptParams {
   contentBlocks: ContentBlock[]
 }
 
-/** Accepted prompt result; the outcome is reported by `session.finished`. */
+/** Prompt acceptance after turn settlement; outcome rides on `session.finished`. */
 export interface SessionPromptResult {
   /** Always `true`; the turn outcome is the paired `session.finished` notification. */
   accepted: true
@@ -54,23 +52,19 @@ interface SessionRecord {
   activePrompt: boolean
 }
 
-interface SubagentRecord {
-  childSessionId: string
-  parentSessionId: string | undefined
+/** Recover the delegating parent from the service-owned scoped carrier. */
+function subagentParentOf(carrier: Scoped<SubagentService>): Agent {
+  return carrierKeyOf(carrier) as Agent
 }
 
-/**
- * SDK server over one booted harness context and transport peer. Construction
- * subscribes to session, agent, and subagent lifecycle events until shutdown;
- * reinitialization is unsupported.
- */
+/** SDK server whose subscriptions and created agents live until {@link shutdown}. */
 export class HarnessSdkServer {
   private cwd = process.cwd()
+  private provider = 'deepseek'
   private model = 'deepseek'
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
   private readonly sessionCreations = new Map<string, Promise<SessionRecord>>()
-  private readonly subagentSessions = new Map<string, SubagentRecord>()
   private readonly disposers: (() => void)[] = []
   private shutdownTask: Promise<Record<string, never>> | undefined
   private shuttingDown = false
@@ -94,28 +88,17 @@ export class HarnessSdkServer {
         childSessionId: String(session.id),
       })
     }))
-    // Cache lineage before child disposal removes the agent from the registry.
-    this.disposers.push(ctx.on('agent/created', (agent) => {
-      this.subagentSessions.set(String(agent.id), {
-        childSessionId: String(agent.session.id),
-        parentSessionId: agent.session.header.parentSession === undefined
-          ? undefined
-          : String(agent.session.header.parentSession),
-      })
-    }))
-    this.disposers.push(ctx.on('subagent/end', (info: SubagentRunEndInfo) => {
-      const rec = this.subagentSessions.get(String(info.id))
-      const agent = this.ctx.agents.get(info.id)
-      const childSessionId = rec?.childSessionId ?? (agent === undefined ? undefined : String(agent.session.id))
-      const parentSessionId = rec?.parentSessionId ?? (
-        agent?.session.header.parentSession === undefined ? undefined : String(agent.session.header.parentSession)
-      )
-      if (childSessionId === undefined) return
-      this.transport.notify('subagent.finished', {
+    this.disposers.push(ctx.on('subagent/end', function (this: Scoped<SubagentService>, info: SubagentRunEndInfo) {
+      const parent = subagentParentOf(this)
+      // This protocol reports only in-process child sessions. The service
+      // snapshots the provider's exact run provenance through child disposal;
+      // matching ids or parent lineage alone never establishes locality.
+      if (!info.local) return
+      transport.notify('subagent.finished', {
         provider: info.provider,
         agentId: String(info.id),
-        ...(parentSessionId === undefined ? {} : { parentSessionId }),
-        childSessionId,
+        parentSessionId: String(parent.session.id),
+        childSessionId: String(info.id),
         status: info.stopReason === 'completed' ? 'ok' : 'error',
         stopReason: info.stopReason,
         ...(info.lastAssistantMessage === undefined ? {} : { lastAssistantMessage: info.lastAssistantMessage }),
@@ -124,26 +107,25 @@ export class HarnessSdkServer {
   }
 
   /**
-   * Record cwd and model, mounting the DeepSeek adapter only when the config
-   * registered no adapter for that model.
-   * @param params - the SDK handshake parameters.
-   * @returns the server identity for the handshake.
+   * Configure the SDK route, mounting the DeepSeek fallback only when unowned.
+   * @param params - SDK handshake parameters.
+   * @returns server identity for the handshake.
    */
   async initialize(params: InitializeParams): Promise<InitializeResult> {
     this.cwd = resolve(params.cwd)
+    this.provider = params.provider
     this.model = params.model
-    if (!this.llmFiber && !this.hasAdapterFor(this.model)) {
-      this.llmFiber = await this.ctx.plugin(LlmDeepSeek, { models: [this.model] })
+    if (!this.hasAdapterFor(this.provider)) {
+      if (this.provider !== 'deepseek') throw new Error(`no adapter registered for provider "${this.provider}"`)
+      this.llmFiber = await this.ctx.plugin(LlmDeepSeek, {})
     }
     return { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } }
   }
 
   /**
-   * Get or create the session agent, send the prompt, await quiescence, then
-   * notify `session.finished`. A session accepts one prompt at a time; other
-   * sessions remain independent.
-   * @param params - the target session id and prompt content.
-   * @returns `{ accepted: true }` after the turn settled.
+   * Run one prompt to settlement; overlap on the same session fails.
+   * @param params - target session and user content.
+   * @returns acceptance after the turn settled.
    */
   async prompt(params: SessionPromptParams): Promise<SessionPromptResult> {
     const rec = await this.getOrCreateSession(params.sessionId)
@@ -166,9 +148,9 @@ export class HarnessSdkServer {
   }
 
   /**
-   * Dispose SDK-created agents to quiescence, unmount the server-mounted adapter,
-   * and detach subscriptions. The surrounding context remains running.
-   * @returns an empty object (the JSON-RPC result).
+   * Dispose server-owned agents, adapter, and subscriptions to quiescence.
+   * The surrounding context remains running.
+   * @returns empty JSON-RPC result.
    */
   shutdown(): Promise<Record<string, never>> {
     this.shutdownTask ??= this.performShutdown()
@@ -182,7 +164,6 @@ export class HarnessSdkServer {
     this.sessionCreations.clear()
     const records = [...this.sessions.values()]
     this.sessions.clear()
-    this.subagentSessions.clear()
     const failures: unknown[] = []
     while (this.disposers.length > 0) {
       try {
@@ -205,8 +186,8 @@ export class HarnessSdkServer {
   }
 
   /**
-   * Dispatch an incoming request; unknown methods throw for transport conversion
-   * to a JSON-RPC error response.
+   * Dispatch one incoming JSON-RPC request to its typed handler. Throws (→ a
+   * JSON-RPC error response) on an unknown method.
    * @param method - the JSON-RPC method name.
    * @param params - the raw params object from the wire.
    * @returns the handler's result, to be serialized as the response.
@@ -241,10 +222,9 @@ export class HarnessSdkServer {
 
   private async createSession(sessionId: string): Promise<SessionRecord> {
     const handle = await this.ctx.agents.create({
-      agentId: AgentId(sessionId),
       sessionId: SessionId(sessionId),
       meta: { cwd: this.cwd },
-      agentOptions: { model: this.model },
+      agentOptions: { provider: this.provider, model: this.model },
     })
     const rec: SessionRecord = { handle, lastTurnEnd: undefined, activePrompt: false }
     this.sessions.set(sessionId, rec)
@@ -256,7 +236,7 @@ export class HarnessSdkServer {
     return reason.kind === 'completed' ? 'ok' : 'error'
   }
 
-  private hasAdapterFor(model: string): boolean {
-    return this.ctx.get('llm')?.models().includes(model) ?? false
+  private hasAdapterFor(provider: string): boolean {
+    return this.ctx.get('llm')?.listProviders().some(entry => entry.id === provider) ?? false
   }
 }

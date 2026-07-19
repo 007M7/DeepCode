@@ -1,5 +1,7 @@
 SYS PROMPT
 
-<!-- request/header-delta 1: keepStart=1, keepEnd=0 -->
+<!-- request/header change 1 -->
+
+SYS PROMPT
 
 NEW PROMPT LINE

@@ -6,7 +6,7 @@ English | [中文](2026-07-10-after-call-compaction-pressure-and-overflow-recove
 
 ## Problem
 
-Automatic compaction originally ran at `agent/pre-step` and received an assembled prompt and session prefix. That boundary was necessarily provisional: `agent/request` could still route another model or change call configuration, tool schemas were not frozen with the compaction inputs, and the next assistant output, tool results, buffered context, and steering did not exist yet. Expanding the pre-step signature could move the stale boundary but could not make it exact.
+`agent/pre-step` runs before final request routing and before assistant output, tool results, buffered context, and steering exist. Even with the assembled prompt and session prefix, its pressure view is provisional because `agent/request` can still change routing or call configuration and tool schemas are not frozen with those inputs. Adding fields cannot make pre-call state describe a completed call and couples the generic seam to compaction.
 
 Successful calls are not the only pressure signal. A provider can reject a request for exceeding its context window before it returns usage, and some successful calls omit usage. The system therefore needs replayable post-call pressure plus a narrow failure-recovery path that preserves the provider error whenever compaction cannot prove useful progress.
 
@@ -26,25 +26,23 @@ The loop fires awaited serial `agent/post-step(agent, turn, step, signal)` after
 
 The failed step closes before recovery runs. A retry opens the next numbered step and rebuilds the request from the durable log; consecutive recovery attempts reset only after a successful provider request. Both DeepSeek adapters normalize recognized provider context-limit failures to `CONTEXT_WINDOW_EXCEEDED`.
 
-If cancellation lands after assistant tool calls are durable but before all calls dispatch, the loop records a synthetic aborted `tool/result` for every undispatched call before following the normal abort path. The surface therefore never retains orphaned durable tool calls merely because cancellation won the race.
+If cancellation lands after assistant tool calls are durable but before all calls dispatch, the loop records a synthetic `tool/call` and aborted `tool/result` pair for every undispatched call before following the normal abort path. The surface therefore never retains orphaned durable tool calls merely because cancellation won the race.
 
 ### CompactService exposes intent, not token accounting
 
 `CompactService.compactIfNeeded(agent, trigger, signal)` accepts `trigger: 'pressure' | 'context-overflow'`. The interface gains no estimation methods or token types; `ctx.tokenMeter` remains the reusable accounting owner.
 
-For `pressure`, compact-basic applies the service-wide threshold and retained-tail policy to one unified `ctx.tokenMeter.measure()` result. The same singleton meter owns range pricing, provenance, shadowed token counts, and non-shrinking-summary rejection. The common defaults remain threshold ratio `0.8`, retained history `floor(contextWindow × 0.16)`, summarization model `''`, `maxTokens: 8192`, `compactionRetries: 1`, and `auto: true`.
+For `pressure`, compact-basic applies the service-wide threshold and retained-tail policy to one unified `ctx.tokenMeter.measure()` result. The same singleton meter owns range pricing, provenance, shadowed token counts, and non-shrinking-summary rejection. The common defaults remain threshold ratio `0.8`, retained history `floor(contextWindow × 0.16)`, summarization provider/model `''`, `maxTokens: 8192`, `compactionRetries: 1`, and `auto: true`.
 
 For canonical overflow, compact-basic bypasses scalar pressure and the normal retained-token budget. It chooses the maximal tool-balanced head range while leaving the newest indivisible unit, then attempts exactly one shrinking compaction under the same signal. The automatic listener snapshots `session.surface.replaceGeneration` and returns `{ action: 'retry' }` only when compaction succeeds and the generation increases. A backend returning a result without replacement cannot authorize retry.
 
 `maxOverflowRetries` is optional and defaults to `1`; `0` disables overflow recovery without disabling pressure. `auto: false` registers neither automatic listener. Noncanonical errors, exhausted attempts, an already-aborted signal, a missing routed model, no safe range, no generation change, and recovery throws all delegate to the next listener. With no later recovery, the loop reports the original provider error object and code. Cancellation or disposal remains authoritative even if recovery work completes concurrently.
 
-The default summarizer still resolves explicit configuration, then the latest logged route, then agent options. Because direct `llm/stream` middleware may reroute that auxiliary call, `compact/summary.model` records the final mutable `GenerateOptions.model` observed after dispatch rather than the pre-waterfall candidate.
+The default summarizer resolves explicit configuration, then the latest logged route, then agent options. Because direct `llm/stream` middleware may reroute that auxiliary call, `compact/summary.{provider, model}` records the final mutable `GenerateOptions` target observed after dispatch rather than the pre-waterfall candidate.
 
 ## Testing
 
-Lifecycle tests pin post-step ordering after durable tool/context/steering work, content-less and max-token successes, final-adapter dispatch/iterator/in-band boundaries, retry numbering, attempt reset, cancellation, disposal, synthetic tool results, and original error identity.
-
-Compact tests pin low-friction service-wide defaults, actual routed-model selection, unlisted-model measurement, unified pressure-and-retention decisions, below-threshold forced overflow, newest tool-pair retention, non-shrinking rejection, generation proof, caps, disabled listeners, single downstream delegation, and auxiliary summary routing provenance. Real-loop composition covers both thrown and in-band overflow: the failed step closes, compaction lands between attempts, and the next numbered request is reconstructed from the replacement surface.
+Unit tests cover final-adapter failure provenance and identity, closed-step retry numbering and reset, cancellation and disposal, post-step ordering, routed-envelope pressure, balanced overflow reduction, generation proof, caps, delegation, and auxiliary-call routing. Real-loop tests cover thrown and in-band overflow through compaction to a reconstructed retry request.
 
 ## Alternatives considered
 
@@ -56,7 +54,7 @@ Compact tests pin low-friction service-wide defaults, actual routed-model select
 
 ## Consequences
 
-Pressure now describes the actual completed routed request, including durable tool results and request-only prefix fields, rather than a provisional next-call guess. Canonical overflow supplies the backstop when no successful usage anchor exists. Recovery is bounded, cancellation-owned, and monotonic: it retries only after a visible surface generation change.
+Post-step pressure describes the completed routed request, including durable tool results and request-only prefix fields. Canonical overflow supplies the backstop when no successful usage anchor exists. Recovery is bounded, cancellation-owned, and monotonic: it retries only after a visible surface generation change.
 
 The cost is one additional serial checkpoint on successful steps and adapter-maintained overflow classification. Provider wording and heuristic character density remain maintenance risks. Surface compaction still cannot repair an envelope that alone exceeds the window or split one indivisible oversized message/tool unit.
 

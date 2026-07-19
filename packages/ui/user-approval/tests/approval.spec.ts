@@ -375,7 +375,7 @@ describe('approval policy (the approval/policy fold)', () => {
 
   /** Append a `request/header` snapshot whose system text is exactly `system`. */
   function appendHeader(session: Session, system: string): void {
-    session.append('request/header', { header: { config: { model: 'mock' }, system }, reason: 'initial' })
+    session.append('request/header', { header: { config: { provider: 'mock', model: 'mock' }, system }, reason: 'initial' })
   }
 
   it('folds to the last event, or undefined without one', () => {

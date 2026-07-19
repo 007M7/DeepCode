@@ -4,7 +4,7 @@ Status: proposed
 
 ## Problem
 
-Package and gate inventories are repeated across TypeScript project references, package docs, CI prose, Knip overrides, and snapshot scenario metadata. Most restate package layout, manifest data, aggregate command contents, or fixture files. Each new package or scenario therefore creates avoidable synchronization points.
+Package and gate inventories are repeated across TypeScript project references, package docs, CI prose, and Knip overrides. Most restate package layout, manifest data, or aggregate command contents. Each new package therefore creates avoidable synchronization points.
 
 The [package hierarchy](../../implemented/architecture/2026-06-20-package-hierarchy.md) already removed several of these by hand: `scripts/publint-all.ts` now derives its list from the `packages/<group>/<pkg>` layout, and the two `tsconfig` `paths` maps collapsed to one `@deepseek-ai/dsh-*` wildcard. What remains is the inventory that cannot be globbed away — chiefly `tsconfig.build.json`'s project `references`, which TypeScript requires as an explicit array (no wildcard form).
 
@@ -16,7 +16,7 @@ Make the remaining package/gate inventories discoverable. A single canonical sou
 
 The hierarchy does not need to encode every fact about a package, but it should encode the broad maintenance policy: core/product packages, integrations, capability seams, and support/test/example packages should not all require a hand-maintained exception list before scripts can tell them apart.
 
-Two of the cataloged items need no generator at all: folding the e2e entry glob into knip's default stanza deletes the per-package restatements outright, and `childSessions` can be discovered from each scenario's fixture directory, leaving the scenario table to declare only policy (`recorded`, `hasModelTurn`, `comparesLog`) — and even those track fixture-derivable facts today (`comparesLog` ⟺ the committed log has entries beyond its header line; `recorded` ⟺ `hasModelTurn` with no `replay.override.json` sibling), so each new scenario class keeps adding knobs the fixture directory already answers.
+One cataloged item needs no generator at all: folding the e2e entry glob into knip's default stanza deletes the per-package restatements outright.
 
 ## Acceptance criteria
 
@@ -25,7 +25,6 @@ Two of the cataloged items need no generator at all: folding the e2e entry glob 
 - Docs describe the source of truth rather than repeating generated inventories.
 - CI invokes the aggregate commands and lets those commands own their sub-gate lists.
 - `knip.json` carries a per-package override only where it encodes real information (an extra entry file, an ignored dependency), never a restatement of the default stanza.
-- Snapshot scenarios declare policy, not facts discoverable from their fixture directories.
 
 ## Risks
 

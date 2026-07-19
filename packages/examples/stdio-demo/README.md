@@ -11,23 +11,26 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 | Plugin | Why it is here |
 |---|---|
 | `@cordisjs/plugin-logger-console` | the console logger — stdout is just the terminal here, so logging to it is correct (the ACP app must NOT have this) |
-| `@deepseek-ai/dsh-agent-spine-demo` | the spine, pre-creating a `main` agent from this app's `model` with `process.cwd()` as the fresh session cwd and carrying its `persona` |
+| `@deepseek-ai/dsh-agent-spine-demo` | the spine, pre-creating a `main` agent from this app's provider/model pair with `process.cwd()` as the fresh session cwd and carrying its `persona` |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by confirmation tools |
 | `@deepseek-ai/dsh-tool-ask-user` | the model-facing `ask_user_question` tool |
-| `@deepseek-ai/dsh-stdio` | the readline UI, bound to the `main` agent |
+| `@deepseek-ai/dsh-stdio` | the readline UI, bound to the exact app-owned agent/session identity and rendering it as `main` |
 
 `@cordisjs/plugin-hmr` (the dev/demo edit-reload loop) is deliberately a **leaf** entry, NOT baked in here: it is a Loader-only, subprocess-only dev plugin — its constructor throws without `node --expose-internals` + a live `loader`, and the in-process test tier cannot even import it (so a package whose `apply` statically pulled it in could never carry the per-file coverage gate). Unlike the console logger, a stray `hmr` is not a stdout-purity footgun, so leaving it at the leaf costs no safety. The `demo:echo` / `demo:repl` leaves load it and pass `--expose-internals`.
 
-The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapter (`llm-deepseek` for the real model, or the mock `mock-llm` for a demo) and a bash executor (`bash-local`) — `hmr`, plus this app's [`Config`](#config). The whole plugin tree a run loads is therefore: this app's cluster, the spine inside `agent-core`, `hmr`, and the two leaf backends.
+The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapter (`llm-deepseek` for the real model, or the mock `mock-llm` for a demo) and a bash executor (`bash-local`) — `hmr`, plus this app's [`Config`](#config). The whole plugin tree a run loads is therefore: this app's cluster, the spine inside `agent-spine-demo`, `hmr`, and the two leaf backends.
 
 ## Config
 
 | Key | Default | Routed to |
 |---|---|---|
+| `provider` | (required) | the pre-created `main` agent's registered provider route |
 | `model` | (required) | the pre-created `main` agent's model |
-| `persona` | — | the deployment persona template (may reference `{{model}}`/`{{cwd}}`), routed to `dsh-system-prompt` |
+| `maxParallelToolCalls` | agent-loop default | positive-integer concurrent tool-call cap shared by the bundled loop's agents; `1` is serial |
+| `persona` | — | the deployment persona template (may reference `{{provider}}`/`{{model}}`/`{{cwd}}`), routed to `dsh-system-prompt` |
 | `toolOrder` | — | explicit model-facing tool order (a name list with one `'<unlisted-tools>'` rest entry; absent — lexicographic; an unregistered name fails each turn at prompt assembly), routed to `dsh-system-prompt` |
+| `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness home exposed to model bash and used by local skill discovery |
 | `tools` | `{ mode: 'native' }` | tool-registry presentation config (`native` / `code` / `both`), routed through `dsh-agent-spine-demo` |
 | `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-spine-demo` |
 | `toolBash` | owner defaults | model-facing bash config routed through `dsh-agent-spine-demo`, including bash's producer-local `enableRunInBackground` |
@@ -36,7 +39,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | `welcome` | `ready.` | the stdin-chat banner |
 | `resumeSessionId` | — | resume a persisted session id instead of starting fresh (sourced from an env var in the leaf) |
 
-Fresh stdio sessions use the process launch directory as `session.header.cwd`, so project-scoped features such as skill discovery and default bash workdir follow the directory where `dsh-stdio-demo` was started. Resumed sessions keep the cwd stored in the persisted session header.
+Fresh stdio sessions use the process launch directory as `session.header.cwd` and mint one combined `main-session-<uuid>` agent/session id, so durable restarts cannot collide. The app passes that exact opaque id to both its config-created agent and UI; an AgentLoop-only reload resumes materialized history under that id, while the UI's `main` text remains only a display label and never selects another registry root by prefix or insertion order. Readline buffers nonblank startup input for that identity until `agent/session-start`, so piped stdin cannot outrun asynchronous exact-id restoration or let EOF discard the queued prompt; `agent-loop/config-start-failed` instead drains and reports buffered input so a missing or corrupt persisted session cannot hang EOF. A resumed run binds both components to the exact `resumeSessionId` and keeps the cwd stored in the persisted session header.
 
 ## The bin
 
@@ -54,7 +57,6 @@ Fresh stdio sessions use the process launch directory as `session.header.cwd`, s
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
-    models: [deepseek-v4-flash]
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
@@ -62,6 +64,7 @@ Fresh stdio sessions use the process launch directory as `session.header.cwd`, s
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-demo'
   config:
+    provider: deepseek
     model: deepseek-v4-flash
     persona: 'You are a coding assistant powered by the {{model}} model.'
 ```

@@ -6,6 +6,8 @@ The ACP provider runs each subagent in a fresh subprocess and drives it as an Ag
 
 `start(request)` performs `spawn` → ACP `initialize` → `newSession` before it fulfills. Fulfillment therefore means a remote session is ready and ownership has transferred to the caller. A spawn, initialization, new-session, or pre-publication cancellation failure rejects only after the subprocess has been reaped.
 
+The returned run id is minted in the parent namespace. The child server's session id remains private to ACP wire calls because ACP guarantees it only within that fresh child process; using it as the parent lifecycle id could collide with another remote run or a local agent.
+
 After publication, the provider sends the prompt and collects streamed `agent_message_chunk` text into `SubagentResult.output`. A prompt/transport failure resolves with `stopReason: 'error'`, or `aborted` when the required request signal or disposal requested cancellation.
 
 `dispose()` is idempotent. It removes the signal listener, requests ACP cancellation when possible, closes stdin, waits `disposeEofGraceMs`, escalates to SIGTERM, waits `disposeGraceMs`, and finally uses SIGKILL if necessary. Every run uses a fresh process; process pooling is not implemented.

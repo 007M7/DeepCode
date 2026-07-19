@@ -7,7 +7,8 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 
 /** Identifies one workflow run. */
 export type WorkflowRunId = Branded<'WorkflowRunId'>
@@ -30,6 +31,8 @@ export interface WorkflowPhase {
   title: string
   /** Optional one-line description of what the phase does. */
   detail?: string
+  /** Optional provider override this phase is expected to use (informational). */
+  provider?: string
   /** Optional model override this phase is expected to use (informational). */
   model?: string
 }
@@ -139,7 +142,7 @@ export interface WorkflowAgentInfo {
   /** The phase this agent belongs to (the `phase` option, else the current `phase()` title). */
   phase?: string
   /** The child agent's id on the subagent seam. */
-  childId: AgentId
+  childId: SessionId
 }
 
 /** How one `agent()` call settled: clean result, child failure (script sees `null`), or run cancellation. */

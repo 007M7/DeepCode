@@ -4,7 +4,7 @@ import Loader from '@cordisjs/plugin-loader'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import TaskService from '@deepseek-ai/dsh-tasks'
@@ -12,6 +12,7 @@ import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as mock from '@deepseek-ai/dsh-subagent-mock'
 import * as tool from '../src/index.ts'
 import { runOutcome, settleRun } from '../src/index.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 /**
  * Drives the REAL plugin body: mounts `dsh-tool-subagent` on a real
@@ -24,7 +25,7 @@ import { runOutcome, settleRun } from '../src/index.ts'
 
 /** A minimal parent Agent — the tool reads `agent.id` for `parent`. */
 function fakeAgent(id = 'parent-1'): Agent {
-  return { id: AgentId(id) } as unknown as Agent
+  return { id: SessionId(id) } as unknown as Agent
 }
 
 async function setup(toolConfig: tool.Config, mockConfig: Partial<mock.Config> = {}) {
@@ -85,7 +86,7 @@ describe('dsh-tool-subagent', () => {
     // Schema omission is advertising, not enforcement: the arg validator
     // allows undeclared keys, so the opt-out must also hold in execute().
     const ctx = await setup({ provider: 'mock', enableRunInBackground: false })
-    const parent = { id: AgentId('agent-sess-off'), inject: () => {}, session: { header: { version: 0, id: 'sess-off', createdAt: 0 } } } as unknown as Agent
+    const parent = { id: SessionId('sess-off'), inject: () => {}, session: { header: { version: 0, id: 'sess-off', createdAt: 0 } } } as unknown as Agent
 
     const forced = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true }, { agent: parent })
     expect(forced.isError).toBe(true)
@@ -94,6 +95,20 @@ describe('dsh-tool-subagent', () => {
     expect(ctx.subagents.getProvider('mock')).toBeDefined()
     const foreground = await callSubagent(ctx, { description: 'd', prompt: 'p' }, { agent: parent })
     expect(foreground.isError).toBe(false)
+  })
+
+  it('keeps foreground and background calls exclusive', async () => {
+    const ctx = await setup({ provider: 'mock' })
+    expect(ctx.tools.executionMode({
+      callId: CallId('subagent-foreground'),
+      name: 'subagent',
+      arguments: { description: 'do work', prompt: 'Reply OK' },
+    })).toEqual({ kind: 'exclusive' })
+    expect(ctx.tools.executionMode({
+      callId: CallId('subagent-background'),
+      name: 'subagent',
+      arguments: { description: 'do work', prompt: 'Reply OK', run_in_background: true },
+    })).toEqual({ kind: 'exclusive' })
   })
 
   it.each([
@@ -142,7 +157,8 @@ describe('dsh-tool-subagent', () => {
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: async () => ({
-        id: AgentId('weird-child'),
+        id: SessionId('weird-child'),
+        localAgent: undefined,
         result: Promise.resolve({ output: [{ type: 'text', text: 'partial' }], stopReason: 'frobnicated' as never }),
         dispose: async () => {},
       }),
@@ -169,7 +185,8 @@ describe('dsh-tool-subagent', () => {
       start: async (request) => {
         seen = request
         return {
-          id: AgentId('capture-child'),
+          id: SessionId('capture-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -198,7 +215,8 @@ describe('dsh-tool-subagent', () => {
       start: async (request) => {
         seen = request
         return {
-          id: AgentId('bare-child'),
+          id: SessionId('bare-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -325,7 +343,8 @@ describe('dsh-tool-subagent', () => {
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: async () => ({
-        id: AgentId('spy-child'),
+        id: SessionId('spy-child'),
+        localAgent: undefined,
         result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
         dispose: async () => void disposed(),
       }),
@@ -347,7 +366,8 @@ describe('dsh-tool-subagent', () => {
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: async () => ({
-        id: AgentId('spy-child'),
+        id: SessionId('spy-child'),
+        localAgent: undefined,
         result: Promise.resolve({ output: [], stopReason: 'error' as const }),
         dispose: async () => void disposed(),
       }),
@@ -378,7 +398,8 @@ describe('dsh-tool-subagent', () => {
           resolveResult({ output: [], stopReason: 'aborted' })
         }, { once: true })
         return {
-          id: AgentId('spy-child'),
+          id: SessionId('spy-child'),
+          localAgent: undefined,
           result,
           dispose: async () => {},
         }
@@ -470,7 +491,8 @@ describe('dsh-tool-subagent', () => {
       start: async (request) => {
         seen = request
         return {
-          id: AgentId('capture2-child'),
+          id: SessionId('capture2-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -527,7 +549,8 @@ describe('dsh-tool-subagent', () => {
       start: async (request) => {
         seen = request
         return {
-          id: AgentId('capture3-child'),
+          id: SessionId('capture3-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -556,7 +579,8 @@ describe('dsh-tool-subagent', () => {
       start: async (request) => {
         seen = request
         return {
-          id: AgentId('capture4-child'),
+          id: SessionId('capture4-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
           dispose: async () => {},
         }
@@ -588,11 +612,12 @@ describe('dsh-tool-subagent background mode', () => {
   /** A live parent with a dedicated scope fiber for structural task cleanup. */
   function ownerAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void = () => {}): Agent {
     const scopeFiber = ctx.plugin(() => {})
+    const id = SessionId(sessionId)
     const agent = {
-      id: AgentId(`agent-${sessionId}`),
+      id,
       ctx: scopeFiber.ctx,
       inject,
-      session: { header: { version: 0, id: sessionId, createdAt: 0 } },
+      session: { id, header: { version: 0, id, createdAt: 0 } },
     } as unknown as Agent
     ctx.agents.register(agent)
     return agent
@@ -722,7 +747,7 @@ describe('dsh-tool-subagent background mode', () => {
       inheritsParentContext: false,
       start: async (request) => {
         let settle!: (value: { output: { type: 'text'; text: string }[]; stopReason: 'aborted' }) => void
-        const id = AgentId(`hang-${++starts}`)
+        const id = SessionId(`hang-${++starts}`)
         const result = new Promise<{ output: { type: 'text'; text: string }[]; stopReason: 'aborted' }>((res) => { settle = res })
         request.signal.addEventListener('abort', () => {
           cancels.push(typeof request.signal.reason === 'string' ? request.signal.reason : undefined)
@@ -730,6 +755,7 @@ describe('dsh-tool-subagent background mode', () => {
         }, { once: true })
         return {
           id,
+          localAgent: undefined,
           result,
           dispose: () => Promise.resolve(),
         }
@@ -768,7 +794,8 @@ describe('dsh-tool-subagent background mode', () => {
   it('settleRun disposes the run before reporting, on both result paths', async () => {
     const order: string[] = []
     const completed = await settleRun({
-      id: AgentId('child-1'),
+      id: SessionId('child-1'),
+      localAgent: undefined,
       result: Promise.resolve({ output: [{ type: 'text' as const, text: 'ok' }], stopReason: 'completed' as const }),
       dispose() { order.push('dispose'); return Promise.resolve() },
     })
@@ -779,7 +806,8 @@ describe('dsh-tool-subagent background mode', () => {
     // An infrastructure rejection still disposes and reports failed.
     let disposed = false
     const failed = await settleRun({
-      id: AgentId('child-2'),
+      id: SessionId('child-2'),
+      localAgent: undefined,
       result: Promise.reject(new Error('transport gone')),
       dispose() { disposed = true; return Promise.resolve() },
     })
@@ -787,14 +815,16 @@ describe('dsh-tool-subagent background mode', () => {
     expect(disposed).toBe(true)
 
     const disposeFailed = await settleRun({
-      id: AgentId('child-3'),
+      id: SessionId('child-3'),
+      localAgent: undefined,
       result: Promise.resolve({ output: [], stopReason: 'completed' }),
       dispose: () => Promise.reject(new Error('reap failed')),
     })
     expect(disposeFailed).toEqual({ status: 'failed', detail: 'dispose failed: Error: reap failed' })
 
     const bothFailed = await settleRun({
-      id: AgentId('child-4'),
+      id: SessionId('child-4'),
+      localAgent: undefined,
       result: Promise.reject(new Error('result failed')),
       dispose: () => Promise.reject(new Error('reap failed')),
     })
@@ -812,11 +842,12 @@ describe('background preflight failure (no orphaned child, by construction)', ()
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(TaskService)
     const scopeFiber = ctx.plugin(() => {})
+    const id = SessionId('sess-p')
     const parent = {
-      id: AgentId('agent-sess-p'),
+      id,
       ctx: scopeFiber.ctx,
       inject: () => {},
-      session: { header: { version: 0, id: 'sess-p', createdAt: 0 } },
+      session: { id, header: { version: 0, id, createdAt: 0 } },
     } as unknown as Agent
     ctx.agents.register(parent)
 
@@ -828,7 +859,8 @@ describe('background preflight failure (no orphaned child, by construction)', ()
       start: async () => {
         starts += 1
         return {
-          id: AgentId('probe-child'),
+          id: SessionId('probe-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [], stopReason: 'completed' as const }),
           dispose: () => Promise.resolve(),
         }

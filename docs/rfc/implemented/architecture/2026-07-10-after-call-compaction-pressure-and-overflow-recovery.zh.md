@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-自动压缩最初运行在 `agent/pre-step`，并接收已装配提示词与会话前缀。这个边界必然只是临时状态：`agent/request` 仍可能路由到另一个模型或改变调用配置，工具 schema 没有与压缩输入在同一位置冻结，而下一次 assistant 输出、工具结果、缓冲上下文与 steering 此时还不存在。继续扩充 pre-step 签名只能移动陈旧边界，无法让它变得精确。
+`agent/pre-step` 运行在最终请求路由之前，也早于 assistant 输出、工具结果、缓冲上下文与 steering 的产生。即使它接收已装配提示词与会话前缀，压力视图仍是临时的，因为 `agent/request` 还可以改变路由或调用配置，工具 schema 也没有与这些输入一同冻结。增加字段无法让调用前状态描述已完成调用，还会把通用 seam 与压缩耦合。
 
 成功调用也不是唯一的压力信号。提供方可能在返回 usage 之前就因上下文窗口超限拒绝请求，一些成功调用也不提供 usage。因此，系统需要可重放的调用后压力，以及一条狭窄的失败恢复路径；当压缩无法证明取得有效进展时，必须保留原始提供方错误。
 
@@ -26,25 +26,23 @@ Status: implemented
 
 恢复运行前，失败 step 已经关闭。重试会打开下一个编号 step，并从持久日志重建请求；连续恢复尝试计数只在提供方请求成功后重置。两个 DeepSeek 适配器都把识别出的提供方上下文限制错误规范化为 `CONTEXT_WINDOW_EXCEEDED`。
 
-如果取消发生在 assistant 工具调用已经持久化之后、所有调用完成分发之前，循环会为每个尚未分发的调用记录合成的 aborted `tool/result`，随后进入正常中止路径。因此，表层不会仅因取消赢得竞态而留下孤立的持久工具调用。
+如果取消发生在 assistant 工具调用已经持久化之后、所有调用完成分发之前，循环会为每个尚未分发的调用记录一对合成的 `tool/call` 与 aborted `tool/result`，随后进入正常中止路径。因此，表层不会仅因取消赢得竞态而留下孤立的持久工具调用。
 
 ### CompactService 暴露意图，而不拥有 token 核算
 
 `CompactService.compactIfNeeded(agent, trigger, signal)` 接收 `trigger: 'pressure' | 'context-overflow'`。接口不增加估算方法或 token 类型；`ctx.tokenMeter` 继续作为可复用的核算所有者。
 
-对于 `pressure`，compact-basic 把服务级阈值与保留尾部策略应用到一次统一的 `ctx.tokenMeter.measure()` 结果。范围定价、来源、被遮蔽 token 数与非缩小摘要拒绝也由同一个单例 meter 完成。通用默认值保持为阈值比例 `0.8`、保留历史 `floor(contextWindow × 0.16)`、摘要模型 `''`、`maxTokens: 8192`、`compactionRetries: 1` 与 `auto: true`。
+对于 `pressure`，compact-basic 把服务级阈值与保留尾部策略应用到一次统一的 `ctx.tokenMeter.measure()` 结果。范围定价、来源、被遮蔽 token 数与非缩小摘要拒绝也由同一个单例 meter 完成。通用默认值保持为阈值比例 `0.8`、保留历史 `floor(contextWindow × 0.16)`、摘要提供方/模型 `''`、`maxTokens: 8192`、`compactionRetries: 1` 与 `auto: true`。
 
 对于规范化溢出，compact-basic 绕过标量压力与普通保留 token 预算。它在保留最新不可分割单元的同时，选择最大的工具配对平衡头部范围，并在同一 signal 下只尝试一次缩小压缩。自动监听器先记录 `session.surface.replaceGeneration`，只有压缩成功且 generation 增加时才返回 `{ action: 'retry' }`。后端若只返回结果但没有替换表层，不能授权重试。
 
 `maxOverflowRetries` 可选且默认为 `1`；`0` 只禁用溢出恢复，不会禁用压力检查。`auto: false` 不注册任何自动监听器。非规范化错误、尝试耗尽、已经中止的 signal、缺失路由模型、没有安全范围、generation 未变化，以及恢复抛错都会委托给下一个监听器。若没有后续恢复，循环报告原始提供方错误对象与代码。即使恢复工作并发完成，取消或销毁仍具有最终优先级。
 
-默认摘要器仍依次解析显式配置、最近记录的路由与 agent options。因为直接 `llm/stream` 中间件可以重新路由该辅助调用，`compact/summary.model` 记录分发后最终可变的 `GenerateOptions.model`，而不是 waterfall 之前的候选值。
+默认摘要器依次解析显式配置、最近记录的路由与 agent options。因为直接 `llm/stream` 中间件可以重新路由该辅助调用，`compact/summary.{provider, model}` 记录分发后最终可变的 `GenerateOptions` 目标，而不是 waterfall 之前的候选值。
 
 ## 测试
 
-生命周期测试固定 post-step 位于持久工具、上下文与 steering 工作之后，覆盖无内容与达到 token 上限的成功、最终适配器分发/迭代器/带内边界、重试编号、尝试重置、取消、销毁、合成工具结果与原始错误身份。
-
-压缩测试固定低摩擦服务级默认值、实际路由模型选择、未列出模型计量、统一压力与保留决策、低于阈值的强制溢出、最新工具配对保留、非缩小拒绝、generation 证明、上限、禁用监听器、单次下游委托与辅助摘要路由来源。真实循环组合同时覆盖抛出式和带内溢出：失败 step 关闭，压缩落在两次尝试之间，下一个编号请求从替换表层重建。
+单元测试覆盖最终适配器失败的来源与身份、已关闭 step 的重试编号与重置、取消与销毁、post-step 顺序、已路由信封压力、平衡溢出缩减、generation 证明、上限、委托与辅助调用路由。真实循环测试覆盖抛出式和带内溢出，并验证压缩后的重试请求从替换表层重建。
 
 ## 考虑过的替代方案
 
@@ -56,7 +54,7 @@ Status: implemented
 
 ## 后果
 
-压力现在描述实际完成的路由请求，包括持久工具结果与仅请求前缀字段，而不是对下一次调用的临时猜测。当成功 usage 锚点不存在时，规范化溢出提供兜底路径。恢复有上限、受取消所有，并保持单调：只有模型可见的表层 generation 变化后才重试。
+Post-step 压力描述已完成的路由请求，包括持久工具结果与仅请求前缀字段。当成功 usage 锚点不存在时，规范化溢出提供兜底路径。恢复有上限、受取消所有，并保持单调：只有模型可见的表层 generation 变化后才重试。
 
 代价是成功 step 增加一个串行检查点，并需要适配器持续维护溢出分类。提供方措辞与启发式字符密度仍是维护风险。表层压缩依然无法修复仅信封本身就超出窗口的情况，也不能拆分单个不可分割的超大消息或工具单元。
 
