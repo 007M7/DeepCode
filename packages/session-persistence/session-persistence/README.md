@@ -57,9 +57,17 @@ Re-exported from `dsh-session`: `SessionHeader` (immutable session metadata: `ve
 
 ### Resumed conversation history
 
-**What the model sees**: This seam adds no prompt or schema. Resume restores stored surface events as message history; stored request headers reconstruct earlier calls, while the new loop composes the current system prompt, tools, and session prefix for its next request. Crash repair inserts exactly `Tool call interrupted by a crash; no result was recorded.` as the error result for each unanswered tool call.
+#### What the model sees
 
-**Token effect**: Zero tokens during ordinary persistence. Resume restores retained history cost and pays the current request envelope normally; each repaired call adds the quoted retained error text.
+This seam adds no prompt or schema. Resume restores stored surface events as message history; stored request headers reconstruct earlier calls, while the new loop composes the current system prompt, tools, and session prefix for its next request. Crash repair inserts exactly `Tool call interrupted by a crash; no result was recorded.` as the error result for each unanswered tool call.
+
+#### Token effect
+
+Zero tokens during ordinary persistence. Resume restores retained history cost and pays the current request envelope normally; each repaired call adds the quoted retained error text.
+
+#### KV Cache effect
+
+Persistence does not mutate live request prefixes. A resumed loop can reuse provider cache only when its reconstructed history, current envelope, and model route match; crash-repair results append without rewriting earlier history.
 
 ## Known Limitations and Deferred Work
 

@@ -56,29 +56,45 @@ Loading the plugin registers `ctx.compact`. With `auto: true` (the default) it c
 
 ### Conversation history
 
-**What the model sees**: After a successful step crosses the threshold, the next request receives the checkpoint preamble below, a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. Overflow recovery rebuilds the immediate retry from that replacement. This one checkpoint replaces the selected older range and is followed by the retained recent units.
+#### What the model sees
 
-**Token effect**: The replacement reduces future input history rather than appending a second copy. The summary remains until a later compaction replaces it; one oversized indivisible unit can still exceed the budget.
+After a successful step crosses the threshold, the next request receives the checkpoint preamble below, a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. Overflow recovery rebuilds the immediate retry from that replacement. This one checkpoint replaces the selected older range and is followed by the retained recent units.
 
-#### Conversation checkpoint preamble
+##### Conversation checkpoint preamble
 
 ```markdown
 This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.
 ```
 
+#### Token effect
+
+The replacement reduces future input history rather than appending a second copy. The summary remains until a later compaction replaces it; one oversized indivisible unit can still exceed the budget.
+
+#### KV Cache effect
+
+Replacing rather than append-only. Each checkpoint invalidates reuse from the first replaced history token; the unchanged request prefix before that range remains reusable.
+
 ### Auxiliary summarizer user message
 
-**What the model sees**: The summarization model receives exactly `Summarize this conversation history:` followed by a blank line, the data-dependent [`renderTranscript()`](../compact/README.md) output, another blank line, and `Summary:`. The conversation model never sees this private request or its reasoning; only returned text is stored.
+#### What the model sees
 
-**Token effect**: This is a separate model call with data-dependent input and `maxTokens`-capped output. Convergence retries can pay this cost more than once.
+The summarization model receives exactly `Summarize this conversation history:` followed by a blank line, the data-dependent [`renderTranscript()`](../compact/README.md) output, another blank line, and `Summary:`. The conversation model never sees this private request or its reasoning; only returned text is stored.
+
+#### Token effect
+
+This is a separate model call with data-dependent input and `maxTokens`-capped output. Convergence retries can pay this cost more than once.
+
+#### KV Cache effect
+
+Independent of the conversation request cache. An auxiliary call can reuse an exact transcript prefix, while a different selected range or rendering invalidates reuse from its first changed token.
 
 ### Auxiliary summarizer system prompt
 
-**What the model sees**: The summarization model receives the checkpoint-writing instruction below.
+#### What the model sees
 
-**Token effect**: Fixed auxiliary input cost plus the data-dependent transcript on every summarization attempt.
+The summarization model receives the checkpoint-writing instruction below.
 
-#### Auxiliary summarizer system prompt
+##### Auxiliary summarizer system prompt
 
 ```markdown
 You are a compaction engine for an AI coding assistant. Condense the conversation transcript into a structured checkpoint that lets another model resume the work with no loss of essential context.
@@ -115,6 +131,14 @@ Rules:
 - Do NOT mention this summarization process or that the context was compacted.
 - If the transcript already contains a <compacted-summary> block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.
 ```
+
+#### Token effect
+
+Fixed auxiliary input cost plus the data-dependent transcript on every summarization attempt.
+
+#### KV Cache effect
+
+Prefix-stable for auxiliary calls while this instruction and the summarizer route are unchanged. Changing either starts a different prefix; transcript changes occur after the instruction.
 
 ## Known Limitations and Deferred Work
 
