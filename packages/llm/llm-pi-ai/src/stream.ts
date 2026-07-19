@@ -40,7 +40,9 @@ function classifyPiAiError(message: string): string {
  * Map a terminal pi-ai event to the harness finish reason.
  * @param message - the assistant message carried by the `done` or `error` event.
  * @param contextWindow - resolved catalog capacity for usage-based overflow detection.
- * @returns the harness reason; `error` yields `{kind: 'error'}` with a code classified from the error text.
+ * @returns the mapped harness reason. Recognized error text, `stop` usage above
+ *   `contextWindow`, and zero-output `length` usage that fills the window map
+ *   to `CONTEXT_WINDOW_EXCEEDED`.
  */
 export function mapStopReason(message: AssistantMessage, contextWindow?: number): FinishReason {
   const piAiOverflow = isContextOverflow(message, contextWindow)
