@@ -1,7 +1,8 @@
 /**
  * Verify every `ts type-equiv` block against the source symbol named by the
  * manifest. Blocks and entries have a one-to-one relationship; comparison
- * ignores comments and whitespace but preserves declaration structure.
+ * ignores whitespace and non-JSDoc comments but preserves declaration
+ * structure and every original JSDoc comment.
  */
 
 import { globSync, readFileSync, existsSync } from 'node:fs'
@@ -34,17 +35,22 @@ interface EquivBlock {
   code: string
 }
 
-/**
- * Remove comments and normalize whitespace so prose-only edits do not drift
- * structural copies. This is intentionally not a general tokenizer: repo type
- * declarations do not contain comment delimiters inside string literals.
- */
-function normalize(code: string): string {
+/** Normalize declaration structure independently of comments and whitespace. */
+function normalizeStructure(code: string): string {
   return code
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/(^|[^:])\/\/.*$/gm, '$1')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+/**
+ * Extract normalized JSDoc comments in source order. Type declarations in this
+ * repository do not contain comment delimiters inside string literals.
+ */
+function normalizeJSDoc(code: string): string[] {
+  return [...code.matchAll(/\/\*\*[\s\S]*?\*\//g)]
+    .map(match => match[0].replace(/\s+/g, ' ').trim())
 }
 
 /** Strip source-only export modifiers. */
@@ -54,8 +60,14 @@ function stripExport(code: string): string {
 
 /** Parse the declared symbol name from a type-equiv block body. */
 function blockSymbol(code: string): string | null {
-  const m = /(?:export\s+(?:default\s+)?)?(?:abstract\s+)?(?:interface|type|class|enum)\s+([A-Za-z0-9_]+)/.exec(code)
-  return m?.[1] ?? null
+  const sf = ts.createSourceFile('type-equiv.ts', code, ts.ScriptTarget.Latest, /* setParentNodes */ false, ts.ScriptKind.TS)
+  for (const stmt of sf.statements) {
+    const named =
+      ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt)
+      || ts.isClassDeclaration(stmt) || ts.isEnumDeclaration(stmt)
+    if (named && stmt.name) return stmt.name.text
+  }
+  return null
 }
 
 /** Extract every ` ```ts type-equiv ` block from one Markdown file. */
@@ -88,11 +100,12 @@ function extractEquivBlocks(docRel: string): EquivBlock[] {
   return blocks
 }
 
-/** The declaration text of `symbol` in `sourceRel`, with `export` stripped, or
+/**
+ * The declaration text of `symbol` in `sourceRel`, with `export` stripped, or
  * null when the symbol is not declared there. Uses the TS parser so it spans
  * interfaces, type aliases (including mapped/generic ones), classes, and enums
- * uniformly, and excludes the leading JSDoc (getStart skips leading trivia)
- * while keeping inline member comments. */
+ * uniformly while including declaration and member JSDoc.
+ */
 function sourceDeclaration(sourceRel: string, symbol: string): string | null {
   const abs = resolve(root, sourceRel)
   const text = readFileSync(abs, 'utf8')
@@ -102,7 +115,13 @@ function sourceDeclaration(sourceRel: string, symbol: string): string | null {
       ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt)
       || ts.isClassDeclaration(stmt) || ts.isEnumDeclaration(stmt)
     if (named && stmt.name?.text === symbol) {
-      return stripExport(stmt.getText(sf))
+      const declarationStart = stmt.getStart(sf)
+      const jsDoc = ts.getJSDocCommentsAndTags(stmt)
+        .filter(ts.isJSDoc)
+        .map(doc => text.slice(doc.pos, doc.end))
+        .join('\n')
+      const declaration = stripExport(text.slice(declarationStart, stmt.getEnd()))
+      return jsDoc === '' ? declaration : `${jsDoc}\n${declaration}`
     }
   }
   return null
@@ -178,11 +197,18 @@ for (const e of entries) {
     errors.push(`symbol ${e.symbol} not found in ${e.source} (manifest entry for ${e.doc})`)
     continue
   }
-  if (normalize(decl) !== normalize(stripExport(b.code))) {
+  const doc = stripExport(b.code)
+  const sourceStructure = normalizeStructure(decl)
+  const docStructure = normalizeStructure(doc)
+  const sourceJSDoc = normalizeJSDoc(decl)
+  const docJSDoc = normalizeJSDoc(doc)
+  if (sourceStructure !== docStructure || JSON.stringify(sourceJSDoc) !== JSON.stringify(docJSDoc)) {
     errors.push(
       `DRIFT: ${e.doc}:${b.line} — type-equiv block for ${e.symbol} does not match ${e.source}.\n`
-      + `    source: ${normalize(decl)}\n`
-      + `    doc:    ${normalize(stripExport(b.code))}`,
+      + `    source structure: ${sourceStructure}\n`
+      + `    doc structure:    ${docStructure}\n`
+      + `    source JSDoc:     ${JSON.stringify(sourceJSDoc)}\n`
+      + `    doc JSDoc:        ${JSON.stringify(docJSDoc)}`,
     )
     continue
   }
@@ -190,7 +216,7 @@ for (const e of entries) {
 }
 
 if (errors.length === 0) {
-  console.log(`verify-type-equiv: ${verified} type-equiv block(s) match source (1:1 with manifest).`)
+  console.log(`verify-type-equiv: ${verified} type-equiv block(s) match source structure and JSDoc (1:1 with manifest).`)
   process.exit(0)
 }
 

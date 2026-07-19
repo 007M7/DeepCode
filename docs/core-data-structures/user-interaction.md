@@ -9,6 +9,7 @@ Source: [`packages/ui/user-interaction/src/index.ts`](../../packages/ui/user-int
 `AskUserQuestionOption` is the selectable-choice shape. `label` is the user-facing option text and also the model-facing selected value; `description` is optional UI help text.
 
 ```ts type-equiv
+/** One selectable answer offered to the user. */
 interface AskUserQuestionOption {
   /** User-facing label. */
   label: string
@@ -22,6 +23,7 @@ interface AskUserQuestionOption {
 `AskUserQuestionItem` is one question in a request. The model supplies a stable `id`, which is echoed back with the answer so batched questions remain routable.
 
 ```ts type-equiv
+/** One question in an ask_user_question request. */
 interface AskUserQuestionItem {
   /** Stable model-provided question id, echoed in the answer. */
   id: string
@@ -41,6 +43,7 @@ interface AskUserQuestionItem {
 `AskUserQuestionRequest` is the cross-package request. `questions` is an array so a UI can present related prompts in one flow while preserving a stable id per answer.
 
 ```ts type-equiv
+/** Request for a human answer. */
 interface AskUserQuestionRequest {
   /** Questions to display. */
   questions: AskUserQuestionItem[]
@@ -56,6 +59,7 @@ interface AskUserQuestionRequest {
 Providers return one answer per answered question id. `selected` contains selected option labels, and `custom` carries a free-form "Other" answer when the user typed one. When `custom` is present, `selected` is empty; custom text is an answer override, not a supplement to selected choices.
 
 ```ts type-equiv
+/** Answer to one question. */
 interface AskUserQuestionAnswerItem {
   /** The answered question id. */
   id: string
@@ -67,6 +71,7 @@ interface AskUserQuestionAnswerItem {
 ```
 
 ```ts type-equiv
+/** The human's answer. */
 interface AskUserQuestionAnswer {
   /** Structured answers keyed by question id. */
   answers: AskUserQuestionAnswerItem[]
@@ -78,6 +83,7 @@ interface AskUserQuestionAnswer {
 Only one provider may be active in a context. Provider registration is effect-bound so HMR/disposal removes the active UI.
 
 ```ts type-equiv
+/** UI-side provider for user questions. */
 interface UserInteractionProvider {
   ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 }
@@ -88,6 +94,7 @@ interface UserInteractionProvider {
 `UserInteractionError` extends `HarnessError`, so `ctx.tools.execute()` preserves `{ name, code }` for model-facing tool failures such as `EMPTY_QUESTIONS`, `NO_PROVIDER`, `ASK_ABORTED`, or ACP-side cancellation.
 
 ```ts type-equiv
+/** Stable error taxonomy for user-interaction failures. */
 class UserInteractionError extends HarnessError {
   constructor(message: string, code: string, options?: ErrorOptions) {
     super(message, code, options)
