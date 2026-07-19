@@ -4,22 +4,30 @@
  * `pnpm run verify-cordis-api` in doc-sync).
  *
  * The machine-readable cordis API catalog `cordis_inspect` serves to the
- * model: harness services (summary + public method signatures), harness
- * events (mode + signature), and the inherited `ctx` surface. Produced by
+ * model: harness services (summary + public method signatures/JSDoc),
+ * harness events (mode + signature/JSDoc), and the inherited `ctx` surface. Produced by
  * the same AST walk as docs/cordis-catalog, so this data and the rendered
  * docs cannot diverge.
  *
  * @module @deepseek-ai/dsh-tool-cordis/api-catalog
  */
 
-/** One harness `ctx.<key>` service: its one-line summary and public method signatures. */
+/** One public service method and its source-owned contract. */
+export interface ServiceApiMethod {
+  /** Public method signature with its body stripped. */
+  signature: string
+  /** Original method JSDoc, with only container indentation removed. */
+  jsDoc: string
+}
+
+/** One harness `ctx.<key>` service: its one-line summary and public methods. */
 export interface ServiceApiEntry {
   /** The `ctx.<key>` name, e.g. `tools`. */
   key: string
   /** First sentence of the service class JSDoc. */
   summary: string
-  /** Public method signatures, bodies stripped, in source order. */
-  methods: readonly string[]
+  /** Public methods, bodies stripped, in source order. */
+  methods: readonly ServiceApiMethod[]
 }
 
 /** One harness event: its dispatch mode, exact signature, and one-line summary. */
@@ -30,6 +38,8 @@ export interface EventApiEntry {
   mode: string
   /** The exact listener signature, whitespace-normalized. */
   signature: string
+  /** Original event JSDoc, with only container indentation removed. */
+  jsDoc: string
   /** First sentence of the event JSDoc. */
   summary: string
 }
@@ -56,243 +66,540 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'agentLoop',
     summary: 'Concrete agent factory and driver service.',
     methods: [
-      'create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, \'cwd\'> = {}): Agent',
-      'async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>',
-      'async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>',
+      {
+        signature: 'create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, \'cwd\'> = {}): Agent',
+        jsDoc: '/**\n * Create an agent and session under one caller-supplied identity, owned by\n * the accessing fiber. Constructor-driven config calls mint a fresh combined\n * id before entering this boundary.\n * @param id - shared agent/session identity.\n * @param options - concrete loop options.\n * @param meta - optional fresh-session workspace metadata.\n * @returns the published running agent.\n */',
+      },
+      {
+        signature: 'async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>',
+        jsDoc: '/**\n * Create an owned agent on a caller-supplied session id.\n * @param ownerCtx - caller context that structurally owns the transaction.\n * @param options - identities, session seed/metadata, loop options, setup, and cancellation.\n * @returns the published handle.\n */',
+      },
+      {
+        signature: 'async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>',
+        jsDoc: '/**\n * Resume an owned agent from the configured persistence service.\n * @param ownerCtx - caller context that owns load, setup, and the live lifecycle.\n * @param options - persisted identity, loop options, setup, and cancellation.\n * @returns the published handle.\n */',
+      },
     ],
   },
   {
     key: 'agents',
     summary: 'Agent service (`ctx.agents`): tracks live agents and carries the initiating Agent through one process-local asynchronous driver chain.',
     methods: [
-      'currentInitiator(): Agent | undefined',
-      'requireInitiator(): Agent',
-      'withInitiator<T>(agent: Agent, operation: () => T): T',
-      'withoutInitiator<T>(operation: () => T): T',
-      'setFactory(factory: AgentFactory): () => void',
-      'async create(options: CreateAgentOptions): Promise<AgentHandle>',
-      'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
-      'register(agent: Agent): () => void',
-      'enter(agent: Agent, owner: Agent | undefined): () => void',
-      'announce(agent: Agent): void',
-      'get(id: SessionId): Agent | undefined',
-      'isOwnedBy(id: SessionId, owner: Agent): boolean',
-      'list(): Agent[]',
-      'roots(): Agent[]',
+      {
+        signature: 'currentInitiator(): Agent | undefined',
+        jsDoc: '/**\n * Read the Agent that initiated the inherited asynchronous driver chain.\n * Use this optional form for logging, tracing, metrics, or host attribution\n * that also supports agentless calls. When a parent creates a child, setup\n * reports the causal parent while `agentCtx.agent` identifies the child.\n * @returns the inherited Agent, or `undefined` outside an initiator boundary\n *   and inside an explicit clearing boundary.\n * @throws when this service instance has been disposed.\n */',
+      },
+      {
+        signature: 'requireInitiator(): Agent',
+        jsDoc: '/**\n * Read the initiating Agent and fail when no initiator boundary is active.\n * Use this for private helpers contractually below a driver, or for a\n * deployment-owned outbound request whose contract forbids agentless calls.\n * Generic or direct-call seams use optional lookup or explicit request fields.\n * @returns the inherited Agent.\n * @throws when no initiator is active or this service instance has been disposed.\n */',
+      },
+      {
+        signature: 'withInitiator<T>(agent: Agent, operation: () => T): T',
+        jsDoc: '/**\n * Run an operation with one exact Agent as its process-local initiator. The\n * exact synchronous value or Promise returned by the operation is preserved.\n * Custom drivers and test harnesses wrap their complete returned foreground\n * lifetime.\n * A queue or wire receiver may establish this boundary only after validating\n * explicit identity and resolving the exact live Agent; this method does neither.\n * Detached work remains owned by the subsystem that starts it.\n * @param agent - initiating Agent to inherit; presence is neither liveness proof nor authorization.\n * @param operation - synchronous or asynchronous operation to invoke.\n * @returns the exact value returned by `operation`.\n * @throws when the initiator scope is closing/disposed, or when `operation` throws.\n */',
+      },
+      {
+        signature: 'withoutInitiator<T>(operation: () => T): T',
+        jsDoc: '/**\n * Run an operation inside a boundary that hides any inherited initiating\n * Agent. The exact synchronous value or Promise is preserved.\n * Use this while creating lazy shared timers, queue pumps, pool maintenance,\n * watchers, or exporters so they do not inherit the first Agent that happens\n * to initialize them. It clears only initiator attribution, not explicit\n * fields, and does not own or drain detached resources.\n * @param operation - synchronous or asynchronous operation to invoke without an initiator.\n * @returns the exact value returned by `operation`.\n * @throws when the initiator scope is closing/disposed, or when `operation` throws.\n */',
+      },
+      {
+        signature: 'setFactory(factory: AgentFactory): () => void',
+        jsDoc: '/**\n * Register the agent-creation factory (the loop calls this on construction,\n * effect-scoped). A traced Cordis service is canonicalized to its concrete\n * target; each create/resume call is then traced through that caller\'s\n * context so ownership follows the caller without stacking proxy layers.\n * Throws if a factory is already registered. Returns the disposer; on\n * dispose the factory slot is cleared.\n * @param factory - the loop-owned factory {@link create}/{@link resume} delegate to.\n * @returns the disposer that clears the factory slot. The exact\n *   Cordis effect disposer (single-shot): composite (generator) effects may\n *   yield it directly — exact identity nests the teardown in order.\n */',
+      },
+      {
+        signature: 'async create(options: CreateAgentOptions): Promise<AgentHandle>',
+        jsDoc: '/**\n * Create and publish a new agent through the registered factory.\n * Distinct from {@link register} (which records an already-constructed\n * agent): this constructs the agent and its session. Rejects if no factory is\n * registered or creation/setup fails. The resolved {@link AgentHandle} lets\n * the owner tear down exactly this agent.\n * @param options - shared identity, session seed/metadata, and agent options.\n * @returns the handle after setup, rollback-covered publication, and loop start complete.\n */',
+      },
+      {
+        signature: 'async resume(options: ResumeAgentOptions): Promise<AgentHandle>',
+        jsDoc: '/**\n * Load a persisted session and resume an agent on it through the registered\n * factory. Rejects if no factory is registered; the factory rejects if\n * session persistence is not configured or persistence/setup fails.\n * @param options - persisted identity, configuration, and optional setup.\n * @returns the handle after setup, rollback-covered publication, and loop start complete.\n */',
+      },
+      {
+        signature: 'register(agent: Agent): () => void',
+        jsDoc: '/**\n * Register a live agent. Throws if an agent with the same id is already\n * registered. Emits `agent/created` on registration and `agent/disposed`\n * when the calling fiber is disposed — both with the agent\'s scope carrier\n * (`scopeTarget(agent, agent)`): the subject is the agent in hand, so the\n * emits are scope-filtered regardless of which context invoked `register`\n * (calling through `agent.ctx` scopes EFFECTS; dispatch scoping always\n * requires passing the carrier). Returns the disposer.\n * @param agent - the already-constructed agent to record in the store.\n * @returns the EXACT Cordis effect disposer (single-shot; a repeat call\n *   returns undefined without awaiting an in-flight teardown). Exact\n *   identity is load-bearing: a composite (generator) effect that owns a\n *   teardown ORDER — the agent factory\'s lifecycle chain — must yield THIS\n *   function so Cordis nests the unregistration at that yield position;\n *   yielding a wrapper would leave it disposing as a concurrent sibling on\n *   owner unload, unregistering the agent (and emitting `agent/disposed`)\n *   while its final turn is still draining.\n */',
+      },
+      {
+        signature: 'enter(agent: Agent, owner: Agent | undefined): () => void',
+        jsDoc: '/**\n * Insert an already-constructed agent without announcing it. This is the\n * advanced ordered-lifecycle primitive used by the async agent factory: it\n * first completes setup while the agent is unpublished, then assigns the\n * returned detach closure into its pre-installed composite teardown before\n * calling {@link announce}. Ordinary callers use {@link register}.\n * @param agent - the prepared, unpublished agent.\n * @param owner - live agent whose scoped context created this agent, or\n *   undefined for a top-level runtime root. This is runtime ownership, not\n *   the resumed session\'s durable parent lineage.\n * @returns an idempotent closure that removes this exact entry and emits\n *   `agent/disposed` with listener failures contained. When called from a\n *   synchronous `agent/created` listener, removal and disposal wait until\n *   that creation dispatch unwinds.\n */',
+      },
+      {
+        signature: 'announce(agent: Agent): void',
+        jsDoc: '/**\n * Announce an agent previously inserted with {@link enter}.\n * @param agent - the live inserted agent to announce.\n * @throws if `agent` is not the exact live registry entry for its id, or its\n *   creation announcement already began (including a reentrant call from a\n *   creation listener).\n */',
+      },
+      {
+        signature: 'get(id: SessionId): Agent | undefined',
+        jsDoc: '/**\n * Look up a live agent.\n * @param id - the shared agent/session id to look up.\n * @returns the agent, or undefined when no live agent has that id.\n */',
+      },
+      {
+        signature: 'isOwnedBy(id: SessionId, owner: Agent): boolean',
+        jsDoc: '/**\n * Test whether a live agent was created through one exact parent agent\'s\n * scoped context. Runtime ownership is independent of durable session\n * lineage and remains unambiguous when unrelated providers reuse an id.\n * @param id - the candidate child agent\'s shared agent/session id.\n * @param owner - the expected runtime creator agent.\n * @returns true only while the exact child entry is live under that owner.\n */',
+      },
+      {
+        signature: 'list(): Agent[]',
+        jsDoc: '/**\n * All live agents, in registration order.\n * @returns a fresh array; mutating it does not affect the registry.\n */',
+      },
+      {
+        signature: 'roots(): Agent[]',
+        jsDoc: '/**\n * All live top-level agents in registration order. A top-level agent was\n * created without an owning agent context; durable session lineage does not\n * affect this runtime relation, so a resumed fork may still be a root.\n * @returns a fresh array; mutating it does not affect the registry.\n */',
+      },
     ],
   },
   {
     key: 'approval',
     summary: 'Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session.',
     methods: [
-      'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
+      {
+        signature: 'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
+        jsDoc: '/**\n * Ask the composed answerers to decide one readonly same-process request.\n * The service borrows the request, agent, session, and live signal directly.\n * The request requires an open turn because the audit pair must be enclosed\n * by the durable log\'s commit/replay boundary; an idle ask rejects before\n * appending anything. The answerer phase always produces an outcome: an\n * aborted signal yields `\'cancelled\'`, a missing or throwing answerer yields\n * `\'unavailable\'` (fail closed), and a rogue non-vocabulary return value is\n * normalized to `\'unavailable\'`. A failure that prevents either audit append\n * from committing still rejects because returning an unlogged decision would\n * violate the pair. Session contains post-commit observer failures, so an\n * authoritative append cannot reject the request or suppress its matching\n * audit event.\n * @param req - the pending decision (agent, tool identity, reason, signal).\n * @returns the closed outcome; `\'allowed-once\'` is the only grant.\n * @throws when no turn is open or either audit event fails before the session\n *   append commit point.\n */',
+      },
     ],
   },
   {
     key: 'bash',
     summary: 'Abstract bash execution service.',
     methods: [
-      'abstract resolve(request: BashExecRequest): BashExecSpec',
-      'abstract run(spec: BashExecSpec): Promise<BashRunResult>',
-      'abstract start(spec: BashExecSpec): BashProcess',
+      {
+        signature: 'abstract resolve(request: BashExecRequest): BashExecSpec',
+        jsDoc: '/**\n * Apply implementation-owned defaults and caps to a request before execution.\n * @param request - the caller\'s request; omitted fields get this\n *   implementation\'s defaults, capped fields are clamped.\n * @returns the fully-specified spec to hand to {@link run}/{@link start}.\n */',
+      },
+      {
+        signature: 'abstract run(spec: BashExecSpec): Promise<BashRunResult>',
+        jsDoc: '/**\n * Run a command in the foreground; resolves when it finishes.\n * @param spec - a resolved spec from {@link resolve}, never a raw request.\n * @returns the outcome; nonzero exits, timeout kills, and abort kills\n *   resolve with a descriptive result rather than reject.\n */',
+      },
+      {
+        signature: 'abstract start(spec: BashExecSpec): BashProcess',
+        jsDoc: '/**\n * Start a background process and return its handle immediately.\n * @param spec - a resolved spec from {@link resolve}, never a raw request.\n * @returns the live process handle (reads, kill, quiescence promise).\n */',
+      },
     ],
   },
   {
     key: 'bashEnv',
     summary: 'Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables.',
     methods: [
-      'register(contributor: BashEnvContributor): () => void',
-      'collect(execution: ToolExecution): DshEnvironment',
-      'list(): BashEnvVariableInfo[]',
+      {
+        signature: 'register(contributor: BashEnvContributor): () => void',
+        jsDoc: '/**\n * Register one environment contributor. Names and keys are unique; built-in\n * keys are reserved. Registration is disposed with the calling plugin fiber.\n * @param contributor - declared key ownership and per-execution resolver.\n * @returns the disposer that unregisters the contribution.\n */',
+      },
+      {
+        signature: 'collect(execution: ToolExecution): DshEnvironment',
+        jsDoc: '/**\n * Build the trusted `DSH_*` snapshot for one bash tool execution.\n * @param execution - the current tool execution.\n * @returns an immutable environment overlay containing built-ins and current contributions.\n */',
+      },
+      {
+        signature: 'list(): BashEnvVariableInfo[]',
+        jsDoc: '/**\n * Enumerate plugin-contributed variables without executing their resolvers.\n * @returns declarations sorted by environment variable name.\n */',
+      },
     ],
   },
   {
     key: 'codeRuntime',
     summary: 'Registers one `ctx.codeRuntime` implementation.',
     methods: [
-      'abstract run(request: CodeRunRequest): Promise<CodeRunResult>',
+      {
+        signature: 'abstract run(request: CodeRunRequest): Promise<CodeRunResult>',
+        jsDoc: '/**\n * Execute one program against the request\'s bindings and capture what it\n * emitted. See the class doc for the resolution contract (error is a result\n * field; rejection means seam misuse only).\n * @param request - the program, its bindings, and the abort signal; the\n *   request carries everything the runtime acts on, with no hidden defaults.\n * @returns the run\'s outcome: completion value (when transferable), the\n *   ordered log capture, and the failure (if any).\n */',
+      },
     ],
   },
   {
     key: 'compact',
     summary: 'Abstract compaction service.',
     methods: [
-      'abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>',
-      'abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
+      {
+        signature: 'abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>',
+        jsDoc: '/**\n * Check token pressure and compact if the conversation is too large.\n * Estimate the next request, including its session prefix, derived history,\n * and system prompt. Above threshold, compact a head-anchored range ending at\n * a balanced tool boundary and reconsolidate any prior automatic checkpoint.\n * Return `null` when no compaction is needed or an open tail leaves no safe\n * cutoff. A single oversized retained unit or prefix cannot be repaired here.\n *\n * @param agent - agent context owning the session surface and model options.\n * @param fullSystemPrompt - assembled system prompt, counted toward the estimate.\n * @param sessionPrefix - the instance\'s composed session prefix, counted toward the\n *   estimate.\n * @param signal - cancellation signal; model-backed implementations must forward it.\n * @returns the compaction result, or `null` if no compaction was needed.\n */',
+      },
+      {
+        signature: 'abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
+        jsDoc: '/**\n * Forcibly compact a range of surface nodes into a single summary node.\n * `start` and `end` name an inclusive span by surface position, not numeric seq\n * order; replacements can make visible seqs non-monotonic. Both edges must be\n * balanced so assistant tool calls remain paired with their results. A model-\n * backed implementation forwards cancellation and rejects active, missing,\n * reversed, or unbalanced ranges. The target session is `agent.session`.\n * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}\n * for the edge checks.\n *\n * @param start - first surface seq, inclusive.\n * @param end - last surface seq, inclusive.\n * @param agent - context whose session is mutated and whose routing options guide summarization.\n * @param signal - optional cancellation; model-backed implementations must forward it.\n * @throws when compaction is active or the range is missing, reversed, or unbalanced.\n * @returns the appended event seqs, summary, replaced range, and token accounting.\n */',
+      },
     ],
   },
   {
     key: 'fs',
     summary: 'Abstract filesystem provider.',
     methods: [
-      'abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>',
-      'abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>',
-      'abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>',
-      'abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>',
-      'abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>',
-      'abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>',
-      'abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>',
-      'abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>',
+      {
+        signature: 'abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>',
+        jsDoc: '/**\n * Resolve a model/plugin-supplied path into a stable {@link FsTarget}. May perform I/O (a\n * remote/sandboxed backend may need a round-trip to map a path to a stable identity), hence\n * async even though the local backend only normalizes + realpaths.\n *\n * @param path - the path to resolve; relative paths resolve against `opts.cwd`.\n * @param opts - optional cwd override and cancellation signal.\n * @returns the stable target; the same file yields the same `targetKey`.\n */',
+      },
+      {
+        signature: 'abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>',
+        jsDoc: '/**\n * Return target metadata, or `undefined` when the target does not exist.\n * @param target - the resolved target to stat.\n * @param signal - aborts the metadata round-trip.\n * @returns metadata only, never content; undefined for an absent target.\n */',
+      },
+      {
+        signature: 'abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>',
+        jsDoc: '/**\n * Return path metadata without following the final path component when it is a\n * symbolic link. This is intentionally path-shaped, not target-shaped:\n * {@link resolve} follows symlinks to produce the stable identity used by\n * normal reads/writes, while `lstat` lets a consumer reject the path itself\n * before that follow happens.\n *\n * `opts.cwd` follows {@link resolve}\'s cwd rules. `undefined` means the path is\n * absent.\n * @param path - the path to inspect; relative paths resolve against `opts.cwd`.\n * @param opts - `cwd` overrides the backend\'s default base for relative paths.\n * @param signal - aborts the metadata round-trip.\n * @returns metadata only, never content; undefined for an absent path.\n */',
+      },
+      {
+        signature: 'abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>',
+        jsDoc: '/**\n * Read the whole regular text file as a single decoded string.\n * @param target - the resolved target to read.\n * @param signal - aborts the read.\n * @returns the full decoded UTF-8 content.\n */',
+      },
+      {
+        signature: 'abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>',
+        jsDoc: '/**\n * Stream the whole regular text file as decoded text chunks (same text\n * semantics as {@link readText}, for large files). The backend owns\n * cross-chunk UTF-8 decoding and binary rejection so the policy layer never\n * touches raw bytes.\n * @param target - the resolved target to read.\n * @param signal - aborts the stream, including between chunks.\n * @returns the chunk iterable, decoded and validated like {@link readText}.\n */',
+      },
+      {
+        signature: 'abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>',
+        jsDoc: '/**\n * List direct children of a directory in stable name order. Returns resolved\n * child targets plus cheap metadata only; never reads file contents.\n * @param target - the resolved directory target.\n * @param signal - aborts the listing.\n * @returns one entry per direct child, in stable name order.\n */',
+      },
+      {
+        signature: 'abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>',
+        jsDoc: '/**\n * Atomically create or replace UTF-8 text. `expected` guards intent and\n * staleness; omission allows unconditional overwrite.\n * @param target - the resolved target to write.\n * @param content - the full new file content.\n * @param expected - the write intent guarding the write; omit for unconditional.\n * @param signal - aborts before the atomic rename takes effect.\n * @returns the outcome, including the version the write produced.\n */',
+      },
+      {
+        signature: 'abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>',
+        jsDoc: '/**\n * Atomically edit literal text. When supplied, the version guard is checked\n * before matching so stale content reports `FS_STALE_VERSION`; omission edits\n * the current content without a freshness precondition.\n * @param target - the resolved target to edit.\n * @param edit - the literal search/replace request.\n * @param expected - the version guard; omit for an unconditional edit.\n * @param signal - aborts before the atomic rename takes effect.\n * @returns the outcome, including the version the edit produced.\n */',
+      },
     ],
   },
   {
     key: 'llm',
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.',
     methods: [
-      'registerAdapter(providers: string[], adapter: LlmAdapter): () => void',
-      'listProviders(): LlmProviderInfo[]',
-      'async listModels(provider: string): Promise<LlmModelInfo[]>',
-      'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
+      {
+        signature: 'registerAdapter(providers: string[], adapter: LlmAdapter): () => void',
+        jsDoc: '/**\n * Register an adapter for the given provider routes. Throws `LlmError` with code\n * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).\n * Disposed with the fiber.\n * @param providers - every provider route this adapter should serve.\n * @param adapter - the adapter that streams calls for those providers.\n * @returns the disposer that unregisters all of them.\n */',
+      },
+      {
+        signature: 'listProviders(): LlmProviderInfo[]',
+        jsDoc: '/**\n * Describe provider routes with a registered adapter.\n * @returns detached provider metadata in registration order.\n */',
+      },
+      {
+        signature: 'async listModels(provider: string): Promise<LlmModelInfo[]>',
+        jsDoc: '/**\n * Discover models advertised by one registered provider. Catalog membership\n * is advisory and never changes routing or request validation.\n * @param provider - registered provider route to inspect.\n * @returns detached model metadata in adapter-preferred order.\n */',
+      },
+      {
+        signature: 'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
+        jsDoc: '/**\n * Stream one model call as raw chunks (token-level deltas). Throws\n * `LlmError` with code `NO_ADAPTER` if no adapter is registered for\n * `options.provider`. Replay state is retained only when the same adapter\n * instance owns its historical provider and the target provider. Dispatches\n * through the `llm/stream` waterfall.\n * @param options - the full request; `options.provider` selects the adapter.\n * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.\n */',
+      },
     ],
   },
   {
     key: 'permission',
     summary: 'Owns the deployment\'s permission presets and their write path.',
     methods: [
-      'current(events: readonly SessionEvent[]): string',
-      'resolve(name: string): PresetSpec',
-      'optionOf(name: string): PresetOption',
-      'set(session: Session, name: string): void',
+      {
+        signature: 'current(events: readonly SessionEvent[]): string',
+        jsDoc: '/**\n * Resolve the preset matching the effective knob values. A still-matching\n * last selection wins shared-bundle ties; otherwise the first table match\n * wins, or {@link CUSTOM_PRESET} when no entry matches.\n * @param events - the session\'s events in log order.\n * @returns the effective preset name, or `custom` when nothing matches.\n */',
+      },
+      {
+        signature: 'resolve(name: string): PresetSpec',
+        jsDoc: '/**\n * Resolve a preset\'s knob bundle.\n * @param name - the preset name to resolve.\n * @returns the configured bundle.\n * @throws when `name` is not in the table.\n */',
+      },
+      {
+        signature: 'optionOf(name: string): PresetOption',
+        jsDoc: '/**\n * Build the client option for a table entry or {@link CUSTOM_PRESET}. A\n * missing label falls back to the table key.\n * @param name - a table key, or `custom`.\n * @returns the option a client renders.\n * @throws when `name` is neither a table key nor `custom`.\n */',
+      },
+      {
+        signature: 'set(session: Session, name: string): void',
+        jsDoc: '/**\n * Record a changed preset, then update each changed knob through its own\n * setter. Selecting the effective preset again appends nothing.\n * @param session - the session the switch belongs to.\n * @param name - the preset to switch to; unknown names throw.\n */',
+      },
     ],
   },
   {
     key: 'sandbox',
     summary: 'Abstract process-sandbox service.',
     methods: [
-      'abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv',
+      {
+        signature: 'abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv',
+        jsDoc: '/**\n * Wrap `argv` so it executes confined under `policy` on this host; the\n * caller spawns the returned argv in place of its own.\n * @param argv - the exact argv the caller is about to spawn (program plus\n *   arguments), NOT a shell string — a shell-shaped consumer passes\n *   `[\'bash\', \'-c\', command]`.\n * @param policy - the file-effect policy this execution runs under,\n *   carried per call (see {@link SandboxPolicy}).\n * @returns the argv to spawn instead, plus the enforcement completeness\n *   the selected backend achieves for it.\n */',
+      },
     ],
   },
   {
     key: 'sessionPersistence',
     summary: 'Durable append-only session storage.',
     methods: [
-      'abstract locate(meta: SessionHeader): SessionLocation | undefined',
-      'abstract create(meta: SessionHeader): Promise<void>',
-      'abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>',
-      'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-      'abstract list(): Promise<SessionHeader[]>',
+      {
+        signature: 'abstract locate(meta: SessionHeader): SessionLocation | undefined',
+        jsDoc: '/**\n * Resolve this backend\'s independent local artifact for a session without\n * reading, creating, flushing, or otherwise materializing it. Backends such\n * as SQLite that do not own one artifact per session return `undefined`.\n * @param meta - the immutable session header whose artifact is requested.\n * @returns the backend-specific absolute location, when one exists.\n */',
+      },
+      {
+        signature: 'abstract create(meta: SessionHeader): Promise<void>',
+        jsDoc: '/**\n * Register a new session\'s metadata. A backend MAY defer the physical write\n * until the first {@link append} (lazy materialization), in which case a\n * created-but-never-appended session is absent from {@link list}\n * — abandoned sessions leave nothing behind.\n * @param meta - the immutable header (id, version, cwd, lineage) to record.\n */',
+      },
+      {
+        signature: 'abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>',
+        jsDoc: '/**\n * Durably persist a batch of events (called from the write-behind drain at\n * the `session/flush` checkpoint). Honors the append-only and contiguous-seq\n * contracts: the first event\'s `seq` MUST equal the stored next-seq (after\n * `load` has durably closed any interrupted turn). Rejects non-JSON-\n * serializable `event.data` with an error naming the offending event type.\n * @param id - the session the batch belongs to.\n * @param events - the contiguous batch to persist, in seq order.\n */',
+      },
+      {
+        signature: 'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
+        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
+      },
+      {
+        signature: 'abstract list(): Promise<SessionHeader[]>',
+        jsDoc: '/**\n * Lightweight listing from metadata, without a full-log parse.\n * @returns one header per materialized session.\n */',
+      },
     ],
   },
   {
     key: 'sessionQuery',
     summary: 'Live-preferred logical-corpus exact-read and relationship-tracing service.',
     methods: [
-      'listSessions(): Promise<SessionRecord[]>',
-      'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
-      'async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>',
-      'async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>',
-      'async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>',
+      {
+        signature: 'listSessions(): Promise<SessionRecord[]>',
+        jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @returns deterministic newest-first cloned session records.\n */',
+      },
+      {
+        signature: 'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
+        jsDoc: '/**\n * List lightweight raw-log event records for one logical session.\n * @param sessionId - live-preferred session id to read.\n * @returns event records in ascending seq order.\n */',
+      },
+      {
+        signature: 'async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>',
+        jsDoc: '/**\n * Trace known ancestry and descendants from one corpus observation.\n * @param sessionId - logical session id to trace.\n * @returns a complete lineage or an explicit unresolved parent boundary.\n * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.\n */',
+      },
+      {
+        signature: 'async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>',
+        jsDoc: '/**\n * Trace one event\'s direct positional and provenance relationships.\n * @param request - target session id and event seq.\n * @returns direct links plus the target\'s positional replacement chain.\n * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.\n */',
+      },
+      {
+        signature: 'async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>',
+        jsDoc: '/**\n * Read one full event plus a bounded raw-log context window.\n * @param request - target session/seq and context sizes.\n * @returns cloned target and neighboring events.\n */',
+      },
     ],
   },
   {
     key: 'sessions',
     summary: 'In-memory session store (`ctx.sessions`).',
     methods: [
-      'create(id?: SessionId, options?: CreateSessionOptions): Session',
-      'prepare(id?: SessionId, options?: CreateSessionOptions): Session',
-      'enter(session: Session): () => void',
-      'announce(session: Session): void',
-      'async flush(session: Session): Promise<void>',
-      'get(id: SessionId): Session | undefined',
-      'list(): Session[]',
-      'fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session',
+      {
+        signature: 'create(id?: SessionId, options?: CreateSessionOptions): Session',
+        jsDoc: '/**\n * Create a session owned by the calling fiber: disposing that fiber stops\n * event notification and removes the session from the store. `options.seed`\n * populates the session with a copy of those events (replay/fork);\n * `options.meta` attaches creation metadata (validated absolute `cwd`,\n * `parentSession` lineage) as the immutable {@link SessionHeader} (the store\n * fills `version`/`id`/`createdAt`).\n *\n * For an agent whose session must be torn down IN ORDER with its loop (so the\n * loop\'s final flush is captured before the store attachment ends), do NOT use this\n * — fold the session lifecycle into the agent\'s own effect via\n * {@link prepare} + {@link enter} + {@link announce} (see\n * `dsh-agent-loop`\'s creation transaction).\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the live session, already entered and announced.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path (storage backends key directories off it).\n */',
+      },
+      {
+        signature: 'prepare(id?: SessionId, options?: CreateSessionOptions): Session',
+        jsDoc: '/**\n * Build a session WITHOUT entering it into the store — validate the id/cwd and\n * construct the {@link Session} (with its immutable {@link SessionHeader}).\n * Pairs with {@link enter} + {@link announce}: a caller that owns a composite\n * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE\n * effect so a fiber unload tears the session + agent down as a single ORDERED\n * chain rather than as racing sibling effects — which would remove the publication hooks\n * before the loop\'s closing `session/flush`, dropping the closing events.\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the constructed session, NOT yet in the store.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path.\n */',
+      },
+      {
+        signature: 'enter(session: Session): () => void',
+        jsDoc: '/**\n * Enter a {@link prepare}d session into the store: install the module-private\n * append publication hooks and add it to the store. Returns the DETACH\n * disposer (hooks + store removal). Does NOT emit `session/created` —\n * the caller yields this disposer inside its effect and THEN calls\n * {@link announce}, so a throwing `session/created` listener rolls the attach\n * back instead of leaking it.\n *\n * Re-checks the id for a duplicate: `prepare` and `enter` are public\n * cross-package primitives and a caller may interleave arbitrary work (or\n * another create) between them, so a stale prepared session must NOT overwrite\n * a live store entry of the same id — its detach disposer would later delete\n * the REAL session. The {@link create} convenience and the agent factory call\n * the two back-to-back so they never trip this, but the public seam cannot\n * assume that.\n *\n * @param session - a {@link prepare}d session not yet in the store.\n * @returns the detach disposer (publication hooks + store removal). When called from\n *   a synchronous `session/created` listener, removal and disposal wait until\n *   that creation dispatch unwinds.\n * @throws if a session with this id is already in the store.\n */',
+      },
+      {
+        signature: 'announce(session: Session): void',
+        jsDoc: '/** Emit `session/created` exactly once for an {@link enter}ed session (with\n * the carrier {@link enter} captured). Separate from {@link enter} so the\n * caller can yield the detach disposer first (rollback safety — see\n * {@link enter}).\n * @param session - the entered session to announce to listeners.\n * @throws if the session is not live or its announcement already began,\n *   including a reentrant call from a creation listener. */',
+      },
+      {
+        signature: 'async flush(session: Session): Promise<void>',
+        jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the loop\'s turn-end checkpoint, idle\n * injection, teardown drains) must come through here rather than dispatch a\n * raw `ctx.parallel(\'session/flush\', …)` — one owner, one spelling, and the\n * scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns resolves when every flush listener has settled; after all settle,\n *   rejects with the first registered listener failure if any listener failed.\n */',
+      },
+      {
+        signature: 'get(id: SessionId): Session | undefined',
+        jsDoc: '/**\n * Look up a live session.\n * @param id - the session id to look up.\n * @returns the session, or undefined when no live session has that id.\n */',
+      },
+      {
+        signature: 'list(): Session[]',
+        jsDoc: '/**\n * All live sessions, in creation order.\n * @returns a fresh array; mutating it does not affect the store.\n */',
+      },
+      {
+        signature: 'fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session',
+        jsDoc: '/**\n * Create a live child session from a turn-enclosed prefix of a live source.\n * `boundary` is an inclusive source event seq; omitted means the source\'s\n * current last event. A non-empty selected slice must end at `turn/end`.\n *\n * @param source - Live source session object or id.\n * @param boundary - Inclusive source event seq to fork through; omitted means\n *   the source\'s current last event, and omitted on an empty source forks an\n *   empty child.\n * @param childSessionId - Optional child session id; omitted delegates to\n *   `SessionStore`\'s id policy.\n * @returns The created live child session.\n */',
+      },
     ],
   },
   {
     key: 'skills',
     summary: 'Registry of skill providers.',
     methods: [
-      'registerProvider(provider: SkillProvider): () => void',
-      'register(skill: SkillRegistration): () => void',
-      'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
-      'async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>',
+      {
+        signature: 'registerProvider(provider: SkillProvider): () => void',
+        jsDoc: '/**\n * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and\n * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters\n * the provider and invalidates catalog caches.\n * @param provider - the provider to register by `provider.name`.\n * @returns the exact Cordis effect disposer that unregisters this provider;\n *   composite effects may yield it directly to preserve teardown ordering.\n */',
+      },
+      {
+        signature: 'register(skill: SkillRegistration): () => void',
+        jsDoc: '/**\n * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which\n * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and\n * receives a no-op disposer so it cannot remove the winner.\n * @param skill - the complete skill definition to expose for discovery.\n * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.\n */',
+      },
+      {
+        signature: 'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
+        jsDoc: '/**\n * List model-invocable skill summaries for a workspace. Lookup options and\n * provider candidates are readonly same-process values borrowed throughout\n * discovery.\n * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.\n * @returns sorted summaries, excluding skills disabled for model invocation.\n */',
+      },
+      {
+        signature: 'async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>',
+        jsDoc: '/**\n * Load and validate the winning candidate, passing its opaque discovery locator back to the\n * provider. Cancellation is rechecked after selection, including cache hits, and raced against\n * loading so an uncooperative provider cannot hang the caller.\n * @param name - kebab-case skill name.\n * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.\n * @returns the full skill, including body content, or `undefined`.\n */',
+      },
     ],
   },
   {
     key: 'spillStore',
     summary: 'Abstract spill storage service.',
     methods: [
-      'abstract saveText(input: SaveTextSpill): Promise<SpillRef>',
+      {
+        signature: 'abstract saveText(input: SaveTextSpill): Promise<SpillRef>',
+        jsDoc: '/**\n * Persist `input.content` to a session-scoped spill artifact.\n * @param input - the owner, provenance, suggested name, and full text to save.\n * @returns the saved artifact\'s {@link SpillRef}; rejects on a storage failure.\n */',
+      },
     ],
   },
   {
     key: 'subagents',
     summary: 'Named provider registry and capability-checked start surface.',
     methods: [
-      'registerProvider(provider: SubagentProvider): () => void',
-      'getProvider(name: string): SubagentProvider | undefined',
-      'list(): string[]',
-      'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
+      {
+        signature: 'registerProvider(provider: SubagentProvider): () => void',
+        jsDoc: '/**\n * Register a provider under its name. Registration is effect-scoped and HMR\n * safe; removing a provider blocks new starts but does not revoke runs that\n * were already returned to their holders.\n * @param provider - the trusted provider implementation.\n * @returns the exact Cordis effect disposer.\n */',
+      },
+      {
+        signature: 'getProvider(name: string): SubagentProvider | undefined',
+        jsDoc: '/**\n * Look up a provider by name.\n * @param name - the provider name.\n * @returns the provider, or undefined when absent.\n */',
+      },
+      {
+        signature: 'list(): string[]',
+        jsDoc: '/**\n * List registered provider names in insertion order.\n * @returns the registered names.\n */',
+      },
+      {
+        signature: 'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
+        jsDoc: '/**\n * Establish a ready child on the named provider. Capability and semantic\n * checks run before delegation. Provider ownership lasts until its promise\n * fulfills; a rejection therefore has no run for the caller to dispose and\n * emits no run lifecycle events.\n * @param name - the provider to use.\n * @param request - child prompt, parent, signal, and optional capabilities.\n * @returns the ready holder-owned run.\n */',
+      },
     ],
   },
   {
     key: 'systemPrompt',
     summary: 'Registry service for the prompt inputs assembled before each model step.',
     methods: [
-      'section(section: PromptSection): () => void',
-      'tools(provider: (context: AssembleContext) => ToolProviderResult): () => void',
-      'variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void',
-      'async assemble(context: AssembleContext = {}): Promise<PromptAssembly>',
+      {
+        signature: 'section(section: PromptSection): () => void',
+        jsDoc: '/**\n * Register an ordered prompt section in the calling context\'s scope. A scoped\n * section shadows a global section with the same name; duplicates within one\n * layer and non-finite orders throw. Registration and disposal emit\n * `system-prompt/change`.\n * @param section - the section to register.\n * @returns the exact Cordis effect disposer.\n */',
+      },
+      {
+        signature: 'tools(provider: (context: AssembleContext) => ToolProviderResult): () => void',
+        jsDoc: '/**\n * Register a tool-schema provider in the calling context\'s scope. Global and\n * matching scoped providers both contribute; returning the reserved\n * {@link TOOL_ORDER_REST} name makes assembly fail.\n * @param provider - evaluated for each assembly with its context.\n * @returns the exact Cordis effect disposer.\n */',
+      },
+      {
+        signature: 'variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void',
+        jsDoc: '/**\n * Register a prompt variable in the calling context\'s scope. Scoped values\n * shadow globals; invalid or duplicate names throw. A provider may return\n * `undefined`, but rendering a section that references that value then fails.\n * @param name - the `[a-z][a-z0-9_]*` reference name.\n * @param provider - evaluated for each assembly.\n * @returns the exact Cordis effect disposer.\n */',
+      },
+      {
+        signature: 'async assemble(context: AssembleContext = {}): Promise<PromptAssembly>',
+        jsDoc: '/**\n * Assemble global and scoped providers, detach tool parameters, apply\n * canonical ordering, then run the assembly waterfall. Scoped sections and\n * variables shadow globals; the returned waterfall value is authoritative.\n * @param context - the optional scope and plugin-defined assembly fields.\n * @returns the authoritative post-waterfall assembly.\n */',
+      },
     ],
   },
   {
     key: 'tasks',
     summary: 'The `tasks` service: the runtime-global background task registry.',
     methods: [
-      'start(spec: TaskStart): TaskId',
-      'list(caller?: Agent): TaskSnapshot[]',
-      'get(id: TaskId, caller?: Agent): TaskSnapshot',
-      'read(id: TaskId, caller?: Agent): TaskRead',
-      'kill(id: TaskId, caller?: Agent, reason?: string): \'requested\' | \'already-finished\'',
-      'async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>',
-      'onTaskDone(listener: TaskDoneListener): () => void',
-      'attachSurface(name: string): () => void',
+      {
+        signature: 'start(spec: TaskStart): TaskId',
+        jsDoc: '/**\n * Preflight access, validation, and owner cleanup before starting and\n * atomically registering work. A throwing starter leaves nothing registered;\n * after it returns, registration cannot fail. Settlement records the outcome,\n * notifies listeners, and releases waiters.\n * @param spec - task identity, owner, and synchronous starter.\n * @returns the registry-issued `<kind>-N` id.\n */',
+      },
+      {
+        signature: 'list(caller?: Agent): TaskSnapshot[]',
+        jsDoc: '/**\n * List caller-owned and unowned tasks in registration order without exposing\n * another session\'s labels.\n * @param caller - reading agent; a non-agent caller sees only unowned tasks.\n * @returns fresh snapshots.\n */',
+      },
+      {
+        signature: 'get(id: TaskId, caller?: Agent): TaskSnapshot',
+        jsDoc: '/**\n * Return a non-consuming snapshot without changing its read cursor or notice\n * state. Throws for an unknown or foreign task.\n * @param id - task to look up.\n * @param caller - reading agent checked against the owner.\n * @returns a fresh snapshot.\n */',
+      },
+      {
+        signature: 'read(id: TaskId, caller?: Agent): TaskRead',
+        jsDoc: '/**\n * Read the next stream delta, or the idempotent final output after settlement.\n * A terminal read marks the task reported. Throws for an unknown or foreign\n * task.\n * @param id - task to read.\n * @param caller - reading agent checked against the owner.\n * @returns output text and the post-read snapshot.\n */',
+      },
+      {
+        signature: 'kill(id: TaskId, caller?: Agent, reason?: string): \'requested\' | \'already-finished\'',
+        jsDoc: '/**\n * Request cancellation, then mark the task stopping and reported. A producer\n * throw propagates without changing task state. Throws for an unknown or\n * foreign task.\n * @param id - task to cancel.\n * @param caller - killing agent checked against the owner.\n * @param reason - logged reason forwarded to the producer.\n * @returns `requested` for live work, otherwise `already-finished`.\n */',
+      },
+      {
+        signature: 'async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>',
+        jsDoc: '/**\n * Wait for settlement or timeout without cancelling the task. Caller abort\n * rejects only while the task is live; after settlement it returns the\n * terminal snapshot so a notice suppressed for this waiter is still delivered.\n * Timed-out and aborted waits detach their resolvers. Throws for invalid,\n * unknown, or foreign input.\n * @param id - task to wait for.\n * @param timeoutMs - positive finite wait bound in milliseconds.\n * @param caller - waiting agent checked against the owner.\n * @param signal - optional cancellation of the wait itself.\n * @returns snapshot at settlement or timeout.\n */',
+      },
+      {
+        signature: 'onTaskDone(listener: TaskDoneListener): () => void',
+        jsDoc: '/**\n * Register an effect-scoped completion listener. Each listener is contained;\n * returned promises are observed but not awaited. No listener runs after\n * service disposal.\n * @param listener - receives each terminal snapshot and its exact owner.\n * @returns disposer that unregisters the listener.\n */',
+      },
+      {
+        signature: 'attachSurface(name: string): () => void',
+        jsDoc: '/**\n * Attach an effect-scoped surface that can read and stop tasks. {@link start}\n * refuses work while none is attached.\n * @param name - diagnostic label; duplicate names remain independent.\n * @returns disposer that detaches this surface.\n */',
+      },
     ],
   },
   {
     key: 'tokenMeter',
     summary: 'Replay owner for one service-wide estimator and isolated per-session folds.',
     methods: [
-      'measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement',
-      'estimateMessage(message: Message): number',
+      {
+        signature: 'measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement',
+        jsDoc: '/**\n * Measure current request pressure and surface through the durable tail.\n *\n * Provider usage is reused only when the latest successful call\'s canonical\n * request envelope matches `requestHeader` and its total is no lower than\n * that call\'s full heuristic anchor; otherwise the complete envelope and\n * surface are heuristically repriced.\n *\n * `requestHeader` affects request pressure only; surface fields always\n * describe the current session surface. Every call clones those positional\n * nodes, so measurement is O(surface).\n *\n * @param session - session to replay through its current durable tail.\n * @param requestHeader - optional effective request envelope replacing the latest logged header.\n * @returns a detached deeply immutable pressure and surface measurement.\n */',
+      },
+      {
+        signature: 'estimateMessage(message: Message): number',
+        jsDoc: '/**\n * Heuristically price one model-visible message.\n * @param message - message to price without mutation.\n * @returns content and role-framing tokens under the fixed service heuristic.\n */',
+      },
     ],
   },
   {
     key: 'tools',
     summary: 'Tool registry and execution pipeline.',
     methods: [
-      'register(definition: ToolDefinition): () => void',
-      'restrict(filter: ToolRestriction): () => void',
-      'guard(guard: ToolGuard): () => void',
-      'get(name: string, scope?: ScopeKey): ToolDefinition | undefined',
-      'schemas(scope?: ScopeKey): ToolSchema[]',
-      'executionMode(exec: ToolExecutionInput): ToolExecutionMode',
-      'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
+      {
+        signature: 'register(definition: ToolDefinition): () => void',
+        jsDoc: '/**\n * Register globally or in the calling agent scope. Scoped tools shadow\n * globals; duplicates within one layer and the reserved `run_code` name fail.\n * @param definition - the tool schema, execution, and optional presentation functions.\n * @returns the exact disposer that unregisters the tool.\n */',
+      },
+      {
+        signature: 'restrict(filter: ToolRestriction): () => void',
+        jsDoc: '/**\n * Restrict global tools for the calling agent scope. Empty filters, unknown\n * names, scope-local names, and reserved transport names fail. Restrictions\n * intersect; scoped registrations remain visible.\n * @param filter - global-surface mask: `allow` (keep only) and/or `deny` (remove).\n * @returns the exact disposer that lifts this restriction.\n */',
+      },
+      {
+        signature: 'guard(guard: ToolGuard): () => void',
+        jsDoc: '/**\n * Register a monotonic guard after the extensible `tools/pre-execute`\n * waterfall. A plain-context guard applies globally; one registered through\n * `agent.ctx` applies only to that agent. Any matching guard may deny by\n * returning a reason, while no guard can force-allow a call another guard\n * denied. The exact effect disposer is returned for ordered ownership and\n * HMR cleanup.\n * @param guard - synchronous check; a returned string denies the execution.\n * @returns the exact disposer that unregisters the guard.\n */',
+      },
+      {
+        signature: 'get(name: string, scope?: ScopeKey): ToolDefinition | undefined',
+        jsDoc: '/**\n * Look up a tool as one scope sees it (scoped\n * shadows global; a restricted-away global reads as absent). Presenters pass\n * the calling agent so the rendered card matches the definition that\n * actually executed.\n * @param name - the tool name as registered.\n * @param scope - the viewing scope (the agent); omitted = the global view.\n * @returns the definition the scope resolves, or undefined when none is visible.\n */',
+      },
+      {
+        signature: 'schemas(scope?: ScopeKey): ToolSchema[]',
+        jsDoc: '/**\n * Project visible definitions onto the allowlisted model-facing schema fields,\n * excluding execution and presentation callbacks.\n * @param scope - the viewing scope (the agent); omitted = the global view.\n * @returns one deep-cloned schema per visible tool.\n */',
+      },
+      {
+        signature: 'executionMode(exec: ToolExecutionInput): ToolExecutionMode',
+        jsDoc: '/**\n * Classify a pending call through the caller\'s visible tool definition. Only\n * an exact `true` is parallel; unknown, hidden, undeclared, invalid, or\n * throwing classifiers are exclusive.\n * @param exec - call name, parsed arguments, and optional agent scope.\n * @returns the fail-closed scheduling mode.\n */',
+      },
+      {
+        signature: 'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
+        jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy, and final\n * notification. Tool and listener failures resolve as materialized error\n * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is\n * the same lossless, frozen snapshot final observers receive.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
+      },
     ],
   },
   {
     key: 'userInteraction',
     summary: '`ctx.userInteraction`: one active UI provider plus an `ask()` surface.',
     methods: [
-      'registerProvider(provider: UserInteractionProvider): () => void',
-      'async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>',
+      {
+        signature: 'registerProvider(provider: UserInteractionProvider): () => void',
+        jsDoc: '/**\n * Register the UI provider. Only one provider may be active in a context.\n *\n * @param provider UI-side implementation that collects answers.\n * @returns Disposer that unregisters this provider.\n */',
+      },
+      {
+        signature: 'async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>',
+        jsDoc: '/**\n * Ask the active UI provider and wait for the user\'s answer.\n *\n * @param request Questions, owner agent, and abort signal.\n * @returns The answer chosen or typed by the human.\n */',
+      },
     ],
   },
   {
     key: 'web',
     summary: 'The web access service.',
     methods: [
-      'registerSearchProvider(provider: WebSearchProvider): () => void',
-      'registerFetchProvider(provider: WebFetchProvider): () => void',
-      'async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>',
-      'async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>',
+      {
+        signature: 'registerSearchProvider(provider: WebSearchProvider): () => void',
+        jsDoc: '/**\n * Register a search provider. Throws {@link WebError} `WEB_DUPLICATE_PROVIDER`\n * if its id is already registered for search. Returns a disposer; disposed\n * with the calling fiber.\n * @param provider - the provider; its `id` is the registry key.\n * @returns the disposer that unregisters the provider.\n */',
+      },
+      {
+        signature: 'registerFetchProvider(provider: WebFetchProvider): () => void',
+        jsDoc: '/**\n * Register a fetch provider. Throws {@link WebError} `WEB_DUPLICATE_PROVIDER`\n * if its id is already registered for fetch. Returns a disposer; disposed\n * with the calling fiber.\n * @param provider - the provider; its `id` is the registry key.\n * @returns the disposer that unregisters the provider.\n */',
+      },
+      {
+        signature: 'async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>',
+        jsDoc: '/**\n * Run one search through the selected provider. Resolves the provider at call\n * time with the selection rules above; throws {@link WebError} when the\n * capability cannot run. The seam enforces `request.maxResults` on the result:\n * if the provider over-returns, `sources[]` is truncated and `truncated` set.\n * @param request - the query plus result-shaping options.\n * @param signal - optional cancellation signal forwarded to the provider.\n * @returns the provider\'s results, capped to `request.maxResults`.\n */',
+      },
+      {
+        signature: 'async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>',
+        jsDoc: '/**\n * Retrieve one URL through the selected provider. Resolves the provider at\n * call time with the selection rules above; throws {@link WebError} when the\n * capability cannot run. A non-2xx response is a result, not a throw.\n * @param request - the URL plus retrieval options.\n * @param signal - optional cancellation signal forwarded to the provider.\n * @returns the retrieval outcome; non-2xx responses resolve descriptively.\n */',
+      },
     ],
   },
   {
     key: 'workflows',
     summary: 'Workflow execution seam.',
     methods: [
-      'abstract start(request: WorkflowStartRequest): WorkflowRun',
+      {
+        signature: 'abstract start(request: WorkflowStartRequest): WorkflowRun',
+        jsDoc: '/**\n * Parse and execute a workflow script.\n * @param request - the script, its `args`, the parent agent, and an\n *   optional cancel signal.\n * @returns the live run; its `result` resolves when the script settles.\n */',
+      },
     ],
   },
 ]
@@ -303,240 +610,280 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent-loop/config-start-failed',
     mode: 'emit',
     signature: '\'agent-loop/config-start-failed\'(sessionId: SessionId, error: unknown): void',
+    jsDoc: '/**\n * A declarative agent entry failed before it could publish a live agent.\n * Consumers that buffer work for the configured identity use this\n * transient signal to reject that work instead of waiting forever. Normal\n * factory teardown suppresses failures from the cancelled startup attempt.\n * @param sessionId - exact shared agent/session identity that failed startup.\n * @param error - persistence, setup, or publication failure.\n * @mode emit\n */',
     summary: 'A declarative agent entry failed before it could publish a live agent.',
   },
   {
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, agent: Agent): void',
+    jsDoc: '/**\n * A fully configured agent and live session were published. Setup is\n * composition-only; `agent/session-start` is the first startup-driving seam.\n * Synchronous listener failure vetoes publication, while returned-promise\n * rejection is reported. Detach requested during dispatch waits until every\n * creation listener has observed the stable entry.\n * @param agent - the newly registered agent with its live session and completed setup.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'A fully configured agent and live session were published.',
   },
   {
     name: 'agent/disposed',
     mode: 'emit',
     signature: '\'agent/disposed\'(this: Scoped<Agent>, agent: Agent): void',
+    jsDoc: '/**\n * An agent left the registry; AgentLoop emits this after driver quiescence\n * but before session detachment and scoped-registration unwind. Custom\n * registry users own their driver-ordering contract.\n * @param agent - the exact agent removed from the registry.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'An agent left the registry; AgentLoop emits this after driver quiescence but before session detachment and scoped-registration unwind.',
   },
   {
     name: 'agent/error',
     mode: 'emit',
     signature: '\'agent/error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: Error): void',
+    jsDoc: '/**\n * A step or turn errored. The loop reports a failure here (plus the logger)\n * even when the error has no in-turn position for a session `error` event.\n * @param agent - the agent whose turn errored.\n * @param turn - the turn in which the failure surfaced.\n * @param step - the step at which the failure surfaced.\n * @param error - the failure, verbatim.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'A step or turn errored.',
   },
   {
     name: 'agent/pre-step',
     mode: 'serial',
     signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void',
+    jsDoc: '/**\n * Awaited serial checkpoint for session-surface mutation after prompt\n * assembly and before `step/start`; appends land outside the pending step.\n * The loop derives history once afterward, so compaction records and\n * replacements are included without rewriting an assembled request. The\n * prompt and prefix are the exact pressure inputs for that request, and\n * `signal` cancels listener work.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - the agent opening the step.\n * @param turn - the open turn number.\n * @param step - the pending step number.\n * @param fullSystemPrompt - the assembled prompt.\n * @param sessionPrefix - the frozen request prefix.\n * @param signal - the turn abort signal.\n * @mode serial\n */',
     summary: 'Awaited serial checkpoint for session-surface mutation after prompt assembly and before `step/start`; appends land outside the pending step.',
   },
   {
     name: 'agent/prompt-submit',
     mode: 'waterfall',
     signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
+    jsDoc: '/**\n * Allow, rewrite, or block one drained prompt before it becomes a user\n * message. Call `next()` for the unchanged default.\n * @param agent - the agent draining its inbox.\n * @param content - the drained message\'s blocks, as queued.\n * @param source - the message\'s resolved source.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Allow, rewrite, or block one drained prompt before it becomes a user message.',
   },
   {
     name: 'agent/queued',
     mode: 'emit',
     signature: '\'agent/queued\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void',
+    jsDoc: '/**\n * Detached, frozen content entered the agent\'s inbox. Source defaults have\n * already been applied, so these are the exact values retained for the log.\n * @param agent - the agent whose inbox received the message.\n * @param content - the accepted content blocks retained by the inbox.\n * @param info - the accepted source plus whether it entered as steering.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'Detached, frozen content entered the agent\'s inbox.',
   },
   {
     name: 'agent/request',
     mode: 'waterfall',
     signature: '\'agent/request\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>',
+    jsDoc: '/**\n * Replace the frozen call configuration. Model-visible content must use\n * logged channels; this seam cannot mutate messages. Injection here joins\n * the next request because the current step boundary is already fixed.\n * @param agent - the agent making the model call.\n * @param turn - the open turn number.\n * @param step - the step whose request this is.\n * @param config - the config the loop would use (frozen); return a replacement to switch.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Replace the frozen call configuration.',
   },
   {
     name: 'agent/session-prefix',
     mode: 'waterfall',
     signature: '\'agent/session-prefix\'(this: Scoped<Agent>, agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>',
+    jsDoc: '/**\n * Compose request-only messages placed before derived history. The frozen\n * result is computed once per loop instance, logged on its anchoring request\n * header, and reused so the provider prefix remains stable. Interrupted\n * composition is discarded. Composition precedes the first `agent/pre-step`\n * and request boundary, so listener appends join the current request and\n * pressure accounting sees the composed prefix. Changing context belongs in\n * history; contributors should prepend to `await next()` to preserve registration order.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - the agent whose session prefix is being composed.\n * @param prefix - the frozen seed; return an extended replacement.\n * @param signal - aborts composition when the step is torn down.\n * @mode waterfall\n */',
     summary: 'Compose request-only messages placed before derived history.',
   },
   {
     name: 'agent/session-start',
     mode: 'emit',
     signature: '\'agent/session-start\'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void',
+    jsDoc: '/**\n * The session lifecycle began, once before the first turn. Use\n * `agent.inject()` to seed model-facing context. This is a notification, not\n * a veto; disposal requested by a lifecycle owner is rechecked before the\n * driver starts.\n * @param agent - the agent whose session lifecycle began.\n * @param source - why the session started (fresh startup, resume, …).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'The session lifecycle began, once before the first turn.',
   },
   {
     name: 'agent/status',
     mode: 'emit',
     signature: '\'agent/status\'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void',
+    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does\n * not enter `running` synchronously; drive lifecycle from this event.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'Agent status changed (`idle` ⇄ `running`, or → `disposed`).',
   },
   {
     name: 'agent/step-result',
     mode: 'waterfall',
     signature: '\'agent/step-result\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>',
+    jsDoc: '/**\n * Waterfall: post-process the assembled assistant {@link Message} before\n * tool dispatch (validation, content rewriting, …).\n * @param agent - the agent that received the step\'s response.\n * @param turn - the open turn number.\n * @param step - the step that produced the message.\n * @param message - the assistant message as assembled from the stream.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Waterfall: post-process the assembled assistant Message before tool dispatch (validation, content rewriting, …).',
   },
   {
     name: 'agent/turn-continuation',
     mode: 'waterfall',
     signature: '\'agent/turn-continuation\'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>',
+    jsDoc: '/**\n * Override whether the turn continues. The default continues after tool\n * calls or steering and stops otherwise; a continue reason becomes steering.\n * @param agent - the agent deciding whether to run another step.\n * @param turn - the turn being continued or stopped.\n * @param defaultDecision - what the loop would do absent an override.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Override whether the turn continues.',
   },
   {
     name: 'agent/turn-stop',
     mode: 'serial',
     signature: '\'agent/turn-stop\'(this: Scoped<Agent>, agent: Agent, turn: number): ContinuationStop | undefined',
+    jsDoc: '/**\n * Monotonic terminal-stop checkpoint after continuation and steering are\n * folded; a stop remains authoritative through turn close and flush:\n * steering queued in that window is discarded, while ordinary sends survive.\n * @param agent - the agent whose composed continuation outcome may be stopped.\n * @param turn - the turn at its terminal-stop checkpoint.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
     summary: 'Monotonic terminal-stop checkpoint after continuation and steering are folded; a stop remains authoritative through turn close and flush: steering queued in that window is discarded, while ordinary sends survive.',
   },
   {
     name: 'approval/request',
     mode: 'waterfall',
     signature: '\'approval/request\'(this: Scoped<ApprovalService>, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>',
+    jsDoc: '/**\n * Ask composed answerers for one decision. Return an outcome to claim the\n * request or call `next()`; failure yields the fail-closed default.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param req - the pending decision (agent, tool identity, reason, signal).\n * @mode waterfall\n */',
     summary: 'Ask composed answerers for one decision.',
   },
   {
     name: 'fs/edit-intent',
     mode: 'waterfall',
     signature: '\'fs/edit-intent\'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>',
+    jsDoc: '/**\n * Single-slot decision for the next {@link FileSystem.editText}. Calling\n * `next()` yields an unconditional edit; the first returned guard wins.\n * @param target - the resolved target about to be edited.\n * @param actor - the opaque tool-execution context the decider keys off.\n * @mode waterfall\n */',
     summary: 'Single-slot decision for the next FileSystem.editText.',
   },
   {
     name: 'fs/observed',
     mode: 'emit',
     signature: '\'fs/observed\'(target: FsTarget, version: FsVersion, actor: object | undefined): void',
+    jsDoc: '/**\n * Record a successful observation. Listeners must be synchronous recorders:\n * throws fail the tool call and returned promises are not awaited.\n * @param target - the target that was read/written/edited.\n * @param version - the version the actor now holds as its observation.\n * @param actor - the observing tool-execution context; undefined records nothing useful.\n * @mode emit\n */',
     summary: 'Record a successful observation.',
   },
   {
     name: 'fs/write-intent',
     mode: 'waterfall',
     signature: '\'fs/write-intent\'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>',
+    jsDoc: '/**\n * Single-slot decision for the next {@link FileSystem.writeText}. Calling\n * `next()` yields the bare provider\'s unconditional write; the first listener\n * that returns an intent owns the decision rather than composing with peers.\n * @param target - the resolved target about to be written.\n * @param actor - the opaque tool-execution context the decider keys off.\n * @mode waterfall\n */',
     summary: 'Single-slot decision for the next FileSystem.writeText.',
   },
   {
     name: 'llm/stream',
     mode: 'waterfall',
     signature: '\'llm/stream\'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>',
+    jsDoc: '/**\n * Waterfall around every streaming model call (retry, replay, routing).\n * Bound to the {@link LlmService}; call `next()` to reach the resolved\n * adapter\'s stream, or yield your own chunks to short-circuit.\n * @param options - the full request. A LOOP-built request arrives\n *   deep-frozen (mutation throws): its content is a pure function of the\n *   session log (the reconstructability RFC), so listeners read it, never\n *   rewrite it. A hand-built one-shot (compaction summarize) is the\n *   caller\'s own object and stays mutable here.\n * @mode waterfall\n */',
     summary: 'Waterfall around every streaming model call (retry, replay, routing).',
   },
   {
     name: 'session/created',
     mode: 'emit',
     signature: '\'session/created\'(this: Scoped<Session>, session: Session): void',
+    jsDoc: '/**\n * Creation announcement during session publication. A synchronous throw vetoes and rolls\n * back with a paired disposal; detach requested during dispatch is deferred.\n * A returned-promise rejection is logged but cannot retroactively veto this\n * synchronous boundary.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners\n * receive only sessions entered through that agent\'s context.\n * @param session - the session just entered and announced.\n * @dshScopeScan unsupported\n * @mode emit\n */',
     summary: 'Creation announcement during session publication.',
   },
   {
     name: 'session/disposed',
     mode: 'emit',
     signature: '\'session/disposed\'(this: Scoped<Session>, session: Session): void',
+    jsDoc: '/**\n * Emitted once when an announced session leaves the store, including\n * publication rollback, but never for an entry whose creation announcement\n * did not begin. Listener failures are logged and contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the owner scope.\n * @param session - the session that is no longer live in the store.\n * @dshScopeScan unsupported\n * @mode emit\n */',
     summary: 'Emitted once when an announced session leaves the store, including publication rollback, but never for an entry whose creation announcement did not begin.',
   },
   {
     name: 'session/event',
     mode: 'emit',
     signature: '\'session/event\'(this: Scoped<Session>, session: Session, event: SessionEvent): void',
+    jsDoc: '/**\n * Post-commit, fire-and-forget append feed. The listener snapshot resolves\n * before the log push, but callbacks run after it; observer failures are\n * logged and contained without making the committed append fail.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners\n * receive only events from sessions entered through that agent\'s context.\n * @param session - the session whose log grew.\n * @param event - the appended event, exactly as recorded.\n * @dshScopeScan unsupported\n * @mode emit\n */',
     summary: 'Post-commit, fire-and-forget append feed.',
   },
   {
     name: 'session/flush',
     mode: 'parallel',
     signature: '\'session/flush\'(this: Scoped<Session>, session: Session): Promise<void> | void',
+    jsDoc: '/**\n * Awaited parallel durability checkpoint: every listener runs and the\n * caller awaits all of them, with no waterfall veto. Dispatch through\n * {@link SessionStore.flush}. Scope-filtered dispatch\n * (`@deepseek-ai/dsh-scope`) reuses the session\'s owner scope.\n * @param session - the session whose buffered events must reach durable storage.\n * @dshScopeScan unsupported\n * @mode parallel\n */',
     summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
   },
   {
     name: 'subagent/end',
     mode: 'emit',
     signature: '\'subagent/end\'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void',
+    jsDoc: '/**\n * A ready child settled. Scope-filtered dispatch uses the same delegating\n * parent carrier as `subagent/start`, so the lifecycle pair reaches the\n * same scoped audience.\n * @param info - the run identity and terminal outcome.\n * @dshScopeScan unsupported\n * @mode emit\n */',
     summary: 'A ready child settled.',
   },
   {
     name: 'subagent/provider-added',
     mode: 'emit',
     signature: '\'subagent/provider-added\'(provider: SubagentProvider): void',
+    jsDoc: '/**\n * A provider became resolvable in the registry.\n * @param provider - the registered provider.\n * @mode emit\n */',
     summary: 'A provider became resolvable in the registry.',
   },
   {
     name: 'subagent/provider-removed',
     mode: 'emit',
     signature: '\'subagent/provider-removed\'(name: string): void',
+    jsDoc: '/**\n * A provider left the registry. Accepted runs remain holder-owned.\n * @param name - the provider name that no longer resolves.\n * @mode emit\n */',
     summary: 'A provider left the registry.',
   },
   {
     name: 'subagent/start',
     mode: 'emit',
     signature: '\'subagent/start\'(this: Scoped<SubagentService>, info: SubagentRunInfo): void',
+    jsDoc: '/**\n * A provider established a ready child. For in-process providers,\n * `ctx.agents.get(info.id)` resolves during this notification.\n * Scope-filtered dispatch keys the carrier by the delegating parent, so a\n * parent-scoped listener observes only its own delegations. Paired with\n * `subagent/end`.\n * @param info - the provider and ready child identity.\n * @dshScopeScan unsupported\n * @mode emit\n */',
     summary: 'A provider established a ready child.',
   },
   {
     name: 'system-prompt/assemble',
     mode: 'waterfall',
     signature: '\'system-prompt/assemble\'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>',
+    jsDoc: '/**\n * Expert waterfall over the assembled sections, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
     summary: 'Expert waterfall over the assembled sections, tools, and variables.',
   },
   {
     name: 'system-prompt/change',
     mode: 'emit',
     signature: '\'system-prompt/change\'(): void',
+    jsDoc: '/**\n * Emitted when any prompt provider changes. This registry notification is\n * unfiltered because a global change affects every scope.\n * @mode emit\n */',
     summary: 'Emitted when any prompt provider changes.',
   },
   {
     name: 'tools/change',
     mode: 'emit',
     signature: '\'tools/change\'(): void',
+    jsDoc: '/**\n * A tool was registered or unregistered, or a scoped restriction changed\n * (the available tool set changed — possibly for one scope only). An\n * UNFILTERED registry-subject notification, deliberately not scope-filtered\n * dispatch: a global change concerns every agent\'s next assembly, so a\n * scoped listener subscribing here sees every change, not just its own\n * scope\'s.\n * @mode emit\n */',
     summary: 'A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed — possibly for one scope only).',
   },
   {
     name: 'tools/execute',
     mode: 'waterfall',
     signature: '\'tools/execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>',
+    jsDoc: '/**\n * Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns\n * a normalized result; wrappers may change only `exec.signal`, while call\n * identity remains immutable.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).\n * @mode waterfall\n */',
     summary: 'Around-dispatch waterfall for timeout, retry, or metrics.',
   },
   {
     name: 'tools/post-execute',
     mode: 'waterfall',
     signature: '\'tools/post-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>',
+    jsDoc: '/**\n * Accept, replace, enrich, or block a normalized dispatch result. `next()`\n * accepts it unchanged; thrown tools still reach this seam as errors.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the call that just ran (name, parsed arguments, caller agent).\n * @param result - the dispatch outcome a listener may accept, replace, or block.\n * @mode waterfall\n */',
     summary: 'Accept, replace, enrich, or block a normalized dispatch result.',
   },
   {
     name: 'tools/pre-execute',
     mode: 'waterfall',
     signature: '\'tools/pre-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>',
+    jsDoc: '/**\n * Allow, deny, or ask before dispatch. `next()` delegates to allow; missing\n * approval support turns `ask` into denial.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the pending call (name, parsed arguments, caller agent).\n * @mode waterfall\n */',
     summary: 'Allow, deny, or ask before dispatch.',
   },
   {
     name: 'tools/result',
     mode: 'emit',
     signature: '\'tools/result\'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined',
+    jsDoc: '/**\n * Observe the frozen, lossless-JSON final outcome. Listener failures are contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): keyed by `exec.agent`.\n * @param exec - the execution object that traversed the pipeline.\n * @param result - a deep-frozen snapshot of the final returned result.\n * @mode emit\n */',
     summary: 'Observe the frozen, lossless-JSON final outcome.',
   },
   {
     name: 'workflow/agent-end',
     mode: 'emit',
     signature: '\'workflow/agent-end\'(info: WorkflowRunInfo, agent: WorkflowAgentEndInfo): void',
+    jsDoc: '/**\n * One `agent()` call settled (clean result, child failure, or run\n * cancellation). Paired with {@link Events[\'workflow/agent-start\']} by\n * `agent.seq`, exactly once per started call on every stop path — on an\n * engine termination path (a worker killed past its grace) the end is\n * engine-synthesized with outcome `\'cancelled\'`.\n * @param info - the run\'s identity snapshot.\n * @param agent - the call identity plus its outcome.\n * @mode emit\n */',
     summary: 'One `agent()` call settled (clean result, child failure, or run cancellation).',
   },
   {
     name: 'workflow/agent-start',
     mode: 'emit',
     signature: '\'workflow/agent-start\'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void',
+    jsDoc: '/**\n * One `agent()` call established a ready child run. Paired with\n * {@link Events[\'workflow/agent-end\']} by `agent.seq`. A call that never\n * receives a ready run from the provider emits neither\n * event in this pair.\n * @param info - the run\'s identity snapshot.\n * @param agent - the call\'s sequence number, label, phase, and child id.\n * @mode emit\n */',
     summary: 'One `agent()` call established a ready child run.',
   },
   {
     name: 'workflow/end',
     mode: 'emit',
     signature: '\'workflow/end\'(info: WorkflowRunInfo, result: WorkflowResultInfo): void',
+    jsDoc: '/**\n * A workflow run settled (any stop reason). Fired when\n * {@link WorkflowRun.result} resolves. Paired with\n * {@link Events[\'workflow/start\']}.\n * @param info - the run\'s identity snapshot.\n * @param result - the outcome data (stop reason, error, agent count) —\n *   deliberately WITHOUT the result value (see {@link WorkflowResultInfo}).\n * @mode emit\n */',
     summary: 'A workflow run settled (any stop reason).',
   },
   {
     name: 'workflow/log',
     mode: 'emit',
     signature: '\'workflow/log\'(info: WorkflowRunInfo, message: string): void',
+    jsDoc: '/**\n * The script emitted a narration line (a `log(message)` call).\n * @param info - the run\'s identity snapshot.\n * @param message - the logged message, verbatim.\n * @mode emit\n */',
     summary: 'The script emitted a narration line (a `log(message)` call).',
   },
   {
     name: 'workflow/phase',
     mode: 'emit',
     signature: '\'workflow/phase\'(info: WorkflowRunInfo, title: string): void',
+    jsDoc: '/**\n * The script entered a phase (a `phase(title)` call) — progress grouping\n * for observers; no execution semantics.\n * @param info - the run\'s identity snapshot.\n * @param title - the phase title, verbatim.\n * @mode emit\n */',
     summary: 'The script entered a phase (a `phase(title)` call) — progress grouping for observers; no execution semantics.',
   },
   {
     name: 'workflow/start',
     mode: 'emit',
     signature: '\'workflow/start\'(info: WorkflowRunInfo): void',
+    jsDoc: '/**\n * A workflow run started — the script\'s meta block validated, the body\n * about to execute. Paired with {@link Events[\'workflow/end\']}.\n * @param info - the run\'s identity snapshot (id + meta).\n * @mode emit\n */',
     summary: 'A workflow run started — the script\'s meta block validated, the body about to execute.',
   },
 ]
