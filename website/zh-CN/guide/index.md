@@ -28,7 +28,7 @@ Harness 将一个 AI Agent（智能体） 所需要的所有能力——LLM 调�
 2. 填写 API key
 3. 运行
 
-不需要写任何代码。详见 [快速开始](./quickstart)。
+不需要写任何代码。详见 [快速开始](quickstart)。
 
 ### 插件开发者
 

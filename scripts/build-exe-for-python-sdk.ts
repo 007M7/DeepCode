@@ -1,7 +1,7 @@
 /**
  * Build the SDK runtime executables and Python node carrier. The fixed
  * `@yao-pkg/pkg --sea` route, deploy flags, and artifact layout are owned by
- * docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md.
+ * .agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md.
  * The staged closure is symlink-free, and whole-tree assets cover Cordis's
  * runtime imports that pkg cannot discover statically.
  */
@@ -69,7 +69,7 @@ class Target {
     readonly nodeRange: string,
     /**
      * pkg platform tag. Windows is a documented non-goal
-     * (docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md).
+     * (.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md).
      */
     readonly platform: Platform,
     /** pkg CPU tag. */
@@ -190,7 +190,7 @@ class BuildCli {
       '  --dry-run              print every command and config patch without executing.',
       '  --help                 print this help.',
       '',
-      `Build route: ${PKG_SPEC} --sea; see docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md.`,
+      `Build route: ${PKG_SPEC} --sea; see .agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md.`,
       `Stages the node carrier in ${PYTHON_RUNTIME_DIR}/${PYTHON_NODE_SUBDIR} and writes executables to ${OUT_DIR}/.`,
     ].join('\n')
   }

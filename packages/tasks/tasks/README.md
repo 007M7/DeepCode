@@ -20,7 +20,7 @@ Tasks belong to their owner and backend, not the producer tool fiber, so produce
 
 Service disposal closes listeners, cancels all live tasks, awaits their records, and detaches effects from surviving owner scopes. If teardown cancellation throws, the service force-fails the record and warns that work may be orphaned instead of deadlocking. A cancellation that returns but never settles `done` remains indistinguishable from a slow stop and can stall teardown.
 
-See the [task type catalog](../../../docs/core-data-structures/tasks.md) and [runtime RFC](../../../docs/rfc/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md).
+See the [task type catalog](../../../docs/core-data-structures/tasks.md) and [runtime Agent Note](../../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md).
 
 ## Model Experience
 

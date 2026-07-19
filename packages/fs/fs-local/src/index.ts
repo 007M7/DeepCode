@@ -45,7 +45,7 @@ type ResolvedConfig = Required<Config>
 /**
  * The host-filesystem backend. Reads resolve relative paths from {@link Config.cwd}
  * (a resolution default, NOT a containment boundary — see the filesystem
- * capability-seam RFC); enforce
+ * capability-seam Agent Note); enforce
  * containment with a stricter backend or a `tools/execute` permission plugin.
  */
 export class LocalFileSystem extends FileSystem {
