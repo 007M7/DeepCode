@@ -1192,8 +1192,35 @@
           <div class="header-actions">
             <button id="context-page-open-rail" class="ghost small" type="button" title="Open the vertical Context Rail drawer for this session.">Open Rail</button>
             <button id="context-page-save-profile" class="ghost small" type="button" title="Serialise the current shadowing / compact / injection view to a downloadable YAML.">Save as profile</button>
+            <!-- fix/context-topright-panel: right-side peek drawer toggle.
+                 Mirrors the Chat pane's #chat-side-drawer-btn syntax so the
+                 icon + label pair reads the same across pages. Clicking
+                 flips `.hidden` on #context-side-drawer and aria-expanded
+                 here; Escape closes. Full context ledger remains below. -->
+            <button id="context-side-drawer-btn" class="ghost small context-side-drawer-toggle"
+                    type="button" aria-expanded="false"
+                    title="Toggle context detail drawer" aria-label="Toggle context detail drawer">
+              <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M3 3.5h14v13h-14zM13 3.5v13"/></svg>
+              <span>Details</span>
+            </button>
           </div>
         </header>
+        <!-- fix/context-topright-panel: right-side peek drawer. Fixed 320px,
+             mirrors .chat-side-drawer geometry. Shows a compact summary of
+             window occupancy, intervention count, and a jump link back to
+             the full ledger below. Hidden by default; toggled by
+             #context-side-drawer-btn. -->
+        <aside class="context-side-drawer hidden" id="context-side-drawer"
+               aria-label="Context detail drawer" aria-hidden="true">
+          <header class="context-side-drawer-head">
+            <span class="context-side-drawer-title">Context peek</span>
+            <button type="button" class="context-side-drawer-close" id="context-side-drawer-close"
+                    aria-label="Close context detail drawer" title="Close">&times;</button>
+          </header>
+          <div class="context-side-drawer-body" id="context-side-drawer-body">
+            <div class="context-side-drawer-empty">Open a session to see window occupancy and interventions.</div>
+          </div>
+        </aside>
         <!-- Body layout is state-driven (#14, user field report 2026-07-17):
              — Empty state: `.is-empty` collapses the grid to a single column so
                the empty card + SDK card read as one stacked document (page
@@ -1488,6 +1515,10 @@
   <script src="./context-window-breakdown.js"></script>
   <script src="./intervention-timeline.js"></script>
   <script src="./context-page.js"></script>
+  <!-- fix/context-topright-panel: right-top Details peek drawer on the
+       Context page. Loads after context-page.js so the underlying page
+       is mounted before we install listeners on its header button. -->
+  <script src="./context-side-drawer.js"></script>
   <!-- Tracing page (#225). Loads after context-page so it can share the
        __dshChat + __dshTraceAgg + __dshTraceTriView surfaces; the
        switchTo('tracing') hook in renderer.js drives its refresh on tab

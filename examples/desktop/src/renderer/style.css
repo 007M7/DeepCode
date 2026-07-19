@@ -12761,3 +12761,146 @@ button.artifact-version:hover {
   color: var(--text-tertiary);
   font-size: var(--fs-small, 12px);
 }
+
+/* fix/context-topright-panel — right-top peek drawer on the Context
+ * page. Geometry mirrors .chat-side-drawer so the two surfaces read
+ * as one interaction family. Toggle button lives in the Context page
+ * header; drawer is absolutely positioned below it. */
+.context-side-drawer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.context-side-drawer-toggle[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.context-side-drawer {
+  position: absolute;
+  top: var(--header-h);
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  background: var(--bg-elev);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 20;
+  box-shadow: var(--shadow-2);
+}
+.context-side-drawer.hidden { display: none; }
+.context-side-drawer-head {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--divider);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+.context-side-drawer-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+.context-side-drawer-close {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  min-width: 24px;
+  min-height: 24px;
+}
+.context-side-drawer-close:hover { color: var(--text); }
+.context-side-drawer-body {
+  overflow-y: auto;
+  padding: 8px 0;
+  flex: 1;
+}
+.context-side-drawer-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--divider);
+}
+.context-side-drawer-section:last-child { border-bottom: 0; }
+.context-side-drawer-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.context-side-drawer-bar {
+  display: flex;
+  width: 100%;
+  height: 12px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--divider);
+  margin-bottom: 8px;
+}
+.context-side-drawer-seg {
+  display: block;
+  height: 100%;
+  width: var(--seg-pct, 0%);
+  background: var(--accent-soft);
+}
+.context-side-drawer-seg--system_prompt { background: var(--turn-action-edge, #6b8afd); }
+.context-side-drawer-seg--tool_defs { background: var(--turn-output-edge, #4fc08d); }
+.context-side-drawer-seg--history { background: var(--accent, #7c8cff); }
+.context-side-drawer-seg--injections { background: var(--turn-interrupt-marker, #ef7f6d); }
+.context-side-drawer-seg--thinking { background: var(--muted, #888); }
+.context-side-drawer-summary {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+.context-side-drawer-count {
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.context-side-drawer-marker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.context-side-drawer-marker {
+  font-size: 11.5px;
+  color: var(--text);
+  font-family: var(--mono);
+  padding: 4px 8px;
+  background: var(--surface-hover, rgba(0,0,0,0.04));
+  border-radius: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-side-drawer-jump {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 8px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.context-side-drawer-jump:hover {
+  background: var(--surface-hover, rgba(0,0,0,0.04));
+  border-color: var(--accent);
+}
+.context-side-drawer-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 12px 16px;
+}
