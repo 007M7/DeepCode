@@ -70,10 +70,19 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
 
 describe('dsh-acp-demo composition', () => {
   it('brings up the spine + persistence + the ACP bridge', async () => {
-    const ctx = await mount({ provider: 'mock', model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-acp-demo-test', skills: await isolatedSkillsConfig(), workspaceContext: false })
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      persona: 'hi',
+      persistenceRoot: '/tmp/dsh-acp-demo-test',
+      persistenceCompression: 'none',
+      skills: await isolatedSkillsConfig(),
+      workspaceContext: false,
+    })
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
+    expect((ctx.get('sessionPersistence') as unknown as { config: { compression?: string } }).config.compression).toBe('none')
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('userInteraction')).toBeDefined()
     expect(ctx.get('tools')?.get('ask_user_question')).toBeUndefined()
