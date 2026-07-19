@@ -194,9 +194,20 @@ Required for `SurfaceEventType` events — every message-producing event must de
 
 The same provenance distinction applies here: only `assistant/message` may carry a present empty `sourceEventSeqs`; omission does not assert that its source stream was empty.
 
+### `SessionSurface` — the live readonly surface projection
+
+`Session.surface` returns the session's stable `SessionSurface` view. The same incremental manager validates append candidates before commit and advances this projection from committed events; callers can observe membership and replacement generation but cannot invoke validation.
+
+```ts type-equiv
+export interface SessionSurface {
+  readonly nodes: readonly number[]
+  readonly replaceGeneration: number
+}
+```
+
 ### `SurfaceFoldReplacement` and `SurfaceFoldResult` — a complete surface replay
 
-`foldSurface(events)` returns detached current event sequences together with the actual sequences shadowed by each declared replacement range. `SurfaceManager` uses the same transitions for its incremental cache without retaining replacement history. Its `replaceGeneration` increments for each replacement so incremental consumers can distinguish pure tail growth from a rewrite.
+`foldSurface(events)` returns detached current event sequences together with the actual sequences shadowed by each declared replacement range. The live manager uses the same transitions without retaining replacement history. Its `replaceGeneration` increments for each committed replacement so incremental consumers can distinguish pure tail growth from a rewrite.
 
 ```ts type-equiv
 export interface SurfaceFoldReplacement {
