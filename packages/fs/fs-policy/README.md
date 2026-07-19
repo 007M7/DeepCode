@@ -51,9 +51,17 @@ Because the plugin influences the world only through events, removing it does no
 
 ### Filesystem tool outcome
 
-**What the model sees**: This plugin adds no prompt or schema. It rejects an edit without a prior read with code `FS_NOT_OBSERVED` and exact message `edit requires reading "<path>" first`. Guarded mutations whose observed version is stale propagate the provider-owned `FS_STALE_VERSION` error. [`dsh-tool-fs`](../tool-fs/README.md) owns the model-facing error wrapper; observation state is never shown.
+#### What the model sees
 
-**Token effect**: Zero tokens on allowed operations beyond the ordinary tool result. A denial adds the small retained error result and avoids any success payload.
+This plugin adds no prompt or schema. It rejects an edit without a prior read with code `FS_NOT_OBSERVED` and exact message `edit requires reading "<path>" first`. Guarded mutations whose observed version is stale propagate the provider-owned `FS_STALE_VERSION` error. [`dsh-tool-fs`](../tool-fs/README.md) owns the model-facing error wrapper; observation state is never shown.
+
+#### Token effect
+
+Zero tokens on allowed operations beyond the ordinary tool result. A denial adds the small retained error result and avoids any success payload.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

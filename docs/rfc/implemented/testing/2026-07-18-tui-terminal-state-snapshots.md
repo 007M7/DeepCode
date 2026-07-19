@@ -25,19 +25,19 @@ The runnable TUI has its own `examples/tui-agent` leaf beside the readline `repl
 
 ### Recorded-session replay
 
-Each example-level scenario directory owns `session.jsonl`, optional child logs `session.<n>.jsonl`, and `terminal.golden.txt`. The primary log supplies user-authored `user/message` prompts and the recorded `assistant/chunk` sequence. `dsh-llm-replay` derives one model-call script per session, binds child logs to fresh child sessions, and is the only mocked boundary. The agent loop, bash and filesystem implementations, Code Mode worker, subagent provider, workflow worker, Cordis tools, presenters, and TUI are production implementations.
+Each example-level scenario directory owns `session.jsonl`, optional child logs `session.<n>.jsonl`, and `terminal.expected.txt`. The primary log supplies user-authored `user/message` prompts and the recorded `assistant/chunk` sequence. `dsh-llm-replay` derives one model-call script per session, binds child logs to fresh child sessions, and is the only mocked boundary. The agent loop, bash and filesystem implementations, Code Mode worker, subagent provider, workflow worker, Cordis tools, presenters, and TUI are production implementations.
 
-The suite rejects a journey when its tool-call sequence differs, an expected event count is missing, a tool result is an error, a turn ends in error, a workflow lifecycle is incomplete, or the live child-session count differs from the fixture set. These assertions prevent an attractive terminal golden from hiding a failed or bypassed production path.
+The suite rejects a journey when its tool-call sequence differs, an expected event count is missing, a tool result is an error, a turn ends in error, a workflow lifecycle is incomplete, or the live child-session count differs from the fixture set. These assertions prevent an attractive terminal expected output from hiding a failed or bypassed production path.
 
-The live-model fixtures use `DSH_SNAPSHOT=record`; record mode rewrites their primary and child JSONL logs and terminal goldens. The deterministic Cordis toolchain keeps an authored complete JSONL script because reliably coercing a live model through five exact tool boundaries and two children is not a stable recording contract. `DSH_SNAPSHOT=refresh` replays every committed script keylessly and rewrites only derived terminal goldens. Plain replay compares without writing, and unknown mode values fail loud.
+The live-model fixtures use `DSH_SNAPSHOT=record`; record mode rewrites their primary and child JSONL logs and terminal expected outputs. The deterministic Cordis toolchain keeps an authored complete JSONL script because reliably coercing a live model through five exact tool boundaries and two children is not a stable recording contract. `DSH_SNAPSHOT=refresh` replays every committed script keylessly and rewrites only derived terminal expected outputs. Plain replay compares without writing, and unknown mode values fail loud.
 
 ### Semantic terminal projection
 
 The package-local `HeadlessTerminal` implements the same pi-tui `Terminal` interface as the process terminal and feeds every ANSI write into the pinned `@xterm/headless` parser. Snapshot code waits for synchronized frames to quiesce before reading state, so a checkpoint represents a completed screen rather than a timer-dependent write prefix.
 
-Each golden projects dimensions, active-buffer and viewport coordinates, lifecycle and cursor state, rows, wrap markers, and non-default style ranges into text. Scroll-heavy cards capture the used buffer; overlays capture the visible viewport. Text and style remain separate so a reviewer can distinguish content changes from presentation changes without decoding ANSI bytes.
+Each expected output projects dimensions, active-buffer and viewport coordinates, lifecycle and cursor state, rows, wrap markers, and non-default style ranges into text. Scroll-heavy cards capture the used buffer; overlays capture the visible viewport. Text and style remain separate so a reviewer can distinguish content changes from presentation changes without decoding ANSI bytes.
 
-Every checkpoint enforces theme independence across the complete terminal state: no RGB colors, no palette entries beyond ANSI 0–15, and no explicit background colors. Reverse video remains valid for selection because it uses terminal defaults. Both suites own closed inventories that reject missing scenarios, missing checkpoints, and orphaned golden files.
+Every checkpoint enforces theme independence across the complete terminal state: no RGB colors, no palette entries beyond ANSI 0–15, and no explicit background colors. Reverse video remains valid for selection because it uses terminal defaults. Both suites own closed inventories that reject missing scenarios, missing checkpoints, and orphaned expected output files.
 
 ### Required scenario matrix
 
@@ -58,7 +58,7 @@ Every checkpoint enforces theme independence across the complete terminal state:
 - **Snapshot raw terminal writes** — rejected because differential rendering may change write boundaries without changing the screen, while cursor and clear sequences are unreadable in review.
 - **Snapshot component render lines before terminal output** — rejected because it does not test ANSI parsing, cursor movement, overlays, viewport behavior, or independent components in one frame.
 - **Build every completed flow by appending session events** — rejected because a hand-authored event sequence can drift from the agent loop, tool execution, child-session binding, or worker behavior while its presentation test stays green. Direct event construction remains limited to transient renderer states.
-- **Reuse ACP stdout goldens as the TUI oracle** — rejected because a recorded model journey is transport-neutral but its presentation is not. TUI scenarios own terminal goldens while using the same JSONL replay vocabulary.
+- **Reuse ACP stdout expected outputs as the TUI oracle** — rejected because a recorded model journey is transport-neutral but its presentation is not. TUI scenarios own terminal expected outputs while using the same JSONL replay vocabulary.
 - **Commit raster screenshots** — rejected because fonts, glyph metrics, antialiasing, and host terminal themes make them platform-sensitive and make semantic style changes difficult to review.
 - **Use only PTY end-to-end tests** — rejected because raw PTY output is a stream of historical drawing operations, not queryable final state. PTY tests retain the real Loader/input/teardown boundary, while the emulator owns broad state coverage.
 
@@ -67,4 +67,4 @@ Every checkpoint enforces theme independence across the complete terminal state:
 - Completed advanced snapshots now fail when the real Code Mode, workflow, subagent, filesystem, bash, or Cordis path breaks, rather than accepting a fabricated result event.
 - TUI visual regressions produce readable cell-and-style diffs, while JSONL fixtures retain the exact model chunks that made the production path execute.
 - The emulator uses xterm's proposed buffer API. An xterm upgrade requires rerunning and reviewing the semantic projection; terminal-specific behavior still needs the PTY smoke.
-- Goldens deliberately encode wrapping and viewport behavior at fixed sizes. Intentional layout changes use keyless refresh, while model-journey changes use record mode and review both JSONL and terminal diffs.
+- Expected outputs deliberately encode wrapping and viewport behavior at fixed sizes. Intentional layout changes use keyless refresh, while model-journey changes use record mode and review both JSONL and terminal diffs.

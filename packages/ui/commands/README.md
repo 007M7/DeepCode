@@ -20,9 +20,17 @@ The terminal and ACP app bundles mount this service with their consuming front d
 
 ### Direct human commands
 
-**What the model sees**: Nothing. Known slash commands execute in the UI command plane, and their `CommandResult` text is not submitted as a user message. Unknown slash-command input is rejected by shipped adapters instead of becoming a model prompt.
+#### What the model sees
 
-**Token effect**: Command discovery, execution, and UI output add no model tokens. A command plugin may separately mutate a model-visible domain through that domain's durable APIs.
+Nothing. Known slash commands execute in the UI command plane, and their `CommandResult` text is not submitted as a user message. Unknown slash-command input is rejected by shipped adapters instead of becoming a model prompt.
+
+#### Token effect
+
+Command discovery, execution, and UI output add no model tokens. A command plugin may separately mutate a model-visible domain through that domain's durable APIs.
+
+#### KV Cache effect
+
+Registry metadata, command input, and direct output never enter a model request and do not affect its cache. A mutated domain owns any later cache effect.
 
 ## Known Limitations and Deferred Work
 

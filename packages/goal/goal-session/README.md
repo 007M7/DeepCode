@@ -49,9 +49,17 @@ Cancellation is observe-before-act: the concrete loop emits `agent/cancel-reques
 
 ### Goal-round prompt
 
-**What the model sees**: Each admitted round is one retained user-role `<goal_round>` block naming the full objective and positive round number. Earlier human messages, goal-state snapshots, assistant output, and tool records remain in the same session history.
+#### What the model sees
 
-**Token effect**: One fixed instruction block plus the objective is added per admitted round. Later requests resend retained rounds until compaction shadows them; no fresh agent or copied conversation prefix is created.
+Each admitted round is one retained user-role `<goal_round>` block naming the full objective and positive round number. Earlier human messages, goal-state snapshots, assistant output, and tool records remain in the same session history.
+
+#### Token effect
+
+One fixed instruction block plus the objective is added per admitted round. Later requests resend retained rounds until compaction shadows them; no fresh agent or copied conversation prefix is created.
+
+#### KV Cache effect
+
+Append-only within an epoch: each admitted round extends the existing conversation after its reusable prefix. Compaction may replace the derived-history suffix and move the reusable boundary.
 
 ## Known Limitations and Deferred Work
 

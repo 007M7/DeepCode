@@ -14,28 +14,44 @@ The tools pipeline routes `ask` decisions through this seam and fails closed whe
 
 ### System prompt and policy notice
 
-**What the model sees**: Under `ask`, every agent request carries the ask-policy prompt section below. Under `never`, it carries the never-policy prompt section below. A policy switch injects exactly `The approval policy changed from "<old>" to "<new>" (changed by the user).` or `The approval policy changed from "<old>" to "<new>" (changed by the operator/config).` before the next step.
+#### What the model sees
 
-**Token effect**: Small fixed per-request cost, larger under `never`; a change notice is conditional and retained in history.
+Under `ask`, every agent request carries the ask-policy prompt section below. Under `never`, it carries the never-policy prompt section below. A policy switch injects exactly `The approval policy changed from "<old>" to "<new>" (changed by the user).` or `The approval policy changed from "<old>" to "<new>" (changed by the operator/config).` before the next step.
 
-#### Ask-policy prompt section
+##### Ask-policy prompt section
 
 ```markdown
 <!-- dsh-user-approval-policy:ask -->
 ```
 
-#### Never-policy prompt section
+##### Never-policy prompt section
 
 ```markdown
 Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).
 <!-- dsh-user-approval-policy:never -->
 ```
 
+#### Token effect
+
+Small fixed per-request cost, larger under `never`; a change notice is conditional and retained in history.
+
+#### KV Cache effect
+
+Prefix-stable while the approval policy is unchanged. An `ask`/`never` switch changes the system-prompt section and invalidates reuse from its first changed token; the accompanying notice is append-only.
+
 ### Tool outcome
 
-**What the model sees**: `approval/asked` and `approval/decided` are log-only. The model sees only the asking consumer's eventual allowed, rejected, cancelled, or unavailable tool outcome; the human permission UI is not context.
+#### What the model sees
 
-**Token effect**: Zero duplicate audit tokens. A rejection may replace a normal tool result with a small retained error, while an allowance leaves the consumer's ordinary result.
+`approval/asked` and `approval/decided` are log-only. The model sees only the asking consumer's eventual allowed, rejected, cancelled, or unavailable tool outcome; the human permission UI is not context.
+
+#### Token effect
+
+Zero duplicate audit tokens. A rejection may replace a normal tool result with a small retained error, while an allowance leaves the consumer's ordinary result.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

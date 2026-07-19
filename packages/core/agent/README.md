@@ -71,15 +71,31 @@ The handle every plugin programs against:
 
 ### User, steering, and injected messages
 
-**What the model sees**: `send`, `steer`, and `inject` feed the owning session. `agent/prompt-submit`, `agent/session-prefix`, and other declared events let plugins block a prompt or add request material; this interface contributes no fixed prose itself.
+#### What the model sees
 
-**Token effect**: Accepted content becomes retained history or a repeated session prefix; blocked content contributes no request tokens. Size is caller- and plugin-dependent.
+`send`, `steer`, and `inject` feed the owning session. `agent/prompt-submit`, `agent/session-prefix`, and other declared events let plugins block a prompt or add request material; this interface contributes no fixed prose itself.
+
+#### Token effect
+
+Accepted content becomes retained history or a repeated session prefix; blocked content contributes no request tokens. Size is caller- and plugin-dependent.
+
+#### KV Cache effect
+
+Accepted history and steering are append-only; a blocked submission sends no request. A session prefix remains stable within its loop instance, while a new or resumed instance may establish a different prefix.
 
 ### Agent-scoped request composition
 
-**What the model sees**: Registrations through `agent.ctx` can shadow prompt sections or tools and can install agent-only interceptors during unpublished setup.
+#### What the model sees
 
-**Token effect**: The package adds zero tokens itself; scoped contributions affect only that agent and disappear on disposal.
+Registrations through `agent.ctx` can shadow prompt sections or tools and can install agent-only interceptors during unpublished setup.
+
+#### Token effect
+
+The package adds zero tokens itself; scoped contributions affect only that agent and disappear on disposal.
+
+#### KV Cache effect
+
+Prefix-stable while an agent's scoped registrations are unchanged. Setup or reload that changes prompt sections, tool definitions, or request listeners may invalidate reuse from the first affected request token.
 
 ## Known Limitations and Deferred Work
 

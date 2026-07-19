@@ -18,6 +18,10 @@ The package root explicitly exports only the objects consumed by `create-sdk` an
 
 None, as the project domain edits files and never mounts a live agent or model request.
 
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
 ## Known Limitations and Deferred Work
 
 - **Commit is not transactional across files** — external edits are detected before each write, but a later failure does not roll back files already written.

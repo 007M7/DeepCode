@@ -33,9 +33,17 @@ Policy plugins call the service verbs and react to the scoped `goal/changed` eve
 
 ### Goal-state mutation
 
-**What the model sees**: Each mutation is one raw user-role context block. A snapshot is rendered as `<goal_state>{"goal":...,"roundsStarted":...,"createdAt":...,"updatedAt":...}</goal_state>`; a clear renders the tombstone id/revision and `clearedAt`. There is no hidden state summary outside the log.
+#### What the model sees
 
-**Token effect**: Every retained mutation adds one full snapshot to derived history until compaction shadows it. Full snapshots make each record independently inspectable but repeat the objective and lifecycle fields.
+Each mutation is one raw user-role context block. A snapshot is rendered as `<goal_state>{"goal":...,"roundsStarted":...,"createdAt":...,"updatedAt":...}</goal_state>`; a clear renders the tombstone id/revision and `clearedAt`. There is no hidden state summary outside the log.
+
+#### Token effect
+
+Every retained mutation adds one full snapshot to derived history until compaction shadows it. Full snapshots make each record independently inspectable but repeat the objective and lifecycle fields.
+
+#### KV Cache effect
+
+Append-only within an epoch: each mutation follows the reusable request prefix and preceding history. Compaction may replace the derived-history suffix and move the reusable boundary.
 
 ## Known Limitations and Deferred Work
 

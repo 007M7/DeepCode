@@ -119,17 +119,25 @@ The agent loop groups consecutive `parallel` calls into a bounded rolling pool a
 
 ### Normal tool schemas
 
-**What the model sees**: In normal mode the model sees each visible definition's exact name, description, and JSON schema; the shipped definitions are recorded in the generated [tool package map and schema sections](../../../docs/tool-catalog.md#tool-package-map). Agent-scoped restrictions, shadows, and extension registrations change that agent's end-tool set.
+#### What the model sees
 
-**Token effect**: Fixed per-request cost proportional to the visible definitions. Restrictions that hide tools remove their entire schema cost for that agent.
+In normal mode the model sees each visible definition's exact name, description, and JSON schema; the shipped definitions are recorded in the generated [tool package map and schema sections](../../../docs/tool-catalog.md#tool-package-map). Agent-scoped restrictions, shadows, and extension registrations change that agent's end-tool set.
+
+#### Token effect
+
+Fixed per-request cost proportional to the visible definitions. Restrictions that hide tools remove their entire schema cost for that agent.
+
+#### KV Cache effect
+
+Prefix-stable while visible definitions and their order are unchanged. Registration, disposal, or scoped restriction may invalidate reuse from the first changed schema token.
 
 ### Code Mode schema and system prompt
 
-**What the model sees**: Code Mode exposes the generated [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools), the SDK instructions below, and the generated exact `declare const tools` block. `both` exposes normal schemas and this Code Mode surface.
+#### What the model sees
 
-**Token effect**: Fixed per-request cost proportional to the visible definitions. Code Mode trades end-tool schemas for generated SDK text plus one transport schema rather than promising a universal reduction.
+Code Mode exposes the generated [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools), the SDK instructions below, and the generated exact `declare const tools` block. `both` exposes normal schemas and this Code Mode surface.
 
-#### Code Mode SDK instructions
+##### Code Mode SDK instructions
 
 ```markdown
 ## Writing code for run_code
@@ -144,11 +152,27 @@ Pass `run_code` the body of an async TypeScript function (erasable syntax only â
 The available tools:
 ```
 
+#### Token effect
+
+Fixed per-request cost proportional to the visible definitions. Code Mode trades end-tool schemas for generated SDK text plus one transport schema rather than promising a universal reduction.
+
+#### KV Cache effect
+
+Prefix-stable while the Code Mode selection, generated SDK, transport schema, and visible tool set are unchanged. Mode or filter changes may invalidate reuse from the first changed prompt or schema token.
+
 ### Tool-call history and results
 
-**What the model sees**: The loop retains model-emitted arguments and the registry's final content. Any thrown or denied call becomes exactly `Error: <message>`. Code Mode returns only the outer program's printed lines and rendered return value, `(run_code completed with no output)` when both are empty, or `Error: code run failed (<kind>): <message>` followed conditionally by `Captured output:` and the captured lines. Inner dispatch events stay log-only; post-execute listeners may append source-attributed context after the result.
+#### What the model sees
 
-**Token effect**: Arguments, results, and additional context are data-dependent and resent until compaction. Restrictions that hide tools also remove their schemas before the model can call them.
+The loop retains model-emitted arguments and the registry's final content. Any thrown or denied call becomes exactly `Error: <message>`. Code Mode returns only the outer program's printed lines and rendered return value, `(run_code completed with no output)` when both are empty, or `Error: code run failed (<kind>): <message>` followed conditionally by `Captured output:` and the captured lines. Inner dispatch events stay log-only; post-execute listeners may append source-attributed context after the result.
+
+#### Token effect
+
+Arguments, results, and additional context are data-dependent and resent until compaction. Restrictions that hide tools also remove their schemas before the model can call them.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 
