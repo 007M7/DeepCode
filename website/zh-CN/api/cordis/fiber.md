@@ -7,6 +7,19 @@ A fiber is one loaded plugin instance: its lifecycle state, validated config, an
 ### ctx.effect(execute, label?)
 
 ```ts website-api
+/**
+ * Register a cleanup-aware effect on this fiber.
+ *
+ * `execute` runs immediately; the disposers it produces are collected and
+ * run (in reverse order) either when the returned disposer is called or
+ * when the fiber unloads, whichever comes first. Calling the disposer twice
+ * is a no-op. Throws `CordisError('INACTIVE_EFFECT')` if the fiber is
+ * already disposed, and `TypeError` if `execute` returns an invalid shape.
+ *
+ * @param execute — the effect body; see {@link Effect} for accepted shapes.
+ * @param label — effect label shown in `getEffects()` diagnostics.
+ * @returns a disposer that tears the effect down and settles once done.
+ */
 effect(execute: () => SyncEffect, label?: string): Disposable<Promise<void>>
 effect(execute: () => Effect, label?: string): AsyncDisposable<Promise<void>>
 ```
@@ -24,6 +37,7 @@ Register a cleanup-aware effect on this fiber.
 ### ctx.fiber
 
 ```ts website-api
+/** The fiber (plugin runtime instance) that owns this context. */
 fiber: Fiber
 ```
 
@@ -41,6 +55,7 @@ A fiber tracks dependency state, validated config, lifecycle effects, and cleanu
 ### fiber.uid
 
 ```ts website-api
+/** Unique id within the registry; 0 for the root fiber, `null` once disposed. */
 public uid: number | null
 ```
 
@@ -51,6 +66,7 @@ Unique id within the registry; 0 for the root fiber, `null` once disposed.
 ### fiber.ctx
 
 ```ts website-api
+/** The context this fiber's plugin runs in (extends the parent context). */
 public readonly ctx: Context
 ```
 
@@ -61,6 +77,7 @@ The context this fiber's plugin runs in (extends the parent context).
 ### fiber.config
 
 ```ts website-api
+/** The validated plugin config (updated by `update()`). */
 public config: any
 ```
 
@@ -71,6 +88,7 @@ The validated plugin config (updated by `update()`).
 ### fiber.state
 
 ```ts website-api
+/** Current lifecycle state; transitions emit `internal/status`. */
 public state
 ```
 
@@ -81,6 +99,7 @@ Current lifecycle state; transitions emit `internal/status`.
 ### fiber.dispose
 
 ```ts website-api
+/** Dispose this fiber: unload the plugin, then settle once cleanup finished. */
 public readonly dispose: () => Promise<void>
 ```
 
@@ -91,6 +110,7 @@ Dispose this fiber: unload the plugin, then settle once cleanup finished.
 ### fiber.store
 
 ```ts website-api
+/** Snapshot of required service implementations while loaded; `undefined` otherwise. */
 public store: Dict<Impl> | undefined
 ```
 
@@ -101,6 +121,7 @@ Snapshot of required service implementations while loaded; `undefined` otherwise
 ### fiber.inertia
 
 ```ts website-api
+/** The in-flight load/unload transition, if one is currently running. */
 public inertia: Promise<void> | undefined
 ```
 
@@ -111,6 +132,7 @@ The in-flight load/unload transition, if one is currently running.
 ### fiber.name
 
 ```ts website-api
+/** The plugin's display name, inherited from the nearest named ancestor, else `'root'`. */
 get name()
 ```
 
@@ -121,6 +143,12 @@ The plugin's display name, inherited from the nearest named ancestor, else `'roo
 ### fiber.assertActive()
 
 ```ts website-api
+/**
+ * Throw if the fiber has already been disposed.
+ *
+ * @returns nothing when the fiber is still active.
+ * @throws {CordisError} `INACTIVE_EFFECT` when the fiber's uid has been cleared.
+ */
 assertActive()
 ```
 
@@ -133,6 +161,19 @@ Throw if the fiber has already been disposed.
 ### fiber.effect(execute, label?)
 
 ```ts website-api
+/**
+ * Register a cleanup-aware effect on this fiber.
+ *
+ * `execute` runs immediately; the disposers it produces are collected and
+ * run (in reverse order) either when the returned disposer is called or
+ * when the fiber unloads, whichever comes first. Calling the disposer twice
+ * is a no-op. Throws `CordisError('INACTIVE_EFFECT')` if the fiber is
+ * already disposed, and `TypeError` if `execute` returns an invalid shape.
+ *
+ * @param execute — the effect body; see {@link Effect} for accepted shapes.
+ * @param label — effect label shown in `getEffects()` diagnostics.
+ * @returns a disposer that tears the effect down and settles once done.
+ */
 effect(execute: () => SyncEffect, label?: string): Disposable<Promise<void>>
 effect(execute: () => Effect, label?: string): AsyncDisposable<Promise<void>>
 ```
@@ -150,6 +191,11 @@ Register a cleanup-aware effect on this fiber.
 ### fiber.getEffects()
 
 ```ts website-api
+/**
+ * Return metadata for currently registered effects.
+ *
+ * @returns one {@link EffectMeta} tree per labeled live effect.
+ */
 getEffects()
 ```
 
@@ -162,6 +208,12 @@ Return metadata for currently registered effects.
 ### fiber.await()
 
 ```ts website-api
+/**
+ * Wait for current lifecycle work and rethrow startup errors.
+ *
+ * @returns this fiber, once it has settled into a stable state.
+ * @throws the config-validation or plugin-startup error, if any.
+ */
 async await()
 ```
 
@@ -174,6 +226,12 @@ Wait for current lifecycle work and rethrow startup errors.
 ### fiber.restart()
 
 ```ts website-api
+/**
+ * Dispose and immediately reload this plugin with its current config.
+ *
+ * @returns a promise resolving once the reload settled.
+ * @throws {CordisError} `INACTIVE_EFFECT` when the fiber is already disposed.
+ */
 async restart()
 ```
 
@@ -186,6 +244,17 @@ Dispose and immediately reload this plugin with its current config.
 ### fiber.update(config, noSave?)
 
 ```ts website-api
+/**
+ * Validate and apply new config, then restart the plugin.
+ *
+ * Runs the `internal/update` waterfall first, so update hooks (and HMR)
+ * can veto or replace the restart.
+ *
+ * @param config — the new raw config; validated before anything restarts.
+ * @param noSave — hint for persistence hooks not to write the change back.
+ * @returns nothing; the restart runs behind the `internal/update` waterfall.
+ * @throws {ValidationError} when the new config fails validation.
+ */
 update(config: any, noSave = false)
 ```
 
@@ -205,6 +274,13 @@ Effect body result accepted by `ctx.effect()` and plugin startup.
 Either a single disposer, a promise of one, or a (possibly async) iterable yielding several — generator effects register each yielded disposer as it is produced.
 
 ```ts website-api
+/**
+ * Effect body result accepted by `ctx.effect()` and plugin startup.
+ *
+ * Either a single disposer, a promise of one, or a (possibly async) iterable
+ * yielding several — generator effects register each yielded disposer as it
+ * is produced.
+ */
 type Effect<T = any> =
   | SyncEffect<T>
   | AsyncEffect<T>
@@ -218,6 +294,12 @@ Function returned by an effect to release resources during disposal.
 Disposers run in reverse registration order when the owning fiber unloads; they may be async, in which case unloading awaits them.
 
 ```ts website-api
+/**
+ * Function returned by an effect to release resources during disposal.
+ *
+ * Disposers run in reverse registration order when the owning fiber unloads;
+ * they may be async, in which case unloading awaits them.
+ */
 type Disposable<T = any> = () => T
 ```
 
@@ -228,6 +310,7 @@ type Disposable<T = any> = () => T
 Tree node used to expose nested effect labels for diagnostics.
 
 ```ts website-api
+/** Tree node used to expose nested effect labels for diagnostics. */
 interface EffectMeta {
   /** Human-readable effect label, e.g. `ctx.on("event")` or `ctx.provide("name")`. */
   label: string
@@ -243,6 +326,7 @@ interface EffectMeta {
 Framework error with a stable machine-readable code.
 
 ```ts website-api
+/** Framework error with a stable machine-readable code. */
 class CordisError extends Error {
   /**
    * @param code — the stable error code; also the default message.
@@ -251,6 +335,7 @@ class CordisError extends Error {
   constructor(public code: CordisError.Code, message?: string)
 }
 
+/** Cordis error code definitions. */
 namespace CordisError {
   export type Code = keyof typeof Code
 
@@ -267,6 +352,7 @@ namespace CordisError {
 Error raised when plugin configuration fails standard-schema validation.
 
 ```ts website-api
+/** Error raised when plugin configuration fails standard-schema validation. */
 class ValidationError extends TypeError {
   name = 'ValidationError'
 

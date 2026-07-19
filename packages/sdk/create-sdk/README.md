@@ -14,6 +14,10 @@ The provider choice is DeepSeek or a custom endpoint backed by `llm-pi-ai`. Deep
 
 Indirectly, through the generated project composition and its selected runtime plugins; the headless `--config-json` + `--json` surface additionally lets an agent create a project end to end and react to `action-required` events.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **Headless local plugins** — the headless spec supplies project answers and the feature plan; scaffolding a local plugin (the interactive none/plugin/tool choice) is not yet expressible in the spec and defaults to none.

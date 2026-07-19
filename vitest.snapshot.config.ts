@@ -20,10 +20,10 @@ const snapshotMaxConcurrency = positiveIntFromEnv(
   Math.min(DEFAULT_SNAPSHOT_MAX_CONCURRENCY, availableParallelism()),
 )
 
-// Replay is the keyless default: boot the real ACP subprocess from recorded model scripts and diff
-// normalized transcript plus persisted-log goldens. `record` calls the real API and updates fixtures
-// and goldens; `refresh` replays committed scripts and updates only current goldens. Replay/refresh
-// never load `.env`; only record reads a key from the environment or gitignored root `.env`.
+// Replay is the keyless default: boot real example subprocesses from recorded model scripts and diff
+// normalized protocol or transcript output plus persisted-log goldens. `record` calls the real API
+// and updates fixtures and goldens; `refresh` replays committed scripts and updates current goldens.
+// Replay/refresh never load `.env`; only record reads a key from the environment or root `.env`.
 if (process.env.DSH_SNAPSHOT === 'record') {
   try {
     process.loadEnvFile(new URL('.env', import.meta.url).pathname)
@@ -39,7 +39,11 @@ export default defineConfig({
   // through the root tsconfig paths map; the native option cannot do this.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
   test: {
-    include: ['examples/*/tests/**/*.snapshot.ts', 'packages/sdk/*/tests/**/*.snapshot.ts'],
+    include: [
+      'examples/*/tests/**/*.snapshot.ts',
+      'packages/sdk/*/tests/**/*.snapshot.ts',
+      'packages/ui/tui/tests/**/*.snapshot.ts',
+    ],
     // Each test boots a subprocess; give it room and keep the worker file singular. Replay tests
     // opt into bounded in-file concurrency, while record/refresh stay serial because they write
     // fixtures. The environment knob restores serial replay with value 1 on constrained machines.

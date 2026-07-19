@@ -4,29 +4,44 @@
 
 `AgentLoop` — provided by `@deepseek-ai/dsh-agent-loop`.
 
-Concrete ReactLoopAgent factory and driver service.
+Concrete agent factory and driver service.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L335)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L407)
 
 ### ctx.agentLoop.create(id, options?, meta?)
 
 ```ts website-api
-create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent
+/**
+ * Create an agent and session under one caller-supplied identity, owned by
+ * the accessing fiber. Constructor-driven config calls mint a fresh combined
+ * id before entering this boundary.
+ * @param id - shared agent/session identity.
+ * @param options - concrete loop options.
+ * @param meta - optional fresh-session workspace metadata.
+ * @returns the published running agent.
+ */
+create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): Agent
 ```
 
-Create an agent on a fresh per-run session, owned by the accessing fiber. Constructor-driven config calls use the loop fiber itself.
+Create an agent and session under one caller-supplied identity, owned by the accessing fiber. Constructor-driven config calls mint a fresh combined id before entering this boundary.
 
-- `id` — agent registry id.
+- `id` — shared agent/session identity.
 - `options` — concrete loop options.
 - `meta` — optional fresh-session workspace metadata.
 
 **Returns** the published running agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L391)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L542)
 
 ### ctx.agentLoop.createAgent(ownerCtx, options)
 
 ```ts website-api
+/**
+ * Create an owned agent on a caller-supplied session id.
+ * @param ownerCtx - caller context that structurally owns the transaction.
+ * @param options - identities, session seed/metadata, loop options, setup, and cancellation.
+ * @returns the published handle.
+ */
 async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>
 ```
 
@@ -37,11 +52,17 @@ Create an owned agent on a caller-supplied session id.
 
 **Returns** the published handle.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L414)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L564)
 
 ### ctx.agentLoop.resume(ownerCtx, options)
 
 ```ts website-api
+/**
+ * Resume an owned agent from the configured persistence service.
+ * @param ownerCtx - caller context that owns load, setup, and the live lifecycle.
+ * @param options - persisted identity, loop options, setup, and cancellation.
+ * @returns the published handle.
+ */
 async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
@@ -52,4 +73,4 @@ Resume an owned agent from the configured persistence service.
 
 **Returns** the published handle.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L445)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent-loop/src/index.ts#L596)

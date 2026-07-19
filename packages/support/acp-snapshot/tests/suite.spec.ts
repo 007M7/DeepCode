@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { defineAcpSnapshotSuite, type HarvestedLog, type Scenario } from '../src/index.ts'
 import {
-  childFixturePaths,
   fixtureContext,
   formatSystemPromptSnapshot,
   headerChangeCount,
@@ -16,6 +15,7 @@ import {
   normalizedToolSchemas,
   parseToolSchemasSnapshot,
   refreshFixtureReplacements,
+  sessionFixtureNames,
   restorePinnedToolSchemas,
   stabilizeRefreshLog,
   unknownToolCallIds,
@@ -46,7 +46,7 @@ const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.
 // Replay pins explicit header classes; recording covers the default fallback.
 const REPLAY_SCENARIOS: Scenario[] = [
   { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'main' },
-  { name: 'plain-turn', hasModelTurn: true, recorded: true, childSessions: 1, headerClass: 'main', configPath: AGENT.configPath },
+  { name: 'plain-turn', hasModelTurn: true, recorded: true, headerClass: 'main', configPath: AGENT.configPath },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },
   { name: 'authored-error', hasModelTurn: true, recorded: false, overridden: true, headerClass: 'main' },
@@ -54,7 +54,7 @@ const REPLAY_SCENARIOS: Scenario[] = [
 
 const RECORD_SCENARIOS: Scenario[] = [
   { name: 'rec-pin', hasModelTurn: true, recorded: true, pinsHeader: true },
-  { name: 'rec-child', hasModelTurn: true, recorded: true, childSessions: 1 },
+  { name: 'rec-child', hasModelTurn: true, recorded: true },
   // recorded:false in record mode → registered but skipped (never re-recorded).
   { name: 'rec-skip', hasModelTurn: true, recorded: false, overridden: true },
 ]
@@ -64,7 +64,13 @@ const RECORD_SCENARIOS: Scenario[] = [
 // committed record fixtures/goldens in place.
 const BOOTSTRAP = process.env.ACP_SNAPSHOT_SPEC_BOOTSTRAP === '1'
 const recordDir = BOOTSTRAP ? RECORD_SRC : mkdtempSync(join(tmpdir(), 'acp-snap-record-suite-'))
-if (!BOOTSTRAP) cpSync(RECORD_SRC, recordDir, { recursive: true })
+if (!BOOTSTRAP) {
+  cpSync(RECORD_SRC, recordDir, { recursive: true })
+  // Record mode owns its output inventory: a new scenario has no primary yet,
+  // while a changed child count can leave old numbered fixtures behind.
+  rmSync(join(recordDir, 'rec-pin', 'session.jsonl'))
+  writeFileSync(join(recordDir, 'rec-child', 'session.2.jsonl'), 'stale child\n')
+}
 const refreshDir = mkdtempSync(join(tmpdir(), 'acp-snap-refresh-suite-'))
 cpSync(REPLAY_DIR, refreshDir, { recursive: true })
 staleRefreshFixtures(refreshDir)
@@ -140,6 +146,13 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
   })
 })
 
+describe('defineAcpSnapshotSuite: record inventory write-back', () => {
+  it('creates a missing primary fixture and prunes stale child fixtures', () => {
+    expect(readFileSync(join(recordDir, 'rec-pin', 'session.jsonl'), 'utf8')).toContain('"type":"session"')
+    expect(() => readFileSync(join(recordDir, 'rec-child', 'session.2.jsonl'), 'utf8')).toThrow()
+  })
+})
+
 describe('defineAcpSnapshotSuite: registration contract', () => {
   it("throws when a scenario's header class has no pinning scenario", () => {
     expect(() => {
@@ -179,13 +192,41 @@ describe('defineAcpSnapshotSuite: registration contract', () => {
   })
 })
 
-describe('childFixturePaths', () => {
-  it('yields one sibling path per child, 1-based', () => {
-    expect(childFixturePaths('/snap/s', 2)).toEqual(['/snap/s/session.1.jsonl', '/snap/s/session.2.jsonl'])
+describe('sessionFixtureNames', () => {
+  it('orders the primary and contiguous child fixtures while ignoring other files', () => {
+    expect(sessionFixtureNames([
+      'stdout.golden.jsonl',
+      'session.2.jsonl',
+      'session.jsonl',
+      'session.1.jsonl',
+      'input.json',
+    ])).toEqual(['session.jsonl', 'session.1.jsonl', 'session.2.jsonl'])
   })
 
-  it('yields nothing for a single-session scenario', () => {
-    expect(childFixturePaths('/snap/s', 0)).toEqual([])
+  it('accepts a primary-only scenario', () => {
+    expect(sessionFixtureNames(['session.jsonl'])).toEqual(['session.jsonl'])
+  })
+
+  it('rejects a directory without the primary fixture', () => {
+    expect(() => sessionFixtureNames(['session.1.jsonl'])).toThrow('missing session.jsonl')
+  })
+
+  it('rejects gapped child fixtures', () => {
+    expect(() => sessionFixtureNames(['session.jsonl', 'session.2.jsonl']))
+      .toThrow('expected session.1.jsonl, found session.2.jsonl')
+  })
+
+  it.each(['session.0.jsonl', 'session.child.jsonl', 'session.01.jsonl'])(
+    'rejects invalid child fixture name %s',
+    (name) => {
+      expect(() => sessionFixtureNames(['session.jsonl', name]))
+        .toThrow(`invalid child session fixture name: ${name}`)
+    },
+  )
+
+  it('rejects duplicate child indexes', () => {
+    expect(() => sessionFixtureNames(['session.jsonl', 'session.1.jsonl', 'session.1.jsonl']))
+      .toThrow('expected session.2.jsonl, found session.1.jsonl')
   })
 })
 

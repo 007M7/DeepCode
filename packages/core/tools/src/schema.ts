@@ -21,12 +21,8 @@ export interface SchemaProp {
   /** Enum of allowed values (strings only). */
   enum?: string[]
   /**
-   * Default value, emitted into the JSON Schema only (validation never applies
-   * it — see the validator note below).
-   *
-   * XXX(unused-default): no tool definition in the repo sets `default`; it rides
-   * into the wire schema for a model that no tool surfaces it to. Drop the field
-   * and its converter line unless a real tool needs a model-visible default.
+   * Model-visible JSON Schema default annotation. Validation does not apply it;
+   * dynamic tool mounts may supply it even though first-party definitions do not.
    */
   default?: unknown
   /** Nested properties for type: 'object'. */
@@ -284,6 +280,14 @@ export interface DefineToolOptions<S extends SchemaSpec> {
    */
   readonly timeoutMs?: number
   /**
+   * Optional pure synchronous classifier for sibling overlap. It receives typed
+   * arguments after soft validation; invalid input returns `false` without
+   * invoking it. See {@link ToolDefinition.isConcurrencySafe}.
+   * @param args - typed validated arguments.
+   * @returns whether this call may join a parallel group.
+   */
+  isConcurrencySafe?(args: InferArgs<S>): boolean
+  /**
    * Tool execution function. `args` is typed as {@link InferArgs<S>} — zero
    * casts needed. Returns either a bare {@link ContentBlock}`[]` (model-facing
    * content only) or a `{ content, meta }` object to also attach a tool-private
@@ -315,7 +319,7 @@ export interface DefineToolOptions<S extends SchemaSpec> {
  * @param options - the tool's name, description, typed parameter schema,
  *   execute body, and optional presenters.
  * @returns a registry-ready definition with strict execution validation and
- *   soft presenter validation for replay compatibility.
+ *   soft presenter and classifier validation for replay compatibility.
  */
 export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>): ToolDefinition {
   // Object-literal execute methods don't use `this`; the reference is safe.
@@ -325,6 +329,8 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   const userPresentCall = options.presentCall
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userPresentResult = options.presentResult
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const userIsConcurrencySafe = options.isConcurrencySafe
   if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
     throw new Error(`defineTool(${options.name}): timeoutMs must be a positive finite number`)
   }
@@ -357,6 +363,13 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
     tool.presentResult = (args: unknown, result: ToolResult): ToolResultView | undefined => {
       if (validateArgs(options.parameters, args).length > 0) return undefined
       return userPresentResult(args as InferArgs<S>, result)
+    }
+  }
+  // Invalid arguments fail closed without invoking the typed classifier.
+  if (userIsConcurrencySafe) {
+    tool.isConcurrencySafe = (args: unknown): boolean => {
+      if (validateArgs(options.parameters, args).length > 0) return false
+      return userIsConcurrencySafe(args as InferArgs<S>)
     }
   }
   return tool

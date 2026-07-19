@@ -2,9 +2,11 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { LlmError, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmService, { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
-import { PiAiAdapter, resolveProfiles } from '@deepseek-ai/dsh-llm-pi-ai'
+import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { getModels } from '@earendil-works/pi-ai'
+import { resolveProfiles } from '../src/config.ts'
 import { assemble } from './assemble.ts'
 
 interface MockServer {
@@ -177,9 +179,44 @@ describe('PiAiAdapter provider routing', () => {
     const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(result.finish).toMatchObject({ kind: 'error', code })
   })
+
+  it('uses the resolved catalog context window for usage-based overflow detection', async () => {
+    const model = getModels('deepseek').find(candidate => candidate.id === 'deepseek-v4-flash')
+    if (model === undefined) throw new Error('deepseek-v4-flash missing from pi-ai test catalog')
+    const events = [
+      '{"choices":[{"delta":{"role":"assistant","content":""},"index":0,"finish_reason":null}]}',
+      JSON.stringify({
+        choices: [{ delta: {}, index: 0, finish_reason: 'stop' }],
+        usage: { prompt_tokens: model.contextWindow + 1, completion_tokens: 0 },
+      }),
+      '[DONE]',
+    ]
+    const server = await mockServer([{ events }])
+    const ctx = await harness(server.url)
+
+    const result = await assemble(ctx, { model: model.id, messages: [] })
+
+    expect(result.finish).toEqual({
+      kind: 'error',
+      message: `pi-ai detected context overflow for model "${model.id}"`,
+      code: CONTEXT_WINDOW_EXCEEDED_CODE,
+    })
+  })
 })
 
 describe('provider profile lifecycle', () => {
+  it('keeps adapter helpers off the package root', () => {
+    for (const helper of [
+      'resolveProfiles',
+      'toPiContext',
+      'toPiReplayState',
+      'toPiAssistant',
+      'mapStopReason',
+      'mapUsage',
+      'toStreamChunks',
+    ]) expect(LlmPiAi).not.toHaveProperty(helper)
+  })
+
   it('registers every profile atomically and unregisters on dispose', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)

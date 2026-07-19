@@ -6,11 +6,17 @@
 
 Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L378)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L438)
 
 ### ctx.tools.register(definition)
 
 ```ts website-api
+/**
+ * Register globally or in the calling agent scope. Scoped tools shadow
+ * globals; duplicates within one layer and the reserved `run_code` name fail.
+ * @param definition - the tool schema, execution, and optional presentation functions.
+ * @returns the exact disposer that unregisters the tool.
+ */
 register(definition: ToolDefinition): () => void
 ```
 
@@ -20,11 +26,18 @@ Register globally or in the calling agent scope. Scoped tools shadow globals; du
 
 **Returns** the exact disposer that unregisters the tool.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L468)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L538)
 
 ### ctx.tools.restrict(filter)
 
 ```ts website-api
+/**
+ * Restrict global tools for the calling agent scope. Empty filters, unknown
+ * names, scope-local names, and reserved transport names fail. Restrictions
+ * intersect; scoped registrations remain visible.
+ * @param filter - global-surface mask: `allow` (keep only) and/or `deny` (remove).
+ * @returns the exact disposer that lifts this restriction.
+ */
 restrict(filter: ToolRestriction): () => void
 ```
 
@@ -34,11 +47,21 @@ Restrict global tools for the calling agent scope. Empty filters, unknown names,
 
 **Returns** the exact disposer that lifts this restriction.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L508)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L578)
 
 ### ctx.tools.guard(guard)
 
 ```ts website-api
+/**
+ * Register a monotonic guard after the extensible `tools/pre-execute`
+ * waterfall. A plain-context guard applies globally; one registered through
+ * `agent.ctx` applies only to that agent. Any matching guard may deny by
+ * returning a reason, while no guard can force-allow a call another guard
+ * denied. The exact effect disposer is returned for ordered ownership and
+ * HMR cleanup.
+ * @param guard - synchronous check; a returned string denies the execution.
+ * @returns the exact disposer that unregisters the guard.
+ */
 guard(guard: ToolGuard): () => void
 ```
 
@@ -48,11 +71,20 @@ Register a monotonic guard after the extensible `tools/pre-execute` waterfall. A
 
 **Returns** the exact disposer that unregisters the guard.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L559)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L629)
 
 ### ctx.tools.get(name, scope?)
 
 ```ts website-api
+/**
+ * Look up a tool as one scope sees it (scoped
+ * shadows global; a restricted-away global reads as absent). Presenters pass
+ * the calling agent so the rendered card matches the definition that
+ * actually executed.
+ * @param name - the tool name as registered.
+ * @param scope - the viewing scope (the agent); omitted = the global view.
+ * @returns the definition the scope resolves, or undefined when none is visible.
+ */
 get(name: string, scope?: ScopeKey): ToolDefinition | undefined
 ```
 
@@ -63,11 +95,17 @@ Look up a tool as one scope sees it (scoped shadows global; a restricted-away gl
 
 **Returns** the definition the scope resolves, or undefined when none is visible.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L661)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L731)
 
 ### ctx.tools.schemas(scope?)
 
 ```ts website-api
+/**
+ * Project visible definitions onto the allowlisted model-facing schema fields,
+ * excluding execution and presentation callbacks.
+ * @param scope - the viewing scope (the agent); omitted = the global view.
+ * @returns one deep-cloned schema per visible tool.
+ */
 schemas(scope?: ScopeKey): ToolSchema[]
 ```
 
@@ -77,11 +115,41 @@ Project visible definitions onto the allowlisted model-facing schema fields, exc
 
 **Returns** one deep-cloned schema per visible tool.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L671)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L741)
+
+### ctx.tools.executionMode(exec)
+
+```ts website-api
+/**
+ * Classify a pending call through the caller's visible tool definition. Only
+ * an exact `true` is parallel; unknown, hidden, undeclared, invalid, or
+ * throwing classifiers are exclusive.
+ * @param exec - call name, parsed arguments, and optional agent scope.
+ * @returns the fail-closed scheduling mode.
+ */
+executionMode(exec: ToolExecutionInput): ToolExecutionMode
+```
+
+Classify a pending call through the caller's visible tool definition. Only an exact `true` is parallel; unknown, hidden, undeclared, invalid, or throwing classifiers are exclusive.
+
+- `exec` — call name, parsed arguments, and optional agent scope.
+
+**Returns** the fail-closed scheduling mode.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L762)
 
 ### ctx.tools.execute(exec)
 
 ```ts website-api
+/**
+ * Execute through pre-policy, guards, around-dispatch, post-policy, and final
+ * notification. Tool and listener failures resolve as materialized error
+ * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
+ * the same lossless, frozen snapshot final observers receive.
+ * @param exec - the typed same-process call input. The registry assigns its
+ *   correlation token before policy begins.
+ * @returns the materialized final result.
+ */
 async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 ```
 
@@ -91,4 +159,4 @@ Execute through pre-policy, guards, around-dispatch, post-policy, and final noti
 
 **Returns** the materialized final result.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L694)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L782)

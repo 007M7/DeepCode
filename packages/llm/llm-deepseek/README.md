@@ -4,6 +4,8 @@ DeepSeek chat-completions adapter for the harness LLM seam: hand-rolled `fetch` 
 
 A second, library-backed implementation of the same seam exists in `@deepseek-ai/dsh-llm-pi-ai`. This package always owns the `deepseek` provider route; mounting a pi-ai profile with `provider: deepseek` in the same context throws `LlmError('DUPLICATE_ADAPTER')` by design.
 
+The package root exposes the Cordis plugin contract and `DeepSeekAdapter`; wire serialization, SSE parsing, and chunk translation helpers are not part of that root contract.
+
 ## Config
 
 ```yaml
@@ -40,7 +42,7 @@ Every request carries the shared attribution header from dsh-llm's `attributionH
 
 ## Errors
 
-Non-2xx responses throw `LlmError` with stable codes: `AUTH` (401/403), `RATE_LIMIT` (429), `INVALID_REQUEST` (400), `SERVER` (5xx), `HTTP_<status>` otherwise. Protocol violations throw `STREAM_CLOSED` (no `[DONE]`) or `MALFORMED_RESPONSE` (bad JSON payload). Unknown wire `finish_reason`s (e.g. `content_filter`, `insufficient_system_resource`) become `finish {kind: 'error', code: <REASON>}` chunks.
+Non-2xx responses throw `LlmError` with stable codes: `AUTH` (401/403), `RATE_LIMIT` (429), `CONTEXT_WINDOW_EXCEEDED` (a 400 whose provider code, type, or message identifies context overflow), `INVALID_REQUEST` (other 400s), `SERVER` (5xx), `HTTP_<status>` otherwise. Protocol violations throw `STREAM_CLOSED` (no `[DONE]`) or `MALFORMED_RESPONSE` (bad JSON payload). Unknown wire `finish_reason`s (e.g. `content_filter`, `insufficient_system_resource`) become `finish {kind: 'error', code: <REASON>}` chunks.
 
 ## Testing
 
@@ -50,15 +52,31 @@ Unit suites run against a local `node:http` mock SSE server (no network). Real-A
 
 ### DeepSeek request
 
-**What the model sees**: The selected DeepSeek model receives the harness system prompt, message history, tool schemas, stop sequences, and call config without adapter-authored prompt prose. On a prior assistant turn with tool calls, its reasoning content is passed back as required; reasoning from tool-call-free turns is omitted.
+#### What the model sees
 
-**Token effect**: Provider tokenization governs exact input. Conditional reasoning passback increases tool-round-trip context, while dropping other reasoning avoids paying those tokens again; cache-read usage is reported when available.
+The selected DeepSeek model receives the harness system prompt, message history, tool schemas, stop sequences, and call config without adapter-authored prompt prose. On a prior assistant turn with tool calls, its reasoning content is passed back as required; reasoning from tool-call-free turns is omitted.
+
+#### Token effect
+
+Provider tokenization governs exact input. Conditional reasoning passback increases tool-round-trip context, while dropping other reasoning avoids paying those tokens again; cache-read usage is reported when available.
+
+#### KV Cache effect
+
+An unchanged assembled prefix is eligible for DeepSeek cache reuse, which this adapter reports in usage. A model-route change or any upstream prompt, schema, prefix, or history change may prevent reuse from the first changed token; reasoning passback appends during tool round trips.
 
 ### DeepSeek response
 
-**What the model sees**: Reasoning, text, and raw-string tool arguments are translated into harness chunks for the loop to log and assemble.
+#### What the model sees
 
-**Token effect**: Generated tokens follow provider thinking and effort settings plus the request's `maxTokens`; only loop-retained blocks affect later input.
+Reasoning, text, and raw-string tool arguments are translated into harness chunks for the loop to log and assemble.
+
+#### Token effect
+
+Generated tokens follow provider thinking and effort settings plus the request's `maxTokens`; only loop-retained blocks affect later input.
+
+#### KV Cache effect
+
+Loop-retained response blocks append to the next request and preserve its earlier reusable prefix; dropped blocks have no later cache effect. Changing the provider or model selects a different cache domain.
 
 ## Known Limitations and Deferred Work
 

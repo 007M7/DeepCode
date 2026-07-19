@@ -153,7 +153,7 @@ If the complete logical result fits under the inline cap, no formatted spill art
 - The tools execute through `ctx.bash.resolve(request)` → `ctx.bash.run(spec)`, forward `exec.signal`, never call `ctx.bash.start()`, and never expose a bash task id. The bash request workdir comes from `exec.agent?.session.header.cwd` when available; the resolved `spec.workdir` drives execution and relative-path display.
 - The tools request `stdoutMaxBytes: rawOutputMaxBytes` from the bash seam, parse only untruncated stdout within that cap, and treat over-cap or still-truncated raw output as a clear search failure; raw `rg` output is never exposed to the model.
 - Oversized complete formatted results are saved through `ctx.spillStore.saveText()` when available while inline results stay bounded; spill failure, a missing backend, or a missing owner preserves the inline result and reports the unsaved remainder — never an `isError`.
-- The package README, the generated config catalog, and exported JSDoc document the Config fields and `SEARCH_*` codes; the coding-agent example ships the tools (the acp-agent tree waits on the snapshot re-record above); the fs group README records the co-located bash/filesystem deployment requirement.
+- The package README, the generated config catalog, and exported JSDoc document the Config fields and `SEARCH_*` codes; the repl-agent example ships the tools (the acp-agent tree waits on the snapshot re-record above); the fs group README records the co-located bash/filesystem deployment requirement.
 
 ## Risks
 

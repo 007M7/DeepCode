@@ -6,11 +6,18 @@
 
 Named provider registry and capability-checked start surface.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L141)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L153)
 
 ### ctx.subagents.registerProvider(provider)
 
 ```ts website-api
+/**
+ * Register a provider under its name. Registration is effect-scoped and HMR
+ * safe; removing a provider blocks new starts but does not revoke runs that
+ * were already returned to their holders.
+ * @param provider - the trusted provider implementation.
+ * @returns the exact Cordis effect disposer.
+ */
 registerProvider(provider: SubagentProvider): () => void
 ```
 
@@ -20,11 +27,16 @@ Register a provider under its name. Registration is effect-scoped and HMR safe; 
 
 **Returns** the exact Cordis effect disposer.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L155)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L167)
 
 ### ctx.subagents.getProvider(name)
 
 ```ts website-api
+/**
+ * Look up a provider by name.
+ * @param name - the provider name.
+ * @returns the provider, or undefined when absent.
+ */
 getProvider(name: string): SubagentProvider | undefined
 ```
 
@@ -34,11 +46,15 @@ Look up a provider by name.
 
 **Returns** the provider, or undefined when absent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L178)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L190)
 
 ### ctx.subagents.list()
 
 ```ts website-api
+/**
+ * List registered provider names in insertion order.
+ * @returns the registered names.
+ */
 list(): string[]
 ```
 
@@ -46,11 +62,20 @@ List registered provider names in insertion order.
 
 **Returns** the registered names.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L186)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L198)
 
 ### ctx.subagents.start(name, request)
 
 ```ts website-api
+/**
+ * Establish a ready child on the named provider. Capability and semantic
+ * checks run before delegation. Provider ownership lasts until its promise
+ * fulfills; a rejection therefore has no run for the caller to dispose and
+ * emits no run lifecycle events.
+ * @param name - the provider to use.
+ * @param request - child prompt, parent, signal, and optional capabilities.
+ * @returns the ready holder-owned run.
+ */
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
@@ -61,4 +86,4 @@ Establish a ready child on the named provider. Capability and semantic checks ru
 
 **Returns** the ready holder-owned run.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L199)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L211)

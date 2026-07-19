@@ -29,15 +29,31 @@ This is an **implementation** package: it registers a provider into `ctx.web`, i
 
 ### Auxiliary Perplexity request
 
-**What the model sees**: A separate Perplexity model receives `<query>` verbatim as its sole user message through the chat-completions endpoint. This request is not part of the conversation model's context.
+#### What the model sees
 
-**Token effect**: Separate provider tokens are incurred per search; `maxTokens` caps the generated answer.
+A separate Perplexity model receives `<query>` verbatim as its sole user message through the chat-completions endpoint. This request is not part of the conversation model's context.
+
+#### Token effect
+
+Separate provider tokens are incurred per search; `maxTokens` caps the generated answer.
+
+#### KV Cache effect
+
+Independent of the conversation request cache. An identical query under the same model route may reuse provider cache; a changed query or route establishes a different prefix.
 
 ### Conversation tool result, indirectly
 
-**What the model sees**: Through [`dsh-tool-web`](../tool-web/README.md), the conversation model sees the generated answer plus structured result metadata or URL-only citations. This provider's exact failures are `Perplexity search aborted`, `Perplexity search request failed: <error>`, and `Perplexity returned an unprocessable response body: <error>`; HTTP failures preserve the provider message. The consumer owns the error wrapper.
+#### What the model sees
 
-**Token effect**: Zero direct conversation tokens from registration. Answer and source tokens are data-dependent, source count is seam-bounded, and the retained result or error is resent until compaction.
+Through [`dsh-tool-web`](../tool-web/README.md), the conversation model sees the generated answer plus structured result metadata or URL-only citations. This provider's exact failures are `Perplexity search aborted`, `Perplexity search request failed: <error>`, and `Perplexity returned an unprocessable response body: <error>`; HTTP failures preserve the provider message. The consumer owns the error wrapper.
+
+#### Token effect
+
+Zero direct conversation tokens from registration. Answer and source tokens are data-dependent, source count is seam-bounded, and the retained result or error is resent until compaction.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

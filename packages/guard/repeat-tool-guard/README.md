@@ -24,8 +24,8 @@ The chain key is `(tool name, canonical arguments)` — canonicalization is a de
 
 - **Untracked calls are transparent to the chain.** A call excluded by `include`/`exclude` neither increments nor resets the counter, so `grep X → todo_write → grep X` still counts as two consecutive `grep X` when `todo_write` is excluded. This is what makes exclusion useful: bookkeeping tools interleaved into a loop must not launder it.
 - **Denied calls count.** Detection sits on `tools/post-execute`, which also runs for calls a `tools/pre-execute` listener denied — a model hammering a denied call is exactly the loop worth breaking.
-- **Calls without an agent are ignored.** A direct `ctx.tools.execute()` caller has no model to remind and no `AgentId` to key on.
-- **Per-agent keying.** The tool registry is context-level and subagents interleave through the same waterfall, so chains are keyed by `AgentId`; one agent's repetition never trips another's reminder. A user prompt (`agent/prompt-submit`) resets the submitting agent's chain; agent disposal drops its state.
+- **Calls without an agent are ignored.** A direct `ctx.tools.execute()` caller has no model to remind and no live agent object to key on.
+- **Per-agent keying.** The tool registry is context-level and subagents interleave through the same waterfall, so a `WeakMap<Agent, Chain>` keys each chain by the live agent object; one agent's repetition never trips another's reminder. A user prompt (`agent/prompt-submit`) resets the submitting agent's chain, and object lifetime bounds the weak entry without a disposal listener.
 - **In-memory only.** A session resumed from persistence starts with a fresh chain — the guard is a heuristic nudge, not a logged invariant, later reminders are the accepted cost.
 
 ## Reminder delivery
@@ -40,23 +40,31 @@ Unit suites drive a real agent loop against a mock adapter (no network) and cove
 
 ### First-threshold context message
 
-**What the model sees**: At the first configured consecutive-repeat threshold, that agent receives the reminder below. No tool schema or normal-call text is added.
+#### What the model sees
 
-**Token effect**: Zero tokens before the threshold. The reminder is retained history for that agent.
+At the first configured consecutive-repeat threshold, that agent receives the reminder below. No tool schema or normal-call text is added.
 
-#### First-threshold reminder
+##### First-threshold reminder
 
 ```markdown
 You are repeating the exact same tool call with identical arguments. Carefully analyze the previous result before calling again: if the task is not complete, try a different approach or different arguments instead of repeating the call.
 ```
 
+#### Token effect
+
+Zero tokens before the threshold. The reminder is retained history for that agent.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ### Later-threshold context message
 
-**What the model sees**: A later threshold receives the detailed reminder template below. A capped argument preview ends exactly `… (+<omitted> more chars)`.
+#### What the model sees
 
-**Token effect**: Each reminder is retained history; `argumentsPreviewChars` bounds its data-dependent argument text, while agents keep independent counters.
+A later threshold receives the detailed reminder template below. A capped argument preview ends exactly `… (+<omitted> more chars)`.
 
-#### Later-threshold reminder
+##### Later-threshold reminder
 
 ```markdown
 Repeated tool call detected:
@@ -65,6 +73,14 @@ Repeated tool call detected:
 - arguments: <canonicalArguments>
 The repeated calls are not making progress. Do not call this tool with these exact arguments again. Inspect the latest result and choose a different action, different arguments, or finish the task if enough evidence has been gathered.
 ```
+
+#### Token effect
+
+Each reminder is retained history; `argumentsPreviewChars` bounds its data-dependent argument text, while agents keep independent counters.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

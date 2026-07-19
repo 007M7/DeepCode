@@ -11,6 +11,13 @@ Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and subs
 ### ctx.codeRuntime.language
 
 ```ts website-api
+/**
+ * The source language {@link run} expects `program` to be written in, as a
+ * lowercase identifier. Informational, not gating — a consumer that
+ * generates language-specific presentation (typed SDK stubs, usage
+ * instructions) switches on it and fails loud on a language it cannot
+ * present. Well-known value: `'typescript'`.
+ */
 abstract readonly language: string
 ```
 
@@ -21,6 +28,12 @@ The source language run expects `program` to be written in, as a lowercase ident
 ### ctx.codeRuntime.isolation
 
 ```ts website-api
+/**
+ * The execution substrate, as a lowercase identifier. Informational, not
+ * gating — a descriptor so deployments and diagnostics can tell backends
+ * apart, not a security claim. Well-known values: `'worker-thread'`,
+ * `'process'`, `'container'`.
+ */
 abstract readonly isolation: string
 ```
 
@@ -31,6 +44,15 @@ The execution substrate, as a lowercase identifier. Informational, not gating �
 ### ctx.codeRuntime.run(request)
 
 ```ts website-api
+/**
+ * Execute one program against the request's bindings and capture what it
+ * emitted. See the class doc for the resolution contract (error is a result
+ * field; rejection means seam misuse only).
+ * @param request - the program, its bindings, and the abort signal; the
+ *   request carries everything the runtime acts on, with no hidden defaults.
+ * @returns the run's outcome: completion value (when transferable), the
+ *   ordered log capture, and the failure (if any).
+ */
 abstract run(request: CodeRunRequest): Promise<CodeRunResult>
 ```
 

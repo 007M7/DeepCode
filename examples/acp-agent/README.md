@@ -33,7 +33,7 @@ The editor sets each session's `cwd` to the project it opens, and bash uses that
 
 ## Snapshot tests (record-once / replay-deterministic)
 
-This example hosts the ACP snapshot suite. `dsh-llm-replay` reconstructs model streams from `assistant/chunk` events in each scenario's session JSONL, so replay is keyless. Recording runs the real agent and harvests that log; refresh keeps the committed transcript as mock input and rewrites current replay outputs. `replay.override.json` covers throw and hang cases that chunks cannot express, and an optional `workspace/` seeds files. The [snapshot RFC](../../docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md) owns the full design.
+This example hosts the ACP snapshot suite. It replays through `dsh-llm-replay`, which reconstructs model streams from `assistant/chunk` events in each scenario's session JSONL. Recording runs the real ACP agent and harvests its logs; refresh keeps the committed transcript as mock input and rewrites current replay outputs. `replay.override.json` covers throw and hang cases that chunks cannot express, and an optional `workspace/` seeds files. The [snapshot RFC](../../docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md) owns the ACP harness design.
 
 ## Permissions and sandboxing
 

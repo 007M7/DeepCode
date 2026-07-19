@@ -39,6 +39,10 @@ The registry does not render model guidance or register model-facing tools. [`@d
 
 Indirectly, through `dsh-tool-skill`, which renders provider summaries into the session prefix and loaded instructions into retained tool results.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **Completed catalogs have no TTL or watcher invalidation** — a provider's underlying files or remote data can change without a registration revision, so a cached cwd stays stale until eviction or provider/runtime reload.

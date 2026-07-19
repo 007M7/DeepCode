@@ -1,6 +1,6 @@
 # Compaction
 
-The compaction seam — a [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md) split like bash: interface ([dsh-compact](../../packages/compact/compact), `ctx.compact`), implementation (a backend such as [dsh-compact-basic](../../packages/compact/compact-basic)), and consumer (a `/compact` tool, deferred). Compaction is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A tokenizer- or template-based backend is a sibling package implementing the same interface. Unlike bash, the interface necessarily depends on `dsh-session` and `dsh-llm`: its verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary (see the [compaction capability-seam RFC](../rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)).
+The compaction seam — a [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md) split like bash: interface ([dsh-compact](../../packages/compact/compact), `ctx.compact`), implementation (a backend such as [dsh-compact-basic](../../packages/compact/compact-basic)), and consumer (a `/compact` tool, deferred). Compaction is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A tokenizer- or template-based backend is a sibling package implementing the same interface. Unlike bash, the interface necessarily depends on `dsh-session` and `dsh-llm`: its verbs act on an agent-owned `Session`, and its durable summary event uses the `ContentBlock` vocabulary (see the [compaction capability-seam RFC](../rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)).
 
 Source: [`packages/compact/compact/src/types.ts`](../../packages/compact/compact/src/types.ts)
 
@@ -20,9 +20,10 @@ These variants are merged inside a `declare module '@deepseek-ai/dsh-session'` b
 
 ## `CompactionResult`
 
-What a successful compaction returns to its caller: the seqs of the three appended `compact/*` events, the summary blocks, and the shadowed range/seqs plus the estimated token count.
+What a successful compaction returns to its caller: the bookkeeping-event seqs, raw summary, shadowed range and seqs, and estimated token count.
 
 ```ts type-equiv
+/** Result of a successful compaction operation. */
 interface CompactionResult {
   /** The seq of the appended `compact/start` event. */
   startSeq: number
@@ -50,8 +51,15 @@ interface CompactionResult {
 
 ## The service
 
-`CompactService` exposes `compactIfNeeded(...)` for pressure-triggered compaction, returning `null` when no compaction is needed, and `compactRegion(...)` for an explicit inclusive surface range. The pre-step caller supplies the agent, full prompt, session prefix, and abort signal; implementations must forward that signal to summarization. The seam owns no pricing API: [`ctx.tokenMeter`](token-meter.md) directly owns estimation and replay, while `dsh-compact-basic` owns retention, event sequencing, routed summarization calls, and their configuration.
+Automatic callers state why policy is running; implementations may treat confirmed overflow more aggressively than ordinary pressure.
 
-Auto-compaction runs at serial `agent/pre-step`, before the step and request derivation, so it can replace surface nodes while keeping trace events outside the step. Region boundaries preserve tool-call/result pairing but do not preserve whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compact-basic` owns the retention and failure details.
+```ts type-equiv
+/** Why automatic policy is asking a backend to consider compaction. */
+type CompactionTrigger = 'pressure' | 'context-overflow'
+```
+
+`CompactService` exposes `compactIfNeeded(agent, trigger, signal)` for automatic `pressure` or `context-overflow` policy, returning `null` when no safe work exists, and `compactRegion(...)` for an explicit inclusive surface range. Implementations must forward the supplied signal to summarization. The seam owns no pricing API: the singleton [`ctx.tokenMeter`](token-meter.md) directly owns estimation and replay, while `dsh-compact-basic` owns retention, event sequencing, routed summarization calls, and their configuration.
+
+Pressure compaction runs at serial `agent/post-step`, after successful assistant output, tool results, buffered context, and steering are durable but before `step/end`. Failed-request recovery runs through `agent/request-error` after the failed step closes, and authorizes a fresh numbered-step retry only when the surface replacement generation advances. Region boundaries preserve tool-call/result pairing but do not preserve whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compact-basic` owns thresholds, retained-tail policy, overflow caps, and failure handling.
 
 The seam exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for those edge checks. Both validate current surface membership and reject missing seqs and orphan results; the [package contract](../../packages/compact/compact/README.md#tool-pairing-boundaries) owns their cache semantics.

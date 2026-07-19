@@ -8,9 +8,9 @@ The assembled system prompt had four defects, all of one family: facts the harne
 
 **The model could not know its own name.** `AgentOptions.model` drives every request, but no prompt text carried it — and nothing COULD carry it: sections in `dsh-system-prompt` were context-global while the model name is per-agent, and `assemble()` took no per-agent input at all.
 
-**Tool guidance was hand-written prose in leaf YAML.** The bash/subagent/todo_write usage guidance lived in the `systemPrompt` strings of `examples/coding-agent/cordis.yml` and `examples/acp-agent/cordis.yml` — two drifting copies (the ACP one was already abridged) — while `dsh-tool-fs` and `dsh-tool-web` owned their guidance as `ctx.systemPrompt.section()` contributions. Loading or dropping a tool plugin meant editing every deployment's persona by hand; both YAMLs carried a `FIXME(config-comments)` apologizing for a symptom of the split, and the stdio welcome banner hand-enumerated the tool set too.
+**Tool guidance was hand-written prose in leaf YAML.** The bash/subagent/todo_write usage guidance lived in the `systemPrompt` strings of `examples/repl-agent/cordis.yml` and `examples/acp-agent/cordis.yml` — two drifting copies (the ACP one was already abridged) — while `dsh-tool-fs` and `dsh-tool-web` owned their guidance as `ctx.systemPrompt.section()` contributions. Loading or dropping a tool plugin meant editing every deployment's persona by hand; both YAMLs carried a `FIXME(config-comments)` apologizing for a symptom of the split, and the stdio welcome banner hand-enumerated the tool set too.
 
-**The persona rendered after tool guidance.** The loop string-joined `agent.options.systemPrompt` AFTER the assembled sections, so the model read "Use the read tool…" before "You are coding-agent" — backwards relative to the identity-first convention (Claude Code, Codex) and a second composition path besides the section pipeline.
+**The persona rendered after tool guidance.** The loop string-joined `agent.options.systemPrompt` AFTER the assembled sections, so the model read "Use the read tool…" before "You are a coding agent" — backwards relative to the identity-first convention (Claude Code, Codex) and a second composition path besides the section pipeline.
 
 **The fork tool's description was false.** `dsh-tool-subagent` hardcoded one description written for spawn semantics — "a separate agent that works in its own context … it does not see this conversation" — and the `subagent_fork` instance (whose child inherits the parent's completed turns) got the same words; the YAML prose corrected the lie out-of-band. Minor kin: `PromptSection.name` was documented "(diagnostics / dedup)" but duplicates were silently accepted.
 
@@ -30,7 +30,7 @@ Plugins register `{{name}}` values through `ctx.systemPrompt.variable(name, prov
 
 ### Persona as the order-0 section
 
-`dsh-system-prompt` owns `harness:identity` at order `-100` and the configured `deployment:persona` at order 0, so both survive a replacement loop. Prompt rendering has one path, `renderPrompt(assembly)`, and `agent/pre-step` therefore measures the exact prompt used for compaction. An agent-scoped `deployment:persona` shadows the global default and lets subagent providers install a persona before publication. The conventional order bands are identity `-100`, persona `0`, and tool guidance `100–199`.
+`dsh-system-prompt` owns `harness:identity` at order `-100` and the configured `deployment:persona` at order 0, so both survive a replacement loop. Prompt rendering has one path, `renderPrompt(assembly)`, and the routed request header therefore records the exact prompt later replayed by `ctx.tokenMeter` for compaction pressure. An agent-scoped `deployment:persona` shadows the global default and lets subagent providers install a persona before publication. The conventional order bands are identity `-100`, persona `0`, and tool guidance `100–199`.
 
 ### Tool guidance ownership
 
@@ -43,7 +43,7 @@ Per-tool semantics and selection guidance live in tool descriptions. Prompt sect
 ## Alternatives considered
 
 - **The loop composes an identity line itself** — hardcodes model-facing prose in the one package that must stay thin ("plugins, not loop changes"), and outside the section pipeline it would be a second composition path. (The identity DOES ship as a code literal — but as an ordinary section registered by `dsh-system-prompt`, whose `system-prompt/assemble` waterfall remains the escape valve for a deployment that must drop it.)
-- **Inject the model name via the `agent/request` waterfall** — prompt text composed in two places, and `agent/pre-step`'s `fullSystemPrompt` would omit it, so compaction would measure a prompt that is not what the model sees.
+- **Inject the model name via the `agent/request` waterfall** — prompt text would be composed in two places and the earlier rendered persona could disagree with the final routed header. The request plugin that owns late routing must also own any earlier prompt claim about that model.
 - **Hand-write the model name in each persona** — duplicates the `model:` key one line above and silently lies after a config edit; the exact disease this RFC cures.
 - **Lenient interpolation (leave unknown refs verbatim, or substitute empty)** — a typo ships `{{modle}}` (or a hole) to the model and nobody notices until transcript review.
 - **Per-instance subagent wording in config** — returns model-facing prose to every deployment × instance, the P2 disease again. **Keying wording off the provider NAME** — `providerName` is itself config, so a renamed provider silently gets the wrong words.
@@ -56,7 +56,7 @@ Per-tool semantics and selection guidance live in tool descriptions. Prompt sect
 
 ## Shipped invariants
 
-- The coding-agent prompt renders identity, persona with the interpolated model, then fs/bash/web guidance through one assembly path.
+- The repl-agent prompt renders identity, persona with the interpolated model, then fs/bash/web guidance through one assembly path.
 - Fork and fresh subagent descriptions reflect whether the provider inherits completed conversation turns; the tool appears, disappears, and is reworded with provider lifecycle changes.
 - Unknown, valueless, malformed, or unbalanced variable references name the section and throw; duplicate section, variable, and tool registrations also throw.
 - Snapshot replay is prompt-independent: it keys recorded chunk streams by turn and step without comparing the outgoing request.

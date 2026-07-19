@@ -109,10 +109,22 @@ echo 演示不需要 API 凭证：
 pnpm run demo:echo
 ```
 
-REPL agent 演示使用真实的 DeepSeek 适配器，需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
+repl-agent 示例使用面向行的 readline 前端，并需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
 
 ```sh
 pnpm run demo:repl
+```
+
+全屏 TUI 通过 pi-tui 前端复用 repl-agent 组装，并需要相同的凭证：
+
+```sh
+pnpm run demo:tui
+```
+
+自指的 cordis-agent 演示可以检查并修改其实时插件运行时，并需要相同的凭证：
+
+```sh
+pnpm run demo:cordis
 ```
 
 ACP 服务器 agent 演示通过 JSON-RPC stdio 暴露 agent，同样需要 `DEEPSEEK_API_KEY`：
@@ -133,13 +145,13 @@ pnpm run demo:acp
 
 ## 逐字记录类型（`ts type-equiv`）
 
-[核心数据结构](core-data-structures/core.md)文档粘贴真实的类型定义，让读者看到确切的形状。为防止粘贴内容在源码变化时漂移，请将其围栏为 ` ```ts type-equiv `（而不是 ` ```ts `），并在 `scripts/type-equiv.manifest.json` 中登记它镜像的源文件和符号：
+[核心数据结构](core-data-structures/core.md)文档会把与源码等价的声明及其原始 JSDoc 一并粘贴，让读者看到确切形状和源码契约。为防止粘贴内容在源码变化时漂移，请将其围栏为 ` ```ts type-equiv `（而不是 ` ```ts `），并在 `scripts/type-equiv.manifest.json` 中登记它镜像的源文件和符号：
 
 ```json
 { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" }
 ```
 
-`pnpm run verify-type-equiv`（`doc-sync` 的一环）随后通过 TypeScript 解析器从源码提取该符号的声明，并断言文档块与之一致（对空白和注释不敏感，因此文档块可以展示干净的定义，语义由行文承载）。它还强制 1:1 对应：每个 `ts type-equiv` 块恰好有一条 manifest 条目，反之亦然；因此不会有块被静默漏检，也不会有陈旧条目滞留。`doc-typecheck` 跳过 `ts type-equiv` 块（它们不能独立编译），并将其排除在 opt-out 比例之外。当你改动一个被记录的类型时，门禁会失败直到你更新粘贴内容；当你增删一个块时，请在同一个变更里更新 manifest。
+`pnpm run verify-type-equiv`（`doc-sync` 的一环）随后通过 TypeScript 解析器从源码提取该符号的声明及其附带的 JSDoc，并断言代码块同时匹配两者。对于不应把实现体写进目录的类，请使用 ` ```ts public-api ` 并设置 `"projection": "public-api"`；门禁检查的投影会保留公共字段、构造函数、访问器、方法以及类和成员的原始 JSDoc，同时省略实现体和私有或受保护成员。比对会忽略空白和非 JSDoc 注释，但要求保留每条原始 JSDoc（包括成员文档），让读者同时看到源码契约和确切形状。该门禁还按文档、符号和投影强制 1:1 对应，因此不会有块被静默漏检，也不会有陈旧条目滞留。`doc-typecheck` 跳过两种围栏（它们不能独立编译），并将其排除在 opt-out 比例之外。当你改动一个已记录的类型声明或其 JSDoc 时，门禁会失败直到你更新粘贴内容；当你增删一个块时，请在同一个变更里更新 manifest。
 
 ## 架构上下文
 
