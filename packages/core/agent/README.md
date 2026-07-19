@@ -19,7 +19,7 @@ The scoped-registration surface: `Agent.ctx` is the agent's scope context (`dsh-
 
 #### Initiating Agent scope
 
-`AgentLoop` runs each concrete driver's complete lifetime inside an initiator boundary. Concurrent drivers remain isolated, a child driver shadows its parent, and the parent returns after the child settles. Creation, persistence load, and unpublished setup remain outside the child's boundary, so setup initiated by a parent inherits the parent while `agentCtx.agent` identifies the child explicitly.
+`AgentLoop` runs each concrete driver's complete lifetime inside an initiator boundary. Concurrent drivers remain isolated: a child driver's continuations carry the child, while the parent continuation regains the parent as soon as `withInitiator()` returns; drain tracking continues until the child driver's Promise settles. Creation, persistence load, and unpublished setup remain outside the child's boundary, so setup initiated by a parent inherits the parent while `agentCtx.agent` identifies the child explicitly.
 
 - `ctx.agents.currentInitiator(): Agent | undefined` — read the inherited initiator without requiring one.
 - `ctx.agents.requireInitiator(): Agent` — read it or throw `no initiating agent is active`.
