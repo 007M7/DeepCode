@@ -115,7 +115,8 @@ Source: [`packages/core/agent-loop/src/index.ts:369`](../packages/core/agent-loo
  * `dshHome` to bash environment and local skill discovery, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
  * workspace-context loader, and `toolBash`/`toolTasks` to the model-facing tool
- * plugins this bundle owns. Owner schemas supply defaults for optional input;
+ * plugins this bundle owns. `invariants` configures global and package-filtered
+ * relational checks. Owner schemas supply defaults for optional input;
  * workspace context instead requires an explicit byte budget or `false` because
  * it changes model-visible input. Producer opt-in stays producer-local:
  * `toolBash` configures bash only; independently composed producers keep their
@@ -142,6 +143,8 @@ export interface Config {
   toolBash?: toolBash.Config
   /** Generic background-task control-tool wait bounds. */
   toolTasks?: toolTasks.Config
+  /** Global enablement and package-name filters for invariant companions. */
+  invariants?: InvariantConfig
 }
 
 /** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
@@ -155,9 +158,9 @@ export interface SkillConfig {
 }
 ```
 
-Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
+Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`InvariantConfig`](#deepseek-aidsh-invariants) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
 
-Source: [`packages/examples/agent-spine-demo/src/index.ts:57`](../packages/examples/agent-spine-demo/src/index.ts)
+Source: [`packages/examples/agent-spine-demo/src/index.ts:62`](../packages/examples/agent-spine-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -378,6 +381,22 @@ export interface Config {
 ```
 
 Source: [`packages/hooks/hooks-codex/src/index.ts:42`](../packages/hooks/hooks-codex/src/index.ts)
+
+## `@deepseek-ai/dsh-invariants`
+
+```ts config-catalog
+/** Runtime invariant selection configured on the service plugin. */
+export interface Config {
+  /** Global switch; defaults to `true`. */
+  readonly enabled?: boolean
+  /** Case-sensitive JavaScript regex sources that admit package names; empty admits all. */
+  readonly package_allowlist?: string[]
+  /** Case-sensitive JavaScript regex sources that exclude package names after allowlist matching. */
+  readonly package_blocklist?: string[]
+}
+```
+
+Source: [`packages/support/invariants/src/index.ts:15`](../packages/support/invariants/src/index.ts)
 
 ## `@deepseek-ai/dsh-jsonrpc`
 
@@ -1458,7 +1477,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
-- `@deepseek-ai/dsh-invariants` — requires `sessions` ([`packages/support/invariants/src/index.ts`](../packages/support/invariants/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))

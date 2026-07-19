@@ -19,7 +19,11 @@ import SkillService, { type Config as SkillRegistryConfig } from '@deepseek-ai/d
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import TaskService from '@deepseek-ai/dsh-tasks'
-import * as invariants from '@deepseek-ai/dsh-invariants'
+import InvariantService, { type Config as InvariantConfig } from '@deepseek-ai/dsh-invariants'
+import * as sessionInvariant from '@deepseek-ai/dsh-session/invariant'
+import * as agentInvariant from '@deepseek-ai/dsh-agent/invariant'
+import * as scopeInvariant from '@deepseek-ai/dsh-scope/invariant'
+import * as agentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -48,7 +52,8 @@ export interface SkillConfig {
  * `dshHome` to bash environment and local skill discovery, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
  * workspace-context loader, and `toolBash`/`toolTasks` to the model-facing tool
- * plugins this bundle owns. Owner schemas supply defaults for optional input;
+ * plugins this bundle owns. `invariants` configures global and package-filtered
+ * relational checks. Owner schemas supply defaults for optional input;
  * workspace context instead requires an explicit byte budget or `false` because
  * it changes model-visible input. Producer opt-in stays producer-local:
  * `toolBash` configures bash only; independently composed producers keep their
@@ -75,6 +80,8 @@ export interface Config {
   toolBash?: toolBash.Config
   /** Generic background-task control-tool wait bounds. */
   toolTasks?: toolTasks.Config
+  /** Global enablement and package-name filters for invariant companions. */
+  invariants?: InvariantConfig
 }
 
 /** The skill config schema exported for app packages that forward `skills`. */
@@ -101,7 +108,8 @@ export const Config = z.intersect([
     workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
     toolBash: ToolBashConfigSchema,
     toolTasks: ToolTasksConfigSchema,
-  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks'>>,
+    invariants: InvariantService.Config,
+  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'invariants'>>,
 ]) as unknown as z<Config>
 
 /**
@@ -120,6 +128,7 @@ export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'a
     ...config.skills !== undefined ? { skills: config.skills } : {},
     ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
     ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
+    ...config.invariants !== undefined ? { invariants: config.invariants } : {},
   }
 }
 
@@ -154,7 +163,11 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(SkillLocal, Object.assign({}, config.skills?.local, { dshHome }))
   ctx.plugin(AgentRegistry)
   ctx.plugin(TaskService)
-  ctx.plugin(invariants)
+  ctx.plugin(InvariantService, config.invariants ?? {})
+  ctx.plugin(sessionInvariant)
+  ctx.plugin(agentInvariant)
+  ctx.plugin(scopeInvariant)
+  ctx.plugin(agentLoopInvariant)
   ctx.plugin(toolBash, Object.assign({}, config.toolBash, { dshHome }))
   if (config.workspaceContext !== false) {
     ctx.plugin(workspaceContext, config.workspaceContext)

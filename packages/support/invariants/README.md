@@ -1,62 +1,63 @@
 # dsh-invariants
 
-Runtime event-contract assertions intended for development diagnostics. This pure-listener plugin checks relationships among session events, agent states, scoped dispatches, and model requests; it does not own or change product behavior.
+Configurable registry service for package-owned runtime invariant checks. The root plugin registers `ctx.invariants`; it contains no product checks or product-package imports. Packages publish optional `./invariant` companion plugins that contribute their own assertions.
 
-The plugin has no environment guard: it is active wherever it is registered. The default [`dsh-agent-spine-demo`](../../examples/agent-spine-demo/README.md) bundle mounts it unconditionally; a custom composition can omit it when the runtime cost is undesirable. It doubles as executable documentation of the event taxonomy — the assertions *are* the contract.
+## Service: `InvariantService` (`ctx.invariants`)
 
-Session itself owns immutable, surface-valid log storage in every composition: it takes one lossless JSON snapshot of each candidate, validates the complete surface transition, deep-freezes the accepted record, and exposes the log through immutable array snapshots. The invariants plugin checks the remaining cross-record and cross-seam rules that Session does not own.
+```ts
+interface Config {
+  enabled?: boolean
+  package_allowlist?: string[]
+  package_blocklist?: string[]
+}
+```
 
-Session-log assertions run during Cordis `internal/dispatch`, while `Session.append()` is resolving the `session/event` callback snapshot but before it pushes the candidate into the log. A valid transition is staged by exact event identity and applied to the live trace only when that same committed event reaches the plugin's contained post-commit listener. A later internal dispatch check can therefore veto without advancing either the log or the invariant trace, while ordinary `session/event` observer failures remain observe-only.
+Defaults are `enabled: true`, `package_allowlist: []`, and `package_blocklist: []`. A package is selected only when the service is enabled, the empty allowlist or at least one allowlist pattern matches its full npm name, and no blocklist pattern matches. Blocklist matches therefore override allowlist matches.
 
-## Plugin
+Each entry is a case-sensitive JavaScript regular-expression source compiled with `new RegExp(pattern)`. Matching is unanchored unless the source supplies `^` and `$`; `/pattern/flags` syntax is not parsed. Blank, whitespace-padded, invalid, or duplicate entries within one list fail service startup. A valid pattern may match no currently loaded package so later loading and HMR remain deterministic.
 
-A functional plugin — register the module namespace (this is what loading by name in `cordis.yml` does):
+`ctx.invariants.register(packageName, installer)` reserves one active registration for the full npm package name, including when filters keep its installer inactive, and returns its disposer. An enabled contribution runs in a dedicated child Cordis fiber. The installer can declare its required service surface through `installer.inject` and receives `fail(message)`, which throws an `InvariantError` bound to the registering package. Installer failure disposes the child and releases ownership atomically.
+
+The service owns every registration fiber, while the returned disposer also belongs to the companion fiber. Unloading either side removes the listeners and reservation completely. A companion can therefore reload and register the same package name without retaining trace state or duplicate listeners; packages that need an existing baseline rebuild it during installation.
+
+`InvariantError` extends `Error`, carries stable `code: 'INVARIANT'`, and exposes the owning `packageName` without adding a product-package dependency to the service.
+
+## Package companions
+
+| Companion | Registration | Checks |
+|---|---|---|
+| `@deepseek-ai/dsh-session/invariant` | `@deepseek-ai/dsh-session` | sequence, turn/step enclosure, and same-step tool call/result trace |
+| `@deepseek-ai/dsh-agent/invariant` | `@deepseek-ai/dsh-agent` | agent-status transitions |
+| `@deepseek-ai/dsh-scope/invariant` | `@deepseek-ai/dsh-scope` | scoped-event carrier presence and subject consistency |
+| `@deepseek-ai/dsh-agent-loop/invariant` | `@deepseek-ai/dsh-agent-loop` | loop-built model-request reconstruction from the session log |
+
+The root entrypoint of each owner remains independent of diagnostics. Loading the service alone installs no checks; loading a companion without the service remains pending on its declared `invariants` dependency.
+
+## Composition
 
 ```ts
 import type { Context } from 'cordis'
-import * as Invariants from '@deepseek-ai/dsh-invariants'
+import InvariantService from '@deepseek-ai/dsh-invariants'
+import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 
 declare const ctx: Context
 
-await ctx.plugin(Invariants)
+ctx.plugin(InvariantService, {
+  enabled: true,
+  package_allowlist: ['^@deepseek-ai/dsh-'],
+  package_blocklist: ['^@deepseek-ai/dsh-agent-loop$'],
+})
+ctx.plugin(SessionInvariant)
 ```
 
-`inject`: `['sessions']` — it reads `ctx.sessions.list()` at apply time to rebuild trace state for sessions that already exist, so a hot reload mid-turn does not falsely reject the next event. The oracle listeners are explicitly global so pre-commit staging and post-commit application keep the same audience even if the plugin is mounted under a scoped context; their cleanup still belongs to that mounting fiber. The plugin has no configuration.
-
-## Invariants asserted
-
-Session log (per session):
-
-- **`seq` strictly increases** — the spine of replay equivalence.
-- **turns pair and nest** — `turn/start` opens a turn, `turn/end` closes the matching one; no overlapping turns.
-- **steps nest in turns** — `step/start` opens a step in the open turn; `step/end` closes the matching step.
-- **chunks belong to an open step** — `step/start` precedes its `assistant/chunk`s.
-- **a `tool/result` needs a prior `tool/call`** — but NOT the converse: a `tool/call` may have no result (a thrown tool-execution pipeline step ends the turn with no `tool/result`, which is legal).
-- **provenance sources are valid and unambiguous** — `sourceEventSeqs` contains unique earlier known seqs; only `assistant/message` may carry an explicit empty list, which denotes a known empty provider stream rather than absent legacy provenance.
-
-Agent status (per agent):
-
-- **legal transitions only** — `idle↔running` and `(idle|running)→disposed`. A no-op transition (`setStatus` dedups, so it never fires) and leaving the terminal `disposed` state are violations.
-
-Model requests (on `llm/stream`):
-
-- **a loop-built request is exactly what the log reconstructs** — a frozen request with a live `sessionId` (the loop-built marker; hand-built one-shots like compaction's summarize are unfrozen and skipped) must carry frozen `messages` deep-equal to the derivation over the log prefix strictly before the in-flight step's `step/start` (rebuilt through a FRESH `Session`, so the live cache cannot vouch for itself — and boundary-correct: content logged after `step/start` legitimately belongs to the next request), and every non-content field must equal the latest logged `request/header` (see [the reconstructability RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)). Registered with `prepend: true` so a short-circuiting `llm/stream` listener (the replay adapter) cannot silence it; prepend orders it against append-registered listeners only — correctness rests on the seq-bounded rebuild, never listener timing.
-
-On any violation it throws `InvariantError` (`code: 'INVARIANT'`).
-
-## Why runtime assertions remain useful
-
-Session enforces the per-record storage boundary at runtime, where a cast cannot bypass it. Pervasive `DeepReadonly<SessionEvent>` types would add noise across consumers without expressing relationships such as turn/step nesting, subject-correct scoped dispatch, or equality between a request and its log reconstruction. This plugin checks those relationships wherever it is mounted while `dsh-session` keeps history immutable in every composition. See [source-owned session immutability and dev-mode invariants](../../../docs/rfc/implemented/architecture/2026-06-11-dev-invariants-over-deep-readonly.md).
-
-## Seeded sessions
-
-A seeded or forked session arrives with events already in its log because construction does not emit `session/event` for each seed record. `Session` validates, snapshots, and freezes every seed record before accepting it; on `session/created`, this plugin replays the accepted log only to rebuild and check its relational trace state.
+The standard agent spine mounts the service and all four companions. Custom compositions choose the companions they want and may disable or filter them without changing package entrypoints.
 
 ## Model Experience
 
-None, as this observer only validates events and frozen requests and never rewrites prompts, schemas, messages, or streams.
+None, as the service and companions observe runtime events and requests but never alter prompts, messages, schemas, streams, or tool results.
 
 ## Known Limitations and Deferred Work
 
-- **The request-reconstructability assertion covers loop-built requests only** — hand-built one-shots (e.g. compaction's summarize call) carry no live `sessionId` marker and are skipped.
-- **Merge-extended event families get no family-specific assertions** — `compact/*` lock pairing and `hook/*` invoked/result pairing are not checked here; only the core turn/step/chunk/tool-result contract is.
+- The shipped checks cover only the four listed package contracts; a merge-extended event family has no family-specific assertion until its owner publishes one.
+- Request reconstruction covers frozen loop-built requests with a live session id; direct one-shot calls remain outside that companion's marker contract.
+- Regular-expression filters are fixed for the service lifetime; changing them requires ordinary Cordis plugin reload.

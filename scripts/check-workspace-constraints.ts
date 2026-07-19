@@ -116,6 +116,14 @@ const dshWorkerPackageFiles = [
   'src',
 ] as const
 
+const dshInvariantPackageFiles = [
+  'lib/index.js',
+  'lib/invariant.js',
+  'lib/types/**/*.d.ts',
+  'lib/types/**/*.d.ts.map',
+  'src',
+] as const
+
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-helper': ['lib/assets'],
   '@deepseek-ai/dsh-scripts': [
@@ -142,6 +150,9 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     ]
   }
   if (manifest.bin) return dshBinPackageFiles
+  // Package-owned diagnostic companions are separately bundled optional
+  // entries; their source stays in the owner package without bloating root.
+  if (manifest.exports?.['./invariant']) return dshInvariantPackageFiles
   // A declared "./worker" subpath export sanctions the one extra runtime
   // bundle a worker-thread entry needs (and NodeNext/publint then validate
   // that subpath's targets like any other export).
@@ -187,6 +198,16 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     }
     if (manifest.exports?.['.']?.default !== './lib/index.js') {
       errors.push(`${label}: package.json exports["."].default must be "./lib/index.js"`)
+    }
+    const invariantExport = manifest.exports?.['./invariant']
+    if (invariantExport?.types !== undefined && invariantExport.types !== './lib/types/invariant.d.ts') {
+      errors.push(`${label}: package.json exports["./invariant"].types must be "./lib/types/invariant.d.ts"`)
+    }
+    if (invariantExport?.default !== undefined && invariantExport.default !== './lib/invariant.js') {
+      errors.push(`${label}: package.json exports["./invariant"].default must be "./lib/invariant.js"`)
+    }
+    if (invariantExport && (invariantExport.types === undefined || invariantExport.default === undefined)) {
+      errors.push(`${label}: package.json exports["./invariant"] must declare both types and default targets`)
     }
     const expectedFiles = expectedDshPackageFiles(manifest)
     if (!sameStringList(manifest.files, expectedFiles)) {

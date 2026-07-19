@@ -27,6 +27,10 @@ The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loo
 
 `agents`, `sessions`, `llm`, `tools`, `systemPrompt` — all five interface services.
 
+### Invariant companion
+
+The optional `@deepseek-ai/dsh-agent-loop/invariant` companion registers request reconstruction with `ctx.invariants`. For each frozen loop-built request carrying a live session id, it independently rebuilds the message boundary and folded request header from the session log; direct one-shot calls remain outside this marker contract.
+
 ### Configuration (schemastery)
 
 ```ts

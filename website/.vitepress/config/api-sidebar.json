@@ -55,6 +55,10 @@
       "link": "/zh-CN/api/harness/fs"
     },
     {
+      "text": "ctx.invariants",
+      "link": "/zh-CN/api/harness/invariants"
+    },
+    {
       "text": "ctx.llm",
       "link": "/zh-CN/api/harness/llm"
     },

@@ -19,7 +19,7 @@ const stdioBin = join(repoRoot, 'packages/examples/stdio-demo/lib/bin.js')
 // Symlink each required workspace package by package name so plain Node resolves its built `main`,
 // matching an installed dependency rather than tsconfig paths.
 const dshPackages = [
-  'examples/agent-spine-demo', 'core/agent', 'core/session', 'core/system-prompt',
+  'examples/agent-spine-demo', 'core/agent', 'core/session', 'core/scope', 'core/system-prompt',
   'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash', 'bash/bash-local',
   'bash/tool-bash', 'context/workspace-context', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',

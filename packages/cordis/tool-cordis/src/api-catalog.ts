@@ -251,6 +251,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'invariants',
+    summary: 'Package-owned invariant registry with global and regex-based selection.',
+    methods: [
+      {
+        signature: 'register(packageName: string, installer: InvariantInstaller): () => void',
+        jsDoc: '/**\n * Register one package\'s invariant installer. The package name is reserved\n * even when filtering disables its checks. Enabled installers run in a child\n * fiber; failure disposes that fiber and releases the reservation.\n * @param packageName - full npm package name that owns the contribution.\n * @param installer - synchronous listener installer for the child context.\n * @returns an effect-scoped disposer for the registration.\n */',
+      },
+    ],
+  },
+  {
     key: 'llm',
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.',
     methods: [
@@ -1175,6 +1185,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'InjectOptions',
     declaration: 'export interface InjectOptions extends SendOptions {\n    envelope?: ContextEnvelope;\n    meta?: JsonValue;\n}',
+  },
+  {
+    name: 'InvariantFailure',
+    declaration: 'export type InvariantFailure = (message: string) => never;',
+  },
+  {
+    name: 'InvariantInstaller',
+    declaration: 'export interface InvariantInstaller {\n    (ctx: Context, fail: InvariantFailure): void;\n    readonly inject?: Inject;\n}',
   },
   {
     name: 'JsonValue',

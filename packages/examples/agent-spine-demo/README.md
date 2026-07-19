@@ -18,7 +18,12 @@ Read this package for the whole plugin tree and its composition order.
 @deepseek-ai/dsh-skill-local      local filesystem skill provider
 @deepseek-ai/dsh-agent            agent registry + initiator scope + agent/* events
 @deepseek-ai/dsh-tasks            generic background-task registry
-@deepseek-ai/dsh-invariants       dev-mode event-contract assertions
+@deepseek-ai/dsh-invariants       configurable invariant registry service
+@deepseek-ai/dsh-session/invariant
+@deepseek-ai/dsh-agent/invariant
+@deepseek-ai/dsh-scope/invariant
+@deepseek-ai/dsh-agent-loop/invariant
+                                  package-owned relational checks
 @deepseek-ai/dsh-tool-bash        the model-facing bash schema
 @deepseek-ai/dsh-workspace-context  AGENTS.md/CLAUDE.md workspace context loader
 @deepseek-ai/dsh-tool-skill       session-prefix skill catalog + model-facing loader schema
@@ -42,11 +47,13 @@ This is the [interface/implementation/consumer seam](../../../docs/rfc/implement
 
 ```ts
 import type { Config } from '@deepseek-ai/dsh-agent-spine-demo'
-// { agents?, maxParallelToolCalls?, persona?, toolOrder?, tools?, dshHome?, skills?, workspaceContext, toolBash?, toolTasks? }
+// { agents?, maxParallelToolCalls?, persona?, toolOrder?, tools?, dshHome?, skills?, workspaceContext, toolBash?, toolTasks?, invariants? }
 // workspaceContext requires { maxBytes } or false; the other owner schemas supply defaults.
 ```
 
-The bundle FORWARDS each field to the child that owns it: `agents` and `maxParallelToolCalls` to `agent-loop` (`agents` defaults to `[]`; the cap defaults there), so each app supplies its own pre-created agents — a stdio app pre-creates `main`, while the ACP app creates agents on demand at `session/new`; `persona` and `toolOrder` to `dsh-system-prompt`; `tools` to the tool registry for its presentation mode; `skills.registry`, `skills.local`, and `skills.tool` to the skill registry, local provider, and model-facing consumer; the required `workspaceContext` choice to `dsh-workspace-context` (`{ maxBytes }` enables loading and `false` disables it); and `toolBash`/`toolTasks` to the two model-facing tool plugins the bundle owns. It resolves `dshHome` once through [`@deepseek-ai/dsh-home`](../../util/home/README.md) and forwards that absolute value to tool-bash's managed environment and local skill discovery. An absent top-level `dshHome` adopts `skills.local.dshHome`; supplying both with different resolved paths fails loudly. `toolBash.enableRunInBackground` controls only the bash producer, while `toolTasks` controls generic `task_output` wait bounds; independently loaded producers keep their own config. Workspace instructions register before the skill catalog so their session-prefix message renders first. App packages use `pickSpineConfig()` to copy only these bundle-owned fields.
+The bundle FORWARDS each field to the child that owns it: `agents` and `maxParallelToolCalls` to `agent-loop` (`agents` defaults to `[]`; the cap defaults there), so each app supplies its own pre-created agents — a stdio app pre-creates `main`, while the ACP app creates agents on demand at `session/new`; `persona` and `toolOrder` to `dsh-system-prompt`; `tools` to the tool registry for its presentation mode; `skills.registry`, `skills.local`, and `skills.tool` to the skill registry, local provider, and model-facing consumer; the required `workspaceContext` choice to `dsh-workspace-context` (`{ maxBytes }` enables loading and `false` disables it); `invariants` to the invariant service; and `toolBash`/`toolTasks` to the two model-facing tool plugins the bundle owns. It resolves `dshHome` once through [`@deepseek-ai/dsh-home`](../../util/home/README.md) and forwards that absolute value to tool-bash's managed environment and local skill discovery. An absent top-level `dshHome` adopts `skills.local.dshHome`; supplying both with different resolved paths fails loudly. `toolBash.enableRunInBackground` controls only the bash producer, while `toolTasks` controls generic `task_output` wait bounds; independently loaded producers keep their own config. Workspace instructions register before the skill catalog so their session-prefix message renders first. App packages use `pickSpineConfig()` to copy only these bundle-owned fields.
+
+For example, `{ invariants: { enabled: true, package_allowlist: ['^@deepseek-ai/dsh-'], package_blocklist: ['agent-loop$'] } }` keeps the package-owned companions mounted but suppresses the blocked owner. Blocklist matches override allowlist matches; see [`dsh-invariants`](../../support/invariants/README.md) for regex and lifecycle rules.
 
 ## Why a code bundle, not a shared YAML include
 
@@ -59,4 +66,4 @@ Indirectly, through `dsh-system-prompt`, `dsh-tool-skill`, `dsh-tool-bash`, and 
 ## Known Limitations and Deferred Work
 
 - **The spine set is fixed in code** — `apply()` mounts every child unconditionally (including `tool-bash`); no config excludes or replaces one, so swapping the loop or dropping a spine member means composing a different bundle.
-- **`dsh-invariants` mounts unconditionally** — this bundle has no toggle, so every composition using it pays the dev-mode relational assertions; Session's always-on validation and freezing are separate.
+- **The invariant seam and companions remain fixed members** — `invariants.enabled: false` or package filters suppress checks but do not remove the service or companion registrations; Session's always-on validation and freezing are separate.

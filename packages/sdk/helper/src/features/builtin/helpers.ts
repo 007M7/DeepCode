@@ -15,8 +15,19 @@ import type {
   PackageScriptResource,
 } from '../resources.ts'
 
+/** Return the installable package name for a bare package or package subpath. */
+function installablePackageName(specifier: string): string {
+  const segments = specifier.split('/')
+  const expectedSegments = specifier.startsWith('@') ? 2 : 1
+  if (segments.length < expectedSegments || segments.slice(0, expectedSegments).some(segment => segment.length === 0)) {
+    throw new Error(`invalid bare package specifier: ${JSON.stringify(specifier)}`)
+  }
+  return segments.slice(0, expectedSegments).join('/')
+}
+
 /** Create a runtime NPM dependency resource. */
-function npmDependency(_owner: string, name: string): NpmDependencyResource {
+function npmDependency(_owner: string, specifier: string): NpmDependencyResource {
+  const name = installablePackageName(specifier)
   return {
     kind: 'npm-dependency',
     key: resourceKey(`npm-dependency:${name}`),
@@ -52,7 +63,7 @@ export function cordisConfigEntry(
   }
 }
 
-/** Couple one bare-package Cordis config entry to its mandatory runtime NPM dependency. */
+/** Couple one bare-package or subpath Cordis entry to its installable NPM package. */
 export function npmCordisConfigEntry(
   owner: string,
   value: CordisConfigEntry,
