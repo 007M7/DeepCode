@@ -30,16 +30,6 @@ agent 空闲时，编辑器输入调用 `agent.send()`；轮次运行中则调�
 
 内置配色仅使用标准 16 色 ANSI 前景色和 SGR 属性，正文文字和背景沿用终端默认值，选中项使用反显。因此，宿主终端可以直接按浅色或深色主题重映射界面，无需 TUI 专用主题设置；`color: false` 会移除样式。
 
-### 已交付界面
-
-确定性的脚本化演示无需网络即可展示提示词提交、流式模型输出，以及 ANSI 配色在深色和浅色终端主题下的效果。
-
-![脚本化 TUI 交互](../../../assets/tui/jokes-dynamic.gif)
-
-| 深色终端 | 浅色终端 |
-| --- | --- |
-| ![深色终端中的 TUI](../../../assets/tui/jokes-dark.png) | ![浅色终端中的 TUI](../../../assets/tui/jokes-light.png) |
-
 ## 验证
 
 已实现的 [TUI 终端状态快照 RFC](../testing/2026-07-18-tui-terminal-state-snapshots.md) 规定四层验证契约：直接行为测试、瞬态语义终端快照、通过生产工具执行的已录制 JSONL 流程，以及 Loader/PTY 冒烟测试。包（package）README 负责记录配置、命令、模型可见效果和当前限制。

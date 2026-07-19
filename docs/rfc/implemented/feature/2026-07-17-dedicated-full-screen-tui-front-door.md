@@ -30,16 +30,6 @@ Before model output, session data, tool presentation, questions, configuration, 
 
 The built-in palette uses standard 16-color ANSI foregrounds and SGR attributes, keeps body text and backgrounds at terminal defaults, and uses reverse video for selection. Host terminals therefore remap the interface for light and dark themes without a TUI-specific theme setting; `color: false` removes styling.
 
-### Shipped interface
-
-The deterministic scripted demo shows prompt submission, streamed model output, and the ANSI palette under dark and light terminal themes without a network dependency.
-
-![Scripted TUI interaction](../../../assets/tui/jokes-dynamic.gif)
-
-| Dark terminal | Light terminal |
-| --- | --- |
-| ![TUI on a dark terminal](../../../assets/tui/jokes-dark.png) | ![TUI on a light terminal](../../../assets/tui/jokes-light.png) |
-
 ## Verification
 
 The implemented [TUI terminal-state snapshot RFC](../testing/2026-07-18-tui-terminal-state-snapshots.md) owns the four-layer verification contract: direct behavior tests, transient semantic terminal snapshots, recorded JSONL journeys through production tools, and Loader/PTY smoke tests. The package README owns configuration, commands, model-visible effects, and current limitations.
