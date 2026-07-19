@@ -81,6 +81,7 @@
     "demo:echo": "node --expose-internals --import tsx packages/examples/stdio-demo/src/bin.ts examples/echo-agent/cordis.yml",
     "demo:repl": "node --expose-internals --import tsx packages/examples/stdio-demo/src/bin.ts examples/coding-agent/cordis.yml",
     "demo:headless": "node --expose-internals --import tsx packages/examples/cli-demo/src/bin.ts --config examples/headless-agent/cordis.yml",
+    "demo:tui": "node --expose-internals --import tsx packages/examples/stdio-demo/src/bin.ts examples/tui-agent/cordis.yml",
     "demo:code-mode": "node scripts/demo-code-mode.mjs",
     "demo:cordis": "node --expose-internals --import tsx packages/examples/stdio-demo/src/bin.ts examples/cordis-agent/cordis.yml",
     "demo:acp": "node --import tsx packages/examples/acp-demo/src/bin.ts --config examples/acp-agent/cordis.yml",

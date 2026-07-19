@@ -15,7 +15,7 @@ Run with: `pnpm run demo:echo`. When prompted, type "echo <something>" to trigge
 
 ## coding-agent
 
-A REPL agent demo: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the same `@deepseek-ai/dsh-stdio-demo` app. The UI is a terminal readline REPL.
+A coding-agent REPL: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the `@deepseek-ai/dsh-stdio-demo` app's readline front door.
 
 Run with `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
 
@@ -26,6 +26,12 @@ Run the Code Mode overlay with `pnpm run demo:code-mode`, or pass `acp` for the 
 A non-interactive agent demo that accepts one positional task, runs one complete model/tool turn on the `@deepseek-ai/dsh-cli-demo` app, persists a fresh session, prints `text`, `json`, or `stream-json`, and exits.
 
 Run with: `pnpm run demo:headless -- "task"` (needs `DEEPSEEK_API_KEY`). See [headless-agent/README.md](headless-agent/README.md) for the wire contract, mutation and token risks, and the headless-owned snapshot suite.
+
+## tui-agent
+
+The full-screen terminal sibling of `coding-agent`: it reuses the same coding backends and tools while forcing the shared terminal app to `dsh-tui`. It is the home of TUI PTY and snapshot scenarios.
+
+Run with: `pnpm run demo:tui` (needs `DEEPSEEK_API_KEY`). See [tui-agent/README.md](tui-agent/README.md) for controls and composition.
 
 ## cordis-agent
 
