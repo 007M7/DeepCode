@@ -66,6 +66,7 @@ describe('LocalBashExecutor.run', () => {
     await expect(setup({ timeoutMs: Number.NaN })).rejects.toThrow(/timeoutMs/)
     await expect(setup({ maxTimeoutMs: 0 })).rejects.toThrow(/maxTimeoutMs/)
     await expect(setup({ maxOutputBytes: -1 })).rejects.toThrow(/maxOutputBytes/)
+    await expect(setup({ maxSpillBytes: 0 })).rejects.toThrow(/maxSpillBytes/)
     await expect(setup({ graceMs: 0 })).rejects.toThrow(/graceMs/)
 
     const { bash } = await setup()

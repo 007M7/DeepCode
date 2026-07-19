@@ -26,7 +26,11 @@ Persistence is optional and may mount or unmount dynamically. Cross-corpus listi
 
 None, as this trusted query service returns cloned session records only to its callers and registers no model-facing prompt, schema, tool, or message.
 
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
 ## Known Limitations and Deferred Work
 
 - **No caller authorization** — this is trusted context-wide infrastructure; a future model tool or UI must constrain which sessions its caller may inspect.
-- **No search or extraction** — filters, extraction registry, search-provider protocol, index synchronization, and a model-facing tool are absent. The [tracing decision](../../../docs/rfc/implemented/feature/2026-07-13-session-query-tracing.md) owns relationship semantics; content-bearing full-text-search results and their chainable filters belong beside their first implementation in the proposed [SQLite package](../../../docs/rfc/proposed/feature/2026-07-10-sqlite-session-query-provider.md).
+- **No search or extraction** — filters, extraction registry, search-provider protocol, index synchronization, and a model-facing tool are absent. The [tracing decision](../../../.agents/notes/implemented/feature/2026-07-13-session-query-tracing.md) owns relationship semantics; content-bearing full-text-search results and their chainable filters belong beside their first implementation in the proposed [SQLite package](../../../.agents/notes/proposed/feature/2026-07-10-sqlite-session-query-provider.md).

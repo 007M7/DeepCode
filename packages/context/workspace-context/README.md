@@ -78,11 +78,11 @@ Instruction content is read through `streamText()` under `maxSourceBytes`, even 
 
 ### Baseline session prefix
 
-**What the model sees**: At the first request of each loop instance, the model receives one user-role prefix message containing the bounded user-global and project instruction chain in broad-to-specific order.
+#### What the model sees
 
-**Token effect**: The rendered baseline is frozen and resent on every request in that loop instance. `maxBytes` bounds the complete message, broader files are omitted before the most-specific file is truncated, and an empty chain contributes zero tokens.
+At the first request of each loop instance, the model receives one user-role prefix message containing the bounded user-global and project instruction chain in broad-to-specific order.
 
-#### Baseline instruction template
+##### Baseline instruction template
 
 ```markdown
 <system-reminder>
@@ -98,13 +98,21 @@ Instructions from: AGENTS.md
 </system-reminder>
 ```
 
+#### Token effect
+
+The rendered baseline is frozen and resent on every request in that loop instance. `maxBytes` bounds the complete message, broader files are omitted before the most-specific file is truncated, and an empty chain contributes zero tokens.
+
+#### KV Cache effect
+
+Prefix-stable within one loop instance because the baseline is frozen. A new or resumed instance recomposes it, so instruction, precedence, cwd, candidate, or byte-budget changes may invalidate reuse from the first changed baseline token.
+
 ### Newly discovered scope context
 
-**What the model sees**: After a successful first-party filesystem call reaches a deeper directory, the next request includes one retained raw `context/message` with the newly applicable instruction file.
+#### What the model sees
 
-**Token effect**: Each discovered scope adds bounded history tokens until compaction. Unchanged content is suppressed by visible session state plus version/digest comparison, and Code Mode defers the same message until after the outer `run_code` result.
+After a successful first-party filesystem call reaches a deeper directory, the next request includes one retained raw `context/message` with the newly applicable instruction file.
 
-#### Additional instruction template
+##### Additional instruction template
 
 ```markdown
 <system-reminder>
@@ -116,13 +124,21 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 </system-reminder>
 ```
 
+#### Token effect
+
+Each discovered scope adds bounded history tokens until compaction. Unchanged content is suppressed by visible session state plus version/digest comparison, and Code Mode defers the same message until after the outer `run_code` result.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ### Changed or removed instruction context
 
-**What the model sees**: A changed file produces `Updated instructions from: <path>` plus its replacement content; a candidate switch also names the previous path. A removed final candidate produces the removal notice below.
+#### What the model sees
 
-**Token effect**: Each confirmed change or removal is one retained history message bounded by `maxBytes`. Provider failures add no message, and an update omitted by the budget remains eligible for a later filesystem touch.
+A changed file produces `Updated instructions from: <path>` plus its replacement content; a candidate switch also names the previous path. A removed final candidate produces the removal notice below.
 
-#### Removal notice
+##### Removal notice
 
 ```markdown
 <system-reminder>
@@ -131,6 +147,14 @@ Instructions removed: packages/app/AGENTS.md
 The previously loaded instructions from this file no longer apply.
 </system-reminder>
 ```
+
+#### Token effect
+
+Each confirmed change or removal is one retained history message bounded by `maxBytes`. Provider failures add no message, and an update omitted by the budget remains eligible for a later filesystem touch.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

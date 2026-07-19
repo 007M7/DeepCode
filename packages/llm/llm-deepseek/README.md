@@ -52,15 +52,31 @@ Unit suites run against a local `node:http` mock SSE server (no network). Real-A
 
 ### DeepSeek request
 
-**What the model sees**: The selected DeepSeek model receives the harness system prompt, message history, tool schemas, stop sequences, and call config without adapter-authored prompt prose. On a prior assistant turn with tool calls, its reasoning content is passed back as required; reasoning from tool-call-free turns is omitted.
+#### What the model sees
 
-**Token effect**: Provider tokenization governs exact input. Conditional reasoning passback increases tool-round-trip context, while dropping other reasoning avoids paying those tokens again; cache-read usage is reported when available.
+The selected DeepSeek model receives the harness system prompt, message history, tool schemas, stop sequences, and call config without adapter-authored prompt prose. On a prior assistant turn with tool calls, its reasoning content is passed back as required; reasoning from tool-call-free turns is omitted.
+
+#### Token effect
+
+Provider tokenization governs exact input. Conditional reasoning passback increases tool-round-trip context, while dropping other reasoning avoids paying those tokens again; cache-read usage is reported when available.
+
+#### KV Cache effect
+
+An unchanged assembled prefix is eligible for DeepSeek cache reuse, which this adapter reports in usage. A model-route change or any upstream prompt, schema, prefix, or history change may prevent reuse from the first changed token; reasoning passback appends during tool round trips.
 
 ### DeepSeek response
 
-**What the model sees**: Reasoning, text, and raw-string tool arguments are translated into harness chunks for the loop to log and assemble.
+#### What the model sees
 
-**Token effect**: Generated tokens follow provider thinking and effort settings plus the request's `maxTokens`; only loop-retained blocks affect later input.
+Reasoning, text, and raw-string tool arguments are translated into harness chunks for the loop to log and assemble.
+
+#### Token effect
+
+Generated tokens follow provider thinking and effort settings plus the request's `maxTokens`; only loop-retained blocks affect later input.
+
+#### KV Cache effect
+
+Loop-retained response blocks append to the next request and preserve its earlier reusable prefix; dropped blocks have no later cache effect. Changing the provider or model selects a different cache domain.
 
 ## Known Limitations and Deferred Work
 

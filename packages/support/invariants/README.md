@@ -68,6 +68,10 @@ The standard agent spine mounts the service and the four stateful companions. Cu
 
 None, as the service and companions observe runtime events and requests but never alter prompts, messages, schemas, streams, or tool results.
 
+#### KV Cache effect
+
+None; invariant checks do not assemble or send provider requests.
+
 ## Known Limitations and Deferred Work
 
 - A name-based plugin observer assumes Cordis plugin names are unique within one root; a package can provide the exact callback when importing it does not preload an unrelated runtime.

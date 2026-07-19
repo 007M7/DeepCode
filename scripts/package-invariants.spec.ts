@@ -141,7 +141,7 @@ export const apply = (ctx: { invariants: { register(name: string, install: typeo
 
   it('rejects generated markers and empty or reporter-free installers', () => {
     const generated = fixture({
-      source: `/** @generated scripts/gen-package-invariants.ts */\n${handwrittenInvariant('@deepseek-ai/dsh-probe')}`,
+      source: `/** @generated */\n${handwrittenInvariant('@deepseek-ai/dsh-probe')}`,
     })
     expect(collectPackageInvariantViolations(generated).map(violation => violation.message))
       .toContain('invariant companions must be hand-owned and may not carry @generated markers')
