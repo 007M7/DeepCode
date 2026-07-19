@@ -25,7 +25,7 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 
 - **Lazy materialization.** `create(meta)` writes nothing; on the first `append`, the backend writes and `fsync`s a temporary file, publishes it without overwrite via a hard link, then `fsync`s the directory when the host supports it. A created-but-never-appended session leaves nothing on disk and is absent from `list`.
 - **Append-only.** Committed events (at or below a flushed `turn/end`) are never rewritten. Subsequent appends are line appends at EOF + `fsync`.
-- **Crash recovery — preserve valid tail work.** `load` keeps the contiguous valid prefix of an interrupted final turn. It truncates from the first unparsable or sequence-gapped uncommitted record, then appends the synthetic tool, step, and turn closers required by the shared [persistence contract](../../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md); the same defect at or before the last committed `turn/end` rejects.
+- **Crash recovery — preserve valid tail work.** `load` keeps the contiguous valid prefix of an interrupted final turn. It truncates from the first unparsable or sequence-gapped uncommitted record, then appends the synthetic tool, step, and turn closers required by the shared [persistence contract](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md); the same defect at or before the last committed `turn/end` rejects.
 - **Contiguous-seq.** `append` rejects a batch whose first `seq` does not continue the stored log, and rejects non-JSON-serializable `event.data` naming the offending event type.
 
 ## Write path

@@ -4,11 +4,11 @@
 
 > FIXME：这篇重要指南尚未经过充分的人工设计审查；请在首次发布前完成审查。
 
-针对 harness 扩展表面编写的三种插件形态，以示意性代码片段呈现（省略了 import 和辅助桩——不可直接复制运行）。完整的分步指南见[添加包（package）](./adding-a-package.md)、[添加工具](./adding-a-tool.md)和[添加 LLM（大语言模型）适配器](./adding-an-llm-adapter.md)；这些插件所挂接的 seam 见 [docs/architecture.md](../architecture.md)。
+针对 harness 扩展表面编写的三种插件形态，以示意性代码片段呈现（省略了 import 和辅助桩——不可直接复制运行）。完整的分步指南见[添加包（package）](adding-a-package.md)、[添加工具](adding-a-tool.md)和[添加 LLM（大语言模型）适配器](adding-an-llm-adapter.md)；这些插件所挂接的 seam 见 [docs/architecture.md](../architecture.md)。
 
 ## 工具插件
 
-工具在 `ctx.tools` 上注册。带注解的 `defineTool` 示例（类型化的 `execute` 参数、结果塑形、`run_in_background` 模式）见 [adding-a-tool.md](./adding-a-tool.md)——该指南是工具形态的真源。`ctx.tools.register()` 也直接接受原始 JSON-Schema `ToolDefinition`（MCP 来源的工具就是这样到达的）；`defineTool` 是为第一方工具提供的类型化语法糖。
+工具在 `ctx.tools` 上注册。带注解的 `defineTool` 示例（类型化的 `execute` 参数、结果塑形、`run_in_background` 模式）见 [adding-a-tool.md](adding-a-tool.md)——该指南是工具形态的真源。`ctx.tools.register()` 也直接接受原始 JSON-Schema `ToolDefinition`（MCP 来源的工具就是这样到达的）；`defineTool` 是为第一方工具提供的类型化语法糖。
 
 ## 钩子插件（以权限门禁为例）
 
@@ -32,7 +32,7 @@ export function apply(ctx: Context) {
 }
 ```
 
-这个 waterfall（瀑布式事件）是可重排的策略层。当不变式需要单调的最终拒绝时使用 `ctx.tools.guard()`；当插件需要包裹实际分发生命周期时（超时/重试/指标；仅 `exec.signal` 可替换）使用 `tools/execute`；显式结果变换使用 `tools/post-execute`；对不可变最终结果的受限观察使用 `tools/result`。选择规则见[添加工具指南](./adding-a-tool.md#execution-policy-and-observation)。
+这个 waterfall（瀑布式事件）是可重排的策略层。当不变式需要单调的最终拒绝时使用 `ctx.tools.guard()`；当插件需要包裹实际分发生命周期时（超时/重试/指标；仅 `exec.signal` 可替换）使用 `tools/execute`；显式结果变换使用 `tools/post-execute`；对不可变最终结果的受限观察使用 `tools/result`。选择规则见[添加工具指南](adding-a-tool.md#execution-policy-and-observation)。
 
 ## UI 插件
 
@@ -91,7 +91,7 @@ export function apply(ctx: Context) {
 
 ## 功能→机制映射
 
-每个产品功能都映射到一个文档化扩展 seam 上的监听器——微内核声明由此可验证（[微内核 RFC](../rfc/implemented/architecture/2026-06-11-microkernel-event-taxonomy.md)）。没有任何一行修改循环本身。
+每个产品功能都映射到一个文档化扩展 seam 上的监听器——微内核声明由此可验证（[微内核 Agent Note](../../.agents/notes/implemented/architecture/2026-06-11-microkernel-event-taxonomy.md)）。没有任何一行修改循环本身。
 
 `system-prompt/assemble` 是一个专家协作式的整体装配变换：其返回的装配结果具有权威性，因此监听器作者有责任保留活跃的 Code Mode 和结构化输出协议的贡献。对于需要在展示、查找和执行之间保持对齐的工具过滤，优先使用 `ctx.tools.restrict()`。
 
@@ -102,7 +102,7 @@ export function apply(ctx: Context) {
 | `/loop` | 在 `turn/end` 会话事件上 `send()` 下一次迭代；或强制继续 |
 | 动态工作流 | `ctx.workflows` + worker-thread 引擎 + `workflow` 工具；结构化的进程内子任务通过作用域化的 prompt/工具注册、单调工具守卫、最终 `tools/result` 提交（包括外层 `run_code`）和终端 `agent/turn-stop` 来强制输出 |
 | 排队消息 + steering（中途引导） | 核心 `Agent.send()` / `Agent.steer()` |
-| 上下文压缩（context compaction）（自动 + 手动） | `ctx.compact` seam + `dsh-compact-basic`；自动压力检查运行在串行 `agent/post-step`，规范化溢出恢复运行在 `agent/request-error`，手动调用方使用同一个压缩服务（[压缩 RFC](../rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)——面向模型的 `/compact` 消费方工具已推迟） |
+| 上下文压缩（context compaction）（自动 + 手动） | `ctx.compact` seam + `dsh-compact-basic`；自动压力检查运行在串行 `agent/post-step`，规范化溢出恢复运行在 `agent/request-error`，手动调用方使用同一个压缩服务（[压缩 Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)——面向模型的 `/compact` 消费方工具已推迟） |
 | 系统提示词可配置性 | `ctx.systemPrompt.section()`，支持排序与作用域局部覆盖 |
 | AGENTS.md（根目录） | 一个读取该文件的 section provider |
 | AGENTS.md（子目录，按需触发）+ 文件变更通知 | 从 watcher / tool-result 监听器调用 `agent.inject()` |
