@@ -199,6 +199,83 @@ describe('runOneShot and executeCli', () => {
     expect(stderr).toContain('boot exploded')
   })
 
+  it('interrupts Loader boot and contains every late boot outcome', async () => {
+    const abort = new AbortController()
+    const lateContext = new Context()
+    liveContexts.push(lateContext)
+    const boot = Promise.withResolvers<Context>()
+    const disposed = Promise.withResolvers<undefined>()
+    let disposeCalls = 0
+    let stderr = ''
+    const running = executeCli(['task'], {
+      signal: abort.signal,
+      boot: () => boot.promise,
+      loadEnv: () => {},
+      writeStdout: () => {},
+      writeStderr: (chunk) => { stderr += chunk },
+      dispose: async (ctx) => {
+        disposeCalls += 1
+        await ctx.fiber.dispose()
+        disposed.resolve(undefined)
+      },
+    })
+    abort.abort('received SIGTERM')
+    await expect(running).resolves.toBe(1)
+    expect(stderr).toContain('received SIGTERM')
+    expect(disposeCalls).toBe(0)
+    boot.resolve(lateContext)
+    await disposed.promise
+    expect(disposeCalls).toBe(1)
+
+    const rejectedBoot = Promise.withResolvers<Context>()
+    const rejectedAbort = new AbortController()
+    const rejected = executeCli(['task'], {
+      signal: rejectedAbort.signal,
+      boot: () => rejectedBoot.promise,
+      loadEnv: () => {},
+      writeStdout: () => {},
+      writeStderr: () => {},
+    })
+    rejectedAbort.abort('stop rejected boot')
+    await expect(rejected).resolves.toBe(1)
+    rejectedBoot.reject(new Error('late boot rejection'))
+    await Promise.resolve()
+
+    let ordinaryBootStderr = ''
+    const ordinaryBootFailure = await executeCli(['task'], {
+      signal: new AbortController().signal,
+      boot: async () => { throw new Error('ordinary boot failure') },
+      loadEnv: () => {},
+      writeStdout: () => {},
+      writeStderr: (chunk) => { ordinaryBootStderr += chunk },
+    })
+    expect(ordinaryBootFailure).toBe(1)
+    expect(ordinaryBootStderr).toContain('ordinary boot failure')
+
+    const failedCleanupBoot = Promise.withResolvers<Context>()
+    const failedCleanupAbort = new AbortController()
+    const cleanupFailure = Promise.withResolvers<undefined>()
+    const failedCleanupContext = new Context()
+    liveContexts.push(failedCleanupContext)
+    const failedCleanup = executeCli(['task'], {
+      signal: failedCleanupAbort.signal,
+      boot: () => failedCleanupBoot.promise,
+      loadEnv: () => {},
+      writeStdout: () => {},
+      writeStderr: (chunk) => {
+        if (chunk.includes('dispose after interrupted boot failed: late cleanup')) cleanupFailure.resolve(undefined)
+      },
+      dispose: async (ctx) => {
+        await ctx.fiber.dispose()
+        throw new Error('late cleanup')
+      },
+    })
+    failedCleanupAbort.abort('stop failed cleanup boot')
+    await expect(failedCleanup).resolves.toBe(1)
+    failedCleanupBoot.resolve(failedCleanupContext)
+    await cleanupFailure.promise
+  })
+
   it('renders text, flushes a persisted fresh session, and disposes the context', async () => {
     const { ctx, agent, persistenceRoot } = await harness([textResponse('final answer')])
     const output = await invoke(ctx, ['task'])

@@ -295,6 +295,53 @@ function renderResult(outputFormat: OutputFormat, result: CliResult): string {
 }
 
 /**
+ * Race Loader boot with cancellation without abandoning a context that becomes
+ * available after the caller has been released. Waiting for that late context
+ * would recreate the signal hang, so its disposal and diagnostics run detached.
+ */
+async function bootInterruptibly(
+  start: () => Promise<Context>,
+  signal: AbortSignal | undefined,
+  disposeLateContext: (ctx: Context) => Promise<void>,
+  reportLateDisposalFailure: (error: unknown) => void,
+): Promise<Context> {
+  if (signal === undefined) return await start()
+  if (signal.aborted) throw new CliInterruptedError(interruptionReason(signal))
+
+  let onAbort!: () => void
+  const interruptedBoot = new Promise<never>((_resolve, reject) => {
+    onAbort = (): void => {
+      reject(new CliInterruptedError(interruptionReason(signal)))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    /* v8 ignore next -- closes registration against a non-standard synchronously mutating signal */
+    if (signal.aborted) onAbort()
+  })
+  const booting = Promise.resolve().then(start)
+  try {
+    return await Promise.race([booting, interruptedBoot])
+  } catch (error: unknown) {
+    // The awaited race permits the signal to change after the preflight check.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (signal.aborted) {
+      void booting.then(
+        async (lateContext) => {
+          try {
+            await disposeLateContext(lateContext)
+          } catch (error: unknown) {
+            reportLateDisposalFailure(error)
+          }
+        },
+        () => {},
+      )
+    }
+    throw error
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
+}
+
+/**
  * Render a non-completed turn reason for stderr.
  * @param reason - durable turn ending to describe.
  * @returns a concise diagnostic fragment.
@@ -349,8 +396,12 @@ export async function executeCli(args: readonly string[], runtime: CliRuntime = 
   let diagnostic: string | undefined
   try {
     loadEnvironment(CLI_NAME, cwd, line => writeStderr(line))
-    ctx = await bootContext(CLI_NAME, resolveConfigPath(command.configPath, undefined, cwd))
-    if (runtime.signal?.aborted === true) throw new CliInterruptedError(interruptionReason(runtime.signal))
+    ctx = await bootInterruptibly(
+      () => bootContext(CLI_NAME, resolveConfigPath(command.configPath, undefined, cwd)),
+      runtime.signal,
+      disposeContext,
+      error => writeStderr(`${CLI_NAME}: dispose after interrupted boot failed: ${toError(error).message}\n`),
+    )
     const result = await runOneShot(ctx, {
       task: command.task,
       ...runtime.signal === undefined ? {} : { signal: runtime.signal },
