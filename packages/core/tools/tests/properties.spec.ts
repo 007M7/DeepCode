@@ -1,8 +1,8 @@
 /**
- * Property-based tests for the tool-schema DSL (the property-testing RFC), including
+ * Property-based tests for the tool-schema DSL (the property-testing Agent Note), including
  * the the property-testing ↔ runtime-validation composition composition: generated args that satisfy a SchemaSpec must
  * pass validateArgs, and targeted corruptions must be rejected. This closes the
- * validator/InferArgs drift risk noted in the arg-validation RFC.
+ * validator/InferArgs drift risk noted in the arg-validation Agent Note.
  */
 
 import { describe, expect, it } from 'vitest'

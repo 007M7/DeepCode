@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-session-persistence
 
-The abstract durable session-persistence seam (`ctx.sessionPersistence`). Defines WHAT a persistence backend does — durably store, reload, and list sessions — without saying HOW. Mirrors the `dsh-bash` capability-seam template ([capability seams](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)): an abstract service here, a concrete implementation in a sibling package, consumers that inject the interface.
+The abstract durable session-persistence seam (`ctx.sessionPersistence`). Defines WHAT a persistence backend does — durably store, reload, and list sessions — without saying HOW. Mirrors the `dsh-bash` capability-seam template ([capability seams](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)): an abstract service here, a concrete implementation in a sibling package, consumers that inject the interface.
 
 The persisted unit IS the existing `SessionEvent` (event-sourced model — the log is the single source of truth), so there is no parallel "persisted message" type. Metadata that is NOT replayable conversation state (format version, cwd, lineage, seed boundary) travels separately as `SessionHeader`, owned by `dsh-session` and re-exported here.
 
@@ -23,7 +23,7 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 
 ## The write coordinator
 
-`PersistenceCoordinator` owns per-id state, write-behind buffers and serialization, the `session/event` → `session/flush` drain, lazy materialization, crash-tail repair, session adoption, and quiescent disposal. A first-party backend composes one, implements the small `PersistenceBackend` storage hook interface, and delegates its four public service methods. JSONL and SQLite therefore share lifecycle correctness while retaining different storage primitives; see the [coordinator RFC](../../../docs/rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
+`PersistenceCoordinator` owns per-id state, write-behind buffers and serialization, the `session/event` → `session/flush` drain, lazy materialization, crash-tail repair, session adoption, and quiescent disposal. A first-party backend composes one, implements the small `PersistenceBackend` storage hook interface, and delegates its four public service methods. JSONL and SQLite therefore share lifecycle correctness while retaining different storage primitives; see the [coordinator Agent Note](../../../.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
 
 When a live session emits `session/disposed`, the coordinator waits for its initialization, serializes a final buffer drain, then releases every map entry owned by that exact `Session` object. A failed final drain keeps the pending buffer for backend teardown to retry. Backend teardown stops event admission first, awaits all in-flight session retirements and remaining per-id operations, drains any retained buffers, and only then closes the storage handle.
 
@@ -41,7 +41,7 @@ The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinato
 | `list()` | List all stored metadata. |
 | `close?()` | Optional lifecycle teardown (e.g. close a db handle), awaited after the dispose drain. |
 
-The `tornMarker` is fully OPAQUE: the coordinator only tests `!== undefined` and round-trips it to `commitRepair`, never inspecting its value (the JSONL backend uses the byte offset to truncate to, the SQLite backend the seq to delete from). The public `SessionPersistence` service shape is unchanged, so a third-party backend MAY still implement the abstract service directly without the coordinator. See [the write-coordinator RFC](../../../docs/rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
+The `tornMarker` is fully OPAQUE: the coordinator only tests `!== undefined` and round-trips it to `commitRepair`, never inspecting its value (the JSONL backend uses the byte offset to truncate to, the SQLite backend the seq to delete from). The public `SessionPersistence` service shape is unchanged, so a third-party backend MAY still implement the abstract service directly without the coordinator. See [the write-coordinator Agent Note](../../../.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
 
 ## Testing backends
 

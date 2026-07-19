@@ -537,7 +537,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // the fail-closed `unavailable` default) takes the question. A rejected
   // `requestPermission` (client gone, bridge torn down) propagates and the
   // ApprovalService contains it as `unavailable`. Options are one-shot only:
-  // allow_always is a grant-storage design the approval RFC defers, so the
+  // allow_always is a grant-storage design the approval Agent Note defers, so the
   // prompt never offers a durable grant the harness could not honor.
   ctx.on('approval/request', (req, next) => {
     const rec = ownedRecord(req.agent)
@@ -627,7 +627,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         const protocolVersion = params.protocolVersion === PROTOCOL_VERSION ? params.protocolVersion : PROTOCOL_VERSION
         // Remember the Zed terminal-output `_meta` capability: when set, bash and
         // other shell tools render as a terminal card (see streamSessionEventUpdate
-        // + the terminal-rendering RFC). `_meta` is `{[k]: unknown} | null`, so
+        // + the terminal-rendering Agent Note). `_meta` is `{[k]: unknown} | null`, so
         // narrow defensively to a strict boolean true.
         terminalOutputCap = params.clientCapabilities?._meta?.['terminal_output'] === true
         return Promise.resolve({

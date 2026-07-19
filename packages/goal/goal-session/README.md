@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-goal-session
 
-Same-session continuation driver for [`ctx.goals`](../goal/README.md). It turns an active, armed goal into sequential [goal rounds](../../../docs/glossary.md#goal-round) through the public `Agent` and session seams; the [same-session driver RFC](../../../docs/rfc/implemented/feature/2026-07-19-same-session-goal-round-driver.md) owns the race and lifecycle rationale.
+Same-session continuation driver for [`ctx.goals`](../goal/README.md). It turns an active, armed goal into sequential [goal rounds](../../../docs/glossary.md#goal-round) through the public `Agent` and session seams; the [same-session driver Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-same-session-goal-round-driver.md) owns the race and lifecycle rationale.
 
 ## Composition
 

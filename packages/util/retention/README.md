@@ -2,7 +2,7 @@
 
 A dependency-light **retention** library: bounded model-facing output for tools that must cap how much context they return. A caller feeds items or text chunks into a bounded object, then gets the retained content plus exact omission metadata.
 
-The library owns **only** the mechanical question *"what did we keep, and what did we omit?"*. Tool-specific code keeps its business semantics: file grouping, line numbering, exit codes, provider error states, per-line preview truncation, spill files, and the model-facing prose. This is the boundary the [RFC](../../../docs/rfc/implemented/architecture/2026-07-06-tool-result-retention-library.md) draws.
+The library owns **only** the mechanical question *"what did we keep, and what did we omit?"*. Tool-specific code keeps its business semantics: file grouping, line numbering, exit codes, provider error states, per-line preview truncation, spill files, and the model-facing prose. This is the boundary the [Agent Note](../../../.agents/notes/implemented/architecture/2026-07-06-tool-result-retention-library.md) draws.
 
 It is a **library, not a service or plugin**: no `ctx`, registers nothing, emits no events. The only state is per-retainer (one accumulation), never cross-call. Tool packages import it directly.
 

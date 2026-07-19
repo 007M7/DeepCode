@@ -235,7 +235,7 @@ describe('disposed vs aborted branching', () => {
   })
 })
 
-describe('structured tool error propagation (the runtime-validation RFC, part 2)', () => {
+describe('structured tool error propagation (the runtime-validation Agent Note, part 2)', () => {
   it('forwards a tool HarnessError onto the tool/result session event', async () => {
     const { HarnessError } = await import('@deepseek-ai/dsh-llm')
     // First model turn calls the tool; second turn (after the tool result is

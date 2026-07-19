@@ -8,7 +8,7 @@ Answerers are `approval/request` waterfall listeners. Return an outcome to answe
 
 `ApprovalPolicy` is `'ask'` or `'never'`. The effective value is the last `approval/policy` event, falling back to config; `setApprovalPolicy()` is the write path. `'never'` rejects before interactive dispatch and is the only policy stated in the prompt. Switches produce at most one coalesced notice, attributed to the user when the override follows the last `request/header` and to operator/config otherwise.
 
-The tools pipeline routes `ask` decisions through this seam and fails closed when it is absent; the sandboxed bash tool also uses it for escalated retries. The ACP bridge is the shipped human answerer for calls it owns. Audit events remain log-only, so the model sees only the asking consumer's result. See the [approval-seam RFC](../../../docs/rfc/implemented/feature/2026-07-06-approval-seam.md) and [sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md).
+The tools pipeline routes `ask` decisions through this seam and fails closed when it is absent; the sandboxed bash tool also uses it for escalated retries. The ACP bridge is the shipped human answerer for calls it owns. Audit events remain log-only, so the model sees only the asking consumer's result. See the [approval-seam Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-approval-seam.md) and [sandbox Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md).
 
 ## Model Experience
 
