@@ -85,6 +85,10 @@ const footer = formatRetentionNotice(
 
 Indirectly, through tool consumers that render retained content and omission metadata.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **Item retention supports `head` only** — tail, head/tail, pagination, grouping, and provider-completeness semantics remain tool-owned.
