@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-jsonrpc-demo
 
-Bin-only app that boots an external `cordis.yml`; its [`jsonrpc`](../../ui/jsonrpc/README.md) entry serves SDK clients over newline-delimited stdio. The config composes the spine, backends, and serving plugin. `lib/bin.js` is also the [single-executable runtime](../../../docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) entry.
+Bin-only app that boots an external `cordis.yml`; its [`jsonrpc`](../../ui/jsonrpc/README.md) entry serves SDK clients over newline-delimited stdio. The config composes the spine, backends, and serving plugin. `lib/bin.js` is also the [single-executable runtime](../../../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) entry.
 
 ## Config discovery
 
@@ -10,7 +10,7 @@ A config without `dsh-jsonrpc` is valid and serves nothing; the bin does not des
 
 ## Exit lifecycle
 
-stdin EOF and `SIGTERM` dispose the root to quiescence and exit 0; `SIGINT` exits 130 after the same disposal. EOF may cut off an in-flight turn as documented in the [distribution RFC](../../../docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md). The `jsonrpc` plugin owns response-before-exit protocol shutdown; both paths are idempotent and safe to race.
+stdin EOF and `SIGTERM` dispose the root to quiescence and exit 0; `SIGINT` exits 130 after the same disposal. EOF may cut off an in-flight turn as documented in the [distribution Agent Note](../../../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md). The `jsonrpc` plugin owns response-before-exit protocol shutdown; both paths are idempotent and safe to race.
 
 ## stdout is the protocol
 

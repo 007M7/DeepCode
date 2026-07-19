@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-subagent-subprocess
 
-Shared machinery for **out-of-process subagent backends** — providers that spawn an external agent as a child process, such as the [ACP backend](../subagent-acp/README.md). A pure library (no provider, no registration, no Config): what every spawn-a-CLI-child backend needs to keep the parent deployment's credentials out of the child, tear the child down to quiescence, and isolate it from the host user's on-disk CLI state. Design rationale: [the Claude Code / Codex subagent backends RFC](../../../docs/rfc/proposed/feature/2026-07-07-claude-code-and-codex-subagent-backends.md).
+Shared machinery for **out-of-process subagent backends** — providers that spawn an external agent as a child process, such as the [ACP backend](../subagent-acp/README.md). A pure library (no provider, no registration, no Config): what every spawn-a-CLI-child backend needs to keep the parent deployment's credentials out of the child, tear the child down to quiescence, and isolate it from the host user's on-disk CLI state. Design rationale: [the Claude Code / Codex subagent backends Agent Note](../../../.agents/notes/proposed/feature/2026-07-07-claude-code-and-codex-subagent-backends.md).
 
 Every tunable is a **parameter**: the dispose ladder takes its grace periods per call, the config-dir helper takes an optional pinned path. Defaults live in each consuming plugin's Config (defaulted, validated fields changeable from `cordis.yml`), never in this library.
 
