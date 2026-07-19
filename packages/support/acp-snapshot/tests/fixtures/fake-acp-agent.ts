@@ -35,6 +35,8 @@ interface Behavior {
   prompt?: 'respond' | 'error' | 'hang-until-cancel'
   /** Emit a tool call instead of a message chunk before parking a cancellable prompt. */
   cancelAtToolCall?: boolean
+  /** Emit the parked tool call's terminal update after answering cancellation. */
+  cancelToolCallUpdate?: boolean
   /** Before responding to a prompt, send a `session/request_permission` request and echo its outcome as a chunk. */
   permissionProbe?: boolean
   /** Echo the `DSH_SNAPSHOT_*` env the harness set as a chunk (spec-side env-plumbing assertions). */
@@ -247,6 +249,19 @@ function handleFrame(frame: Record<string, unknown>): void {
         const parked = parkedPromptId
         parkedPromptId = null
         respond(parked, { stopReason: 'cancelled' })
+        if (behavior.cancelToolCallUpdate === true) {
+          send({
+            method: 'session/update',
+            params: {
+              sessionId,
+              update: {
+                sessionUpdate: 'tool_call_update',
+                toolCallId: 'call_fake_1',
+                status: 'failed',
+              },
+            },
+          })
+        }
       }
       return
     default:

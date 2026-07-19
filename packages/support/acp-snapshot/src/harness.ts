@@ -39,8 +39,8 @@ export type { AgentUnderTest } from './launcher.ts'
  *
  * `promptAndCancel` starts a prompt without awaiting completion, waits until
  * the client observes the selected update (`agent_message_chunk` by default),
- * then cancels and awaits completion. This keeps update/cancel order
- * deterministic for fixtures that a plain `prompt` cannot drive.
+ * then cancels and awaits completion. A named `waitForToolCallUpdate` keeps the
+ * step open for a terminal tool update that may follow the prompt response.
  */
 export type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
@@ -48,7 +48,12 @@ export type InputStep =
   | { op: 'newSessionExpectError'; additionalDirectories?: string[] }
   | { op: 'prompt'; text: string }
   | { op: 'promptExpectError'; text: string }
-  | { op: 'promptAndCancel'; text: string; afterUpdate?: 'agent_message_chunk' | 'tool_call' }
+  | {
+    op: 'promptAndCancel'
+    text: string
+    afterUpdate?: 'agent_message_chunk' | 'tool_call'
+    waitForToolCallUpdate?: string
+  }
   | { op: 'cancel' }
   | { op: 'setConfigOption'; configId: string; value: string }
   | { op: 'setConfigOptionExpectError'; configId: string; value: string }
@@ -347,8 +352,13 @@ async function runStep(
       const promptDone = client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
       const afterUpdate = step.afterUpdate ?? 'agent_message_chunk'
       await waitForUpdate(u => u.sessionUpdate === afterUpdate)
+      // Arm this before cancellation so a fast tool drain cannot outrun the waiter.
+      const toolCallUpdateDone = step.waitForToolCallUpdate === undefined
+        ? undefined
+        : waitForUpdate(u => u.sessionUpdate === 'tool_call_update' && u.toolCallId === step.waitForToolCallUpdate)
       await client.cancel({ sessionId })
       await promptDone
+      if (toolCallUpdateDone !== undefined) await toolCallUpdateDone
       return
     }
     case 'cancel': {
