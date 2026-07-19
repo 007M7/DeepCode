@@ -21,11 +21,14 @@ with DeepSeekHarness() as harness:
 from deepseek_harness import DeepSeekHarness
 
 with DeepSeekHarness(
+    provider="deepseek",
     model="deepseek-v4-flash",
     cordis="examples/dsbench-coding-agent/cordis.yml",
 ) as harness:
     result = harness.run("Make the requested code change.")
 ```
+
+`provider` 用于选择当前 Cordis 组合已注册的提供方路由；`model` 是该适配器解析的模型 ID。内置默认组合注册 `deepseek`。自定义组合可以挂载 `llm-pi-ai`，在其中配置各提供方的凭据与端点，再选择 pi-ai 已安装目录中的任意提供方/模型组合。
 
 `TurnResult.final_response` 是本轮次最后一个 `assistant/message` 事件的文本内容。完整的事件流（包括中间的助手消息与工具活动）用 `TurnResult.events` 获取。
 

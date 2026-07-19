@@ -41,12 +41,14 @@ The hooks themselves run in the agent's session workspace: for the agent-scoped 
 | Codex hook | Harness seam | Mapping |
 |---|---|---|
 | `SessionStart` | `agent/session-start` (emit) | a plain-stdout hook's output → additionalContext → `agent.inject()` |
-| `UserPromptSubmit` | `agent/prompt-submit` (waterfall) | `block` (exit 2) → `PromptDecision.block`; additionalContext-only → delegate via `next()` then fold context onto the downstream decision |
+| `UserPromptSubmit` | `agent/prompt-submit` (waterfall) | `block` (exit 2) → `PromptDecision.block`; additionalContext-only → delegate via `next()` then prepend a separately sourced context to downstream `additionalContexts` |
 | `PreToolUse` | `tools/pre-execute` (waterfall) | `block` → `PreToolDecision.deny` (no `allow`/`ask`) |
-| `PostToolUse` | `tools/post-execute` (waterfall) | `block` → `block` with feedback; additionalContext-only → delegate via `next()` then fold context onto the downstream decision (a Code Mode sub-call’s context is dropped by the run_code bridge — see [the pipeline doc](../../../docs/tool-execution-pipeline.md)) |
+| `PostToolUse` | `tools/post-execute` (waterfall) | `block` → `block` with feedback; additionalContext-only → delegate via `next()` then prepend a separately sourced context to the downstream decision; Code Mode defers sub-call contexts until the outer `run_code` result |
 | `Stop` | `agent/turn-continuation` (waterfall) | a blocking Stop hook forces `continue` with the reason as next-step steering |
 
 A tool call's payload carries the real `tool_name` (the same value the matcher tests) and Codex's `tool_input: { command }` shape (the `command` arg when present, else `''`). The matcher subject is the tool name (`PreToolUse`/`PostToolUse`) or the session source (`SessionStart`); `UserPromptSubmit`/`Stop` ignore matchers.
+
+Every agent-scoped stdin payload carries `session_id` and `transcript_path`. The bridge resolves the latter through `ctx.sessionPersistence.locate(session.header)` when available and otherwise sends `null`, preserving the Codex `string | null` shape. Lookup does not create or flush the artifact, so a path can be absent before the first turn-end checkpoint or omit the current open turn.
 
 `SessionStart` — the one emit point — runs detached; each run chain is tracked, and disposing the bridge aborts a still-running hook process, then drains the continuation before the dispose resolves (`createDetachedRuns` in `dsh-hook-protocol`).
 
@@ -58,15 +60,31 @@ Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-codex' }`
 
 ### Hook-provided context
 
-**What the model sees**: `SessionStart`, accepted prompt, and post-tool hooks can add source-attributed context messages; a blocking `Stop` hook adds its reason as next-step steering.
+#### What the model sees
 
-**Token effect**: No cost when hooks return no context. Hook text is data-dependent, logged, and resent until compaction.
+`SessionStart`, accepted prompt, and post-tool hooks can add source-attributed context messages; a blocking `Stop` hook adds its reason as next-step steering.
+
+#### Token effect
+
+No cost when hooks return no context. Hook text is data-dependent, logged, and resent until compaction.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ### Blocked prompt or tool outcome
 
-**What the model sees**: Provider-supplied reasons pass through verbatim. When absent, a blocked prompt uses exactly `blocked by UserPromptSubmit hook`, a denied tool becomes `Error: blocked by PreToolUse hook`, blocked post-tool feedback is exactly `blocked by PostToolUse hook`, and a blocking stop adds steering exactly `continue: blocked by Stop hook`. Codex `systemMessage` is not surfaced.
+#### What the model sees
 
-**Token effect**: Blocking a prompt removes its request tokens; denial or feedback adds the retained fallback or provider text; forced continuation pays another full request.
+Provider-supplied reasons pass through verbatim. When absent, a blocked prompt uses exactly `blocked by UserPromptSubmit hook`, a denied tool becomes `Error: blocked by PreToolUse hook`, blocked post-tool feedback is exactly `blocked by PostToolUse hook`, and a blocking stop adds steering exactly `continue: blocked by Stop hook`. Codex `systemMessage` is not surfaced.
+
+#### Token effect
+
+Blocking a prompt removes its request tokens; denial or feedback adds the retained fallback or provider text; forced continuation pays another full request.
+
+#### KV Cache effect
+
+A blocked prompt sends no request and invalidates nothing. Denial, feedback, and forced-continuation context append after the reusable prefix without rewriting it.
 
 ## Known Limitations and Deferred Work
 

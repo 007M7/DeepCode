@@ -37,9 +37,17 @@ Multiple `tools/execute` listeners compose by cordis registration order. Combine
 
 ### Conditional tool result
 
-**What the model sees**: This plugin adds no prompt or schema. If a declared deadline wins, it replaces the provider's outcome with `Error: tool call timed out after <ms>ms` plus structured `TOOL_TIMEOUT`; otherwise the original result passes through unchanged.
+#### What the model sees
 
-**Token effect**: Zero tokens on non-timeout calls. A timeout adds one small retained error result and can prevent a larger late provider result from entering context.
+This plugin adds no prompt or schema. If a declared deadline wins, it replaces the provider's outcome with `Error: tool call timed out after <ms>ms` plus structured `TOOL_TIMEOUT`; otherwise the original result passes through unchanged.
+
+#### Token effect
+
+Zero tokens on non-timeout calls. A timeout adds one small retained error result and can prevent a larger late provider result from entering context.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

@@ -27,7 +27,7 @@ Placement: bugs → postmortems; rationale → RFCs; procedures → cookbooks; t
 - **Document current state, not change history.** Avoid "previously/now/no longer", PRs, commits, and stack positions in durable prose; name the live mechanism. Put change stories in commits, PRs, RFCs, or postmortems.
 - **Write an RFC in the same PR for decisions a maintainer may reasonably revisit.** Mechanical or self-evident changes need none ([when to write one](rfc/README.md)).
 - **One physical line per paragraph** (`verify-md-wrap`): use editor soft-wrap. Code blocks, tables, and list structure keep their formatting; code comments stay under the linter's column limit.
-- **Fenced `ts` blocks must compile** (`doc-typecheck`); a pasted type definition is fenced ` ```ts type-equiv ` and registered in the manifest so it cannot drift ([mechanics](development.md#documenting-types-verbatim-ts-type-equiv)).
+- **Fenced `ts` blocks must compile** (`doc-typecheck`); a pasted type declaration and its original JSDoc use ` ```ts type-equiv `, while a body-stripped public class declaration uses ` ```ts public-api `; register either in the manifest so neither can drift ([mechanics](development.md#documenting-types-verbatim-ts-type-equiv)).
 - **The [core-data-structures catalog](core-data-structures/core.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types ([what counts as core](core-data-structures/core.md#what-counts-as-core)).
 - **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
 - **Comments and JSDoc state complete contracts, not reasoning transcripts.** Preserve behavior, conditions, timing, modality, exceptions, consequences, and non-obvious orientation; delete implementation narration, test walkthroughs, review analysis, and code restatement. Keep the local contract and link to its owning rationale. Use [dsh-prose-standard](../.agents/skills/dsh-prose-standard/SKILL.md) for required coverage, decision rules, and examples.
@@ -43,7 +43,7 @@ When the gate goes red:
 2. **Condense** content that belongs here but can be shorter.
 3. **Raise** the ceiling only when the words truly need the space; justify the manifest diff in the PR. A too-low ceiling is a budget bug.
 
-Ceilings are guardrails, not reduction targets. Retain at least 5% headroom; lower a ceiling only when the document's durable contract still has room, and raise it when necessary content would otherwise be deleted. Targets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file ≤ 1,250; `packages/README.md` ≤ 600. Review and the slop checklist govern unbudgeted tiers.
+Ceilings are guardrails, not reduction targets. Retain at least 5% headroom; lower a ceiling only when the document's durable contract still has room, and raise it when necessary content would otherwise be deleted. Targets: root `AGENTS.md` ≤ 1,600 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except `packages/AGENTS.md` ≤ 650 and this file ≤ 1,250; `packages/README.md` ≤ 600. Review and the slop checklist govern unbudgeted tiers.
 
 ## The slop checklist
 

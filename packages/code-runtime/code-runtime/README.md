@@ -22,6 +22,10 @@ Semantics every implementation must honor (contract details in the class JSDoc):
 
 Indirectly, through Code Mode in `dsh-tools`, which exposes `run_code` and returns program logs, values, or failures as retained tool-result tokens.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **`run()` is one-shot** — `logs` arrive only on the resolved `CodeRunResult`; the seam exposes no streaming-log or progress surface for a live program's output.

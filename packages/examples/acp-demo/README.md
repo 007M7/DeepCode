@@ -25,9 +25,12 @@ Because the package wires no logger entry, an ACP leaf has **nothing to get wron
 
 | Key | Default | Routed to |
 |---|---|---|
-| `model` | (required) | the per-session agent template the bridge creates agents from |
-| `persona` | — | the deployment persona template (may reference `{{model}}`/`{{cwd}}`), routed to `dsh-system-prompt` |
+| `provider` | (required) | the initial provider route for each per-session agent the bridge creates; ACP model selection may replace it per session |
+| `model` | (required) | the initial model for each per-session agent; ACP clients may switch among adapter-advertised models |
+| `maxParallelToolCalls` | agent-loop default | positive-integer concurrent tool-call cap shared by the bundled loop's agents; `1` is serial |
+| `persona` | — | the deployment persona template (may reference `{{provider}}`/`{{model}}`/`{{cwd}}`), routed to `dsh-system-prompt` |
 | `toolOrder` | — | explicit model-facing tool order (a name list with one `'<unlisted-tools>'` rest entry; absent — lexicographic; an unregistered name fails each turn at prompt assembly), routed to `dsh-system-prompt` |
+| `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness home exposed to model bash and used by local skill discovery |
 | `tools` | `{ mode: 'native' }` | tool-registry presentation config (`native` / `code` / `both`), routed through `dsh-agent-spine-demo` |
 | `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-spine-demo` |
 | `toolBash` | owner defaults | model-facing bash config routed through `dsh-agent-spine-demo`, including bash's producer-local `enableRunInBackground` |
@@ -51,6 +54,10 @@ All diagnostics go to **stderr** — stdout is the protocol.
 ## Model Experience
 
 Indirectly, through `dsh-agent-spine-demo` and `dsh-acp`, which compose each ACP agent's prompt, tools, and message history; this app bundle adds no model-bound content itself.
+
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

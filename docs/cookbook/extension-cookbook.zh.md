@@ -40,7 +40,7 @@ UI 插件从 `session/event` 事件流渲染（助手 token 流以 `assistant/ch
 
 ```ts
 import type { Context } from 'cordis'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 declare function render(text: string): void
 declare function onUserInput(handler: (text: string) => void): void
@@ -54,7 +54,7 @@ export function apply(ctx: Context) {
       render(event.data.chunk.text)
     }
   })
-  onUserInput(text => ctx.agents.get(AgentId('main'))?.send([{ type: 'text', text }]))
+  onUserInput(text => ctx.agents.get(SessionId('client-session'))?.send([{ type: 'text', text }]))
 }
 ```
 
@@ -87,7 +87,7 @@ export function apply(ctx: Context) {
 
 ## 可运行的组装示例
 
-三个完整示例从 `cordis.yml` 加载各自的插件树：[`examples/echo-agent`](../../examples/echo-agent)（mock 模型 + echo 工具——全 mock 骨架检查，`pnpm run demo:echo`）、[`examples/coding-agent`](../../examples/coding-agent)（DeepSeek V4 + bash 工具套件，配合终端 REPL UI，`pnpm run demo:repl`）、[`examples/acp-agent`](../../examples/acp-agent)（通过 JSON-RPC stdio 暴露为 ACP 服务器的 agent——客户端驱动形态，`pnpm run demo:acp`）。每个叶子只是其可替换后端加一个 app 包入口：stdio 演示加载 [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo)，ACP 演示加载 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，两个 app 包通过 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) bundle 共享主干。
+六个可运行叶子从 `cordis.yml` 加载各自的插件树：[`examples/echo-agent`](../../examples/echo-agent)（mock 模型 + echo 工具，`pnpm run demo:echo`）、[`examples/repl-agent`](../../examples/repl-agent)（DeepSeek V4 + coding 工具，通过面向行的 readline REPL 交互，`pnpm run demo:repl`）、[`examples/tui-agent`](../../examples/tui-agent)（通过全屏 pi-tui 复用相同的 coding 组装，`pnpm run demo:tui`）、[`examples/headless-agent`](../../examples/headless-agent)（同类能力通过单次任务和 DSH 原生输出运行，`pnpm run demo:headless -- "task"`）、[`examples/cordis-agent`](../../examples/cordis-agent)（自我检查和动态插件挂载，`pnpm run demo:cordis`）与 [`examples/acp-agent`](../../examples/acp-agent)（通过 JSON-RPC stdio 暴露的 ACP 服务器，`pnpm run demo:acp`）。终端叶子加载 [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo)，headless 叶子加载 [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo)，ACP 叶子加载 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，三个 app 包都通过 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) 共享主干。
 
 ## 功能→机制映射
 
@@ -102,7 +102,7 @@ export function apply(ctx: Context) {
 | `/loop` | 在 `turn/end` 会话事件上 `send()` 下一次迭代；或强制继续 |
 | 动态工作流 | `ctx.workflows` + worker-thread 引擎 + `workflow` 工具；结构化的进程内子任务通过作用域化的 prompt/工具注册、单调工具守卫、最终 `tools/result` 提交（包括外层 `run_code`）和终端 `agent/turn-stop` 来强制输出 |
 | 排队消息 + steering（中途引导） | 核心 `Agent.send()` / `Agent.steer()` |
-| 上下文压缩（context compaction）（自动 + 手动） | `ctx.compact` seam + 串行 `agent/pre-step` seam 上的后端（`dsh-compact-basic`）；自动 = 每步之前的 token 压力检查；手动触发调用同一个 `ctx.compact` 例程（[压缩 RFC](../rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)——面向模型的 `/compact` 消费方工具已推迟） |
+| 上下文压缩（context compaction）（自动 + 手动） | `ctx.compact` seam + `dsh-compact-basic`；自动压力检查运行在串行 `agent/post-step`，规范化溢出恢复运行在 `agent/request-error`，手动调用方使用同一个压缩服务（[压缩 RFC](../rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)——面向模型的 `/compact` 消费方工具已推迟） |
 | 系统提示词可配置性 | `ctx.systemPrompt.section()`，支持排序与作用域局部覆盖 |
 | AGENTS.md（根目录） | 一个读取该文件的 section provider |
 | AGENTS.md（子目录，按需触发）+ 文件变更通知 | 从 watcher / tool-result 监听器调用 `agent.inject()` |

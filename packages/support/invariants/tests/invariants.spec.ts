@@ -48,7 +48,7 @@ describe('session-log invariants', () => {
       session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
       session.append('step/start', { turn: 1, step: 1 })
       session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'h' } })
-      session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{}' }] }, { surfaceOp: 'append' })
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{}' }] }, { surfaceOp: 'append' })
       session.append('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'echo', arguments: '{}' })
       session.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false }, { surfaceOp: 'append' })
       session.append('step/end', { turn: 1, step: 1 })
@@ -195,7 +195,7 @@ describe('session-log invariants', () => {
     expect(() => {
       session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
       session.append('step/start', { turn: 1, step: 1 })
-      session.append('assistant/message', { turn: 1, step: 1, content: [
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [
         { type: 'tool-call', id: CallId('crashed'), name: 'bash', arguments: '{}' },
       ] }, { surfaceOp: 'append' })
       session.append('tool/result', {
@@ -251,10 +251,10 @@ describe('session-log invariants', () => {
     expect(() => {
       session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
       session.append('step/start', { turn: 1, step: 1 })
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append' })
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append' })
       session.append('step/end', { turn: 1, step: 1 })
       session.append('step/start', { turn: 1, step: 2 })
-      session.append('assistant/message', { turn: 1, step: 2, content: [] }, { surfaceOp: 'append' })
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 2, content: [] }, { surfaceOp: 'append' })
       session.append('step/end', { turn: 1, step: 2 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -316,7 +316,7 @@ describe('session-log invariants', () => {
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
-    expect(() => session.append('assistant/message', { turn: 1, step: 2, content: [] }, { surfaceOp: 'append' }))
+    expect(() => session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 2, content: [] }, { surfaceOp: 'append' }))
       .toThrow(/open is turn 1\/step 1/)
   })
 })
@@ -464,7 +464,7 @@ describe('HMR safety', () => {
   })
 })
 
-describe('surface invariants', () => {
+describe('surface contract under the invariants composition', () => {
   it('accepts well-formed surface metadata', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
@@ -473,7 +473,7 @@ describe('surface invariants', () => {
     session.append('step/start', { turn: 1, step: 1 })
     expect(() => {
       session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [1] })
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [1] })
     }).not.toThrow()
   })
 
@@ -483,17 +483,21 @@ describe('surface invariants', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] })
+    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] })
     // no throw — well-formed replace op
   })
 
-  it('rejects empty sourceEventSeqs', async () => {
+  it('accepts known-empty assistant provenance and rejects empty provenance elsewhere', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [] })
-    }).toThrow(InvariantError)
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [] })
+    }).not.toThrow()
+    expect(() => {
+      session.append('user/message', { content: [], source: { kind: 'user' } }, { surfaceOp: 'append', sourceEventSeqs: [] })
+    }).toThrow(/must not be empty except on assistant\/message/)
   })
 
   it('rejects duplicate sourceEventSeqs', async () => {
@@ -502,7 +506,7 @@ describe('surface invariants', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [1, 1] })
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [1, 1] })
     }).toThrow(/must not contain duplicates/)
   })
 
@@ -513,19 +517,20 @@ describe('surface invariants', () => {
     // The next event is seq 1. Referencing its own seq fails on "must reference
     // earlier events" (the check order is: earlier first, then unknown).
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [1] })
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [1] })
     }).toThrow(/must reference earlier/)
   })
 
   it('accepts sourceEventSeqs referencing a valid earlier event', async () => {
-    // Positive test: ref < current seq and ref is in knownSeqs → passes.
+    // Session seqs are contiguous, so every non-negative ref below the current
+    // seq necessarily names an existing earlier event.
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
     // seqs so far: 0, 1. The next event at seq 2 references seq 1 → valid.
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [1] })
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [1] })
     }).not.toThrow()
   })
 
@@ -534,25 +539,8 @@ describe('surface invariants', () => {
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [99] })
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [99] })
     }).toThrow(/must reference earlier/)
-  })
-
-  it('rejects sourceEventSeqs referencing unknown seq (gap in event log)', async () => {
-    // Create an impossible-through-public-API gap so seq 2 is earlier but unknown.
-    const { ctx } = await setup()
-    const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('step/start', { turn: 1, step: 1 })
-    ;(session as unknown as { log: unknown[] }).log.push({
-      type: 'assistant/chunk',
-      seq: 3,
-      time: Date.now(),
-      data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } },
-    })
-    expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [2] })
-    }).toThrow(/unknown seq 2/)
   })
 
   it('rejects a replace whose start is positioned after its end on the surface', async () => {
@@ -564,8 +552,8 @@ describe('surface invariants', () => {
     session.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 3
     // Reversed range: start seq 3 is at a later surface position than end seq 2.
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 3, end: 2 }, sourceEventSeqs: [2, 3] })
-    }).toThrow(/is after end seq 2 .* on the surface/)
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 3, end: 2 }, sourceEventSeqs: [2, 3] })
+    }).toThrow(/is after end seq 2/)
   })
 
   it('rejects a replace whose sourceEventSeqs omits a shadowed surface node', async () => {
@@ -577,7 +565,7 @@ describe('surface invariants', () => {
     session.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 3
     // Replace shadows surface nodes [2, 3] but records provenance for only [2].
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'sum' }] }, { surfaceOp: { op: 'replace', start: 2, end: 3 }, sourceEventSeqs: [2] })
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'sum' }] }, { surfaceOp: { op: 'replace', start: 2, end: 3 }, sourceEventSeqs: [2] })
     }).toThrow(/must include every shadowed surface node; missing 3/)
   })
 
@@ -589,7 +577,7 @@ describe('surface invariants', () => {
     session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 2
     session.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 3
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'sum' }] }, { surfaceOp: { op: 'replace', start: 2, end: 3 }, sourceEventSeqs: [2, 3] })
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'sum' }] }, { surfaceOp: { op: 'replace', start: 2, end: 3 }, sourceEventSeqs: [2, 3] })
     }).not.toThrow()
   })
 
@@ -601,8 +589,8 @@ describe('surface invariants', () => {
     session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 2
     // seq 1 (step/start) is a real earlier event but never entered the surface.
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 1, end: 2 }, sourceEventSeqs: [1, 2] })
-    }).toThrow(/start seq 1 is not on the surface/)
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 1, end: 2 }, sourceEventSeqs: [1, 2] })
+    }).toThrow(/start seq 1 not found in surface/)
   })
 
   it('rejects a replace naming an end seq that is not on the surface', async () => {
@@ -613,8 +601,8 @@ describe('surface invariants', () => {
     session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 2
     // start (2) is on the surface but end (99) never entered it.
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 99 }, sourceEventSeqs: [2] })
-    }).toThrow(/end seq 99 is not on the surface/)
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 99 }, sourceEventSeqs: [2] })
+    }).toThrow(/end seq 99 not found in surface/)
   })
 
   it('rejects a replace whose range is reversed in surface position after a prior replace reordered it', async () => {
@@ -625,13 +613,13 @@ describe('surface invariants', () => {
     session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 2
     session.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 3
     // Replace node 2 (position 0) with seq 4 — surface is now [4, 3], so seq 4
-    // precedes seq 3 in linked-list order even though 4 > 3 numerically.
-    session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 's' }] }, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] }) // seq 4
+    // precedes seq 3 in surface order even though 4 > 3 numerically.
+    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 's' }] }, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] }) // seq 4
     // A replace with start=3, end=4 passes the seq check (3 <= 4) but is
     // reversed positionally (3 is at pos 1, 4 is at pos 0).
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 3, end: 4 }, sourceEventSeqs: [3, 4] }) // seq 5
-    }).toThrow(/is after end seq 4 .* on the surface/)
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 3, end: 4 }, sourceEventSeqs: [3, 4] }) // seq 5
+    }).toThrow(/is after end seq 4/)
   })
 
   it('accepts a replace whose start seq exceeds its end seq when the surface position order is valid', async () => {
@@ -645,9 +633,9 @@ describe('surface invariants', () => {
     // head seq (4) is numerically GREATER than the tail seq (3): the surface is
     // not seq-ordered. A replace spanning start=4 (pos 0) … end=3 (pos 1) is
     // valid positionally and must be accepted even though start seq > end seq.
-    session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 's' }] }, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] }) // seq 4
+    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 's' }] }, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] }) // seq 4
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 4, end: 3 }, sourceEventSeqs: [4, 3] }) // seq 5
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 4, end: 3 }, sourceEventSeqs: [4, 3] }) // seq 5
     }).not.toThrow()
   })
 
@@ -659,7 +647,7 @@ describe('surface invariants', () => {
     session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 2
     // A replace with no sourceEventSeqs records no provenance for the node it shadows.
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 2 } })
+      session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 2 } })
     }).toThrow(/must include every shadowed surface node; missing 2/)
   })
 
@@ -670,30 +658,11 @@ describe('surface invariants', () => {
       { type: 'step/start' as const, seq: 1, time: 0, data: { turn: 1, step: 1 } },
       { type: 'user/message' as const, seq: 2, time: 0, data: { content: [{ type: 'text' as const, text: 'a' }], source: { kind: 'user' as const } }, surfaceOp: 'append' as const },
       { type: 'user/message' as const, seq: 3, time: 0, data: { content: [{ type: 'text' as const, text: 'b' }], source: { kind: 'user' as const } }, surfaceOp: 'append' as const },
-      { type: 'assistant/message' as const, seq: 4, time: 0, data: { turn: 1, step: 1, content: [{ type: 'text' as const, text: 'sum' }] }, surfaceOp: { op: 'replace' as const, start: 2, end: 3 }, sourceEventSeqs: [2] },
+      { type: 'assistant/message' as const, seq: 4, time: 0, data: { turn: 1, step: 1, content: [{ type: 'text' as const, text: 'sum' }], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: { op: 'replace' as const, start: 2, end: 3 }, sourceEventSeqs: [2] },
     ]
     expect(() => ctx.sessions.create(undefined, { seed: badSeed })).toThrow(/must include every shadowed surface node; missing 3/)
   })
 
-  it('rejects sourceEventSeqs on a non-surface event', async () => {
-    const { ctx } = await setup()
-    const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    // Session rejects this at its own acceptance boundary. Emit a hand-built
-    // record to cover the listener's defensive check for alternate producers.
-    const event = { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } }, sourceEventSeqs: [0] }
-    expect(() => { ctx.emit(scopeTarget(session, undefined), 'session/event', session, event as never) })
-      .toThrow(/cannot carry sourceEventSeqs/)
-  })
-
-  it('rejects surfaceOp on a non-surface event', async () => {
-    const { ctx } = await setup()
-    const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const event = { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } }, surfaceOp: 'append' }
-    expect(() => { ctx.emit(scopeTarget(session, undefined), 'session/event', session, event as never) })
-      .toThrow(/cannot carry surfaceOp/)
-  })
 })
 
 describe('request-reconstruction cross-check (llm/stream)', () => {
@@ -705,7 +674,7 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const boundary = session.deriveMessages()
     session.append('step/start', { turn: 1, step: 1 })
-    session.append('request/header', { header: { config: { model: 'm' } }, reason: 'initial' })
+    session.append('request/header', { header: { config: { provider: 'mock', model: 'm' } }, reason: 'initial' })
     return { ctx, session, boundary }
   }
 
@@ -735,7 +704,7 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
   it('expects the folded header\'s session prefix ahead of the derivation (prefix + derived)', async () => {
     const { ctx, session, boundary } = await requestSetup()
     const prefix = { role: 'user' as const, content: [{ type: 'text' as const, text: '<system-reminder>catalog</system-reminder>' }] }
-    session.append('request/header-delta', { messagePrefix: [prefix] })
+    session.append('request/header', { header: { config: { provider: 'mock', model: 'm' }, messagePrefix: [prefix] }, reason: 'change' })
     // The prefixed request matches the fold…
     const prefixed = Object.freeze({ model: 'm', messages: Object.freeze([prefix, ...boundary]), sessionId: session.id })
     expect(() => { dispatch(ctx, prefixed) }).not.toThrow()
@@ -804,7 +773,7 @@ describe('request cross-check ordering (prepend)', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('step/start', { turn: 1, step: 1 })
-    session.append('request/header', { header: { config: { model: 'm' } }, reason: 'initial' })
+    session.append('request/header', { header: { config: { provider: 'mock', model: 'm' } }, reason: 'initial' })
 
     const divergent = Object.freeze({
       model: 'm',
@@ -845,7 +814,7 @@ describe('scoped-dispatch invariants', () => {
       ['agent/status', [agent, 'idle']],
       ['agent/queued', [agent, [], { source: { kind: 'user' }, steering: false }]],
       ['agent/session-start', [agent, 'startup']],
-      ['agent/pre-step', [agent, 1, 1, '', new AbortController().signal]],
+      ['agent/pre-step', [agent, 1, 1, new AbortController().signal]],
       ['agent/prompt-submit', [agent, [], { kind: 'user' }, () => Promise.resolve({ kind: 'allow' })]],
       ['agent/request', [agent, 1, 1, { model: 'm' }, () => Promise.resolve({ model: 'm' })]],
       ['agent/session-prefix', [agent, [], new AbortController().signal, () => Promise.resolve([])]],

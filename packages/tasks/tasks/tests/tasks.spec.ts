@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import TaskService, { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskHooks, TaskKind, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
@@ -14,13 +14,13 @@ declare module '@deepseek-ai/dsh-tasks' {
 
 const agentScopeDisposers = new WeakMap<Agent, () => Promise<void>>()
 
-function stubAgent(ctx: Context, rawId: string, rawSessionId = `${rawId}-session`): Agent {
-  const id = AgentId(rawId)
+function stubAgent(ctx: Context, rawId: string): Agent {
+  const id = SessionId(rawId)
   const scopeFiber = ctx.plugin(() => {})
   const agent = {
     id,
     options: {},
-    session: new Session(SessionId(rawSessionId)),
+    session: new Session(id),
     status: 'idle' as const,
     ctx: scopeFiber.ctx,
     send() {},
@@ -453,11 +453,11 @@ describe('TaskService owner isolation', () => {
 
   it('rejects a stale owner instance after another agent reuses its id', async () => {
     const ctx = await harness()
-    const staleOwner = stubAgent(ctx, 'owner', 'stale-session')
+    const staleOwner = stubAgent(ctx, 'owner')
     const unregisterStale = ctx.agents.register(staleOwner)
     unregisterStale()
 
-    const currentOwner = stubAgent(ctx, 'owner', 'current-session')
+    const currentOwner = stubAgent(ctx, 'owner')
     ctx.agents.register(currentOwner)
     const current = producer({ owner: currentOwner })
     ctx.tasks.start(current.spec) // Attach the current owner's cleanup first.
@@ -467,7 +467,10 @@ describe('TaskService owner isolation', () => {
     expect(() => ctx.tasks.start({ ...stale.spec, run: staleRun }))
       .toThrow('is not the registered agent instance')
     expect(staleRun).not.toHaveBeenCalled()
-    expect(ctx.tasks.list(staleOwner)).toEqual([])
+    // Access is keyed by the unified session id, so a reconnect carrying the
+    // same identity can observe the current task even though stale ownership
+    // registration is rejected by exact-instance validation.
+    expect(ctx.tasks.list(staleOwner)).toHaveLength(1)
     expect(ctx.tasks.list(currentOwner)).toHaveLength(1)
 
     current.settle({ status: 'completed' })
@@ -524,7 +527,7 @@ describe('TaskService owner cleanup', () => {
 
   it('does not let an old scope cleanup cancel a same-id/session replacement task', async () => {
     const ctx = await harness()
-    const oldOwner = stubAgent(ctx, 'owner', 'shared-session')
+    const oldOwner = stubAgent(ctx, 'owner')
     const detachOld = ctx.agents.register(oldOwner)
     const cancels: string[] = []
 
@@ -543,7 +546,7 @@ describe('TaskService owner cleanup', () => {
 
     start(oldOwner, 'old task')
     detachOld()
-    const replacement = stubAgent(ctx, 'owner', 'shared-session')
+    const replacement = stubAgent(ctx, 'owner')
     ctx.agents.register(replacement)
     const replacementId = start(replacement, 'replacement task')
 

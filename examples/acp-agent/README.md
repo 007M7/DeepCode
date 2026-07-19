@@ -7,7 +7,7 @@ pnpm run demo:acp          # needs DEEPSEEK_API_KEY (repo-root .env or env)
 pnpm run demo:code-mode acp   # the same server in Code Mode: one wire tool, run_code
 ```
 
-The leaf config loads the ACP app, DeepSeek adapter, sandboxed bash, approval and permission services, model-facing tools, and repeat guard. The app bundles the agent spine, JSONL persistence, and bridge, creates agents on `session/new`, and keeps stdout logger-free. [`fs.cordis.yml`](fs.cordis.yml) adds the unconfined in-process filesystem stack for its dedicated scenarios; [`code-mode.cordis.yml`](code-mode.cordis.yml) adds `run_code` and its generated TypeScript SDK. See [Code Mode](../../packages/core/tools/README.md#code-mode).
+The leaf config loads the ACP app, DeepSeek adapter, sandboxed bash, approval and permission services, model-facing tools, and repeat guard. The app bundles the agent spine, JSONL persistence, and bridge, creates agents on `session/new`, and keeps stdout logger-free. [`fs.cordis.yml`](fs.cordis.yml) adds the unconfined in-process filesystem stack and local tool-result spill storage for its dedicated scenarios; [`code-mode.cordis.yml`](code-mode.cordis.yml) adds `run_code` and its generated TypeScript SDK. See [Code Mode](../../packages/core/tools/README.md#code-mode).
 
 ## stdout is the protocol
 
@@ -33,7 +33,7 @@ The editor sets each session's `cwd` to the project it opens, and bash uses that
 
 ## Snapshot tests (record-once / replay-deterministic)
 
-This example hosts the ACP snapshot suite. `dsh-llm-replay` reconstructs model streams from `assistant/chunk` events in each scenario's session JSONL, so replay is keyless. Recording runs the real agent and harvests that log; refresh keeps the committed transcript as mock input and rewrites current replay outputs. `replay.override.json` covers throw and hang cases that chunks cannot express, and an optional `workspace/` seeds files. The [snapshot RFC](../../docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md) owns the full design.
+This example hosts the ACP snapshot suite. It replays through `dsh-llm-replay`, which reconstructs model streams from `assistant/chunk` events in each scenario's session JSONL. Recording runs the real ACP agent and harvests its logs; refresh keeps the committed transcript as mock input and rewrites current replay outputs. `replay.override.json` covers throw and hang cases that chunks cannot express, and an optional `workspace/` seeds files. The [snapshot RFC](../../docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md) owns the ACP harness design.
 
 ## Permissions and sandboxing
 

@@ -6,6 +6,8 @@ The ACP provider runs each subagent in a fresh subprocess and drives it as an Ag
 
 `start(request)` performs `spawn` → ACP `initialize` → `newSession` before it fulfills. Fulfillment therefore means a remote session is ready and ownership has transferred to the caller. A spawn, initialization, new-session, or pre-publication cancellation failure rejects only after the subprocess has been reaped.
 
+The returned run id is minted in the parent namespace. The child server's session id remains private to ACP wire calls because ACP guarantees it only within that fresh child process; using it as the parent lifecycle id could collide with another remote run or a local agent.
+
 After publication, the provider sends the prompt and collects streamed `agent_message_chunk` text into `SubagentResult.output`. A prompt/transport failure resolves with `stopReason: 'error'`, or `aborted` when the required request signal or disposal requested cancellation.
 
 `dispose()` is idempotent. It removes the signal listener, requests ACP cancellation when possible, closes stdin, waits `disposeEofGraceMs`, escalates to SIGTERM, waits `disposeGraceMs`, and finally uses SIGKILL if necessary. Every run uses a fresh process; process pooling is not implemented.
@@ -61,15 +63,31 @@ Keyless tests drive a scripted ACP subprocess over real stdio. The with-key e2e 
 
 ### Child-agent request
 
-**What the model sees**: The remote child receives the standalone task content through ACP plus its own process's configured system prompt, tools, and fresh session. It receives no parent conversation. This provider advertises no optional start-time capabilities, so the local service rejects requests for persona, tool filtering, depth enforcement, or structured output instead of silently omitting them.
+#### What the model sees
 
-**Token effect**: The child pays for an independent full context and its own multi-step history. These tokens never enter the parent's context.
+The remote child receives the standalone task content through ACP plus its own process's configured system prompt, tools, and fresh session. It receives no parent conversation. This provider advertises no optional start-time capabilities, so the local service rejects requests for persona, tool filtering, depth enforcement, or structured output instead of silently omitting them.
+
+#### Token effect
+
+The child pays for an independent full context and its own multi-step history. These tokens never enter the parent's context.
+
+#### KV Cache effect
+
+Independent of the parent request cache. Each ACP child can reuse only prefixes identical under its own provider, model, composition, and history; child steps otherwise grow append-only.
 
 ### Parent tool result, indirectly
 
-**What the model sees**: Through `dsh-tool-subagent`, the parent receives only the child's final streamed assistant text or that consumer's exact stop-reason error, not intermediate messages or tool traffic. A request already cancelled before publication becomes exactly `Error: subagent request was aborted before the ACP child started`; other start failures pass through as `Error: <message>`.
+#### What the model sees
 
-**Token effect**: Parent input grows only by the final result or error, which is data-dependent and retained until compaction. This provider adds no parent schema itself.
+Through `dsh-tool-subagent`, the parent receives only the child's final streamed assistant text or that consumer's exact stop-reason error, not intermediate messages or tool traffic. A request already cancelled before publication becomes exactly `Error: subagent request was aborted before the ACP child started`; other start failures pass through as `Error: <message>`.
+
+#### Token effect
+
+Parent input grows only by the final result or error, which is data-dependent and retained until compaction. This provider adds no parent schema itself.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

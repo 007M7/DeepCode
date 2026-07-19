@@ -2,6 +2,8 @@
 
 A SQLite durable session-persistence backend — a second `SessionPersistence` implementation ([session persistence](../../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md)), built to validate that the abstract seam and the shared `runPersistenceContract` suite are genuinely backend-agnostic. It satisfies the SAME contract as `dsh-session-persistence-jsonl` (append-only, contiguous-seq, lazy materialization, interrupted-turn close on load), expressed over `node:sqlite` rows instead of file bytes.
 
+`locate(meta)` returns `undefined`: all sessions share one database, so there is no honest independent per-session transcript path.
+
 > **TODO:** this backend talks to `node:sqlite` directly. If a cordis database service (`cordis/db` / a `@cordisjs` SQL driver plugin) is adopted, route through that instead of holding a raw `DatabaseSync` here — the contract surface (`SessionPersistence`) would not change, only the storage driver.
 
 ## Storage model
@@ -9,6 +11,8 @@ A SQLite durable session-persistence backend — a second `SessionPersistence` i
 Each `SessionEvent` maps 1:1 onto a row in an `events` table `(session_id, seq, type, time, data, source_event_seqs, surface_op)` — `data` is the event payload as JSON text, so the row shape is the event verbatim (including `assistant/chunk`, keeping `seq` contiguous). The two `TEXT` columns `source_event_seqs` and `surface_op` are nullable; they store the event's optional surface-metadata fields (see [session surface](../../../docs/rfc/implemented/architecture/2026-06-18-session-surface.md)). Out-of-log metadata (`SessionHeader`) lives in a `sessions` row. A `sessions` row is written only by the first `append` — its existence is the lazy-materialization signal (`list` reports exactly the sessions that have a row), so no separate column is needed.
 
 The repository's Node range supports unflagged `node:sqlite`. The database enables foreign keys and uses the configured journal mode (`wal` by default; use a rollback mode where WAL shared-memory files are unsuitable). `PRAGMA user_version` stores the table-layout version; databases with any other version are rejected because this unreleased format has no migrations.
+
+On filesystems with POSIX modes, the backend requests mode `0700` for missing directories and exclusively creates a missing database with mode `0600` before SQLite opens it; the process umask may further restrict both. New WAL, shared-memory, and persistent rollback-journal sidecars receive the database's resulting owner-only mode. Existing directories, database files, and sidecars keep their modes; filesystem setup errors other than an existing database fail initialization. These defaults prevent incidental exposure through a permissive process umask, but do not protect database confidentiality or integrity when another principal can replace the database entry in its parent directory.
 
 ## Contract semantics over rows
 
@@ -33,9 +37,17 @@ Like the JSONL backend, the plugin also installs the `session/event` → buffer 
 
 ### Resumed conversation history
 
-**What the model sees**: SQLite storage contributes no live prompt or schema. Loading restores the same surface history as JSONL and preserves prior headers for reconstruction; the new loop composes its current envelope. Each unanswered call in interrupted rows is balanced with the exact error text `Tool call interrupted by a crash; no result was recorded.` Row metadata and raw chunks are not messages.
+#### What the model sees
 
-**Token effect**: Zero live-request tokens. Resume restores retained history and pays the current envelope, plus the quoted repair result for each interrupted call.
+SQLite storage contributes no live prompt or schema. Loading restores the same surface history as JSONL and preserves prior headers for reconstruction; the new loop composes its current envelope. Each unanswered call in interrupted rows is balanced with the exact error text `Tool call interrupted by a crash; no result was recorded.` Row metadata and raw chunks are not messages.
+
+#### Token effect
+
+Zero live-request tokens. Resume restores retained history and pays the current envelope, plus the quoted repair result for each interrupted call.
+
+#### KV Cache effect
+
+SQLite storage does not mutate live request prefixes. A resumed loop can reuse provider cache only when its reconstructed history, current envelope, and model route match; crash-repair results append.
 
 ## Known Limitations and Deferred Work
 

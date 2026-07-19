@@ -6,10 +6,11 @@
  */
 
 import type { Context } from 'cordis'
-import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
-import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
+import { isDeepStrictEqual } from 'node:util'
+import { BlockAssembler, HarnessError, assertNever, deepFreeze, isLlmAdapterFailure } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
@@ -17,27 +18,32 @@ import type { TransmissionLog } from './request-log.ts'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
-import type { ReactLoopAgent } from './agent.ts'
+import { executeToolCalls } from './tool-calls.ts'
 import type { Inbox } from './inbox.ts'
 
-/** An Error with an optional machine-readable code (e.g., from LlmError or a throwing plugin). */
-type CodedError = Error & { code?: string }
-
 /** Normalize thrown values while preserving an existing error code. */
-function toError(error: unknown): CodedError {
+function toError(error: unknown): RequestError {
   return error instanceof Error ? error : new HarnessError(String(error), 'UNKNOWN', { cause: error })
 }
 
+/** Distinguishes final model-request failures from failures in later step processing. */
+class TerminalModelRequestFailure extends Error {
+  constructor(readonly requestError: RequestError) {
+    super(requestError.message, { cause: requestError })
+    this.name = 'TerminalModelRequestFailure'
+  }
+}
+
 /** Convert terminal failure finishes into step errors; unknown extensible finishes remain successful. */
-function finishError(finish: FinishReason): CodedError | undefined {
+function finishError(finish: FinishReason): RequestError | undefined {
   switch (finish.kind) {
     case 'error': {
-      const error: CodedError = new Error(finish.message)
+      const error: RequestError = new Error(finish.message)
       if (finish.code !== undefined) error.code = finish.code
       return error
     }
     case 'aborted': {
-      const error: CodedError = new Error('model stream aborted')
+      const error: RequestError = new Error('model stream aborted')
       error.code = 'ABORTED'
       return error
     }
@@ -51,7 +57,7 @@ function finishError(finish: FinishReason): CodedError | undefined {
  * Build the `{ message, code? }` part of an error payload, omitting the
  * `code` key entirely when absent (exactOptionalPropertyTypes-correct).
  */
-function errorData(err: CodedError): { message: string; code?: string } {
+function errorData(err: RequestError): { message: string; code?: string } {
   return { message: err.message, ...typeof err.code === 'string' ? { code: err.code } : {} }
 }
 
@@ -72,6 +78,8 @@ function stepFinishReason(finish: FinishReason): TurnEndReason | undefined {
 export interface LoopHandle {
   /** Native-private agent inbox handed to the driver only at internal startup. */
   readonly inbox: Inbox
+  /** Maximum parallel-safe calls allowed in one step. */
+  readonly maxParallelToolCalls: number
   setStatus(status: 'idle' | 'running'): void
   setAbort(controller: AbortController | undefined): void
   /** Resolves when the agent is disposed — unblocks the idle wait. */
@@ -85,16 +93,23 @@ export interface LoopHandle {
   clearCancel(): void
   /** Settle idle waiters when pre-running cancellation skips a turn, without emitting `agent/status`. */
   settleIdle(): void
+  /** Run an active tool-call batch, accepting post-tool context into the FIFO drained before settlement. */
+  readonly withToolBatch: <T>(run: (acceptContext: (context: HookContext) => void) => Promise<T>) => Promise<T>
 }
 
 /**
  * Drive queued batches as durable turns until disposal. Plugin failures end the
- * current turn without terminating the driver.
- * @param ctx - the plugin context the loop reaches events (agent/…, session/flush) and services (systemPrompt, llm, tools) through.
- * @param agent - the agent this invocation drives for its whole lifetime (its inbox, session, and options).
+ * current turn without terminating the driver. The caller establishes the
+ * `ctx.agents.withInitiator()` boundary before entry; package-private
+ * orchestration recovers that exact Agent and captures its Session locally.
+ * @param ctx - the plugin context the loop reaches its initiating Agent,
+ * events (agent/…, session/flush), and services (systemPrompt, llm, tools)
+ * through.
  * @param handle - the bridge to the agent's mutable state: status/abort setters plus the disposal and cancel-marker reads.
+ * @throws when no initiating Agent is active.
  */
-export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle): Promise<void> {
+export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
+  const agent = ctx.agents.requireInitiator()
   // Per-instance prefix and request-header state; conversation history remains in the session log.
   const transmission = createTransmissionLog()
 
@@ -132,7 +147,7 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     const turn = lastTurnNumber(session) + 1
     let terminalStopped = false
     try {
-      terminalStopped = await runTurn(ctx, events, agent, handle, turn, transmission)
+      terminalStopped = await runTurn(ctx, events, handle, turn, transmission)
     } catch (error: unknown) {
       // Pre-turn failure has no durable boundary to close; report it without appending outside a turn.
       const err = toError(error)
@@ -155,9 +170,17 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
 }
 
 async function runTurn(
-  ctx: Context, events: AgentEventDispatch, agent: ReactLoopAgent, handle: LoopHandle, turn: number, transmission: TransmissionLog,
+  ctx: Context, events: AgentEventDispatch, handle: LoopHandle, turn: number, transmission: TransmissionLog,
 ): Promise<boolean> {
+  const agent = ctx.agents.requireInitiator()
   const { session } = agent
+  const drainSteering = (): boolean => {
+    const messages = handle.inbox.drainSteering()
+    for (const message of messages) {
+      session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
+    }
+    return messages.length > 0
+  }
 
   // Drain before opening the turn, but append only after `turn/start`.
   const queued = handle.inbox.drainQueued()
@@ -168,6 +191,7 @@ async function runTurn(
 
   let reason: TurnEndReason = { kind: 'completed' }
   let step = 0
+  let requestRetryAttempt = 0
   let stepOpen = false
   let errorReported = false
   let terminalStopped = false
@@ -180,7 +204,7 @@ async function runTurn(
   }
 
   // Record the durable turn failure once and contain the live error notification.
-  const failTurn = (err: CodedError): void => {
+  const failTurn = (err: RequestError): void => {
     if (errorReported) return
     errorReported = true
     reason = { kind: 'error', step, ...errorData(err) }
@@ -234,10 +258,15 @@ async function runTurn(
       // `allow.content` REPLACES the prompt bytes (a rewrite); absent keeps them.
       const content = decision.content ?? message.content
       session.append('user/message', { content, source: message.source }, { surfaceOp: 'append' })
-      // `allow.additionalContext` is a SEPARATE context/message the next request
-      // also sees. The turn is open, so inject() appends it into THIS turn.
-      if (decision.additionalContext) {
-        agent.inject(decision.additionalContext.content, { source: decision.additionalContext.source })
+      // Every `allow.additionalContexts` entry is a separate context/message the
+      // next request also sees. The turn is open, so inject() appends each one
+      // into THIS turn without flattening provenance, framing, or metadata.
+      for (const context of decision.additionalContexts ?? []) {
+        agent.inject(context.content, {
+          source: context.source,
+          ...context.envelope !== undefined ? { envelope: context.envelope } : {},
+          ...context.meta !== undefined ? { meta: context.meta } : {},
+        })
       }
     }
 
@@ -251,7 +280,7 @@ async function runTurn(
 
       // Steering from the previous round's continuation listeners joins before
       // the request.
-      drainSteering(agent, handle.inbox, turn)
+      drainSteering()
 
       // The step's AbortController exists BEFORE any async pre-step work so a
       // dispose() or cancel() — in a synchronous turn-start listener or an
@@ -261,7 +290,7 @@ async function runTurn(
       const abort = new AbortController()
       handle.setAbort(abort)
 
-      // Assemble once before pre-step so pressure checks and the request share the same prompt.
+      // Assemble once before pre-step so listener work and the request share one prompt value.
       const assembly = await ctx.systemPrompt.assemble(assembleContextFor(agent))
       const fullSystemPrompt = renderPrompt(assembly)
 
@@ -272,9 +301,9 @@ async function runTurn(
         break
       }
 
-      // Compose the request-only prefix once per loop instance before pressure
-      // checks. It precedes all derived history and is recorded only in the
-      // request header, not as session history.
+      // Compose the request-only prefix once per loop instance before the first
+      // request boundary. It precedes all derived history and is recorded only
+      // in the request header, not as session history.
       if (transmission.sessionPrefix === undefined) {
         const emptyPrefix: Message[] = deepFreeze([])
         const composed = await events.waterfall(
@@ -291,8 +320,8 @@ async function runTurn(
         transmission.sessionPrefix = deepFreeze(structuredClone(composed))
       }
 
-      // Await surface mutations outside the step; pressure checks receive the pending prefix.
-      await events.serial('agent/pre-step', turn, step, fullSystemPrompt, transmission.sessionPrefix, abort.signal)
+      // Await surface mutations outside the step before snapshotting history.
+      await events.serial('agent/pre-step', turn, step, abort.signal)
 
       // Interruption landing during the pre-step seam: do not open an empty step.
       if (handle.isCancelled() || handle.isDisposed()) {
@@ -322,14 +351,69 @@ async function runTurn(
         break
       }
 
-      let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
+      let stepOutcome:
+        | { hadToolCalls: boolean; finish: FinishReason }
+        | { requestError: RequestError }
+        | { error: RequestError }
       try {
         stepOutcome = await runStep(
-          ctx, events, agent, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
+          ctx, events, handle, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
       } catch (error: unknown) {
-        stepOutcome = { error: toError(error) }
-      } finally {
+        if (error instanceof TerminalModelRequestFailure) {
+          stepOutcome = { requestError: error.requestError }
+        } else {
+          stepOutcome = { error: toError(error) }
+        }
+      }
+
+      if ('requestError' in stepOutcome) {
+        // Recovery observes a balanced failed step and the original provider
+        // error while the failed step's signal remains the active owner.
+        closeStep()
+        if (handle.isDisposed() || abort.signal.aborted) {
+          handle.setAbort(undefined)
+          reason = handle.isDisposed()
+            ? { kind: 'disposed' }
+            : { kind: 'aborted', reason: String(abort.signal.reason) }
+          break
+        }
+
+        const defaultDecision: RequestErrorDecision = { action: 'fail' }
+        let recoveryDecision: RequestErrorDecision = defaultDecision
+        try {
+          recoveryDecision = await events.waterfall(
+            'agent/request-error', turn, step, stepOutcome.requestError,
+            requestRetryAttempt, abort.signal,
+            () => Promise.resolve(defaultDecision),
+          )
+        } catch (recoveryError: unknown) {
+          ctx.logger.warn(
+            `agent "${agent.id}": request recovery failed at turn ${turn}, step ${step}: ${toError(recoveryError).message}`,
+          )
+        }
         handle.setAbort(undefined)
+
+        // Cancellation and disposal always win over either a recovery decision
+        // or a recovery-listener failure.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        if (handle.isDisposed() || abort.signal.aborted) {
+          reason = handle.isDisposed()
+            ? { kind: 'disposed' }
+            : { kind: 'aborted', reason: String(abort.signal.reason) }
+          break
+        }
+        switch (recoveryDecision.action) {
+          case 'retry':
+            requestRetryAttempt += 1
+            continue
+          case 'fail':
+            failTurn(stepOutcome.requestError)
+            break
+          /* v8 ignore next -- closed-union exhaustiveness guard */
+          default:
+            assertNever(recoveryDecision, 'agent request-error decision')
+        }
+        break
       }
 
       if ('error' in stepOutcome) {
@@ -337,7 +421,9 @@ async function runTurn(
         // runLoop re-enqueues it as a queued message, so an abort-then-steer
         // starts a fresh turn instead of being silently consumed.
         closeStep()
+        handle.setAbort(undefined)
         const { error } = stepOutcome
+        /* v8 ignore next -- narrow race: disposal while non-request step work throws. */
         if (handle.isDisposed()) {
           reason = { kind: 'disposed' }
         } else if (abort.signal.aborted) {
@@ -349,14 +435,47 @@ async function runTurn(
         break
       }
 
+      requestRetryAttempt = 0
+
       // Preserve max-token completion unless a later disposal, abort, or error wins.
       const stepReason = stepFinishReason(stepOutcome.finish)
       if (stepReason) reason = stepReason
 
       // Steering that arrived during streaming/tool execution.
-      const steered = drainSteering(agent, handle.inbox, turn)
+      const steered = drainSteering()
+
+      try {
+        await events.serial('agent/post-step', turn, step, abort.signal)
+      } catch (error: unknown) {
+        stepOutcome = { error: toError(error) }
+      }
+
+      if ('error' in stepOutcome) {
+        closeStep()
+        handle.setAbort(undefined)
+        /* v8 ignore next -- narrow race: disposal while a post-step listener throws. */
+        if (handle.isDisposed()) {
+          reason = { kind: 'disposed' }
+        } else if (abort.signal.aborted) {
+          /* v8 ignore next -- signal.reason always set by cancellation or disposal. */
+          reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
+        } else {
+          failTurn(stepOutcome.error)
+        }
+        break
+      }
+
+      if (handle.isDisposed() || abort.signal.aborted) {
+        reason = handle.isDisposed()
+          ? { kind: 'disposed' }
+          : { kind: 'aborted', reason: String(abort.signal.reason) }
+        closeStep()
+        handle.setAbort(undefined)
+        break
+      }
 
       closeStep()
+      handle.setAbort(undefined)
 
       const defaultDecision: ContinuationDecision = { action: stepOutcome.hadToolCalls || steered ? 'continue' : 'stop' }
       let decision: ContinuationDecision
@@ -443,15 +562,6 @@ async function runTurn(
   return terminalStopped
 }
 
-/** Drain the steering queue into the session. Returns whether any arrived. */
-function drainSteering(agent: ReactLoopAgent, inbox: Inbox, turn: number): boolean {
-  const messages = inbox.drainSteering()
-  for (const message of messages) {
-    agent.session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
-  }
-  return messages.length > 0
-}
-
 /**
  * Run one committed step: transform call config, log the request header, build
  * the request from the cached prefix plus the step-boundary snapshot, stream and
@@ -461,7 +571,7 @@ function drainSteering(agent: ReactLoopAgent, inbox: Inbox, turn: number): boole
 async function runStep(
   ctx: Context,
   events: AgentEventDispatch,
-  agent: ReactLoopAgent,
+  handle: LoopHandle,
   turn: number,
   step: number,
   assembly: PromptAssembly,
@@ -470,6 +580,7 @@ async function runStep(
   transmission: TransmissionLog,
   signal: AbortSignal,
 ): Promise<{ hadToolCalls: boolean; finish: FinishReason }> {
+  const agent = ctx.agents.requireInitiator()
   const { session, options } = agent
 
   // Seed the first request from agent options and later requests from the logged header;
@@ -477,12 +588,12 @@ async function runStep(
   const seedConfig: LlmCallConfig = deepFreeze(structuredClone(transmission.loggedHeader
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- loggedHeader ⟹ a snapshot is in the log
     ? session.requestHeader()!.config
-    : { model: options.model ?? '' }))
+    : { provider: options.provider ?? '', model: options.model ?? '' }))
 
   // Listener replacements are recorded in the request header before dispatch.
   const config = await events.waterfall('agent/request', turn, step, seedConfig, () => Promise.resolve(seedConfig))
-  if (!config.model) {
-    throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
+  if (!config.provider || !config.model) {
+    throw new Error(`agent "${agent.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)
   }
 
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- runTurn composes the prefix before every runStep call
@@ -499,6 +610,7 @@ async function runStep(
 
   // Freeze the logged header plus boundary snapshot; the prefix precedes derived history.
   const request: GenerateOptions = deepFreeze({
+    provider: header.config.provider,
     model: header.config.model,
     messages: [...header.messagePrefix ?? [], ...boundaryMessages],
     ...header.system !== undefined ? { system: header.system } : {},
@@ -513,94 +625,96 @@ async function runStep(
   // --- Model call (streaming-first; raw chunks are the replay record) ---
   const assembler = new BlockAssembler()
   const chunkSeqs: number[] = []
-  for await (const chunk of ctx.llm.stream(request)) {
-    /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    const chunkEvent = session.append('assistant/chunk', { turn, step, chunk })
-    chunkSeqs.push(chunkEvent.seq)
-    assembler.push(chunk)
+  const stream = ctx.llm.stream(request)
+  try {
+    for await (const chunk of stream) {
+      /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
+      if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
+      const chunkEvent = session.append('assistant/chunk', { turn, step, chunk })
+      chunkSeqs.push(chunkEvent.seq)
+      assembler.push(chunk)
+    }
+  } catch (error: unknown) {
+    if (isLlmAdapterFailure(stream, error)) throw new TerminalModelRequestFailure(error)
+    throw error
   }
 
   // Normalize failure finish chunks into the same path as thrown stream errors.
   const stepError = finishError(assembler.finish)
-  if (stepError) throw stepError
+  if (stepError) throw new TerminalModelRequestFailure(stepError)
+
+  const recordAssistantMessage = (
+    assembledContent: ContentBlock[],
+    message: Message,
+    preserveReplayState = true,
+  ): void => {
+    session.append(
+      'assistant/message',
+      {
+        turn,
+        step,
+        content: message.content,
+        provenance: assistantProvenance(
+          header.config,
+          assembler.replayState,
+          preserveReplayState && isDeepStrictEqual(message.content, assembledContent),
+        ),
+        ...assembler.usage === undefined ? {} : { usage: assembler.usage },
+      },
+      { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
+    )
+  }
+
+  // A rejected result still records the successful provider call without retaining rejected output.
+  const processStepResult = async (assembledContent: ContentBlock[], message: Message): Promise<Message> => {
+    try {
+      return await events.waterfall(
+        'agent/step-result', turn, step, message, () => Promise.resolve(message),
+      )
+    } catch (error: unknown) {
+      recordAssistantMessage(assembledContent, { ...message, content: [] }, false)
+      throw error
+    }
+  }
 
   if (assembler.finish.kind === 'max-tokens') {
-    let message: Message = withoutToolCalls(assembler.message())
-    message = withoutToolCalls(await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message)))
+    const assembled = assembler.message()
+    const assembledContent = structuredClone(assembled.content)
+    let message: Message = withoutToolCalls(assembled)
+    message = withoutToolCalls(await processStepResult(assembledContent, message))
     // Preserve usage even when max-token truncation produced no content.
-    if (message.content.length > 0 || assembler.usage) {
-      // The finish chunk guarantees non-empty provenance here.
-      session.append(
-        'assistant/message',
-        { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
-        { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
-      )
-    }
+    recordAssistantMessage(assembledContent, message)
     return { hadToolCalls: false, finish: assembler.finish }
   }
 
   // Record the post-waterfall message that tool dispatch uses.
-  let message: Message = assembler.message()
-  message = await events.waterfall('agent/step-result', turn, step, message, () => Promise.resolve(message))
+  const assembled = assembler.message()
+  const assembledContent = structuredClone(assembled.content)
+  let message: Message = assembled
+  message = await processStepResult(assembledContent, message)
 
-  // Empty messages exist only to carry usage; omit empty provenance.
-  if (message.content.length > 0 || assembler.usage) {
-    session.append(
-      'assistant/message',
-      { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
-      { surfaceOp: 'append', ...(chunkSeqs.length > 0 ? { sourceEventSeqs: chunkSeqs } : {}) },
-    )
-  }
+  // Every successful call records its completion anchor, including explicit
+  // empty chunk provenance for a contentless, usage-less provider response.
+  recordAssistantMessage(assembledContent, message)
 
-  // Tool execution stays sequential; recheck abort around each normalized result.
+  // Dispatch may overlap; policy, durable results, and result context stay model-ordered.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
-  // Buffer context until all results are appended to preserve call/result adjacency.
-  const pendingContext: HookContext[] = []
-  for (const call of toolCalls) {
-    /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    const callEvent = session.append('tool/call', { turn, step, callId: call.id, name: call.name, arguments: call.arguments })
-    let parsedArguments: unknown
-    try {
-      parsedArguments = call.arguments ? JSON.parse(call.arguments) : {}
-    } catch {
-      parsedArguments = call.arguments
-    }
-    // TODO(pre-tool-input-rewrite): Keep logged history and live presentation aligned;
-    // see docs/rfc/proposed/feature/2026-06-30-pre-tool-input-rewrite.md.
-    const result = await ctx.tools.execute({
-      callId: call.id,
-      name: call.name,
-      arguments: parsedArguments,
-      agent,
-      signal,
-    })
-    session.append('tool/result', {
-      turn, step,
-      // Correlation comes from the immutable execution input; the result does
-      // not duplicate this authoritative transcript identity.
-      callId: call.id,
-      content: result.content,
-      isError: result.isError,
-      ...result.error ? { error: result.error } : {},
-      // Persist tool-owned presentation data for replay.
-      ...result.meta !== undefined ? { meta: result.meta } : {},
-    }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
-    if (result.additionalContext) pendingContext.push(result.additionalContext)
-    // The signal may flip while the tool is awaited.
-    /* v8 ignore start -- signal.reason default unreachable: cancel()/disposal always set it */
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    /* v8 ignore stop */
-  }
+  if (toolCalls.length === 0) return { hadToolCalls: false, finish: assembler.finish }
+  return handle.withToolBatch(async (acceptContext) => {
+    await executeToolCalls(
+      ctx, turn, step, toolCalls, signal, handle.maxParallelToolCalls, acceptContext,
+    )
+    return { hadToolCalls: true, finish: assembler.finish }
+  })
+}
 
-  // Append buffered context after the complete result batch.
-  for (const context of pendingContext) {
-    agent.inject(context.content, { source: context.source })
+/** Build durable assistant provenance, dropping replay state after any content rewrite. */
+function assistantProvenance(config: LlmCallConfig, replayState: unknown, contentUnchanged: boolean): NonNullable<Message['provenance']> {
+  return {
+    provider: config.provider,
+    model: config.model,
+    ...contentUnchanged && replayState !== undefined ? { replayState } : {},
   }
-
-  return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
 }
 
 function withoutToolCalls(message: Message): Message {

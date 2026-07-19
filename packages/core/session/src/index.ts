@@ -13,19 +13,19 @@ import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { ContextEnvelope, CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
-import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
+import { SurfaceManager } from './surface.ts'
+import type { SessionSurface } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
 
 export * from './types.ts'
 export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
 export { interruptedTurnClosers } from './repair.ts'
-export type { SurfaceFoldReplacement, SurfaceFoldResult, SurfaceNode } from './surface.ts'
+export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
 export { foldSurface, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
-export { isToolPairingBalanced } from './tool-pairing.ts'
-export { applyHeaderDelta, canonicalHeader, diffHeader, foldRequestHeader, headerEquals } from './request-header.ts'
+export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -131,46 +131,12 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
   return deepFreeze(record as unknown as SessionHeader)
 }
 
-/** Validate the runtime shape of surface metadata after its JSON snapshot. */
-function assertSurfaceMetadataShape(
-  type: string,
-  surfaceOp: unknown,
-  sourceEventSeqs: unknown,
-): void {
-  const eligible = isSurfaceEligibleType(type)
-  if (!eligible) {
-    if (surfaceOp !== undefined || sourceEventSeqs !== undefined) {
-      throw new Error(`session event "${type}" is not surface-eligible and cannot carry surface metadata`)
-    }
-    return
-  }
-  if (surfaceOp === undefined) {
-    throw new Error(`session event "${type}" is surface-eligible and requires a surfaceOp marker`)
-  }
-  if (surfaceOp !== 'append') {
-    if (surfaceOp === null || typeof surfaceOp !== 'object' || Array.isArray(surfaceOp)) {
-      throw new Error(`session event "${type}" carries an invalid surfaceOp`)
-    }
-    const op = surfaceOp as Record<string, unknown>
-    const keys = Object.keys(op)
-    if (keys.length !== 3 || !Object.hasOwn(op, 'op') || !Object.hasOwn(op, 'start') || !Object.hasOwn(op, 'end')
-      || op['op'] !== 'replace'
-      || typeof op['start'] !== 'number' || !Number.isSafeInteger(op['start']) || op['start'] < 0
-      || typeof op['end'] !== 'number' || !Number.isSafeInteger(op['end']) || op['end'] < 0) {
-      throw new Error(`session event "${type}" carries an invalid replace surfaceOp`)
-    }
-  }
-  if (sourceEventSeqs !== undefined) {
-    if (!Array.isArray(sourceEventSeqs)
-      || sourceEventSeqs.some(seq => typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0)) {
-      throw new Error(`session event "${type}" sourceEventSeqs must contain non-negative safe integers`)
-    }
-  }
-}
-
 /** Validate the fixed event envelope after one-pass JSON materialization. */
 function assertSessionEventEnvelope(value: Record<string, unknown>, index: number): asserts value is SessionEvent {
   const event = value
+  if (event['type'] === 'request/header-delta') {
+    throw new Error(`seed event at index ${index} uses unsupported legacy request/header-delta format`)
+  }
   const allowed = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
   if (Object.keys(event).some(key => !allowed.has(key))
     || !Object.hasOwn(event, 'type') || typeof event['type'] !== 'string'
@@ -180,6 +146,42 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
     || !Number.isSafeInteger(event['time']) || event['time'] < 0
     || !Object.hasOwn(event, 'data')) {
     throw new Error(`seed event at index ${index} has an invalid event envelope`)
+  }
+  assertCurrentLlmShape(event, index)
+}
+
+/** Reject pre-provider request headers and assistant messages at the seed/load boundary. */
+function assertCurrentLlmShape(event: Record<string, unknown>, index: number): void {
+  const data = event['data']
+  if (typeof data !== 'object' || data === null) return
+  const record = data as Record<string, unknown>
+  if (event['type'] === 'request/header') {
+    const header = record['header']
+    const config = typeof header === 'object' && header !== null ? (header as Record<string, unknown>)['config'] : undefined
+    if (!hasProviderModel(config)) throw new Error(`seed request/header at index ${index} lacks provider/model`)
+  }
+  if (event['type'] === 'assistant/message' && !hasProviderModel(record['provenance'])) {
+    throw new Error(`seed assistant/message at index ${index} lacks provider/model provenance`)
+  }
+}
+
+/** Whether an unknown value carries the current provider/model pair. */
+function hasProviderModel(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const pair = value as Record<string, unknown>
+  return typeof pair['provider'] === 'string' && pair['provider'].length > 0
+    && typeof pair['model'] === 'string' && pair['model'].length > 0
+}
+
+/** Reject request-header vocabulary removed with the legacy delta codec. */
+function assertSupportedRequestHeader(type: string, data: unknown, location: string): void {
+  if (type === 'request/header-delta') {
+    throw new Error(`${location} uses unsupported legacy request/header-delta format`)
+  }
+  if (type === 'request/header'
+    && data !== null && typeof data === 'object' && !Array.isArray(data)
+    && (data as Record<string, unknown>)['reason'] === 'fallback') {
+    throw new Error(`${location} uses unsupported legacy request/header reason "fallback"`)
   }
 }
 
@@ -227,6 +229,22 @@ interface SessionEntry {
 const attachments = new WeakMap<Session, SessionEntry>()
 
 /**
+ * Render one context contribution exactly as it will appear in model history.
+ * @param content - content blocks supplied by the context producer.
+ * @param source - attribution used by the canonical context envelope.
+ * @param envelope - canonical tagged framing or caller-owned raw framing.
+ * @returns a detached block list ready for the derived model transcript.
+ */
+export function renderContextContent(
+  content: ContentBlock[],
+  source: MessageSource,
+  envelope: ContextEnvelope = 'context',
+): ContentBlock[] {
+  const cloned = structuredClone(content)
+  return envelope === 'raw' ? cloned : renderTagged('context', cloned, source)
+}
+
+/**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
  *
  * Plain class (not a Service) — create instances via `ctx.sessions.create()`.
@@ -234,20 +252,12 @@ const attachments = new WeakMap<Session, SessionEntry>()
  */
 export class Session {
   private log: SessionEvent[] = []
+  /** Single incremental owner of surface acceptance and projection state. */
+  private readonly surfaceManager = new SurfaceManager(this.log)
 
-  /**
-   * Derived surface — a cached linked list of message-producing events.
-   * Lazily rebuilt from `surfaceOp` markers in the log; processes only new
-   * events (delta) on each access — the log is append-only, so prior events
-   * never change.
-   * `append`. Undefined until first accessed (including after fork/seed).
-   */
-  private _surface: SurfaceManager | undefined
-
-  /** The surface linked list over this session's event log. */
-  get surface(): SurfaceManager {
-    if (!this._surface) this._surface = new SurfaceManager(this.log)
-    return this._surface
+  /** The ordered surface over this session's event log. */
+  get surface(): SessionSurface {
+    return this.surfaceManager
   }
 
   /**
@@ -260,7 +270,12 @@ export class Session {
    */
   readonly header: SessionHeader
 
-  constructor(public readonly id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
+  /** The session identity, derived from its durable header's single copy. */
+  get id(): SessionId {
+    return this.header.id
+  }
+
+  constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
     if (seed) {
       // Validate the seed to the SAME invariants `append` enforces, so a
       // replay/fork (`ctx.sessions.create(id, { seed })`) cannot construct a
@@ -269,7 +284,7 @@ export class Session {
       // `seq = log.length` contract the whole system relies on). Without this,
       // a bad seed would surface only later as a backend rejection or a silent
       // divergence between the live log and disk.
-      this.log = Array.from(seed, (source, index) => {
+      for (const [index, source] of seed.entries()) {
         // The seed is a persistence/replay boundary: validate and detach the
         // complete event in one lossless-JSON pass.
         const snapshot = snapshotJsonValue(source)
@@ -277,23 +292,20 @@ export class Session {
           throw new Error(`seed event at index ${index} is not losslessly JSON-serializable`)
         }
         assertSessionEventEnvelope(snapshot, index)
+        assertSupportedRequestHeader(snapshot.type, snapshot.data, `seed event at index ${index}`)
         if (snapshot.seq !== index) {
           throw new Error(`seed event at index ${index} has seq ${snapshot.seq} (expected ${index}); seed must be contiguous from 0`)
         }
-        // Surface-eligible events MUST carry a surfaceOp marker — the surface is
-        // the sole source of derived history, so a marker-less message event
-        // would load fine yet vanish from deriveMessages(). `append` enforces
-        // this at compile time via its typed overload; a seed arrives as raw
-        // SessionEvent[] (replay/fork/load), bypassing that, so re-check at
-        // runtime here rather than silently resuming with empty history.
-        const structural = snapshot as SessionEvent & { surfaceOp?: unknown; sourceEventSeqs?: unknown }
+        // A seed is accepted incrementally through the same transition as a
+        // live append and a full-log fold. The candidate is planned before it
+        // enters `log`, so a failure cannot partially mutate the surface.
         try {
-          assertSurfaceMetadataShape(snapshot.type, structural.surfaceOp, structural.sourceEventSeqs)
+          this.surfaceManager.validateNext(snapshot)
         } catch (error: unknown) {
           throw new Error(`invalid seed event at index ${index}: ${error instanceof Error ? error.message : 'invalid surface metadata'}`)
         }
-        return deepFreeze(snapshot)
-      })
+        this.log.push(deepFreeze(snapshot))
+      }
     }
     this.header = snapshotSessionHeader(id, header)
   }
@@ -328,7 +340,7 @@ export class Session {
    * @param type - The event type (key of {@link SessionEventMap}).
    * @param data - The event payload; must be JSON-serializable.
    * @param opts - Surface metadata: `surfaceOp` controls how the event enters
-   *   the surface linked list; `sourceEventSeqs` records provenance (the seq
+   *   the ordered surface; `sourceEventSeqs` records provenance (the seq
    *   numbers of events this one derives from). REQUIRED for
    *   {@link SurfaceEventType} events (every message-producing event must
    *   declare how it joins the surface, the sole source of derived history) and
@@ -340,7 +352,10 @@ export class Session {
    * @throws if `data` or surface metadata is not losslessly JSON-serializable
    *   (BigInt, function, symbol, undefined, negative zero, non-finite number,
    *   circular reference, sparse array, or an exotic object such as
-   *   Map/Set/Date/class instance). One recursive pass reads, validates, and
+   *   Map/Set/Date/class instance), or when the candidate violates the
+   *   canonical surface contract (marker shape and eligibility, unique
+   *   earlier provenance, positional replacement validity, and complete
+   *   shadowed-node coverage). One recursive pass reads, validates, and
    *   copies each nested value once, so a stateful getter cannot supply one value
    *   to validation and another to storage. The event log is the durable source
    *   of truth, so a bad event fails at the append site rather than later during
@@ -362,29 +377,26 @@ export class Session {
     if (dataSnapshot === undefined) {
       throw new Error(`session event "${type}" carries non-JSON-serializable data`)
     }
+    assertSupportedRequestHeader(type, dataSnapshot, `session event "${type}"`)
     const surfaceMetadataSnapshot = snapshotJsonValue(surfaceMetadata)
     if (surfaceMetadataSnapshot === undefined) {
       throw new Error(`session event "${type}" carries non-JSON-serializable surface metadata`)
     }
-    assertSurfaceMetadataShape(
-      type,
-      (surfaceMetadataSnapshot as { surfaceOp?: unknown }).surfaceOp,
-      (surfaceMetadataSnapshot as { sourceEventSeqs?: unknown }).sourceEventSeqs,
-    )
-
     const entry = attachments.get(this)
     if (entry?.appending) {
       throw new Error('session append cannot reenter while another append is being published')
     }
+    const event = deepFreeze({
+      type,
+      seq: this.log.length,
+      time: Date.now(),
+      data: dataSnapshot,
+      ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
+    } as unknown as SessionEvent<T>)
+    this.surfaceManager.validateNext(event as SessionEvent)
+
     if (entry !== undefined) entry.appending = true
     try {
-      const event = deepFreeze({
-        type,
-        seq: this.log.length,
-        time: Date.now(),
-        data: dataSnapshot,
-        ...surfaceMetadataSnapshot,
-      } as unknown as SessionEvent<T>)
       let callbacks: SessionCallback[] | undefined
       const callbackArgs: unknown[] = [this, event]
       if (entry !== undefined) {
@@ -437,8 +449,8 @@ export class Session {
   private derivedGeneration = 0
 
   /**
-   * Derive the LLM message history by walking the session surface — the linked
-   * list of message-producing events maintained by `surfaceOp` markers. The
+   * Derive the LLM message history by walking the ordered sequences of
+   * message-producing events maintained by `surfaceOp` markers. The
    * surface is the single source of derived history: every message-producing
    * append records its `surfaceOp`, so a raw event with no marker (a chunk, a
    * turn boundary) is correctly absent, and a compaction `replace` deletes the
@@ -447,7 +459,7 @@ export class Session {
    *
    * CACHED: each surface node is projected exactly once, when first seen — a
    * call costs O(new nodes), and a surface rewrite (a `replace`;
-   * {@link SurfaceManager.replaceGeneration}) rebuilds. The returned array is
+   * {@link SessionSurface.replaceGeneration}) rebuilds. The returned array is
    * a fresh snapshot per call (later appends never grow an array a caller
    * already holds); the `Message` objects in it are SHARED and **deep-frozen**.
    * Their content reuses the already frozen durable event data, so the cache
@@ -455,18 +467,19 @@ export class Session {
    * @returns a fresh array of the shared, frozen derived history.
    */
   deriveMessages(): Message[] {
-    const nodes = this.surface.nodes
-    const generation = this.surface.replaceGeneration
+    const surface = this.surface
+    const nodes = surface.nodes
+    const generation = surface.replaceGeneration
     if (generation !== this.derivedGeneration) {
       this.derived = []
       this.derivedNodes = 0
       this.derivedGeneration = generation
     }
-    for (const node of nodes.slice(this.derivedNodes)) {
-      // Surface nodes are built from this.log — node.seq is always a valid
+    for (const seq of nodes.slice(this.derivedNodes)) {
+      // Surface sequences are built from this.log — seq is always a valid
       // index by construction. The non-null assertion expresses that invariant.
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const msg = this.deriveEventMessage(this.log[node.seq]!)
+      const msg = this.deriveEventMessage(this.log[seq]!)
       // A surface node is one of the five message-producing types, but an
       // empty-content assistant/message (a max-tokens step that hosts only
       // usage) derives to null and must not enter the transcript.
@@ -504,7 +517,7 @@ export class Session {
         // max-tokens step's usage and must not inject a content-less assistant
         // turn into the provider transcript.
         if (event.data.content.length === 0) return null
-        return { role: 'assistant', content: event.data.content }
+        return { role: 'assistant', content: event.data.content, provenance: event.data.provenance }
       }
       case 'tool/result': {
         const { callId, content, isError } = event.data
@@ -514,8 +527,8 @@ export class Session {
         }
       }
       case 'context/message': {
-        const { content, source } = event.data
-        return { role: 'user', content: renderTagged('context', content, source) }
+        const { content, source, envelope } = event.data
+        return { role: 'user', content: renderContextContent(content, source, envelope) }
       }
       case 'steering/message': {
         const { content, source } = event.data

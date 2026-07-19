@@ -16,10 +16,11 @@ Read this package for the whole plugin tree and its composition order.
 @deepseek-ai/dsh-tools            registry + guarded pre/around/post/final-result pipeline
 @deepseek-ai/dsh-skill            skill provider registry
 @deepseek-ai/dsh-skill-local      local filesystem skill provider
-@deepseek-ai/dsh-agent            agent registry + agent/* event vocabulary
+@deepseek-ai/dsh-agent            agent registry + initiator scope + agent/* events
 @deepseek-ai/dsh-tasks            generic background-task registry
 @deepseek-ai/dsh-invariants       dev-mode event-contract assertions
 @deepseek-ai/dsh-tool-bash        the model-facing bash schema
+@deepseek-ai/dsh-workspace-context  AGENTS.md/CLAUDE.md workspace context loader
 @deepseek-ai/dsh-tool-skill       session-prefix skill catalog + model-facing loader schema
 @deepseek-ai/dsh-tool-tasks       task_output/task_list/task_kill schemas + completion notices
 @deepseek-ai/dsh-agent-loop       THE concrete loop (gets the forwarded `agents`)
@@ -33,7 +34,7 @@ The spine is everything COMMON to every front door. The swappable and front-door
 - **the LLM adapter** — the bundle ships the abstract `llm` service; the leaf registers a concrete adapter on `ctx.llm` (`llm-deepseek`, `llm-pi-ai`, `llm-replay`).
 - **the bash executor** — the bundle ships `tool-bash` (the consumer schema); the leaf provides `ctx.bash` (`bash-local` or a sandboxed impl).
 - **non-local skill providers** — the bundle ships the skill registry, the local filesystem provider, and the `skill` tool; deployments can add other providers such as embedded or remote catalogs as siblings.
-- **presentation + per-app infra** — the stdio UI / ACP bridge, a console logger, `hmr`. These form the coupled "front-door cluster" that the app packages ([`dsh-stdio-demo`](../../examples/stdio-demo/README.md), [`dsh-acp-demo`](../../examples/acp-demo/README.md)) bake in. `timer` is in the spine (common to both, stdout-silent); a console logger is NOT (it writes to stdout, which the ACP bridge reserves for JSON-RPC).
+- **presentation + per-app infra** — the terminal (`dsh-tui` / `dsh-stdio`) or ACP front door and `hmr`. These form the coupled front-door cluster that the app packages ([`dsh-stdio-demo`](../../examples/stdio-demo/README.md), [`dsh-acp-demo`](../../examples/acp-demo/README.md)) bake in. `timer` is in the spine because it is common and stdout-silent; front doors own stdout and remain outside.
 
 This is the [interface/implementation/consumer seam](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md) raised to the composition level: the bundle owns the shared spine, the leaf owns the backends, the app package owns the front door.
 
@@ -41,12 +42,11 @@ This is the [interface/implementation/consumer seam](../../../docs/rfc/implement
 
 ```ts
 import type { Config } from '@deepseek-ai/dsh-agent-spine-demo'
-// { agents?, persona?, toolOrder?, tools?, skills?, toolBash?, toolTasks? }
-// The schema intersects the owner schemas,
-// so validation and defaulting can never drift from the owners.
+// { agents?, maxParallelToolCalls?, persona?, toolOrder?, tools?, dshHome?, skills?, workspaceContext, toolBash?, toolTasks? }
+// workspaceContext requires { maxBytes } or false; the other owner schemas supply defaults.
 ```
 
-The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loop` (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`) — `persona` and `toolOrder` to `dsh-system-prompt`; `tools` to the tool registry for its presentation mode; `skills.registry`, `skills.local`, and `skills.tool` to the skill registry, local provider, and model-facing consumer; and `toolBash`/`toolTasks` to the two model-facing tool plugins the bundle owns. `toolBash.enableRunInBackground` controls only the bash producer, while `toolTasks` controls generic `task_output` wait bounds; independently loaded producers keep their own config. Forwarding is exactly why the owners can live in the shared spine even though the apps disagree on what to configure.
+The bundle FORWARDS each field to the child that owns it: `agents` and `maxParallelToolCalls` to `agent-loop` (`agents` defaults to `[]`; the cap defaults there), so each app supplies its own pre-created agents — a stdio app pre-creates `main`, while the ACP app creates agents on demand at `session/new`; `persona` and `toolOrder` to `dsh-system-prompt`; `tools` to the tool registry for its presentation mode; `skills.registry`, `skills.local`, and `skills.tool` to the skill registry, local provider, and model-facing consumer; the required `workspaceContext` choice to `dsh-workspace-context` (`{ maxBytes }` enables loading and `false` disables it); and `toolBash`/`toolTasks` to the two model-facing tool plugins the bundle owns. It resolves `dshHome` once through [`@deepseek-ai/dsh-home`](../../util/home/README.md) and forwards that absolute value to tool-bash's managed environment and local skill discovery. An absent top-level `dshHome` adopts `skills.local.dshHome`; supplying both with different resolved paths fails loudly. `toolBash.enableRunInBackground` controls only the bash producer, while `toolTasks` controls generic `task_output` wait bounds; independently loaded producers keep their own config. Workspace instructions register before the skill catalog so their session-prefix message renders first. App packages use `pickSpineConfig()` to copy only these bundle-owned fields.
 
 ## Why a code bundle, not a shared YAML include
 
@@ -55,6 +55,10 @@ A YAML include can deduplicate config but cannot own a bin or provide front-door
 ## Model Experience
 
 Indirectly, through `dsh-system-prompt`, `dsh-tool-skill`, `dsh-tool-bash`, and `dsh-tools`, which this bundle mounts without adding model-bound wrapper content.
+
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

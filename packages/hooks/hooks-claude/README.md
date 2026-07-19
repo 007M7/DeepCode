@@ -35,9 +35,9 @@ The hooks **themselves** run in the agent's session workspace: for the agent-sco
 | CC hook | Harness seam | Mapping |
 |---|---|---|
 | `SessionStart` | `agent/session-start` (emit) | additionalContext → `agent.inject()` into the new session (cannot block) |
-| `UserPromptSubmit` | `agent/prompt-submit` (waterfall) | `deny` → `PromptDecision.block`; additionalContext-only → delegate via `next()` then fold context onto the downstream decision (a later listener can still block/rewrite) |
+| `UserPromptSubmit` | `agent/prompt-submit` (waterfall) | `deny` → `PromptDecision.block`; additionalContext-only → delegate via `next()` then prepend a separately sourced context to downstream `additionalContexts` (a later listener can still block/rewrite) |
 | `PreToolUse` | `tools/pre-execute` (waterfall) | `deny` → `PreToolDecision.deny`; `ask` → `PreToolDecision.ask` |
-| `PostToolUse` | `tools/post-execute` (waterfall) | `deny` → `block` with feedback; additionalContext-only → delegate via `next()` then fold context onto the downstream decision (a Code Mode sub-call’s context is dropped by the run_code bridge — see [the pipeline doc](../../../docs/tool-execution-pipeline.md)) |
+| `PostToolUse` | `tools/post-execute` (waterfall) | `deny` → `block` with feedback; additionalContext-only → delegate via `next()` then prepend a separately sourced context to the downstream decision; Code Mode defers sub-call contexts until the outer `run_code` result |
 | `Stop` | `agent/turn-continuation` (waterfall) | a blocking Stop hook forces `continue`, feeding its reason as next-step steering |
 | `SubagentStart` | `subagent/start` (emit) | additionalContext → `agent.inject()` into a live in-process child; a remote child has no local injection target |
 | `SubagentStop` | `subagent/end` (emit) | observe-only |
@@ -45,6 +45,8 @@ The hooks **themselves** run in the agent's session workspace: for the agent-sco
 The three emit points run detached — no seam awaits a `SessionStart`/`SubagentStart`/`SubagentStop` hook. Each run chain is tracked, and disposing the bridge aborts still-running hook processes, then drains the continuations before the dispose resolves (`createDetachedRuns` in `dsh-hook-protocol`).
 
 The matcher subject is the tool name (`PreToolUse`/`PostToolUse`), the session source (`SessionStart`), or a constant `agent_type` of `general-purpose` (`SubagentStart`/`SubagentStop` — the harness subagent seam carries no per-kind label, so the bridge reports Claude Code's own Task-tool default; a default/`*`/empty `agent_type` matcher fires, a specific-kind matcher does not); `UserPromptSubmit`/`Stop` ignore matchers. Multiple file-configured hooks on one point run **serially, in config order**, and fold most-restrictively (`deny > ask > allow`, see `dsh-hook-protocol`); serial keeps each hook's `hook/invoked`/`hook/result` pair adjacent in the log, and the fold is order-independent for the decision (see the RFC's "run serially, not concurrently" note).
+
+Every agent-scoped stdin payload carries `session_id` and string-shaped `transcript_path`. The bridge resolves the latter through `ctx.sessionPersistence.locate(session.header)` when available and otherwise sends `''`. Lookup does not create or flush the artifact, so a path can be absent before the first turn-end checkpoint or omit the current open turn.
 
 ## Context source
 
@@ -54,15 +56,31 @@ Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-claude' }
 
 ### Hook-provided context
 
-**What the model sees**: `SessionStart`, accepted prompt, post-tool, and live in-process subagent-start hooks can add source-attributed context messages; a blocking `Stop` hook adds its reason as next-step steering. Remote-child injection has no local target.
+#### What the model sees
 
-**Token effect**: No cost when hooks return no context. Hook text is data-dependent, logged, and resent in later conversation requests until compaction.
+`SessionStart`, accepted prompt, post-tool, and live in-process subagent-start hooks can add source-attributed context messages; a blocking `Stop` hook adds its reason as next-step steering. Remote-child injection has no local target.
+
+#### Token effect
+
+No cost when hooks return no context. Hook text is data-dependent, logged, and resent in later conversation requests until compaction.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ### Blocked prompt or tool outcome
 
-**What the model sees**: Provider-supplied reasons pass through verbatim. When absent, a blocked prompt uses exactly `blocked by UserPromptSubmit hook`, a denied tool becomes `Error: blocked by PreToolUse hook`, blocked post-tool feedback is exactly `blocked by PostToolUse hook`, and a blocking stop adds steering exactly `continue: blocked by Stop hook`. `systemMessage` and `updatedInput` are logged or warned but are not model-visible in this implementation.
+#### What the model sees
 
-**Token effect**: Blocking a prompt removes that prompt's request tokens; denial or feedback adds the retained fallback or provider text; forced continuation pays another full request.
+Provider-supplied reasons pass through verbatim. When absent, a blocked prompt uses exactly `blocked by UserPromptSubmit hook`, a denied tool becomes `Error: blocked by PreToolUse hook`, blocked post-tool feedback is exactly `blocked by PostToolUse hook`, and a blocking stop adds steering exactly `continue: blocked by Stop hook`. `systemMessage` and `updatedInput` are logged or warned but are not model-visible in this implementation.
+
+#### Token effect
+
+Blocking a prompt removes that prompt's request tokens; denial or feedback adds the retained fallback or provider text; forced continuation pays another full request.
+
+#### KV Cache effect
+
+A blocked prompt sends no request and invalidates nothing. Denial, feedback, and forced-continuation context append after the reusable prefix without rewriting it.
 
 ## Known Limitations and Deferred Work
 

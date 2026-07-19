@@ -20,7 +20,7 @@ The list is appended as a `todo/write` event carrying the full `{ todos }` snaps
 
 ### NOT a surface event
 
-`todo/write` is deliberately excluded from `SurfaceEventType`. The surface is the projection that produces the LLM message history (`deriveMessages()`); a todo write produces no conversation message. So it carries no `surfaceOp`, never joins the surface linked list, and never reaches `deriveMessages()` — it is durable, replayable *UI* state that travels alongside the conversation without being part of it. (The dev-mode invariants still require it to sit inside an open turn, which it always does: it is appended mid-step during a tool call.)
+`todo/write` is deliberately excluded from `SurfaceEventType`. The surface is the projection that produces the LLM message history (`deriveMessages()`); a todo write produces no conversation message. So it carries no `surfaceOp`, never joins the ordered surface, and never reaches `deriveMessages()` — it is durable, replayable *UI* state that travels alongside the conversation without being part of it. (The dev-mode invariants still require it to sit inside an open turn, which it always does: it is appended mid-step during a tool call.)
 
 ### Priority synthesized only at the ACP boundary
 
@@ -49,7 +49,7 @@ Four tiers, designed up front:
 - **Real-Loader path** — the plugin run through `Loader.unwrapExports`, asserting the namespace export shape survives (it HAS `inject`, so a stray default would crash at load — postmortem/0001).
 - **Full-loop integration** — a scripted mock model calls `todo_write` through the real agent loop; the `todo/write` event lands and a second call replaces it.
 - **`session/load` replay** — a persisted `todo/write` re-emits the `plan` update when a fresh ACP bridge loads the session.
-- **With-key e2e + snapshot** — a real prompt induces a `todo_write`; the snapshot golden gains the `plan` notification and the log event.
+- **With-key e2e + snapshot** — a real prompt induces a `todo_write`; the snapshot expected output gains the `plan` notification and the log event.
 
 ## Alternatives considered
 
