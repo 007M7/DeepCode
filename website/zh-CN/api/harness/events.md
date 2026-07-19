@@ -614,7 +614,7 @@ A ready child settled. Scope-filtered dispatch uses the same delegating parent c
 
 - `info` — the run identity and terminal outcome.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L112)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L138)
 
 ### subagent/provider-added
 
@@ -633,7 +633,7 @@ A provider became resolvable in the registry.
 
 - `provider` — the registered provider.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L86)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L112)
 
 ### subagent/provider-removed
 
@@ -652,7 +652,7 @@ A provider left the registry. Accepted runs remain holder-owned.
 
 - `name` — the provider name that no longer resolves.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L92)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L118)
 
 ### subagent/start
 
@@ -676,7 +676,7 @@ A provider established a ready child. For in-process providers, `ctx.agents.get(
 
 - `info` — the provider and ready child identity.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L103)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L129)
 
 ## system-prompt/*
 

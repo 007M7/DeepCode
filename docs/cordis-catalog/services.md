@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:217`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:223`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -820,7 +820,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:577`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:581`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -934,7 +934,7 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 
 Types: [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:153`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:179`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 

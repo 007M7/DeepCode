@@ -128,6 +128,10 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
     && (typeof record.seedLength !== 'number' || !Number.isSafeInteger(record.seedLength) || record.seedLength < 0)) {
     throw new Error('session header seedLength must be a non-negative safe integer')
   }
+  if (record.delegationDepth !== undefined
+    && (typeof record.delegationDepth !== 'number' || !Number.isSafeInteger(record.delegationDepth) || record.delegationDepth < 0)) {
+    throw new Error('session header delegationDepth must be a non-negative safe integer')
+  }
   return deepFreeze(record as unknown as SessionHeader)
 }
 
@@ -650,6 +654,7 @@ export class SessionStore extends Service {
       ...meta?.cwd === undefined ? {} : { cwd: meta.cwd },
       ...meta?.parentSession === undefined ? {} : { parentSession: meta.parentSession },
       ...meta?.seedLength === undefined ? {} : { seedLength: meta.seedLength },
+      ...meta?.delegationDepth === undefined ? {} : { delegationDepth: meta.delegationDepth },
     }
     return new Session(sessionId, seed, header)
   }

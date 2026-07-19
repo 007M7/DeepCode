@@ -625,6 +625,7 @@ export class AgentLoop extends Service implements AgentFactory {
           ...loaded.meta.cwd === undefined ? {} : { cwd: loaded.meta.cwd },
           ...loaded.meta.parentSession === undefined ? {} : { parentSession: loaded.meta.parentSession },
           ...loaded.meta.seedLength === undefined ? {} : { seedLength: loaded.meta.seedLength },
+          ...loaded.meta.delegationDepth === undefined ? {} : { delegationDepth: loaded.meta.delegationDepth },
         },
       })
       const agent = transaction.prepare(agentOptions, session, this.maxParallelToolCalls)

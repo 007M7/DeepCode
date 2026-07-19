@@ -542,7 +542,7 @@ A ready child settled. Scope-filtered dispatch uses the same delegating parent c
 
 Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:112`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:138`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -559,7 +559,7 @@ A provider became resolvable in the registry.
 
 Types: [SubagentProvider](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:86`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:112`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-removed` — emit
 
@@ -574,7 +574,7 @@ A provider left the registry. Accepted runs remain holder-owned.
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:92`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:118`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
@@ -596,7 +596,7 @@ A provider established a ready child. For in-process providers, `ctx.agents.get(
 
 Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:103`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:129`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 

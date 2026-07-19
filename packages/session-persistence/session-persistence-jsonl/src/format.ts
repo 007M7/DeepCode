@@ -25,6 +25,7 @@ export interface HeaderLine {
   cwd?: string
   parentSession?: SessionId
   seedLength?: number
+  delegationDepth?: number
 }
 
 /**
@@ -41,6 +42,7 @@ export function toHeaderLine(header: SessionHeader): HeaderLine {
     ...header.cwd !== undefined ? { cwd: header.cwd } : {},
     ...header.parentSession !== undefined ? { parentSession: header.parentSession } : {},
     ...header.seedLength !== undefined ? { seedLength: header.seedLength } : {},
+    ...header.delegationDepth !== undefined ? { delegationDepth: header.delegationDepth } : {},
   }
 }
 
@@ -57,6 +59,7 @@ export function fromHeaderLine(line: HeaderLine): SessionHeader {
     ...line.cwd !== undefined ? { cwd: line.cwd } : {},
     ...line.parentSession !== undefined ? { parentSession: line.parentSession } : {},
     ...line.seedLength !== undefined ? { seedLength: line.seedLength } : {},
+    ...line.delegationDepth !== undefined ? { delegationDepth: line.delegationDepth } : {},
   }
 }
 

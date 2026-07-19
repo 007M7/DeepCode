@@ -6,7 +6,7 @@
 
 Named provider registry and capability-checked start surface.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L153)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L179)
 
 ### ctx.subagents.registerProvider(provider)
 
@@ -27,7 +27,7 @@ Register a provider under its name. Registration is effect-scoped and HMR safe; 
 
 **Returns** the exact Cordis effect disposer.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L167)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L193)
 
 ### ctx.subagents.getProvider(name)
 
@@ -46,7 +46,7 @@ Look up a provider by name.
 
 **Returns** the provider, or undefined when absent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L190)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L216)
 
 ### ctx.subagents.list()
 
@@ -62,7 +62,7 @@ List registered provider names in insertion order.
 
 **Returns** the registered names.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L198)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L224)
 
 ### ctx.subagents.start(name, request)
 
@@ -86,4 +86,4 @@ Establish a ready child on the named provider. Capability and semantic checks ru
 
 **Returns** the ready holder-owned run.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L211)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/subagent/subagent/src/index.ts#L237)

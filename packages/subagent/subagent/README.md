@@ -40,6 +40,10 @@ Start-time features are advertised in `provider.capabilities` because the servic
 - `toolFilter` — apply the requested child tool restriction.
 - `persona` — apply a per-child persona.
 
+## Delegation depth
+
+The seam owns the depth vocabulary shared by implementations and consumers: the `AgentOptions.subagentDepth` declaration, `assertSubagentMaxDepth`, and `delegationDepthOf(agent)`. The persisted `SessionHeader.delegationDepth` is authoritative and monotone — runtime options may deepen the count but never lower it, so a resumed child cannot be re-counted as top-level.
+
 Runtime features are optional methods on `SubagentRun`: `sendMessage?` steers a live child, while `resume?` asynchronously creates a continuation run. Method presence is the capability check.
 
 `inheritsParentContext` is descriptive rather than enforceable. It says only whether the child sees completed parent conversation history (`fork` does; `spawn` and ACP do not), not whether it inherits tools, services, or authority.
