@@ -21,7 +21,7 @@ The exe is packaged with the **`--sea` (enhanced SEA) mode** of [@yao-pkg/pkg](h
 
 `--sea` requires target ≥ node22; the exe uniformly targets node24. One pkg invocation packages exactly one target; multi-platform builds invoke it once per platform.
 
-Terminology reminder: pkg's `/snapshot` VFS has nothing to do with this repo's testing-system "snapshot" (ACP replay goldens, `$DSH_SNAPSHOT`); this document says "VFS" for the former.
+Terminology reminder: pkg's `/snapshot` VFS has nothing to do with this repo's testing-system "snapshot" (ACP replay expected outputs, `$DSH_SNAPSHOT`); this document says "VFS" for the former.
 
 ### The serving surface is a plugin: the two packages ui/jsonrpc + examples/jsonrpc-demo
 
