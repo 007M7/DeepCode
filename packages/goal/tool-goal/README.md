@@ -10,6 +10,8 @@ The model-facing control surface for [`ctx.goals`](../goal/README.md): `get_goal
 
 All calls are exclusive, so a model-ordered batch observes earlier mutations and their new revisions. ACP and other clients receive pure generic cards: read for `get_goal`, other for mutations.
 
+A successful mutation that leaves the goal stopped contributes the existing terminal `agent/turn-stop` decision for that physical turn. A later same-turn resume clears the contribution. This avoids an extra model request after pause, block, or completion without changing ordinary loop continuation.
+
 ## Authority
 
 Execution requires the exact live `exec.agent`, its inherited `AgentRegistry` initiator, running status, and an open turn. Create, edit, pause, and resume additionally require an accepted `{ kind: 'user' }` message or steering event in a runtime-root agent's current turn. Durable fork lineage does not demote a resumed root; live subagent ownership does.

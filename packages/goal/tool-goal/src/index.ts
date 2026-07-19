@@ -6,6 +6,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
@@ -17,6 +18,7 @@ import {
   goalToolExecution,
   requireDirectHuman,
 } from './authority.ts'
+import type { GoalToolExecution } from './authority.ts'
 
 export const name = 'tool-goal'
 export const inject = ['agents', 'goals', 'tools', 'systemPrompt']
@@ -105,9 +107,28 @@ function present(title: string, kind: 'read' | 'other', rawInput?: unknown): Gen
   return { card: 'generic', title, kind, ...rawInput === undefined ? {} : { rawInput } }
 }
 
+/** Remember whether one successful mutation makes this turn terminal. */
+function observeMutation(
+  terminalTurns: WeakMap<Agent, number>,
+  execution: GoalToolExecution,
+  goal: GoalView,
+): void {
+  if (goal.phase === 'active' && goal.activation === 'armed') {
+    terminalTurns.delete(execution.agent)
+    return
+  }
+  terminalTurns.set(execution.agent, execution.start.data.turn)
+}
+
 /** Register the three Codex-shaped goal tools and their shared policy section. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
+  const terminalTurns = new WeakMap<Agent, number>()
+  ctx.on('agent/turn-stop', (agent, turn) => {
+    if (terminalTurns.get(agent) !== turn) return undefined
+    terminalTurns.delete(agent)
+    return { action: 'stop' }
+  })
   ctx.systemPrompt.section({
     name: 'tool:goal',
     order: 114,
@@ -149,6 +170,7 @@ export function apply(ctx: Context, config: Config): void {
         objective: args.objective,
         ...args.max_goal_rounds === undefined ? {} : { maxGoalRounds: args.max_goal_rounds },
       })
+      observeMutation(terminalTurns, execution, goal)
       return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
     },
     presentCall: args => present('Create goal', 'other', args.objective),
@@ -181,9 +203,11 @@ export function apply(ctx: Context, config: Config): void {
       }
       if (args.action === 'edit') {
         requireDirectHuman(ctx, execution)
+        const goal = ctx.goals.edit(execution.agent, ref, replacements)
+        observeMutation(terminalTurns, execution, goal)
         return Promise.resolve([{
           type: 'text',
-          text: renderGoal(ctx.goals.edit(execution.agent, ref, replacements)),
+          text: renderGoal(goal),
         }])
       }
       if (args.objective !== undefined || args.max_goal_rounds !== undefined) {
@@ -197,6 +221,7 @@ export function apply(ctx: Context, config: Config): void {
         const goal = args.action === 'pause'
           ? ctx.goals.pause(execution.agent, ref)
           : ctx.goals.resume(execution.agent, ref)
+        observeMutation(terminalTurns, execution, goal)
         return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
       }
       const authority = completionAuthority(ctx, execution)
@@ -211,6 +236,7 @@ export function apply(ctx: Context, config: Config): void {
       const goal = args.action === 'complete'
         ? ctx.goals.complete(execution.agent, ref)
         : ctx.goals.block(execution.agent, ref)
+      observeMutation(terminalTurns, execution, goal)
       return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
     },
     presentCall: args => present(
