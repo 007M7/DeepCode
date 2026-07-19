@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { runInNewContext } from 'node:vm'
-import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import type { AgentExecution, AgentExecutionService } from '@deepseek-ai/dsh-agent-execution'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 function execution(id: string): AgentExecution {
-  return { agent: { id: AgentId(id) } as Agent }
+  return { agent: { id: SessionId(id) } as Agent }
 }
 
 async function harness(): Promise<{

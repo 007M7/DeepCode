@@ -10,7 +10,7 @@ The session log, system-prompt assembly, tool registry, agent vocabulary, and co
 | `tools/` | Scoped tool registry + pre-policy, guards, around-dispatch, post-policy, and final-result observation | `ctx.tools` |
 | `agent/` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
 | `agent-execution/` | Process-local ambient Agent identity for asynchronous driver work | `ctx.agentExecution` |
-| `agent-loop/` | The concrete loop plugin: `ReactLoopAgent` + the loop driver | `ctx.agentLoop` |
+| `agent-loop/` | Concrete plugin implementing the public `Agent` contract and owning the loop driver | `ctx.agentLoop` |
 
 `scope/` is the one non-service package here: a dependency-free library (`createScope`/`scopeOf`/`scopeTarget`) the registries and the loop build per-agent scoping on — it sits below `session/` and `system-prompt/` in the module graph precisely so they can consume it without a cycle.
 

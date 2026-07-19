@@ -4,10 +4,14 @@ import LlmService, { CallId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from './mock-adapter.ts'
+
+function driverDone(agent: Agent): Promise<void> {
+  return (agent as Agent & { done: Promise<void> }).done
+}
 
 async function harness(adapter: MockAdapter, persona = '') {
   const ctx = new Context()
@@ -27,7 +31,7 @@ async function harness(adapter: MockAdapter, persona = '') {
  * invoke this right after send(), when the loop hasn't woken yet (status is
  * still 'idle' synchronously), so polling the current status would lie.
  */
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -38,7 +42,7 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function send(agent: ReactLoopAgent, text: string) {
+function send(agent: Agent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
@@ -46,7 +50,7 @@ describe('agent loop', () => {
   it('runs a simple turn: queued message → model → idle, with ordered events', async () => {
     const adapter = new MockAdapter([textResponse('hello there')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     // All boundaries — turn and step — are durable session events on the
     // session/event feed (no agent/* mirror). Record them in fire order to
@@ -94,7 +98,7 @@ describe('agent loop', () => {
         return [{ type: 'text', text: `echo: ${args.text}` }]
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'use the tool')
     await waitForIdle(ctx, agent)
@@ -133,7 +137,7 @@ describe('agent loop', () => {
         return { content: [{ type: 'text', text: 'ok' }], meta: { diffs: [{ path: 'a.txt', oldText: null, newText: 'x' }] } }
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'use the tool')
     await waitForIdle(ctx, agent)
@@ -157,7 +161,7 @@ describe('agent loop', () => {
         return []
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
@@ -171,13 +175,12 @@ describe('agent loop', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter, 'Working in {{cwd}}.')
     const handle = await ctx.agents.create({
-      agentId: AgentId('a-cwd'),
       sessionId: SessionId('s-cwd'),
       meta: { cwd: '/work/space' },
       agentOptions: { provider: 'mock', model: 'mock' },
     })
 
-    const agent = handle.agent as ReactLoopAgent
+    const agent = handle.agent
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
@@ -190,7 +193,7 @@ describe('agent loop', () => {
     const ctx = await harness(adapter, 'In {{cwd}}.')
     const errors: Error[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
@@ -232,7 +235,7 @@ describe('agent loop', () => {
     ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => {
       return { ...config, provider: 'mock', model: 'mock' }
     })
-    const agent = ctx.agentLoop.create(AgentId('a-late-model'), {})
+    const agent = ctx.agentLoop.create(SessionId('a-late-model'), {})
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
@@ -258,7 +261,7 @@ describe('agent loop', () => {
       parameters: {},
       execute: () => Promise.resolve({ content: [{ type: 'text' as const, text: 'apparent success' }], meta }),
     }))
-    const agent = ctx.agentLoop.create(AgentId('bad-meta-agent'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('bad-meta-agent'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'use the tool')
     await waitForIdle(ctx, agent)
@@ -287,7 +290,7 @@ describe('agent loop', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     ctx.on('system-prompt/assemble', async () => ({ sections: [], tools: [], variables: {} }))
-    const agent = ctx.agentLoop.create(AgentId('a-no-system'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-no-system'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
@@ -299,7 +302,7 @@ describe('agent loop', () => {
   it('records raw chunks for replay as assistant/chunk session events', async () => {
     const adapter = new MockAdapter([textResponse('abc')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
@@ -323,7 +326,7 @@ describe('agent loop', () => {
     ])
     const ctx = await harness(adapter)
 
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     ctx.tools.register(defineTool({
       name: 'slow',
       description: '',
@@ -355,7 +358,7 @@ describe('agent loop', () => {
   it('steering while idle behaves like send (starts a turn)', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     agent.steer([{ type: 'text', text: 'hello' }])
     await waitForIdle(ctx, agent)
@@ -365,7 +368,7 @@ describe('agent loop', () => {
   it('inject() while idle wraps context in a one-shot turn, visible to the next request', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     agent.inject([{ type: 'text', text: 'file changed: a.ts' }], { source: { kind: 'plugin', plugin: 'watcher' } })
     // The idle inject records a self-contained turn (turn/start → context/message
@@ -389,7 +392,7 @@ describe('agent loop', () => {
   it('inject() can persist raw structured context without the generic context envelope', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('raw-context'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('raw-context'), { provider: 'mock', model: 'mock' })
     const text = '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>'
     const meta = {
       kind: 'workspace-instructions',
@@ -418,7 +421,7 @@ describe('agent loop', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     let visibleDuringTool = false
     const meta = { kind: 'deferred-test', version: 1 }
     ctx.tools.register(defineTool({
@@ -484,7 +487,7 @@ describe('agent loop', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('invalid-context'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('invalid-context'), { provider: 'mock', model: 'mock' })
     ctx.tools.register(defineTool({
       name: 'invalid-injector',
       description: 'attempts an invalid context injection',
@@ -514,7 +517,7 @@ describe('agent loop', () => {
       textResponse('step 3'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let steps = 0
     ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
@@ -540,7 +543,7 @@ describe('agent loop', () => {
         return [{ type: 'text', text: String(args.text) }]
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/turn-continuation', async () => ({ action: 'stop' }) as const)
 
@@ -555,7 +558,7 @@ describe('agent loop', () => {
   it('agent/request waterfall switches models by returning a replacement config; the switch is logged', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => {
       // The seed is frozen — config is not a mutable per-call knob; a switch
@@ -588,7 +591,7 @@ describe('agent loop', () => {
       name: 'echo', description: 'echo', parameters: {},
       async execute() { return [{ type: 'text', text: 'echoed' }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const fires: { turn: number; step: number; fullSystemPrompt: string }[] = []
     ctx.on('agent/pre-step', (subject, turn, step, fullSystemPrompt) => {
@@ -612,7 +615,7 @@ describe('agent loop', () => {
     // same step's request must include it.
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let injected = false
     ctx.on('agent/pre-step', (subject) => {
@@ -646,7 +649,7 @@ describe('agent loop', () => {
     // closing, the turn records error, and the loop remains available.
     const adapter = new MockAdapter([textResponse('second turn ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let throwOnce = true
     ctx.on('agent/pre-step', () => {
@@ -680,7 +683,7 @@ describe('agent loop', () => {
   it('cancel() mid-stream ends the turn with reason aborted', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
@@ -700,7 +703,7 @@ describe('agent loop', () => {
     // turn stops by default and ends max-tokens, not completed.
     const adapter = new MockAdapter([maxTokensResponse('truncat')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
@@ -723,7 +726,7 @@ describe('agent loop', () => {
       textResponse('second half'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let steps = 0
     ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
@@ -754,7 +757,7 @@ describe('agent loop', () => {
     // stop. The per-turn reason must be independent — turn 2 ends completed.
     const adapter = new MockAdapter([maxTokensResponse('cut'), textResponse('clean')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
@@ -787,7 +790,7 @@ describe('agent loop', () => {
         return [{ type: 'text', text: 'should not run' }]
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
@@ -824,7 +827,7 @@ describe('agent loop', () => {
       parameters: { text: { type: 'string' } },
       async execute() { return [{ type: 'text', text: 'should not run' }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
@@ -849,7 +852,7 @@ describe('agent loop', () => {
     // a durable successful-call boundary for replay consumers.
     const adapter = new MockAdapter([[{ type: 'finish', reason: { kind: 'stop' } }]])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
@@ -886,7 +889,7 @@ describe('agent loop', () => {
       expect(message.content).toEqual([{ type: 'text', text: 'partial text' }])
       return next()
     })
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -913,7 +916,7 @@ describe('agent loop', () => {
         return [{ type: 'text', text: String(args.text) }]
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     let threw = false
     // Post-commit session observers cannot control the loop. The tool call still
     // drives the second model request, and the turn completes normally.
@@ -932,7 +935,7 @@ describe('agent loop', () => {
   it('chains queued messages into consecutive turns', async () => {
     const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const turns: number[] = []
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/start') turns.push(event.data.turn) })
@@ -957,7 +960,7 @@ describe('agent loop', () => {
   it('awaits session/flush at turn end (persistence checkpoint)', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let flushed = 0
     let flushedBeforeIdle = false
@@ -977,7 +980,7 @@ describe('agent loop', () => {
   it('errors from the model surface as agent/error and end the turn', async () => {
     const adapter = new MockAdapter([]) // script exhausted → throws
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const errors: Error[] = []
     const reasons: TurnEndReason[] = []
@@ -1000,21 +1003,21 @@ describe('agent loop', () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(AgentId('scoped'), { provider: 'mock', model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
-    expect(ctx.agents.get(AgentId('scoped'))).toBe(agent)
+    expect(ctx.agents.get(SessionId('scoped'))).toBe(agent)
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')
 
     await fiber.dispose()
-    await agent.done
+    await driverDone(agent)
 
     expect(agent.status).toBe('disposed')
-    expect(ctx.agents.get(AgentId('scoped'))).toBeUndefined()
+    expect(ctx.agents.get(SessionId('scoped'))).toBeUndefined()
     expect(() => { send(agent, 'too late') }).toThrow('disposed')
   })
 
@@ -1028,13 +1031,14 @@ describe('agent loop', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(AgentLoop, {
-      agents: [{ id: AgentId('config-agent'), provider: 'mock', model: 'mock' }],
+      agents: [{ id: SessionId('config-agent'), provider: 'mock', model: 'mock' }],
     })
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    const agent = ctx.agents.get(AgentId('config-agent'))! as ReactLoopAgent
+    const agent = ctx.agents.list()[0]!
     expect(agent).toBeDefined()
-    expect(agent.id).toBe('config-agent')
+    expect(agent.id).toBe(agent.session.id)
+    expect(agent.id).toMatch(/^config-agent-session-/)
     expect(agent.options.model).toBe('mock')
 
     // the agent is alive: send triggers a turn
@@ -1052,10 +1056,10 @@ describe('agent loop', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentExecutionProvider)
     await ctx.plugin(AgentLoop, {
-      agents: [{ id: AgentId('config-agent'), provider: 'mock', model: 'mock', cwd: '/work/project' }],
+      agents: [{ id: SessionId('config-agent'), provider: 'mock', model: 'mock', cwd: '/work/project' }],
     })
 
-    const agent = ctx.agents.get(AgentId('config-agent'))! as ReactLoopAgent
+    const agent = ctx.agents.list()[0]!
     expect(agent.session.header.cwd).toBe('/work/project')
   })
 
@@ -1073,7 +1077,7 @@ describe('agent loop', () => {
         return [{ type: 'text', text: String(args.text) }]
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     send(agent, 'run')
     await waitForIdle(ctx, agent)
 

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore, { type TurnEndReason } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId, type ContinuationStop } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type ContinuationStop } from '@deepseek-ai/dsh-agent'
 import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
-import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
@@ -24,7 +24,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
   return ctx
 }
 
-function send(agent: ReactLoopAgent, text = 'go'): Promise<void> {
+function send(agent: Agent, text = 'go'): Promise<void> {
   agent.send([{ type: 'text', text }])
   return agent.whenIdle()
 }
@@ -47,7 +47,7 @@ describe('agent/turn-stop', () => {
       textResponse('must not be requested'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('terminal-steering'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('terminal-steering'), { provider: 'mock', model: 'mock' })
     agent.ctx.on('agent/turn-stop', (): ContinuationStop => ({ action: 'stop' }))
 
     let steered = false
@@ -74,7 +74,7 @@ describe('agent/turn-stop', () => {
       textResponse('must not become a late-steering turn'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('terminal-flush-steering'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('terminal-flush-steering'), { provider: 'mock', model: 'mock' })
     agent.ctx.on('agent/turn-stop', (): ContinuationStop => ({ action: 'stop' }))
 
     let injected = false
@@ -100,7 +100,7 @@ describe('agent/turn-stop', () => {
       textResponse('queued follow-up answer'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('terminal-flush-send'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('terminal-flush-send'), { provider: 'mock', model: 'mock' })
     agent.ctx.on('agent/turn-stop', (): ContinuationStop => ({ action: 'stop' }))
 
     let queued = false
@@ -126,8 +126,8 @@ describe('agent/turn-stop', () => {
     ])
     const ctx = await harness(adapter)
     registerEcho(ctx)
-    const stopped = ctx.agentLoop.create(AgentId('stopped'), { provider: 'mock', model: 'mock' })
-    const ordinary = ctx.agentLoop.create(AgentId('ordinary'), { provider: 'mock', model: 'mock' })
+    const stopped = ctx.agentLoop.create(SessionId('stopped'), { provider: 'mock', model: 'mock' })
+    const ordinary = ctx.agentLoop.create(SessionId('ordinary'), { provider: 'mock', model: 'mock' })
     stopped.ctx.on('agent/turn-stop', (): ContinuationStop => ({ action: 'stop' }))
 
     await send(stopped)
@@ -147,7 +147,7 @@ describe('agent/turn-stop', () => {
     ])
     const ctx = await harness(adapter)
     registerEcho(ctx)
-    const agent = ctx.agentLoop.create(AgentId('owned-listener'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('owned-listener'), { provider: 'mock', model: 'mock' })
     const disposeStop = agent.ctx.on('agent/turn-stop', (): ContinuationStop => ({ action: 'stop' }))
 
     await send(agent, 'first turn')
@@ -164,7 +164,7 @@ describe('agent/turn-stop', () => {
       textResponse('healthy later turn'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('bad-policy'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('bad-policy'), { provider: 'mock', model: 'mock' })
     const reasons: TurnEndReason[] = []
     const errors: string[] = []
     ctx.on('session/event', (session, event) => {

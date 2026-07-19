@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Context, FiberState, type Fiber } from 'cordis'
-import AgentRegistry, { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import type { AgentExecutionService } from '@deepseek-ai/dsh-agent-execution'
-import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LlmService, { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -30,7 +30,7 @@ async function harness(adapter: LlmAdapter): Promise<Harness> {
   return { ctx, providerFiber, loopFiber }
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent | Agent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -129,8 +129,8 @@ describe('AgentLoop execution context', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    const a = ctx.agentLoop.create(AgentId('a'), { provider: 'mock', model: 'mock' })
-    const b = ctx.agentLoop.create(AgentId('b'), { provider: 'mock', model: 'mock' })
+    const a = ctx.agentLoop.create(SessionId('a'), { provider: 'mock', model: 'mock' })
+    const b = ctx.agentLoop.create(SessionId('b'), { provider: 'mock', model: 'mock' })
     const idleA = waitForIdle(ctx, a)
     const idleB = waitForIdle(ctx, b)
     send(a, 'a')
@@ -167,7 +167,6 @@ describe('AgentLoop execution context', () => {
       execute: async (_args, exec) => {
         if (exec.agent === undefined) throw new Error('parent agent missing')
         const handle = await exec.agent.ctx.agents.create({
-          agentId: AgentId('child'),
           sessionId: SessionId('child-session'),
           agentOptions: { provider: 'mock', model: 'mock' },
           setup: (agentCtx) => {
@@ -195,7 +194,6 @@ describe('AgentLoop execution context', () => {
     }))
 
     const parentHandle = await ctx.agents.create({
-      agentId: AgentId('parent'),
       sessionId: SessionId('parent-session'),
       agentOptions: { provider: 'mock', model: 'mock' },
     })
@@ -253,7 +251,6 @@ describe('AgentLoop execution context', () => {
     expect(directAmbient).toBeUndefined()
 
     const handle = await ctx.agents.create({
-      agentId: AgentId('transport'),
       sessionId: SessionId('transport-session'),
       agentOptions: { provider: 'mock', model: 'mock' },
     })
@@ -312,7 +309,6 @@ describe('AgentLoop execution context', () => {
     const oldService = ctx.agentExecution
     adapter.execution = oldService
     const oldHandle = await ctx.agents.create({
-      agentId: AgentId('before-restart'),
       sessionId: SessionId('before-restart-session'),
       agentOptions: { provider: 'mock', model: 'mock' },
     })
@@ -330,7 +326,6 @@ describe('AgentLoop execution context', () => {
     adapter.execution = ctx.agentExecution
 
     const newHandle = await ctx.agents.create({
-      agentId: AgentId('after-restart'),
       sessionId: SessionId('after-restart-session'),
       agentOptions: { provider: 'mock', model: 'mock' },
     })
@@ -357,7 +352,6 @@ describe('AgentLoop execution context', () => {
     const service = ctx.agentExecution
     adapter.execution = service
     const handle = await ctx.agents.create({
-      agentId: AgentId('root-dispose'),
       sessionId: SessionId('root-dispose-session'),
       agentOptions: { provider: 'mock', model: 'mock' },
     })

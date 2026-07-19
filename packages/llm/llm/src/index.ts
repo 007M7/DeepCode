@@ -43,12 +43,10 @@ declare module 'cordis' {
 
 /**
  * Typed error for LLM-related failures. Extends {@link HarnessError}, so the
- * `code` string (e.g. `AUTH`, `RATE_LIMIT`, `NO_ADAPTER`) is shared taxonomy;
- * `status` carries the HTTP status when the error originated from a non-2xx
- * provider response (absent for protocol/usage errors that have no HTTP status).
+ * `code` string (e.g. `AUTH`, `RATE_LIMIT`, `NO_ADAPTER`) is shared taxonomy.
  */
 export class LlmError extends HarnessError {
-  constructor(message: string, code: string, public status?: number, options?: ErrorOptions) {
+  constructor(message: string, code: string, options?: ErrorOptions) {
     super(message, code, options)
     this.name = 'LlmError'
   }

@@ -29,7 +29,7 @@ function permissionOption(currentValue: string): object {
   return {
     id: 'permission',
     name: 'Permissions',
-    description: 'Sets this session\'s sandbox and approval behavior.',
+    description: 'The session permission preset: each choice bundles a sandbox mode and an approval policy.',
     category: 'mode',
     type: 'select',
     currentValue,

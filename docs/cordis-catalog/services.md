@@ -25,15 +25,17 @@ Source: [`packages/core/agent-execution/src/index.ts:18`](../../packages/core/ag
 
 ## `ctx.agentLoop` — `AgentLoop`
 
-Concrete ReactLoopAgent factory and driver service.
+Concrete agent factory and driver service.
 
 ```ts cordis-catalog
-create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent
+create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): Agent
 async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>
 async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:353`](../../packages/core/agent-loop/src/index.ts)
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/core/agent-loop/src/index.ts:408`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -44,15 +46,17 @@ setFactory(factory: AgentFactory): () => void
 async create(options: CreateAgentOptions): Promise<AgentHandle>
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 register(agent: Agent): () => void
-enter(agent: Agent): () => void
+enter(agent: Agent, owner: Agent | undefined): () => void
 announce(agent: Agent): void
-get(id: AgentId): Agent | undefined
+get(id: SessionId): Agent | undefined
+isOwnedBy(id: SessionId, owner: Agent): boolean
 list(): Agent[]
+roots(): Agent[]
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:133`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:201`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -119,7 +123,7 @@ Abstract compaction service. Implementations own trigger policy, retention, and 
 
 ```ts cordis-catalog
 abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>
-abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
+abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
 Types: [Message](../core-data-structures/core.md)
@@ -158,7 +162,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:96`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:94`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -234,7 +238,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:580`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:585`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -276,7 +280,7 @@ list(): string[]
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:141`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:153`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
