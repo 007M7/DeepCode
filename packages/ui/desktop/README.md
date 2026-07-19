@@ -175,15 +175,31 @@ Start with a desktop package that defines shared UI contracts, then build the El
 
 ### Composer prompt
 
-**What the model sees**: The desktop composer sends the user's text to the managed ACP runtime as the `session/prompt` content. This package adds no extra system prompt, steering prose, or tool definition of its own.
+#### What the model sees
 
-**Token effect**: User-message tokens are data-dependent and then follow the active runtime's normal session-retention and compaction behavior. Electron shell chrome, inspector state, and the language toggle add zero model-context tokens.
+The desktop composer sends the user's text to the managed ACP runtime as the `session/prompt` content. This package adds no extra system prompt, steering prose, or tool definition of its own.
+
+#### Token effect
+
+User-message tokens are data-dependent and then follow the active runtime's normal session-retention and compaction behavior. Electron shell chrome, inspector state, and the language toggle add zero model-context tokens.
+
+#### KV Cache effect
+
+None of its own: prompts append after the runtime's existing prefix, so cache reuse follows the active runtime's retention and compaction behavior unchanged.
 
 ### Runtime context evidence
 
-**What the model sees**: The visible system prompt, steering messages, tool set, message prefix, and config come from the active `cordis.yml` composition and its plugins. The desktop app only reads those emitted facts from ACP updates and persisted JSONL for inspection.
+#### What the model sees
 
-**Token effect**: No additional tokens are introduced by viewing `Chat`, `Trajectory`, `Waterfall`, or `Develop`. The displayed `request/header`, `context/message`, and `steering/message` data reflect tokens the runtime already assembled for the model.
+The visible system prompt, steering messages, tool set, message prefix, and config come from the active `cordis.yml` composition and its plugins. The desktop app only reads those emitted facts from ACP updates and persisted JSONL for inspection.
+
+#### Token effect
+
+No additional tokens are introduced by viewing `Chat`, `Trajectory`, `Waterfall`, or `Develop`. The displayed `request/header`, `context/message`, and `steering/message` data reflect tokens the runtime already assembled for the model.
+
+#### KV Cache effect
+
+None: inspection reads emitted facts without touching the request prefix, so it can neither preserve nor invalidate the runtime's cache reuse.
 
 ## Known Limitations and Deferred Work
 
