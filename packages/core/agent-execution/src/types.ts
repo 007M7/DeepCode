@@ -6,7 +6,7 @@
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
-/** The exact live Agent associated with one asynchronous execution chain. */
+/** The exact Agent associated with one asynchronous execution chain. */
 export interface AgentExecution {
   readonly agent: Agent
 }

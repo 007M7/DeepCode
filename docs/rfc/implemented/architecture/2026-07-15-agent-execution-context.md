@@ -8,63 +8,41 @@ English | [中文](2026-07-15-agent-execution-context.zh.md)
 
 The harness has two useful but different notions of context. A Cordis `Context` selects services, registration ownership, and lifetime; `agent.ctx` is the flat registration scope owned by one live Agent. Agent and Session identity instead describe the subject of an asynchronous operation. Changing a root `ctx.agent` to mean “whichever Agent is running” would conflate those meanings and fail when one process drives Agents concurrently.
 
-Deep process-local infrastructure still needs a trusted initiating Agent. Capability transports, tracing helpers, loggers, and gateway clients may sit below the explicit loop, tool, and request parameters. Threading `agent` through every private helper adds plumbing, while a process-global mutable slot is incorrect across `await`. Model-visible arguments are also unsuitable because a model must not choose a trusted Session or routing header. This is mandatory control infrastructure rather than optional model-visible context enrichment.
+Deep process-local infrastructure sometimes needs a trusted initiating Agent below explicit loop, tool, and request parameters—for example, a host-aware transport, tracing helper, logger, or gateway client. Requiring every private helper to forward `agent` adds repetition, while a process-global mutable slot is incorrect across `await`. Model-visible arguments are unsuitable because a model must not choose a trusted Session or routing header. The carrier is mandatory control infrastructure rather than optional model-visible context.
 
 ## Decision
 
-`@deepseek-ai/dsh-agent-execution` provides the mandatory `ctx.agentExecution` service using Node `AsyncLocalStorage`. The frame contains only the exact live Agent:
+`@deepseek-ai/dsh-agent-execution` provides the mandatory `ctx.agentExecution` service using Node `AsyncLocalStorage`. The named `AgentExecution` frame contains only the exact Agent object; the [core-data catalog](../../../core-data-structures/core.md#agent-execution-context) owns the literal frame and service types.
 
-```text
-export interface AgentExecution {
-  readonly agent: Agent
-}
+`current()` reads optionally, `require()` throws `no agent execution context is active`, and `run()` preserves the operation's exact synchronous value or Promise. `run(undefined, operation)` establishes a clearing boundary for work that must not inherit an Agent. Session remains derived as `execution.agent.session`; turn, step, tool call, `signal`, model, `cwd`, sandbox, and authorization stay with their existing owners.
 
-export interface AgentExecutionService {
-  current(): AgentExecution | undefined
-  require(): AgentExecution
-  run<T>(execution: AgentExecution | undefined, operation: () => T): T
-}
-```
+`AgentLoop` injects the service and wraps each concrete driver's complete `runLoop` lifetime in `agentExecution.run({ agent }, ...)`. Concurrent drivers therefore receive independent stores, a child driver shadows its parent, and the parent store returns when the child boundary settles. Creation, persistence load, and unpublished `setup(agentCtx)` remain outside the child's driver boundary: creation initiated by a parent runs under the parent identity, while `agentCtx.agent` explicitly identifies the child.
 
-`current()` is optional, `require()` throws `no agent execution context is active`, and `run()` preserves the operation's exact synchronous value or Promise. `run(undefined, operation)` establishes a real clearing boundary for work that must not inherit an Agent. A comparable implementation observed an uncleared ambient value crossing scheduled work into a later turn; the explicit undefined boundary prevents that class of leak. Session remains derived as `execution.agent.session`; turn, step, tool call, signal, model, cwd, sandbox, and authorization stay with their existing owners.
-
-`AgentLoop` injects the service and wraps each concrete driver's complete `runLoop` lifetime in `agentExecution.run({ agent }, ...)`. Concurrent drivers therefore receive independent stores, a child driver shadows its parent, and the parent store returns when the child boundary settles. Creation, persistence load, and unpublished `setup(agentCtx)` remain outside the child's boundary: creation initiated by a parent runs under the parent identity, while `agentCtx.agent` explicitly identifies the child.
-
-Ambient identity does not replace explicit contracts. `ToolExecution.agent`, `AssembleContext.agent`, `GenerateOptions.sessionId`, task ownership, parent/child requests, `ctx.agent`, `agentCtx.agent`, approval and hook subjects, cwd selection, cancellation, worker/process messages, persistence records, and wire identity remain explicit. A remote boundary materializes the identity it needs into its typed request because ALS is process-local.
+Ambient identity does not replace explicit contracts. `ToolExecution.agent`, `AssembleContext.agent`, `GenerateOptions.sessionId`, task ownership, parent/child requests, `ctx.agent`, `agentCtx.agent`, approval and hook subjects, `cwd` selection, cancellation, worker/process messages, persistence records, and wire identity remain explicit. A remote boundary materializes the identity it needs into its typed request because ALS is process-local.
 
 The provider uses an ordered composite effect. Teardown first rejects new boundaries, then removes the service and awaits injected dependents such as AgentLoop, then waits for active returned-Promise boundaries before calling `AsyncLocalStorage.disable()`. `current()` and `require()` remain usable through a retained in-flight service reference while that drain runs; after disposal, retained calls throw `agent execution service is disposed`. Root Context disposal may start sibling fiber teardown concurrently, so active-boundary counting is required in addition to Cordis dependency ordering.
 
-Asynchronous resources created inside `run()` inherit its store even when the returned operation does not await them. Agent-owned foreground work may inherit `{ agent }` but keeps the explicit cancellation and disposal contract of its execution seam. Unrelated timers, queues, and deployment infrastructure start under `run(undefined, operation)` and own an explicit stop. Queue, worker, process, and wire boundaries serialize identity rather than expecting ALS propagation.
+`run()` does not own detached work: provider drain tracks only the Promise returned by `operation`. Asynchronous resources created inside the boundary inherit its store until they settle or ALS is disabled, so their owning seam must stop unreturned work explicitly. Agent-owned foreground work returns its lifetime and keeps its cancellation contract. Unrelated timers, queues, and deployment infrastructure start under `run(undefined, operation)`; queue, worker, process, and wire boundaries serialize identity rather than expecting ALS propagation.
 
 A host-aware transport may derive a deployment-owned header such as `X-Harness-Session-Id` from `ctx.agentExecution.require().agent.session.id`; the header is absent from model-visible schema and arguments. No production MCP or Web transport adopts such a header in this decision. A test-double transport proves the trusted boundary without assigning host routing policy to an existing provider-neutral seam.
 
 This decision extends the [Agent registration-scope contract](2026-07-08-agent-scope-contexts.md) and its [runtime design](2026-07-12-agent-scope-runtime-design.md); it does not change their static `agent.ctx` meaning.
 
-## Reference model
-
-| Claude Code | Harness design |
-|---|---|
-| AppState store | Cordis deployment services and their owned live state |
-| QueryEngine | Agent driver plus loop-owned runtime state |
-| ToolUseContext | Explicit Agent, tool, and request parameters at capability seams |
-| AgentContext ALS | Narrow `AgentExecution` carrier |
-| Transcript | Event-sourced `Session` and persistence backends |
-
 ## Verification
 
-Service tests pin optional and required reads, synchronous and awaited propagation, overlapping and nested boundaries, explicit clearing, restoration after throw or rejection, exact return identity, drain ordering, and disposed-reference errors. AgentLoop integration tests run overlapping real drivers, nested parent/child creation, agentless direct tool execution, cancellation during provider/root teardown, service restart, and a captured Agent after disposal. Detached-work coverage prevents context leakage without changing existing explicit cancellation contracts.
+Service tests pin optional and required reads, exact synchronous and cross-realm Promise identity, overlapping, nested, and cleared boundaries, restoration after throws or rejection, drain ordering, and retained-reference errors. AgentLoop integration pins concurrent and nested drivers, agentless calls, missing-provider activation, service restart, and provider/root teardown. Composition, module-graph, build, and runtime-closure checks keep the provider wired through the default bundle, SDK spine, Python runtime closure, and direct AgentLoop harnesses.
 
-The test-double capability transport derives `X-Harness-Session-Id` internally and asserts that neither its tool schema nor logged arguments contains an identity field. Composition tests and generated catalogs keep the provider present in the default bundle, SDK spine, Python runtime closure, and direct AgentLoop harnesses; a missing provider leaves AgentLoop inactive. Documentation checks keep the repository layout in `AGENTS.md`, the package table in `packages/core/README.md`, and the group description in `packages/README.md` aligned with the mandatory provider.
+Only a test-double host-aware transport consumes ambient identity; it derives `X-Harness-Session-Id` internally and verifies that tool schema and logged arguments contain no identity field. The service deliberately does not drain async work omitted from the Promise returned by `operation`; that work remains subject to its owner's explicit stop contract.
 
 ## Alternatives considered
 
-**Pass Agent through every function.** Public, worker, process, persistence, and wire boundaries continue to do this, but requiring every process-local private helper to carry Agent adds plumbing without improving trust. ALS is confined to the asynchronous chain inside those explicit boundaries.
+**Pass Agent through every function.** Public, worker, process, persistence, and wire boundaries continue to do this, but requiring every process-local private helper to carry Agent adds repetitive forwarding without improving trust. ALS is confined to the asynchronous chain inside those explicit boundaries.
 
 **Make `ctx.agent` dynamic.** `ctx.agent` already means the static Agent associated with an Agent-scoped Cordis context. Changing the root meaning would mix registration and execution scopes and make concurrent behavior surprising.
 
-**Store a complete mutable runtime frame.** Agent, Session, inbox, cancellation, turn, step, tool execution, and persistence already have authoritative owners. Duplicating them would create stale snapshots and another lifecycle. The wrapper leaves room for a separately justified stale-safe label without flattening the store to a bare Agent.
+**Store a complete mutable runtime frame.** Agent, Session, inbox, cancellation, turn, step, tool execution, and persistence already have authoritative owners. Duplicating them would create stale snapshots and another lifecycle. A named frame makes the execution-context boundary explicit without duplicating owner state.
 
-**Include a step `AbortSignal`, cwd, sandbox, or authorization.** Their lifetimes and authority do not match the driver boundary, and their existing seams already pass them explicitly. Adding a control capability requires a separate decision and nested lifecycle contract.
+**Include a step `AbortSignal`, `cwd`, sandbox, or authorization.** Their lifetimes and authority do not match the driver boundary, and their existing seams already pass them explicitly. Adding a control capability requires a separate decision and nested lifecycle contract.
 
 **Use a process-global `currentAgent`.** Concurrent Agents and subagents overwrite one another across awaited continuations, so a mutable global is correct only under a serialization guarantee the harness does not make.
 
@@ -76,8 +54,8 @@ The test-double capability transport derives `X-Harness-Session-Id` internally a
 
 Deep infrastructure gains one trusted process-local initiating Agent without widening existing tool and capability requests. Concurrent and nested drivers isolate automatically, AgentLoop stays inactive when the provider is absent, and HMR/root disposal reaches quiescence before ALS is disabled.
 
-The dependency is implicit in function signatures and carries a live capability object. Consumers must restrict it to cross-cutting infrastructure, treat ambient presence as neither liveness nor authorization, and retain explicit cancellation and ownership checks. ALS also has an always-on propagation cost and does not cross worker, process, HTTP, or durable queue boundaries.
+The dependency is implicit in function signatures and carries a capability-bearing Agent object. Consumers must restrict it to cross-cutting infrastructure, treat ambient presence as neither liveness nor authorization, and retain explicit cancellation and ownership checks. ALS also has an always-on propagation cost and does not cross worker, process, HTTP, or durable queue boundaries.
 
 The teardown design deliberately accepts Node's [Stability 1 (Experimental)](https://nodejs.org/api/async_context.html#asynclocalstoragedisable) `AsyncLocalStorage.disable()` dependency. Node requires `disable()` before an ALS instance can be garbage-collected, which matters when HMR replaces provider-owned instances; the service state guard prevents a later `run()` from re-entering the instance after disposal.
 
-The frame deliberately omits turn, step, signal, cwd, sandbox, and authorization. A real consumer that cannot use existing explicit fields must justify any refinement separately; a stale copied field may at most mislabel telemetry, never grant control.
+The frame deliberately omits turn, step, `signal`, `cwd`, sandbox, and authorization. A real consumer that cannot use existing explicit fields must justify any refinement separately; a stale copied field may at most mislabel telemetry, never grant control.

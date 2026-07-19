@@ -415,7 +415,7 @@ The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, che
 
 ## Agent execution context
 
-`AgentExecution` is the process-local ambient frame established around a concrete driver's lifetime. It holds the exact Agent rather than duplicating Session or step state; ambient presence is neither liveness proof nor authorization.
+`AgentExecution` is the process-local ambient frame established around a concrete driver's lifetime. It holds the exact Agent object rather than duplicating Session or step state; ambient presence is neither liveness proof nor authorization.
 
 Source: [`packages/core/agent-execution/src/types.ts`](../../packages/core/agent-execution/src/types.ts)
 

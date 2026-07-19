@@ -28,7 +28,7 @@ interface SentenceContract {
  * so an absent section cannot be mistaken for forgotten documentation.
  */
 const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
-  'packages/core/agent-execution': 'The package is model-agnostic ambient control infrastructure; model-facing consumers own any resulting request surface.',
+  'packages/core/agent-execution': 'The package adds no model-visible text or schema; consumers own any use in model requests.',
   'packages/core/scope': 'The package is a model-agnostic registration and lifecycle primitive; model-facing consumers own any context selection.',
   'packages/util/brand': 'The package is a type-only primitive erased at compile time.',
   'packages/util/paths': 'The package only resolves harness-owned host paths; model-facing consumers own any rendered use.',

@@ -121,7 +121,7 @@ Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, re
 
 ### Agent Execution Context
 
-`AgentLoop` wraps each concrete driver in process-local `ctx.agentExecution`; child creation and setup stay outside its boundary, and explicit identities remain authoritative. See the [package contract](../packages/core/agent-execution/README.md) and [decision](rfc/implemented/architecture/2026-07-15-agent-execution-context.md).
+`AgentLoop` establishes process-local `ctx.agentExecution` around each driver; the [decision](rfc/implemented/architecture/2026-07-15-agent-execution-context.md) owns boundary and explicit-identity rules.
 
 ## State
 

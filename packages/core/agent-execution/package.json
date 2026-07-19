@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-agent-execution",
-  "description": "Agent-scoped asynchronous execution context for the DeepSeek Harness",
+  "description": "Process-local ambient Agent context for asynchronous driver work",
   "version": "0.0.1",
   "private": true,
   "type": "module",
