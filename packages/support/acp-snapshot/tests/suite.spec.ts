@@ -16,6 +16,7 @@ import {
   parseToolSchemasSnapshot,
   refreshFixtureReplacements,
   sessionFixtureNames,
+  applyChildToolOmissions,
   restorePinnedToolSchemas,
   stabilizeRefreshLog,
   unknownToolCallIds,
@@ -363,6 +364,37 @@ describe('tool-schema snapshots', () => {
     expect(() => restorePinnedToolSchemas('invalid', snapshot.initial)).toThrow(/must be an object/)
     expect(() => restorePinnedToolSchemas([], snapshot.initial)).toThrow(/must be an object/)
     expect(() => restorePinnedToolSchemas({ tools: [] }, snapshot.initial)).toThrow(/must equal/)
+  })
+})
+
+describe('applyChildToolOmissions', () => {
+  const pinned = { system: 's', tools: [{ name: 'bash' }, { name: 'subagent' }, { name: 'subagent_fork' }] }
+
+  it('removes exactly the declared tools the child actually omitted', () => {
+    const actual = { system: 's', tools: [{ name: 'bash' }, { name: 'subagent_fork' }] }
+    expect(applyChildToolOmissions(pinned, actual, ['subagent', 'subagent_fork']))
+      .toEqual({ system: 's', tools: [{ name: 'bash' }, { name: 'subagent_fork' }] })
+  })
+
+  it('keeps a declared tool the child still carries and an undeclared omission', () => {
+    // The child omitted `bash` (undeclared) — the expectation keeps it, so the
+    // equality assertion downstream still fails loudly on the real divergence.
+    const actual = { system: 's', tools: [{ name: 'subagent' }, { name: 'subagent_fork' }] }
+    expect(applyChildToolOmissions(pinned, actual, ['subagent']))
+      .toEqual(pinned)
+  })
+
+  it('tolerates a headerless tool list and unnamed tool entries', () => {
+    expect(applyChildToolOmissions({ system: 's' }, { tools: 'not-an-array' }, ['subagent']))
+      .toEqual({ system: 's', tools: [] })
+    const unnamed = { system: 's', tools: [{ name: 42 }] }
+    expect(applyChildToolOmissions(unnamed, { tools: [] }, ['subagent'])).toEqual(unnamed)
+  })
+
+  it('rejects a non-object pinned header', () => {
+    expect(() => applyChildToolOmissions(null, {}, [])).toThrow(/must be an object/)
+    expect(() => applyChildToolOmissions([], {}, [])).toThrow(/must be an object/)
+    expect(() => applyChildToolOmissions('x', {}, [])).toThrow(/must be an object/)
   })
 })
 

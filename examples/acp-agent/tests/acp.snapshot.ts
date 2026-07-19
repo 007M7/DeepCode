@@ -103,10 +103,12 @@ const SCENARIOS: Scenario[] = [
     configPath: WORKSPACE_CONTEXT_CONFIG,
   },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
-  { name: 'subagent-spawn', hasModelTurn: true, recorded: true },
-  { name: 'subagent-multi', hasModelTurn: true, recorded: true },
-  { name: 'subagent-fork', hasModelTurn: true, recorded: true },
-  { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
+  // Children sit AT the default depth cap (maxDepth 1), so each child's header
+  // legitimately omits the delegation tool that spawned it (schema hiding).
+  { name: 'subagent-spawn', hasModelTurn: true, recorded: true, childToolOmissions: ['subagent'] },
+  { name: 'subagent-multi', hasModelTurn: true, recorded: true, childToolOmissions: ['subagent'] },
+  { name: 'subagent-fork', hasModelTurn: true, recorded: true, childToolOmissions: ['subagent_fork'] },
+  { name: 'subagent-mixed', hasModelTurn: true, recorded: true, childToolOmissions: ['subagent', 'subagent_fork'] },
   // The workflow tool: the model writes a one-child orchestration script; the
   // child runs as a spawn subagent under the worker-thread engine (its session is the
   // child fixture), and the tool result carries the script's return value.
@@ -121,6 +123,9 @@ const SCENARIOS: Scenario[] = [
     pinsHeader: true,
     headerClass: 'advanced',
     configPath: ADVANCED_CONFIG,
+    // The direct spawn child sits AT the default cap and loses `subagent`;
+    // workflow children bypass tool-subagent and keep the full set.
+    childToolOmissions: ['subagent'],
   },
   // Prompt-submit blocks are authored keylessly: they persist a rejected turn
   // and hook events without starting a model step, so their logs still compare.
