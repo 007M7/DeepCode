@@ -380,6 +380,7 @@ def smoke_sdk_default(base_url: str) -> None:
         root = Path(temporary).resolve()
         sessions = root / "sessions"
         with DeepSeekHarness(
+            provider="deepseek",
             model="smoke-model",
             cwd=str(root),
             session_root=str(sessions),
@@ -402,6 +403,7 @@ def smoke_sdk_custom(base_url: str, executable: Path) -> None:
         cordis = root / "cordis.yml"
         cordis.write_text(CUSTOM_CORDIS)
         with DeepSeekHarness(
+            provider="deepseek",
             model="smoke-model",
             cwd=str(root),
             session_root=str(sessions),
@@ -433,6 +435,7 @@ def smoke_sdk_snapshot(base_url: str, executable: Path, update_snapshots: bool) 
         cordis = root / "cordis.yml"
         cordis.write_text(CUSTOM_CORDIS)
         with DeepSeekHarness(
+            provider="deepseek",
             model="smoke-model",
             cwd=str(root),
             session_root=str(sessions),
@@ -482,7 +485,7 @@ def smoke_direct(base_url: str, executable: Path) -> None:
         }
         peer = RuntimePeer([str(executable)], root, environment)
         try:
-            peer.send({"jsonrpc": "2.0", "id": "initialize", "method": "initialize", "params": {"cwd": str(root), "model": "smoke-model"}})
+            peer.send({"jsonrpc": "2.0", "id": "initialize", "method": "initialize", "params": {"cwd": str(root), "provider": "deepseek", "model": "smoke-model"}})
             peer.read_until(lambda message: message.get("id") == "initialize")
             peer.send({
                 "jsonrpc": "2.0",
@@ -704,7 +707,7 @@ def normalize_snapshot_value(
 
 
 def scrub_snapshot_header(value: dict[object, object]) -> None:
-    """Tokenize request-header bulk while retaining delta tool names."""
+    """Tokenize full request-header bulk while retaining tool names."""
     data = value.get("data")
     if not isinstance(data, dict):
         return
@@ -722,29 +725,6 @@ def scrub_snapshot_header(value: dict[object, object]) -> None:
             ]
         if isinstance(header.get("messagePrefix"), list):
             header["messagePrefix"] = ["{{messagePrefix}}" for _ in header["messagePrefix"]]
-        return
-    if value.get("type") != "request/header-delta":
-        return
-    system = data.get("system")
-    if isinstance(system, dict) and isinstance(system.get("insert"), list):
-        system["insert"] = ["{{system}}" for _ in system["insert"]]
-    tools = data.get("tools")
-    if isinstance(tools, dict):
-        for key in ("added", "changed"):
-            if isinstance(tools.get(key), list):
-                tools[key] = [scrub_snapshot_tool_schema(tool) for tool in tools[key]]
-    if isinstance(data.get("messagePrefix"), list):
-        data["messagePrefix"] = ["{{messagePrefix}}" for _ in data["messagePrefix"]]
-
-
-def scrub_snapshot_tool_schema(value: object) -> object:
-    """Keep a changed tool's name while tokenizing its schema bulk."""
-    if not isinstance(value, dict):
-        return value
-    return {
-        key: item if key == "name" else "{{tools}}"
-        for key, item in value.items()
-    }
 
 
 def render_jsonl(records: list[object]) -> str:

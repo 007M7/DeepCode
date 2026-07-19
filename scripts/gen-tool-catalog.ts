@@ -19,7 +19,7 @@ import WebService from '@deepseek-ai/dsh-web'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
+import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import TaskService from '@deepseek-ai/dsh-tasks'
@@ -27,6 +27,7 @@ import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
@@ -37,6 +38,17 @@ import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog.md'
+
+/** Register the descriptor needed to mount schema-producing consumers. */
+function registerCatalogSubagentProvider(ctx: Context, name: string): void {
+  const provider: SubagentProvider = {
+    name,
+    capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+    inheritsParentContext: false,
+    start: () => Promise.reject(new Error('tool-catalog provider cannot start a child')),
+  }
+  ctx.subagents.registerProvider(provider)
+}
 
 /**
  * Tool package plus its hand-maintained boot recipe. The caller mounts the
@@ -132,7 +144,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolCordis)
     },
     note:
-      'Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; the request-header ToolsDelta logs those tool-set changes.',
+      'Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs',
@@ -148,6 +160,23 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-fs-search',
+    dir: 'tool-fs-search',
+    source: 'packages/fs/tool-fs-search/src/index.ts',
+    requires: ['ctx.tools', 'ctx.bash', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The tools inject `bash` (search executes fixed `rg` commands through
+      // the executor seam, not ctx.fs); boot the local executor to satisfy it.
+      // `ctx.spillStore` is optional (read via ctx.get) and does not affect the
+      // schemas, so no spill backend is mounted.
+      await ctx.plugin(LocalBashExecutor)
+      await ctx.plugin(ToolFsSearch)
+    },
+    note:
+      'glob and grep are bash-backed discovery tools: they run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-skill',
@@ -173,12 +202,11 @@ const TOOL_PACKAGES: ToolPackage[] = [
     shippedNames: ['subagent', 'subagent_fork'],
     async mount(ctx) {
       await ctx.plugin(SubagentService)
-      // Register a scripted provider under the name the tool delegates to.
-      await ctx.plugin(SubagentMock, { name: 'mock' })
+      registerCatalogSubagentProvider(ctx, 'mock')
       await ctx.plugin(ToolSubagent, { provider: 'mock' })
     },
     note:
-      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/coding-agent/cordis.yml` and `examples/acp-agent/cordis.yml`.',
+      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/repl-agent/cordis.yml` and `examples/acp-agent/cordis.yml`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-tasks',
@@ -216,7 +244,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       // subagent provider to satisfy it. The schema does not depend on which
       // provider backs the engine.
       await ctx.plugin(SubagentService)
-      await ctx.plugin(SubagentMock, { name: 'mock' })
+      registerCatalogSubagentProvider(ctx, 'mock')
       await ctx.plugin(VmWorkflowEngine, { provider: 'mock' })
       await ctx.plugin(ToolWorkflow)
     },

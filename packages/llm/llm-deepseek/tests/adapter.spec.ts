@@ -5,7 +5,8 @@ import { Context } from 'cordis'
 import LlmService, { LlmError, userAgent } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import { DeepSeekAdapter, httpErrorCode } from '@deepseek-ai/dsh-llm-deepseek'
+import { DeepSeekAdapter } from '@deepseek-ai/dsh-llm-deepseek'
+import { httpErrorCode } from '../src/adapter.ts'
 import { assemble } from './assemble.ts'
 
 /** One scripted behavior for the next request the mock server receives. */
@@ -87,7 +88,7 @@ const textEvents = [
 async function harness(baseURL: string, config: object = {}) {
   const ctx = new Context()
   await ctx.plugin(LlmService)
-  await ctx.plugin(LlmDeepSeek, { apiKey: 'test-key', baseURL, models: ['deepseek-v4-flash'], ...config })
+  await ctx.plugin(LlmDeepSeek, { apiKey: 'test-key', baseURL, ...config })
   return ctx
 }
 
@@ -124,6 +125,7 @@ describe('DeepSeekAdapter against a mock server', () => {
 
     const kinds: string[] = []
     for await (const chunk of ctx.llm.stream({
+      provider: 'deepseek',
       model: 'deepseek-v4-flash',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
     })) {
@@ -172,7 +174,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       status,
       body: JSON.stringify({ error: { message: `failed with ${status}`, type: 't', code: 'c' } }),
     }
-    const server = await mockServer([behavior, behavior, behavior])
+    const server = await mockServer([behavior, behavior])
     const ctx = await harness(server.url)
     await expect(assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] }))
       .rejects.toThrow(`failed with ${status}`)
@@ -180,11 +182,6 @@ describe('DeepSeekAdapter against a mock server', () => {
       assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
         .catch((error: unknown) => (error as LlmError).code),
     ).resolves.toBe(code)
-    // The numeric HTTP status is carried on the error for explicit handling.
-    await expect(
-      assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
-        .catch((error: unknown) => (error as LlmError).status),
-    ).resolves.toBe(status)
   })
 
   it('keeps the status-line message for JSON error bodies without a message', async () => {
@@ -212,7 +209,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     )
     try {
       const iterate = async (): Promise<void> => {
-        for await (const _chunk of adapter.stream({ model: 'm', messages: [] })) { /* drain */ }
+        for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
       }
       await expect(iterate()).rejects.toThrow(/no response body/)
     } finally {
@@ -238,6 +235,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const pending = (async () => {
       const chunks = []
       for await (const chunk of ctx.llm.stream({
+        provider: 'deepseek',
         model: 'deepseek-v4-flash',
         messages: [],
         signal: controller.signal,
@@ -253,25 +251,94 @@ describe('DeepSeekAdapter against a mock server', () => {
 })
 
 describe('plugin registration and config', () => {
-  it('registers the configured models and unregisters on dispose (HMR safety)', async () => {
+  it('keeps wire helpers off the package root', () => {
+    for (const helper of [
+      'httpErrorCode',
+      'serializeMessages',
+      'serializeRequest',
+      'DONE',
+      'parseSse',
+      'mapFinishReason',
+      'mapUsage',
+      'translate',
+    ]) expect(LlmDeepSeek).not.toHaveProperty(helper)
+  })
+
+  it('registers the deepseek provider and unregisters on dispose (HMR safety)', async () => {
     const server = await mockServer([])
     const ctx = new Context()
     await ctx.plugin(LlmService)
     const fiber = await ctx.plugin(LlmDeepSeek, {
       apiKey: 'k',
       baseURL: server.url,
-      models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
     })
-    expect(ctx.llm.models().sort()).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
     await fiber.dispose()
-    expect(ctx.llm.models()).toEqual([])
+    expect(ctx.llm.listProviders()).toEqual([])
   })
 
-  it('defaults the model list', async () => {
+  it('owns the deepseek provider and advertises the default models', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
-    expect(ctx.llm.models().sort()).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
+    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
+      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'deepseek-v4-flash' },
+      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'deepseek-v4-pro' },
+    ])
+  })
+
+  it('uses the default model catalog when apply is called directly', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    LlmDeepSeek.apply(ctx, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
+    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
+      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'deepseek-v4-flash' },
+      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'deepseek-v4-pro' },
+    ])
+  })
+
+  it('advertises configured models without restricting arbitrary request ids', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmDeepSeek, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      models: [
+        { id: 'private-fast' },
+        { id: 'private-reasoner', name: 'Private Reasoner', description: 'Higher reasoning budget' },
+      ],
+    })
+    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
+      { provider: 'deepseek', id: 'private-fast', name: 'private-fast' },
+      { provider: 'deepseek', id: 'private-reasoner', name: 'Private Reasoner', description: 'Higher reasoning budget' },
+    ])
+  })
+
+  it('allows an explicit empty model catalog', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmDeepSeek, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      models: [],
+    })
+    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([])
+  })
+
+  it.each([
+    [[{ id: '' }], /ids must be non-empty/],
+    [[{ id: 'm', name: '' }], /empty name/],
+    [[{ id: 'm' }, { id: 'm' }], /duplicate catalog model/],
+  ] as const)('rejects invalid advisory model config', async (models, message) => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await expect(ctx.plugin(LlmDeepSeek, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      models: [...models],
+    })).rejects.toThrow(message)
+    expect(ctx.llm.listProviders()).toEqual([])
   })
 
   it('falls back to DEEPSEEK_API_KEY and DEEPSEEK_BASE_URL env vars', async () => {
@@ -280,7 +347,7 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, {})
-    expect(ctx.llm.models().length).toBeGreaterThan(0)
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
   })
 
   it('throws a clear error when no API key is available', async () => {
@@ -289,7 +356,7 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmService)
     await expect(ctx.plugin(LlmDeepSeek, {}))
       .rejects.toThrow(/an API key is required/)
-    expect(ctx.llm.models()).toEqual([])
+    expect(ctx.llm.listProviders()).toEqual([])
   })
 
   it('prefers explicit config over env for key and base URL', async () => {
@@ -306,7 +373,7 @@ describe('plugin registration and config', () => {
     vi.stubEnv('DEEPSEEK_BASE_URL', server.url)
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    await ctx.plugin(LlmDeepSeek, { apiKey: 'k', models: ['deepseek-v4-flash'] })
+    await ctx.plugin(LlmDeepSeek, { apiKey: 'k' })
     await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
     expect(server.requests).toHaveLength(1)
   })
@@ -318,11 +385,12 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmService)
     // Registration succeeds; no call is made (would hit api.deepseek.com).
     await ctx.plugin(LlmDeepSeek, {})
-    expect(ctx.llm.models().length).toBeGreaterThan(0)
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
   })
 
-  it('adapter is constructible directly for embedding', () => {
+  it('adapter is constructible directly for embedding', async () => {
     const adapter = new DeepSeekAdapter({ apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
     expect(adapter).toBeInstanceOf(DeepSeekAdapter)
+    await expect(adapter.listModels('deepseek')).resolves.toEqual([])
   })
 })

@@ -17,13 +17,14 @@ A harness is one [Cordis](cordis-primer.md) context. Packages contribute service
 | `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and prompt variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | live agent registry, public `Agent` handle, `agent/*` events |
-| `ctx.agentLoop` | `dsh-agent-loop` | shipped `ReactLoopAgent` driver |
+| `ctx.agentLoop` | `dsh-agent-loop` | concrete `Agent` driver |
 
 ### Capability Services
 
 | ctx key | Package family | Role |
 |---|---|---|
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry and streaming model calls |
+| `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | singleton replay-aware request/surface pressure |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
@@ -35,7 +36,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages contribute service
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry + generic `task_*` control tools |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
-| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred logical-corpus and exact-event reads |
+| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred logical-corpus exact reads and relationship traces |
 
 ## Event
 
@@ -55,12 +56,15 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 
 The shipped loop drains work from prompt through checkpoint. Every pause is a service call or event available to plugins.
 
-A **session** is one agent's append-only event log. A **turn** drains one queued batch and runs until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension points.
+A **session** is an append-only event log. A **turn** drains queued input until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension points.
+
+Startup resolves identity. No id mints `<config-id>-session-<uuid>`; `sessionId` resumes or creates; `resumeSessionId` requires history. Active failures emit `agent-loop/config-start-failed(sessionId, error)`, so front doors reject work; teardown stays silent.
 
 ### Turn Flow
 
 ```text
-prepare private session + agent.ctx -> await unpublished setup
+choose declarative identity and fresh/resume path
+  -> prepare private session + agent.ctx -> await unpublished setup
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
@@ -81,12 +85,13 @@ forever:
       agent/request (config only) -> log request/header -> llm/stream (frozen)
         'assistant/chunk'
       agent/step-result
-      'assistant/message'
-      each tool call:
-        'tool/call'
-        tools/pre-execute -> monotonic guards -> tools/execute -> tools/post-execute -> tools/result
-        'tool/result'
-      append post-tool context and steering
+      'assistant/message' (transformed content or empty success anchor after step-result rejection)
+      schedule tool calls by ctx.tools.executionMode:
+        exclusive -> one-call barrier
+        parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
+        each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+        each model-order result -> ordered tools/post-execute -> 'tool/result'
+      append accepted tool-batch context after all recorded results, then steering
       'step/end'
       agent/turn-continuation
       agent/turn-stop (terminal policy)
@@ -97,7 +102,7 @@ forever:
 
 Each step assembles ordered prompt sections, tool schemas, and `{{name}}` variables; unknown or valueless references fail the turn. `dsh-system-prompt` owns the harness identity and default persona, which an agent scope may shadow. The loop supplies `model` and `cwd` ([prompt-ownership RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Post-tool context lands after all tool results so tool-call/result adjacency stays stable. Steering drains between steps; ordinary leftover steering after a turn is re-queued as input. A terminal `agent/turn-stop` is the explicit exception: it runs after ordinary continuation and steering folding, then remains authoritative through turn close and flush so steering from those later listeners is discarded rather than becoming another step or turn; ordinary queued prompts are preserved.
+Context accepted during tool execution—including async `agent.inject()` notices and post-tool `additionalContexts`—waits for settlement, then follows every recorded result. Successful batches preserve call/result adjacency; interrupted batches drain that context before turn closure. Steering drains between steps; ordinary leftover steering becomes queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through turn close and flush, and discards later steering while preserving queued prompts.
 
 ### Failure Boundaries
 
@@ -125,9 +130,9 @@ Durability is a plugin concern. Persistence backends buffer synchronous `session
 
 ### Model Content
 
-Messages contain typed blocks (`text`, `reasoning`, `tool-call`, `tool-result`) derived from merge-extensible `ContentBlockMap`; the same pattern types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New block types coordinate adapters, UI bridges, compaction pricing, and persistence as one repo-wide contract.
+Messages contain typed blocks (`text`, `reasoning`, `tool-call`, `tool-result`) derived from merge-extensible `ContentBlockMap`; the same pattern types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New block types coordinate adapters, UI bridges, compaction pricing, token metering, and persistence as one repo-wide contract; replay measurement types live in [token-meter.md](core-data-structures/token-meter.md).
 
-Streaming is a raw chunk protocol (`block-start` through `finish`) with `BlockAssembler` as the shared chunk-to-block assembler. The loop logs raw chunks while assembling them for dispatch. `LlmAdapter` is the provider seam: subclass, implement `stream()`, and register with `ctx.llm.registerAdapter(models, adapter)`. StreamChunk conventions live in [llm-streaming.md](core-data-structures/llm-streaming.md).
+Streaming uses raw chunks (`block-start` through `finish`) and `BlockAssembler`. The loop logs and assembles chunks, storing provider/model provenance plus replay state. An `LlmAdapter` implements `stream()`, registers provider routes, and may expose selector metadata; it resolves and validates model ids. Replay state reaches targets only when both routes map to one adapter instance, which owns validation and conversion. The contract lives in [llm-streaming.md](core-data-structures/llm-streaming.md).
 
 ## Extension And Composition
 
@@ -141,7 +146,7 @@ Some seams bend the template deliberately: LLM combines interface and consumer b
 
 ### Bundles And Apps
 
-`dsh-agent-spine-demo` bundles the default spine ([README](../packages/examples/agent-spine-demo/README.md)). `dsh-stdio-demo` adds a terminal front door; `dsh-acp-demo` adds stdout-pure ACP over JSON-RPC ([ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies its default only without an explicit config channel and drives `dsh-jsonrpc` over line-delimited JSON-RPC ([Python SDK](../python/README.md)). Deployments remain thin leaves with swappable backends and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-spine-demo` bundles the default spine ([README](../packages/examples/agent-spine-demo/README.md)). `dsh-stdio-demo` adds a terminal front door that selects `dsh-tui` for interactive terminals and line-oriented `dsh-stdio` for pipes; `dsh-acp-demo` adds stdout-pure ACP over JSON-RPC ([ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies its default only without an explicit config channel and drives `dsh-jsonrpc` over line-delimited JSON-RPC ([Python SDK](../python/README.md)). Deployments remain thin leaves with swappable backends and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Where New Behavior Goes
 

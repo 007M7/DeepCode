@@ -4,17 +4,44 @@ The bash execution seam is split across interface ([dsh-bash](../../packages/bas
 
 Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
-## Request vs. spec: the `resolve()` split
+## Managed shell environment namespace
 
-The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`, filled from config) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package seams" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory came from.
+`DSH_*` variables are Harness-owned child-process facts. The model-facing bash tool collects them through `ctx.bashEnv` and passes them through `BashExecRequest.dshEnv`; executors remove inherited `DSH_*` names before merging the current snapshot.
 
 ```ts type-equiv
+/** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
+type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`
+```
+
+```ts type-equiv
+/** Trusted DeepSeek Harness variables for one bash execution. */
+type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>
+```
+
+## Request vs. spec: the `resolve()` split
+
+The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`/`stdoutMaxBytes`, filled from config or request policy) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package seams" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory or output budget came from.
+
+```ts type-equiv
+/**
+ * A caller's execution REQUEST: `workdir` and `timeoutMs` are optional and
+ * filled by {@link BashExecutor.resolve} from the implementation's config.
+ * This is the model-/plugin-facing shape; pass it to `resolve()` to obtain a
+ * fully-resolved {@link BashExecSpec}.
+ */
 interface BashExecRequest {
   command: string
   /** Working directory override (default: implementation-configured). */
   workdir?: string | undefined
   /** Timeout override in milliseconds (implementations cap it). */
   timeoutMs?: number | undefined
+  /**
+   * Foreground stdout capture budget in bytes. Absent uses the executor's
+   * default output cap. Trusted in-process consumers use this when they must
+   * parse complete stdout up to their own bounded limit; the model-facing bash
+   * tool does not expose it as a parameter.
+   */
+  stdoutMaxBytes?: number | undefined
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
@@ -26,91 +53,92 @@ interface BashExecRequest {
    */
   stdin?: string | undefined
   /**
-   * Extra environment entries for the command, merged AFTER the
-   * implementation's credential scrub (so an explicit entry here is honored even
-   * when its name matches the scrub pattern — the caller named a value it holds,
-   * not the harness's ambient secret). Set by in-process plugins (the hooks
-   * bridges set `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing
-   * bash tool does not expose it as a parameter (a model that needs an env var
-   * uses shell syntax like `FOO=bar cmd`).
+   * Ordinary environment entries for the command, merged after the credential
+   * scrub. `DSH_*` is reserved for {@link dshEnv} and implementations reject it
+   * here. Set by in-process plugins (the hooks bridges set
+   * `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing bash tool
+   * does not expose it as a parameter.
    */
   env?: Record<string, string> | undefined
   /**
-   * Explicit per-call sandbox-policy input, overriding the executor's
-   * configured default mode for THIS call. Never a silent default: a
-   * consumer sets it only from an explicit policy source — an
-   * `'allowed-once'` grant a human just issued through `ctx.approval` (the
-   * escalation flow in the sandbox RFC § Escalation, which outranks), or the
-   * session's standing override folded from its own `bash/sandbox-mode`
-   * events (the sandbox RFC § Per-session mode switching — the user's recorded per-session
-   * choice). A sandboxing executor confines THIS call under the given mode;
-   * a non-sandboxing executor carries the field and confines nothing (the
-   * tool layer stamps neither escalation nor overrides without a sandboxing
-   * executor — see {@link BashExecutor.sandboxMode}).
+   * Harness-owned `DSH_*` variables for this execution. Executors discard
+   * ambient `DSH_*` entries before merging this snapshot, so an unavailable
+   * current fact cannot inherit a stale value from the harness process, and
+   * reject non-`DSH_*` names supplied through this managed channel.
    */
+  dshEnv?: DshEnvironment | undefined
+  /** Explicit per-call sandbox mode override. */
   sandboxMode?: SandboxMode | undefined
 }
 ```
 
 ```ts type-equiv
+/**
+ * A resolved execution spec. {@link BashExecutor.resolve} fills and caps the
+ * required fields; {@link BashExecutor.start} ignores `timeoutMs` because
+ * background processes have no executor timeout.
+ */
 interface BashExecSpec {
   command: string
   workdir: string
   timeoutMs: number
+  /**
+   * Resolved foreground stdout capture budget in bytes. `run()` uses it for
+   * stdout; background tasks and stderr keep the executor's own output cap.
+   */
+  stdoutMaxBytes: number
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
-  /**
-   * Bytes to write to the command's stdin (then close it), carried through
-   * verbatim from {@link BashExecRequest.stdin}. It has no config default, so
-   * a missing value means "no stdin" and remains an ordinary optional.
-   */
+  /** Bytes to write to stdin before closing it; absent means no stdin. */
   stdin?: string | undefined
   /**
-   * Extra environment entries, carried through verbatim from
-   * {@link BashExecRequest.env} and merged by the implementation AFTER its
-   * credential scrub (an explicit entry wins even when its name matches the
-   * scrub pattern). OPTIONAL on the spec for the same reason as `stdin` — no
-   * config default, absent means "no extra env".
+   * Ordinary environment entries carried through from
+   * {@link BashExecRequest.env}. `DSH_*` remains reserved for {@link dshEnv}.
+   * OPTIONAL on the spec for the same reason as `stdin`: absent means no
+   * ordinary extra environment.
    */
   env?: Record<string, string> | undefined
-  /**
-   * The sandbox mode this call executes under, required-but-nullable so every
-   * resolved spec states its policy. A sandboxing executor's `resolve()` stamps
-   * the effective mode (the request's explicit override, else its configured
-   * default) so `run()`/`start()` read the spec, never the config;
-   * a non-sandboxing executor carries the request value through verbatim and
-   * ignores it (`undefined` under such an executor means what its README says:
-   * unconfined execution).
-   */
+  /** Managed `DSH_*` snapshot; implementations reject ordinary names. */
+  dshEnv?: DshEnvironment | undefined
+  /** Resolved sandbox mode; ignored by executors that do not confine. */
   sandboxMode: SandboxMode | undefined
 }
 ```
 
 `stdin` and `env` are trusted in-process plugin inputs and are not exposed by `dsh-tool-bash`. The local executor scrubs ambient credentials before merging explicit caller-supplied env. See [the bash-stdin-env RFC](../rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
 
+`stdoutMaxBytes` is also trusted-plugin-only. It lets a foreground consumer request complete stdout up to a bounded parser budget without changing stderr, background tasks, or the model-facing bash tool's ordinary output cap.
+
 ## Foreground runs: `BashRunResult`
 
 The outcome of one completed (or killed) foreground run. Orthogonal outcomes are reported **independently** — a process can both time out AND exit 0 because it trapped the signal — so `timedOut`, `aborted`, `signal`, and `exitCode` are each their own field; a caller never reads a cut-short run as a clean success.
 
 ```ts type-equiv
+/** The outcome of one completed (or killed) foreground run. */
 interface BashRunResult {
   /** Exit code; null when the process died from a signal. */
   exitCode: number | null
   /** Terminating signal (e.g. 'SIGTERM'); null on normal exit. */
   signal: NodeJS.Signals | null
-  /** True when the executor's own timeout killed the command. */
+  /**
+   * True when the executor's own timeout was the FIRST cause to cut the command
+   * short. Mutually exclusive with {@link aborted}: one fused deadline drives
+   * both the timeout and the caller's cancellation, so a timeout and an abort
+   * racing before process close report the single first-abort cause, not both
+   * (see the [timeout-library RFC](../../../../docs/rfc/implemented/architecture/2026-07-06-timeout-deadline-library.md)).
+   */
   timedOut: boolean
-  /** True when the caller's AbortSignal killed the command. */
+  /**
+   * True when the caller's `AbortSignal` was the FIRST cause to kill the command
+   * (and it was not the executor's own timeout). Mutually exclusive with
+   * {@link timedOut} — see there for the first-cause classification.
+   */
   aborted: boolean
   /** The effective timeout applied to this run (after defaulting/capping). */
   timeoutMs: number
   stdout: CollectedOutput
   stderr: CollectedOutput
-  /**
-   * Sandbox facts, present iff a sandboxing executor ran the command — an
-   * unsandboxed executor (e.g. `dsh-bash-local`) never sets it. See
-   * {@link BashSandboxInfo} for the `denied` classification semantics.
-   */
+  /** Sandbox execution facts, absent for an unsandboxed executor. */
   sandbox?: BashSandboxInfo
 }
 ```
@@ -118,6 +146,7 @@ interface BashRunResult {
 Each stream is a `CollectedOutput` — the (possibly truncated) text plus recovery info. When truncated, `text` is the **tail** and the complete stream spills to a private file:
 
 ```ts type-equiv
+/** One captured stream: the (possibly truncated) text plus recovery info. */
 interface CollectedOutput {
   /** Collected text — the TAIL of the stream when truncated. */
   text: string
@@ -135,36 +164,19 @@ A sandbox-consuming executor exposes its configured fallback through `BashExecut
 A sandboxed run reports its mode, conservative denial classification, and enforcement completeness. `runnerFailed` marks a sandbox runner failure before the command ran; foreground execution throws `SANDBOX_UNAVAILABLE`, while a settled background process has only its facts channel.
 
 ```ts type-equiv
+/**
+ * Sandbox facts for one run, present iff a sandboxing executor handled it.
+ * Facts are reported independently of process exit status so callers can
+ * distinguish command failures from policy denials and runner failures.
+ */
 interface BashSandboxInfo {
   /** The mode the command actually ran under. */
   mode: SandboxMode
-  /**
-   * True when the executor classifies this run's failure as the sandbox
-   * denying a file operation. The classification is CONSERVATIVE (a failed
-   * exit whose stderr carries a filesystem-permission signature) and reads
-   * the COLLECTED stderr — the bounded in-memory tail per
-   * {@link CollectedOutput} semantics, so a signature that survives only in a
-   * spill file is missed toward `denied: false`. A plain command failure
-   * keeps `denied: false` even under a sandboxed mode.
-   */
+  /** Whether the sandbox denied a file operation. */
   denied: boolean
-  /**
-   * How completely the runner enforced `mode`'s file effects — see
-   * {@link SandboxEnforcement}. Absent exactly when `mode` is
-   * `danger-full-access`: nothing is confined, so there is no enforcement to
-   * report.
-   */
+  /** How completely the selected runner enforced the requested mode. */
   enforcement?: SandboxEnforcement
-  /**
-   * True when the executor classifies this failure as the SANDBOX RUNNER
-   * itself failing (missing binary, refused profile, fail-closed refusal
-   * before exec) — the command NEVER RAN; this is a sandbox failure, not a
-   * task failure, and it outranks `denied` (a runner's own error text can
-   * contain denial words). Only ever stamped on settled BACKGROUND tasks: a
-   * foreground run surfaces the same condition as the thrown
-   * `SANDBOX_UNAVAILABLE` error instead (the foreground path has an error
-   * channel; a settled task's facts are its only channel).
-   */
+  /** Whether the sandbox runner failed before the command could run. */
   runnerFailed?: boolean
 }
 ```
@@ -176,6 +188,11 @@ One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (o
 `start()` returns a handle with no id or owner. `dsh-tool-bash` adapts it into `ctx.tasks.start()` hooks; the generic runtime then owns task identity and lifecycle. `done` resolves when the process closes and never rejects, reads remain valid after settlement, and sandbox facts are stamped before `done` resolves.
 
 ```ts type-equiv
+/**
+ * A background process handle returned by {@link BashExecutor.start}. It is the
+ * only access path; buffered output remains readable after exit. Executor
+ * disposal kills running processes and awaits {@link done}.
+ */
 interface BashProcess {
   /** Process lifecycle state (settled exactly once). */
   status: BashProcessStatus
@@ -204,6 +221,7 @@ interface BashProcess {
 `readOutput()` returns the incremental delta and spill recovery facts:
 
 ```ts type-equiv
+/** One incremental {@link BashProcess.readOutput} read. */
 interface BashProcessRead {
   /** Output produced since the previous read (stderr in a marked section). */
   delta: string
