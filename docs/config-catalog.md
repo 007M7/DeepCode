@@ -159,7 +159,7 @@ export interface SkillConfig {
 
 Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
 
-Source: [`packages/examples/agent-spine-demo/src/index.ts:57`](../packages/examples/agent-spine-demo/src/index.ts)
+Source: [`packages/examples/agent-spine-demo/src/index.ts:59`](../packages/examples/agent-spine-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 

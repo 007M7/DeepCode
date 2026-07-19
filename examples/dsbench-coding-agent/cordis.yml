@@ -11,9 +11,6 @@
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
-    models:
-      - deepseek-v4-flash
-      - deepseek-v4-pro
 
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'

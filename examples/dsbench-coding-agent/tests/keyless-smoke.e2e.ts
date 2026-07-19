@@ -97,7 +97,7 @@ describe('dsbench-coding-agent keyless smoke', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'initialize',
-        params: { cwd: root, model: 'deepseek-v4-pro' },
+        params: { cwd: root, provider: 'deepseek', model: 'deepseek-v4-pro' },
       })}\n`)
       const initialized = await waitForLine(lines, value => value.id === 1, () => stderr)
       expect(initialized).toMatchObject({
