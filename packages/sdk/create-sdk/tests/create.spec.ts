@@ -5,9 +5,12 @@ import { PassThrough, Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  HeadlessPromptPort,
   LocalPluginBlueprint,
   featureId,
+  NodeCommandRunner,
   NpmPackageManager,
+  type FeatureSelection,
   type NestedMultiSelectValue,
   type PromptPort,
 } from '@deepseek-ai/dsh-helper'
@@ -28,6 +31,7 @@ import {
   type CreateCommandContext,
 } from '../src/command.ts'
 import { CreateWizard } from '../src/create-wizard.ts'
+import { resolveHeadless } from '../src/headless.ts'
 import { scaffoldProject } from '../src/project-scaffolder.ts'
 
 class ScriptedPort implements PromptPort {
@@ -233,6 +237,54 @@ describe('CreateWizard and scaffolder', () => {
     expect(resolved.request.features.find(item => item.id === 'hmr')).toMatchObject({ options: ['default'] })
   })
 
+  it('runs headlessly from a feature plan without reaching the terminal', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'create-headless-'))
+    temporary.push(cwd)
+    const features: FeatureSelection[] = [
+      { id: featureId('persistence'), options: ['sqlite'], values: { region: 'us' } },
+      { id: featureId('web'), options: ['exa'], secrets: { apiKey: 'exa-key' } },
+    ]
+    const resolved = await new CreateWizard({
+      args: parseCreateArgs([
+        'my-agent', '--description=demo', '--provider=deepseek', '--api-key=deepseek-key',
+        '--model=deepseek-v4-flash', '--interface=stdio', '--pm=npm', '--no-install',
+      ]),
+      port: new HeadlessPromptPort(),
+      cwd,
+      releaseVersion: '0.0.1',
+      versionProbe: async () => '10.0.0',
+      features,
+    }).run()
+    expect(resolved.install).toBe(false)
+    expect(resolved.request.localPlugins).toEqual([])
+    expect(resolved.request.features.find(item => item.id === 'web')).toMatchObject({
+      options: ['exa'], secrets: { apiKey: 'exa-key' },
+    })
+    expect(resolved.request.features.find(item => item.id === 'persistence')).toMatchObject({ options: ['sqlite'] })
+    expect(resolved.request.features.find(item => item.id === 'provider')).toMatchObject({
+      secrets: { apiKey: 'deepseek-key' },
+    })
+  })
+
+  it('rejects a non-string feature value in a headless plan', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'create-headless-bad-'))
+    temporary.push(cwd)
+    const features = [
+      { id: featureId('persistence'), options: ['sqlite'], values: { bad: 1 } },
+    ] as unknown as FeatureSelection[]
+    await expect(new CreateWizard({
+      args: parseCreateArgs([
+        'my-agent', '--description=demo', '--provider=deepseek', '--api-key=k',
+        '--model=m', '--interface=stdio', '--pm=npm', '--no-install',
+      ]),
+      port: new HeadlessPromptPort(),
+      cwd,
+      releaseVersion: '0.0.1',
+      versionProbe: async () => '10.0.0',
+      features,
+    }).run()).rejects.toThrow('must be a string')
+  })
+
   it('writes the project once and refuses every existing target', async () => {
     const root = await mkdtemp(join(tmpdir(), 'create-scaffold-'))
     temporary.push(root)
@@ -427,10 +479,63 @@ describe('create command composition', () => {
     context.stdout.isTTY = false
     await expect(createProject(['--help'], context)).resolves.toBeUndefined()
     expect(context.readStdout()).toContain('Usage: create-sdk')
+    expect(context.readStdout()).toContain('--config-json <json>')
     expect(context.readStdout()).not.toContain('--link-workspace')
     await expect(createProject(argv('agent', false), context)).rejects.toThrow('interactive TTY')
     context.stdin.isTTY = true
     await expect(createProject(argv('agent', false), context)).rejects.toThrow('interactive TTY')
+  })
+
+  it('creates headlessly from --config-json with no TTY', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'create-headless-cmd-'))
+    temporary.push(root)
+    const spec = JSON.stringify({
+      directory: 'agent', description: 'test', provider: 'deepseek', apiKey: 'key',
+      model: 'deepseek-v4-flash', interface: 'embed', pm: 'npm', install: false,
+      features: [{ id: 'persistence', options: ['jsonl'] }],
+    })
+    const context = commandContext(root)
+    context.stdin.isTTY = false
+    context.stdout.isTTY = false
+    const result = await createProject(['--config-json', spec], context)
+    expect(result?.project.root).toBe(join(root, 'agent'))
+  })
+
+  it('emits NDJSON lifecycle events under --json', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'create-headless-json-'))
+    temporary.push(root)
+    const base = {
+      description: 'test', model: 'deepseek-v4-flash', interface: 'embed', pm: 'npm', install: false,
+    }
+    const ok = commandContext(root)
+    ok.stdin.isTTY = false
+    ok.stdout.isTTY = false
+    const okSpec = JSON.stringify({ ...base, directory: 'done-agent', provider: 'deepseek', apiKey: 'key', features: [] })
+    await expect(runCreateCommand(['--config-json', okSpec, '--json'], ok)).resolves.toBe(0)
+    expect(ok.readStdout()).toContain('{"type":"done"}')
+    // stdout stays pure NDJSON: every line parses, human progress goes to stderr
+    for (const line of ok.readStdout().split('\n').filter(line => line.length > 0)) {
+      expect(() => { JSON.parse(line) }).not.toThrow()
+    }
+    expect(ok.readStderr()).toContain('Created done-agent')
+    expect(ok.readStderr()).toContain('Next: cd')
+
+    const missing = commandContext(root)
+    missing.stdin.isTTY = false
+    missing.stdout.isTTY = false
+    const missingSpec = JSON.stringify({ ...base, directory: 'miss-agent', provider: 'custom', baseURL: 'https://x', features: [] })
+    await expect(runCreateCommand(['--config-json', missingSpec, '--json'], missing)).resolves.toBe(1)
+    expect(missing.readStdout()).toContain('"type":"action-required"')
+
+    const broken = commandContext(root)
+    broken.stdin.isTTY = false
+    broken.stdout.isTTY = false
+    await expect(runCreateCommand(['--config-json', '{bad', '--json'], broken)).resolves.toBe(1)
+    expect(broken.readStdout()).toContain('"type":"error"')
+
+    const cancelled = commandContext(root, new ScriptedPort([ScriptedPort.cancel]))
+    await expect(runCreateCommand(['--json', ...argv('cancel-agent', false)], cancelled)).resolves.toBe(1)
+    expect(cancelled.readStdout()).toContain('"reason":"cancelled"')
   })
 
   it('creates through an injected prompt port and delegates optional setup', async () => {
@@ -467,6 +572,17 @@ describe('create command composition', () => {
     await createProject(argv('agent', true), context)
     expect(install).toHaveBeenCalledOnce()
     expect(build).toHaveBeenCalledOnce()
+    const spec = JSON.stringify({
+      directory: 'json-agent', description: 'test', provider: 'deepseek', apiKey: 'key',
+      model: 'deepseek-v4-flash', interface: 'embed', pm: 'npm', install: true, features: [],
+    })
+    const json = commandContext(root)
+    json.stdin.isTTY = false
+    json.stdout.isTTY = false
+    await createProject(['--config-json', spec, '--json'], json)
+    // json mode hands install/build a runner that redirects child output to stderr
+    expect(install).toHaveBeenCalledTimes(2)
+    expect(install.mock.calls[1]?.[1]).toBeInstanceOf(NodeCommandRunner)
     install.mockRestore()
     build.mockRestore()
   })
@@ -499,5 +615,60 @@ describe('create command composition', () => {
     expect(invalid.readStderr()).toContain('unknown option')
     const help = commandContext(root)
     await expect(runCreateCommand(['--help'], help)).resolves.toBe(0)
+  })
+})
+
+describe('resolveHeadless', () => {
+  it('returns undefined without a config source', async () => {
+    expect(await resolveHeadless(parseCreateArgs(['agent']))).toBeUndefined()
+  })
+
+  it('maps every inline --config-json field into args plus the feature plan', async () => {
+    const spec = JSON.stringify({
+      directory: 'a', description: 'd', provider: 'custom', baseURL: 'https://x', apiKey: 'k',
+      model: 'm', interface: 'acp', pm: 'pnpm', install: true, linkWorkspace: true,
+      features: [{ id: 'todo', options: ['default'] }],
+    })
+    const resolved = await resolveHeadless(parseCreateArgs(['--config-json', spec]))
+    expect(resolved?.args).toMatchObject({
+      directory: 'a', description: 'd', provider: 'custom', baseURL: 'https://x', apiKey: 'k',
+      model: 'm', runInterface: 'acp', packageManager: 'pnpm', install: true, linkWorkspace: true, help: false,
+    })
+    expect(resolved?.features).toEqual([{ id: 'todo', options: ['default'] }])
+  })
+
+  it('reads --config from a file via the injected reader and omits absent fields', async () => {
+    const resolved = await resolveHeadless(
+      parseCreateArgs(['--config', '/spec.json']),
+      async () => JSON.stringify({ description: 'from-file' }),
+    )
+    expect(resolved?.args.description).toBe('from-file')
+    expect(resolved?.args.directory).toBeUndefined()
+    expect(resolved?.args.linkWorkspace).toBeUndefined()
+    expect(resolved?.features).toBeUndefined()
+  })
+
+  it('reads --config from disk with the default reader', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'create-headless-file-'))
+    temporary.push(dir)
+    const file = join(dir, 'spec.json')
+    await writeFile(file, JSON.stringify({ description: 'on-disk' }))
+    const resolved = await resolveHeadless(parseCreateArgs(['--config', file]))
+    expect(resolved?.args.description).toBe('on-disk')
+  })
+
+  it('fails loud on invalid JSON, a non-object root, or a non-array features field', async () => {
+    await expect(resolveHeadless(parseCreateArgs(['--config-json', '{bad']))).rejects.toThrow('invalid JSON')
+    await expect(resolveHeadless(parseCreateArgs(['--config-json', '[]']))).rejects.toThrow('expected a JSON object')
+    await expect(resolveHeadless(parseCreateArgs(['--config-json', 'null']))).rejects.toThrow('expected a JSON object')
+    await expect(resolveHeadless(parseCreateArgs(['--config-json', '5']))).rejects.toThrow('expected a JSON object')
+    await expect(resolveHeadless(parseCreateArgs(['--config-json', '{"features":1}']))).rejects.toThrow('must be an array')
+  })
+
+  it('accepts a minimal spec, leaving unspecified answers undefined', async () => {
+    const resolved = await resolveHeadless(parseCreateArgs(['--config-json', '{"directory":"x"}']))
+    expect(resolved?.args.directory).toBe('x')
+    expect(resolved?.args.description).toBeUndefined()
+    expect(resolved?.features).toBeUndefined()
   })
 })

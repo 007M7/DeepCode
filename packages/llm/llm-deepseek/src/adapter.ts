@@ -91,6 +91,9 @@ export class DeepSeekAdapter extends LlmAdapter {
         'content-type': 'application/json',
         'accept': 'text/event-stream',
         ...attributionHeaders(),
+        ...options.sessionId !== undefined
+          ? { 'x-deepseek-harness-session-id': String(options.sessionId) }
+          : {},
       },
       body: JSON.stringify(body),
       ...options.signal ? { signal: options.signal } : {},

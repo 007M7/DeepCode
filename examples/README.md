@@ -33,6 +33,10 @@ The full-screen terminal sibling of `repl-agent`: it reuses the same coding back
 
 Run with: `pnpm run demo:tui` (needs `DEEPSEEK_API_KEY`). See [tui-agent/README.md](tui-agent/README.md) for controls and composition.
 
+## jsonrpc-agent
+
+An unattended coding agent driven through the Python SDK: JSON-RPC stdio, foreground-only `bash`, `read` / `write` / `edit`, one foreground `subagent`, `todo_write`, JSONL persistence, and compaction. It excludes terminal UI, stdout logging, approvals, skills, and background task controls. See [jsonrpc-agent/README.md](jsonrpc-agent/README.md).
+
 ## cordis-agent
 
 The **self-referential** demo: the coding spine plus [`@deepseek-ai/dsh-tool-cordis`](../packages/cordis/tool-cordis), whose three tools (`cordis_inspect` / `cordis_mount` / `cordis_unmount`) let the agent inspect the live cordis runtime it runs inside, mount model-written plugins into it (an event listener, a brand-new tool for itself, or a service another mount injects), and dispose them again — all dynamic mounts grouped under one `cordis-dynamic` fiber subtree. The `ctx.fs`/`ctx.web` services ride along provider-only, as the capabilities those plugins build on.
