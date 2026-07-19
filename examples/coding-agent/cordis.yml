@@ -1,6 +1,6 @@
-# REPL agent with swappable DeepSeek and local-bash backends. `dsh-stdio-demo`
-# supplies the agent spine, workspace instructions, generic task controls,
-# logging, JSONL persistence, readline UI, and `main` agent.
+# Readline coding REPL with swappable DeepSeek and local-bash backends.
+# `dsh-stdio-demo` supplies the agent spine, workspace instructions, generic
+# task controls, JSONL persistence, the line-oriented front door, and `main`.
 # HMR remains a leaf because it requires Loader internals; `demo:repl` passes
 # `--expose-internals`. The app bin loads the gitignored root `.env`; this file
 # reads `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL` through `!!js`.
@@ -37,6 +37,8 @@
     workspaceContext:
       maxBytes: 65536
     welcome: 'agent REPL ready. Give it a coding task.'
+    ui:
+      mode: readline
     # Keep the persona to identity and behavior; tool plugins own tool guidance.
     # The loop resolves {{model}} from this agent's configuration.
     persona: |

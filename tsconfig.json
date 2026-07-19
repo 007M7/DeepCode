@@ -82,6 +82,7 @@
     { "path": "./packages/ui/app-boot" },
     { "path": "./packages/ui/jsonrpc" },
     { "path": "./packages/examples/jsonrpc-demo" },
+    { "path": "./packages/ui/tui" },
     { "path": "./packages/ui/stdio" },
     { "path": "./packages/examples/stdio-demo" },
     { "path": "./packages/support/llm-replay" },
