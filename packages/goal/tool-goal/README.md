@@ -33,21 +33,37 @@ The value must be a positive safe integer. It supplies both the hard lower bound
 
 ### System prompt
 
-**What the model sees**: A fixed goal policy says when semantic human intent warrants creation, requires exact read-before-update refs, explains rearming after resume/fork, and limits completion/blocking claims. The configured threshold is interpolated into that guidance.
+#### What the model sees
 
-**Token effect**: Small fixed input cost on every request where this plugin's prompt registration is in scope.
+A fixed goal policy says when semantic human intent warrants creation, requires exact read-before-update refs, explains rearming after resume/fork, and limits completion/blocking claims. The configured threshold is interpolated into that guidance.
 
-#### Goal policy
+##### Goal policy
 
 ```markdown
 Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds; difficulty, uncertainty, or useful remaining work is not blocked.
 ```
 
+#### Token effect
+
+Small fixed input cost on every request where this plugin's prompt registration is in scope.
+
+#### KV Cache effect
+
+Prefix-stable while the plugin scope, configured threshold, and guidance text are unchanged. Activation, disposal, or configuration changes may invalidate reuse from this prompt section.
+
 ### Tool schemas and results
 
-**What the model sees**: The generated [`get_goal`, `create_goal`, and `update_goal` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-goal). Successful results are compact JSON. Mutation results are followed by the goal domain's raw `<goal_state>` snapshot after the tool batch. `activation` in a result is a live observation and never becomes replay authority.
+#### What the model sees
 
-**Token effect**: Fixed schema cost plus one compact result per call. Mutations also retain the domain snapshot until compaction.
+The generated [`get_goal`, `create_goal`, and `update_goal` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-goal). Successful results are compact JSON. Mutation results are followed by the goal domain's raw `<goal_state>` snapshot after the tool batch. `activation` in a result is a live observation and never becomes replay authority.
+
+#### Token effect
+
+Fixed schema cost plus one compact result per call. Mutations also retain the domain snapshot until compaction.
+
+#### KV Cache effect
+
+Schemas are prefix-stable while their definitions and visibility are unchanged. Calls, results, and resulting goal snapshots append after the reusable request prefix without invalidating earlier entries.
 
 ## Known Limitations and Deferred Work
 
