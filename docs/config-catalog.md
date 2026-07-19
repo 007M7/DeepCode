@@ -890,41 +890,6 @@ export interface Config {
 
 Source: [`packages/subagent/subagent-fork/src/index.ts:25`](../packages/subagent/subagent-fork/src/index.ts)
 
-## `@deepseek-ai/dsh-subagent-mock`
-
-Requires: `subagents`
-
-```ts config-catalog
-/** Config for the mock provider; all optional with test-friendly defaults. */
-export interface Config {
-  /** Registry name to register under. */
-  name: string
-  /** The text the scripted child "returns" as its final answer. */
-  reply?: string
-  /** The stop reason the run settles with. */
-  stopReason?: SubagentStopReason
-  /** Which start-time capabilities to advertise (default: all `true`). */
-  capabilities?: Partial<SubagentCapabilities>
-  /**
-   * The conversation-history descriptor to declare
-   * ({@link SubagentProvider.inheritsParentContext}); default `false` (fresh
-   * conversation). Set `true` to exercise seeded/fork wording in consumer
-   * tests. This flag says nothing about tool, service, scope, or authority
-   * inheritance.
-   */
-  inheritsParentContext?: boolean
-  /**
-   * Structured value surfaced when a request carries an `outputSchema` and the
-   * `outputSchema` capability is on (default: `{ reply }`).
-   */
-  structured?: unknown
-}
-```
-
-Depends on: [`SubagentCapabilities`](../packages/subagent/subagent/src/index.ts) · [`SubagentStopReason`](../packages/subagent/subagent/src/index.ts)
-
-Source: [`packages/support/subagent-mock/src/index.ts:87`](../packages/support/subagent-mock/src/index.ts)
-
 ## `@deepseek-ai/dsh-subagent-spawn`
 
 Requires: `subagents`
