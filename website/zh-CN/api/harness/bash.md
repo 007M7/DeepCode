@@ -16,6 +16,11 @@ Implementations must honor these semantics:
 ### ctx.bash.sandboxMode
 
 ```ts website-api
+/**
+ * The sandbox mode this executor applies by default, or `undefined` when it
+ * does not sandbox commands.
+ * @returns the configured default sandbox mode, when supported.
+ */
 get sandboxMode(): SandboxMode | undefined
 ```
 
@@ -26,6 +31,12 @@ The sandbox mode this executor applies by default, or `undefined` when it does n
 ### ctx.bash.resolve(request)
 
 ```ts website-api
+/**
+ * Apply implementation-owned defaults and caps to a request before execution.
+ * @param request - the caller's request; omitted fields get this
+ *   implementation's defaults, capped fields are clamped.
+ * @returns the fully-specified spec to hand to {@link run}/{@link start}.
+ */
 abstract resolve(request: BashExecRequest): BashExecSpec
 ```
 
@@ -40,6 +51,12 @@ Apply implementation-owned defaults and caps to a request before execution.
 ### ctx.bash.run(spec)
 
 ```ts website-api
+/**
+ * Run a command in the foreground; resolves when it finishes.
+ * @param spec - a resolved spec from {@link resolve}, never a raw request.
+ * @returns the outcome; nonzero exits, timeout kills, and abort kills
+ *   resolve with a descriptive result rather than reject.
+ */
 abstract run(spec: BashExecSpec): Promise<BashRunResult>
 ```
 
@@ -54,6 +71,11 @@ Run a command in the foreground; resolves when it finishes.
 ### ctx.bash.start(spec)
 
 ```ts website-api
+/**
+ * Start a background process and return its handle immediately.
+ * @param spec - a resolved spec from {@link resolve}, never a raw request.
+ * @returns the live process handle (reads, kill, quiescence promise).
+ */
 abstract start(spec: BashExecSpec): BashProcess
 ```
 

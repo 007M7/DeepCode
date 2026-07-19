@@ -12,9 +12,7 @@
 import type { Context } from 'cordis'
 import { assertNever, type ToolCallBlock } from '@deepseek-ai/dsh-llm'
 import type { HookContext } from '@deepseek-ai/dsh-agent'
-import type { Session } from '@deepseek-ai/dsh-session'
 import { TOOL_REGISTRY_SCHEDULER, type ToolExecutionInput, type ToolExecutionMode, type ToolExecutionResult, type ToolRunContext } from '@deepseek-ai/dsh-tools'
-import type { ReactLoopAgent } from './agent.ts'
 
 /** One tool call after argument parsing, ready to schedule. */
 interface PlannedCall {
@@ -33,9 +31,10 @@ interface Slot {
  * Schedule one assistant step's tool calls by their live concurrency mode.
  * Started calls receive ordered results. Abort drains them and rethrows after
  * accepting their context into the batch FIFO owned by the caller.
+ * The committed step's AgentLoop driver boundary supplies the initiating Agent
+ * that becomes each explicit {@link ToolExecutionInput.agent}.
  *
- * @param ctx - loop context that owns the tool registry.
- * @param agent - agent and session receiving the call lifecycle.
+ * @param ctx - loop context that owns the tool registry and carries the initiating Agent.
  * @param turn - current turn number.
  * @param step - current step number.
  * @param toolCalls - assistant calls in model order.
@@ -45,7 +44,6 @@ interface Slot {
  */
 export async function executeToolCalls(
   ctx: Context,
-  agent: ReactLoopAgent,
   turn: number,
   step: number,
   toolCalls: ToolCallBlock[],
@@ -53,7 +51,7 @@ export async function executeToolCalls(
   maxParallel: number,
   acceptContext: (context: HookContext) => void,
 ): Promise<void> {
-  const { session } = agent
+  const agent = ctx.agents.requireInitiator()
 
   // Inputs are distinct because tools/execute wrappers may replace `exec.signal`.
   const planned: PlannedCall[] = toolCalls.map(block => ({
@@ -74,7 +72,7 @@ export async function executeToolCalls(
     const first = planned[next]!
     const mode = ctx.tools.executionMode(first.exec).kind
     const group = mode === 'parallel' ? planned.slice(next) : [first]
-    next += await runGroup(ctx, session, turn, step, group, mode, signal, maxParallel, acceptContext)
+    next += await runGroup(ctx, turn, step, group, mode, signal, maxParallel, acceptContext)
   }
 }
 
@@ -96,7 +94,6 @@ function parseArguments(raw: string): unknown {
  */
 async function runGroup(
   ctx: Context,
-  session: Session,
   turn: number,
   step: number,
   group: PlannedCall[],
@@ -105,6 +102,30 @@ async function runGroup(
   maxParallel: number,
   acceptContext: (context: HookContext) => void,
 ): Promise<number> {
+  const { session } = ctx.agents.requireInitiator()
+  const appendToolCall = (block: ToolCallBlock): number => {
+    return session.append('tool/call', {
+      turn,
+      step,
+      callId: block.id,
+      name: block.name,
+      arguments: block.arguments,
+    }).seq
+  }
+  const appendToolResult = (block: ToolCallBlock, result: ToolExecutionResult, callSeq: number): void => {
+    session.append('tool/result', {
+      turn,
+      step,
+      // Correlation stays with the loop's authoritative model-transcript call id;
+      // registry results deliberately do not duplicate it.
+      callId: block.id,
+      content: result.content,
+      isError: result.isError,
+      ...result.error ? { error: result.error } : {},
+      // Persist presentation payloads so UI bridges reproduce result cards on replay.
+      ...result.meta !== undefined ? { meta: result.meta } : {},
+    }, { surfaceOp: 'append', sourceEventSeqs: [callSeq] })
+  }
   /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
   if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
   const slots: (Slot | undefined)[] = group.map(() => undefined)
@@ -125,7 +146,7 @@ async function runGroup(
         ? await ctx.tools[TOOL_REGISTRY_SCHEDULER].finalize(slot.exec, slot.result)
         : ctx.tools[TOOL_REGISTRY_SCHEDULER].finish(slot.exec, slot.result)
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded index
-      appendToolResult(session, turn, step, call!.block, result, callSeqs[committed]!)
+      appendToolResult(call!.block, result, callSeqs[committed]!)
       for (const context of result.additionalContexts ?? []) acceptContext(context)
       committed++
     }
@@ -136,7 +157,7 @@ async function runGroup(
   const startCall = async (index: number): Promise<void> => {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded index
     const call = group[index]!
-    callSeqs[index] = appendToolCall(session, turn, step, call.block)
+    callSeqs[index] = appendToolCall(call.block)
     started++
     const prepared = await ctx.tools[TOOL_REGISTRY_SCHEDULER].prepare(call.exec)
     switch (prepared.kind) {
@@ -197,33 +218,4 @@ async function runGroup(
   /* v8 ignore next -- unreachable: a non-aborted group commits every started call */
   if (committed !== started) throw new Error('tool-call scheduler: uncommitted settled calls')
   return started
-}
-
-/** Append a started call and return its provenance sequence. */
-function appendToolCall(session: Session, turn: number, step: number, block: ToolCallBlock): number {
-  const event = session.append('tool/call', { turn, step, callId: block.id, name: block.name, arguments: block.arguments })
-  return event.seq
-}
-
-/** Append a model-ordered result linked to its call event. */
-function appendToolResult(
-  session: Session,
-  turn: number,
-  step: number,
-  block: ToolCallBlock,
-  result: ToolExecutionResult,
-  callSeq: number,
-): void {
-  session.append('tool/result', {
-    turn, step,
-    // Correlation stays with the loop's authoritative model-transcript call id;
-    // registry results deliberately do not duplicate it.
-    callId: block.id,
-    content: result.content,
-    isError: result.isError,
-    ...result.error ? { error: result.error } : {},
-    // The tool's private presentation payload (e.g. a result-time diff),
-    // persisted so a UI bridge reproduces the card on replay.
-    ...result.meta !== undefined ? { meta: result.meta } : {},
-  }, { surfaceOp: 'append', sourceEventSeqs: [callSeq] })
 }

@@ -37,6 +37,7 @@
     { "path": "./packages/context/workspace-context" },
     { "path": "./packages/core/agent-loop" },
     { "path": "./packages/examples/agent-spine-demo" },
+    { "path": "./packages/examples/cli-demo" },
     { "path": "./packages/bash/bash" },
     { "path": "./packages/code-runtime/code-runtime" },
     { "path": "./packages/code-runtime/code-runtime-worker" },

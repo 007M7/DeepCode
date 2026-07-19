@@ -16,7 +16,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages contribute service
 | `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
 | `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and prompt variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
-| `ctx.agents` | `dsh-agent` | live agent registry, public `Agent` handle, `agent/*` events |
+| `ctx.agents` | `dsh-agent` | live agents, creation delegation, `agent/*` events, and process-local initiating Agent scope |
 | `ctx.agentLoop` | `dsh-agent-loop` | concrete `Agent` driver |
 
 ### Capability Services
@@ -118,6 +118,10 @@ Every session event is turn-enclosed. Reloading preserves an interrupted tail an
 
 Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, receive only that agent's dispatches, and unwind with it; async effects such as background-task cleanup are awaited. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. Typed resolvers derive carrier checks from merged `Events` signatures and `scopeTarget` ([semantic-gates RFC](rfc/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See the [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition controls](rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md).
 
+### Initiating Agent Scope
+
+`AgentLoop` runs each driver inside `ctx.agents.withInitiator()`; private code derives `agent.session`, while other identities stay explicit ([decision](rfc/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
+
 ## State
 
 ### Session Log
@@ -146,7 +150,7 @@ Some seams bend the template deliberately: LLM combines interface and consumer b
 
 ### Bundles And Apps
 
-`dsh-agent-spine-demo` bundles the default spine ([README](../packages/examples/agent-spine-demo/README.md)). `dsh-stdio-demo` adds a terminal front door that selects `dsh-tui` for interactive terminals and line-oriented `dsh-stdio` for pipes; `dsh-acp-demo` adds stdout-pure ACP over JSON-RPC ([ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies its default only without an explicit config channel and drives `dsh-jsonrpc` over line-delimited JSON-RPC ([Python SDK](../python/README.md)). Deployments remain thin leaves with swappable backends and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-spine-demo` bundles the default spine ([README](../packages/examples/agent-spine-demo/README.md)). `dsh-stdio-demo` adds a terminal front door that selects `dsh-tui` for interactive terminals and line-oriented `dsh-stdio` for pipes; `dsh-cli-demo` runs one persisted headless turn with format-pure stdout; and `dsh-acp-demo` adds stdout-pure ACP over JSON-RPC ([ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies its default only without an explicit config channel and drives `dsh-jsonrpc` over line-delimited JSON-RPC ([Python SDK](../python/README.md)). Deployments remain thin leaves with swappable backends and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Where New Behavior Goes
 

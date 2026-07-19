@@ -7,6 +7,16 @@ Plugin loading and dependency injection.
 ### ctx.inject(deps, callback)
 
 ```ts website-api
+/**
+ * Run a callback once the requested services are available.
+ *
+ * Shorthand for `ctx.plugin({ inject, apply: callback })`: the callback
+ * is unloaded and re-run whenever a required service changes.
+ *
+ * @param deps — required services, as an array or a name → config map.
+ * @param callback — plugin body called with `(ctx, config)`.
+ * @returns the fiber; awaiting it settles once loading finished.
+ */
 inject(deps: Inject, callback: Plugin.Function<void>): Fiber & PromiseLike<Fiber>
 ```
 
@@ -23,6 +33,14 @@ Shorthand for `ctx.plugin({ inject, apply: callback })`: the callback is unloade
 ### ctx.plugin(plugin, ...args)
 
 ```ts website-api
+/**
+ * Load a plugin in the current context.
+ *
+ * @param plugin — a function, class, or `{ apply }` object plugin.
+ * @param args — the plugin config, validated against its `Config` schema.
+ * @returns the fiber; awaiting it settles once loading finished
+ * (rejecting on config or startup errors).
+ */
 plugin<P extends Plugin>(plugin: P, ...args: Spread<GetPluginConfig<P>>): Fiber & PromiseLike<Fiber>
 ```
 
@@ -40,11 +58,13 @@ Load a plugin in the current context.
 Supported plugin entrypoint shapes.
 
 ```ts website-api
+/** Supported plugin entrypoint shapes. */
 type Plugin<T = any> =
   | Plugin.Function<T>
   | Plugin.Constructor<T>
   | Plugin.Object<T>
 
+/** Types associated with plugin entrypoints and runtime records. */
 namespace Plugin {
   /** Shared metadata understood by the plugin registry and related tooling. */
   export interface Base<T = any> {
@@ -104,8 +124,16 @@ Service dependency declaration accepted by plugins and the `@Inject` decorator.
 Array form requests services without intercept config. Object form maps each service name to optional intercept config for the plugin context.
 
 ```ts website-api
+/**
+ * Service dependency declaration accepted by plugins and the `@Inject`
+ * decorator.
+ *
+ * Array form requests services without intercept config. Object form maps each
+ * service name to optional intercept config for the plugin context.
+ */
 type Inject<M = Dict> = (keyof M)[] | { [K in keyof M]?: M[K] }
 
+/** Utilities for normalizing plugin dependency declarations. */
 namespace Inject {
   /**
    * Convert array/object/class-inherited inject metadata into a plain map.

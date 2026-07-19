@@ -123,6 +123,7 @@ flowchart TD
   subgraph group_examples["packages/examples"]
     pkg_acp_demo["acp-demo"]
     pkg_agent_spine_demo["agent-spine-demo"]
+    pkg_cli_demo["cli-demo"]
     pkg_jsonrpc_demo["jsonrpc-demo"]
     pkg_stdio_demo["stdio-demo"]
   end
@@ -420,6 +421,14 @@ flowchart TD
   pkg_acp_demo --> pkg_tools
   pkg_acp_demo --> pkg_user_interaction
   pkg_acp_demo --> pkg_workspace_context
+  pkg_cli_demo --> pkg_agent
+  pkg_cli_demo --> pkg_agent_spine_demo
+  pkg_cli_demo --> pkg_app_boot
+  pkg_cli_demo --> pkg_llm
+  pkg_cli_demo --> pkg_session
+  pkg_cli_demo --> pkg_session_persistence_jsonl
+  pkg_cli_demo --> pkg_tools
+  pkg_cli_demo --> pkg_workspace_context
   pkg_stdio_demo --> pkg_agent
   pkg_stdio_demo --> pkg_agent_loop
   pkg_stdio_demo --> pkg_agent_spine_demo
@@ -524,4 +533,5 @@ flowchart TD
 | [`subagent-fork`](../packages/subagent/subagent-fork) | `subagent` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
 | [`subagent-spawn`](../packages/subagent/subagent-spawn) | `subagent` | [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
 | [`acp-demo`](../packages/examples/acp-demo) | `examples` | [`acp`](../packages/ui/acp), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction), [`workspace-context`](../packages/context/workspace-context) |
+| [`cli-demo`](../packages/examples/cli-demo) | `examples` | [`agent`](../packages/core/agent), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tools`](../packages/core/tools), [`workspace-context`](../packages/context/workspace-context) |
 | [`stdio-demo`](../packages/examples/stdio-demo) | `examples` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`stdio`](../packages/ui/stdio), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tools`](../packages/core/tools), [`tui`](../packages/ui/tui), [`user-interaction`](../packages/ui/user-interaction), [`workspace-context`](../packages/context/workspace-context) |
