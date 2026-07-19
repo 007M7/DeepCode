@@ -1,6 +1,6 @@
-# coding-agent
+# repl-agent
 
-The coding-agent REPL wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + `todo_write` + readline chat + JSONL persistence, loaded from `cordis.yml`. The sibling [`tui-agent`](../tui-agent/README.md) fixes the same agent composition to the full-screen terminal front door.
+The repl-agent wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + `todo_write` + readline chat + JSONL persistence, loaded from `cordis.yml`. The sibling [`tui-agent`](../tui-agent/README.md) fixes the same agent composition to the full-screen terminal front door.
 
 ## Run it
 

@@ -1,6 +1,6 @@
 # tui-agent
 
-The full-screen terminal counterpart to the [`coding-agent`](../coding-agent/README.md) readline REPL and [`acp-agent`](../acp-agent/README.md) server. It reuses the coding agent's backends and tool composition, then fixes the shared terminal app to the `dsh-tui` front door.
+The full-screen terminal counterpart to the [`repl-agent`](../repl-agent/README.md) readline REPL and [`acp-agent`](../acp-agent/README.md) server. It reuses the coding agent's backends and tool composition, then fixes the shared terminal app to the `dsh-tui` front door.
 
 ## Run it
 
@@ -16,7 +16,7 @@ Run `pnpm run demo:code-mode tui` for the sibling Code Mode overlay.
 
 ## Composition
 
-[`cordis.yml`](cordis.yml) includes the readline coding-agent leaf so the LLM, bash, filesystem, compaction, subagent, workflow, todo, timeout, and spill choices have one owner. Its asserted patch replaces only the terminal app config and forces `ui.mode: tui`; [`code-mode.cordis.yml`](code-mode.cordis.yml) applies the same front-door patch to the coding agent's Code Mode overlay.
+[`cordis.yml`](cordis.yml) includes the readline repl-agent leaf so the LLM, bash, filesystem, compaction, subagent, workflow, todo, timeout, and spill choices have one owner. Its asserted patch replaces only the terminal app config and forces `ui.mode: tui`; [`code-mode.cordis.yml`](code-mode.cordis.yml) applies the same front-door patch to the repl-agent Code Mode overlay.
 
 ## Snapshot tests
 

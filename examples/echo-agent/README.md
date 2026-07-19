@@ -9,7 +9,7 @@ This example is just a leaf `cordis.yml`: it loads the [`@deepseek-ai/dsh-stdio-
 - `mock-llm.ts` — a mock `LlmAdapter` that streams scripted responses and calls the `echo` tool when the user types "echo <something>". Registered with `ctx.llm.registerAdapter(['mock-echo'], …)`.
 - `echo-tool.ts` — a tool registered via `ctx.tools.register(defineTool(…))` with typed `execute` args; echoes text back uppercased.
 
-Swapping `mock-llm` for the real `llm-deepseek` adapter is all that separates this from `coding-agent` — the same app, a different backend.
+Swapping `mock-llm` for the real `llm-deepseek` adapter is all that separates this from `repl-agent` — the same app, a different backend.
 
 ## Plugin files
 

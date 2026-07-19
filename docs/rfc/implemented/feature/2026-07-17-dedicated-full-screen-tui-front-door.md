@@ -14,7 +14,7 @@ The interactive channel must remain a Cordis plugin over the same agent, session
 
 DeepSeek Harness ships [`@deepseek-ai/dsh-tui`](../../../../packages/ui/tui/README.md) as a dedicated Cordis plugin. It owns terminal input and presentation only; agent lifecycle, session persistence, tool execution, and the model-facing question tool remain separate composition entries. The plugin requires both stdin and stdout to be TTYs and fails instead of silently changing to line-oriented behavior.
 
-The app layer selects a concrete terminal front door before mounting it. `@deepseek-ai/dsh-stdio-demo` can resolve `auto` from the two process streams, while the `coding-agent` and `tui-agent` leaves explicitly select readline and TUI respectively. The TUI leaf reuses the coding agent's backend and tool composition through an asserted include patch, so the three runnable agent leaves remain symmetric without duplicating deployment choices.
+The app layer selects a concrete terminal front door before mounting it. `@deepseek-ai/dsh-stdio-demo` can resolve `auto` from the two process streams, while the `repl-agent` and `tui-agent` leaves explicitly select readline and TUI respectively. The TUI leaf reuses the repl-agent backend and tool composition through an asserted include patch, so the three runnable agent leaves remain symmetric without duplicating deployment choices.
 
 The selected front door receives the exact generated or resumed `SessionId` used by the pre-created agent. It mounts before the agent composition, waits for the matching root agent, and enters full-screen mode only after that agent exists. A matching `agent-loop/config-start-failed` event is therefore reported before screen takeover and exits with status 1.
 
@@ -38,7 +38,7 @@ The implemented [TUI terminal-state snapshot RFC](../testing/2026-07-18-tui-term
 
 - **Keep readline and full-screen modes inside `@deepseek-ai/dsh-stdio`** — rejected because line-oriented output and differential TTY rendering have different dependencies, input rules, logging ownership, and teardown obligations. Separate packages keep the pipe-safe contract small and explicit.
 - **Let the TUI plugin silently downgrade when either stream is not a TTY** — rejected because a fallback hides deployment mistakes and changes interaction semantics. The app bundle may select a front door with `auto`; an explicitly mounted TUI fails loud.
-- **Keep TUI wiring and tests under the readline `coding-agent` leaf** — rejected because one leaf would represent two distinct front doors and break symmetry with `acp-agent`. A dedicated `tui-agent` leaf owns TUI overlays and tests while reusing the coding agent's backend composition.
+- **Keep TUI wiring and tests under the readline `repl-agent` leaf** — rejected because one leaf would represent two distinct front doors and break symmetry with `acp-agent`. A dedicated `tui-agent` leaf owns TUI overlays and tests while reusing the repl-agent backend composition.
 
 ## Consequences
 

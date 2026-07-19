@@ -2,7 +2,7 @@
 /**
  * Boot a stdio app from a leaf `cordis.yml`; usage is `dsh-stdio-demo [config]`, defaulting to the
  * cwd file. Shared `.env` loading, fail-loud Loader guards, and settled-tree boot live in
- * dsh-app-boot. The echo and coding-agent demos invoke this bin with their own leaf configs.
+ * dsh-app-boot. The echo-agent and repl-agent demos invoke this bin with their own leaf configs.
  * @module @deepseek-ai/dsh-stdio-demo/bin
  */
 

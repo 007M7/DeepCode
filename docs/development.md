@@ -109,13 +109,13 @@ The echo demo does not need API credentials:
 pnpm run demo:echo
 ```
 
-The coding-agent REPL uses the line-oriented readline front door and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
+The repl-agent demo uses the line-oriented readline front door and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
 pnpm run demo:repl
 ```
 
-The full-screen TUI reuses the coding-agent composition through the pi-tui front door and needs the same credentials:
+The full-screen TUI reuses the repl-agent composition through the pi-tui front door and needs the same credentials:
 
 ```sh
 pnpm run demo:tui

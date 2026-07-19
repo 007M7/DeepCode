@@ -34,7 +34,7 @@ The first index links ten relationship surfaces. Package topology and tool-packa
 | [tool schema catalog and package map](../../../tool-catalog.md) | generated | boot-harvested tool schemas plus tool-package service/effect metadata |
 | [capability seams and core services](../../../capability-seams.md) | hybrid generated | Cordis service declarations plus a role manifest in `gen-doc-graphs.ts` |
 | [echo-agent app composition](../../../../examples/echo-agent/composition.md) | hybrid generated | `examples/echo-agent/cordis.yml` plugin list plus curated app/bundle expansion |
-| [coding-agent app composition](../../../../examples/coding-agent/composition.md) | hybrid generated | `examples/coding-agent/cordis.yml` plugin list plus curated app/bundle expansion |
+| [repl-agent app composition](../../../../examples/repl-agent/composition.md) | hybrid generated | `examples/repl-agent/cordis.yml` plugin list plus curated app/bundle expansion |
 | [acp-agent app composition](../../../../examples/acp-agent/composition.md) | hybrid generated | `examples/acp-agent/cordis.yml` plugin list plus curated app/bundle expansion |
 | [event producer/consumer matrix](../../../event-producer-consumer.md) | hybrid generated | Cordis event declarations, AST-scanned `ctx.on/emit/parallel/serial/waterfall` sites, and explicit dynamic dispatch overrides |
 | [agent turn and step lifecycle](../../../agent-lifecycle.md) | curated | architecture.md loop lifecycle, Cordis catalog links, and session event semantics |
