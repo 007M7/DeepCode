@@ -6,7 +6,7 @@
 
 Package-owned invariant registry with global and regex-based selection.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/support/invariants/src/index.ts#L261)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/support/invariants/src/index.ts#L388)
 
 ### ctx.invariants.register(packageName, installer)
 
@@ -16,7 +16,7 @@ Package-owned invariant registry with global and regex-based selection.
  * even when filtering disables its checks. Enabled installers run in a child
  * fiber; failure disposes that fiber and releases the reservation.
  * @param packageName - full npm package name that owns the contribution.
- * @param installer - synchronous listener installer for the child context.
+ * @param installer - listener or startup-check installer for the child context.
  * @returns an effect-scoped disposer for the registration.
  */
 register(packageName: string, installer: InvariantInstaller): () => void
@@ -25,8 +25,8 @@ register(packageName: string, installer: InvariantInstaller): () => void
 Register one package's invariant installer. The package name is reserved even when filtering disables its checks. Enabled installers run in a child fiber; failure disposes that fiber and releases the reservation.
 
 - `packageName` — full npm package name that owns the contribution.
-- `installer` — synchronous listener installer for the child context.
+- `installer` — listener or startup-check installer for the child context.
 
 **Returns** an effect-scoped disposer for the registration.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/support/invariants/src/index.ts#L303)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/support/invariants/src/index.ts#L430)

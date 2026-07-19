@@ -489,13 +489,13 @@ Package-owned invariant registry with global and regex-based selection.
  * even when filtering disables its checks. Enabled installers run in a child
  * fiber; failure disposes that fiber and releases the reservation.
  * @param packageName - full npm package name that owns the contribution.
- * @param installer - synchronous listener installer for the child context.
+ * @param installer - listener or startup-check installer for the child context.
  * @returns an effect-scoped disposer for the registration.
  */
 register(packageName: string, installer: InvariantInstaller): () => void
 ```
 
-Source: [`packages/support/invariants/src/index.ts:261`](../../packages/support/invariants/src/index.ts)
+Source: [`packages/support/invariants/src/index.ts:388`](../../packages/support/invariants/src/index.ts)
 
 ## `ctx.llm` — `LlmService`
 
