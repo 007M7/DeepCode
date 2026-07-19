@@ -3,9 +3,9 @@
 
 # Cordis Services Catalog
 
-Every `ctx.<key>` service a plugin can call: the exact public interface plus the class JSDoc. This is one axis of the **wiring** reference a plugin author works against — the events a plugin listens to are the sibling [events catalog](events.md), and [core-data-structures/](../core-data-structures/core.md) catalogs the *data structures* these signatures move around. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
+Every `ctx.<key>` service a plugin can call: the exact public interface with original method JSDoc, plus the class JSDoc. This is one axis of the **wiring** reference a plugin author works against — the events a plugin listens to are the sibling [events catalog](events.md), and [core-data-structures/](../core-data-structures/core.md) catalogs the *data structures* these signatures move around. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
 
-This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verified fresh by `pnpm run verify-cordis-catalog` (part of `doc-sync`) — do not edit it by hand. Signature blocks use a `ts cordis-catalog` fence (skipped by doc-typecheck, since a bare signature is not standalone-compilable). Type names in a signature link to the page that documents them.
+This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verified fresh by `pnpm run verify-cordis-catalog` (part of `doc-sync`) — do not edit it by hand. Signature blocks use a `ts cordis-catalog` fence and include the original source JSDoc immediately before each event or service method. doc-typecheck skips these bare declaration fragments; type names in a signature link to the page that documents them.
 
 The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns. The **inherited tier** at the end is the cordis-core + loader/hmr/timer `ctx` surface a plugin also sees — pinned vendor source, summarized tersely.
 
@@ -14,8 +14,31 @@ The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary
 Concrete agent factory and driver service.
 
 ```ts cordis-catalog
+/**
+ * Create an agent and session under one caller-supplied identity, owned by
+ * the accessing fiber. Constructor-driven config calls mint a fresh combined
+ * id before entering this boundary.
+ * @param id - shared agent/session identity.
+ * @param options - concrete loop options.
+ * @param meta - optional fresh-session workspace metadata.
+ * @returns the published running agent.
+ */
 create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): Agent
+
+/**
+ * Create an owned agent on a caller-supplied session id.
+ * @param ownerCtx - caller context that structurally owns the transaction.
+ * @param options - identities, session seed/metadata, loop options, setup, and cancellation.
+ * @returns the published handle.
+ */
 async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>
+
+/**
+ * Resume an owned agent from the configured persistence service.
+ * @param ownerCtx - caller context that owns load, setup, and the live lifecycle.
+ * @param options - persisted identity, loop options, setup, and cancellation.
+ * @returns the published handle.
+ */
 async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
@@ -28,15 +51,115 @@ Source: [`packages/core/agent-loop/src/index.ts:407`](../../packages/core/agent-
 Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package. Agent *creation* is provided by whichever plugin implements the AgentFactory (`@deepseek-ai/dsh-agent-loop`), registered via setFactory.
 
 ```ts cordis-catalog
+/**
+ * Register the agent-creation factory (the loop calls this on construction,
+ * effect-scoped). A traced Cordis service is canonicalized to its concrete
+ * target; each create/resume call is then traced through that caller's
+ * context so ownership follows the caller without stacking proxy layers.
+ * Throws if a factory is already registered. Returns the disposer; on
+ * dispose the factory slot is cleared.
+ * @param factory - the loop-owned factory {@link create}/{@link resume} delegate to.
+ * @returns the disposer that clears the factory slot. The exact
+ *   Cordis effect disposer (single-shot): composite (generator) effects may
+ *   yield it directly — exact identity nests the teardown in order.
+ */
 setFactory(factory: AgentFactory): () => void
+
+/**
+ * Create and publish a new agent through the registered factory.
+ * Distinct from {@link register} (which records an already-constructed
+ * agent): this constructs the agent and its session. Rejects if no factory is
+ * registered or creation/setup fails. The resolved {@link AgentHandle} lets
+ * the owner tear down exactly this agent.
+ * @param options - shared identity, session seed/metadata, and agent options.
+ * @returns the handle after setup, rollback-covered publication, and loop start complete.
+ */
 async create(options: CreateAgentOptions): Promise<AgentHandle>
+
+/**
+ * Load a persisted session and resume an agent on it through the registered
+ * factory. Rejects if no factory is registered; the factory rejects if
+ * session persistence is not configured or persistence/setup fails.
+ * @param options - persisted identity, configuration, and optional setup.
+ * @returns the handle after setup, rollback-covered publication, and loop start complete.
+ */
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
+
+/**
+ * Register a live agent. Throws if an agent with the same id is already
+ * registered. Emits `agent/created` on registration and `agent/disposed`
+ * when the calling fiber is disposed — both with the agent's scope carrier
+ * (`scopeTarget(agent, agent)`): the subject is the agent in hand, so the
+ * emits are scope-filtered regardless of which context invoked `register`
+ * (calling through `agent.ctx` scopes EFFECTS; dispatch scoping always
+ * requires passing the carrier). Returns the disposer.
+ * @param agent - the already-constructed agent to record in the store.
+ * @returns the EXACT Cordis effect disposer (single-shot; a repeat call
+ *   returns undefined without awaiting an in-flight teardown). Exact
+ *   identity is load-bearing: a composite (generator) effect that owns a
+ *   teardown ORDER — the agent factory's lifecycle chain — must yield THIS
+ *   function so Cordis nests the unregistration at that yield position;
+ *   yielding a wrapper would leave it disposing as a concurrent sibling on
+ *   owner unload, unregistering the agent (and emitting `agent/disposed`)
+ *   while its final turn is still draining.
+ */
 register(agent: Agent): () => void
+
+/**
+ * Insert an already-constructed agent without announcing it. This is the
+ * advanced ordered-lifecycle primitive used by the async agent factory: it
+ * first completes setup while the agent is unpublished, then assigns the
+ * returned detach closure into its pre-installed composite teardown before
+ * calling {@link announce}. Ordinary callers use {@link register}.
+ * @param agent - the prepared, unpublished agent.
+ * @param owner - live agent whose scoped context created this agent, or
+ *   undefined for a top-level runtime root. This is runtime ownership, not
+ *   the resumed session's durable parent lineage.
+ * @returns an idempotent closure that removes this exact entry and emits
+ *   `agent/disposed` with listener failures contained. When called from a
+ *   synchronous `agent/created` listener, removal and disposal wait until
+ *   that creation dispatch unwinds.
+ */
 enter(agent: Agent, owner: Agent | undefined): () => void
+
+/**
+ * Announce an agent previously inserted with {@link enter}.
+ * @param agent - the live inserted agent to announce.
+ * @throws if `agent` is not the exact live registry entry for its id, or its
+ *   creation announcement already began (including a reentrant call from a
+ *   creation listener).
+ */
 announce(agent: Agent): void
+
+/**
+ * Look up a live agent.
+ * @param id - the shared agent/session id to look up.
+ * @returns the agent, or undefined when no live agent has that id.
+ */
 get(id: SessionId): Agent | undefined
+
+/**
+ * Test whether a live agent was created through one exact parent agent's
+ * scoped context. Runtime ownership is independent of durable session
+ * lineage and remains unambiguous when unrelated providers reuse an id.
+ * @param id - the candidate child agent's shared agent/session id.
+ * @param owner - the expected runtime creator agent.
+ * @returns true only while the exact child entry is live under that owner.
+ */
 isOwnedBy(id: SessionId, owner: Agent): boolean
+
+/**
+ * All live agents, in registration order.
+ * @returns a fresh array; mutating it does not affect the registry.
+ */
 list(): Agent[]
+
+/**
+ * All live top-level agents in registration order. A top-level agent was
+ * created without an owning agent context; durable session lineage does not
+ * affect this runtime relation, so a resumed fork may still be a root.
+ * @returns a fresh array; mutating it does not affect the registry.
+ */
 roots(): Agent[]
 ```
 
@@ -49,6 +172,24 @@ Source: [`packages/core/agent/src/index.ts:201`](../../packages/core/agent/src/i
 Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through prompt and pre-step notices.
 
 ```ts cordis-catalog
+/**
+ * Ask the composed answerers to decide one readonly same-process request.
+ * The service borrows the request, agent, session, and live signal directly.
+ * The request requires an open turn because the audit pair must be enclosed
+ * by the durable log's commit/replay boundary; an idle ask rejects before
+ * appending anything. The answerer phase always produces an outcome: an
+ * aborted signal yields `'cancelled'`, a missing or throwing answerer yields
+ * `'unavailable'` (fail closed), and a rogue non-vocabulary return value is
+ * normalized to `'unavailable'`. A failure that prevents either audit append
+ * from committing still rejects because returning an unlogged decision would
+ * violate the pair. Session contains post-commit observer failures, so an
+ * authoritative append cannot reject the request or suppress its matching
+ * audit event.
+ * @param req - the pending decision (agent, tool identity, reason, signal).
+ * @returns the closed outcome; `'allowed-once'` is the only grant.
+ * @throws when no turn is open or either audit event fails before the session
+ *   append commit point.
+ */
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 ```
 
@@ -68,8 +209,27 @@ Implementations must honor these semantics:
 - Disposal kills all running background processes and awaits their exit.
 
 ```ts cordis-catalog
+/**
+ * Apply implementation-owned defaults and caps to a request before execution.
+ * @param request - the caller's request; omitted fields get this
+ *   implementation's defaults, capped fields are clamped.
+ * @returns the fully-specified spec to hand to {@link run}/{@link start}.
+ */
 abstract resolve(request: BashExecRequest): BashExecSpec
+
+/**
+ * Run a command in the foreground; resolves when it finishes.
+ * @param spec - a resolved spec from {@link resolve}, never a raw request.
+ * @returns the outcome; nonzero exits, timeout kills, and abort kills
+ *   resolve with a descriptive result rather than reject.
+ */
 abstract run(spec: BashExecSpec): Promise<BashRunResult>
+
+/**
+ * Start a background process and return its handle immediately.
+ * @param spec - a resolved spec from {@link resolve}, never a raw request.
+ * @returns the live process handle (reads, kill, quiescence promise).
+ */
 abstract start(spec: BashExecSpec): BashProcess
 ```
 
@@ -82,8 +242,25 @@ Source: [`packages/bash/bash/src/index.ts:49`](../../packages/bash/bash/src/inde
 Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables. The namespace is rebuilt for every model bash call: ambient `DSH_*` values are discarded by the executor, then the registry's current snapshot is injected. Built-in shell facts remain owned by the registry itself while plugins can register additional, enumerable facts with effect-scoped disposal.
 
 ```ts cordis-catalog
+/**
+ * Register one environment contributor. Names and keys are unique; built-in
+ * keys are reserved. Registration is disposed with the calling plugin fiber.
+ * @param contributor - declared key ownership and per-execution resolver.
+ * @returns the disposer that unregisters the contribution.
+ */
 register(contributor: BashEnvContributor): () => void
+
+/**
+ * Build the trusted `DSH_*` snapshot for one bash tool execution.
+ * @param execution - the current tool execution.
+ * @returns an immutable environment overlay containing built-ins and current contributions.
+ */
 collect(execution: ToolExecution): DshEnvironment
+
+/**
+ * Enumerate plugin-contributed variables without executing their resolvers.
+ * @returns declarations sorted by environment variable name.
+ */
 list(): BashEnvVariableInfo[]
 ```
 
@@ -96,6 +273,15 @@ Source: [`packages/bash/tool-bash/src/index.ts:102`](../../packages/bash/tool-ba
 Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate failures resolve in CodeRunResult; only seam misuse rejects. Implementations bridge structured-cloneable bindings while treating programs as hostile peers, isolate runs from one another, and terminate and await in-flight runs during disposal.
 
 ```ts cordis-catalog
+/**
+ * Execute one program against the request's bindings and capture what it
+ * emitted. See the class doc for the resolution contract (error is a result
+ * field; rejection means seam misuse only).
+ * @param request - the program, its bindings, and the abort signal; the
+ *   request carries everything the runtime acts on, with no hidden defaults.
+ * @returns the run's outcome: completion value (when transferable), the
+ *   ordered log capture, and the failure (if any).
+ */
 abstract run(request: CodeRunRequest): Promise<CodeRunResult>
 ```
 
@@ -108,7 +294,40 @@ Source: [`packages/code-runtime/code-runtime/src/index.ts:30`](../../packages/co
 Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
 
 ```ts cordis-catalog
+/**
+ * Check token pressure and compact if the conversation is too large.
+ * Estimate the next request, including its session prefix, derived history,
+ * and system prompt. Above threshold, compact a head-anchored range ending at
+ * a balanced tool boundary and reconsolidate any prior automatic checkpoint.
+ * Return `null` when no compaction is needed or an open tail leaves no safe
+ * cutoff. A single oversized retained unit or prefix cannot be repaired here.
+ *
+ * @param agent - agent context owning the session surface and model options.
+ * @param fullSystemPrompt - assembled system prompt, counted toward the estimate.
+ * @param sessionPrefix - the instance's composed session prefix, counted toward the
+ *   estimate.
+ * @param signal - cancellation signal; model-backed implementations must forward it.
+ * @returns the compaction result, or `null` if no compaction was needed.
+ */
 abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>
+
+/**
+ * Forcibly compact a range of surface nodes into a single summary node.
+ * `start` and `end` name an inclusive span by surface position, not numeric seq
+ * order; replacements can make visible seqs non-monotonic. Both edges must be
+ * balanced so assistant tool calls remain paired with their results. A model-
+ * backed implementation forwards cancellation and rejects active, missing,
+ * reversed, or unbalanced ranges. The target session is `agent.session`.
+ * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}
+ * for the edge checks.
+ *
+ * @param start - first surface seq, inclusive.
+ * @param end - last surface seq, inclusive.
+ * @param agent - context whose session is mutated and whose routing options guide summarization.
+ * @param signal - optional cancellation; model-backed implementations must forward it.
+ * @throws when compaction is active or the range is missing, reversed, or unbalanced.
+ * @returns the appended event seqs, summary, replaced range, and token accounting.
+ */
 abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
@@ -121,13 +340,90 @@ Source: [`packages/compact/compact/src/index.ts:38`](../../packages/compact/comp
 Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.
 
 ```ts cordis-catalog
+/**
+ * Resolve a model/plugin-supplied path into a stable {@link FsTarget}. May perform I/O (a
+ * remote/sandboxed backend may need a round-trip to map a path to a stable identity), hence
+ * async even though the local backend only normalizes + realpaths.
+ *
+ * @param path - the path to resolve; relative paths resolve against `opts.cwd`.
+ * @param opts - optional cwd override and cancellation signal.
+ * @returns the stable target; the same file yields the same `targetKey`.
+ */
 abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>
+
+/**
+ * Return target metadata, or `undefined` when the target does not exist.
+ * @param target - the resolved target to stat.
+ * @param signal - aborts the metadata round-trip.
+ * @returns metadata only, never content; undefined for an absent target.
+ */
 abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
+
+/**
+ * Return path metadata without following the final path component when it is a
+ * symbolic link. This is intentionally path-shaped, not target-shaped:
+ * {@link resolve} follows symlinks to produce the stable identity used by
+ * normal reads/writes, while `lstat` lets a consumer reject the path itself
+ * before that follow happens.
+ *
+ * `opts.cwd` follows {@link resolve}'s cwd rules. `undefined` means the path is
+ * absent.
+ * @param path - the path to inspect; relative paths resolve against `opts.cwd`.
+ * @param opts - `cwd` overrides the backend's default base for relative paths.
+ * @param signal - aborts the metadata round-trip.
+ * @returns metadata only, never content; undefined for an absent path.
+ */
 abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>
+
+/**
+ * Read the whole regular text file as a single decoded string.
+ * @param target - the resolved target to read.
+ * @param signal - aborts the read.
+ * @returns the full decoded UTF-8 content.
+ */
 abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
+
+/**
+ * Stream the whole regular text file as decoded text chunks (same text
+ * semantics as {@link readText}, for large files). The backend owns
+ * cross-chunk UTF-8 decoding and binary rejection so the policy layer never
+ * touches raw bytes.
+ * @param target - the resolved target to read.
+ * @param signal - aborts the stream, including between chunks.
+ * @returns the chunk iterable, decoded and validated like {@link readText}.
+ */
 abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
+
+/**
+ * List direct children of a directory in stable name order. Returns resolved
+ * child targets plus cheap metadata only; never reads file contents.
+ * @param target - the resolved directory target.
+ * @param signal - aborts the listing.
+ * @returns one entry per direct child, in stable name order.
+ */
 abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
+
+/**
+ * Atomically create or replace UTF-8 text. `expected` guards intent and
+ * staleness; omission allows unconditional overwrite.
+ * @param target - the resolved target to write.
+ * @param content - the full new file content.
+ * @param expected - the write intent guarding the write; omit for unconditional.
+ * @param signal - aborts before the atomic rename takes effect.
+ * @returns the outcome, including the version the write produced.
+ */
 abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
+
+/**
+ * Atomically edit literal text. When supplied, the version guard is checked
+ * before matching so stale content reports `FS_STALE_VERSION`; omission edits
+ * the current content without a freshness precondition.
+ * @param target - the resolved target to edit.
+ * @param edit - the literal search/replace request.
+ * @param expected - the version guard; omit for an unconditional edit.
+ * @param signal - aborts before the atomic rename takes effect.
+ * @returns the outcome, including the version the edit produced.
+ */
 abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
 ```
 
@@ -140,9 +436,39 @@ Source: [`packages/fs/fs/src/index.ts:80`](../../packages/fs/fs/src/index.ts)
 The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
 
 ```ts cordis-catalog
+/**
+ * Register an adapter for the given provider routes. Throws `LlmError` with code
+ * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).
+ * Disposed with the fiber.
+ * @param providers - every provider route this adapter should serve.
+ * @param adapter - the adapter that streams calls for those providers.
+ * @returns the disposer that unregisters all of them.
+ */
 registerAdapter(providers: string[], adapter: LlmAdapter): () => void
+
+/**
+ * Describe provider routes with a registered adapter.
+ * @returns detached provider metadata in registration order.
+ */
 listProviders(): LlmProviderInfo[]
+
+/**
+ * Discover models advertised by one registered provider. Catalog membership
+ * is advisory and never changes routing or request validation.
+ * @param provider - registered provider route to inspect.
+ * @returns detached model metadata in adapter-preferred order.
+ */
 async listModels(provider: string): Promise<LlmModelInfo[]>
+
+/**
+ * Stream one model call as raw chunks (token-level deltas). Throws
+ * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
+ * `options.provider`. Replay state is retained only when the same adapter
+ * instance owns its historical provider and the target provider. Dispatches
+ * through the `llm/stream` waterfall.
+ * @param options - the full request; `options.provider` selects the adapter.
+ * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
+ */
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
@@ -155,9 +481,38 @@ Source: [`packages/llm/llm/src/index.ts:94`](../../packages/llm/llm/src/index.ts
 Owns the deployment's permission presets and their write path. Requires a confining `ctx.bash` executor and `ctx.approval`; unmatched knob values are reported as CUSTOM_PRESET, not an error.
 
 ```ts cordis-catalog
+/**
+ * Resolve the preset matching the effective knob values. A still-matching
+ * last selection wins shared-bundle ties; otherwise the first table match
+ * wins, or {@link CUSTOM_PRESET} when no entry matches.
+ * @param events - the session's events in log order.
+ * @returns the effective preset name, or `custom` when nothing matches.
+ */
 current(events: readonly SessionEvent[]): string
+
+/**
+ * Resolve a preset's knob bundle.
+ * @param name - the preset name to resolve.
+ * @returns the configured bundle.
+ * @throws when `name` is not in the table.
+ */
 resolve(name: string): PresetSpec
+
+/**
+ * Build the client option for a table entry or {@link CUSTOM_PRESET}. A
+ * missing label falls back to the table key.
+ * @param name - a table key, or `custom`.
+ * @returns the option a client renders.
+ * @throws when `name` is neither a table key nor `custom`.
+ */
 optionOf(name: string): PresetOption
+
+/**
+ * Record a changed preset, then update each changed knob through its own
+ * setter. Selecting the effective preset again appends nothing.
+ * @param session - the session the switch belongs to.
+ * @param name - the preset to switch to; unknown names throw.
+ */
 set(session: Session, name: string): void
 ```
 
@@ -170,6 +525,17 @@ Source: [`packages/ui/permission/src/index.ts:94`](../../packages/ui/permission/
 Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.
 
 ```ts cordis-catalog
+/**
+ * Wrap `argv` so it executes confined under `policy` on this host; the
+ * caller spawns the returned argv in place of its own.
+ * @param argv - the exact argv the caller is about to spawn (program plus
+ *   arguments), NOT a shell string — a shell-shaped consumer passes
+ *   `['bash', '-c', command]`.
+ * @param policy - the file-effect policy this execution runs under,
+ *   carried per call (see {@link SandboxPolicy}).
+ * @returns the argv to spawn instead, plus the enforcement completeness
+ *   the selected backend achieves for it.
+ */
 abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 ```
 
@@ -182,10 +548,49 @@ Source: [`packages/sandbox/sandbox/src/index.ts:111`](../../packages/sandbox/san
 Durable append-only session storage. Implementations preserve contiguous, losslessly JSON-serializable events; append resolves only after durability, and load balances a complete interrupted tail without rewriting committed events.
 
 ```ts cordis-catalog
+/**
+ * Resolve this backend's independent local artifact for a session without
+ * reading, creating, flushing, or otherwise materializing it. Backends such
+ * as SQLite that do not own one artifact per session return `undefined`.
+ * @param meta - the immutable session header whose artifact is requested.
+ * @returns the backend-specific absolute location, when one exists.
+ */
 abstract locate(meta: SessionHeader): SessionLocation | undefined
+
+/**
+ * Register a new session's metadata. A backend MAY defer the physical write
+ * until the first {@link append} (lazy materialization), in which case a
+ * created-but-never-appended session is absent from {@link list}
+ * — abandoned sessions leave nothing behind.
+ * @param meta - the immutable header (id, version, cwd, lineage) to record.
+ */
 abstract create(meta: SessionHeader): Promise<void>
+
+/**
+ * Durably persist a batch of events (called from the write-behind drain at
+ * the `session/flush` checkpoint). Honors the append-only and contiguous-seq
+ * contracts: the first event's `seq` MUST equal the stored next-seq (after
+ * `load` has durably closed any interrupted turn). Rejects non-JSON-
+ * serializable `event.data` with an error naming the offending event type.
+ * @param id - the session the batch belongs to.
+ * @param events - the contiguous batch to persist, in seq order.
+ */
 abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
+
+/**
+ * Load a header and balanced contiguous log. A complete interrupted final
+ * turn is preserved and durably closed with missing tool errors plus any open
+ * step and turn boundaries; only a torn final record is discarded. Unknown
+ * versions and corruption in the committed prefix reject.
+ * @param id - the persisted session to reload.
+ * @returns the header and a log ending on a balanced `turn/end`.
+ */
 abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+
+/**
+ * Lightweight listing from metadata, without a full-log parse.
+ * @returns one header per materialized session.
+ */
 abstract list(): Promise<SessionHeader[]>
 ```
 
@@ -198,10 +603,40 @@ Source: [`packages/session-persistence/session-persistence/src/index.ts:42`](../
 Live-preferred logical-corpus exact-read and relationship-tracing service.
 
 ```ts cordis-catalog
+/**
+ * List the complete logical corpus using live-preferred records.
+ * @returns deterministic newest-first cloned session records.
+ */
 listSessions(): Promise<SessionRecord[]>
+
+/**
+ * List lightweight raw-log event records for one logical session.
+ * @param sessionId - live-preferred session id to read.
+ * @returns event records in ascending seq order.
+ */
 async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>
+
+/**
+ * Trace known ancestry and descendants from one corpus observation.
+ * @param sessionId - logical session id to trace.
+ * @returns a complete lineage or an explicit unresolved parent boundary.
+ * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.
+ */
 async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>
+
+/**
+ * Trace one event's direct positional and provenance relationships.
+ * @param request - target session id and event seq.
+ * @returns direct links plus the target's positional replacement chain.
+ * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.
+ */
 async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>
+
+/**
+ * Read one full event plus a bounded raw-log context window.
+ * @param request - target session/seq and context sizes.
+ * @returns cloned target and neighboring events.
+ */
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 ```
 
@@ -214,13 +649,119 @@ In-memory session store (`ctx.sessions`).
 Persistence is intentionally not implemented here — persistence plugins subscribe to `session/event` and flush on `session/flush` / dispose.
 
 ```ts cordis-catalog
+/**
+ * Create a session owned by the calling fiber: disposing that fiber stops
+ * event notification and removes the session from the store. `options.seed`
+ * populates the session with a copy of those events (replay/fork);
+ * `options.meta` attaches creation metadata (validated absolute `cwd`,
+ * `parentSession` lineage) as the immutable {@link SessionHeader} (the store
+ * fills `version`/`id`/`createdAt`).
+ *
+ * For an agent whose session must be torn down IN ORDER with its loop (so the
+ * loop's final flush is captured before the store attachment ends), do NOT use this
+ * — fold the session lifecycle into the agent's own effect via
+ * {@link prepare} + {@link enter} + {@link announce} (see
+ * `dsh-agent-loop`'s creation transaction).
+ *
+ * @param id - the session id; omitted, the store mints `session-<n>`.
+ * @param options - seed events and/or creation metadata for the header.
+ * @returns the live session, already entered and announced.
+ * @throws if a session with `id` already exists, metadata is not a plain
+ *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a
+ *   non-absolute path (storage backends key directories off it).
+ */
 create(id?: SessionId, options?: CreateSessionOptions): Session
+
+/**
+ * Build a session WITHOUT entering it into the store — validate the id/cwd and
+ * construct the {@link Session} (with its immutable {@link SessionHeader}).
+ * Pairs with {@link enter} + {@link announce}: a caller that owns a composite
+ * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE
+ * effect so a fiber unload tears the session + agent down as a single ORDERED
+ * chain rather than as racing sibling effects — which would remove the publication hooks
+ * before the loop's closing `session/flush`, dropping the closing events.
+ *
+ * @param id - the session id; omitted, the store mints `session-<n>`.
+ * @param options - seed events and/or creation metadata for the header.
+ * @returns the constructed session, NOT yet in the store.
+ * @throws if a session with `id` already exists, metadata is not a plain
+ *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a
+ *   non-absolute path.
+ */
 prepare(id?: SessionId, options?: CreateSessionOptions): Session
+
+/**
+ * Enter a {@link prepare}d session into the store: install the module-private
+ * append publication hooks and add it to the store. Returns the DETACH
+ * disposer (hooks + store removal). Does NOT emit `session/created` —
+ * the caller yields this disposer inside its effect and THEN calls
+ * {@link announce}, so a throwing `session/created` listener rolls the attach
+ * back instead of leaking it.
+ *
+ * Re-checks the id for a duplicate: `prepare` and `enter` are public
+ * cross-package primitives and a caller may interleave arbitrary work (or
+ * another create) between them, so a stale prepared session must NOT overwrite
+ * a live store entry of the same id — its detach disposer would later delete
+ * the REAL session. The {@link create} convenience and the agent factory call
+ * the two back-to-back so they never trip this, but the public seam cannot
+ * assume that.
+ *
+ * @param session - a {@link prepare}d session not yet in the store.
+ * @returns the detach disposer (publication hooks + store removal). When called from
+ *   a synchronous `session/created` listener, removal and disposal wait until
+ *   that creation dispatch unwinds.
+ * @throws if a session with this id is already in the store.
+ */
 enter(session: Session): () => void
+
+/** Emit `session/created` exactly once for an {@link enter}ed session (with
+ * the carrier {@link enter} captured). Separate from {@link enter} so the
+ * caller can yield the detach disposer first (rollback safety — see
+ * {@link enter}).
+ * @param session - the entered session to announce to listeners.
+ * @throws if the session is not live or its announcement already began,
+ *   including a reentrant call from a creation listener. */
 announce(session: Session): void
+
+/**
+ * Dispatch the awaited `session/flush` durability checkpoint for `session`,
+ * with the carrier captured at {@link enter}. THE flush entry point: the
+ * store owns the carrier, so callers (the loop's turn-end checkpoint, idle
+ * injection, teardown drains) must come through here rather than dispatch a
+ * raw `ctx.parallel('session/flush', …)` — one owner, one spelling, and the
+ * scoped-dispatch invariant can pin it.
+ * @param session - the session whose buffered events must reach durable storage.
+ * @returns resolves when every flush listener has settled; after all settle,
+ *   rejects with the first registered listener failure if any listener failed.
+ */
 async flush(session: Session): Promise<void>
+
+/**
+ * Look up a live session.
+ * @param id - the session id to look up.
+ * @returns the session, or undefined when no live session has that id.
+ */
 get(id: SessionId): Session | undefined
+
+/**
+ * All live sessions, in creation order.
+ * @returns a fresh array; mutating it does not affect the store.
+ */
 list(): Session[]
+
+/**
+ * Create a live child session from a turn-enclosed prefix of a live source.
+ * `boundary` is an inclusive source event seq; omitted means the source's
+ * current last event. A non-empty selected slice must end at `turn/end`.
+ *
+ * @param source - Live source session object or id.
+ * @param boundary - Inclusive source event seq to fork through; omitted means
+ *   the source's current last event, and omitted on an empty source forks an
+ *   empty child.
+ * @param childSessionId - Optional child session id; omitted delegates to
+ *   `SessionStore`'s id policy.
+ * @returns The created live child session.
+ */
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
@@ -231,9 +772,42 @@ Source: [`packages/core/session/src/index.ts:577`](../../packages/core/session/s
 Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted model-visible summaries, and loads full skill bodies on demand.
 
 ```ts cordis-catalog
+/**
+ * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and
+ * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters
+ * the provider and invalidates catalog caches.
+ * @param provider - the provider to register by `provider.name`.
+ * @returns the exact Cordis effect disposer that unregisters this provider;
+ *   composite effects may yield it directly to preserve teardown ordering.
+ */
 registerProvider(provider: SkillProvider): () => void
+
+/**
+ * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which
+ * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and
+ * receives a no-op disposer so it cannot remove the winner.
+ * @param skill - the complete skill definition to expose for discovery.
+ * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
+ */
 register(skill: SkillRegistration): () => void
+
+/**
+ * List model-invocable skill summaries for a workspace. Lookup options and
+ * provider candidates are readonly same-process values borrowed throughout
+ * discovery.
+ * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
+ * @returns sorted summaries, excluding skills disabled for model invocation.
+ */
 async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
+
+/**
+ * Load and validate the winning candidate, passing its opaque discovery locator back to the
+ * provider. Cancellation is rechecked after selection, including cache hits, and raced against
+ * loading so an uncooperative provider cannot hang the caller.
+ * @param name - kebab-case skill name.
+ * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
+ * @returns the full skill, including body content, or `undefined`.
+ */
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
@@ -250,6 +824,11 @@ Semantics every implementation must honor:
 - `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).
 
 ```ts cordis-catalog
+/**
+ * Persist `input.content` to a session-scoped spill artifact.
+ * @param input - the owner, provenance, suggested name, and full text to save.
+ * @returns the saved artifact's {@link SpillRef}; rejects on a storage failure.
+ */
 abstract saveText(input: SaveTextSpill): Promise<SpillRef>
 ```
 
@@ -260,9 +839,37 @@ Source: [`packages/spill/spill/src/index.ts:45`](../../packages/spill/spill/src/
 Named provider registry and capability-checked start surface.
 
 ```ts cordis-catalog
+/**
+ * Register a provider under its name. Registration is effect-scoped and HMR
+ * safe; removing a provider blocks new starts but does not revoke runs that
+ * were already returned to their holders.
+ * @param provider - the trusted provider implementation.
+ * @returns the exact Cordis effect disposer.
+ */
 registerProvider(provider: SubagentProvider): () => void
+
+/**
+ * Look up a provider by name.
+ * @param name - the provider name.
+ * @returns the provider, or undefined when absent.
+ */
 getProvider(name: string): SubagentProvider | undefined
+
+/**
+ * List registered provider names in insertion order.
+ * @returns the registered names.
+ */
 list(): string[]
+
+/**
+ * Establish a ready child on the named provider. Capability and semantic
+ * checks run before delegation. Provider ownership lasts until its promise
+ * fulfills; a rejection therefore has no run for the caller to dispose and
+ * emits no run lifecycle events.
+ * @param name - the provider to use.
+ * @param request - child prompt, parent, signal, and optional capabilities.
+ * @returns the ready holder-owned run.
+ */
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
@@ -273,9 +880,42 @@ Source: [`packages/subagent/subagent/src/index.ts:153`](../../packages/subagent/
 Registry service for the prompt inputs assembled before each model step.
 
 ```ts cordis-catalog
+/**
+ * Register an ordered prompt section in the calling context's scope. A scoped
+ * section shadows a global section with the same name; duplicates within one
+ * layer and non-finite orders throw. Registration and disposal emit
+ * `system-prompt/change`.
+ * @param section - the section to register.
+ * @returns the exact Cordis effect disposer.
+ */
 section(section: PromptSection): () => void
+
+/**
+ * Register a tool-schema provider in the calling context's scope. Global and
+ * matching scoped providers both contribute; returning the reserved
+ * {@link TOOL_ORDER_REST} name makes assembly fail.
+ * @param provider - evaluated for each assembly with its context.
+ * @returns the exact Cordis effect disposer.
+ */
 tools(provider: (context: AssembleContext) => ToolProviderResult): () => void
+
+/**
+ * Register a prompt variable in the calling context's scope. Scoped values
+ * shadow globals; invalid or duplicate names throw. A provider may return
+ * `undefined`, but rendering a section that references that value then fails.
+ * @param name - the `[a-z][a-z0-9_]*` reference name.
+ * @param provider - evaluated for each assembly.
+ * @returns the exact Cordis effect disposer.
+ */
 variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void
+
+/**
+ * Assemble global and scoped providers, detach tool parameters, apply
+ * canonical ordering, then run the assembly waterfall. Scoped sections and
+ * variables shadow globals; the returned waterfall value is authoritative.
+ * @param context - the optional scope and plugin-defined assembly fields.
+ * @returns the authoritative post-waterfall assembly.
+ */
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
@@ -286,13 +926,83 @@ Source: [`packages/core/system-prompt/src/index.ts:209`](../../packages/core/sys
 The `tasks` service: the runtime-global background task registry. See the module doc for the ownership, isolation, and lifecycle contracts.
 
 ```ts cordis-catalog
+/**
+ * Preflight access, validation, and owner cleanup before starting and
+ * atomically registering work. A throwing starter leaves nothing registered;
+ * after it returns, registration cannot fail. Settlement records the outcome,
+ * notifies listeners, and releases waiters.
+ * @param spec - task identity, owner, and synchronous starter.
+ * @returns the registry-issued `<kind>-N` id.
+ */
 start(spec: TaskStart): TaskId
+
+/**
+ * List caller-owned and unowned tasks in registration order without exposing
+ * another session's labels.
+ * @param caller - reading agent; a non-agent caller sees only unowned tasks.
+ * @returns fresh snapshots.
+ */
 list(caller?: Agent): TaskSnapshot[]
+
+/**
+ * Return a non-consuming snapshot without changing its read cursor or notice
+ * state. Throws for an unknown or foreign task.
+ * @param id - task to look up.
+ * @param caller - reading agent checked against the owner.
+ * @returns a fresh snapshot.
+ */
 get(id: TaskId, caller?: Agent): TaskSnapshot
+
+/**
+ * Read the next stream delta, or the idempotent final output after settlement.
+ * A terminal read marks the task reported. Throws for an unknown or foreign
+ * task.
+ * @param id - task to read.
+ * @param caller - reading agent checked against the owner.
+ * @returns output text and the post-read snapshot.
+ */
 read(id: TaskId, caller?: Agent): TaskRead
+
+/**
+ * Request cancellation, then mark the task stopping and reported. A producer
+ * throw propagates without changing task state. Throws for an unknown or
+ * foreign task.
+ * @param id - task to cancel.
+ * @param caller - killing agent checked against the owner.
+ * @param reason - logged reason forwarded to the producer.
+ * @returns `requested` for live work, otherwise `already-finished`.
+ */
 kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-finished'
+
+/**
+ * Wait for settlement or timeout without cancelling the task. Caller abort
+ * rejects only while the task is live; after settlement it returns the
+ * terminal snapshot so a notice suppressed for this waiter is still delivered.
+ * Timed-out and aborted waits detach their resolvers. Throws for invalid,
+ * unknown, or foreign input.
+ * @param id - task to wait for.
+ * @param timeoutMs - positive finite wait bound in milliseconds.
+ * @param caller - waiting agent checked against the owner.
+ * @param signal - optional cancellation of the wait itself.
+ * @returns snapshot at settlement or timeout.
+ */
 async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
+
+/**
+ * Register an effect-scoped completion listener. Each listener is contained;
+ * returned promises are observed but not awaited. No listener runs after
+ * service disposal.
+ * @param listener - receives each terminal snapshot and its exact owner.
+ * @returns disposer that unregisters the listener.
+ */
 onTaskDone(listener: TaskDoneListener): () => void
+
+/**
+ * Attach an effect-scoped surface that can read and stop tasks. {@link start}
+ * refuses work while none is attached.
+ * @param name - diagnostic label; duplicate names remain independent.
+ * @returns disposer that detaches this surface.
+ */
 attachSurface(name: string): () => void
 ```
 
@@ -305,7 +1015,29 @@ Source: [`packages/tasks/tasks/src/index.ts:76`](../../packages/tasks/tasks/src/
 Replay owner for one service-wide estimator and isolated per-session folds.
 
 ```ts cordis-catalog
+/**
+ * Measure current request pressure and surface through the durable tail.
+ *
+ * Provider usage is reused only when the latest successful call's canonical
+ * request envelope matches `requestHeader` and its total is no lower than
+ * that call's full heuristic anchor; otherwise the complete envelope and
+ * surface are heuristically repriced.
+ *
+ * `requestHeader` affects request pressure only; surface fields always
+ * describe the current session surface. Every call clones those positional
+ * nodes, so measurement is O(surface).
+ *
+ * @param session - session to replay through its current durable tail.
+ * @param requestHeader - optional effective request envelope replacing the latest logged header.
+ * @returns a detached deeply immutable pressure and surface measurement.
+ */
 measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
+
+/**
+ * Heuristically price one model-visible message.
+ * @param message - message to price without mutation.
+ * @returns content and role-framing tokens under the fixed service heuristic.
+ */
 estimateMessage(message: Message): number
 ```
 
@@ -318,12 +1050,72 @@ Source: [`packages/llm/token-meter/src/index.ts:106`](../../packages/llm/token-m
 Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.
 
 ```ts cordis-catalog
+/**
+ * Register globally or in the calling agent scope. Scoped tools shadow
+ * globals; duplicates within one layer and the reserved `run_code` name fail.
+ * @param definition - the tool schema, execution, and optional presentation functions.
+ * @returns the exact disposer that unregisters the tool.
+ */
 register(definition: ToolDefinition): () => void
+
+/**
+ * Restrict global tools for the calling agent scope. Empty filters, unknown
+ * names, scope-local names, and reserved transport names fail. Restrictions
+ * intersect; scoped registrations remain visible.
+ * @param filter - global-surface mask: `allow` (keep only) and/or `deny` (remove).
+ * @returns the exact disposer that lifts this restriction.
+ */
 restrict(filter: ToolRestriction): () => void
+
+/**
+ * Register a monotonic guard after the extensible `tools/pre-execute`
+ * waterfall. A plain-context guard applies globally; one registered through
+ * `agent.ctx` applies only to that agent. Any matching guard may deny by
+ * returning a reason, while no guard can force-allow a call another guard
+ * denied. The exact effect disposer is returned for ordered ownership and
+ * HMR cleanup.
+ * @param guard - synchronous check; a returned string denies the execution.
+ * @returns the exact disposer that unregisters the guard.
+ */
 guard(guard: ToolGuard): () => void
+
+/**
+ * Look up a tool as one scope sees it (scoped
+ * shadows global; a restricted-away global reads as absent). Presenters pass
+ * the calling agent so the rendered card matches the definition that
+ * actually executed.
+ * @param name - the tool name as registered.
+ * @param scope - the viewing scope (the agent); omitted = the global view.
+ * @returns the definition the scope resolves, or undefined when none is visible.
+ */
 get(name: string, scope?: ScopeKey): ToolDefinition | undefined
+
+/**
+ * Project visible definitions onto the allowlisted model-facing schema fields,
+ * excluding execution and presentation callbacks.
+ * @param scope - the viewing scope (the agent); omitted = the global view.
+ * @returns one deep-cloned schema per visible tool.
+ */
 schemas(scope?: ScopeKey): ToolSchema[]
+
+/**
+ * Classify a pending call through the caller's visible tool definition. Only
+ * an exact `true` is parallel; unknown, hidden, undeclared, invalid, or
+ * throwing classifiers are exclusive.
+ * @param exec - call name, parsed arguments, and optional agent scope.
+ * @returns the fail-closed scheduling mode.
+ */
 executionMode(exec: ToolExecutionInput): ToolExecutionMode
+
+/**
+ * Execute through pre-policy, guards, around-dispatch, post-policy, and final
+ * notification. Tool and listener failures resolve as materialized error
+ * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
+ * the same lossless, frozen snapshot final observers receive.
+ * @param exec - the typed same-process call input. The registry assigns its
+ *   correlation token before policy begins.
+ * @returns the materialized final result.
+ */
 async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 ```
 
@@ -336,7 +1128,20 @@ Source: [`packages/core/tools/src/index.ts:438`](../../packages/core/tools/src/i
 `ctx.userInteraction`: one active UI provider plus an `ask()` surface.
 
 ```ts cordis-catalog
+/**
+ * Register the UI provider. Only one provider may be active in a context.
+ *
+ * @param provider UI-side implementation that collects answers.
+ * @returns Disposer that unregisters this provider.
+ */
 registerProvider(provider: UserInteractionProvider): () => void
+
+/**
+ * Ask the active UI provider and wait for the user's answer.
+ *
+ * @param request Questions, owner agent, and abort signal.
+ * @returns The answer chosen or typed by the human.
+ */
 async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 ```
 
@@ -356,9 +1161,43 @@ Selection semantics (resolved at execution time, never order-dependent):
 - No id configured, no usable provider → `WEB_PROVIDER_UNAVAILABLE`.
 
 ```ts cordis-catalog
+/**
+ * Register a search provider. Throws {@link WebError} `WEB_DUPLICATE_PROVIDER`
+ * if its id is already registered for search. Returns a disposer; disposed
+ * with the calling fiber.
+ * @param provider - the provider; its `id` is the registry key.
+ * @returns the disposer that unregisters the provider.
+ */
 registerSearchProvider(provider: WebSearchProvider): () => void
+
+/**
+ * Register a fetch provider. Throws {@link WebError} `WEB_DUPLICATE_PROVIDER`
+ * if its id is already registered for fetch. Returns a disposer; disposed
+ * with the calling fiber.
+ * @param provider - the provider; its `id` is the registry key.
+ * @returns the disposer that unregisters the provider.
+ */
 registerFetchProvider(provider: WebFetchProvider): () => void
+
+/**
+ * Run one search through the selected provider. Resolves the provider at call
+ * time with the selection rules above; throws {@link WebError} when the
+ * capability cannot run. The seam enforces `request.maxResults` on the result:
+ * if the provider over-returns, `sources[]` is truncated and `truncated` set.
+ * @param request - the query plus result-shaping options.
+ * @param signal - optional cancellation signal forwarded to the provider.
+ * @returns the provider's results, capped to `request.maxResults`.
+ */
 async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>
+
+/**
+ * Retrieve one URL through the selected provider. Resolves the provider at
+ * call time with the selection rules above; throws {@link WebError} when the
+ * capability cannot run. A non-2xx response is a result, not a throw.
+ * @param request - the URL plus retrieval options.
+ * @param signal - optional cancellation signal forwarded to the provider.
+ * @returns the retrieval outcome; non-2xx responses resolve descriptively.
+ */
 async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 ```
 
@@ -369,6 +1208,12 @@ Source: [`packages/web/web/src/index.ts:74`](../../packages/web/web/src/index.ts
 Workflow execution seam. Invalid requests throw before publication; a live run is holder-owned, its result never rejects, cancellation and disposal are bounded, and disposal waits for child cleanup within that bound. Lifecycle listener failures are contained, and `workflow/end` fires exactly once as the result settles.
 
 ```ts cordis-catalog
+/**
+ * Parse and execute a workflow script.
+ * @param request - the script, its `args`, the parent agent, and an
+ *   optional cancel signal.
+ * @returns the live run; its `result` resolves when the script settles.
+ */
 abstract start(request: WorkflowStartRequest): WorkflowRun
 ```
 
