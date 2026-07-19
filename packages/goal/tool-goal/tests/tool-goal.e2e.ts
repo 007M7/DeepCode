@@ -16,6 +16,7 @@ const configPath = fileURLToPath(new URL(
 const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 const PROCESS_TIMEOUT_MS = 30_000
 const TEST_TIMEOUT_MS = PROCESS_TIMEOUT_MS + 15_000
+const PAUSED_RESULT = '"phase":"paused"'
 
 let child: ChildProcessWithoutNullStreams | undefined
 let workdir: string | undefined
@@ -68,7 +69,8 @@ async function runComposition(): Promise<{ stdout: string; stderr: string }> {
         pauseSent = true
         proc.stdin.write('pause\n')
       }
-      if (!inputClosed && stdout.includes('GOAL PAUSED')) {
+      const pausedAt = stdout.indexOf(PAUSED_RESULT)
+      if (!inputClosed && pausedAt >= 0 && stdout.indexOf('\n> ', pausedAt) >= 0) {
         inputClosed = true
         proc.stdin.end()
       }
@@ -98,7 +100,8 @@ describe('goal tools through a real Loader, app, and stdio process', () => {
     expect(stderr).not.toContain('UNHANDLED')
     expect(stdout).toContain('goal-tools e2e ready.')
     expect(stdout).toContain('GOAL CREATED')
-    expect(stdout).toContain('GOAL PAUSED')
+    expect(stdout).toContain(PAUSED_RESULT)
+    expect(stdout).not.toContain('UNEXPECTED CONTINUATION AFTER PAUSE')
 
     const logs = await jsonlFiles(join(workdir as string, '.sessions'))
     expect(logs).toHaveLength(1)
