@@ -63,6 +63,13 @@ function textOf(result: AssembledResult): string {
     .join('')
 }
 
+function expectFinish(result: AssembledResult, expected: 'stop' | 'tool-calls'): void {
+  if (result.finish.kind === 'error') {
+    throw new Error(`provider request failed (${result.finish.code ?? 'unknown'}): ${result.finish.message}`)
+  }
+  expect(result.finish.kind).toBe(expected)
+}
+
 function expectNativeReplay(result: AssembledResult, profile: ProviderCase): PiAiReplayState {
   const replayState = result.message.provenance?.replayState
   expect(replayState).toMatchObject({
@@ -98,7 +105,7 @@ for (const profile of providerCases) {
           maxTokens: 1024,
         })
 
-        expect(result.finish.kind).toBe('stop')
+        expectFinish(result, 'stop')
         expect(textOf(result).toLowerCase()).toContain('pong')
         expect(result.usage?.inputTokens).toBeGreaterThan(0)
         expect(result.usage?.outputTokens).toBeGreaterThan(0)
@@ -116,7 +123,7 @@ for (const profile of providerCases) {
           maxTokens: 2048,
         })
 
-        expect(first.finish.kind).toBe('tool-calls')
+        expectFinish(first, 'tool-calls')
         const call = first.message.content.find(block => block.type === 'tool-call')
         expect(call).toBeDefined()
         expect(call!.name).toBe('lookup_code')
@@ -142,7 +149,7 @@ for (const profile of providerCases) {
           maxTokens: 2048,
         })
 
-        expect(second.finish.kind).toBe('stop')
+        expectFinish(second, 'stop')
         expect(textOf(second).toLowerCase()).toContain('ocean')
         expect(expectNativeReplay(second, profile).stopReason).toBe('stop')
       })
