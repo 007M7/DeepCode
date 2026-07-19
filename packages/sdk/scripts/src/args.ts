@@ -8,12 +8,13 @@ import { parseArgs as parseNodeArgs } from 'node:util'
 import { Command } from 'commander'
 
 /** Commands implemented by the dsh-sdk launcher. */
-type DshSdkCommand = 'start' | 'dev' | 'build' | 'config'
+type DshSdkCommand = 'start' | 'dev' | 'build' | 'config' | 'create'
 
 /** Parsed dsh-sdk invocation. */
 export interface DshSdkArgs {
   command?: DshSdkCommand
   target?: string
+  source?: string
   forwarded: readonly string[]
   help: boolean
 }
@@ -59,6 +60,9 @@ export function parseDshSdkArgs(argv: readonly string[]): DshSdkArgs {
   })
   program.command('config').helpOption(false).action(() => {
     parsed = { command: 'config', forwarded: [], help: false }
+  })
+  program.command('create <source>').helpOption(false).action((source: string) => {
+    parsed = { command: 'create', source, forwarded: [], help: false }
   })
   program.parse([...launcherArgv], { from: 'user' })
   /* v8 ignore next -- every registered Commander action above assigns parsed or Commander throws */

@@ -55,6 +55,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/sdk/create-sdk': { kind: 'indirect', reason: 'The initializer only writes project files; selected runtime plugins provide the generated project model surface.' },
   'packages/sdk/helper': { kind: 'none', reason: 'The project domain edits files and registers no live agent or model surface.' },
   'packages/sdk/scripts': { kind: 'indirect', reason: 'The launcher delegates model context to the loaded project plugin tree.' },
+  'packages/sdk/telemetry': { kind: 'none', reason: 'The launcher-side reporter sends developer-cycle telemetry and registers no live agent or model surface.' },
   'packages/session-query/session-query': { kind: 'none', reason: 'The trusted query service exposes cloned records only to callers and registers no model surface.' },
   'packages/skill/skill': { kind: 'indirect', reason: 'The provider registry delegates model rendering to dsh-tool-skill.' },
   'packages/skill/skill-local': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-skill.' },
