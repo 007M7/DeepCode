@@ -461,8 +461,9 @@ async listModels(provider: string): Promise<LlmModelInfo[]>
  * `options.provider`. Replay state is retained only when the same adapter
  * instance owns its historical provider and the target provider. Final
  * adapter selection, dispatch, and iteration failures retain their original
- * Error identity and are tagged for narrow agent-loop request recovery;
- * middleware failures remain untagged.
+ * Error identity and are tagged in a call-local scope for narrow agent-loop
+ * request recovery; middleware and nested-call failures remain untagged for
+ * the outer call.
  * @param options - the full request; `options.provider` selects the adapter.
  * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
  */
@@ -471,7 +472,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:96`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:97`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 

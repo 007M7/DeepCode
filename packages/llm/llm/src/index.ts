@@ -10,7 +10,8 @@ import { Context, Service } from 'cordis'
 import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, Message, StreamChunk } from './types.ts'
 import { deepFreeze } from './call-config.ts'
 import { HarnessError } from './error.ts'
-import { markLlmAdapterFailure } from './adapter-failure.ts'
+import { bindAdapterFailureScope, markLlmAdapterFailure } from './adapter-failure.ts'
+import type { AdapterFailureScope } from './adapter-failure.ts'
 
 export * from './attribution.ts'
 export * from './brand.ts'
@@ -206,14 +207,17 @@ export class LlmService extends Service {
    * so it cannot suppress the primary provider error. A downstream close awaits
    * adapter cleanup, whose failures remain ordinary untagged work.
    */
-  private async * adapterStream(options: GenerateOptions): AsyncGenerator<StreamChunk> {
+  private async * adapterStream(
+    options: GenerateOptions,
+    failures: AdapterFailureScope,
+  ): AsyncGenerator<StreamChunk> {
     let iterator: AsyncIterator<StreamChunk>
     try {
       const adapter = this.registration(options.provider).adapter
       const stream = adapter.stream(this.forAdapter(options, adapter))
       iterator = stream[Symbol.asyncIterator]()
     } catch (error: unknown) {
-      throw markLlmAdapterFailure(error)
+      throw markLlmAdapterFailure(failures, error)
     }
 
     let completed = false
@@ -230,7 +234,7 @@ export class LlmService extends Service {
           value = item.value
         } catch (error: unknown) {
           iterationFailed = true
-          throw markLlmAdapterFailure(error)
+          throw markLlmAdapterFailure(failures, error)
         }
         // End the adapter-owned try before yielding: consumer/middleware
         // failures resumed into this generator must remain untagged.
@@ -251,13 +255,16 @@ export class LlmService extends Service {
    * `options.provider`. Replay state is retained only when the same adapter
    * instance owns its historical provider and the target provider. Final
    * adapter selection, dispatch, and iteration failures retain their original
-   * Error identity and are tagged for narrow agent-loop request recovery;
-   * middleware failures remain untagged.
+   * Error identity and are tagged in a call-local scope for narrow agent-loop
+   * request recovery; middleware and nested-call failures remain untagged for
+   * the outer call.
    * @param options - the full request; `options.provider` selects the adapter.
    * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
    */
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    return this.ctx.waterfall(this, 'llm/stream', options, () => this.adapterStream(options))
+    const failures: AdapterFailureScope = new WeakSet<Error>()
+    const stream = this.ctx.waterfall(this, 'llm/stream', options, () => this.adapterStream(options, failures))
+    return bindAdapterFailureScope(stream, failures)
   }
 }
 

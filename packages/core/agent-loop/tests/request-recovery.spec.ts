@@ -307,6 +307,42 @@ describe('agent post-step and request-error lifecycle', () => {
     expect(agent.session.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'error' } } })
   })
 
+  it('does not offer a nested model-call failure as the outer request failure', async () => {
+    const outer = new FailureScriptAdapter([textResponse('outer adapter must not run')])
+    const nested = new FailureScriptAdapter([contextError('nested overflow')])
+    const ctx = await harness(outer)
+    ctx.llm.registerAdapter(['nested'], nested)
+    ctx.on('llm/stream', (options, next) => {
+      if (options.provider !== 'mock') return next()
+      return (async function* () {
+        yield* ctx.llm.stream({
+          provider: 'nested',
+          model: 'nested',
+          messages: [],
+          ...options.signal === undefined ? {} : { signal: options.signal },
+        })
+        yield* next()
+      })()
+    })
+    const agent = ctx.agentLoop.create(SessionId('nested-stream-not-recoverable'), { provider: 'mock', model: 'mock' })
+    let recoveries = 0
+    ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _attempt, _signal, next) => {
+      recoveries += 1
+      return next()
+    })
+
+    send(agent)
+    await waitForIdle(ctx, agent)
+
+    expect(nested.requests).toHaveLength(1)
+    expect(outer.requests).toHaveLength(0)
+    expect(recoveries).toBe(0)
+    expect(agent.session.events.at(-1)).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'error', message: 'nested overflow', code: CONTEXT_WINDOW_EXCEEDED_CODE } },
+    })
+  })
+
   it.each(['prompt-submit', 'prompt-assembly', 'pre-step', 'request'] as const)(
     'does not offer %s middleware failures to request recovery',
     async (boundary) => {

@@ -22,7 +22,7 @@ The loop fires awaited serial `agent/post-step(agent, turn, step, signal)` after
 
 ### Request recovery is limited to the final model boundary
 
-`RequestError`, `RequestErrorDecision`, and the `agent/request-error` waterfall represent failures after the final adapter has been selected. Private `WeakSet` tagging preserves the original thrown error identity across dispatch, iterator construction, and iteration. Terminal in-band `error` or `aborted` finishes enter the same path. Prompt assembly, request middleware, request logging, result processing, tools, post-step listeners, and cleanup remain ordinary failures.
+`RequestError`, `RequestErrorDecision`, and the `agent/request-error` waterfall represent failures after the final adapter has been selected. Each returned stream handle owns a private failure set that preserves the original thrown error identity across dispatch, iterator construction, and iteration without leaking nested-call provenance into an outer call. Terminal in-band `error` or `aborted` finishes enter the same path. Prompt assembly, request middleware, request logging, result processing, tools, post-step listeners, and cleanup remain ordinary failures.
 
 The failed step closes before recovery runs. A retry opens the next numbered step and rebuilds the request from the durable log; consecutive recovery attempts reset only after a successful provider request. Both DeepSeek adapters normalize recognized provider context-limit failures to `CONTEXT_WINDOW_EXCEEDED`.
 

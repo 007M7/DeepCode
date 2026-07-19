@@ -30,6 +30,16 @@ class RecordingAdapter extends ScriptedAdapter {
   }
 }
 
+class ThrowingAdapter extends LlmAdapter {
+  constructor(private readonly failure: Error) {
+    super()
+  }
+
+  stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
+    throw this.failure
+  }
+}
+
 class CatalogAdapter extends ScriptedAdapter {
   constructor(
     private readonly provider: LlmProviderInfo,
@@ -83,16 +93,17 @@ describe('LlmService', () => {
   it('throws NO_ADAPTER for unregistered providers', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
+    const stream = ctx.llm.stream({ provider: 'nope', model: 'any-model', messages: [] })
     let caught: unknown
     try {
-      for await (const _ of ctx.llm.stream({ provider: 'nope', model: 'any-model', messages: [] })) { /* drain */ }
+      for await (const _ of stream) { /* drain */ }
     } catch (error: unknown) {
       caught = error
     }
     expect(caught).toBeInstanceOf(LlmError)
     expect((caught as LlmError).code).toBe('NO_ADAPTER')
     expect((caught as LlmError).message).toContain('no adapter registered')
-    expect(isLlmAdapterFailure(caught)).toBe(true)
+    expect(isLlmAdapterFailure(stream, caught)).toBe(true)
   })
 
   it.each(['done', 'value'] as const)('tags a throwing IteratorResult.%s getter without replacing its Error', async (field) => {
@@ -122,15 +133,16 @@ describe('LlmService', () => {
     await ctx.plugin(LlmService)
     ctx.llm.registerAdapter(['test-model'], adapter)
 
+    const stream = ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })
     let caught: unknown
     try {
-      for await (const _chunk of ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })) { /* drain */ }
+      for await (const _chunk of stream) { /* drain */ }
     } catch (error: unknown) {
       caught = error
     }
 
     expect(caught).toBe(original)
-    expect(isLlmAdapterFailure(caught)).toBe(true)
+    expect(isLlmAdapterFailure(stream, caught)).toBe(true)
     expect(cleanupLookups).toBe(0)
   })
 
@@ -146,15 +158,91 @@ describe('LlmService', () => {
     await ctx.plugin(LlmService)
     ctx.llm.registerAdapter(['test-model'], adapter)
 
+    const stream = ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })
     let caught: unknown
     try {
-      for await (const _chunk of ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })) { /* drain */ }
+      for await (const _chunk of stream) { /* drain */ }
     } catch (error: unknown) {
       caught = error
     }
 
     expect(caught).toBe(original)
-    expect(isLlmAdapterFailure(caught)).toBe(true)
+    expect(isLlmAdapterFailure(stream, caught)).toBe(true)
+  })
+
+  it('keeps a nested adapter failure scoped to the nested model call', async () => {
+    const original = new LlmError('nested provider failed', 'NESTED_FAILED')
+    const outer = new RecordingAdapter(SCRIPT)
+    const nested = new ThrowingAdapter(original)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['outer'], outer)
+    ctx.llm.registerAdapter(['nested'], nested)
+    let nestedStream: AsyncIterable<StreamChunk> | undefined
+    ctx.on('llm/stream', (options, next) => {
+      if (options.provider !== 'outer') return next()
+      return (async function* () {
+        nestedStream = ctx.llm.stream({ provider: 'nested', model: 'nested', messages: [] })
+        yield * nestedStream
+      })()
+    })
+
+    const outerStream = ctx.llm.stream({ provider: 'outer', model: 'outer', messages: [] })
+    let caught: unknown
+    try {
+      for await (const _chunk of outerStream) { /* drain */ }
+    } catch (error: unknown) {
+      caught = error
+    }
+
+    expect(caught).toBe(original)
+    expect(nestedStream).toBeDefined()
+    expect(isLlmAdapterFailure(nestedStream!, caught)).toBe(true)
+    expect(isLlmAdapterFailure(outerStream, caught)).toBe(false)
+    expect(outer.lastOptions).toBeUndefined()
+  })
+
+  it('keeps call scopes distinct when middleware reuses an iterable', async () => {
+    const firstFailure = new LlmError('first provider failed', 'FIRST_FAILED')
+    const secondFailure = new LlmError('second provider failed', 'SECOND_FAILED')
+    const delegates: AsyncIterable<StreamChunk>[] = []
+    const shared: AsyncIterable<StreamChunk> = {
+      [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
+        const delegate = delegates.shift()
+        if (delegate === undefined) throw new Error('shared stream has no call delegate')
+        return delegate[Symbol.asyncIterator]()
+      },
+    }
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['first'], new ThrowingAdapter(firstFailure))
+    ctx.llm.registerAdapter(['second'], new ThrowingAdapter(secondFailure))
+    ctx.on('llm/stream', (_options, next) => {
+      delegates.push(next())
+      return shared
+    })
+
+    const firstStream = ctx.llm.stream({ provider: 'first', model: 'first', messages: [] })
+    const secondStream = ctx.llm.stream({ provider: 'second', model: 'second', messages: [] })
+    const catchFailure = async (stream: AsyncIterable<StreamChunk>): Promise<unknown> => {
+      try {
+        for await (const _chunk of stream) { /* drain */ }
+      } catch (error: unknown) {
+        return error
+      }
+      return new Error('expected adapter to fail')
+    }
+
+    expect(firstStream).not.toBe(secondStream)
+    const firstCaught = await catchFailure(firstStream)
+    expect(firstCaught).toBe(firstFailure)
+    expect(isLlmAdapterFailure(firstStream, firstCaught)).toBe(true)
+    expect(isLlmAdapterFailure(secondStream, firstCaught)).toBe(false)
+    const secondCaught = await catchFailure(secondStream)
+    expect(secondCaught).toBe(secondFailure)
+    expect(isLlmAdapterFailure(secondStream, secondCaught)).toBe(true)
+    expect(isLlmAdapterFailure(firstStream, secondCaught)).toBe(false)
+    expect(delegates).toHaveLength(0)
   })
 
   it('propagates a rejected next promptly without awaiting a non-settling return', async () => {
@@ -179,9 +267,10 @@ describe('LlmService', () => {
     await ctx.plugin(LlmService)
     ctx.llm.registerAdapter(['test-model'], adapter)
 
+    const stream = ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })
     const failure = (async (): Promise<unknown> => {
       try {
-        for await (const _chunk of ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })) { /* drain */ }
+        for await (const _chunk of stream) { /* drain */ }
       } catch (error: unknown) {
         return error
       }
@@ -195,7 +284,7 @@ describe('LlmService', () => {
     if (timer !== undefined) clearTimeout(timer)
 
     expect(caught).toBe(original)
-    expect(isLlmAdapterFailure(caught)).toBe(true)
+    expect(isLlmAdapterFailure(stream, caught)).toBe(true)
     expect(cleanupCalls).toBe(0)
   })
 
@@ -221,15 +310,16 @@ describe('LlmService', () => {
     await ctx.plugin(LlmService)
     ctx.llm.registerAdapter(['test-model'], adapter)
 
+    const stream = ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })
     let caught: unknown
     try {
-      for await (const _chunk of ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })) break
+      for await (const _chunk of stream) break
     } catch (error: unknown) {
       caught = error
     }
 
     expect(caught).toBe(cleanup)
-    expect(isLlmAdapterFailure(caught)).toBe(false)
+    expect(isLlmAdapterFailure(stream, caught)).toBe(false)
     expect(cleanupCalls).toBe(1)
   })
 
@@ -272,16 +362,17 @@ describe('LlmService', () => {
     await ctx.plugin(LlmService)
     ctx.llm.registerAdapter(['test-model'], adapter)
 
+    const stream = ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })
     let caught: unknown
     try {
-      for await (const _chunk of ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })) { /* drain */ }
+      for await (const _chunk of stream) { /* drain */ }
     } catch (error: unknown) {
       caught = error
     }
 
     expect(caught).toBeInstanceOf(HarnessError)
     expect(caught).toMatchObject({ code: 'UNKNOWN', cause: 'plain provider failure' })
-    expect(isLlmAdapterFailure(caught)).toBe(true)
+    expect(isLlmAdapterFailure(stream, caught)).toBe(true)
   })
 
   it('does not tag a failure thrown downstream while consuming adapter output', async () => {
@@ -290,15 +381,20 @@ describe('LlmService', () => {
     await ctx.plugin(LlmService)
     ctx.llm.registerAdapter(['test-model'], new ScriptedAdapter(SCRIPT))
 
+    const stream = ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })
     let caught: unknown
     try {
-      for await (const _chunk of ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })) throw downstream
+      for await (const _chunk of stream) throw downstream
     } catch (error: unknown) {
       caught = error
     }
 
     expect(caught).toBe(downstream)
-    expect(isLlmAdapterFailure(caught)).toBe(false)
+    expect(isLlmAdapterFailure(stream, caught)).toBe(false)
+    expect(isLlmAdapterFailure(new ScriptedAdapter(SCRIPT).stream({
+      provider: 'unbound', model: 'unbound', messages: [],
+    }), caught)).toBe(false)
+    expect(isLlmAdapterFailure(stream, 'consumer failed')).toBe(false)
   })
 
   it('unregisters adapters when the owning fiber is disposed (HMR safety)', async () => {
