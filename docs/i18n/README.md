@@ -2,11 +2,11 @@
 
 English | [中文](README.zh.md)
 
-This repo's documentation is read by people and agents both inside and outside the company, so the README and the docs tree are maintained in English and Simplified Chinese. This page defines the pairing contract, the enforcement gate, and the rollout policy; [translation-rules.md](translation-rules.md) defines how to translate; [terminology.md](terminology.md) is the terminology source of truth. The committed agent workflow lives in [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md).
+This repo's documentation is read by people and agents both inside and outside the company, so the README, Agent Notes, and docs tree are maintained in English and Simplified Chinese. This page defines the pairing contract, the enforcement gate, and the rollout policy; [translation-rules.md](translation-rules.md) defines how to translate; [terminology.md](terminology.md) is the terminology source of truth. The committed agent workflow lives in [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md).
 
 ## The pairing contract
 
-- **Both languages carry equal authority.** A document may be authored and reviewed in either language first — a Chinese-first RFC is as legitimate as an English-first one — and the counterpart is translated from it. Neither file outranks the other; what binds them is that they must say the same thing.
+- **Both languages carry equal authority.** A document may be authored and reviewed in either language first — a Chinese-first Agent Note is as legitimate as an English-first one — and the counterpart is translated from it. Neither file outranks the other; what binds them is that they must say the same thing.
 - **A pair is three sibling files.** The English `foo.md`, the Chinese `foo.zh.md`, and a consistency record `foo.i18n.yaml`, all in the same directory. No locale directories, no separate translation repo, no interleaved bilingual files. Pairs merge whole: a PR never lands one language without the other two files.
 - **The consistency record.** `foo.i18n.yaml` holds the full git blob hash of each side as of the last time the two were confirmed to say the same thing:
 
@@ -26,7 +26,7 @@ This repo's documentation is read by people and agents both inside and outside t
 1. Every file listed as `required` in [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) has a complete pair.
 2. Every pair that exists at all — required or not — is complete and consistent: all three files present, each side's current blob hash equals the recorded one (editing either side without re-confirming the pair goes red), both sides carry the language switcher, and the structural signatures match in order — heading depths, verbatim code blocks (info string and content), table row and column counts, list kinds, ordered-list starts, item counts, and every link target apart from the switcher.
 3. Files listed as `excluded` have no `.zh.md` and no `.i18n.yaml` at all.
-4. Every date-named document (`yyyy-mm-dd-*.md`) dated on or after the manifest's `requiredSince` cutoff has a complete pair — new date-named RFCs merge bilingual from birth.
+4. Every date-named document (`yyyy-mm-dd-*.md`) dated on or after the manifest's `requiredSince` cutoff has a complete pair — new date-named Agent Notes merge bilingual from birth.
 
 `pnpm run verify-translation-pairing --list` prints the current pairing state of every document in scope — missing, out-of-sync, or ok — and is the work list for translation batches. It never fails; it reports.
 
@@ -36,16 +36,16 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 
 ## Scope, exclusions, and rollout
 
-**Scope**: the root `README.md`, everything under `docs/**`, and everything under `python/**`. Package READMEs (`packages/**`) join the scope in a later batch.
+**Scope**: the root `README.md`, everything under `.agents/notes/**`, `docs/**`, and `python/**`. Package READMEs (`packages/**`) join the scope in a later batch.
 
 **Excluded** (never paired, and the gate rejects a `.zh.md` or `.i18n.yaml` for them):
 
 - `docs/cordis-catalog/`, `docs/tool-catalog/`, `docs/config-catalog.md`, `docs/persistence-catalog.md`, and `docs/module-graph.md` — generated files; their generators emit English only today, so a hand-written translation would go stale on every regeneration. The planned follow-up is to teach the generators to emit Chinese alongside English, at which point these leave the exclusion list.
-- `docs/AGENTS.md` — agent instructions, maintained in English only like the root `AGENTS.md`.
+- `docs/AGENTS.md` and `.agents/notes/**/AGENTS.md` — agent instructions, maintained in English only like the root `AGENTS.md`.
 - `docs/i18n/terminology.md` and [style-samples.md](style-samples.md) — both are bilingual by construction.
 - [translation-prompt.md](translation-prompt.md) — the automated pipeline's prompt template; its body is machine-consumed verbatim, so a paired translation would change pipeline behavior.
 
-**Rollout**: a date-named document (`yyyy-mm-dd-*.md`, i.e. an RFC) dated on or after the manifest's `requiredSince` cutoff must merge with its pair. Earlier dates are backlog, including files created on the cutoff's eve. An RFC filename records its first-proposed date, so backdating past the cutoff is a review-visible violation. The manifest's `required` list is the current enforcement frontier, not the goal of full coverage. Translation batches add paths to `required`, ratcheting the gate forward. Unlisted documents remain visible in `--list`, while every existing pair is governed by the full contract. Because later edits must update both sides, expand `required` only as fast as translation review can support.
+**Rollout**: a date-named document (`yyyy-mm-dd-*.md`, i.e. an Agent Note) dated on or after the manifest's `requiredSince` cutoff must merge with its pair. Earlier dates are backlog, including files created on the cutoff's eve. An Agent Note filename records its first-proposed date, so backdating past the cutoff is a review-visible violation. The manifest's `required` list is the current enforcement frontier, not the goal of full coverage. Translation batches add paths to `required`, ratcheting the gate forward. Unlisted documents remain visible in `--list`, while every existing pair is governed by the full contract. Because later edits must update both sides, expand `required` only as fast as translation review can support.
 
 ## Division of labor
 
