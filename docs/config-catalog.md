@@ -787,7 +787,7 @@ Source: [`packages/ui/stdio/src/index.ts:33`](../packages/ui/stdio/src/index.ts)
  * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * fresh sessions use `process.cwd()` as their workspace cwd; resumed sessions
  * keep their persisted cwd. `persistenceRoot` is the JSONL backend's directory;
- * `welcome` is the UI banner.
+ * `welcome` is the UI banner and `ui` configures terminal mode/presentation.
  */
 export interface Config {
   /** Provider route for the `main` agent. */
@@ -808,6 +808,8 @@ export interface Config {
   persistenceRoot?: string
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
   welcome?: string
+  /** Terminal front-door selection and pi-tui presentation settings. */
+  ui?: UiConfig
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
@@ -823,11 +825,22 @@ export interface Config {
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
 }
+
+/** App-level terminal selection with nested TUI presentation settings. */
+export interface UiConfig {
+  /** Select a concrete front door or infer it from the process streams. */
+  mode?: TerminalMode
+  /** Settings forwarded only when the pi-tui front door is selected. */
+  tui?: uiTui.TuiConfig
+}
+
+/** Terminal front door selected by the app bundle. */
+export type TerminalMode = 'auto' | 'readline' | 'tui'
 ```
 
-Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
+Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`uiTui`](../packages/ui/tui/src/index.ts)
 
-Source: [`packages/examples/stdio-demo/src/index.ts:40`](../packages/examples/stdio-demo/src/index.ts)
+Source: [`packages/examples/stdio-demo/src/index.ts:75`](../packages/examples/stdio-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-acp`
 
@@ -889,41 +902,6 @@ export interface Config {
 ```
 
 Source: [`packages/subagent/subagent-fork/src/index.ts:25`](../packages/subagent/subagent-fork/src/index.ts)
-
-## `@deepseek-ai/dsh-subagent-mock`
-
-Requires: `subagents`
-
-```ts config-catalog
-/** Config for the mock provider; all optional with test-friendly defaults. */
-export interface Config {
-  /** Registry name to register under. */
-  name: string
-  /** The text the scripted child "returns" as its final answer. */
-  reply?: string
-  /** The stop reason the run settles with. */
-  stopReason?: SubagentStopReason
-  /** Which start-time capabilities to advertise (default: all `true`). */
-  capabilities?: Partial<SubagentCapabilities>
-  /**
-   * The conversation-history descriptor to declare
-   * ({@link SubagentProvider.inheritsParentContext}); default `false` (fresh
-   * conversation). Set `true` to exercise seeded/fork wording in consumer
-   * tests. This flag says nothing about tool, service, scope, or authority
-   * inheritance.
-   */
-  inheritsParentContext?: boolean
-  /**
-   * Structured value surfaced when a request carries an `outputSchema` and the
-   * `outputSchema` capability is on (default: `{ reply }`).
-   */
-  structured?: unknown
-}
-```
-
-Depends on: [`SubagentCapabilities`](../packages/subagent/subagent/src/index.ts) · [`SubagentStopReason`](../packages/subagent/subagent/src/index.ts)
-
-Source: [`packages/support/subagent-mock/src/index.ts:87`](../packages/support/subagent-mock/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-spawn`
 
@@ -1205,6 +1183,42 @@ export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
 Source: [`packages/core/tools/src/index.ts:382`](../packages/core/tools/src/index.ts)
+
+## `@deepseek-ai/dsh-tui`
+
+Requires: `agents` · `userInteraction` · `tools`
+
+```ts config-catalog
+/** Serializable plugin configuration. */
+export interface Config extends TuiConfig {
+  /** Header subtitle. Defaults to `ready.`. */
+  welcome?: string
+  /** Exact shared agent/session identity driven by this terminal. Defaults to `main`. */
+  sessionId?: string
+}
+
+/** Presentation settings for the pi-tui terminal mode. */
+export interface TuiConfig {
+  /** Render model reasoning blocks. */
+  showReasoning?: boolean
+  /** Maximum tool-output lines shown before the card is collapsed. */
+  maxToolOutputLines?: number
+  /** Maximum options visible at once in a user-question dialog. */
+  maxQuestionOptions?: number
+  /** User-question dialog width in terminal columns. */
+  questionDialogWidth?: number
+  /** User-question dialog maximum height in terminal rows. */
+  questionDialogMaxHeight?: number
+  /** Show the terminal's hardware cursor at the pi editor's IME marker. */
+  showHardwareCursor?: boolean
+  /** Apply the built-in ANSI color palette. */
+  color?: boolean
+  /** Terminal window title while the UI is mounted. */
+  title?: string
+}
+```
+
+Source: [`packages/ui/tui/src/index.ts:100`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 

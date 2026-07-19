@@ -1,6 +1,6 @@
 # coding-agent
 
-The REPL agent demo wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + `todo_write` + stdio chat + JSONL persistence, loaded from `cordis.yml`. The UI is a terminal readline REPL.
+The coding-agent REPL wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + `todo_write` + readline chat + JSONL persistence, loaded from `cordis.yml`. The sibling [`tui-agent`](../tui-agent/README.md) fixes the same agent composition to the full-screen terminal front door.
 
 ## Run it
 
@@ -11,15 +11,9 @@ The REPL agent demo wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem t
 pnpm run demo:repl
 ```
 
-Type a coding task. The agent works through the `read`/`write`/`edit` filesystem tools for ordinary file operations and `bash` (+ the generic `task_output` / `task_list` / `task_kill` for background tasks) for shell commands, searches, and test runs, each in a fresh `bash -c` (the system prompt tells the model to pass `workdir` instead of `cd`). Both the fs tools and bash resolve relative paths against the session workspace. It can also delegate with `subagent`/`subagent_fork` and track multi-step work with `todo_write` (a whole-list task tracker rendered as a checklist). Reasoning streams dimmed; tool calls/results render inline.
+Type a coding task. The agent works through the `read`/`write`/`edit` filesystem tools for ordinary file operations and `bash` (+ the generic `task_output` / `task_list` / `task_kill` for background tasks) for shell commands, searches, and test runs, each in a fresh `bash -c` (the system prompt tells the model to pass `workdir` instead of `cd`). Both the fs tools and bash resolve relative paths against the session workspace. It can also delegate with `subagent`/`subagent_fork` and track multi-step work with `todo_write`.
 
-```
-> fix the failing test in /path/to/project
-[main turn 1] (reasoning…)
-  [tool call] bash({"command": "node --test", "workdir": "/path/to/project"})
-  [tool result] … [exit code: 1]
-  …
-```
+The REPL renders reasoning, tool calls/results, and the latest todo list as line-oriented output suitable for terminals and pipes. Use `pnpm run demo:tui` for the interactive Markdown/card interface.
 
 ### Resuming a prior session
 
@@ -29,7 +23,7 @@ Each run starts a fresh session by default (its event log lands under `./.sessio
 RESUME_SESSION_ID=<prior-session-id> pnpm run demo:repl
 ```
 
-The id is wired through `cordis.yml` (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`); unset, the agent starts a new session. A missing/unreadable id is non-fatal — it logs a warning and starts no `main` agent.
+The id is wired through `cordis.yml` (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`); unset, the agent starts a new session. A missing or unreadable id starts no agent and emits `agent-loop/config-start-failed`: the TUI prints the failure and exits nonzero, while readline reports any dropped queued input and allows piped EOF to finish. Unset it or choose an existing session id.
 
 ## Code Mode
 
@@ -48,17 +42,17 @@ and watch the transcript: one `run_code` call, a program looping over tools, and
 
 ## What each leaf entry demonstrates
 
-This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads one app package, and adds product tools that are intentionally outside the shared spine. The spine (sessions, system-prompt, tools, agents, invariants, `agent-loop`) and the front-door cluster (console logger, JSONL persistence, readline UI, the pre-created `main` agent) live inside the [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo) app and the [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) bundle it loads; the leaf wires the backends and model-facing optional tools:
+This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads one app package, and adds product tools that are intentionally outside the shared spine. The spine (sessions, system-prompt, tools, agents, invariants, `agent-loop`) and the front-door cluster (JSONL persistence, the selected terminal channel, the pre-created `main` agent) live inside the [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo) app and the [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) bundle it loads; the leaf wires the backends and model-facing optional tools:
 
 | Entry | Demonstrates |
 |---|---|
 | `hmr` (`@cordisjs/plugin-hmr`) | the dev/demo edit-reload loop — a **leaf** entry (not baked into the app) because it is Loader-only and needs `node --expose-internals`, which `demo:repl` passes |
 | `llm-deepseek` | real `LlmAdapter` via config (`!!js process.env.…` secrets); swap one line to `@deepseek-ai/dsh-llm-pi-ai` for the library-backed twin |
 | `bash` (`dsh-bash-local`) | the executor implementation — the swappable half of the bash seam. The model-facing `bash` schema (`tool-bash`) and generic `task_*` controls (`tool-tasks`) come from `dsh-agent-spine-demo`, so only the executor is a leaf choice |
-| `stdio-agent` (`@deepseek-ai/dsh-stdio-demo`) | the app bundle: the agent-spine demo + console logger + JSONL persistence + readline UI + a pre-created `main` agent. Its config carries the model, system prompt, `persistenceRoot` (`./.sessions`), and `resumeSessionId` — so persistence and the agent are configured here, not wired as separate leaf plugins |
+| `stdio-agent` (`@deepseek-ai/dsh-stdio-demo`) | the app bundle: the agent-spine demo + JSONL persistence + the configured terminal channel + a pre-created `main` agent. This leaf fixes `ui.mode` to `readline`; `tui-agent` owns the corresponding TUI leaf |
 | `subagent`, `subagent-spawn`, `subagent-fork` | the subagent provider registry plus the two in-process backends: a fresh child and a child seeded with the parent's completed-turn prefix |
 | `tool-subagent`, `tool-subagent-fork` | two model-facing `dsh-tool-subagent` loads, each bound to a different provider and exposed under a distinct tool name (`subagent`, `subagent_fork`) |
-| `tool-todo` | the model-facing `todo_write` tool; writes the whole task list to the session log and renders as a checklist in stdio |
+| `tool-todo` | the model-facing `todo_write` tool; writes the whole task list to the session log and renders as a persistent TUI plan or readline checklist |
 | `fs-local`, `fs-policy`, `tool-fs` | the filesystem stack: the local `ctx.fs` provider, the read-before-write/edit policy gate (on the `fs/*` event gate), and the model-facing `read`/`write`/`edit` tools. Relative paths resolve against the session workspace |
 
 ## End-to-end tests (`pnpm run test:e2e`, key-gated)

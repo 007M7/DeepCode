@@ -7,6 +7,10 @@ Types shared by long-running producers, `ctx.tasks`, and task control surfaces. 
 `TaskId` is a [branded id](core.md#branded-ids) generated as `<kind>-N`. Access control relies on owner authorization, not id secrecy. `TaskKind` derives from a merge-extensible map; the registry treats kinds as opaque id namespaces.
 
 ```ts type-equiv
+/**
+ * Producer-defined task kinds. Plugins extend this map by declaration merging;
+ * the registry treats every value as an opaque id namespace.
+ */
 interface TaskKindMap {
   bash: 'bash'
   subagent: 'subagent'
@@ -20,6 +24,11 @@ interface TaskKindMap {
 `TaskStart` declares identity and a starter. The runtime finishes preflight before calling `run()` and commits without a later failable step. Producers own execution resources; the runtime owns identity, access, and lifecycle state.
 
 ```ts type-equiv
+/**
+ * Producer declaration passed to {@link TaskService.start}. The runtime
+ * preflights access and cleanup before invoking {@link run}; the producer owns
+ * execution resources while the runtime owns identity and lifecycle state.
+ */
 interface TaskStart {
   /** Producer kind — also the id prefix (`bash`, `subagent`, …). */
   kind: TaskKind
@@ -44,6 +53,7 @@ interface TaskStart {
 `TaskHooks.done` is the quiescence boundary. Optional `readOutput` distinguishes consuming stream tasks from final-output-only tasks.
 
 ```ts type-equiv
+/** Hooks through which the runtime controls and observes producer work. */
 interface TaskHooks {
   /**
    * Request termination. Must be synchronous, idempotent, and eventually settle
@@ -67,6 +77,7 @@ interface TaskHooks {
 ```
 
 ```ts type-equiv
+/** Terminal result supplied by a producer through {@link TaskHooks.done}. */
 interface TaskOutcome {
   /** How the task ended: finished (`completed`), cancelled (`killed`), or broke (`failed`). */
   status: 'completed' | 'killed' | 'failed'
@@ -82,6 +93,10 @@ interface TaskOutcome {
 Snapshots are fresh read-only projections. `ownerSession` carries the shared `SessionId` used for authorization; completion listeners separately receive the exact owner object used for lifecycle cleanup. `reported` suppresses a completion notice after another surface has delivered or committed to deliver the terminal state.
 
 ```ts type-equiv
+/**
+ * A read-only projection of one task, safe to hand to listeners and tools —
+ * a fresh object per call, never live registry state.
+ */
 interface TaskSnapshot {
   /** The registry-issued id (`<kind>-N`). */
   id: TaskId
@@ -112,6 +127,7 @@ interface TaskSnapshot {
 ```
 
 ```ts type-equiv
+/** Output and post-read state returned by {@link TaskService.read}. */
 interface TaskRead {
   /**
    * Stream kinds: the consuming delta since the previous read. Final-output

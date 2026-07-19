@@ -27,7 +27,7 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP/stdio/JSON-RPC bridges; boot, approval, interaction plugins
+  ui/          ACP/stdio/TUI/JSON-RPC bridges; boot, approval, interaction plugins
   examples/    demo bundles (agent-spine + stdio/ACP/JSON-RPC bins) leaves load
   support/     dev/test infrastructure packages
   util/        zero-dependency utilities
@@ -58,6 +58,7 @@ pnpm run doc-sync       # all documentation gates; see the doc-sync script in pa
 pnpm run website:build  # VitePress build (doubles as the site's dead-link check)
 pnpm run demo:echo      # mock-model REPL, no key needed
 pnpm run demo:repl      # real REPL coding agent (needs DEEPSEEK_API_KEY)
+pnpm run demo:tui       # full-screen TUI coding agent (needs DEEPSEEK_API_KEY)
 pnpm run demo:cordis    # self-referential demo: the agent modifies its own runtime (needs key)
 pnpm run demo:acp       # ACP server agent (needs DEEPSEEK_API_KEY)
 ```

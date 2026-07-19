@@ -17,6 +17,11 @@ A backend that reloads a log crashed mid-turn finds an open `turn/start` with no
 `SessionPersistence.locate(meta)` synchronously resolves a backend-owned independent artifact without reading, creating, or flushing it. JSONL returns its absolute target path; SQLite returns `undefined` because sessions share one database. A returned path can therefore name a file that does not yet exist or lacks the current unflushed turn; it is a location hint, not authorization or a freshness guarantee.
 
 ```ts type-equiv
+/**
+ * A backend-resolved, per-session local artifact location. The path is an
+ * absolute target path and can name an artifact that has not materialized yet.
+ * Consumers must treat it as a location hint, never as an authorization token.
+ */
 interface SessionLocation {
   /** Backend-specific artifact kind, for example `jsonl`. */
   readonly kind: string
@@ -32,6 +37,9 @@ Per-session metadata travels **separately** from the event log: format version, 
 Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
 ```ts type-equiv
+/**
+ * Immutable validated storage metadata, kept outside the conversation event log.
+ */
 interface SessionHeader {
   /**
    * On-disk format version, stamped from {@link SESSION_FORMAT_VERSION} when the
@@ -48,13 +56,8 @@ interface SessionHeader {
   /** The session this one was forked from (seed lineage), if any. */
   readonly parentSession?: SessionId
   /**
-   * How many leading events were INHERITED via a seed rather than produced by
-   * this session — the seed boundary. Set when a fork seeds a child with a
-   * prefix of the parent's log (= the seeded prefix length); absent/0 means the
-   * session produced all its own events. Persisted so a reload reconstructs the
-   * boundary instead of re-deriving it from the full stored log, and so a replay
-   * harness can skip the inherited prefix when deriving the child's OWN script
-   * (the seeded events are the parent's, not this child's model calls).
+   * How many leading events were inherited through a seed. Persisting this
+   * boundary lets resume and replay distinguish parent history from child work.
    */
   readonly seedLength?: number
 }
@@ -65,20 +68,17 @@ interface SessionHeader {
 Creating a `Session` through the store takes a `seed` (replay/fork an existing event log) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller supplies the validated absolute `cwd`, the `parentSession` lineage, the `seedLength` seed boundary, and — only when reconstructing a persisted session — the original `createdAt` to preserve it.
 
 ```ts type-equiv
+/**
+ * Options for creating a {@link Session} via the store. `seed` replays/forks
+ * an existing event log; `meta` carries the caller-supplied storage fields the
+ * store folds into a {@link SessionHeader}.
+ */
 interface CreateSessionOptions {
   /** Events to seed the new session with (replay/fork). */
   readonly seed?: readonly SessionEvent[]
   /**
-   * Creation metadata. The store fills in `version`/`id` and defaults
-   * `createdAt` to now; the caller supplies the storage-level fields (validated
-   * absolute `cwd`, `parentSession` lineage, the seed boundary `seedLength`, and
-   * — when reconstructing a persisted session — the original `createdAt` to
-   * preserve it).
-   *
-   * `seedLength` is EXPLICIT, not inferred from `seed.length`: a reconstruction
-   * (resume/load) seeds the WHOLE stored log, so its `seed.length` is the full
-   * length, not the original boundary — the caller must pass the persisted
-   * boundary back. A fresh fork passes its actual seeded-prefix length.
+   * Storage metadata read once before publication. `seedLength` is explicit
+   * because a resumed seed contains the full stored log, not only its inherited prefix.
    */
   readonly meta?: {
     readonly cwd?: string

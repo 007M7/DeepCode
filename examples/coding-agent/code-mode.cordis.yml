@@ -20,6 +20,8 @@
           tools:
             mode: code
           welcome: 'code-mode agent ready. Give it a multi-tool task.'
+          ui:
+            mode: readline
           persona: |
             You are coding-agent, a coding assistant powered by the {{model}} model.
 

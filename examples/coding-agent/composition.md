@@ -3,7 +3,7 @@
 
 # Coding Agent App Composition
 
-The coding REPL demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.
+The coding-agent demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.
 
 ```mermaid
 flowchart LR
@@ -18,7 +18,7 @@ flowchart LR
   cfg --> plugin_coding_stdio_agent
   plugin_coding_stdio_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
   plugin_coding_stdio_agent --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
-  plugin_coding_stdio_agent --> frontdoor_stdio["readline UI<br/>console logger<br/>pre-created main agent"]
+  plugin_coding_stdio_agent --> frontdoor_stdio["@deepseek-ai/dsh-stdio<br/>pre-created main agent"]
   bundle_agent_core --> spine_llm["ctx.llm"]
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]
