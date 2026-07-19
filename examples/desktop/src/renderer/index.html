@@ -1402,6 +1402,13 @@
        (inlined fixture blobs), then the page renderers. -->
   <script src="./rubrics-model.js"></script>
   <script src="./annotation-model.js"></script>
+  <!-- Rubric fusion (D lane): single event-log store shared by Rubrics,
+       Growth, and Runtime. Loads AFTER rubrics-model so it can pull
+       dim-spec normalizers, and BEFORE the three view scripts (rubrics-
+       page, growth-v2, runtimes-page all consume it). Seed is inlined so
+       we avoid file:// fetch, mirroring rubrics-seed.js. -->
+  <script src="./rubric-fusion-model.js"></script>
+  <script src="./rubric-fusion-seed.js"></script>
   <script src="./rubrics-seed.js"></script>
   <script src="./rubrics-page.js"></script>
   <script src="./annotation-panel.js"></script>

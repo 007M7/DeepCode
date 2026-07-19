@@ -1,0 +1,94 @@
+{
+  "_note": "Rubric fusion fixture — feeds Rubrics/Growth/Runtime demo. All demo-tier data.",
+  "rubrics": [
+    {
+      "id": "svg-gen",
+      "name": "SVG generation",
+      "group": "interaction-reasoning",
+      "description": "Iterative SVG editing over 3-5 turns. Judged for shape correctness, style consistency, and no-regression.",
+      "dims": [
+        { "id": "shape-correct", "label": "Shape correctness", "type": "continuous", "min": 0, "max": 1 },
+        { "id": "style-consistent", "label": "Style consistency", "type": "continuous", "min": 0, "max": 1 },
+        { "id": "no-regress", "label": "No regression", "type": "boolean", "labels": { "true": "pass", "false": "fail" } }
+      ]
+    },
+    {
+      "id": "bug-fix",
+      "name": "Bug fix",
+      "group": "fix-optimize",
+      "description": "Reproduce, patch, verify. Judged on minimality and coverage.",
+      "dims": [
+        { "id": "reproduces", "label": "Reproduces failure", "type": "boolean", "labels": { "true": "yes", "false": "no" } },
+        { "id": "minimality", "label": "Patch minimality", "type": "categorical", "values": ["heavy", "ok", "clean"] },
+        { "id": "no-regress", "label": "No regression", "type": "continuous", "min": 0, "max": 1 }
+      ]
+    },
+    {
+      "id": "multi-turn-feedback",
+      "name": "Multi-turn feedback loop",
+      "group": "interaction-reasoning",
+      "description": "Five-dim fixed rubric — the classic RL-plan Stage-2 rubric family.",
+      "dims": [
+        { "id": "feedback-understanding", "label": "Feedback understanding", "type": "continuous", "min": 1, "max": 5 },
+        { "id": "fix-effectiveness", "label": "Fix effectiveness", "type": "continuous", "min": 1, "max": 5 },
+        { "id": "convergence", "label": "Convergence", "type": "continuous", "min": 1, "max": 5 }
+      ]
+    }
+  ],
+  "similarClasses": [
+    {
+      "id": "similar-svg-gen",
+      "signature": "prompt-shape: 'draw/adjust SVG'",
+      "count": 5,
+      "sessionIds": ["s-svg-1", "s-svg-2", "s-svg-3", "s-svg-4", "s-svg-5"],
+      "promptSummary": "5 sessions this week iterated on SVG output (draw/adjust/refine)"
+    }
+  ],
+  "events": [
+    { "ts": 1720915200000, "rubricId": "svg-gen", "dimId": "shape-correct", "sessionId": "s-svg-1", "turnId": "t1", "rolloutIdx": 1, "score": 0.42, "harnessVersion": "v0.9", "model": "deepseek-r1", "dataMix": "mix-a" },
+    { "ts": 1720915200000, "rubricId": "svg-gen", "dimId": "style-consistent", "sessionId": "s-svg-1", "turnId": "t1", "rolloutIdx": 1, "score": 0.55, "harnessVersion": "v0.9", "model": "deepseek-r1", "dataMix": "mix-a" },
+    { "ts": 1720915200000, "rubricId": "svg-gen", "dimId": "no-regress", "sessionId": "s-svg-1", "turnId": "t1", "rolloutIdx": 1, "score": true, "harnessVersion": "v0.9", "model": "deepseek-r1", "dataMix": "mix-a" },
+    { "ts": 1721001600000, "rubricId": "svg-gen", "dimId": "shape-correct", "sessionId": "s-svg-2", "turnId": "t2", "rolloutIdx": 2, "score": 0.51, "harnessVersion": "v0.9", "model": "deepseek-r1", "dataMix": "mix-a" },
+    { "ts": 1721001600000, "rubricId": "svg-gen", "dimId": "style-consistent", "sessionId": "s-svg-2", "turnId": "t2", "rolloutIdx": 2, "score": 0.60, "harnessVersion": "v0.9", "model": "deepseek-r1", "dataMix": "mix-a" },
+    { "ts": 1721001600000, "rubricId": "svg-gen", "dimId": "no-regress", "sessionId": "s-svg-2", "turnId": "t2", "rolloutIdx": 2, "score": false, "harnessVersion": "v0.9", "model": "deepseek-r1", "dataMix": "mix-a" },
+    { "ts": 1721088000000, "rubricId": "svg-gen", "dimId": "shape-correct", "sessionId": "s-svg-3", "turnId": "t3", "rolloutIdx": 3, "score": 0.72, "harnessVersion": "v0.10", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721088000000, "rubricId": "svg-gen", "dimId": "style-consistent", "sessionId": "s-svg-3", "turnId": "t3", "rolloutIdx": 3, "score": 0.78, "harnessVersion": "v0.10", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721088000000, "rubricId": "svg-gen", "dimId": "no-regress", "sessionId": "s-svg-3", "turnId": "t3", "rolloutIdx": 3, "score": true, "harnessVersion": "v0.10", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721174400000, "rubricId": "svg-gen", "dimId": "shape-correct", "sessionId": "s-svg-4", "turnId": "t4", "rolloutIdx": 4, "score": 0.85, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721174400000, "rubricId": "svg-gen", "dimId": "style-consistent", "sessionId": "s-svg-4", "turnId": "t4", "rolloutIdx": 4, "score": 0.82, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721174400000, "rubricId": "svg-gen", "dimId": "no-regress", "sessionId": "s-svg-4", "turnId": "t4", "rolloutIdx": 4, "score": true, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721260800000, "rubricId": "svg-gen", "dimId": "shape-correct", "sessionId": "s-svg-5", "turnId": "t5", "rolloutIdx": 5, "score": 0.91, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "svg-gen", "dimId": "style-consistent", "sessionId": "s-svg-5", "turnId": "t5", "rolloutIdx": 5, "score": 0.88, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "svg-gen", "dimId": "no-regress", "sessionId": "s-svg-5", "turnId": "t5", "rolloutIdx": 5, "score": true, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+
+    { "ts": 1721260800000, "rubricId": "svg-gen", "dimId": "shape-correct", "sessionId": "s-svg-live", "turnId": "tL", "rolloutIdx": 6, "score": 0.63, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "svg-gen", "dimId": "style-consistent", "sessionId": "s-svg-live", "turnId": "tL", "rolloutIdx": 6, "score": 0.71, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "svg-gen", "dimId": "no-regress", "sessionId": "s-svg-live", "turnId": "tL", "rolloutIdx": 6, "score": false, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "svg-gen", "dimId": "shape-correct", "sessionId": "s-svg-live", "turnId": "tL", "rolloutIdx": 7, "score": 0.80, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "svg-gen", "dimId": "style-consistent", "sessionId": "s-svg-live", "turnId": "tL", "rolloutIdx": 7, "score": 0.83, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "svg-gen", "dimId": "no-regress", "sessionId": "s-svg-live", "turnId": "tL", "rolloutIdx": 7, "score": true, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "svg-gen", "dimId": "shape-correct", "sessionId": "s-svg-live", "turnId": "tL", "rolloutIdx": 8, "score": 0.88, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "svg-gen", "dimId": "style-consistent", "sessionId": "s-svg-live", "turnId": "tL", "rolloutIdx": 8, "score": 0.85, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "svg-gen", "dimId": "no-regress", "sessionId": "s-svg-live", "turnId": "tL", "rolloutIdx": 8, "score": true, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+
+    { "ts": 1720915200000, "rubricId": "bug-fix", "dimId": "reproduces", "sessionId": "s-bug-1", "turnId": "t1", "rolloutIdx": 1, "score": false, "harnessVersion": "v0.9", "model": "deepseek-r1", "dataMix": "mix-a" },
+    { "ts": 1720915200000, "rubricId": "bug-fix", "dimId": "minimality", "sessionId": "s-bug-1", "turnId": "t1", "rolloutIdx": 1, "score": "heavy", "harnessVersion": "v0.9", "model": "deepseek-r1", "dataMix": "mix-a" },
+    { "ts": 1720915200000, "rubricId": "bug-fix", "dimId": "no-regress", "sessionId": "s-bug-1", "turnId": "t1", "rolloutIdx": 1, "score": 0.40, "harnessVersion": "v0.9", "model": "deepseek-r1", "dataMix": "mix-a" },
+    { "ts": 1721088000000, "rubricId": "bug-fix", "dimId": "reproduces", "sessionId": "s-bug-2", "turnId": "t2", "rolloutIdx": 1, "score": true, "harnessVersion": "v0.10", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721088000000, "rubricId": "bug-fix", "dimId": "minimality", "sessionId": "s-bug-2", "turnId": "t2", "rolloutIdx": 1, "score": "ok", "harnessVersion": "v0.10", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721088000000, "rubricId": "bug-fix", "dimId": "no-regress", "sessionId": "s-bug-2", "turnId": "t2", "rolloutIdx": 1, "score": 0.75, "harnessVersion": "v0.10", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721260800000, "rubricId": "bug-fix", "dimId": "reproduces", "sessionId": "s-bug-3", "turnId": "t3", "rolloutIdx": 1, "score": true, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "bug-fix", "dimId": "minimality", "sessionId": "s-bug-3", "turnId": "t3", "rolloutIdx": 1, "score": "clean", "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "bug-fix", "dimId": "no-regress", "sessionId": "s-bug-3", "turnId": "t3", "rolloutIdx": 1, "score": 0.92, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+
+    { "ts": 1721001600000, "rubricId": "multi-turn-feedback", "dimId": "feedback-understanding", "sessionId": "s-mt-1", "turnId": "t1", "rolloutIdx": 1, "score": 3, "harnessVersion": "v0.10", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721001600000, "rubricId": "multi-turn-feedback", "dimId": "fix-effectiveness", "sessionId": "s-mt-1", "turnId": "t1", "rolloutIdx": 1, "score": 3, "harnessVersion": "v0.10", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721001600000, "rubricId": "multi-turn-feedback", "dimId": "convergence", "sessionId": "s-mt-1", "turnId": "t1", "rolloutIdx": 1, "score": 4, "harnessVersion": "v0.10", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721174400000, "rubricId": "multi-turn-feedback", "dimId": "feedback-understanding", "sessionId": "s-mt-2", "turnId": "t2", "rolloutIdx": 1, "score": 4, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721174400000, "rubricId": "multi-turn-feedback", "dimId": "fix-effectiveness", "sessionId": "s-mt-2", "turnId": "t2", "rolloutIdx": 1, "score": 4, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721174400000, "rubricId": "multi-turn-feedback", "dimId": "convergence", "sessionId": "s-mt-2", "turnId": "t2", "rolloutIdx": 1, "score": 4, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-b" },
+    { "ts": 1721260800000, "rubricId": "multi-turn-feedback", "dimId": "feedback-understanding", "sessionId": "s-mt-3", "turnId": "t3", "rolloutIdx": 1, "score": 5, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "multi-turn-feedback", "dimId": "fix-effectiveness", "sessionId": "s-mt-3", "turnId": "t3", "rolloutIdx": 1, "score": 5, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" },
+    { "ts": 1721260800000, "rubricId": "multi-turn-feedback", "dimId": "convergence", "sessionId": "s-mt-3", "turnId": "t3", "rolloutIdx": 1, "score": 5, "harnessVersion": "v0.11", "model": "deepseek-r1", "dataMix": "mix-c" }
+  ]
+}

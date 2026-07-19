@@ -33,6 +33,19 @@
     ? window.__dshRubricsModel
     : (typeof require === 'function' ? require('./rubrics-model.js') : {})
 
+  // Fusion store — same singleton used by Growth/Runtime; seeded once on
+  // first render so the three views share the exact same event log.
+  const fusion = (typeof window !== 'undefined' && window.__dshRubricFusion)
+    ? window.__dshRubricFusion
+    : null
+  let fusionSeeded = false
+  function seedFusionOnce() {
+    if (fusionSeeded || !fusion) return
+    const seed = (typeof window !== 'undefined' && window.__dshRubricFusionSeed) || null
+    if (seed) fusion.loadFixture(seed)
+    fusionSeeded = true
+  }
+
   // Renderer state — kept minimal + re-derivable, per the same pattern as
   // pr-page.js. Every write triggers a re-render of the affected region.
   const state = {
@@ -43,11 +56,11 @@
     createForm: null,      // Create-from-scratch draft; null when the form
                            // is closed. Shape: {
                            //   name, group, executor, colorDot,
-                           //   dimName, dimType, min, max, values, labels
+                           //   dimName, dimType, min, max, values, labels,
+                           //   hintClassId?, hintPromptSummary?
                            // }.
-                           // Only one draft at a time — the form is a
-                           // modal-in-the-page anchored below the fallback
-                           // CTA, so we don't need a separate id.
+    dismissedHints: new Set(),  // similar-session hint class ids the user
+                                // dismissed this session.
   }
 
   function el(tag, attrs = {}, children = []) {
@@ -102,10 +115,32 @@
       ]),
       el('div', { className: 'rubric-tile-desc muted small', text: rubric.description || '' }),
       el('div', { className: 'rubric-tile-preview', text: preview || 'No checklist items.' }),
+      renderTileStatsStrip(rubric),
       el('div', { className: 'rubric-tile-foot' }, [
         el('span', { className: 'rubric-tile-executor muted small', text: rubric.executor === 'code' ? 'Code executor' : 'LLM-as-judge' }),
         el('span', { className: 'rubric-tile-attach chip small', text: 'Attach to Bench' }),
       ]),
+    ])
+  }
+
+  // Recent-scores mini strip — total scored + pass-rate% + 8 sparkline
+  // pass/fail dots. Reads from the fusion event log. Renders an empty
+  // placeholder when there are no scores yet (keeps tile height stable).
+  function renderTileStatsStrip(rubric) {
+    if (!fusion) return el('div', { className: 'rubric-tile-stats empty' })
+    const stats = fusion.recentScoresFor(rubric.id, 8)
+    if (!stats || !stats.total) {
+      return el('div', { className: 'rubric-tile-stats empty muted small', text: 'No scores yet' })
+    }
+    const pct = Math.round(stats.passRate * 100)
+    const dots = stats.latest.slice().reverse().map(evt => el('span', {
+      className: 'rubric-tile-stats-dot ' + (evt.passed ? 'pass' : 'fail'),
+      title: evt.dimId + ' · ' + (evt.passed ? 'pass' : 'fail'),
+    }))
+    return el('div', { className: 'rubric-tile-stats', 'data-testid': 'tile-stats-' + rubric.id }, [
+      el('span', { className: 'rubric-tile-stats-total small', text: stats.total + ' scored' }),
+      el('span', { className: 'rubric-tile-stats-rate small' + (pct >= 50 ? ' pass' : ' fail'), text: pct + '% pass' }),
+      el('span', { className: 'rubric-tile-stats-spark' }, dots),
     ])
   }
 
@@ -428,9 +463,55 @@
   function renderCatalog() {
     const host = document.getElementById('rubrics-catalog')
     if (!host) return
+    seedFusionOnce()
     host.replaceChildren()
+    const hint = renderSimilarSessionsHint()
+    if (hint) host.appendChild(hint)
     for (const group of state.catalog) host.appendChild(renderGroupSection(group))
     host.appendChild(renderFallbackCTA())
+  }
+
+  // "Detected N similar sessions this week" hint card. Reads similarClasses
+  // from the fusion store (heuristic detection is a TODO — fixture drives
+  // the shape today). Dismissable per-class.
+  function renderSimilarSessionsHint() {
+    if (!fusion) return null
+    const classes = fusion.detectSimilarSessions()
+    const cls = classes.find(c => !state.dismissedHints.has(c.id))
+    if (!cls) return null
+    return el('div', { className: 'rubric-hint-card', 'data-testid': 'rubric-hint-card', role: 'note' }, [
+      el('span', { className: 'rubric-hint-icon', text: '✦' }),
+      el('div', { className: 'rubric-hint-body' }, [
+        el('div', { className: 'rubric-hint-title', text: `Detected ${cls.count} similar sessions this week` }),
+        el('div', { className: 'rubric-hint-sub muted small', text: cls.promptSummary || 'These look like a repeated task class — a rubric would let you track it.' }),
+      ]),
+      el('button', {
+        className: 'primary small rubric-hint-cta',
+        type: 'button',
+        text: 'Enable a rubric for this task class',
+        onclick: () => {
+          openCreateForm('llm-judge')
+          if (state.createForm) {
+            state.createForm.dimName = 'task-class-' + cls.id.replace(/[^a-z0-9-]/gi, '-').toLowerCase()
+            state.createForm.hintClassId = cls.id
+            state.createForm.hintPromptSummary = cls.promptSummary || ''
+            renderCatalog()
+          }
+        },
+      }),
+      el('button', {
+        className: 'ghost small rubric-hint-dismiss',
+        type: 'button',
+        text: '×',
+        title: 'Dismiss for this class',
+        'aria-label': 'Dismiss',
+        onclick: (e) => {
+          e.stopPropagation()
+          state.dismissedHints.add(cls.id)
+          renderCatalog()
+        },
+      }),
+    ])
   }
 
   function findRubric(id) {

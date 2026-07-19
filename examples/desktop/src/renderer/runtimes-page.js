@@ -11,12 +11,13 @@
 //                                     initialize handshake (Ticket G)
 //   - window.dsh.playground.list()  — isolated daemon(s) currently up
 //
-// The IA design pack §3 flagged this surface as filling the `runtime/list`
-// wire gap (G8) with a local composition today: profiles from disk + a
-// probe of the mounted runtime + Playground's already-broadcasting isolated
-// daemon list. The page renders honest chips saying so — "composed locally
-// · G8 gap" — so a researcher inspecting this page knows exactly which
-// bits are wire-authoritative vs. locally-inferred.
+// This page now has two tabs:
+//   - Rubric grid (default): the researcher-facing red/green matrix — one
+//     row per rubric dim, one column per rollout, cells colored by pass/
+//     fail. Click a cell → jump to that turn's trace. Data source is the
+//     rubric-fusion event log.
+//   - Status: the original composition — profile list + isolated-daemon
+//     section — for wire/adapter debugging.
 //
 // This module is a pure DOM controller: no fetches, no timers other than a
 // single refresh interval bound to the page's visibility. It exposes
@@ -26,6 +27,20 @@
 'use strict'
 ;(function () {
   const rootId = 'runtimes-pane'
+  let currentTab = 'rubric-grid'
+  let fusionSeeded = false
+
+  function fusion() {
+    return typeof window !== 'undefined' ? window.__dshRubricFusion : null
+  }
+
+  function seedFusionOnce() {
+    const f = fusion()
+    if (!f || fusionSeeded) return
+    const seed = typeof window !== 'undefined' ? window.__dshRubricFusionSeed : null
+    if (seed) f.loadFixture(seed)
+    fusionSeeded = true
+  }
 
   // Human-readable label for each capability bit. Kept in sync with
   // src/renderer/capabilities.js CAPABILITY_KEYS — the six bits the shell
@@ -304,7 +319,176 @@
   async function show() {
     const root = document.getElementById(rootId)
     if (!root) return
-    await refresh(root)
+    ensureTabStrip(root)
+    seedFusionOnce()
+    if (currentTab === 'rubric-grid') {
+      await renderRubricGrid(root)
+    } else {
+      await refresh(root)
+    }
+  }
+
+  // Inject a two-tab strip into the header-actions once. Idempotent.
+  function ensureTabStrip(root) {
+    if (root.querySelector('[data-runtimes-tabs]')) return
+    const acts = root.querySelector('.header-actions')
+    if (!acts) return
+    const strip = document.createElement('div')
+    strip.className = 'runtimes-tabs'
+    strip.setAttribute('data-runtimes-tabs', '')
+    const gridBtn = document.createElement('button')
+    gridBtn.type = 'button'
+    gridBtn.className = 'ghost small runtimes-tab active'
+    gridBtn.dataset.runtimesTab = 'rubric-grid'
+    gridBtn.textContent = 'Rubric grid'
+    gridBtn.title = 'Rollout × rubric-dim red/green matrix (default).'
+    const statusBtn = document.createElement('button')
+    statusBtn.type = 'button'
+    statusBtn.className = 'ghost small runtimes-tab'
+    statusBtn.dataset.runtimesTab = 'status'
+    statusBtn.textContent = 'Status'
+    statusBtn.title = 'Profiles, adapter capabilities, isolated daemons.'
+    strip.append(gridBtn, statusBtn)
+    // Insert before the existing legend chip so the tabs sit at the head.
+    acts.insertBefore(strip, acts.firstChild)
+
+    strip.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-runtimes-tab]')
+      if (!btn) return
+      currentTab = btn.dataset.runtimesTab
+      for (const b of strip.querySelectorAll('.runtimes-tab')) b.classList.toggle('active', b === btn)
+      void show()
+    })
+  }
+
+  // ---------- Rubric grid tab ----------
+
+  async function renderRubricGrid(root) {
+    const bodyList = root.querySelector('[data-runtimes-list]')
+    const bodyIsolated = root.querySelector('[data-runtimes-isolated]')
+    if (bodyList) bodyList.innerHTML = ''
+    if (bodyIsolated) bodyIsolated.innerHTML = ''
+    // We drop grid output into the .runtimes-list slot so no HTML
+    // template edit is needed — the isolated-daemon slot stays empty on
+    // this tab (that section only makes sense under Status).
+    const host = bodyList
+    if (!host) return
+    const f = fusion()
+    if (!f) {
+      host.appendChild(muted('Rubric fusion store not loaded.'))
+      return
+    }
+    const rubrics = f.listRubrics()
+    if (!rubrics.length) {
+      host.appendChild(muted('No rubrics registered. Author one under Rubrics → Create from scratch, or load the fusion fixture.'))
+      return
+    }
+    // Header row: one card per rubric.
+    for (const rubric of rubrics) {
+      const grid = f.rolloutGridFor(rubric.id, null)
+      const card = document.createElement('section')
+      card.className = 'rubric-grid-card'
+      card.setAttribute('data-testid', 'rubric-grid-card-' + rubric.id)
+      const head = document.createElement('header')
+      head.className = 'rubric-grid-head'
+      head.appendChild(spanCls('rubric-grid-name', rubric.name))
+      head.appendChild(spanCls('rubric-grid-desc muted small', rubric.description || ''))
+      head.appendChild(spanCls('rubric-grid-rubric-id muted tiny', 'rubric: ' + rubric.id))
+      card.appendChild(head)
+
+      if (!grid.rollouts.length) {
+        card.appendChild(muted('No rollouts scored against this rubric yet.'))
+      } else {
+        card.appendChild(renderGridTable(grid))
+      }
+      host.appendChild(card)
+    }
+  }
+
+  function renderGridTable(grid) {
+    const wrap = document.createElement('div')
+    wrap.className = 'rubric-grid-table-wrap'
+    const table = document.createElement('table')
+    table.className = 'rubric-grid-table'
+    // Header row: rollouts across the top.
+    const thead = document.createElement('thead')
+    const hrow = document.createElement('tr')
+    const corner = document.createElement('th')
+    corner.className = 'rubric-grid-corner'
+    corner.textContent = 'dim ╲ rollout'
+    hrow.appendChild(corner)
+    for (const r of grid.rollouts) {
+      const th = document.createElement('th')
+      th.className = 'rubric-grid-col-head'
+      th.textContent = String(r)
+      hrow.appendChild(th)
+    }
+    thead.appendChild(hrow)
+    table.appendChild(thead)
+    const tbody = document.createElement('tbody')
+    for (const dim of grid.dims) {
+      const trow = document.createElement('tr')
+      const rh = document.createElement('th')
+      rh.className = 'rubric-grid-row-head'
+      rh.textContent = dim.label
+      rh.title = dim.type
+      trow.appendChild(rh)
+      for (const r of grid.rollouts) {
+        const cell = grid.cells.find(c => c.dimId === dim.id && c.rolloutIdx === r)
+        const td = document.createElement('td')
+        td.className = 'rubric-grid-cell'
+        if (!cell || cell.passed == null) {
+          td.classList.add('rubric-grid-cell--empty')
+          td.title = 'No score.'
+        } else if (cell.passed) {
+          td.classList.add('rubric-grid-cell--pass')
+          td.title = `pass · session ${cell.sessionId} · turn ${cell.turnId}`
+        } else {
+          td.classList.add('rubric-grid-cell--fail')
+          td.title = `fail · session ${cell.sessionId} · turn ${cell.turnId}`
+        }
+        if (cell && cell.sessionId && cell.turnId) {
+          td.setAttribute('data-session-id', cell.sessionId)
+          td.setAttribute('data-turn-id', cell.turnId)
+          td.setAttribute('role', 'button')
+          td.setAttribute('tabindex', '0')
+          const jumpTo = () => jumpToTrace(cell.sessionId, cell.turnId)
+          td.addEventListener('click', jumpTo)
+          td.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); jumpTo() } })
+        }
+        trow.appendChild(td)
+      }
+      tbody.appendChild(trow)
+    }
+    table.appendChild(tbody)
+    wrap.appendChild(table)
+    return wrap
+  }
+
+  function jumpToTrace(sessionId, turnId) {
+    // Signal via the existing tab switcher; downstream trace/tracing page
+    // can pick this event up. We don't hardcode the trace page URL — the
+    // shell owns navigation.
+    if (typeof window !== 'undefined' && typeof CustomEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('dsh:rubric-cell-jump', { detail: { sessionId, turnId } }))
+    }
+    if (window.__dshTabs && typeof window.__dshTabs.switchTo === 'function') {
+      window.__dshTabs.switchTo('tracing')
+    }
+  }
+
+  function muted(text) {
+    const div = document.createElement('div')
+    div.className = 'muted small'
+    div.textContent = text
+    return div
+  }
+
+  function spanCls(cls, text) {
+    const s = document.createElement('span')
+    s.className = cls
+    s.textContent = text
+    return s
   }
 
   if (typeof window !== 'undefined') {
