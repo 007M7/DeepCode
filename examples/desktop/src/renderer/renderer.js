@@ -533,6 +533,12 @@ function updateEmptyStateVisibility() {
 
 async function selectSession(id) {
   state.activeSessionId = id
+  // fix/code-bugs-batch P1-4: swap the artifacts module to this session's
+  // bucket so Board/Timeline/Evolution stop mixing versions across
+  // sessions. No-op when the module is untouched by the app (tests).
+  if (window.__dshArtifacts && typeof window.__dshArtifacts.setActiveSession === 'function') {
+    window.__dshArtifacts.setActiveSession(id)
+  }
   const meta = state.sessions.get(id)
   // Header title: real title wins; empty/unnamed sessions read as "New chat"
   // in the main pane (never in the sidebar — that's what the smart-title
@@ -4296,6 +4302,21 @@ function refreshChatSideDrawer() {
   })
 }
 function refreshChatSideDrawerIfOpen() { if (isChatDrawerOpen()) refreshChatSideDrawer() }
+
+// Long sessions (500+ events) dispatch onSessionEvent hundreds of times per
+// second on replay/backfill. Both the drawer and Session Graph re-derive
+// the full row/node list from cachedEvents on every call (O(N)), so an
+// unthrottled refresh per event lands O(N²) work on the main thread and
+// noticeably lags typing. Coalesce to at most one refresh per rAF frame —
+// the derive is idempotent on the same event tail, so dropping intermediate
+// ticks is safe. Extracted to chat-refresh-throttle.js for unit testing.
+const __chatRefreshThrottle = window.__dshChatRefreshThrottle
+  ? window.__dshChatRefreshThrottle.create(() => {
+      refreshChatSideDrawerIfOpen()
+      refreshSessionGraphIfActive()
+    })
+  : { schedule() { refreshChatSideDrawerIfOpen(); refreshSessionGraphIfActive() } }
+function refreshChatSurfacesCoalesced() { __chatRefreshThrottle.schedule() }
 if (chatSideDrawerBtn) {
   chatSideDrawerBtn.addEventListener('click', () => setChatDrawerOpen(!isChatDrawerOpen()))
 }
@@ -4664,9 +4685,9 @@ function onSessionEvent(sessionId, event) {
   // feat/chat-triple-view: keep the right-side detail drawer + Session Graph
   // in sync with the same event tick. Both no-op when their surface is
   // hidden, so this is cheap when the user hasn't opened the drawer /
-  // switched to Graph yet.
-  refreshChatSideDrawerIfOpen()
-  refreshSessionGraphIfActive()
+  // switched to Graph yet. Coalesced via rAF so long sessions don't take
+  // an O(N²) hit from the O(N) derives.
+  refreshChatSurfacesCoalesced()
 
   // §2.3 (batch 6) template triggers: pure module decides whether the event
   // qualifies for a template card (T2 error recovery / T4 artifact preview /

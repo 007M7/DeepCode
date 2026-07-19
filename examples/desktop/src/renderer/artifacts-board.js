@@ -344,9 +344,17 @@
       pane.append(note)
       return pane
     }
+    const result = diffLines(prev.blob, next.blob)
+    if (result && result.note) {
+      const note = document.createElement('div')
+      note.className = 'artifact-evolution-diff-note muted'
+      note.textContent = result.note
+      pane.append(note)
+      return pane
+    }
     const diffEl = document.createElement('div')
     diffEl.className = 'artifact-evolution-diff-body'
-    const lines = diffLines(prev.blob, next.blob)
+    const lines = Array.isArray(result) ? result : []
     for (const ln of lines) {
       const row = document.createElement('div')
       row.className = `artifact-evolution-diff-line kind-${ln.kind}`
@@ -373,6 +381,16 @@
     const bLines = b.split('\n')
     const n = aLines.length
     const m = bLines.length
+    // Blobs from real artifacts are bounded by the demo (single-page HTML,
+    // short markdown), but nothing in the pipe enforces that — a fixture
+    // or user-flagged file can be much larger. LCS is O(n·m) space and
+    // time, so we bail out on anything that would allocate over a small
+    // Int32 grid. The caller renders a "diff omitted" note in place of
+    // the pane. Threshold picked so 1e6 cells ≈ 4MB Int32 stays comfortable
+    // in the renderer heap.
+    if (n * m > 1e6 || n > 5000 || m > 5000) {
+      return { note: 'diff omitted (blob too large)', add: 0, del: 0 }
+    }
     const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1))
     for (let i = n - 1; i >= 0; i--) {
       for (let j = m - 1; j >= 0; j--) {

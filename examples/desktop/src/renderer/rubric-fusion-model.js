@@ -60,6 +60,12 @@ function createStore() {
     events: [],               // scoreEvent[]
     similarClasses: [],       // similarSessionsClass[]
     subscribers: new Set(),
+    loadedFixtures: new WeakSet(), // seed refs already applied — see loadFixture
+    eventKeys: new Set(),     // (ts|rubricId|dimId|sessionId|turnId|rolloutIdx)
+                              // -> dedupe key for scoreEvents, so seedOnce
+                              // getting called twice can't duplicate rows
+                              // even if the caller passes a fresh seed
+                              // literal each time.
   }
 
   function notify() {
@@ -134,6 +140,17 @@ function createStore() {
     const spec = rubric.dims.find(d => d.id === raw.dimId)
     if (!spec) return null
     const ts = Number(raw.ts) || Date.now()
+    // Idempotence key: the three fusion pages (Rubrics / Growth / Runtime)
+    // each seedOnce() from the same fixture and share this singleton. If
+    // the seed's identity flag drifts across pages (or a caller passes a
+    // fresh literal each call), the event log would double up rows for
+    // the same (ts, rubricId, dimId, sessionId, turnId, rolloutIdx)
+    // coordinate. Deduping by that key here makes loadFixture safe to
+    // call from any number of pages without event-count inflation.
+    const rolloutForKey = Number.isFinite(Number(raw.rolloutIdx)) ? Number(raw.rolloutIdx) : ''
+    const key = `${ts}|${rubric.id}|${spec.id}|${raw.sessionId || ''}|${raw.turnId || ''}|${rolloutForKey}`
+    if (state.eventKeys.has(key)) return null
+    state.eventKeys.add(key)
     const evt = {
       ts,
       rubricId: rubric.id,
@@ -154,11 +171,26 @@ function createStore() {
 
   // Bulk load from a fixture JSON blob. Shape:
   //   { rubrics: [rubricDef], events: [scoreEvent], similarClasses: [class] }
+  //
+  // Called by each of the three pages' seedOnce()s. The per-page flags
+  // (rubrics-page fusionSeeded, growth-v2 state.seeded) mean each page
+  // fires it at most once, but the pages share this singleton store —
+  // so without dedupe here, two-page seeding would double-insert every
+  // event. Two-tier guard:
+  //   1. WeakSet on the fixture object ref (fast path for the common
+  //      case where all pages read window.__dshRubricFusionSeed).
+  //   2. Per-event key dedupe inside addEvent() catches the case where a
+  //      caller passes a fresh literal that happens to carry the same
+  //      rows.
   function loadFixture(json) {
     if (!json || typeof json !== 'object') return { rubrics: 0, events: 0 }
+    if (state.loadedFixtures.has(json)) return { rubrics: 0, events: 0 }
+    state.loadedFixtures.add(json)
     let rn = 0, en = 0
     for (const r of json.rubrics || []) { if (registerRubric(r)) rn++ }
     for (const e of json.events || []) { if (addEvent(e)) en++ }
+    // similarClasses is a projection, not accumulator — last-wins is fine
+    // and preserves the "the seed's opinion is authoritative" contract.
     state.similarClasses = Array.isArray(json.similarClasses) ? json.similarClasses.slice() : []
     notify()
     return { rubrics: rn, events: en }
@@ -168,6 +200,11 @@ function createStore() {
     state.rubrics.clear()
     state.events.length = 0
     state.similarClasses.length = 0
+    state.eventKeys.clear()
+    // loadedFixtures uses WeakSet — the fixture references outlive the
+    // store's memory of them anyway (window globals), but we drop the
+    // dedupe cache so a re-seed after clearAll works cleanly.
+    state.loadedFixtures = new WeakSet()
     notify()
   }
 

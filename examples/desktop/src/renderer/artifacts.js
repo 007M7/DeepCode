@@ -34,18 +34,47 @@
 ;(function () {
   const streamEl = () => document.getElementById('stream')
 
-  // artifactId -> DOM element, so a same-path re-declare updates in place.
-  const cards = new Map()
-  // artifactId -> [{ version, seenAt, kind, path, blob? }, …] — populated
-  // as `artifact:event` fires. Fed to artifacts-board.js for Board/
-  // Timeline/Evolution renderers.
-  const history = new Map()
-  // The tab-bar container ("Artifact panel") wraps every artifact-group
-  // so the List / Board / Timeline tabs sit above the same event stream.
-  // Kept as a single, top-of-stream panel — the compact L0 rows still
-  // live inside it under the List view.
-  let panelEl = null
-  let currentView = 'list'
+  // Session-scoped state. Both `cards` (artifactId -> DOM element) and
+  // `history` (artifactId -> [{ version, seenAt, kind, path, blob? }, …])
+  // used to be module-level singletons, which meant switching from
+  // session A (three versions of foo.md) to session B (a fresh foo.md)
+  // and back showed the B versions inside A's Board/Timeline. Bucketing
+  // by sessionId isolates each session's stream while keeping the
+  // per-session state addressable when the user tabs back to A.
+  //
+  // Sentinel `__default__` receives artifact events that arrive before
+  // any session id is known (typical for early boot / debug fixture
+  // buttons). Once a real sessionId flows in, that bucket is orphaned;
+  // it never leaks across real sessions.
+  const DEFAULT_SESSION = '__default__'
+  const bySession = new Map() // sessionId -> { cards, history, panelEl, currentView }
+  let activeSessionId = DEFAULT_SESSION
+
+  function ensureBucket(sid) {
+    let b = bySession.get(sid)
+    if (!b) {
+      b = { cards: new Map(), history: new Map(), panelEl: null, currentView: 'list' }
+      bySession.set(sid, b)
+    }
+    return b
+  }
+  function bucket() { return ensureBucket(activeSessionId) }
+  // Accessors kept so the rest of the file reads naturally.
+  const cards = { get: (id) => bucket().cards.get(id), set: (id, v) => bucket().cards.set(id, v) }
+  const history = {
+    get: (id) => bucket().history.get(id),
+    set: (id, v) => bucket().history.set(id, v),
+    entries: () => bucket().history.entries(),
+    clear: () => bucket().history.clear(),
+  }
+  function setActiveSession(sid) {
+    const next = typeof sid === 'string' && sid ? sid : DEFAULT_SESSION
+    if (next === activeSessionId) return
+    activeSessionId = next
+    // Ensure the incoming session's bucket exists so subsequent event/
+    // switchView calls don't race on an unset entry.
+    ensureBucket(next)
+  }
 
   // Kind-to-SVG map — inline stroke icons (currentColor, 1.6px stroke)
   // so artifact rows match the minimalist icon language rather than
@@ -116,14 +145,14 @@
       // View-level projections re-render on demand — the Board / Timeline
       // views read live state on switch, so a dropped-in event during
       // those views repaints the panel body.
-      if (currentView !== 'list') refreshView()
+      if (bucket().currentView !== 'list') refreshView()
       return existing
     }
     const el = renderCard(entry)
     cards.set(entry.artifactId, el)
     const s = streamEl()
     if (s) appendGrouped(s, el)
-    if (currentView !== 'list') refreshView()
+    if (bucket().currentView !== 'list') refreshView()
     scrollToBottom()
     return el
   }
@@ -142,11 +171,12 @@
     // First artifact of the session: build the panel + tab bar and
     // append it to the stream. The panel owns a `.artifact-group` in
     // its body which the List view uses as-is.
-    if (!panelEl || !panelEl.isConnected) {
-      panelEl = buildPanel()
-      stream.appendChild(panelEl)
+    const b = bucket()
+    if (!b.panelEl || !b.panelEl.isConnected) {
+      b.panelEl = buildPanel()
+      stream.appendChild(b.panelEl)
     }
-    const groupHost = panelEl.querySelector('.artifact-group')
+    const groupHost = b.panelEl.querySelector('.artifact-group')
     groupHost.appendChild(el)
   }
 
@@ -184,19 +214,21 @@
   }
 
   function switchView(v) {
-    if (v === currentView) return
-    currentView = v
-    if (!panelEl) return
-    panelEl.dataset.view = v
-    for (const tab of panelEl.querySelectorAll('.artifact-panel-tab')) {
+    const b = bucket()
+    if (v === b.currentView) return
+    b.currentView = v
+    if (!b.panelEl) return
+    b.panelEl.dataset.view = v
+    for (const tab of b.panelEl.querySelectorAll('.artifact-panel-tab')) {
       tab.setAttribute('aria-selected', tab.dataset.view === v ? 'true' : 'false')
     }
     refreshView()
   }
 
   function refreshView() {
-    if (!panelEl) return
-    const body = panelEl.querySelector('.artifact-panel-body')
+    const b = bucket()
+    if (!b.panelEl) return
+    const body = b.panelEl.querySelector('.artifact-panel-body')
     if (!body) return
     // The List view is stable DOM (the auto-grouped card rows). Board
     // and Timeline are re-rendered from state on every switch — cheap,
@@ -205,7 +237,7 @@
     const listGroup = body.querySelector('.artifact-group')
     const stale = body.querySelectorAll('.artifact-board, .artifact-timeline')
     for (const s of stale) s.remove()
-    if (currentView === 'list') {
+    if (b.currentView === 'list') {
       if (listGroup) listGroup.hidden = false
       return
     }
@@ -214,11 +246,16 @@
     const entries = collectLatestEntries()
     const board = window.__dshArtifactsBoard
     if (!board) return  // module hasn't loaded yet; safe no-op
-    const view = currentView === 'board'
+    // Adapter so artifacts-board's Timeline sees a Map-shaped `history`
+    // (get / entries) even though ours is session-scoped through a
+    // bucket. Snapshot the current session's Map so the renderer can't
+    // observe writes from a subsequent session switch mid-render.
+    const historyMap = b.history
+    const view = b.currentView === 'board'
       ? board.renderBoard(entries, { openArtifact: (id) => window.dsh && window.dsh.openArtifact(id) })
       : board.renderTimeline(entries, {
           openArtifact: (id) => window.dsh && window.dsh.openArtifact(id),
-          history,
+          history: historyMap,
         })
     body.appendChild(view)
   }
@@ -227,7 +264,7 @@
   // Board tiles show. Timeline reads full history separately.
   function collectLatestEntries() {
     const out = []
-    for (const [id, arr] of history) {
+    for (const [id, arr] of history.entries()) {
       if (!arr || arr.length === 0) continue
       const latest = arr.reduce((a, b) => (a.version >= b.version ? a : b))
       out.push({
@@ -421,11 +458,6 @@
     setTimeout(() => el.classList.remove('artifact-flash'), 900)
   }
 
-  function onArtifactEvent(entry) {
-    if (!entry || !entry.artifactId) return
-    ensureCard(entry)
-  }
-
   // Debug menu button — mocks a write into the artifact dir via IPC.
   function bindMockButton() {
     const btn = document.getElementById('mock-artifact')
@@ -454,14 +486,35 @@
     bindMockButton()
   }
 
+  // Route artifact events on a session id if the payload carries one.
+  // Real ArtifactServer broadcasts include `sessionId` on the entry when
+  // the writing turn was scoped to a session; fixture events also stamp
+  // it. When missing, we keep writing into the DEFAULT_SESSION bucket
+  // (early boot / debug button fixtures).
+  function onArtifactEvent(entry) {
+    if (!entry || !entry.artifactId) return
+    if (typeof entry.sessionId === 'string' && entry.sessionId) {
+      setActiveSession(entry.sessionId)
+    }
+    ensureCard(entry)
+  }
+
   // Expose the small API for the smoke tests + potential renderer-side
   // reuse. `history` and `switchView` join the surface so fixture
   // drivers can inspect state and QA can screenshot each view directly.
+  // Session-scoping (P1-4): `setActiveSession(sid)` is called by the
+  // renderer's selectSession() to swap buckets on session switch, and
+  // exposed to tests that drive multiple sessions.
   window.__dshArtifacts = {
     onArtifactEvent,
     cards,
     history,
     switchView,
-    getView: () => currentView,
+    getView: () => bucket().currentView,
+    setActiveSession,
+    getActiveSessionId: () => activeSessionId,
+    // Test hook: raw session bucket map so unit tests can assert
+    // isolation without threading fixtures through the DOM.
+    _bySession: bySession,
   }
 })()

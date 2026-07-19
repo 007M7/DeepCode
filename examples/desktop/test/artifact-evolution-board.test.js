@@ -274,11 +274,19 @@ test('artifacts.js: version chip is a <button> that toggles the evolution strip'
   )
 })
 
-test('artifacts.js: history map tracks per-version records', () => {
+test('artifacts.js: history map tracks per-version records (session-scoped)', () => {
+  // fix/code-bugs-batch P1-4: history is bucketed per sessionId to prevent
+  // A→B→A version bleed, but the shape it exposes to callers stays
+  // Map-like. Assert the bucket structure + the recordHistory helper.
   assert.match(
     artifactsSrc,
-    /const\s+history\s*=\s*new\s+Map\(\)/,
-    'history map must exist to seed the evolution / timeline views',
+    /const\s+bySession\s*=\s*new\s+Map\(\)/,
+    'session-bucketed history map must exist to isolate versions across sessions',
+  )
+  assert.match(
+    artifactsSrc,
+    /history:\s*new\s+Map\(\)/,
+    'each session bucket must own a fresh history Map for its artifacts',
   )
   assert.match(
     artifactsSrc,
@@ -296,7 +304,7 @@ test('artifacts.js: switchView flips the panel dataset + aria-selected', () => {
   assert.match(
     artifactsSrc,
     /panelEl\.dataset\.view\s*=\s*v/,
-    'view state must be reflected on panel.dataset.view for CSS + QA',
+    'view state must be reflected on the current bucket panel dataset.view for CSS + QA',
   )
   assert.match(
     artifactsSrc,

@@ -30,6 +30,15 @@ function deriveTurnRows(events) {
     const type = evt.type || evt.event || ''
     const data = evt.data || {}
     if (type === 'user/message') {
+      // Barge-in: if a turn is still open (assistant was streaming when the
+      // user sent a new message and no turn/end has arrived yet), seal it
+      // as interrupted before we push the incoming user row. Otherwise the
+      // next turn/start would overwrite currentTurn and the in-flight turn
+      // would lose its tokens/duration/summary — History renders it blank.
+      if (currentTurn) {
+        currentTurn.interrupted = true
+        currentTurn = null
+      }
       const text = extractText(data)
       rows.push({
         kind: 'user',
@@ -40,6 +49,12 @@ function deriveTurnRows(events) {
         turnId: null,
       })
     } else if (type === 'turn/start' || type === 'turn.start') {
+      // Same guard on the turn/start side: a rapid double-turn (turn/start
+      // arriving before the previous turn/end) shouldn't drop the older
+      // turn's summary either. Seal current before overwriting.
+      if (currentTurn) {
+        currentTurn.interrupted = true
+      }
       currentTurn = {
         kind: 'turn',
         role: 'agent',
