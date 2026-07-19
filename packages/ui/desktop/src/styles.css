@@ -199,7 +199,7 @@ summary:focus-visible {
 }
 
 .primary-actions {
-  padding: 0 4px 12px;
+  padding: 0 8px 12px;
 }
 
 .primary-action {
@@ -209,7 +209,7 @@ summary:focus-visible {
   width: 100%;
   height: var(--control-lg);
   padding: 0 10px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: #20201f;
   color: #fff;
   font-weight: 650;
@@ -242,7 +242,7 @@ kbd {
 }
 
 .product-nav {
-  padding-bottom: 14px;
+  padding: 0 8px 14px;
 }
 
 .module-button,
@@ -326,9 +326,9 @@ kbd {
 .session-search input {
   width: 100%;
   height: var(--control-lg);
-  padding: 0 9px;
+  padding: 0 10px;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.56);
   outline: none;
 }
@@ -336,6 +336,7 @@ kbd {
 .session-group {
   min-height: 0;
   margin-bottom: 14px;
+  padding: 0 8px;
 }
 
 .session-group:last-of-type {
@@ -344,7 +345,7 @@ kbd {
 }
 
 .group-title {
-  padding: 0 8px 5px;
+  padding: 0 0 5px;
   color: var(--faint);
   font-size: 11px;
   font-weight: 720;
@@ -454,15 +455,15 @@ kbd {
 
 .surface-switcher {
   display: flex;
-  gap: 3px;
-  padding: 3px;
+  gap: 2px;
+  padding: 2px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--paper-soft);
 }
 
 .surface-switcher button {
-  height: calc(var(--control-lg) - 6px);
+  height: calc(var(--control-md) - 6px);
   padding: 0 10px;
   border-radius: var(--radius-sm);
   color: var(--muted);
@@ -1734,10 +1735,10 @@ pre {
   display: none;
 }
 
-.composer-meta button {
+.composer-meta .send-button {
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: var(--control-xl);
+  height: var(--control-xl);
   place-items: center;
   padding: 0;
   border-radius: 999px;
