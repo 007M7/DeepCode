@@ -94,11 +94,14 @@ export interface LoopHandle {
 
 /**
  * Drive queued batches as durable turns until disposal. Plugin failures end the
- * current turn without terminating the driver.
+ * current turn without terminating the driver. The caller establishes the
+ * `ctx.agents.withInitiator()` boundary before entry; package-private helpers
+ * recover that exact Agent from the inherited store.
  * @param ctx - the plugin context the loop reaches its initiating Agent,
  * events (agent/…, session/flush), and services (systemPrompt, llm, tools)
  * through.
  * @param handle - the bridge to the agent's mutable state: status/abort setters plus the disposal and cancel-marker reads.
+ * @throws when no initiating Agent is active.
  */
 export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
   const agent = ctx.agents.requireInitiator()

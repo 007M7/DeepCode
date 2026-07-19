@@ -32,8 +32,10 @@ interface Slot {
  * Schedule one assistant step's tool calls by their live concurrency mode.
  * Started calls receive ordered results. Abort drains them and rethrows after
  * accepting their context into the batch FIFO owned by the caller.
+ * The committed step's AgentLoop driver boundary supplies the initiating Agent
+ * that becomes each explicit {@link ToolExecutionInput.agent}.
  *
- * @param ctx - loop context that owns the tool registry.
+ * @param ctx - loop context that owns the tool registry and carries the initiating Agent.
  * @param turn - current turn number.
  * @param step - current step number.
  * @param toolCalls - assistant calls in model order.
