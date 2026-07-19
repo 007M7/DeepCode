@@ -32,6 +32,7 @@ async function makeCoreContext(): Promise<Context> {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentExecutionProvider)
   return ctx
 }
 
