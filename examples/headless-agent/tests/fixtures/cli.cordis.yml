@@ -12,6 +12,8 @@
       - id: cli-agent
         name: '@deepseek-ai/dsh-cli-demo'
         config:
+          provider: cli-mock
           model: cli-mock
           persistenceRoot: './.sessions'
+          workspaceContext: false
           persona: 'Keyless headless-agent smoke.'

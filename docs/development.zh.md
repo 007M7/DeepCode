@@ -133,13 +133,13 @@ pnpm run demo:acp
 
 ## 逐字记录类型（`ts type-equiv`）
 
-[核心数据结构](core-data-structures/core.md)文档粘贴真实的类型定义，让读者看到确切的形状。为防止粘贴内容在源码变化时漂移，请将其围栏为 ` ```ts type-equiv `（而不是 ` ```ts `），并在 `scripts/type-equiv.manifest.json` 中登记它镜像的源文件和符号：
+[核心数据结构](core-data-structures/core.md)文档会把真实类型声明及其原始 JSDoc 一并粘贴，让读者看到确切形状和源码契约。为防止粘贴内容在源码变化时漂移，请将其围栏为 ` ```ts type-equiv `（而不是 ` ```ts `），并在 `scripts/type-equiv.manifest.json` 中登记它镜像的源文件和符号：
 
 ```json
 { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" }
 ```
 
-`pnpm run verify-type-equiv`（`doc-sync` 的一环）随后通过 TypeScript 解析器从源码提取该符号的声明，并断言文档块与之一致（对空白和注释不敏感，因此文档块可以展示干净的定义，语义由行文承载）。它还强制 1:1 对应：每个 `ts type-equiv` 块恰好有一条 manifest 条目，反之亦然；因此不会有块被静默漏检，也不会有陈旧条目滞留。`doc-typecheck` 跳过 `ts type-equiv` 块（它们不能独立编译），并将其排除在 opt-out 比例之外。当你改动一个被记录的类型时，门禁会失败直到你更新粘贴内容；当你增删一个块时，请在同一个变更里更新 manifest。
+`pnpm run verify-type-equiv`（`doc-sync` 的一环）随后通过 TypeScript 解析器从源码提取该符号的声明及其附带的 JSDoc，并断言代码块同时匹配两者。比对会忽略空白和非 JSDoc 注释，但要求保留每条原始 JSDoc（包括成员文档），让读者同时看到源码契约和确切形状。该门禁还强制 1:1 对应：每个 `ts type-equiv` 块恰好有一条 manifest 条目，反之亦然；因此不会有块被静默漏检，也不会有陈旧条目滞留。`doc-typecheck` 跳过 `ts type-equiv` 块（它们不能独立编译），并将其排除在 opt-out 比例之外。当你改动一个已记录的类型声明或其 JSDoc 时，门禁会失败直到你更新粘贴内容；当你增删一个块时，请在同一个变更里更新 manifest。
 
 ## 架构上下文
 

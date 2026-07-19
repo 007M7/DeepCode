@@ -9,7 +9,7 @@ This package owns the terminal channel only. It injects `agents` and `userIntera
 | Key | Default | Meaning |
 |---|---|---|
 | `welcome` | `ready.` | Banner printed before the first prompt |
-| `agent` | `main` | Agent id driven by stdin and observed for EOF shutdown |
+| `sessionId` | `main` | Exact agent/session identity driven by stdin and observed for EOF shutdown |
 
 The plugin seeds display labels from the live agent registry, then tracks `agent/created` and `agent/disposed` so HMR and externally managed agents render consistently. Disposal closes readline and unregisters every listener/provider through Cordis effects.
 
@@ -18,7 +18,7 @@ The plugin seeds display labels from the live agent registry, then tracks `agent
   name: '@deepseek-ai/dsh-stdio'
   config:
     welcome: 'agent REPL ready. Give it a coding task.'
-    agent: main
+    sessionId: main
 ```
 
 ## Model Experience
@@ -37,6 +37,6 @@ The plugin seeds display labels from the live agent registry, then tracks `agent
 
 ## Known Limitations and Deferred Work
 
-- **One configured agent receives stdin** — the session/event renderer can print output from any session, but input lines always drive the configured `agent` id rather than routing by the visible label.
+- **One configured session receives stdin** — the session/event renderer can print output from any session, but input lines always drive the configured `sessionId` rather than routing by the visible label.
 - **Terminal questions are text-only and sequential** — the provider queues asks, supports option labels plus custom text, and has no richer UI shapes such as file pickers or diff previews.
 - **Closed stdin ends the terminal channel** — EOF rejects active or queued questions and exits after submitted work reaches idle; there is no reconnect path for a long-lived process.

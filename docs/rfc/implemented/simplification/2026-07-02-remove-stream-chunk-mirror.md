@@ -42,4 +42,4 @@ Not touched:
 
 ## Consequences
 
-A plugin can no longer observe token deltas from an `Agent`-first event. It subscribes to `session/event` and filters `assistant/chunk` (the `Agent` handle, if needed, is recovered from a session-id→agent map built from `agent/created`/`agent/disposed`, exactly as boundary consumers already do). No production consumer needed the live `Agent` at chunk time; this is the same acceptable trade the boundary-mirror removal made.
+A plugin can no longer observe token deltas from an `Agent`-first event. It subscribes to `session/event`, filters `assistant/chunk`, and looks up the corresponding live handle directly with `ctx.agents.get(session.id)` when needed. No production consumer needed the live `Agent` at chunk time; this is the same acceptable trade the boundary-mirror removal made.

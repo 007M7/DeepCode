@@ -13,6 +13,7 @@ const dshPackages = [
   'core/system-prompt', 'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash',
   'bash/bash-local', 'bash/tool-bash', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence', 'session-persistence/session-persistence-jsonl',
+  'context/workspace-context',
 ]
 const vendorPackages = ['cordis', 'loader', 'include', 'timer', 'schemastery', 'cosmokit']
 
@@ -67,9 +68,11 @@ async function makeConsumer(): Promise<string> {
     '- id: cli-agent',
     "  name: '@deepseek-ai/dsh-cli-demo'",
     '  config:',
+    '    provider: built-cli-mock',
     '    model: built-cli-mock',
     "    persona: 'built CLI test'",
     "    persistenceRoot: './.sessions'",
+    '    workspaceContext: false',
     '',
   ].join('\n'))
   return dir

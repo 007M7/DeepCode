@@ -23,8 +23,11 @@
 - id: cli-agent
   name: '@deepseek-ai/dsh-cli-demo'
   config:
+    provider: deepseek
     model: deepseek-v4-flash
     persistenceRoot: './.sessions'
+    workspaceContext:
+      maxBytes: 65536
     persona: |
       You are headless-agent, a coding assistant powered by the {{model}} model.
 

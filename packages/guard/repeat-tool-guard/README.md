@@ -24,13 +24,13 @@ The chain key is `(tool name, canonical arguments)` — canonicalization is a de
 
 - **Untracked calls are transparent to the chain.** A call excluded by `include`/`exclude` neither increments nor resets the counter, so `grep X → todo_write → grep X` still counts as two consecutive `grep X` when `todo_write` is excluded. This is what makes exclusion useful: bookkeeping tools interleaved into a loop must not launder it.
 - **Denied calls count.** Detection sits on `tools/post-execute`, which also runs for calls a `tools/pre-execute` listener denied — a model hammering a denied call is exactly the loop worth breaking.
-- **Calls without an agent are ignored.** A direct `ctx.tools.execute()` caller has no model to remind and no `AgentId` to key on.
-- **Per-agent keying.** The tool registry is context-level and subagents interleave through the same waterfall, so chains are keyed by `AgentId`; one agent's repetition never trips another's reminder. A user prompt (`agent/prompt-submit`) resets the submitting agent's chain; agent disposal drops its state.
+- **Calls without an agent are ignored.** A direct `ctx.tools.execute()` caller has no model to remind and no live agent object to key on.
+- **Per-agent keying.** The tool registry is context-level and subagents interleave through the same waterfall, so a `WeakMap<Agent, Chain>` keys each chain by the live agent object; one agent's repetition never trips another's reminder. A user prompt (`agent/prompt-submit`) resets the submitting agent's chain, and object lifetime bounds the weak entry without a disposal listener.
 - **In-memory only.** A session resumed from persistence starts with a fresh chain — the guard is a heuristic nudge, not a logged invariant, later reminders are the accepted cost.
 
 ## Reminder delivery
 
-Reminders use source-attributed `additionalContext`, preserving the tool's original result. The loop records them after the step's results as reconstructable `context/message` events. The guard always delegates and folds its reminder onto downstream context, including blocked calls.
+Reminders ride the post-execute decision's `additionalContexts` (source `{kind: 'plugin', plugin: 'repeat-tool-guard'}`), never a `content` replacement: the `tool/result` event stays the tool's own output for audit. The loop buffers the context and appends it as a `context/message` after the step's tool results, which the session renders as the tagged synthetic-user envelope — so the reminder is model-visible, source-attributed, and reconstructable from the session log with no new session event. The guard always delegates via `next()` and prepends its reminder to the downstream decision's context array (both variants — a blocked call still gets the nudge); every entry retains its own source, envelope, and metadata.
 
 ## Testing
 

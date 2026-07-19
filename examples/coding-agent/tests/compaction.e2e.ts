@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 /**
  * Key-gated smoke for mid-session compaction. It verifies the compact event
@@ -33,17 +33,20 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     // Reasoning tokens require a larger generation cap than the retained checkpoint.
     ctx = await codingHarness(workdir, {
       persona: SYSTEM_PROMPT,
-      compact: {
+      tokenMeter: {
         contextWindow: 2000,
+      },
+      compact: {
         thresholdRatio: 0.5,
         retainTokens: 400,
+        summarizationProvider: '',
         summarizationModel: '',
         maxTokens: 1024,
         compactionRetries: 1,
       },
       persistenceRoot: join(workdir, '.sessions'),
     })
-    const agent = ctx.agentLoop.create(AgentId('e2e-compaction'), { model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('e2e-compaction'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',

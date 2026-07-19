@@ -8,12 +8,14 @@ The package mounts no console logger, readline UI, user-interaction service, or 
 
 | Key | Default | Routed to |
 |---|---|---|
+| `provider` | required | the pre-created `main` agent's provider route |
 | `model` | required | the pre-created `main` agent's model |
 | `persona` | — | the deployment persona in `dsh-system-prompt` |
 | `toolOrder` | lexicographic | explicit model-facing tool order in `dsh-system-prompt` |
 | `tools` | `{ mode: 'native' }` | tool-registry presentation config through `dsh-agent-spine-demo` |
 | `skills` | owner defaults | skill registry, local provider, and model-facing skill tool |
 | `persistenceRoot` | `./.sessions` | JSONL session root |
+| `workspaceContext` | required | workspace-instruction byte budget, or `false` to disable loading |
 
 Each process creates a new session whose workspace cwd is the launch directory. The app has no resume setting.
 
@@ -51,7 +53,7 @@ The headless-agent leaf supplies local bash, filesystem, skill, subagent, workfl
 
 ### One-shot task turn
 
-**What the model sees**: The positional task becomes one user message. Through `dsh-agent-spine-demo`, the `main` agent also receives the configured persona, skill catalog, visible tool schemas, and retained tool results needed for later steps in the same turn.
+**What the model sees**: The positional task becomes one user message. Through `dsh-agent-spine-demo`, the `main` agent also receives configured workspace instructions and persona, the skill catalog, visible tool schemas, and retained tool results needed for later steps in the same turn.
 
 **Token effect**: The task, prompt sections, tool schemas, assistant output, and tool results consume tokens on each model step. JSON event streaming and final rendering add no model tokens; delegated child work has its own model usage and is not included in the parent result's `usage` total.
 

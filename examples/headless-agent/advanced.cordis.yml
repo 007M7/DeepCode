@@ -7,8 +7,11 @@
       - id: cli-agent
         name: '@deepseek-ai/dsh-cli-demo'
         config:
+          provider: deepseek
           model: deepseek-v4-flash
           persistenceRoot: './.sessions'
+          workspaceContext:
+            maxBytes: 65536
           tools:
             mode: both
           persona: |

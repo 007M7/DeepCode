@@ -18,6 +18,7 @@ describe('runLoaderSmoke', () => {
       binScript: fixture('success'),
       configPath,
       tsconfigPath,
+      mode: 'src',
       env: { LOADER_SMOKE_MARKER: 'present' },
       stdinLines: ['one', 'two'],
     })
@@ -70,6 +71,7 @@ describe('runLoaderSmoke', () => {
       label: 'failure fixture',
       tempDirPrefix: 'loader-smoke-fail-',
       binScript: fixture('fail'),
+      libBinScript: fixture('fail'),
       configPath,
       tsconfigPath,
     })).rejects.toThrow('failure fixture exited 7. stdout:\n\nstderr:\nfixture failed')
@@ -80,6 +82,7 @@ describe('runLoaderSmoke', () => {
       label: 'hanging fixture',
       tempDirPrefix: 'loader-smoke-hang-',
       binScript: fixture('hang'),
+      libBinScript: fixture('hang'),
       configPath,
       tsconfigPath,
       processTimeoutMs: 100,

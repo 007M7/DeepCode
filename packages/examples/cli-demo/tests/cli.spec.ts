@@ -2,7 +2,7 @@ import { readdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Context } from 'cordis'
-import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CallId, LlmAdapter, type GenerateOptions, type StreamChunk, type TokenUsage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -93,9 +93,11 @@ async function harness(script: readonly ScriptEntry[]): Promise<Harness> {
   const ctx = new Context()
   liveContexts.push(ctx)
   await ctx.plugin(cliDemo, {
+    provider: 'mock',
     model: 'mock',
     persistenceRoot: root,
     skills: { local: { dshHome: join(skillHome, '.dsh'), agentsHome: join(skillHome, '.agents') } },
+    workspaceContext: false,
   })
   await new Promise(resolve => setTimeout(resolve, 80))
   ctx.llm.registerAdapter(['mock'], new ScriptedAdapter(script))
@@ -105,7 +107,7 @@ async function harness(script: readonly ScriptEntry[]): Promise<Harness> {
     parameters: { text: { type: 'string', required: true } },
     execute: async args => [{ type: 'text', text: `ECHO: ${(args as { text: string }).text}` }],
   })
-  const agent = ctx.agents.get(AgentId('main'))
+  const [agent] = ctx.agents.roots()
   if (agent === undefined) throw new Error('test main agent missing')
   return { ctx, agent, persistenceRoot: root }
 }
@@ -304,7 +306,7 @@ describe('runOneShot and executeCli', () => {
 
     const empty = new Context()
     liveContexts.push(empty)
-    await expect(runOneShot(empty, { task: 'task' })).rejects.toThrow('required "main" agent')
+    await expect(runOneShot(empty, { task: 'task' })).rejects.toThrow('exactly one top-level agent')
 
     const final = await harness([textResponse('answer')])
     const output = await invoke(final.ctx, ['task'], { failStdout: true })

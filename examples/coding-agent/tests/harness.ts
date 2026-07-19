@@ -1,15 +1,14 @@
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
+import TokenMeterService from '@deepseek-ai/dsh-token-meter'
+import type { TokenMeterConfig } from '@deepseek-ai/dsh-token-meter'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
@@ -46,23 +45,26 @@ export interface CodingHarnessOptions {
    * compaction plugin (the default suites run without it).
    */
   compact?: BasicCompactConfig
+  /** Optional token-meter capacity loaded before compact-basic. */
+  tokenMeter?: TokenMeterConfig
 }
 
 export async function codingHarness(workdir: string, options: CodingHarnessOptions = {}): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt, { persona: options.persona ?? '' })
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx, {
+    systemPrompt: { persona: options.persona ?? '' },
+  })
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(LlmDeepSeek, { models: ['deepseek-v4-flash'] })
+  await ctx.plugin(LlmDeepSeek)
   await ctx.plugin(LocalBashExecutor, { cwd: workdir, timeoutMs: 30_000 })
   await ctx.plugin(ToolBash)
   await ctx.plugin(ToolTodo)
-  // Compaction is opt-in: only the compaction e2e loads it, with a lowered
-  // contextWindow/retainTokens so a short real session crosses the threshold.
-  if (options.compact !== undefined) await ctx.plugin(BasicCompactService, options.compact)
+  // Compaction is opt-in: only the compaction e2e loads the reusable meter and
+  // backend, with a lower context window so a short real session crosses the threshold.
+  if (options.compact !== undefined) {
+    await ctx.plugin(TokenMeterService, options.tokenMeter)
+    await ctx.plugin(BasicCompactService, options.compact)
+  }
   // Durable JSONL persistence is opt-in: only the resume e2e needs it, and the
   // other suites stay file-free. Loaded last so a resume's deferred
   // `ctx.inject(['sessionPersistence'])` resolves once this is present.
@@ -70,7 +72,7 @@ export async function codingHarness(workdir: string, options: CodingHarnessOptio
   return ctx
 }
 
-export function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+export function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {

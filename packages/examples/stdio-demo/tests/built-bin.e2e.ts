@@ -21,9 +21,9 @@ const stdioBin = join(repoRoot, 'packages/examples/stdio-demo/lib/bin.js')
 const dshPackages = [
   'examples/agent-spine-demo', 'core/agent', 'core/session', 'core/system-prompt',
   'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash', 'bash/bash-local',
-  'bash/tool-bash', 'support/invariants', 'ui/app-boot',
+  'bash/tool-bash', 'context/workspace-context', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
-  'session-persistence/session-persistence-jsonl', 'examples/stdio-demo',
+  'session-persistence/session-persistence-jsonl', 'examples/stdio-demo', 'util/paths',
   'ui/stdio', 'ui/tool-ask-user', 'ui/user-interaction',
 ]
 const vendorPackages = [
@@ -36,20 +36,37 @@ async function pkgName(absDir: string): Promise<string> {
   return json.name
 }
 
+async function installWorkspacePackageCopy(absDir: string, target: string): Promise<void> {
+  await mkdir(dirname(target), { recursive: true })
+  await cp(absDir, target, {
+    recursive: true,
+    filter: source => !source.split('/').includes('node_modules'),
+  })
+}
+
 /**
  * Build a temporary external consumer with built workspace/vendor links and a mock-backed config.
  * The optional missing-but-disabled plugin verifies load guards accept intentionally fiber-less
  * entries rather than treating them as import failures.
  */
-async function makeConsumer(welcome: string, disabledBrokenEntry = false): Promise<string> {
+async function makeConsumer(
+  welcome: string,
+  disabledBrokenEntry = false,
+  extraDshPackages: string[] = [],
+  extraEntries: string[] = [],
+): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'stdio-built-bin-'))
   const nm = join(dir, 'node_modules')
-  for (const rel of dshPackages) {
+  for (const rel of [...dshPackages, ...extraDshPackages]) {
     const abs = join(repoRoot, 'packages', rel)
     const name = await pkgName(abs)
     const target = join(nm, name)
-    await mkdir(dirname(target), { recursive: true })
-    await symlink(abs, target)
+    if (extraDshPackages.includes(rel)) {
+      await installWorkspacePackageCopy(abs, target)
+    } else {
+      await mkdir(dirname(target), { recursive: true })
+      await symlink(abs, target)
+    }
   }
   for (const v of vendorPackages) {
     const abs = join(repoRoot, 'vendor', v)
@@ -73,9 +90,12 @@ async function makeConsumer(welcome: string, disabledBrokenEntry = false): Promi
     '- id: stdio-agent',
     '  name: \'@deepseek-ai/dsh-stdio-demo\'',
     '  config:',
+    '    provider: mock',
     '    model: mock-echo',
     '    persona: \'demo\'',
+    '    workspaceContext: false',
     `    welcome: '${welcome}'`,
+    ...extraEntries,
     ...disabledBrokenEntry
       ? ['- id: off', '  name: \'./src/does-not-exist.ts\'', '  disabled: true']
       : [],
@@ -144,6 +164,27 @@ describe.skipIf(!existsSync(stdioBin))('dsh-stdio-demo BUILT bin (node lib/bin.j
     expect(stderr).not.toContain('failed to load')
     expect(stdout).toContain('DISABLED-OK ready.')
     expect(stdout).toContain('[tool result] ECHO: HI')
+    expect(code).toBe(0)
+  }, 30_000)
+
+  it('boots when optional spill plugins are loaded from a built consumer install', async () => {
+    consumer = await makeConsumer(
+      'SPILL-OK ready.',
+      false,
+      ['spill/spill', 'spill/spill-local', 'spill/spill-policy', 'util/retention'],
+      [
+        '- id: spill-local',
+        '  name: \'@deepseek-ai/dsh-spill-local\'',
+        '- id: spill-policy',
+        '  name: \'@deepseek-ai/dsh-spill-policy\'',
+        '  config:',
+        '    maxInlineBytes: 50000',
+      ],
+    )
+    const { stdout, code, stderr } = await runBuiltBin(consumer, './cordis.yml', '')
+    expect(stderr).not.toContain('failed to load')
+    expect(stderr).not.toContain('Cannot find package')
+    expect(stdout).toContain('SPILL-OK ready.')
     expect(code).toBe(0)
   }, 30_000)
 

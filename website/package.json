@@ -1,0 +1,16 @@
+{
+  "name": "@deepseek-ai/website",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev . --port 5173 --open",
+    "build": "vitepress build .",
+    "preview": "vitepress preview ."
+  },
+  "devDependencies": {
+    "markdown-it-mathjax3": "^4.3.2",
+    "vitepress": "^1.6.3",
+    "vue": "^3.5.13"
+  }
+}

@@ -6,7 +6,7 @@
 
 import { parseArgs } from 'node:util'
 import type { Context } from 'cordis'
-import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 import { boot, loadEnv, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
@@ -40,7 +40,7 @@ export interface CliResult {
   readonly usage?: TokenUsage
 }
 
-/** Options for one turn against the pre-created `main` agent. */
+/** Options for one turn against the configured top-level agent. */
 export interface OneShotOptions {
   /** Exactly one nonblank user task. */
   readonly task: string
@@ -186,17 +186,20 @@ async function waitForStartupIdle(agent: Agent, signal?: AbortSignal): Promise<v
 }
 
 /**
- * Run one message-triggered turn on the pre-created `main` agent, aggregate its
+ * Run one message-triggered turn on the configured top-level agent, aggregate its
  * final text and model usage, wait for idle plus an explicit persistence flush,
- * and return its durable ending. Only the exact main-session task turn reaches
+ * and return its durable ending. Only the selected agent's task turn reaches
  * `onEvent`; startup injections and unrelated sessions are ignored.
  * @param ctx - settled Loader root containing `ctx.agents` and `ctx.sessions`.
  * @param options - task, optional cancellation, and optional stream observer.
  * @returns the DSH-native result envelope after durable quiescence.
  */
 export async function runOneShot(ctx: Context, options: OneShotOptions): Promise<CliResult> {
-  const agent = ctx.get('agents')?.get(AgentId('main'))
-  if (agent === undefined) throw new Error('config did not create the required "main" agent')
+  const agents = ctx.get('agents')?.roots() ?? []
+  const [agent] = agents
+  if (agent === undefined || agents.length !== 1) {
+    throw new Error(`config must create exactly one top-level agent, found ${agents.length}`)
+  }
   await waitForStartupIdle(agent, options.signal)
 
   let targetTurn: number | undefined

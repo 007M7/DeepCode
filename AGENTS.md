@@ -10,8 +10,9 @@ DeepSeek Harness SDK is a plugin-based agent harness on vendored Cordis: **every
 
 ```
 vendor/      Vendored Cordis source — manifest + sync procedure in vendor/README.md
-packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai/dsh-<pkg>
+packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   core/        product API spine: session, system-prompt, tools, agent, agent-loop
+  prompt/      workspace instructions
   llm/         LLM seam + the DeepSeek adapters (hand-rolled + pi-ai design twin)
   bash/        bash executor seam + local impl + model-facing bash tools
   fs/          filesystem seam + local impl + policy gate + read/write/edit tools
@@ -34,6 +35,7 @@ python/      Python SDK and bundled runtime (see python/README.md)
 examples/    Runnable cordis.yml leaves over packages/examples bundles (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
 scripts/     repo gates and generators
+website/     VitePress docs site (zh-CN); api/ pages generated from source
 ```
 
 Package groups: [packages/README.md](packages/README.md).
@@ -43,8 +45,8 @@ Package groups: [packages/README.md](packages/README.md).
 ```sh
 pnpm install            # pnpm workspaces, node ^22.19 || >=24
 pnpm run test           # vitest unit tests
-pnpm run test:coverage  # gate: per-file 100% on packages/*/*/src
-pnpm run test:e2e       # real API; skips without key
+pnpm run test:coverage  # THE gating test run: per-file 100% coverage on packages/*/*/src
+pnpm run test:e2e       # real-API tests; self-skip without DEEPSEEK_API_KEY
 pnpm run test:snapshot  # keyless ACP/headless replay vs goldens; filter: -t <name>
 pnpm run test:snapshot:record  # re-record goldens (needs key)
 pnpm run typecheck
@@ -53,12 +55,17 @@ pnpm run duplication    # cross-file TypeScript clone detection
 pnpm run build          # tsc emits lib/types, tsdown bundles runtime
 pnpm run hygiene        # knip + publint + workspace constraints + NodeNext consumer check
 pnpm run doc-sync       # all documentation gates; see the doc-sync script in package.json
+pnpm run website:build  # VitePress build (doubles as the site's dead-link check)
 pnpm run demo:echo      # mock-model REPL, no key needed
-pnpm run demo:repl      # real coding REPL (needs key)
-pnpm run demo:headless -- "task" # one-shot agent (needs key)
-pnpm run demo:cordis    # self-modifying runtime demo (needs key)
-pnpm run demo:acp       # ACP server (needs key)
+pnpm run demo:repl      # real REPL coding agent (needs DEEPSEEK_API_KEY)
+pnpm run demo:headless -- "task" # one-shot agent (needs DEEPSEEK_API_KEY)
+pnpm run demo:cordis    # self-referential demo: the agent modifies its own runtime (needs key)
+pnpm run demo:acp       # ACP server agent (needs DEEPSEEK_API_KEY)
 ```
+
+### Host sandbox failures
+
+When required `gh`, `pnpm`, build, test, or generator commands fail because the agent sandbox blocks credentials, network, IPC, file watching, or nested `sandbox-exec`, retry unchanged with the narrowest host escalation before diagnosing authentication or project failure. Require sandbox evidence; never bypass genuine test failures or the product sandbox under test.
 
 ### Run the CI gates locally before marking a PR ready
 
@@ -72,6 +79,7 @@ pnpm run duplication
 pnpm run test:coverage
 pnpm run test:snapshot
 pnpm run doc-sync
+pnpm run website:build
 pnpm run verify-module-graph
 pnpm run build
 pnpm run hygiene
@@ -80,7 +88,7 @@ printf '%s\n' "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
 printf '%s\n' "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
 test -n "$(find .sessions -path '.sessions/cwd-*/main-session-*.jsonl' -type f -print -quit)"
 rm -rf .sessions
-pnpm exec vitest run --config vitest.e2e.config.ts packages/examples/stdio-demo/tests/built-bin.e2e.ts packages/examples/cli-demo/tests/built-bin.e2e.ts packages/examples/acp-demo/tests/built-bin.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
+pnpm exec vitest run --config vitest.e2e.config.ts packages/examples/stdio-demo/tests/built-bin.e2e.ts packages/examples/cli-demo/tests/built-bin.e2e.ts packages/examples/acp-demo/tests/built-bin.e2e.ts packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
 ```
 
 `test:coverage`, not `test`, is the gate ([why](docs/testing.md)); report only commands actually run.
@@ -92,7 +100,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 ## Conventions
 
 - Every npm package is `@deepseek-ai/dsh-<name>`; vendored packages keep upstream names and are `private: true`. `cordis` is a peerDependency (+ dev) of every harness package.
-- ESM everywhere (`"type": "module"`). Cross-package imports use package names, never relative paths; in-package relative imports use explicit `.ts` extensions. Dev/test/demo run unbuilt via tsx + the root tsconfig `paths` map; builds are for outside consumers only.
+- ESM everywhere (`"type": "module"`). Cross-package imports use package names; in-package relative imports include `.ts`. CI subprocesses that boot examples or Cordis configs run built `lib/` under plain Node; only explicit source-path regressions use tsx ([testing policy](docs/testing.md#test-subprocess-launch-modes)).
 - **Registrations are effects**: every contribution goes through `ctx.effect()` / `ctx.on()`; a registry's `register()` returns the disposer.
 - **Typed events use declaration merging** and merge-extensible maps. Event JSDoc needs `@mode` and payload `@param`; scoped keys absent from payloads need `@dshScopeScan unsupported`. Public service methods document parameters and non-void returns.
 - **Switch on discriminant tags.** Closed unions end in `assertNever`; merge-extensible unions fall through a documented default.

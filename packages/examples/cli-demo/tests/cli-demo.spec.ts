@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -44,13 +44,15 @@ describe('dsh-cli-demo app composition', () => {
   it('composes the UI-less spine, JSONL persistence, and a main agent', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cli-demo-compose-'))
     const ctx = await mount({
+      provider: 'mock',
       model: 'mock',
       persona: 'Headless.',
       tools: { mode: 'native' },
       persistenceRoot: root,
       skills: await skillConfig(),
+      workspaceContext: false,
     })
-    const agent = ctx.get('agents')?.get(AgentId('main'))
+    const [agent] = ctx.get('agents')?.roots() ?? []
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(agent?.session.header.cwd).toBe(process.cwd())
@@ -67,10 +69,11 @@ describe('dsh-cli-demo app composition', () => {
     try {
       const ctx = new Context()
       contexts.push(ctx)
-      cliDemo.apply(ctx, { model: 'mock' })
+      cliDemo.apply(ctx, { provider: 'mock', model: 'mock', workspaceContext: false })
       await new Promise(resolve => setTimeout(resolve, 80))
       expect(ctx.get('sessionPersistence')).toBeDefined()
-      expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
+      const [agent] = ctx.get('agents')?.roots() ?? []
+      expect(agent?.session.id).toMatch(/^main-session-/)
       expect(await ctx.skills.list()).toEqual([])
     } finally {
       if (oldDshHome === undefined) delete process.env.DSH_HOME
@@ -80,9 +83,11 @@ describe('dsh-cli-demo app composition', () => {
     }
 
     const ctx = await mount({
+      provider: 'mock',
       model: 'mock',
       toolOrder: ['zulu', TOOL_ORDER_REST],
       skills: await skillConfig(6),
+      workspaceContext: false,
     })
     ctx.skills.register({ name: 'cli-skill', description: 'CLI skill', source: 'runtime', content: 'body' })
     for (const name of ['alpha', 'zulu']) {

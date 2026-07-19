@@ -8,10 +8,11 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 
 const DEFAULT_PERSISTENCE_ROOT = './.sessions'
 
@@ -19,6 +20,8 @@ export const name = 'cli-demo'
 
 /** App config forwarded to the spine, pre-created agent, and JSONL backend. */
 export interface Config {
+  /** Provider route for the `main` agent. */
+  provider: string
   /** Model name for the `main` agent; a matching adapter must be registered. */
   model: string
   /** Deployment persona forwarded to the system-prompt plugin. */
@@ -31,9 +34,12 @@ export interface Config {
   persistenceRoot?: string
   /** Skill registry, local-provider, and model-facing consumer config. */
   skills?: agentCore.SkillConfig
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
 }
 
 export const Config: z<Config> = z.object({
+  provider: z.string().required(),
   model: z.string().required(),
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
   persona: z.string(),
@@ -41,6 +47,7 @@ export const Config: z<Config> = z.object({
   // Absent means lexicographic order; schemastery's native array default is [].
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
+  workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
 
 /**
@@ -52,7 +59,8 @@ export const Config: z<Config> = z.object({
  */
 export function apply(ctx: Context, config: Config): void {
   const spineConfig: agentCore.Config = {
-    agents: [{ id: AgentId('main'), model: config.model, cwd: process.cwd() }],
+    agents: [{ id: SessionId('main'), provider: config.provider, model: config.model, cwd: process.cwd() }],
+    workspaceContext: config.workspaceContext,
   }
   if (config.persona !== undefined) spineConfig.persona = config.persona
   if (config.toolOrder !== undefined) spineConfig.toolOrder = config.toolOrder

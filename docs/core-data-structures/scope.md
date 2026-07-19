@@ -9,12 +9,18 @@ Source: [`packages/core/scope/src/index.ts`](../../packages/core/scope/src/index
 `ScopeKey` is an opaque object identity. The shipped loop uses the live `Agent` object as its own key, but the primitive never inspects the object.
 
 ```ts type-equiv
+/** An opaque, identity-compared scope key. */
 type ScopeKey = object
 ```
 
 `Scoped<T>` is the compile-time brand on the opaque routing receiver returned by `scopeTarget(base, key)`. Scope-filtered event declarations require this carrier as their `this` type, while the real event subject remains an explicit argument.
 
 ```ts type-equiv
+/**
+ * A routing-only event receiver built by {@link scopeTarget}. The type
+ * parameter records the subject type for dispatch checking; the carrier does
+ * not expose the subject's properties. Event payloads carry the real subject.
+ */
 type Scoped<T extends object> = object & { readonly [ScopedBrand]: T }
 ```
 
@@ -23,9 +29,13 @@ type Scoped<T extends object> = object & { readonly [ScopedBrand]: T }
 `Scope` pairs the tagged registration context with two teardown surfaces. `rawDispose` preserves the exact Cordis disposer identity needed by an ordered composite effect; `dispose()` is the public shared quiescence boundary for direct and racing callers.
 
 ```ts type-equiv
+/** A minted registration scope and its quiescent disposal boundaries. */
 interface Scope {
+  /** Context through which scope-owned registrations are made. */
   ctx: Context
+  /** Exact Cordis disposer, used when nesting this scope in an ordered composite effect. */
   rawDispose: () => Promise<void> | void
+  /** Dispose every scope-owned registration; racing calls await the same completion. */
   dispose(): Promise<void>
 }
 ```
