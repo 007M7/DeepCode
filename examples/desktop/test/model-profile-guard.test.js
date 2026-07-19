@@ -69,11 +69,9 @@ test('modelsFor: the profile default model IS in its supported list (no self-mis
   }
 })
 
-// Source-of-truth check: PROFILE_MODELS mirrors each yml leaf's `models:`
-// block, so a future yaml edit that adds/removes a model can't drift
-// silently. We parse the yaml the shell-way — one leaf per profile — and
-// compare the `models:` list line-by-line.
-test('PROFILE_MODELS: each entry matches its yml leaf models: block', () => {
+// PROFILE_MODELS mirrors the `id` fields in each DeepSeek model catalog so
+// the renderer cannot drift from the runtime's validated configuration.
+test('PROFILE_MODELS: each entry matches its yml leaf model catalog', () => {
   const leafFor = {
     'daemon-echo': null,           // mock-llm — no models: block in yaml, always mock-echo
     'stdio-echo': null,            // mock-llm — ditto
@@ -91,11 +89,8 @@ test('PROFILE_MODELS: each entry matches its yml leaf models: block', () => {
       continue
     }
     const yaml = fs.readFileSync(leafPath, 'utf8')
-    // Find the `models:` block under `llm-deepseek` and collect its
-    // `- <name>` entries. The block is 6-space-indented, sits inside a
-    // `config:` map, and terminates when the indent drops back to a
-    // 2-space `- id:` list item. Bail early at the first line whose
-    // trim doesn't start with `- ` after the models: header.
+    // Catalog entries must use the object form required by llm-deepseek's
+    // schema. A scalar entry leaves yamlModels empty and fails this test.
     const lines = yaml.split('\n')
     let inBlock = false
     const yamlModels = []
@@ -104,13 +99,12 @@ test('PROFILE_MODELS: each entry matches its yml leaf models: block', () => {
         if (/^\s+models:\s*$/.test(rawLine)) { inBlock = true; continue }
         continue
       }
-      // Inside the block: entries look like `      - deepseek-v4-flash`.
-      const m = /^\s+-\s+([\w-]+)\s*$/.exec(rawLine)
+      const m = /^\s+-\s+id:\s+([\w-]+)\s*$/.exec(rawLine)
       if (m) { yamlModels.push(m[1]); continue }
       // Any other non-empty line terminates the block.
       if (rawLine.trim() !== '') break
     }
-    assert.ok(yamlModels.length > 0, `${leafPath}: parsed empty models: block`)
+    assert.ok(yamlModels.length > 0, `${leafPath}: models must contain object entries with id fields`)
     assert.deepEqual(expected.slice().sort(), yamlModels.slice().sort(),
       `${profileName} PROFILE_MODELS drift vs ${path.basename(leafPath)}: expected ${JSON.stringify(yamlModels)}, got ${JSON.stringify(expected)}`)
   }
