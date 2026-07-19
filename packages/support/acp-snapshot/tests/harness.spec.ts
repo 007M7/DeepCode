@@ -248,6 +248,28 @@ describe('runScenario', () => {
     }
   })
 
+  it('preserves the child error after accepted fallback termination drains', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('requested signal failed before fallback'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockImplementation((signal) => {
+      if (signal === 'SIGTERM') return true
+      return originalKill('SIGKILL')
+    })
+    try {
+      launched.child.emit('error', childFailure)
+      await expect(launched.close('SIGTERM')).rejects.toBe(childFailure)
+      expect(kill).toHaveBeenNthCalledWith(1, 'SIGTERM')
+      expect(kill).toHaveBeenNthCalledWith(2, 'SIGKILL')
+    } finally {
+      kill.mockRestore()
+      if (launched.child.exitCode === null && launched.child.signalCode === null) originalKill('SIGKILL')
+    }
+  })
+
   it('rejects promptly when fallback termination emits an error', async () => {
     const { dir } = await scenario({})
     const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
