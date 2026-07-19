@@ -12,13 +12,13 @@ These gaps are coupled. Create and config already share questions, feature confi
 
 ## Proposal
 
-The SDK extends the existing prompt and project-editing boundaries instead of creating parallel workflows. A non-interactive prompt port and structured feature plan drive create and config, `dsh-sdk create <source>` delegates dependency resolution to the project package manager before mounting the resolved package through `ProjectEditSession`, launcher-side telemetry wraps every `dsh-sdk` command, and injected prompt streams provide the primary interactive-test seam.
+The SDK extends the existing prompt and project-editing boundaries instead of creating parallel workflows. A non-interactive prompt port and structured feature plan drive create and config, `dsh-sdk create <source>` delegates dependency resolution to the project package manager before mounting the resolved package through `ProjectEditSession`, launcher-side telemetry wraps `create-sdk` and every `dsh-sdk` command, and injected prompt streams provide the primary interactive-test seam.
 
 | Capability | Product entrypoint | Owning mechanism | Required outcome |
 |---|---|---|---|
 | Headless project creation | `create-sdk --config <file>` or `--config-json <json>` with optional `--json` | `HeadlessPromptPort`, structured project answers, and a complete feature plan | No terminal blocking; missing required input is explicit |
 | External Cordis plugin installation | `dsh-sdk create <source>` | Native package-manager `add` plus `ProjectEditSession` | The dependency and `cordis.yml` entry identify the package manager's resolved package |
-| Developer-cycle telemetry | Every `dsh-sdk` command | Launcher-side consent, payload, redaction, anonymous identity, and delivery services | Reporting is best-effort and cannot change the command result |
+| Developer-cycle telemetry | `create-sdk` and every `dsh-sdk` command | Launcher-side consent, payload, redaction, anonymous identity, and delivery services | Reporting is best-effort and cannot change the command result |
 | Interactive regression coverage | Create and config tests | Injected `PromptPort` input/output and filesystem assertions | Tests cover Harness decisions and generated files without snapshotting terminal repainting |
 
 ## Shared headless workflow
@@ -51,7 +51,7 @@ The package manager owns source parsing, version or commit resolution, integrity
 
 ### Consent and collection
 
-Telemetry wraps the `dsh-sdk` launcher command lifecycle because create and build do not reliably boot Cordis. One event records the command name, duration, success, a random per-user anonymous identifier, and redacted `cordis.yml` and `package.json` text when those project files are eligible.
+Telemetry wraps the `create-sdk` initializer and the `dsh-sdk` launcher command lifecycle because project initialization, plugin creation, and build do not reliably boot Cordis. One event records the command name, duration, success, a random per-user anonymous identifier, and redacted `cordis.yml` and `package.json` text when those project files are eligible.
 
 Reporting is enabled unless a present telemetry config entry is explicitly disabled. `DO_NOT_TRACK` and CI deny reporting regardless of project configuration. A missing `cordis.yml` does not itself deny the event, but `package.json` content is included only when `cordis.yml` establishes that the directory is an SDK project.
 
@@ -97,7 +97,7 @@ One or two optional real-PTY smoke tests may cover the shipped binary and TTY gu
 - Create runs without a TTY from a complete structured input, emits only NDJSON on stdout under `--json`, and reports missing required input as `action-required` without writing a partial project.
 - Create and config resolve the same feature-plan contract through the shared question, feature-configuration, and project-editing code paths.
 - `dsh-sdk create <source>` uses the selected project package manager, mounts the dependency name that operation actually added, and fails loudly when no new dependency can be identified.
-- Every `dsh-sdk` command reaches one best-effort telemetry completion path; an explicit disabled entry, `DO_NOT_TRACK`, or CI prevents delivery, and telemetry failures never change the command result.
+- The initializer and every `dsh-sdk` command reach one best-effort telemetry completion path; an explicit disabled entry, `DO_NOT_TRACK`, or CI prevents delivery, and telemetry failures never change the command result.
 - Telemetry never reads `.env`, withholds unrelated `package.json` content when no `cordis.yml` exists, redacts both eligible text payloads, and uses an identifier unrelated to git metadata.
 - Interactive tests cover create and config decisions through injected interaction and assert committed project files; any real-PTY coverage remains a narrow smoke layer.
 - The agent skill documents the public structured-input and event contracts without depending on private package exports.
@@ -114,5 +114,5 @@ One or two optional real-PTY smoke tests may cover the shipped binary and TTY gu
 
 - [Vercel Eve](https://github.com/vercel/eve) and [Vercel Labs Skills](https://github.com/vercel-labs/skills) for the distinction between a headless initializer and skill distribution.
 - [npm package specifications](https://docs.npmjs.com/cli/v11/using-npm/package-spec), [pnpm add](https://pnpm.io/cli/add), and [Yarn add](https://yarnpkg.com/cli/add) for package-manager-native sources.
-- [Console Do Not Track](https://consoledonottrack.com/) for the environment-level opt-out convention.
+- [`DO_NOT_TRACK`](https://donottrack.sh/) for the environment-level opt-out convention.
 - [Clack](https://github.com/bombshell-dev/clack) and [Vitest snapshots](https://vitest.dev/guide/snapshot) for injected prompts and generated-file assertions.

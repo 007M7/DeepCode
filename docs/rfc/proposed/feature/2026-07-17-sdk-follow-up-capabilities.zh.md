@@ -12,13 +12,13 @@ Status: proposed
 
 ## 提案
 
-SDK 扩展现有提示词与工程编辑边界，不另建平行工作流。非交互式 `PromptPort` 实现和结构化功能计划驱动 create 与 config；`dsh-sdk create <source>` 先把依赖解析交给工程的包管理器，再通过 `ProjectEditSession` 挂载解析所得的包；`dsh-sdk` 启动器侧的遥测包住每个命令；交互测试主要通过注入的提示词输入输出流完成。
+SDK 扩展现有提示词与工程编辑边界，不另建平行工作流。非交互式 `PromptPort` 实现和结构化功能计划驱动 create 与 config；`dsh-sdk create <source>` 先把依赖解析交给工程的包管理器，再通过 `ProjectEditSession` 挂载解析所得的包；启动器侧遥测包住 `create-sdk` 和每个 `dsh-sdk` 命令；交互测试主要通过注入的提示词输入输出流完成。
 
 | 功能 | 产品入口 | 所属机制 | 必须达到的结果 |
 |---|---|---|---|
 | Headless 工程创建 | `create-sdk --config <file>` 或 `--config-json <json>`，可搭配 `--json` | `HeadlessPromptPort`、结构化工程答案和完整功能计划 | 不阻塞等待终端；明确报告缺失的必答输入 |
 | 外部 Cordis 插件安装 | `dsh-sdk create <source>` | 包管理器原生 `add` 加 `ProjectEditSession` | 依赖和 `cordis.yml` 配置项指向包管理器解析出的包 |
-| 开发周期遥测 | 每个 `dsh-sdk` 命令 | 启动器侧的上报条件判断、遥测内容构建、脱敏、匿名身份和传输服务 | 上报采用尽力而为语义，不能改变命令结果 |
+| 开发周期遥测 | `create-sdk` 和每个 `dsh-sdk` 命令 | 启动器侧的上报条件判断、遥测内容构建、脱敏、匿名身份和传输服务 | 上报采用尽力而为语义，不能改变命令结果 |
 | 交互回归覆盖 | create 和 config 测试 | 注入的 `PromptPort` 输入输出和文件系统断言 | 测试覆盖 Harness 决策与生成文件，不快照终端重绘 |
 
 ## 共享 headless 工作流
@@ -51,7 +51,7 @@ Create 和 config 使用相同的功能计划形状。create 通过上述命令�
 
 ### Consent 与采集
 
-遥测包住 `dsh-sdk` launcher 的命令生命周期，因为 create 和 build 不会稳定地启动 Cordis。每个事件记录命令名、时长、成败、随机生成的用户级匿名标识符，以及符合条件时经过脱敏的 `cordis.yml` 与 `package.json` 文本。
+遥测包住 `create-sdk` 初始化命令与 `dsh-sdk` launcher 的命令生命周期，因为工程初始化、插件创建和 build 都不会稳定地启动 Cordis。每个事件记录命令名、时长、成败、随机生成的用户级匿名标识符，以及符合条件时经过脱敏的 `cordis.yml` 与 `package.json` 文本。
 
 除非当前存在的遥测配置项被明确禁用，否则允许上报。`DO_NOT_TRACK` 和 CI 无论工程配置如何都禁止上报。缺少 `cordis.yml` 本身不会禁止事件，但只有 `cordis.yml` 能证明目录是 SDK 工程时，遥测内容才包含 `package.json` 文本。
 
@@ -97,7 +97,7 @@ Create 和 config 测试向现有工作流注入 `PromptPort` 和脚本化输入
 - Create 能依据完整结构化输入在没有 TTY 时运行；使用 `--json` 时 stdout 只输出 NDJSON；缺少必答输入时通过 `action-required` 报告，且不写入部分工程。
 - Create 和 config 通过共享的问题、功能配置和工程编辑代码路径解析相同的功能计划契约。
 - `dsh-sdk create <source>` 使用工程选定的包管理器，挂载该操作实际新增的依赖名；无法识别新增依赖时快速失败。
-- 每个 `dsh-sdk` 命令都进入同一条尽力而为的遥测收尾路径；明确禁用的配置项、`DO_NOT_TRACK` 或 CI 会阻止传输，遥测失败绝不改变命令结果。
+- 初始化命令与每个 `dsh-sdk` 命令都进入同一条尽力而为的遥测收尾路径；明确禁用的配置项、`DO_NOT_TRACK` 或 CI 会阻止传输，遥测失败绝不改变命令结果。
 - 遥测绝不读取 `.env`；没有 `cordis.yml` 时不发送无关的 `package.json` 内容；两个符合条件的文本都经过脱敏；匿名标识符与 git 元数据无关。
 - 交互测试通过注入交互覆盖 create 和 config 决策，并断言已提交的工程文件；真实 PTY 覆盖只作为窄范围冒烟层。
 - Agent skill 说明公开的结构化输入与事件契约，不依赖包的私有导出。
@@ -114,5 +114,5 @@ Create 和 config 测试向现有工作流注入 `PromptPort` 和脚本化输入
 
 - [Vercel Eve](https://github.com/vercel/eve) 与 [Vercel Labs Skills](https://github.com/vercel-labs/skills) 用于区分 headless 初始化命令与 skill 分发。
 - [npm package specifications](https://docs.npmjs.com/cli/v11/using-npm/package-spec)、[pnpm add](https://pnpm.io/cli/add)和 [Yarn add](https://yarnpkg.com/cli/add)说明包管理器原生来源。
-- [Console Do Not Track](https://consoledonottrack.com/)定义环境级关闭约定。
+- [`DO_NOT_TRACK`](https://donottrack.sh/)定义环境级关闭约定。
 - [Clack](https://github.com/bombshell-dev/clack) 和 [Vitest snapshots](https://vitest.dev/guide/snapshot) 说明注入提示词交互与生成文件断言。
