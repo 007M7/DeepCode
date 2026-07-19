@@ -1,7 +1,7 @@
 /**
  * Doc-sync gate for package README Model Experience sections. It validates
- * audited package classifications, context-surface fields, package-owned text
- * blocks, generated-catalog links, and final-section order. See the
+ * audited package classifications, model/token/KV-cache fields, package-owned
+ * text blocks, generated-catalog links, and final-section order. See the
  * [Model Experience RFC](../docs/rfc/implemented/process/2026-07-12-package-model-experience-contract.md).
  */
 
@@ -12,8 +12,10 @@ import { markdownHeadingLines, markdownProseLines, type MarkdownProseLine } from
 const root = resolve(import.meta.dirname, '..')
 const HEADING = '## Model Experience'
 const LIMITATIONS_HEADING = '## Known Limitations and Deferred Work'
-const MODEL_VIEW_LABEL = '**What the model sees**'
-const TOKEN_EFFECT_LABEL = '**Token effect**'
+const MODEL_VIEW_HEADING = '#### What the model sees'
+const TOKEN_EFFECT_HEADING = '#### Token effect'
+const KV_CACHE_EFFECT_HEADING = '#### KV Cache effect'
+const FIELD_HEADINGS = [MODEL_VIEW_HEADING, TOKEN_EFFECT_HEADING, KV_CACHE_EFFECT_HEADING] as const
 
 type SentenceKind = 'none' | 'indirect'
 
@@ -34,9 +36,9 @@ const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
 }
 
 /**
- * Packages whose Model Experience is simple enough for one gated sentence.
- * Every other package must carry canonical context-surface blocks. A package
- * moves on or off this list with the change to its context behavior.
+ * Packages whose Model Experience is simple enough for one gated sentence plus
+ * a KV-cache field. Every other package must carry canonical context-surface
+ * blocks. A package moves on or off this list with its context behavior.
  */
 const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/bash/bash': { kind: 'indirect', reason: 'The service interface delegates all model rendering to dsh-tool-bash.' },
@@ -91,35 +93,41 @@ interface ContextSurface {
   heading: Line
   modelView: Line
   tokenEffect: Line
+  kvCacheEffect: Line
   title: string
+  modelViewVerbatimBlocks: number
   verbatimBlocks: number
 }
 
-/** Validate H4-plus-markdown literals nested after one context surface's fields. */
-function validateNestedVerbatim(raw: readonly string[]): { blocks: number; error?: string } {
+interface ParsedField {
+  value: Line
+  verbatimBlocks: number
+}
+
+/** Validate H5-plus-markdown literals nested under one Model Experience field. */
+function validateNestedVerbatim(raw: readonly string[], fragments: Set<string>): { blocks: number; error?: string } {
   let cursor = 0
   while (raw[cursor]?.trim().length === 0) cursor += 1
   if (cursor === raw.length) return { blocks: 0 }
 
   let blocks = 0
-  const fragments = new Set<string>()
   while (true) {
     while (raw[cursor]?.trim().length === 0) cursor += 1
     if (cursor === raw.length) break
-    if (!/^#### \S/.test(raw[cursor] ?? '')) {
-      return { blocks, error: 'content after Token effect must be a titled H4 verbatim block' }
+    if (!/^##### \S/.test(raw[cursor] ?? '')) {
+      return { blocks, error: 'content after a field paragraph must be a titled H5 verbatim block' }
     }
-    const title = (raw[cursor] as string).slice('#### '.length)
+    const title = (raw[cursor] as string).slice('##### '.length)
     const fragment = headingFragment(title)
-    if (fragment.length === 0) return { blocks, error: 'verbatim H4 title must be non-empty' }
+    if (fragment.length === 0) return { blocks, error: 'verbatim H5 title must be non-empty' }
     if (fragments.has(fragment)) {
-      return { blocks, error: `verbatim H4 title ${JSON.stringify(title)} is duplicated within its context surface` }
+      return { blocks, error: `verbatim H5 title ${JSON.stringify(title)} is duplicated within its context surface` }
     }
     fragments.add(fragment)
     cursor += 1
     while (raw[cursor]?.trim().length === 0) cursor += 1
     if (raw[cursor] !== '```markdown') {
-      return { blocks, error: 'each nested verbatim H4 requires an exact ```markdown fence' }
+      return { blocks, error: 'each nested verbatim H5 requires an exact ```markdown fence' }
     }
     cursor += 1
     const contentStart = cursor
@@ -132,7 +140,7 @@ function validateNestedVerbatim(raw: readonly string[]): { blocks: number; error
   return { blocks }
 }
 
-/** GitHub-style fragment for the simple ASCII H4 titles allowed by this contract. */
+/** GitHub-style fragment for the simple ASCII nested titles allowed by this contract. */
 function headingFragment(title: string): string {
   return title.toLowerCase().replaceAll('`', '').replaceAll(/[^a-z0-9 _-]/g, '').trim().replaceAll(/\s+/g, '-')
 }
@@ -165,6 +173,7 @@ let indirectCount = 0
 let verbatimBlockCount = 0
 let systemPromptSurfaceCount = 0
 let toolSchemaSurfaceCount = 0
+let kvCacheEffectCount = 0
 
 for (const [pkg, reason] of Object.entries(NO_MODEL_EXPERIENCE_SECTION)) {
   if (!scannedPackages.has(pkg)) {
@@ -258,13 +267,31 @@ for (const packageJson of packageJsons) {
   if (sentenceContract !== undefined) {
     const pattern = sentenceContract.kind === 'none' ? /^None, as .+\.$/ : /^Indirectly, through .+\.$/
     const rawContent = rawSection.filter(line => line.trim().length > 0)
-    if (content.length !== 1 || rawContent.length !== 1 || !pattern.test(content[0]?.raw ?? '')) {
+    const sentence = content[0]
+    const kvCacheHeading = content[1]
+    const kvCacheEffect = content[2]
+    if (content.length !== 3 || rawContent.length !== 3 || !pattern.test(sentence?.raw ?? '')) {
       const prefix = sentenceContract.kind === 'none' ? 'None, as ' : 'Indirectly, through '
-      failures.push({ path: readme, message: `must contain exactly one sentence beginning ${JSON.stringify(prefix)} and ending with a period` })
+      failures.push({ path: readme, message: `must contain exactly one sentence beginning ${JSON.stringify(prefix)} and ending with a period, followed by ${KV_CACHE_EFFECT_HEADING} and one non-empty paragraph` })
+      continue
+    }
+    if (kvCacheHeading?.raw !== KV_CACHE_EFFECT_HEADING
+      || kvCacheEffect === undefined
+      || /^#{1,6} /.test(kvCacheEffect.raw)
+      || kvCacheEffect.raw.trim().length === 0) {
+      failures.push({ path: readme, message: `line ${kvCacheHeading?.index ?? sentence?.index ?? modelHeading.index}: short Model Experience form requires exact ${KV_CACHE_EFFECT_HEADING} and one non-empty paragraph` })
+      continue
+    }
+    if (sentence === undefined
+      || sentence.index !== modelHeading.index + 2
+      || kvCacheHeading.index !== sentence.index + 2
+      || kvCacheEffect.index !== kvCacheHeading.index + 2) {
+      failures.push({ path: readme, message: 'short Model Experience sentence, KV-cache H4, and paragraph require one blank line between each element' })
       continue
     }
     if (sentenceContract.kind === 'none') explainedNoneCount += 1
     else indirectCount += 1
+    kvCacheEffectCount += 1
     continue
   }
 
@@ -290,8 +317,6 @@ for (const packageJson of packageJsons) {
     const end = surfaceStarts[surfaceIndex + 1]?.index ?? content.length
     const entries = content.slice(start.index, end)
     const heading = entries[0] as Line
-    const modelView = entries[1]
-    const tokenEffect = entries[2]
     const title = heading.raw.slice('### '.length)
     const fragment = headingFragment(title)
     if (fragment.length === 0) {
@@ -304,56 +329,100 @@ for (const packageJson of packageJsons) {
       surfaceError = true
       break
     }
-    if (modelView === undefined || !modelView.raw.startsWith(`${MODEL_VIEW_LABEL}: `) || modelView.raw.slice(`${MODEL_VIEW_LABEL}: `.length).trim().length === 0) {
-      failures.push({ path: readme, message: `line ${modelView?.index ?? heading.index}: context surface requires non-empty ${MODEL_VIEW_LABEL}: text` })
-      surfaceError = true
-      break
-    }
-    if (tokenEffect === undefined || !tokenEffect.raw.startsWith(`${TOKEN_EFFECT_LABEL}: `) || tokenEffect.raw.slice(`${TOKEN_EFFECT_LABEL}: `.length).trim().length === 0) {
-      failures.push({ path: readme, message: `line ${tokenEffect?.index ?? heading.index}: context surface requires non-empty ${TOKEN_EFFECT_LABEL}: text` })
+    const fieldStarts = entries
+      .map((line, index) => ({ line, index }))
+      .filter(entry => /^#### \S/.test(entry.line.raw))
+    if (fieldStarts.length !== FIELD_HEADINGS.length || fieldStarts[0]?.index !== 1) {
+      failures.push({ path: readme, message: `line ${heading.index}: context surface requires exactly three ordered H4 fields: ${FIELD_HEADINGS.join(', ')}` })
       surfaceError = true
       break
     }
     if ((surfaceIndex === 0 && heading.index !== modelHeading.index + 2)
       || rawLines[heading.index - 2]?.trim().length !== 0
-      || modelView.index !== heading.index + 2
-      || tokenEffect.index !== modelView.index + 2) {
-      failures.push({ path: readme, message: `line ${heading.index}: context-surface heading and fields require one blank line between each element` })
+      || fieldStarts[0].line.index !== heading.index + 2) {
+      failures.push({ path: readme, message: `line ${heading.index}: context-surface heading and first field require one blank line between them` })
       surfaceError = true
       break
     }
-    const unexpected = entries.slice(3).find(line => !/^#### \S/.test(line.raw))
-    if (unexpected !== undefined) {
-      failures.push({ path: readme, message: `line ${unexpected.index}: content after ${TOKEN_EFFECT_LABEL} must be a titled H4 plus \`markdown\` fence inside this context surface` })
-      surfaceError = true
-      break
+    const parsedFields: ParsedField[] = []
+    const verbatimFragments = new Set<string>()
+    for (let fieldIndex = 0; fieldIndex < FIELD_HEADINGS.length; fieldIndex += 1) {
+      const fieldStart = fieldStarts[fieldIndex] as { line: Line; index: number }
+      const expectedHeading = FIELD_HEADINGS[fieldIndex] as string
+      if (fieldStart.line.raw !== expectedHeading) {
+        failures.push({ path: readme, message: `line ${fieldStart.line.index}: expected exact field heading ${JSON.stringify(expectedHeading)}, found ${JSON.stringify(fieldStart.line.raw)}` })
+        surfaceError = true
+        break
+      }
+      const fieldEnd = fieldStarts[fieldIndex + 1]?.index ?? entries.length
+      const fieldEntries = entries.slice(fieldStart.index, fieldEnd)
+      const value = fieldEntries[1]
+      if (value === undefined || /^#{1,6} /.test(value.raw) || value.raw.trim().length === 0) {
+        failures.push({ path: readme, message: `line ${fieldStart.line.index}: ${expectedHeading} requires one non-empty paragraph` })
+        surfaceError = true
+        break
+      }
+      if (value.index !== fieldStart.line.index + 2) {
+        failures.push({ path: readme, message: `line ${fieldStart.line.index}: ${expectedHeading} and its paragraph require one blank line between them` })
+        surfaceError = true
+        break
+      }
+      const unexpected = fieldEntries.slice(2).find(line => !/^##### \S/.test(line.raw))
+      if (unexpected !== undefined) {
+        failures.push({ path: readme, message: `line ${unexpected.index}: content after ${expectedHeading} paragraph must be a titled H5 plus \`markdown\` fence owned by that field` })
+        surfaceError = true
+        break
+      }
+      const nextHeadingLine = fieldStarts[fieldIndex + 1]?.line.index
+        ?? surfaceStarts[surfaceIndex + 1]?.line.index
+        ?? nextH2Line
+      if (rawLines[nextHeadingLine - 2]?.trim().length !== 0) {
+        failures.push({ path: readme, message: `line ${nextHeadingLine}: Model Experience headings require a preceding blank line` })
+        surfaceError = true
+        break
+      }
+      const verbatim = validateNestedVerbatim(rawLines.slice(value.index, nextHeadingLine - 1), verbatimFragments)
+      if (verbatim.error !== undefined) {
+        failures.push({ path: readme, message: `line ${value.index}: ${verbatim.error}` })
+        surfaceError = true
+        break
+      }
+      if (fieldEntries.length - 2 !== verbatim.blocks) {
+        failures.push({ path: readme, message: `line ${value.index}: every nested H5 must own exactly one \`markdown\` fence` })
+        surfaceError = true
+        break
+      }
+      parsedFields.push({ value, verbatimBlocks: verbatim.blocks })
     }
-    const nextHeadingLine = surfaceStarts[surfaceIndex + 1]?.line.index ?? nextH2Line
-    const verbatim = validateNestedVerbatim(rawLines.slice(tokenEffect.index, nextHeadingLine - 1))
-    if (verbatim.error !== undefined) {
-      failures.push({ path: readme, message: `line ${tokenEffect.index}: ${verbatim.error}` })
-      surfaceError = true
-      break
-    }
-    if (entries.length - 3 !== verbatim.blocks) {
-      failures.push({ path: readme, message: `line ${tokenEffect.index}: every nested H4 must own exactly one \`markdown\` fence` })
-      surfaceError = true
-      break
-    }
-    if (/\]\(#[^)]+\)/.test(modelView.raw) || /\]\(#[^)]+\)/.test(tokenEffect.raw)) {
-      failures.push({ path: readme, message: `line ${heading.index}: Model Experience fields must not link between local subsections; nest the H4 in its owning H3` })
+    if (surfaceError) break
+    const modelViewField = parsedFields[0] as ParsedField
+    const tokenEffectField = parsedFields[1] as ParsedField
+    const kvCacheEffectField = parsedFields[2] as ParsedField
+    const modelView = modelViewField.value
+    const tokenEffect = tokenEffectField.value
+    const kvCacheEffect = kvCacheEffectField.value
+    if (/\]\(#[^)]+\)/.test(modelView.raw) || /\]\(#[^)]+\)/.test(tokenEffect.raw) || /\]\(#[^)]+\)/.test(kvCacheEffect.raw)) {
+      failures.push({ path: readme, message: `line ${heading.index}: Model Experience fields must not link between local subsections; nest the H5 in its owning H4 field` })
       surfaceError = true
       break
     }
     surfaceFragments.add(fragment)
-    surfaces.push({ heading, modelView, tokenEffect, title, verbatimBlocks: verbatim.blocks })
+    surfaces.push({
+      heading,
+      modelView,
+      tokenEffect,
+      kvCacheEffect,
+      title,
+      modelViewVerbatimBlocks: modelViewField.verbatimBlocks,
+      verbatimBlocks: parsedFields.reduce((total, field) => total + field.verbatimBlocks, 0),
+    })
   }
   if (surfaceError) continue
 
   const promptWithoutVerbatim = surfaces.find(surface => isDirectSystemPromptSurface(surface.title)
-    && surface.verbatimBlocks === 0)
+    && surface.modelViewVerbatimBlocks === 0)
   if (promptWithoutVerbatim !== undefined) {
-    failures.push({ path: readme, message: `line ${promptWithoutVerbatim.heading.index}: system-prompt surface must contain a titled H4 plus verbatim \`markdown\` block` })
+    failures.push({ path: readme, message: `line ${promptWithoutVerbatim.heading.index}: system-prompt surface must contain a titled H5 plus verbatim \`markdown\` block under ${MODEL_VIEW_HEADING}` })
     continue
   }
   const hasConcreteLiteral = surfaces.some(surface => surface.verbatimBlocks > 0
@@ -385,11 +454,12 @@ for (const packageJson of packageJsons) {
   contextSurfaceCount += surfaces.length
   systemPromptSurfaceCount += surfaces.filter(surface => isDirectSystemPromptSurface(surface.title)).length
   toolSchemaSurfaceCount += surfaces.filter(surface => /\bschemas?\b/i.test(surface.title)).length
+  kvCacheEffectCount += surfaces.length
   structuredCount += 1
 }
 
 if (failures.length === 0) {
-  console.log(`verify-package-readme-model-experience: ${packageJsons.length} README(s) checked (${omittedSectionCount} audited omissions, ${structuredCount} structured, ${contextSurfaceCount} context surfaces, ${systemPromptSurfaceCount} fenced system-prompt surfaces, ${toolSchemaSurfaceCount} catalog-linked tool-schema surfaces, ${explainedNoneCount} explained none, ${indirectCount} indirect, ${verbatimBlockCount} verbatim markdown blocks), all conform.`)
+  console.log(`verify-package-readme-model-experience: ${packageJsons.length} README(s) checked (${omittedSectionCount} audited omissions, ${structuredCount} structured, ${contextSurfaceCount} context surfaces, ${kvCacheEffectCount} KV-cache fields, ${systemPromptSurfaceCount} fenced system-prompt surfaces, ${toolSchemaSurfaceCount} catalog-linked tool-schema surfaces, ${explainedNoneCount} explained none, ${indirectCount} indirect, ${verbatimBlockCount} verbatim markdown blocks), all conform.`)
   process.exit(0)
 }
 

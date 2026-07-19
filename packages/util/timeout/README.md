@@ -52,6 +52,10 @@ Local file `read`/`write`/`edit` take no `timeoutMs`: a syscall is best-effort-a
 
 Indirectly, through consumers such as `dsh-timeout-policy`, which may replace a provider result with a retained timeout error or suppress a late result.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **Notification only** — a deadline cannot stop work that ignores its signal; every capability still needs its own socket/process/task termination path.

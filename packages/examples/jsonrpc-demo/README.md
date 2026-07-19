@@ -20,6 +20,10 @@ stdout carries only JSON-RPC frames. The bin and boot guards diagnose on stderr,
 
 Indirectly, through the plugins loaded from the external `cordis.yml`, which own every model-bound prompt, schema, message, and result; this bin adds none of its own.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **The bin cannot prove that the config serves JSON-RPC** — a valid config with no `dsh-jsonrpc` entry boots successfully and serves nothing.
