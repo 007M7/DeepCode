@@ -245,7 +245,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'subagent',
     title: 'Subagent provider registry',
     mode: 'seam',
-    implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp', 'subagent-mock'],
+    implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp'],
     consumers: ['tool-subagent'],
     note: 'Providers implement transports; tool-subagent exposes one configured provider as a model-facing tool name.',
   },
