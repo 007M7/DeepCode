@@ -16,7 +16,7 @@ Read this package for the whole plugin tree and its composition order.
 @deepseek-ai/dsh-tools            registry + guarded pre/around/post/final-result pipeline
 @deepseek-ai/dsh-skill            skill provider registry
 @deepseek-ai/dsh-skill-local      local filesystem skill provider
-@deepseek-ai/dsh-agent            agent registry + agent/* event vocabulary
+@deepseek-ai/dsh-agent            agent registry + initiator scope + agent/* events
 @deepseek-ai/dsh-tasks            generic background-task registry
 @deepseek-ai/dsh-invariants       dev-mode event-contract assertions
 @deepseek-ai/dsh-tool-bash        the model-facing bash schema
@@ -55,6 +55,10 @@ A YAML include can deduplicate config but cannot own a bin or provide front-door
 ## Model Experience
 
 Indirectly, through `dsh-system-prompt`, `dsh-tool-skill`, `dsh-tool-bash`, and `dsh-tools`, which this bundle mounts without adding model-bound wrapper content.
+
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

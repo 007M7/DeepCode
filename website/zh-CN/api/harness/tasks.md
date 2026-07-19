@@ -11,6 +11,14 @@ The `tasks` service: the runtime-global background task registry. See the module
 ### ctx.tasks.start(spec)
 
 ```ts website-api
+/**
+ * Preflight access, validation, and owner cleanup before starting and
+ * atomically registering work. A throwing starter leaves nothing registered;
+ * after it returns, registration cannot fail. Settlement records the outcome,
+ * notifies listeners, and releases waiters.
+ * @param spec - task identity, owner, and synchronous starter.
+ * @returns the registry-issued `<kind>-N` id.
+ */
 start(spec: TaskStart): TaskId
 ```
 
@@ -25,6 +33,12 @@ Preflight access, validation, and owner cleanup before starting and atomically r
 ### ctx.tasks.list(caller?)
 
 ```ts website-api
+/**
+ * List caller-owned and unowned tasks in registration order without exposing
+ * another session's labels.
+ * @param caller - reading agent; a non-agent caller sees only unowned tasks.
+ * @returns fresh snapshots.
+ */
 list(caller?: Agent): TaskSnapshot[]
 ```
 
@@ -39,6 +53,13 @@ List caller-owned and unowned tasks in registration order without exposing anoth
 ### ctx.tasks.get(id, caller?)
 
 ```ts website-api
+/**
+ * Return a non-consuming snapshot without changing its read cursor or notice
+ * state. Throws for an unknown or foreign task.
+ * @param id - task to look up.
+ * @param caller - reading agent checked against the owner.
+ * @returns a fresh snapshot.
+ */
 get(id: TaskId, caller?: Agent): TaskSnapshot
 ```
 
@@ -54,6 +75,14 @@ Return a non-consuming snapshot without changing its read cursor or notice state
 ### ctx.tasks.read(id, caller?)
 
 ```ts website-api
+/**
+ * Read the next stream delta, or the idempotent final output after settlement.
+ * A terminal read marks the task reported. Throws for an unknown or foreign
+ * task.
+ * @param id - task to read.
+ * @param caller - reading agent checked against the owner.
+ * @returns output text and the post-read snapshot.
+ */
 read(id: TaskId, caller?: Agent): TaskRead
 ```
 
@@ -69,6 +98,15 @@ Read the next stream delta, or the idempotent final output after settlement. A t
 ### ctx.tasks.kill(id, caller?, reason?)
 
 ```ts website-api
+/**
+ * Request cancellation, then mark the task stopping and reported. A producer
+ * throw propagates without changing task state. Throws for an unknown or
+ * foreign task.
+ * @param id - task to cancel.
+ * @param caller - killing agent checked against the owner.
+ * @param reason - logged reason forwarded to the producer.
+ * @returns `requested` for live work, otherwise `already-finished`.
+ */
 kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-finished'
 ```
 
@@ -85,6 +123,18 @@ Request cancellation, then mark the task stopping and reported. A producer throw
 ### ctx.tasks.wait(id, timeoutMs, caller?, signal?)
 
 ```ts website-api
+/**
+ * Wait for settlement or timeout without cancelling the task. Caller abort
+ * rejects only while the task is live; after settlement it returns the
+ * terminal snapshot so a notice suppressed for this waiter is still delivered.
+ * Timed-out and aborted waits detach their resolvers. Throws for invalid,
+ * unknown, or foreign input.
+ * @param id - task to wait for.
+ * @param timeoutMs - positive finite wait bound in milliseconds.
+ * @param caller - waiting agent checked against the owner.
+ * @param signal - optional cancellation of the wait itself.
+ * @returns snapshot at settlement or timeout.
+ */
 async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
 ```
 
@@ -102,6 +152,13 @@ Wait for settlement or timeout without cancelling the task. Caller abort rejects
 ### ctx.tasks.onTaskDone(listener)
 
 ```ts website-api
+/**
+ * Register an effect-scoped completion listener. Each listener is contained;
+ * returned promises are observed but not awaited. No listener runs after
+ * service disposal.
+ * @param listener - receives each terminal snapshot and its exact owner.
+ * @returns disposer that unregisters the listener.
+ */
 onTaskDone(listener: TaskDoneListener): () => void
 ```
 
@@ -116,6 +173,12 @@ Register an effect-scoped completion listener. Each listener is contained; retur
 ### ctx.tasks.attachSurface(name)
 
 ```ts website-api
+/**
+ * Attach an effect-scoped surface that can read and stop tasks. {@link start}
+ * refuses work while none is attached.
+ * @param name - diagnostic label; duplicate names remain independent.
+ * @returns disposer that detaches this surface.
+ */
 attachSurface(name: string): () => void
 ```
 

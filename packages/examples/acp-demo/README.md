@@ -55,6 +55,10 @@ All diagnostics go to **stderr** — stdout is the protocol.
 
 Indirectly, through `dsh-agent-spine-demo` and `dsh-acp`, which compose each ACP agent's prompt, tools, and message history; this app bundle adds no model-bound content itself.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **JSONL persistence is baked in** — config chooses its root but cannot select a different backend; that requires a sibling entry or differently composed app package.

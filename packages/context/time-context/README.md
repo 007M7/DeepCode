@@ -32,23 +32,31 @@ The time reading stays in derived conversation history until a later compaction 
 
 ### Preparation-time temporal context
 
-**What the model sees**: On each preparation attempt that injects, one source-tagged context message containing the two lines below. `<timestamp>` is an ISO-shaped local timestamp with numeric offset and IANA zone; durations use compact whole-second units. Positive intervals can leave an attempted step without a new reading.
+#### What the model sees
 
-**Token effect**: Each injected two-line message accumulates until compaction shadows it. A positive interval reduces additions; omission or `0` adds one for every eligible preparation attempt.
+On each preparation attempt that injects, one source-tagged context message containing the two lines below. `<timestamp>` is an ISO-shaped local timestamp with numeric offset and IANA zone; durations use compact whole-second units. Positive intervals can leave an attempted step without a new reading.
 
-#### First step
+##### First step
 
 ```markdown
 Time sampled while preparing turn <turn>, step 1: <timestamp>
 Elapsed since the preceding model-visible message: <duration-or-unavailable>.
 ```
 
-#### Later steps
+##### Later steps
 
 ```markdown
 Time sampled while preparing turn <turn>, step <step>: <timestamp>
 Elapsed since the preceding step context: <duration-or-unavailable>.
 ```
+
+#### Token effect
+
+Each injected two-line message accumulates until compaction shadows it. A positive interval reduces additions; omission or `0` adds one for every eligible preparation attempt.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

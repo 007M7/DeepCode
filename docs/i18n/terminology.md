@@ -106,6 +106,7 @@
 | event stream | 事件流 | | | |
 | event-sourced | 事件溯源 | | | 沿用 DDD 社区通行译法 |
 | executor | 执行器 | | | |
+| expected output | 预期输出 | | 金标 | 指 snapshot 比较产物；翻译语料的人工校准样例不在此列 |
 | extension | 扩展 | | | |
 | extension point | 扩展点 | | | 注意与 `seam` 区分 |
 | fail-fast | 快速失败 | | | |

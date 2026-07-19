@@ -18,11 +18,11 @@ The vm isolates accidental global pollution, and the context façade hides frame
 
 | Tool | Contract |
 |---|---|
-| `cordis_inspect` | Read-only report over the live runtime, one Markdown section per `what` value (omit `what` for all sections). Never mutates. |
+| `cordis_inspect` | Read-only report over the live runtime, one Markdown section per `what` value (omit `what` for all sections). An exact `name` with `what: "api"` or `what: "events"` narrows to one source-documented target. Never mutates. |
 | `cordis_mount` | Evaluates `code` (the body of an async JavaScript function) in a `node:vm` sandbox; the code must `return` a cordis plugin, which is mounted as a child of the `cordis-dynamic` group fiber and tracked under a fresh id (`dyn-1`, `dyn-2`, …). |
 | `cordis_unmount` | Disposes one dynamic mount by id and returns only after disposal reaches quiescence — every registration the plugin made is unwound, not merely requested to stop. |
 
-`cordis_inspect` sections: `services` (every provided ctx service and the owning fiber, non-active owners flagged), `plugins` (a flat list of every loaded plugin with its lifecycle state, from `ctx.registry` — what capabilities are loaded, deliberately not the tree shape), `tools` (what the model can call), `dynamic` (the mount table: id, name, state, provided services, awaited services), `api` (live service signatures + the type shapes they reference, from the generated catalog), and `events` (harness events with dispatch mode and signature). The model-facing tool descriptions carry the operational rules the model needs at call time; [the generated tool catalog](../../../tool-catalog.md) is their exhaustive rendering.
+`cordis_inspect` sections: `services` (every provided ctx service and the owning fiber, non-active owners flagged), `plugins` (a flat list of every loaded plugin with its lifecycle state, from `ctx.registry` — what capabilities are loaded, deliberately not the tree shape), `tools` (what the model can call), `dynamic` (the mount table: id, name, state, provided services, awaited services), `api` (live service signatures + the type shapes they reference, from the generated catalog), and `events` (harness events with dispatch mode and signature). Broad `api` and `events` reports omit full JSDoc to stay compact; an exact `name` returns one service or event with its original method/declaration JSDoc. A name is invalid with other sections, unknown targets fail, and an API target must be live. The model-facing tool descriptions carry the operational rules the model needs at call time; [the generated tool catalog](../../../tool-catalog.md) is their exhaustive rendering.
 
 ### Sandbox semantics
 
@@ -44,9 +44,9 @@ Mounts relate to each other through ordinary cordis service semantics, with thei
 
 ### The generated API catalog
 
-`cordis_inspect` serves API and event data from a generated catalog rather than a duplicated table. The generator reuses the Cordis catalog AST scan and emits service summaries, signatures, event modes, referenced type declarations, and the inherited context surface. Ambiguous type names are omitted and oversized declarations are marked as truncated.
+`cordis_inspect` serves API and event data from a generated catalog rather than a duplicated table. The generator reuses the Cordis catalog AST scan and emits service summaries, signatures, original service-method and event JSDoc, event modes, referenced type declarations, and the inherited context surface. Ambiguous type names are omitted and oversized declarations are marked as truncated.
 
-Freshness is gated like every generated artifact: `pnpm run verify-cordis-api` (in `doc-sync`) regenerates in memory and fails on any diff, so a JSDoc edit that changes a public signature cannot ship without regenerating the catalog the model reads. At runtime the inspect tool intersects the catalog with the live runtime rather than dumping it: live catalogued services render summary + signatures, live services without a catalog entry (mount-provided ones) render name + owning fiber, catalogued services with no live provider are listed tersely, and the referenced type shapes follow.
+Freshness is gated like every generated artifact: `pnpm run verify-cordis-api` (in `doc-sync`) regenerates in memory and fails on any diff, so a JSDoc or public-signature edit cannot ship without regenerating the catalog the model reads. At runtime the inspect tool intersects the catalog with the live runtime rather than dumping it: broad reports render live catalogued services as summary + signatures, live services without a catalog entry (mount-provided ones) as name + owning fiber, catalogued services with no live provider tersely, and then the referenced type shapes. Exact-name reports render one live service or event with the original JSDoc immediately before each signature; keeping that detail opt-in avoids charging its token cost on exploratory listings.
 
 ### Configuration, rendering, and observability
 

@@ -30,17 +30,17 @@ Usage sums the disjoint input, cache-read, cache-write, and output buckets. Reas
 
 ### Compact-basic consumes, but does not own, measurement
 
-`dsh-compact-basic` requires `ctx.tokenMeter`; `CompactService` gains no token methods or types. The backend is factored into configuration, automatic triggering, region transaction, and summarizer modules, while `summarize()` remains its sole subclass hook. The singleton service consistently prices pressure, retention, shadowed content, provenance, and non-shrinking-summary rejection.
+`dsh-compact-basic` requires `ctx.tokenMeter`; `CompactService` gains no token methods or types. Configuration, the region transaction, and summarization stay in separate modules; the service registers automatic listeners itself, while `summarize()` remains its sole subclass hook. The singleton meter consistently prices pressure, retention, shadowed content, provenance, and non-shrinking-summary rejection.
 
 Automatic compaction uses one unified measurement for each threshold-and-retention decision. The region transaction measures after appending its durable `compact/start` lock and again after asynchronous summarization; any intervening durable append changes `logRevision` and prevents replacement.
 
-Compact policy has service-wide defaults: threshold ratio `0.8`, retained tail `floor(contextWindow × 0.16)`, empty summarization provider/model, maximum summary output `8192`, one extra compaction attempt, and automatic triggering enabled. Top-level `thresholdRatio` and `retainTokens` override the pressure policy; retention must remain below the resulting threshold. `summarizationProvider` and `summarizationModel` must both be set or both be empty; an empty pair resolves the latest logged request target, then the `AgentOptions` pair.
+Compact policy has service-wide defaults: threshold ratio `0.8`, retained tail `floor(contextWindow × 0.16)`, `summarizationProvider: ''`, `summarizationModel: ''`, `maxTokens: 8192`, `compactionRetries: 1`, `maxOverflowRetries: 1`, and `auto: true`. Top-level `thresholdRatio` and `retainTokens` override the pressure policy; retention must remain below the resulting threshold. The summarization provider and model must both be set or both be empty; an empty pair resolves the latest logged request target, then the `AgentOptions` pair.
 
-The pre-step trigger measures a provisional envelope: the current prompt and prefix override logged values, while the latest logged header supplies provider, model, tools, and other call config. A router-only agent without a complete provider/model pair skips that provisional check because `agent/request` can route later; any routed target can use the singleton estimator.
+Automatic pressure runs at `agent/post-step` and measures the canonical durable envelope produced under the provider/model actually selected by `agent/request`. A headerless session has no completed routed request to assess and produces no work; any routed target can use the singleton estimator. Canonical overflow recovery uses the same measurement for forced range selection and retries only after a proven surface replacement.
 
 ## Testing
 
-Unit coverage pins service configuration, fixed estimation, envelope invalidation, latest-anchor replacement across provider/model switches, usage and missing-usage paths, seeded append/replace replay, signed deltas, provenance modes, malformed boundaries, unified snapshot detachment and deep immutability, surface-total equality, listener ordering, reload, compact defaults, routing fallback, one-call automatic decisions, retention, convergence, and log-revision rollback. A real Loader/Include YAML fixture loads the exact zero-config token-meter and compact-basic package names in dependency order.
+Unit tests cover fixed estimation, envelope invalidation and anchor replacement, replay boundaries, immutable snapshots, routed pressure, convergence, overflow generation proof, and rollback. A real Loader/Include fixture verifies the zero-config token-meter and compact-basic load path in dependency order.
 
 ## Alternatives considered
 
@@ -57,4 +57,4 @@ Unit coverage pins service configuration, fixed estimation, envelope invalidatio
 - Fixed heuristic pricing remains an estimate of provider behavior and is not an exact tokenizer or request serializer.
 - Every measurement clones the current positional surface and therefore costs O(surface), including pressure checks that finish below threshold.
 - Measurements fail loudly on malformed durable boundaries. This turns corrupted replay into a named integration failure instead of silently drifting pressure.
-- The pre-step compact integration can skip a router-only first check and can miss tool or routing changes applied later in request middleware.
+- Post-step pressure reads the exact logged routing/tools/prefix boundary; provider overflow classification remains the adapter-maintained backstop for requests rejected before a successful usage anchor.

@@ -21,7 +21,7 @@ exe 使用 [@yao-pkg/pkg](https://github.com/yao-pkg/pkg)（vercel/pkg 归档后
 
 `--sea` 要求构建目标 ≥ node22，exe 统一以 node24 为构建目标；每次 pkg 调用只打包一个构建目标，多平台各调用一次。
 
-术语提醒：pkg 的 `/snapshot` VFS 与本仓库测试体系的“快照”（ACP 回放 golden、`$DSH_SNAPSHOT`）无关，本文用“VFS”指前者。
+术语提醒：pkg 的 `/snapshot` VFS 与本仓库测试体系的“快照”（ACP 回放预期输出、`$DSH_SNAPSHOT`）无关，本文用“VFS”指前者。
 
 ### 对外服务接口也是插件：ui/jsonrpc + examples/jsonrpc-demo 两包
 

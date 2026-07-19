@@ -6,28 +6,56 @@
 
 Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L38)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L40)
 
-### ctx.compact.compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)
+### ctx.compact.compactIfNeeded(agent, trigger, signal)
 
 ```ts website-api
-abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>
+/**
+ * Consider automatic compaction for one explicit trigger. Pressure policy
+ * uses the latest durable routed request, while context-overflow policy may
+ * force a useful balanced reduction even below the normal threshold. Return
+ * `null` when no safe range can be compacted. A single oversized retained
+ * unit or request envelope cannot be repaired through surface compaction.
+ *
+ * @param agent - agent context owning the session surface and routing options.
+ * @param trigger - normal pressure or provider-confirmed context overflow.
+ * @param signal - cancellation signal; model-backed implementations must forward it.
+ * @returns the compaction result, or `null` if no compaction was needed.
+ */
+abstract compactIfNeeded( agent: CompactAgentContext, trigger: CompactionTrigger, signal: AbortSignal, ): Promise<CompactionResult | null>
 ```
 
-Check token pressure and compact if the conversation is too large. Estimate the next request, including its session prefix, derived history, and system prompt. Above threshold, compact a head-anchored range ending at a balanced tool boundary and reconsolidate any prior automatic checkpoint. Return `null` when no compaction is needed or an open tail leaves no safe cutoff. A single oversized retained unit or prefix cannot be repaired here.
+Consider automatic compaction for one explicit trigger. Pressure policy uses the latest durable routed request, while context-overflow policy may force a useful balanced reduction even below the normal threshold. Return `null` when no safe range can be compacted. A single oversized retained unit or request envelope cannot be repaired through surface compaction.
 
-- `agent` — agent context owning the session surface and model options.
-- `fullSystemPrompt` — assembled system prompt, counted toward the estimate.
-- `sessionPrefix` — the instance's composed session prefix, counted toward the estimate.
+- `agent` — agent context owning the session surface and routing options.
+- `trigger` — normal pressure or provider-confirmed context overflow.
 - `signal` — cancellation signal; model-backed implementations must forward it.
 
 **Returns** the compaction result, or `null` if no compaction was needed.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L58)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L57)
 
 ### ctx.compact.compactRegion(start, end, agent, signal?)
 
 ```ts website-api
+/**
+ * Forcibly compact a range of surface nodes into a single summary node.
+ * `start` and `end` name an inclusive span by surface position, not numeric seq
+ * order; replacements can make visible seqs non-monotonic. Both edges must be
+ * balanced so assistant tool calls remain paired with their results. A model-
+ * backed implementation forwards cancellation and rejects active, missing,
+ * reversed, or unbalanced ranges. The target session is `agent.session`.
+ * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}
+ * for the edge checks.
+ *
+ * @param start - first surface seq, inclusive.
+ * @param end - last surface seq, inclusive.
+ * @param agent - context whose session is mutated and whose routing options guide summarization.
+ * @param signal - optional cancellation; model-backed implementations must forward it.
+ * @throws when compaction is active or the range is missing, reversed, or unbalanced.
+ * @returns the appended event seqs, summary, replaced range, and token accounting.
+ */
 abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
@@ -40,4 +68,4 @@ Forcibly compact a range of surface nodes into a single summary node. `start` an
 
 **Returns** the appended event seqs, summary, replaced range, and token accounting.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L82)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact/src/index.ts#L80)

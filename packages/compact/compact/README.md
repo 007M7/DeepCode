@@ -18,7 +18,7 @@ Both methods are **abstract** — the backend owns trigger policy, retention, ev
 
 | Member | Semantics |
 |---|---|
-| `compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)` | Estimate the surface-derived history size; if over the backend's threshold, compact an older range via `compactRegion`, keeping recent context intact. Returns the `CompactionResult`, or `null` if nothing needed compacting. All parameters required — the loop's `agent/pre-step` checkpoint supplies the agent, assembled `fullSystemPrompt`, composed `sessionPrefix` (request-only messages every request carries but the derived history omits — the pressure estimate must count them), and turn `signal`. A backend's summarization request is a direct `ctx.llm.stream()` call (not a loop step), so per-call interception happens at `llm/stream`. |
+| `compactIfNeeded(agent, trigger, signal)` | Consider automatic compaction for `trigger: 'pressure' \| 'context-overflow'`. A pressure trigger may apply the backend's threshold and retained-tail policy; a confirmed overflow may force a useful balanced reduction. Returns the `CompactionResult`, or `null` when no safe range exists. A backend's summarization request is a direct `ctx.llm.stream()` call (not a loop step), so per-call interception happens at `llm/stream`. |
 | `compactRegion(start, end, agent, signal?)` | Forcibly summarize surface nodes `[start, end]` (inclusive seqs) from `agent.session` into a single replacement node. **Throws** if a compaction is already in progress, if `start`/`end` aren't surface nodes, or if `start` is positioned after `end` on the surface. The range is a SURFACE-POSITION span, not a numeric seq interval — after a prior replace lands a fresh high-seq summary node at the shadowed range's position, surface order no longer tracks seq order. |
 
 `CompactionResult` keeps the raw summary and bookkeeping-event seqs available to callers alongside the shadowed range and token accounting; its drift-checked shape lives in the [compaction data-structure reference](../../../docs/core-data-structures/compaction.md#compactionresult).
@@ -61,19 +61,34 @@ Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and 
 
 ### Conversation history, when a backend is invoked
 
-**What the model sees**: A successful implementation replaces an older surface range with one user-role summary checkpoint; the raw events stay logged but stop appearing in derived model messages. The seam itself performs no rewrite.
+#### What the model sees
 
-**Token effect**: Zero direct tokens from this interface. A backend trades many retained history tokens for one summary and leaves the recent tail unchanged.
+A successful implementation replaces an older surface range with one user-role summary checkpoint; the raw events stay logged but stop appearing in derived model messages. The seam itself performs no rewrite.
+
+#### Token effect
+
+Zero direct tokens from this interface. A backend trades many retained history tokens for one summary and leaves the recent tail unchanged.
+
+#### KV Cache effect
+
+A successful backend replacement invalidates reuse from the first shadowed history token; the seam itself does not alter a request.
 
 ### Transcript supplied to a compaction consumer
 
-**What the model sees**: `renderTranscript()` joins entries with one blank line and renders them exactly as `User: <content>`, `Assistant: <content>`, `Tool result (call <callId>): <content>`, `Tool error (call <callId>): <content>`, `[Context: <content>]`, or `[Steering: <content>]`. Non-text blocks render exactly as `[reasoning: <text>]`, `[tool-call: <name>(<arguments>)]`, `[tool-result: <content>]`, `[tool-result]`, or `[<block-type>]`.
+#### What the model sees
 
-**Token effect**: Data-dependent input tokens are paid only by the auxiliary model or consumer that requests this transcript; the conversation model does not receive a duplicate transcript.
+`renderTranscript()` joins entries with one blank line and renders them exactly as `User: <content>`, `Assistant: <content>`, `Tool result (call <callId>): <content>`, `Tool error (call <callId>): <content>`, `[Context: <content>]`, or `[Steering: <content>]`. Non-text blocks render exactly as `[reasoning: <text>]`, `[tool-call: <name>(<arguments>)]`, `[tool-result: <content>]`, `[tool-result]`, or `[<block-type>]`.
+
+#### Token effect
+
+Data-dependent input tokens are paid only by the auxiliary model or consumer that requests this transcript; the conversation model does not receive a duplicate transcript.
+
+#### KV Cache effect
+
+No conversation-cache invalidation. A consumer's auxiliary request can reuse only the exact prefix produced by this rendering; changed or compacted entries invalidate reuse from their first difference.
 
 ## Known Limitations and Deferred Work
 
 - **No model-facing consumer tier yet** — `@deepseek-ai/dsh-tool-compact` (the `/compact` tool) is deferred; compaction is reachable only via direct `ctx.compact` calls or a backend's auto listener.
-- **Single-unit overflow is out of contract** — one retained unit (a closed step or a large pasted `user/message`) alone exceeding the budget cannot be compacted; the call may go out over-budget.
-- **A session prefix that alone approaches the window is a configuration error no backend fixes** — compaction shrinks derived history, never the prefix.
-- **Request context injected by downstream `agent/request` listeners sits outside pressure accounting** — `compactIfNeeded` counts prefix, derived history, and system prompt only.
+- **Single-unit overflow is out of contract** — one indivisible unit (a closed tool pair or a large pasted `user/message`) alone exceeding the budget cannot be compacted.
+- **An envelope that alone approaches the window is not surface-compaction work** — compaction shrinks derived history, never the system prompt, tools, or session prefix.

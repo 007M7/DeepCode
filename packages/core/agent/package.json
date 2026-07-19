@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-agent",
-  "description": "Agent interface, registry, and event vocabulary for the DeepSeek Harness",
+  "description": "Agent interface, registry, initiator scope, and event vocabulary for the DeepSeek Harness",
   "version": "0.0.1",
   "private": true,
   "type": "module",

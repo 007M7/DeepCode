@@ -119,8 +119,8 @@ export async function summarizeWithLlm(
   }
   return {
     summary,
-    provider: target.provider,
-    model: target.model,
+    provider: options.provider,
+    model: options.model,
     maxTokens: config.maxTokens,
   }
 }
