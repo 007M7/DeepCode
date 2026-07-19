@@ -117,7 +117,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **An empty `catch` names what it swallows** and why nothing else can reach it; keep the `try` to one statement.
 - **Prefer symmetry for parallel values**; unexplained asymmetry usually signals a missed extraction.
 - **Tests describe behavior, not correctness.** Change obsolete behavior with its tests; explain why in the PR.
-- **Validate Agent Note premises against current code**; friction may expose overreach, so amend proposals before moving them to `implemented/`.
+- **Every non-trivial change MUST include at least one Agent Note in the same PR.** Update the owning note or add one, validate its premises against code, and exempt only mechanical/local edits ([scope](.agents/notes/README.md#when-to-write-one)).
 - **Testing policy** — [docs/testing.md](docs/testing.md). Transcript changes need snapshots or a PR note. Fixtures must replay on macOS/Linux; fix fixtures, not normalizers.
 - **A tool's ACP render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([cookbook](docs/cookbook/adding-a-tool.md)).
 - **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces, and schedule any missing harness support before implementation.
@@ -135,7 +135,7 @@ Everything compiles under `strict: true` with `noImplicitAny`; every remaining `
 
 Comments and docs preserve complete contracts and non-obvious orientation, not reasoning transcripts. Do not narrate control flow or tests, preserve review history, or restate code. Keep factual clauses affecting behavior, failure, timing, ownership, or safe use; link aggressively to owning rationale. Use [dsh-prose-standard](.agents/skills/dsh-prose-standard/SKILL.md) for prose decisions. Wire mechanically checkable invariants into an executed top-level gate and prove each new or changed acceptance path rejects an invalid case. Use narrow justified exceptions instead of disabling a rule globally.
 
-Docs are part of every change: code changes update their README and JSDoc in the SAME change; a bilingual-pair edit updates the counterpart and re-records ([i18n contract](docs/i18n/README.md)). The writing rules — document the current state never the history, one physical line per paragraph, one home per fact — and the word-budget gate live in [docs/AGENTS.md](docs/AGENTS.md).
+Docs accompany every code change: update affected README/JSDoc contracts together; update both sides of a bilingual pair and re-record it ([i18n contract](docs/i18n/README.md)). Current-state prose, one physical line per paragraph, one home per fact, and word budgets live in [docs/AGENTS.md](docs/AGENTS.md).
 
 ## Editing these instructions
 
