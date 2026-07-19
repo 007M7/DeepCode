@@ -157,6 +157,7 @@ const state = {
   expandedActivityIds: new Set<string>(),
   traceLoadRevision: 0,
   liveTurnCounter: 0,
+  liveToolTitles: new Map<string, string>(),
   traceCatchupTimer: undefined as number | undefined,
   traceCatchupAttempts: 0,
 }
@@ -488,7 +489,7 @@ function applyTrace(trace: TracePayload, resetExpansion: boolean): void {
   renderTrajTree()
   renderWaterfall()
   renderInspector()
-  scrollChatToBottom(true)
+  scrollChatToBottom(resetExpansion)
   scheduleTraceCatchup(sessionId)
 }
 
@@ -563,6 +564,7 @@ function handleSessionUpdate(payload: SessionUpdatePayload): void {
     live.status = 'streaming'
   } else if (kind === 'tool_call' || kind === 'tool_call_update') {
     const callId = String(update.toolCallId ?? `tool-${live.tools.length}`)
+    if (typeof update.title === 'string' && update.title.length > 0) state.liveToolTitles.set(callId, update.title)
     const existing = live.tools.find(tool => tool.callId === callId)
     const title = String(update.title ?? existing?.title ?? t('chat.toolUse'))
     const status = String(update.status ?? existing?.status ?? '')
@@ -953,9 +955,15 @@ function renderConversationActivity(activity: ChatActivity): string {
   `
 }
 
+/** ACP streams richer tool titles than the persisted name; keep them after the turn. */
+function liveToolTitle(target: TraceTarget): string | undefined {
+  return state.liveToolTitles.get(target.id.replace(/^tool:/, ''))
+}
+
 function renderChatToolActivity(target: TraceTarget): string {
   const failed = target.status === 'error'
-  const preview = toolCallPreview(target.input)
+  const richTitle = liveToolTitle(target)
+  const preview = richTitle === undefined ? toolCallPreview(target.input) : ''
   const expanded = state.expandedActivityIds.has(target.id)
   const inputHtml = `<div class="activity-section-title">${escapeHtml(t('chat.input'))}</div><pre>${escapeHtml(formatPayload(target.input, 'json'))}</pre>`
   const outputHtml = target.output === '' ? '' : `<div class="activity-section-title">${escapeHtml(failed ? t('chat.errorOutput') : t('chat.output'))}</div><pre>${escapeHtml(formatPayload(target.output, 'plain'))}</pre>`
@@ -964,7 +972,7 @@ function renderChatToolActivity(target: TraceTarget): string {
   return `
     <section class="chat-activity tool-use ${failed ? 'failed' : ''} ${selectedTargetClass(target.id)}">
       <div class="activity-row">
-        <button class="activity-select" type="button" data-target-id="${escapeHtml(target.id)}"><span>${escapeHtml(failed ? t('chat.toolFailed') : t('chat.toolUse'))}</span><strong>${escapeHtml(target.title)}${preview.length > 0 ? `<span class="activity-preview"> · ${escapeHtml(preview)}</span>` : ''}</strong></button>
+        <button class="activity-select" type="button" data-target-id="${escapeHtml(target.id)}"><span>${escapeHtml(failed ? t('chat.toolFailed') : t('chat.toolUse'))}</span><strong>${escapeHtml(richTitle ?? target.title)}${preview.length > 0 ? `<span class="activity-preview"> · ${escapeHtml(preview)}</span>` : ''}</strong></button>
         <button class="activity-toggle" type="button" data-toggle-activity="${escapeHtml(target.id)}" aria-expanded="${expanded}" aria-controls="act-${escapeHtml(target.id)}" aria-label="${escapeHtml(t(expanded ? 'trace.collapseRow' : 'trace.expandRow'))}">${expanded ? '⌃' : '⌄'}</button>
       </div>
       <div class="activity-body" id="act-${escapeHtml(target.id)}" ${expanded ? '' : 'hidden'} data-target-id="${escapeHtml(target.id)}">${inputHtml}${outputHtml}${spawnedHtml}</div>
@@ -1091,6 +1099,8 @@ function trajectoryRowTitle(target: TraceTarget): string {
     if (preview.length > 0) return preview
   }
   if (target.kind === 'tool') {
+    const rich = liveToolTitle(target)
+    if (rich !== undefined) return rich
     const preview = toolCallPreview(target.input)
     return preview.length > 0 ? `${target.title} · ${preview}` : `${target.title} · ${target.subtitle}`
   }

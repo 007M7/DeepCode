@@ -238,6 +238,7 @@ describe('desktop renderer chat lifecycle', () => {
   it('starts a fresh live skeleton per turn and converges without user action when the persisted trace lags', async () => {
     const prompts: Deferred<unknown>[] = [deferred(), deferred(), deferred()]
     const promptQueue = [...prompts]
+    let update: ((payload: unknown) => void) | undefined
     let traceRead: unknown
     const turnEvents = (turn: number, userText: string, answer: string, base: number): unknown[] => [
       { type: 'turn/start', seq: base, time: base + 1, data: { turn, trigger: { kind: 'message' } } },
@@ -253,6 +254,8 @@ describe('desktop renderer chat lifecycle', () => {
       ...turnEvents(1, 'first', 'first answer', 0),
       ...turnEvents(2, 'second', 'second answer', 10),
       ...turnEvents(3, 'third', 'third answer', 20),
+      { type: 'tool/call', seq: 30, time: 31, data: { turn: 3, step: 1, callId: 'wf-1', name: 'workflow', arguments: '{"name":"audit"}' } },
+      { type: 'tool/result', seq: 31, time: 32, data: { turn: 3, step: 1, callId: 'wf-1', content: [{ type: 'text', text: 'done' }] } },
     ])
     traceRead = turn1Trace
 
@@ -272,7 +275,10 @@ describe('desktop renderer chat lifecycle', () => {
         prompt: async () => promptQueue.shift()!.promise,
         cancel: async () => ({}),
         reveal: async () => ({}),
-        onUpdate: () => () => {},
+        onUpdate: (callback: (payload: unknown) => void) => {
+          update = callback
+          return () => {}
+        },
       },
       trace: { read: async () => traceRead },
       feedback: { list: async () => [], add: async () => ({}) },
@@ -312,6 +318,8 @@ describe('desktop renderer chat lifecycle', () => {
     await vi.waitFor(() => {
       expect(document.querySelector('#liveTurn .user-bubble')?.textContent).toBe('third')
     })
+    // The ACP stream carries a richer tool title than the persisted name.
+    update?.({ sessionId: 's-lag', update: { sessionUpdate: 'tool_call', toolCallId: 'wf-1', title: 'workflow: run audit agents', status: 'in_progress' } })
 
     // Once the persisted log catches up, the view converges with no user action.
     prompts[2]!.resolve({ response: {}, trace: turn1Trace })
@@ -320,5 +328,7 @@ describe('desktop renderer chat lifecycle', () => {
       expect(document.querySelector('#conversation')?.textContent).toContain('third answer')
       expect(document.querySelector('#liveTurn')?.innerHTML).toBe('')
     }, { timeout: 4000 })
+    // The live workflow presentation survives the switch to the persisted view.
+    expect(document.querySelector('#conversation')?.textContent).toContain('workflow: run audit agents')
   })
 })
