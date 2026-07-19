@@ -116,6 +116,9 @@ importers:
       '@deepseek-ai/dsh-compact-basic':
         specifier: workspace:*
         version: link:../packages/compact/compact-basic
+      '@deepseek-ai/dsh-compact-tool-result-prune':
+        specifier: workspace:*
+        version: link:../packages/compact/compact-tool-result-prune
       '@deepseek-ai/dsh-fs-local':
         specifier: workspace:*
         version: link:../packages/fs/fs-local
@@ -373,6 +376,9 @@ importers:
       '@deepseek-ai/dsh-compact':
         specifier: workspace:^
         version: link:../compact
+      '@deepseek-ai/dsh-compact-tool-result-prune':
+        specifier: workspace:^
+        version: link:../compact-tool-result-prune
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -385,9 +391,6 @@ importers:
       '@deepseek-ai/dsh-token-meter':
         specifier: workspace:^
         version: link:../../llm/token-meter
-      '@deepseek-ai/dsh-compact-tool-result-prune':
-        specifier: workspace:^
-        version: link:../compact-tool-result-prune
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
@@ -2492,6 +2495,9 @@ importers:
       '@deepseek-ai/dsh-compact-basic':
         specifier: workspace:^
         version: link:../../packages/compact/compact-basic
+      '@deepseek-ai/dsh-compact-tool-result-prune':
+        specifier: workspace:^
+        version: link:../../packages/compact/compact-tool-result-prune
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../../packages/fs/fs
@@ -2609,9 +2615,6 @@ importers:
       '@deepseek-ai/dsh-tool-fs':
         specifier: workspace:^
         version: link:../../packages/fs/tool-fs
-      '@deepseek-ai/dsh-compact-tool-result-prune':
-        specifier: workspace:^
-        version: link:../../packages/compact/compact-tool-result-prune
       '@deepseek-ai/dsh-tool-skill':
         specifier: workspace:^
         version: link:../../packages/skill/tool-skill

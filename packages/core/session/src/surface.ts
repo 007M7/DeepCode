@@ -198,20 +198,18 @@ function assertToolResultRewrite(
   if (shadowedSeqs.length !== 1) {
     throw new Error('tool/result surface replacement must rewrite exactly one current node')
   }
-  const originalSeq = shadowedSeqs[0]
-  if (originalSeq === undefined) {
-    throw new Error('tool/result surface replacement must rewrite exactly one current node')
-  }
-  const original = events[originalSeq]
-  if (original?.type !== 'tool/result') {
-    throw new Error('tool/result surface replacement must target a current tool/result')
-  }
-  const originalRest = { ...original.data } as Record<string, unknown>
-  const replacementRest = { ...event.data } as Record<string, unknown>
-  delete originalRest['content']
-  delete replacementRest['content']
-  if (!isDeepStrictEqual(originalRest, replacementRest)) {
-    throw new Error('tool/result surface replacement may change only content')
+  for (const originalSeq of shadowedSeqs) {
+    const original = events[originalSeq]
+    if (original?.type !== 'tool/result') {
+      throw new Error('tool/result surface replacement must target a current tool/result')
+    }
+    const originalRest = { ...original.data } as Record<string, unknown>
+    const replacementRest = { ...event.data } as Record<string, unknown>
+    delete originalRest['content']
+    delete replacementRest['content']
+    if (!isDeepStrictEqual(originalRest, replacementRest)) {
+      throw new Error('tool/result surface replacement may change only content')
+    }
   }
 }
 
