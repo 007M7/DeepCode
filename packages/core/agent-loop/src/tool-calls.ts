@@ -14,7 +14,6 @@ import { assertNever, type ToolCallBlock } from '@deepseek-ai/dsh-llm'
 import type { HookContext } from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { TOOL_REGISTRY_SCHEDULER, type ToolExecutionInput, type ToolExecutionMode, type ToolExecutionResult, type ToolRunContext } from '@deepseek-ai/dsh-tools'
-import type { ReactLoopAgent } from './agent.ts'
 
 /** One tool call after argument parsing, ready to schedule. */
 interface PlannedCall {
@@ -40,9 +39,10 @@ interface GroupOutcome {
  * Started calls receive ordered results. Abort drains them, records synthetic
  * results for unstarted calls, and returns with the signal still aborted after
  * accepting started-call context into the batch FIFO owned by the caller.
+ * The committed step's AgentLoop driver boundary supplies the initiating Agent
+ * that becomes each explicit {@link ToolExecutionInput.agent}.
  *
- * @param ctx - loop context that owns the tool registry.
- * @param agent - agent and session receiving the call lifecycle.
+ * @param ctx - loop context that owns the tool registry and carries the initiating Agent.
  * @param turn - current turn number.
  * @param step - current step number.
  * @param toolCalls - assistant calls in model order.
@@ -52,7 +52,6 @@ interface GroupOutcome {
  */
 export async function executeToolCalls(
   ctx: Context,
-  agent: ReactLoopAgent,
   turn: number,
   step: number,
   toolCalls: ToolCallBlock[],
@@ -60,6 +59,7 @@ export async function executeToolCalls(
   maxParallel: number,
   acceptContext: (context: HookContext) => void,
 ): Promise<void> {
+  const agent = ctx.agents.requireInitiator()
   const { session } = agent
 
   // Inputs are distinct because tools/execute wrappers may replace `exec.signal`.
@@ -82,7 +82,7 @@ export async function executeToolCalls(
     const mode = ctx.tools.executionMode(first.exec).kind
     const group = mode === 'parallel' ? planned.slice(next) : [first]
     const outcome = await runGroup(
-      ctx, session, turn, step, group, mode, signal, maxParallel, acceptContext,
+      ctx, turn, step, group, mode, signal, maxParallel, acceptContext,
     )
     next += outcome.consumed
     if (outcome.aborted) {
@@ -111,7 +111,6 @@ function parseArguments(raw: string): unknown {
  */
 async function runGroup(
   ctx: Context,
-  session: Session,
   turn: number,
   step: number,
   group: PlannedCall[],
@@ -120,6 +119,7 @@ async function runGroup(
   maxParallel: number,
   acceptContext: (context: HookContext) => void,
 ): Promise<GroupOutcome> {
+  const { session } = ctx.agents.requireInitiator()
   const slots: (Slot | undefined)[] = group.map(() => undefined)
   // Started slots retain their tool/call seq for result provenance.
   const callSeqs: number[] = group.map(() => -1)
