@@ -169,7 +169,7 @@ The bash tool is the model-facing consumer of the bash executor seam. A `run_in_
 
 ### `cordis_inspect`
 
-Inspect the live cordis runtime that is running THIS agent. Read-only. Sections: `services` (every provided ctx service and the plugin fiber that owns it), `plugins` (a flat list of the loaded plugins with their lifecycle states), `tools` (the model-facing tools currently registered, i.e. what you can call), `dynamic` (plugins you mounted via cordis_mount: id, name, state, provided services, awaited services), `api` (method signatures AND argument/return type shapes for every LIVE service — read this before writing plugin code that calls a service), `events` (every harness event with its dispatch mode and exact signature — pick listener targets here). Omit `what` to get all six sections.
+Inspect the live cordis runtime that is running THIS agent. Read-only. Sections: `services` (every provided ctx service and the plugin fiber that owns it), `plugins` (a flat list of the loaded plugins with their lifecycle states), `tools` (the model-facing tools currently registered, i.e. what you can call), `dynamic` (plugins you mounted via cordis_mount: id, name, state, provided services, awaited services), `api` (method signatures AND argument/return type shapes for every LIVE service — read this before writing plugin code that calls a service), `events` (every harness event with its dispatch mode and exact signature — pick listener targets here). Omit `what` to get all six sections. With `what:"api"` or `what:"events"`, pass an exact `name` to narrow to one service/event and include its original source JSDoc.
 
 ```json
 {
@@ -186,6 +186,10 @@ Inspect the live cordis runtime that is running THIS agent. Read-only. Sections:
         "api",
         "events"
       ]
+    },
+    "name": {
+      "type": "string",
+      "description": "Exact service key or event name whose original JSDoc to include; valid only with what:\"api\" or what:\"events\"."
     }
   }
 }

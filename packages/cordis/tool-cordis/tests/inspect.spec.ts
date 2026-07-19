@@ -64,6 +64,24 @@ describe('cordis_inspect', () => {
     // The inherited ctx surface closes the section.
     expect(report).toContain('inherited ctx API:')
     expect(report).toContain('- ctx.effect — ')
+    // The broad report stays compact; exact-name lookup owns full JSDoc.
+    expect(report).not.toContain('/**')
+    expect(report).not.toContain('@param definition')
+  })
+
+  it('adds original method JSDoc only for an exact live api name', async () => {
+    const ctx = await setup()
+    const report = text(await call(ctx, 'cordis_inspect', { what: 'api', name: 'tools' }))
+    expect(report).toContain('## api')
+    expect(report).toContain('- tools — Tool registry and execution pipeline.')
+    expect(report).toContain('/**')
+    expect(report).toContain('Register globally or in the calling agent scope.')
+    expect(report).toContain('@param definition - the tool schema')
+    expect(report).toContain('@returns the exact disposer')
+    expect(report).toContain('register(definition: ToolDefinition)')
+    expect(report).toContain('type shapes (referenced by the signatures above')
+    expect(report).not.toContain('not running (loadable services')
+    expect(report).not.toContain('inherited ctx API:')
   })
 
   it('renders the events section with mode badges, signatures, and the waterfall caution', async () => {
@@ -73,6 +91,39 @@ describe('cordis_inspect', () => {
     expect(report).toContain('- tools/pre-execute [waterfall]')
     expect(report).toMatch(/'agent\/status'\(/)
     expect(report).toContain('returning without next() vetoes the chain')
+    expect(report).not.toContain('/**')
+    expect(report).not.toContain('@mode waterfall')
+  })
+
+  it('adds original event JSDoc only for an exact event name', async () => {
+    const ctx = await setup()
+    const report = text(await call(ctx, 'cordis_inspect', { what: 'events', name: 'tools/pre-execute' }))
+    expect(report).toContain('## events')
+    expect(report).toContain('- tools/pre-execute [waterfall]')
+    expect(report).toContain('/**')
+    expect(report).toContain('Allow, deny, or ask before dispatch.')
+    expect(report).toContain('@param exec - the pending call')
+    expect(report).toContain('@mode waterfall')
+    expect(report).not.toContain('- tools/change [emit]')
+  })
+
+  it('fails loud for incompatible, unknown, and non-running names', async () => {
+    const ctx = await setup()
+    const incompatible = await call(ctx, 'cordis_inspect', { what: 'tools', name: 'tools' })
+    expect(incompatible.isError).toBe(true)
+    expect(text(incompatible)).toContain('name is valid only with what:"api" or what:"events"')
+
+    const unknownService = await call(ctx, 'cordis_inspect', { what: 'api', name: 'not-a-service' })
+    expect(unknownService.isError).toBe(true)
+    expect(text(unknownService)).toContain('no catalogued service named "not-a-service"')
+
+    const nonRunning = await call(ctx, 'cordis_inspect', { what: 'api', name: 'bash' })
+    expect(nonRunning.isError).toBe(true)
+    expect(text(nonRunning)).toContain('catalogued service "bash" is not running')
+
+    const unknownEvent = await call(ctx, 'cordis_inspect', { what: 'events', name: 'not/an-event' })
+    expect(unknownEvent.isError).toBe(true)
+    expect(text(unknownEvent)).toContain('no catalogued event named "not/an-event"')
   })
 })
 
@@ -102,7 +153,11 @@ describe('inspect renderers (direct)', () => {
 
   it('describeApi omits the not-running line and type shapes when nothing applies', async () => {
     const ctx = await setup()
-    const lines = describeApi(ctx, [{ key: 'tools', summary: 'The registry.', methods: ['register(x): void'] }], [], [])
+    const lines = describeApi(ctx, [{
+      key: 'tools',
+      summary: 'The registry.',
+      methods: [{ signature: 'register(x): void', jsDoc: '/** Register x. */' }],
+    }], [], [])
     expect(lines[0]).toBe('- tools — The registry.')
     expect(lines[1]).toBe('    register(x): void')
     expect(lines.join('\n')).not.toContain('not running')
