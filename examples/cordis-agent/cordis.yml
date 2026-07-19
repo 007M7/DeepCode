@@ -5,7 +5,7 @@
 # Trust stance: the vm and context façade limit accidental global/framework
 # access but are not a security boundary; mounted code can reach live capabilities
 # such as `ctx.bash`. Grant this toolset like bash access. See
-# ../../docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
+# ../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
 
 # Hot-module reload for the dev/demo loop (needs `node --expose-internals`).
 - id: hmr

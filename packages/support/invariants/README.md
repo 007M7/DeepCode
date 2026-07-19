@@ -60,6 +60,10 @@ The standard agent spine mounts the service and the four stateful companions. Cu
 
 None, as the service and companions observe runtime events and requests but never alter prompts, messages, schemas, streams, or tool results.
 
+#### KV Cache effect
+
+None; invariant checks do not assemble or send provider requests.
+
 ## Known Limitations and Deferred Work
 
 - Stateful checks cover only the four listed package contracts; other companions reserve ownership but add no listeners until their packages gain relational assertions.

@@ -22,6 +22,10 @@ Tests of injection failures, partial topology, service load order, or service te
 
 None, as this test-only composition helper neither drives nor modifies model requests.
 
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
 ## Known Limitations and Deferred Work
 
 - **Only the mandatory prerequisite spine is shared** — adapters, optional plugins, `AgentLoop`, agents, and Context teardown remain caller-owned so scenario-specific ordering stays visible.

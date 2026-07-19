@@ -6,17 +6,10 @@
   },
   "include": ["src"],
   "references": [
-    {
-      "path": "../helper"
-    },
-    {
-      "path": "../../ui/app-boot"
-    },
-    {
-      "path": "../../../vendor/cordis"
-    },
-    {
-      "path": "../../support/invariants"
-    }
+    { "path": "../helper" },
+    { "path": "../telemetry" },
+    { "path": "../../ui/app-boot" },
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../support/invariants" }
   ]
 }

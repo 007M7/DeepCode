@@ -25,15 +25,31 @@ The plugin seeds display labels from the live agent registry, then tracks `agent
 
 ### Readline prompt input
 
-**What the model sees**: Each non-empty terminal line outside an active question becomes one text block, sent with `agent.send()` while the target agent is idle and `agent.steer()` while it is running.
+#### What the model sees
 
-**Token effect**: Submitted text is retained under the agent loop's normal session-history and compaction rules. The welcome banner, `> ` prompt, rendered transcript, and `[tool call]` / `[tool result]` terminal lines add no tokens.
+Each non-empty terminal line outside an active question becomes one text block, sent with `agent.send()` while the target agent is idle and `agent.steer()` while it is running.
+
+#### Token effect
+
+Submitted text is retained under the agent loop's normal session-history and compaction rules. The welcome banner, `> ` prompt, rendered transcript, and `[tool call]` / `[tool result]` terminal lines add no tokens.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ### Terminal user-interaction answers
 
-**What the model sees**: When a consumer calls `ctx.userInteraction.ask()`, this provider renders the question in the terminal and returns selected option labels or `custom` text. Through `dsh-tool-ask-user`, closed stdin becomes `Error: ask_user_question cannot be answered because stdin is closed`; disposal or abort becomes `Error: ask_user_question was interrupted before the user answered`.
+#### What the model sees
 
-**Token effect**: Waiting and terminal prompts add no tokens; the resolved answer or error is model-visible only through the calling tool or plugin's result.
+When a consumer calls `ctx.userInteraction.ask()`, this provider renders the question in the terminal and returns selected option labels or `custom` text. Through `dsh-tool-ask-user`, closed stdin becomes `Error: ask_user_question cannot be answered because stdin is closed`; disposal or abort becomes `Error: ask_user_question was interrupted before the user answered`.
+
+#### Token effect
+
+Waiting and terminal prompts add no tokens; the resolved answer or error is model-visible only through the calling tool or plugin's result.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

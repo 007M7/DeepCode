@@ -75,7 +75,7 @@ function throwUnknown(value: unknown): never {
   throw value
 }
 
-describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
+describe('the session-persistence Agent Note: AgentLoop factory create/resume', () => {
   it('normalizes a non-Error resume publication failure for rollback and rethrows it', async () => {
     const sessionId = SessionId('unknown-resume-failure-s')
     const root = await persistSession(sessionId)

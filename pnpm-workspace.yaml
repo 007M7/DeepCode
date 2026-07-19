@@ -7,7 +7,7 @@ packages:
   # plain-node (`:lib`) boot of any leaf (examples/<leaf>/cordis.yml) resolves its
   # plugins through real package `exports`→lib by walking up to examples/node_modules.
   # Members for DEPENDENCY RESOLUTION only — NOT build targets: tsdown's explicit
-  # globs (vendor/*, packages/*/*) exclude them. See the example-execute-over-tsx RFC.
+  # globs (vendor/*, packages/*/*) exclude them. See the example-execute-over-tsx Agent Note.
   - examples
   # Deploy root of the single-exe build: a pure dependency manifest whose
   # closure is what the exe bundles and what the Python runtime distributes.
