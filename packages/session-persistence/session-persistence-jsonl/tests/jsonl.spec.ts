@@ -40,6 +40,7 @@ async function freshRoot(): Promise<string> {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
 

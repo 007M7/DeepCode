@@ -8,7 +8,6 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { Message } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { CompactionResult } from './types.ts'
 
@@ -16,10 +15,13 @@ export type { CompactionResult } from './types.ts'
 export { renderContentBlocks, renderTranscript } from './render.ts'
 export { toolPairingBalancedAfter, toolPairingBalancedBefore } from './tool-pairing.ts'
 
+/** Why automatic policy is asking a backend to consider compaction. */
+export type CompactionTrigger = 'pressure' | 'context-overflow'
+
 /** Minimal agent context compaction needs without depending on the agent package. */
 export interface CompactAgentContext {
   session: Session
-  options: { model?: string }
+  options: { provider?: string; model?: string }
 }
 
 declare module 'cordis' {
@@ -41,24 +43,20 @@ export abstract class CompactService extends Service {
   }
 
   /**
-   * Check token pressure and compact if the conversation is too large.
-   * Estimate the next request, including its session prefix, derived history,
-   * and system prompt. Above threshold, compact a head-anchored range ending at
-   * a balanced tool boundary and reconsolidate any prior automatic checkpoint.
-   * Return `null` when no compaction is needed or an open tail leaves no safe
-   * cutoff. A single oversized retained unit or prefix cannot be repaired here.
+   * Consider automatic compaction for one explicit trigger. Pressure policy
+   * uses the latest durable routed request, while context-overflow policy may
+   * force a useful balanced reduction even below the normal threshold. Return
+   * `null` when no safe range can be compacted. A single oversized retained
+   * unit or request envelope cannot be repaired through surface compaction.
    *
-   * @param agent - agent context owning the session surface and model options.
-   * @param fullSystemPrompt - assembled system prompt, counted toward the estimate.
-   * @param sessionPrefix - the instance's composed session prefix, counted toward the
-   *   estimate.
+   * @param agent - agent context owning the session surface and routing options.
+   * @param trigger - normal pressure or provider-confirmed context overflow.
    * @param signal - cancellation signal; model-backed implementations must forward it.
    * @returns the compaction result, or `null` if no compaction was needed.
    */
   abstract compactIfNeeded(
     agent: CompactAgentContext,
-    fullSystemPrompt: string,
-    sessionPrefix: readonly Message[],
+    trigger: CompactionTrigger,
     signal: AbortSignal,
   ): Promise<CompactionResult | null>
 

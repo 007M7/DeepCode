@@ -14,6 +14,7 @@ pnpm run test          # vitest
 pnpm run demo:echo     # keyless mock-model REPL
 pnpm run demo:repl     # readline coding agent (needs DEEPSEEK_API_KEY)
 pnpm run demo:tui      # full-screen TUI coding agent (needs DEEPSEEK_API_KEY)
+pnpm run demo:headless -- "task" # one-shot coding agent (needs DEEPSEEK_API_KEY)
 pnpm run demo:cordis   # self-referential agent demo (needs DEEPSEEK_API_KEY)
 pnpm run demo:acp      # ACP server agent demo (needs DEEPSEEK_API_KEY)
 ```

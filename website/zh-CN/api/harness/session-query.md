@@ -11,6 +11,10 @@ Live-preferred logical-corpus exact-read and relationship-tracing service.
 ### ctx.sessionQuery.listSessions()
 
 ```ts website-api
+/**
+ * List the complete logical corpus using live-preferred records.
+ * @returns deterministic newest-first cloned session records.
+ */
 listSessions(): Promise<SessionRecord[]>
 ```
 
@@ -23,6 +27,11 @@ List the complete logical corpus using live-preferred records.
 ### ctx.sessionQuery.listEvents(sessionId)
 
 ```ts website-api
+/**
+ * List lightweight raw-log event records for one logical session.
+ * @param sessionId - live-preferred session id to read.
+ * @returns event records in ascending seq order.
+ */
 async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>
 ```
 
@@ -37,6 +46,12 @@ List lightweight raw-log event records for one logical session.
 ### ctx.sessionQuery.traceSession(sessionId)
 
 ```ts website-api
+/**
+ * Trace known ancestry and descendants from one corpus observation.
+ * @param sessionId - logical session id to trace.
+ * @returns a complete lineage or an explicit unresolved parent boundary.
+ * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.
+ */
 async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>
 ```
 
@@ -51,6 +66,12 @@ Trace known ancestry and descendants from one corpus observation.
 ### ctx.sessionQuery.traceEvent(request)
 
 ```ts website-api
+/**
+ * Trace one event's direct positional and provenance relationships.
+ * @param request - target session id and event seq.
+ * @returns direct links plus the target's positional replacement chain.
+ * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.
+ */
 async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>
 ```
 
@@ -65,6 +86,11 @@ Trace one event's direct positional and provenance relationships.
 ### ctx.sessionQuery.readEvent(request)
 
 ```ts website-api
+/**
+ * Read one full event plus a bounded raw-log context window.
+ * @param request - target session/seq and context sizes.
+ * @returns cloned target and neighboring events.
+ */
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 ```
 

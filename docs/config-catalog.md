@@ -99,7 +99,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
+Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core-data-structures/core.md)
 
 Source: [`packages/core/agent-loop/src/index.ts:369`](../packages/core/agent-loop/src/index.ts)
 
@@ -206,6 +206,42 @@ Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local) · [`SandboxMode`](core-
 
 Source: [`packages/bash/bash-sandbox/src/index.ts:27`](../packages/bash/bash-sandbox/src/index.ts)
 
+## `@deepseek-ai/dsh-cli-demo`
+
+```ts config-catalog
+/** App config forwarded to the spine, configured agent, and JSONL backend. */
+export interface Config {
+  /** Provider route for the configured agent. */
+  provider: string
+  /** Model name for the configured agent; a matching adapter must be registered. */
+  model: string
+  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
+  maxParallelToolCalls?: number
+  /** Deployment persona forwarded to the system-prompt plugin. */
+  persona?: string
+  /** Explicit model-facing tool order forwarded to the system-prompt plugin. */
+  toolOrder?: string[]
+  /** Tool-registry presentation config forwarded through agent-spine-demo. */
+  tools?: ToolsConfig
+  /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
+  dshHome?: string
+  /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
+  persistenceRoot?: string
+  /** Skill registry, local-provider, and model-facing consumer config. */
+  skills?: agentCore.SkillConfig
+  /** Model-facing bash tool config forwarded through agent-spine-demo. */
+  toolBash?: NonNullable<agentCore.Config['toolBash']>
+  /** Generic background-task control-tool config forwarded through agent-spine-demo. */
+  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
+}
+```
+
+Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
+
+Source: [`packages/examples/cli-demo/src/index.ts:22`](../packages/examples/cli-demo/src/index.ts)
+
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
 ```ts config-catalog
@@ -261,7 +297,9 @@ export interface BasicCompactConfig {
   maxTokens?: number
   /** Extra attempts after the first compaction when pressure remains above threshold. Defaults to `1`. */
   compactionRetries?: number
-  /** Enable the automatic `agent/pre-step` pressure listener. Defaults to `true`. */
+  /** Maximum retries after canonical context overflow; `0` disables recovery. Defaults to `1`. */
+  maxOverflowRetries?: number
+  /** Enable automatic post-step pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
 }
 ```
@@ -956,7 +994,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/time-context/src/index.ts:20`](../packages/context/time-context/src/index.ts)
+Source: [`packages/context/time-context/src/index.ts:19`](../packages/context/time-context/src/index.ts)
 
 ## `@deepseek-ai/dsh-token-meter`
 
@@ -1108,7 +1146,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`AgentOptions`](../packages/core/agent/src/index.ts)
+Depends on: [`AgentOptions`](core-data-structures/core.md)
 
 Source: [`packages/subagent/tool-subagent/src/index.ts:23`](../packages/subagent/tool-subagent/src/index.ts)
 

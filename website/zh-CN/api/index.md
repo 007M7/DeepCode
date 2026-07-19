@@ -1,6 +1,6 @@
 # API 参考
 
-本节是 DeepSeek Harness 的 API 参考。除本页外，`cordis/` 与 `harness/` 下的所有页面**由脚本从源码生成**（`pnpm run gen-website-api`，CI 校验新鲜度），签名与说明永远与代码一致；生成页目前为英文，中文版将随统一翻译流程提供。
+本节是 DeepSeek Harness 的 API 参考。除本页外，`cordis/` 与 `harness/` 下的所有页面**由脚本从源码生成**（`pnpm run gen-website-api`，CI 校验新鲜度）；签名代码块保留源码的原始 JSDoc，签名与说明永远与代码一致。生成页目前为英文，中文版将随统一翻译流程提供。
 
 ## 框架 API
 

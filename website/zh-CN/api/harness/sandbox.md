@@ -11,6 +11,17 @@ Abstract process-sandbox service. confine must return enforcing argv or fail clo
 ### ctx.sandbox.confine(argv, policy)
 
 ```ts website-api
+/**
+ * Wrap `argv` so it executes confined under `policy` on this host; the
+ * caller spawns the returned argv in place of its own.
+ * @param argv - the exact argv the caller is about to spawn (program plus
+ *   arguments), NOT a shell string — a shell-shaped consumer passes
+ *   `['bash', '-c', command]`.
+ * @param policy - the file-effect policy this execution runs under,
+ *   carried per call (see {@link SandboxPolicy}).
+ * @returns the argv to spawn instead, plus the enforcement completeness
+ *   the selected backend achieves for it.
+ */
 abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 ```
 

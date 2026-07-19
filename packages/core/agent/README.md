@@ -1,10 +1,10 @@
 # dsh-agent
 
-Agent interface, registry, and `agent/*` event vocabulary. Every plugin (UI, hooks, orchestrators) programs against the `Agent` handle defined here — it has zero loop dependency, so the loop is swappable.
+Agent interface, registry, process-local initiator scope, and `agent/*` event vocabulary. Every plugin (UI, hooks, orchestrators) programs against the `Agent` handle defined here — it has zero loop dependency, so the loop is swappable.
 
 ## Service: `AgentRegistry` (ctx key: `agents`)
 
-Tracks live agents so UI, hook, and orchestrator plugins can find them without importing the concrete loop package.
+Tracks live agents and carries the initiating Agent through asynchronous driver work without importing the concrete loop package.
 
 ### Public API
 
@@ -16,6 +16,17 @@ The scoped-registration surface: `Agent.ctx` is the agent's scope context (`dsh-
 - `ctx.agents.isOwnedBy(id: SessionId, owner: Agent): boolean` — whether the exact live entry was created through that parent agent's scoped context; runtime ownership is independent of durable session lineage.
 - `ctx.agents.list(): Agent[]`
 - `ctx.agents.roots(): Agent[]` — live agents created without an owning agent context; a resumed lineage-bearing session can still be a runtime root.
+
+#### Initiating Agent scope
+
+`AgentLoop` runs each concrete driver's complete lifetime inside an initiator boundary. Concurrent drivers remain isolated: a child driver's continuations carry the child, while the parent continuation regains the parent as soon as `withInitiator()` returns; drain tracking continues until the child driver's Promise settles. Creation, persistence load, and unpublished setup remain outside the child's boundary, so setup initiated by a parent inherits the parent while `agentCtx.agent` identifies the child explicitly.
+
+- `ctx.agents.currentInitiator(): Agent | undefined` — read the inherited initiator without requiring one.
+- `ctx.agents.requireInitiator(): Agent` — read it or throw `no initiating agent is active`.
+- `ctx.agents.withInitiator(agent, operation)` — run with one exact Agent and preserve the operation's exact synchronous value or Promise.
+- `ctx.agents.withoutInitiator(operation)` — hide an inherited initiator for unrelated process-local work.
+
+The scope carries the `Agent` itself and is process-local. Ambient presence is neither liveness proof nor authorization; explicit Agent fields remain authoritative at service, worker, process, persistence, and wire boundaries. Teardown rejects new boundaries, lets injected dependents and returned-Promise boundaries drain, then disables the underlying `AsyncLocalStorage`; unreturned work remains owned by the subsystem that detached it. If a boundary's inherited async chain starts an owning Cordis fiber's unload, that nested boundary chain is released from the drain so the unload cannot wait on itself; its continuations observe the disposed service after teardown. The [initiator-scope decision](../../../docs/rfc/implemented/architecture/2026-07-15-agent-initiator-scope.md) owns the detailed boundary and teardown contract.
 
 #### Factory seam (creation)
 
@@ -33,7 +44,7 @@ Agent *creation* is provided by the plugin implementing `AgentFactory` (`dsh-age
 
 The lifecycle edges have two important local caveats. `agent/created` runs after scoped setup and after both session and agent registry entries exist. Setup is trusted composition-only code; the immediately following non-vetoing `agent/session-start` notification is the first supported startup injection point. `agent/disposed` always means the exact agent has left the registry. AgentLoop emits it after its driver is quiescent, while ordered teardown may still be detaching the session and unwinding the scope; custom agents registered directly own any stronger driver-ordering contract themselves.
 
-Most interception points are cooperative waterfalls returning seam-specific decisions. `agent/pre-step` is a serial surface-mutation checkpoint, while `agent/turn-stop` is the terminal serial fold: it runs after ordinary continuation and steering folding, and a returned stop remains in force through turn close and flush so later steering cannot create an extra step or turn. Ordinary queued prompts remain intact. The full rationale is in the [agent-scope runtime-design RFC](../../../docs/rfc/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way).
+Most interception points are cooperative waterfalls returning seam-specific decisions. `agent/pre-step` and `agent/post-step` are serial checkpoints around a step's durable work, while `agent/request-error` is the failed-model-request recovery waterfall: a retry opens a new numbered step after the failed step closes. `agent/turn-stop` is the terminal serial fold: it runs after ordinary continuation and steering folding, and a returned stop remains in force through turn close and flush so later steering cannot create an extra step or turn. Ordinary queued prompts remain intact. The full rationale for scoped dispatch and terminal settlement is in the [agent-scope runtime-design RFC](../../../docs/rfc/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way).
 
 `PromptDecision.additionalContexts` is an array so every injected context keeps its own source, envelope, and metadata. A `ContinuationDecision` reason is narrower: it becomes a `steering/message`, not a `context/message`, and therefore carries only content and source.
 
@@ -72,9 +83,10 @@ The handle every plugin programs against:
 
 ## Known Limitations and Deferred Work
 
+- **Initiator scope is process-local** — workers, child processes, HTTP, durable queues, and restarts materialize any required identity explicitly.
+- **Ambient identity may outlive liveness** — consumers still check `agent.status`, cancellation, and the owning capability contract before lifecycle-sensitive work.
 - **Inter-agent channels beyond delegation** — shared state, streaming child output, and background/poll semantics remain outside the current synchronous `ctx.subagents` seam.
 - **`agent/session-start` cannot gate startup** — it remains a synchronous, veto-less notification; async composition that must finish before publication belongs in the factory's `setup(agentCtx)` transaction instead.
 - **No public step-only abort** — `cancel()` clears ALL pending work (queued + steering + in-flight); an abort that preserves queued prompts returns only with a named consumer ([stop-surface RFC](../../../docs/rfc/implemented/simplification/2026-06-20-public-agent-stop-surface.md)).
 - **`HookContext` carries exactly one `MessageSource`** — contributions from several plugins merged onto one tool call collapse under one source; mixed provenance is unrepresentable.
 - **`SessionStartSource` reserves `'clear'`/`'compact'` with no emitter yet** — only `'startup'`/`'resume'` occur until the driving subsystems land (`TODO(compaction)`).
-- **`agent/pre-step`'s `fullSystemPrompt`/`sessionPrefix` parameters are a flagged smell** — compaction is their only consumer; a lazy prompt provider or a compaction-specific pressure seam is the marked revisit.

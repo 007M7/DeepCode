@@ -17,7 +17,7 @@ Two forces shape the design. First, compaction policy and reusable token measure
 Per the [capability-seams RFC](../../implemented/architecture/2026-06-13-capability-seams.md), compaction ships as separate packages so the contract, the algorithm, and (later) the consumer surface evolve independently:
 
 1. **Interface** — `@deepseek-ai/dsh-compact`: an abstract `CompactService` owning the `ctx.compact` key, the `CompactionResult` vocabulary, and the `compact/*` session events. It declares `compactIfNeeded()` and `compactRegion()` as **abstract** — the contract states *what* compaction does, not *how*.
-2. **Implementation** — `@deepseek-ai/dsh-compact-basic`: a concrete `BasicCompactService` that consumes `ctx.tokenMeter` and owns the tail→head retention walk, summarization via `ctx.llm.stream()`, the surface replacement, the lock, and the `agent/pre-step` auto-compaction listener. `summarize()` is its sole subclass hook; pricing and replay stay with the meter.
+2. **Implementation** — `@deepseek-ai/dsh-compact-basic`: a concrete `BasicCompactService` that consumes `ctx.tokenMeter` and owns the tail→head retention walk, summarization via `ctx.llm.stream()`, the surface replacement, the lock, post-step pressure, and canonical context-overflow recovery. `summarize()` is its sole subclass hook; pricing and replay stay with the meter.
 3. **Consumer** — deferred. A `/compact` tool and slash command will `inject: ['compact']` and call the contract; they are intentionally out of scope here so the seam settles first.
 
 ### The contract depends on `dsh-session` and `dsh-llm` — a deliberate deviation
@@ -30,27 +30,27 @@ This is not a coupling smell — it is the contract's domain. The "only cordis" 
 
 An earlier draft put the full algorithm (the retention walk, token-summing, text extraction) as concrete methods on the interface. That recouples the contract to one strategy: a backend that wants a different retention policy or event sequence would have to fight inherited concrete code. Making both core methods abstract puts every *how* decision in the backend and keeps the interface a statement of *what*. Token measurement is not a compaction hook at all; the singleton service lets multiple consumers share one per-session replay fold.
 
-`compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)` takes required pressure inputs and cancellation. `compactRegion(start, end, agent, signal?)` uses `agent.session` as its single session identity and keeps an optional signal for manual callers. The pre-step integration resolves a provisional provider/model pair from the latest logged request header, then `AgentOptions`; a model-less router-only first step skips pressure because `agent/request` can route later. The default summarizer resolves its target from explicit config, the latest logged routed target, then agent options.
+`compactIfNeeded(agent, trigger, signal)` takes an explicit `'pressure' | 'context-overflow'` trigger and cancellation. It reads only the latest durable routed request; no header means no work, while any routed provider/model target uses the singleton estimator. `compactRegion(start, end, agent, signal?)` uses `agent.session` as its single session identity and keeps an optional signal for manual callers. The default summarizer resolves its target from explicit config, the latest logged routed target, then agent options, and records the provider/model pair after any `llm/stream` routing.
 
-### Auto-compaction runs on `agent/pre-step`, a dedicated surface-mutation seam
+### Automatic pressure runs after successful durable step work
 
-Compaction mutates the session surface, so it runs before the step opens and before messages are derived. `agent/request` remains a call-config transform and never needs to rebuild history after a surface change.
+Successful-call pressure cannot run at pre-step because final `agent/request` routing, provider output, tool results, buffered context, and steering do not exist there. Serial `agent/post-step(agent, turn, step, signal)` fires after those facts are durable and before `step/end`. `dsh-compact-basic` measures the canonical logged request through `ctx.tokenMeter`, so the next request sees any replacement without a speculative envelope override.
 
-The fix is a dedicated loop seam, **`agent/pre-step`** (`@mode serial`), fired by the loop *after* system assembly and *before* the step opens (`step/start`):
+Canonical provider context overflow takes a separate path. The failed step closes, `agent/request-error` receives the original request error and consecutive retry count, and compact-basic forces one useful balanced reduction. It returns retry only if `session.surface.replaceGeneration` increases; the loop then opens a new numbered step and reconstructs its request from the durable log. No range, no replacement, recovery failure, cancellation, an exhausted cap, or an unrelated error preserves the original provider failure. The complete lifecycle decision is in the [after-call recovery RFC](../../implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md).
 
 ```
-assembly = ctx.systemPrompt.assemble()
-await ctx.serial('agent/pre-step', agent, turn, step, system, prefix, signal)  ⟵ compaction mutates the surface here
-session('step/start')                 ⟵ the step opens AFTER the seam
-messages = session.deriveMessages()   ⟵ single derive, reflects the compaction
-request  = waterfall agent/request    ⟵ pure request transform (hooks, model switch)
-```
+assistant/message → tool/result/context/steering
+await serial agent/post-step          ⟵ pressure compaction inside the successful step
+step/end
 
-The loop derives messages once after `agent/pre-step`. Running before `step/start` keeps compaction records outside any half-open step, simplifying crash repair. The seam is awaited and serial so surface mutations cannot interleave; listeners return `void` and do not use Cordis bail values as vetoes.
+provider overflow → step/end
+await waterfall agent/request-error  ⟵ forced compaction between attempts
+retry → next numbered step/start      ⟵ derives from the replacement surface
+```
 
 ### Retention is turn-agnostic; tool-pairing balance is the only structural guard
 
-Auto-compaction fires before **every** step, not once per turn. This is **load-bearing for runaway-turn survival**: a tool-heavy ReAct turn appends an `assistant/message` + a `tool/result` per step, so the surface grows *within* a turn. A single turn can grow past the window on its own (a "runaway turn") — and the only moment to rescue it before the next model call overflows is the next step's `pre-step` checkpoint. Gating compaction to a turn's first step (or, worse, retaining the whole in-flight turn verbatim) re-opens exactly the hole compaction exists to close: the harness would die when compaction is most needed.
+Auto-compaction checks after **every successful** step, not once per turn. This is load-bearing for runaway-turn survival: a tool-heavy ReAct turn appends an `assistant/message` + a `tool/result` per step, so the surface grows within a turn. The post-step check can compact early closed tool pairs before continuation opens the next step, and provider-confirmed overflow remains the backstop when a request crosses the limit first.
 
 `compactIfNeeded` retains the smallest tail of whole surface units whose estimated size reaches `retainTokens` and compacts older nodes. A unit is a complete closed step or one no-step message. If the token cutoff lands inside a step, retention expands until the cut is tool-pairing balanced. Balance is checked on surface order, not log sequence, because replacement summaries have new sequence numbers at old surface positions. `dsh-compact` exports the before/after edge helpers; their per-session cache folds only appended surface-tail nodes while `replaceGeneration` is unchanged, does no event reads for log-only growth, and rebuilds current membership and balances after replacement. `compactRegion` rejects boundaries that split a tool call from its result. The in-flight turn receives no special retention.
 
@@ -64,7 +64,7 @@ Auto-compaction always starts at the surface head, merging the prior checkpoint 
 
 ### Approximate convergence invariant
 
-`resolveConfig` supplies usable defaults: threshold ratio `0.8`, retained tail `floor(contextWindow × 0.16)`, empty summarization-model override, `maxTokens: 8192`, `compactionRetries: 1`, and `auto: true`. Optional top-level `thresholdRatio` and `retainTokens` override the policy for the token meter's single context window; retention must remain below the resulting threshold. Convergence remains dynamic because provider output caps can be spent on hidden or surfaced reasoning tokens and summary size is unpredictable. If the compacted surface remains over threshold, `compactIfNeeded()` re-compacts the head checkpoint up to the configured retry count, but each committed summary must be smaller than what it shadows.
+`resolveConfig` supplies usable defaults: threshold ratio `0.8`, retained tail `floor(contextWindow × 0.16)`, empty summarization provider/model overrides, `maxTokens: 8192`, `compactionRetries: 1`, `maxOverflowRetries: 1`, and `auto: true`. Optional top-level `thresholdRatio` and `retainTokens` override the policy for the token meter's single context window; retention must remain below the resulting threshold. Convergence remains dynamic because provider output caps can be spent on hidden or surfaced reasoning tokens and summary size is unpredictable. If pressure remains over threshold, `compactIfNeeded()` re-compacts the head checkpoint up to the configured retry count, but each committed summary must be smaller than what it shadows. Overflow bypasses threshold and retained-tail policy for one maximal balanced head reduction, leaving the newest indivisible unit.
 
 ### Surface replacement: `compact/*` events are log-only; one `user/message` carries the summary
 
@@ -90,12 +90,12 @@ The basic backend wraps the summary as established checkpoint context and tags i
 The `compact/start … compact/end` bracket is justified, in order of what now does the work:
 
 1. **Crash-detectable orphan + provenance** (primary). Summarization is a slow model call persisted *after* `compact/start`. A crash mid-summarization leaves a `compact/start` with no matching `compact/end` — a detectable orphan. Releasing the lock last (rather than first) converts the crash window from *silent corruption* into that detectable orphan.
-2. **Prevents concurrent compaction.** `compactRegion` refuses to start if the current turn holds an unmatched `compact/start`. (The loop is single-threaded across the awaited `pre-step`, so this is also a re-entry tripwire — a thrown "already in progress" signals a real bug.)
+2. **Prevents concurrent compaction.** `compactRegion` refuses to start if the current turn holds an unmatched `compact/start`. (The loop is single-threaded across either awaited automatic seam, so this is also a re-entry tripwire — a thrown "already in progress" signals a real bug.)
 
 Two failure paths, both documented:
 
-- **Crash** (the loop dies mid-summarization): a dangling `compact/start`, no closer. Because `compact/*` are **log-only**, the orphan is **inert** — the surface replacement never landed, so the full, uncompacted history derives correctly. Generic turn-repair (`interruptedTurnClosers`) closes the turn with a synthetic `turn/end`; the orphan sits *before* that `turn/end`, so the turn-scoped in-progress check never sees it and a crash can't wedge future compaction. Compaction simply re-attempts at the next `pre-step`.
-- **Recoverable** (summarization throws but the loop survives): the backend appends `compact/end` with its **`error`** field set, leaving the surface untouched, and the model call proceeds with full history.
+- **Crash** (the loop dies mid-summarization): a dangling `compact/start`, no closer. Because `compact/*` are **log-only**, the orphan is **inert** — the surface replacement never landed, so the full, uncompacted history derives correctly. Generic turn-repair (`interruptedTurnClosers`) closes the turn with a synthetic `turn/end`; the orphan sits *before* that `turn/end`, so the turn-scoped in-progress check never sees it and a crash cannot wedge future compaction.
+- **Recoverable** (summarization throws but the loop survives): the backend appends `compact/end` with its **`error`** field set and leaves the surface untouched. Post-step pressure warns and continues; overflow recovery delegates so the original provider error remains authoritative.
 
 `compact/end` keeps its `error?` field (mirroring `tool/result`'s self-contained error — one event tells success from failure without correlating a sibling). There is no separate `compact/error` event.
 
@@ -104,14 +104,14 @@ Two failure paths, both documented:
 ## Alternatives considered
 
 - **The full algorithm as concrete interface methods** — rejected because it recouples the contract to one retention strategy. Both core methods are abstract; reusable measurement is a separate LLM-family service and `summarize()` is basic's sole hook.
-- **Compaction on the `agent/request` waterfall** — the earlier cut; rejected for the double-derive it forced and for handing the listener context it structurally cannot compact. The dedicated `agent/pre-step` seam makes the layering correct by construction.
+- **Compaction on `agent/request` or provisional `agent/pre-step` inputs** — rejected because neither proves the final durable request and both couple generic lifecycle to compaction-specific envelope data. Post-step replay plus canonical overflow recovery covers both successful and rejected calls.
 - **A separate `compact/error` event** — rejected: `compact/end` keeps an `error?` field, mirroring `tool/result`'s self-contained error — one event tells success from failure without correlating a sibling.
 - **Teaching core turn-repair about `compact/*`** — rejected: the log-only orphan is inert, and a core module patched for every future `xxx/start … xxx/end` plugin pair is exactly the coupling the capability-seam architecture exists to avoid.
 
 ## Consequences
 
 - **Packages**: `packages/compact/compact` supplies the interface and `compact-basic` supplies the backend. `packages/llm/token-meter` owns replay-aware measurement independently. The consumer tier is deferred.
-- **New loop seam**: `agent/pre-step` (`@mode serial`) declared in `dsh-agent` and emitted by `dsh-agent-loop` after system assembly and before `step/start`. This is a documented change to the loop — `docs/architecture.md` records it and the generated cordis catalog carries its signature.
+- **Automatic seams**: `agent/post-step` (`@mode serial`) handles successful-call pressure and `agent/request-error` (`@mode waterfall`) handles final request failures after the failed step closes. Generic `agent/pre-step` remains a four-argument checkpoint with no compaction-only prompt/prefix payload.
 - **`SessionEventMap`** gains `compact/start` / `compact/summary` / `compact/end` by declaration merging (merge-extensible); `SurfaceEventType` is **not** touched. These are session events, not cordis `Events`, so the event-taxonomy gate needs no entry.
 - **`dsh-compact`** owns `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)`, the cached surface-edge checks that `compactRegion` and `compactIfNeeded` use to avoid splitting a tool-call/result pair. The cache validates current membership by seq and answers both edges from one per-cut balance sequence; stale or missing seqs and orphan results reject. `dsh-session` continues to own the surface `replace` operation, ordered event sequences, and rewrite generation.
 - **`dsh-invariants`** drops its `surface replace: start must be <= end` assertion: a head-anchored compaction lands a high-seq replacement entry at an older range's *position*, so `start > end` numerically is normal and valid (the range is positional, validated by the surface's `indexOf` checks that remain). The turn-enclosure invariant is reused unchanged.
@@ -119,7 +119,7 @@ Two failure paths, both documented:
 
 ## Testing
 
-- **Unit:** Real Loader and invariant plugins cover whole-unit retention, convergence failure, both `compact/end` outcomes, head anchoring, open-tail refusal, inert crash orphans, and compacting closed steps inside one oversized open turn.
-- **Loop:** Tests pin one awaited `agent/pre-step` per step between `turn/start` and `step/start`; a surface mutation there lands outside the step and appears in the single derived request.
+- **Unit:** Real Loader and invariant plugins cover whole-unit retention, convergence failure, both `compact/end` outcomes, head anchoring, open-tail refusal, inert crash orphans, forced below-threshold overflow, generation proof, caps, and original-error preservation.
+- **Loop:** Tests pin post-step after durable tool results and before `step/end`, actual `agent/request` routing, closed failed steps, fresh retry numbering, and complete thrown/in-band overflow → compaction → reconstructed retry composition.
 - **With-key e2e:** A real model and bash session with lowered limits triggers compaction, records a complete `compact/start…end` pair, shrinks the surface, and finishes the task.
 - **Snapshot gap:** Runaway-turn compaction cannot yet replay because the summarization call records no `assistant/chunk` events or `sessionId`; interleaved summarization-call replay remains follow-up work.

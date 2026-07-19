@@ -18,7 +18,7 @@ Both methods are **abstract** — the backend owns trigger policy, retention, ev
 
 | Member | Semantics |
 |---|---|
-| `compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)` | Estimate the surface-derived history size; if over the backend's threshold, compact an older range via `compactRegion`, keeping recent context intact. Returns the `CompactionResult`, or `null` if nothing needed compacting. All parameters required — the loop's `agent/pre-step` checkpoint supplies the agent, assembled `fullSystemPrompt`, composed `sessionPrefix` (request-only messages every request carries but the derived history omits — the pressure estimate must count them), and turn `signal`. A backend's summarization request is a direct `ctx.llm.stream()` call (not a loop step), so per-call interception happens at `llm/stream`. |
+| `compactIfNeeded(agent, trigger, signal)` | Consider automatic compaction for `trigger: 'pressure' \| 'context-overflow'`. A pressure trigger may apply the backend's threshold and retained-tail policy; a confirmed overflow may force a useful balanced reduction. Returns the `CompactionResult`, or `null` when no safe range exists. A backend's summarization request is a direct `ctx.llm.stream()` call (not a loop step), so per-call interception happens at `llm/stream`. |
 | `compactRegion(start, end, agent, signal?)` | Forcibly summarize surface nodes `[start, end]` (inclusive seqs) from `agent.session` into a single replacement node. **Throws** if a compaction is already in progress, if `start`/`end` aren't surface nodes, or if `start` is positioned after `end` on the surface. The range is a SURFACE-POSITION span, not a numeric seq interval — after a prior replace lands a fresh high-seq summary node at the shadowed range's position, surface order no longer tracks seq order. |
 
 `CompactionResult` keeps the raw summary and bookkeeping-event seqs available to callers alongside the shadowed range and token accounting; its drift-checked shape lives in the [compaction data-structure reference](../../../docs/core-data-structures/compaction.md#compactionresult).
@@ -74,6 +74,5 @@ Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and 
 ## Known Limitations and Deferred Work
 
 - **No model-facing consumer tier yet** — `@deepseek-ai/dsh-tool-compact` (the `/compact` tool) is deferred; compaction is reachable only via direct `ctx.compact` calls or a backend's auto listener.
-- **Single-unit overflow is out of contract** — one retained unit (a closed step or a large pasted `user/message`) alone exceeding the budget cannot be compacted; the call may go out over-budget.
-- **A session prefix that alone approaches the window is a configuration error no backend fixes** — compaction shrinks derived history, never the prefix.
-- **Request context injected by downstream `agent/request` listeners sits outside pressure accounting** — `compactIfNeeded` counts prefix, derived history, and system prompt only.
+- **Single-unit overflow is out of contract** — one indivisible unit (a closed tool pair or a large pasted `user/message`) alone exceeding the budget cannot be compacted.
+- **An envelope that alone approaches the window is not surface-compaction work** — compaction shrinks derived history, never the system prompt, tools, or session prefix.

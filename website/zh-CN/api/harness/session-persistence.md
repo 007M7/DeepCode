@@ -11,6 +11,13 @@ Durable append-only session storage. Implementations preserve contiguous, lossle
 ### ctx.sessionPersistence.locate(meta)
 
 ```ts website-api
+/**
+ * Resolve this backend's independent local artifact for a session without
+ * reading, creating, flushing, or otherwise materializing it. Backends such
+ * as SQLite that do not own one artifact per session return `undefined`.
+ * @param meta - the immutable session header whose artifact is requested.
+ * @returns the backend-specific absolute location, when one exists.
+ */
 abstract locate(meta: SessionHeader): SessionLocation | undefined
 ```
 
@@ -25,6 +32,13 @@ Resolve this backend's independent local artifact for a session without reading,
 ### ctx.sessionPersistence.create(meta)
 
 ```ts website-api
+/**
+ * Register a new session's metadata. A backend MAY defer the physical write
+ * until the first {@link append} (lazy materialization), in which case a
+ * created-but-never-appended session is absent from {@link list}
+ * — abandoned sessions leave nothing behind.
+ * @param meta - the immutable header (id, version, cwd, lineage) to record.
+ */
 abstract create(meta: SessionHeader): Promise<void>
 ```
 
@@ -37,6 +51,15 @@ Register a new session's metadata. A backend MAY defer the physical write until 
 ### ctx.sessionPersistence.append(id, events)
 
 ```ts website-api
+/**
+ * Durably persist a batch of events (called from the write-behind drain at
+ * the `session/flush` checkpoint). Honors the append-only and contiguous-seq
+ * contracts: the first event's `seq` MUST equal the stored next-seq (after
+ * `load` has durably closed any interrupted turn). Rejects non-JSON-
+ * serializable `event.data` with an error naming the offending event type.
+ * @param id - the session the batch belongs to.
+ * @param events - the contiguous batch to persist, in seq order.
+ */
 abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 ```
 
@@ -50,6 +73,14 @@ Durably persist a batch of events (called from the write-behind drain at the `se
 ### ctx.sessionPersistence.load(id)
 
 ```ts website-api
+/**
+ * Load a header and balanced contiguous log. A complete interrupted final
+ * turn is preserved and durably closed with missing tool errors plus any open
+ * step and turn boundaries; only a torn final record is discarded. Unknown
+ * versions and corruption in the committed prefix reject.
+ * @param id - the persisted session to reload.
+ * @returns the header and a log ending on a balanced `turn/end`.
+ */
 abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 ```
 
@@ -64,6 +95,10 @@ Load a header and balanced contiguous log. A complete interrupted final turn is 
 ### ctx.sessionPersistence.list()
 
 ```ts website-api
+/**
+ * Lightweight listing from metadata, without a full-log parse.
+ * @returns one header per materialized session.
+ */
 abstract list(): Promise<SessionHeader[]>
 ```
 
