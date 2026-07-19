@@ -147,6 +147,10 @@ describe('TUI config', () => {
 describe('pi-tui chat lifecycle and transcript', () => {
   it('renders its header, footer, replay, streaming answer, todos, and status', async () => {
     const result = await setup({
+      // A fixed short cwd keeps the footer's token counters inside the 88-column
+      // fake terminal regardless of where the checkout lives; cwd rendering has
+      // its own dedicated variants test below.
+      cwd: '/workspace',
       beforeMount(session) {
         appendUser(session, 'restored prompt')
         appendAssistant(session, [
@@ -278,6 +282,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
   it('renders the ANSI palette and every markdown/content style', async () => {
     const result = await setup({
+      cwd: '/workspace',
       config: { color: true },
       beforeMount(session) {
         session.append('user/message', {
