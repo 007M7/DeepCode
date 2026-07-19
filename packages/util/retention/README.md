@@ -85,7 +85,9 @@ const footer = formatRetentionNotice(
 
 Indirectly, through tool consumers that render retained content and omission metadata.
 
-**KV Cache effect**: No direct invalidation; the named consumer owns any request-prefix changes.
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

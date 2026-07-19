@@ -41,7 +41,9 @@ A per-run isolated config directory for an external CLI child (the target of `CL
 
 Indirectly, through process-based subagent backends, whose child composition is constrained by credential scrubbing and isolated config directories.
 
-**KV Cache effect**: No direct invalidation; the named consumer owns any request-prefix changes.
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

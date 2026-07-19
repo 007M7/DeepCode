@@ -26,7 +26,9 @@ Persistence is optional and may mount or unmount dynamically. Cross-corpus listi
 
 None, as this trusted query service returns cloned session records only to its callers and registers no model-facing prompt, schema, tool, or message.
 
-**KV Cache effect**: None; this package neither assembles nor sends a provider request.
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 

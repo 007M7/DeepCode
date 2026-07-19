@@ -48,7 +48,9 @@ This package declares three events (see the generated [events catalog](../../../
 
 Indirectly, through `dsh-tool-fs`, which renders provider text and errors as bounded, retained filesystem tool results.
 
-**KV Cache effect**: No direct invalidation; the named consumer owns any request-prefix changes.
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
