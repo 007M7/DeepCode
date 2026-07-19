@@ -55,6 +55,10 @@
       "link": "/zh-CN/api/harness/fs"
     },
     {
+      "text": "ctx.goals",
+      "link": "/zh-CN/api/harness/goals"
+    },
+    {
       "text": "ctx.llm",
       "link": "/zh-CN/api/harness/llm"
     },

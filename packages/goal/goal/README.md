@@ -1,0 +1,45 @@
+# @deepseek-ai/dsh-goal
+
+Event-sourced same-session goal state. The service retains one current completion objective in an agent's existing session while keeping permission to continue as process-local activation. The [goal-domain RFC](../../../docs/rfc/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md) owns the design rationale; the [goal type catalog](../../../docs/core-data-structures/goal.md) records the literal data shapes.
+
+## Config
+
+```yaml
+- id: goal
+  name: '@deepseek-ai/dsh-goal'
+  config:
+    defaultMaxGoalRounds: 256
+```
+
+`defaultMaxGoalRounds` must be a positive safe integer. `resolveCreate()` materializes this deployment default before `create()` commits a goal; a request-level value overrides it.
+
+## Service contract
+
+`ctx.goals` accepts only the exact live `Agent` instance registered under its id. `get()` returns a detached `GoalView`; mutations use a `GoalRef { id, revision }` compare-and-set fence and reject stale refs. The service exposes create, edit, pause, resume, complete, block, usage-limit, budget-limit, and clear verbs through the generated [service catalog](../../../docs/cordis-catalog/services.md).
+
+At most one goal is current. Creation produces an active revision-one goal and arms it. A non-complete goal must be edited, transitioned, or cleared; a completed goal may be replaced by a globally fresh id. Edits retain phase and activation. Pause, completion, blocking, limit transitions, and clear disarm activation. Resume accepts a stopped phase or a disarmed active goal only while the configured round cap has remaining capacity; an active armed goal rejects the redundant operation.
+
+Every non-clear mutation appends a complete versioned snapshot through `agent.inject()`; clear appends a revisioned tombstone. The raw `context/message`, its `{ kind: 'goal' }` source, and its metadata must agree exactly. Replay rejects malformed shapes, source/content drift, discontinuous revisions, illegal lifecycle transitions, non-monotonic per-goal timestamps, and non-sequential goal rounds. Mutation timestamps clamp against the preceding goal update when wall time moves backward.
+
+Injection may append immediately or wait in an active tool-batch FIFO. The service overlays accepted pending changes in memory and reconciles each exact payload when it enters the log, so consecutive model-tool mutations see their own latest revisions without treating an unlogged cache as durable state. `goal/changed` fires after the append or enqueue succeeds; listener failures are contained.
+
+Activation is never persisted. A fresh cache and every `agent/session-start` edge disarm it even when replay finds an active durable phase. Session resume and fork therefore retain the objective, phase, revisions, and admitted-round count without initiating work; a later explicit resume mutation must arm continuation.
+
+## Extension points
+
+Policy plugins call the service verbs and react to the scoped `goal/changed` event. A continuation consumer admits rounds as `user/message` events with `GoalMessageSource`; ordinary human turns never increment `roundsStarted`. Consumers use the `Agent` interface and events rather than importing `dsh-agent-loop`.
+
+## Model Experience
+
+### Goal-state mutation
+
+**What the model sees**: Each mutation is one raw user-role context block. A snapshot is rendered as `<goal_state>{"goal":...,"roundsStarted":...,"createdAt":...,"updatedAt":...}</goal_state>`; a clear renders the tombstone id/revision and `clearedAt`. There is no hidden state summary outside the log.
+
+**Token effect**: Every retained mutation adds one full snapshot to derived history until compaction shadows it. Full snapshots make each record independently inspectable but repeat the objective and lifecycle fields.
+
+## Known Limitations and Deferred Work
+
+- **State, not scheduling** — this package does not decide when an armed goal continues, retry abnormal failures, or cancel an active turn; those policies belong to agent-seam consumers.
+- **Round-count budget only** — `maxGoalRounds` does not meter tokens, currency, wall time, or provider quotas.
+- **No independent evaluator** — the caller that records completion or blocking is authoritative; evaluator-backed certification is deferred to a separate policy layer.
+- **One current goal** — parallel objectives and a separate goal database are intentionally absent; history remains available in the session log after replacement or clear.

@@ -2,7 +2,7 @@
 
 # Harness events
 
-Every event the harness packages declare on the cordis event bus (42 total), grouped by scope. The **mode** is the dispatch semantics (`emit` fire-and-forget, `parallel` awaited, `serial` first-bail, `waterfall` veto-chain — a waterfall listener MUST call `next()` to delegate).
+Every event the harness packages declare on the cordis event bus (43 total), grouped by scope. The **mode** is the dispatch semantics (`emit` fire-and-forget, `parallel` awaited, `serial` first-bail, `waterfall` veto-chain — a waterfall listener MUST call `next()` to delegate).
 
 ## agent/*
 
@@ -518,6 +518,32 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 - `actor` — the opaque tool-execution context the decider keys off.
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L53)
+
+## goal/*
+
+### goal/changed
+
+**Mode:** `emit`
+
+```ts website-api
+/**
+ * Goal mutation accepted by one live agent. The matching context event is
+ * already appended or queued in that agent's active tool-batch FIFO.
+ * Listener failures are contained.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @param agent - agent whose session owns the goal.
+ * @param change - fresh current projection or clear tombstone.
+ * @mode emit
+ */
+'goal/changed'(this: import('@deepseek-ai/dsh-scope').Scoped<Agent>, agent: Agent, change: GoalChanged): void
+```
+
+Goal mutation accepted by one live agent. The matching context event is already appended or queued in that agent's active tool-batch FIFO. Listener failures are contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+
+- `agent` — agent whose session owns the goal.
+- `change` — fresh current projection or clear tombstone.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/types.ts#L166)
 
 ## llm/*
 

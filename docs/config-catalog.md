@@ -318,6 +318,20 @@ export interface Config {
 
 Source: [`packages/fs/fs-local/src/index.ts:38`](../packages/fs/fs-local/src/index.ts)
 
+## `@deepseek-ai/dsh-goal`
+
+Requires: `agents`
+
+```ts config-catalog
+/** Deployment defaults for goal creation. */
+export interface Config {
+  /** Total rounds used when a create request omits its own cap. */
+  defaultMaxGoalRounds?: number
+}
+```
+
+Source: [`packages/goal/goal/src/index.ts:56`](../packages/goal/goal/src/index.ts)
+
 ## `@deepseek-ai/dsh-hooks-claude`
 
 Requires: `bash`

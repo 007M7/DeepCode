@@ -1,0 +1,24 @@
+# Test-only composition: create one goal through a Loader-mounted lifecycle consumer.
+- id: mock-llm
+  name: '../../../../src/mock-llm.ts'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+
+- id: goal
+  name: '@deepseek-ai/dsh-goal'
+  config:
+    defaultMaxGoalRounds: 11
+
+- id: seed-goal
+  name: './seed-goal.ts'
+
+- id: stdio-agent
+  name: '@deepseek-ai/dsh-stdio-demo'
+  config:
+    provider: mock
+    model: mock-echo
+    persona: 'Test the persisted goal domain.'
+    welcome: 'goal-domain e2e ready.'
+    persistenceRoot: './.sessions'
+    workspaceContext: false
