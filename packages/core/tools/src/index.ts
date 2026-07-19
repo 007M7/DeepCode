@@ -958,8 +958,9 @@ export class ToolRegistry extends Service {
     // Freeze the remaining mutable signal slot before observers receive the
     // shared WeakMap-keyable execution object.
     Object.freeze(exec)
+    const { name: toolName, callId } = exec
     const reportFailure = (error: unknown): void => {
-      this.ctx.logger.warn(`tool "${exec.name}" (${exec.callId}): tools/result observer failed: ${errorMessage(error)}`)
+      this.ctx.logger.warn(`tool "${toolName}" (${callId}): tools/result observer failed: ${errorMessage(error)}`)
     }
     const callbacks = this.ctx.events.dispatch('emit', [
       scopeTarget(this, exec.agent), 'tools/result', exec, result,
