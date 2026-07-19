@@ -1,10 +1,10 @@
-# Full-screen TUI front door over the same coding-agent composition used by the
+# Full-screen TUI front door over the same repl-agent composition used by the
 # readline REPL. The include keeps backends and optional tools aligned; the
 # patch owns only the terminal-specific app config.
 - id: base
   name: '@cordisjs/plugin-include'
   config:
-    path: ../coding-agent/cordis.yml
+    path: ../repl-agent/cordis.yml
     patches:
       - id: stdio-agent
         name: '@deepseek-ai/dsh-stdio-demo'
@@ -22,7 +22,7 @@
               showReasoning: true
               maxToolOutputLines: 12
           persona: |
-            You are coding-agent, a coding assistant powered by the {{model}} model.
+            You are a coding agent powered by the {{model}} model.
 
             Verify your work by running the code or tests. Keep answers brief and
             factual.

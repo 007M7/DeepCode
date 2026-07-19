@@ -69,7 +69,7 @@ echo-agent ready. Type a message ("echo <text>" triggers the tool).
 DEEPSEEK_API_KEY=sk-your-key-here
 ```
 
-### 启动 coding-agent
+### 启动 repl-agent
 
 ```sh
 pnpm run demo:repl
@@ -90,7 +90,7 @@ agent REPL ready. Give it a coding task.
 
 ## 回头看
 
-echo-agent 和 coding-agent 用的是同一个应用框架(`@deepseek-ai/dsh-stdio-demo`)，区别只在 `cordis.yml`——换了哪些插件、填了什么配置。你以后定制自己的 Agent 也是同样的方式。
+echo-agent 和 repl-agent 用的是同一个应用框架(`@deepseek-ai/dsh-stdio-demo`)，区别只在 `cordis.yml`——换了哪些插件、填了什么配置。你以后定制自己的 Agent 也是同样的方式。
 
 ## 下一步
 
