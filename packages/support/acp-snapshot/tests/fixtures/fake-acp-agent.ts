@@ -33,6 +33,10 @@ interface Behavior {
   rejectExtraDirs?: boolean
   /** How `session/prompt` settles: a clean response, a JSON-RPC error, or a hang until `session/cancel`. */
   prompt?: 'respond' | 'error' | 'hang-until-cancel'
+  /** Emit a tool call instead of a message chunk before parking a cancellable prompt. */
+  cancelAtToolCall?: boolean
+  /** Emit the parked tool call's terminal update after answering cancellation. */
+  cancelToolCallUpdate?: boolean
   /** Before responding to a prompt, send a `session/request_permission` request and echo its outcome as a chunk. */
   permissionProbe?: boolean
   /** Echo the `DSH_SNAPSHOT_*` env the harness set as a chunk (spec-side env-plumbing assertions). */
@@ -126,7 +130,23 @@ async function handlePrompt(id: number | string): Promise<void> {
       params: { sessionId, update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'mulling' } } },
     })
   }
-  chunk('thinking about it')
+  if (behavior.cancelAtToolCall === true) {
+    send({
+      method: 'session/update',
+      params: {
+        sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'call_fake_1',
+          title: 'fake tool',
+          kind: 'execute',
+          status: 'in_progress',
+        },
+      },
+    })
+  } else {
+    chunk('thinking about it')
+  }
   if (behavior.echoEnv === true) {
     chunk(`env:${JSON.stringify({
       mode: process.env.DSH_SNAPSHOT,
@@ -229,6 +249,19 @@ function handleFrame(frame: Record<string, unknown>): void {
         const parked = parkedPromptId
         parkedPromptId = null
         respond(parked, { stopReason: 'cancelled' })
+        if (behavior.cancelToolCallUpdate === true) {
+          send({
+            method: 'session/update',
+            params: {
+              sessionId,
+              update: {
+                sessionUpdate: 'tool_call_update',
+                toolCallId: 'call_fake_1',
+                status: 'failed',
+              },
+            },
+          })
+        }
       }
       return
     default:

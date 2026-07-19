@@ -83,7 +83,7 @@ async function fire(
   step: number,
   signal: AbortSignal = SIGNAL,
 ): Promise<void> {
-  await ctx.serial('agent/pre-step', agent, turn, step, '', [], signal)
+  await ctx.serial('agent/pre-step', agent, turn, step, signal)
 }
 
 function textResponse(text: string): StreamChunk[] {

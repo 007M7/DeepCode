@@ -445,6 +445,22 @@ type ContinuationDecision =
   | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
 ```
 
+`agent/request-error` receives the original `RequestError`, whose optional provider-neutral `code` supports stable routing without message parsing:
+
+```ts type-equiv
+/** Model-request failure with an optional machine-routable provider code. */
+type RequestError = Error & { code?: string }
+```
+
+It returns a `RequestErrorDecision`; `retry` opens a new numbered step after the recovery listener's durable mutation, while `fail` preserves that error:
+
+```ts type-equiv
+/** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */
+type RequestErrorDecision = { action: 'fail' } | { action: 'retry' }
+```
+
+`agent/post-step` is awaited after assistant output, real or synthetic tool results, buffered context, and steering are durable but before `step/end`. A cancelled tool batch reaches it with an aborted signal after draining; its signature is `(agent, turn, step, signal)`, and replayable facts remain in the session log rather than a transient payload.
+
 `agent/turn-stop` returns the stop-only `ContinuationStop` subset or `undefined`. The loop calls this serial checkpoint after folding the ordinary decision, its reason, and pending steering; a stop is terminal and discards pending steering.
 
 ```ts type-equiv

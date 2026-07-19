@@ -469,8 +469,16 @@ describe('tool-call scheduler: abort handling', () => {
     await waitForIdle(ctx, agent)
 
     expect(gated.started).toEqual([])
-    expect(events(agent).filter(e => e.type === 'tool/call')).toEqual([])
-    expect(events(agent).filter(e => e.type === 'tool/result')).toEqual([])
+    expect(events(agent).filter(e => e.type === 'tool/call').map(e => e.data.callId))
+      .toEqual([CallId('c1'), CallId('c2')])
+    expect(events(agent).filter(e => e.type === 'tool/result').map(e => ({
+      callId: e.data.callId,
+      isError: e.data.isError,
+      error: e.data.error,
+    }))).toEqual([
+      { callId: CallId('c1'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } },
+      { callId: CallId('c2'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } },
+    ])
   })
 
   it('stops starting siblings when abort fires during ordered pre-execute', async () => {
@@ -497,9 +505,11 @@ describe('tool-call scheduler: abort handling', () => {
     await waitForIdle(ctx, agent)
 
     expect(events(agent).filter(e => e.type === 'tool/call').map(e => e.data.callId))
-      .toEqual([CallId('c1')])
+      .toEqual([CallId('c1'), CallId('c2')])
     expect(events(agent).filter(e => e.type === 'tool/result').map(e => e.data.callId))
-      .toEqual([CallId('c1')])
+      .toEqual([CallId('c1'), CallId('c2')])
+    expect(events(agent).filter(e => e.type === 'tool/result').at(-1)?.data)
+      .toMatchObject({ callId: CallId('c2'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } })
   })
 
   it('stops replenishing after abort, commits started results, and drains accepted additional contexts', async () => {
@@ -525,12 +535,17 @@ describe('tool-call scheduler: abort handling', () => {
 
     expect(gated.started).toEqual(['1', '2'])
     expect(events(agent).filter(e => e.type === 'tool/call').map(e => e.data.callId))
-      .toEqual([CallId('c1'), CallId('c2')])
+      .toEqual([CallId('c1'), CallId('c2'), CallId('c3'), CallId('c4')])
     expect(events(agent).filter(e => e.type === 'tool/result').map(e => e.data.callId))
-      .toEqual([CallId('c1'), CallId('c2')])
+      .toEqual([CallId('c1'), CallId('c2'), CallId('c3'), CallId('c4')])
+    expect(events(agent).filter(e => e.type === 'tool/result').slice(-2).map(e => e.data))
+      .toEqual([
+        expect.objectContaining({ callId: CallId('c3'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } }),
+        expect.objectContaining({ callId: CallId('c4'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } }),
+      ])
     const settled = events(agent).filter(e => e.type === 'tool/result' || e.type === 'context/message')
     expect(settled.map(e => e.type))
-      .toEqual(['tool/result', 'tool/result', 'context/message', 'context/message'])
+      .toEqual(['tool/result', 'tool/result', 'tool/result', 'tool/result', 'context/message', 'context/message'])
     expect(settled.filter(e => e.type === 'context/message')
       .map(e => (e.data.content[0] as { text: string }).text))
       .toEqual(['ctx-c1', 'ctx-c2'])
@@ -566,6 +581,8 @@ describe('tool-call scheduler: abort handling', () => {
 
     expect(exclusive).toEqual([])
     expect(events(agent).filter(e => e.type === 'tool/call').map(e => e.data.callId))
-      .toEqual([CallId('c1'), CallId('c2')])
+      .toEqual([CallId('c1'), CallId('c2'), CallId('c3')])
+    expect(events(agent).filter(e => e.type === 'tool/result').at(-1)?.data)
+      .toMatchObject({ callId: CallId('c3'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } })
   })
 })
