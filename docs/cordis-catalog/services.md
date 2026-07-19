@@ -42,7 +42,7 @@ async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<Agent
 async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
 Source: [`packages/core/agent-loop/src/index.ts:407`](../../packages/core/agent-loop/src/index.ts)
 
@@ -214,7 +214,7 @@ list(): Agent[]
 roots(): Agent[]
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
 Source: [`packages/core/agent/src/index.ts:217`](../../packages/core/agent/src/index.ts)
 
@@ -284,7 +284,7 @@ abstract run(spec: BashExecSpec): Promise<BashRunResult>
 abstract start(spec: BashExecSpec): BashProcess
 ```
 
-Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
+Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashProcess](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
 Source: [`packages/bash/bash/src/index.ts:49`](../../packages/bash/bash/src/index.ts)
 
@@ -315,7 +315,7 @@ collect(execution: ToolExecution): DshEnvironment
 list(): BashEnvVariableInfo[]
 ```
 
-Types: [ToolExecution](../core-data-structures/tools.md)
+Types: [DshEnvironment](../core-data-structures/bash.md) · [ToolExecution](../core-data-structures/tools.md)
 
 Source: [`packages/bash/tool-bash/src/index.ts:102`](../../packages/bash/tool-bash/src/index.ts)
 
@@ -382,7 +382,7 @@ abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, 
 abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
-Types: [Message](../core-data-structures/core.md)
+Types: [CompactionResult](../core-data-structures/compaction.md) · [Message](../core-data-structures/core.md)
 
 Source: [`packages/compact/compact/src/index.ts:38`](../../packages/compact/compact/src/index.ts)
 
@@ -478,7 +478,7 @@ abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, 
 abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
 ```
 
-Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
+Types: [FsDirEntry](../core-data-structures/filesystem.md) · [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsPathInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
 
 Source: [`packages/fs/fs/src/index.ts:80`](../../packages/fs/fs/src/index.ts)
 
@@ -523,7 +523,7 @@ async listModels(provider: string): Promise<LlmModelInfo[]>
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
 Source: [`packages/llm/llm/src/index.ts:94`](../../packages/llm/llm/src/index.ts)
 
@@ -567,7 +567,7 @@ optionOf(name: string): PresetOption
 set(session: Session, name: string): void
 ```
 
-Types: [SessionEvent](../core-data-structures/core.md)
+Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
 Source: [`packages/ui/permission/src/index.ts:94`](../../packages/ui/permission/src/index.ts)
 
@@ -645,7 +645,7 @@ abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEven
 abstract list(): Promise<SessionHeader[]>
 ```
 
-Types: [SessionEvent](../core-data-structures/core.md)
+Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLocation](../core-data-structures/persistence.md)
 
 Source: [`packages/session-persistence/session-persistence/src/index.ts:42`](../../packages/session-persistence/session-persistence/src/index.ts)
 
@@ -690,6 +690,8 @@ async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>
  */
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 ```
+
+Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventTrace](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md)
 
 Source: [`packages/session-query/session-query/src/index.ts:38`](../../packages/session-query/session-query/src/index.ts)
 
@@ -816,6 +818,8 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
+Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
+
 Source: [`packages/core/session/src/index.ts:577`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
@@ -862,6 +866,8 @@ async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
+Types: [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
+
 Source: [`packages/skill/skill/src/index.ts:141`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.spillStore` — `SpillStore` (abstract seam)
@@ -882,6 +888,8 @@ Semantics every implementation must honor:
  */
 abstract saveText(input: SaveTextSpill): Promise<SpillRef>
 ```
+
+Types: [SaveTextSpill](../core-data-structures/spill.md) · [SpillRef](../core-data-structures/spill.md)
 
 Source: [`packages/spill/spill/src/index.ts:45`](../../packages/spill/spill/src/index.ts)
 
@@ -923,6 +931,8 @@ list(): string[]
  */
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
+
+Types: [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
 Source: [`packages/subagent/subagent/src/index.ts:153`](../../packages/subagent/subagent/src/index.ts)
 
@@ -969,6 +979,8 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
  */
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
+
+Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
 
 Source: [`packages/core/system-prompt/src/index.ts:209`](../../packages/core/system-prompt/src/index.ts)
 
@@ -1057,7 +1069,7 @@ onTaskDone(listener: TaskDoneListener): () => void
 attachSurface(name: string): () => void
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [TaskDoneListener](../core-data-structures/tasks.md) · [TaskId](../core-data-structures/tasks.md) · [TaskRead](../core-data-structures/tasks.md) · [TaskSnapshot](../core-data-structures/tasks.md) · [TaskStart](../core-data-structures/tasks.md)
 
 Source: [`packages/tasks/tasks/src/index.ts:76`](../../packages/tasks/tasks/src/index.ts)
 
@@ -1092,7 +1104,7 @@ measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
 estimateMessage(message: Message): number
 ```
 
-Types: [Message](../core-data-structures/core.md)
+Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
 
 Source: [`packages/llm/token-meter/src/index.ts:106`](../../packages/llm/token-meter/src/index.ts)
 
@@ -1170,7 +1182,7 @@ executionMode(exec: ToolExecutionInput): ToolExecutionMode
 async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 ```
 
-Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
+Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:438`](../../packages/core/tools/src/index.ts)
 
@@ -1195,6 +1207,8 @@ registerProvider(provider: UserInteractionProvider): () => void
  */
 async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 ```
+
+Types: [AskUserQuestionAnswer](../core-data-structures/user-interaction.md) · [AskUserQuestionRequest](../core-data-structures/user-interaction.md) · [UserInteractionProvider](../core-data-structures/user-interaction.md)
 
 Source: [`packages/ui/user-interaction/src/index.ts:82`](../../packages/ui/user-interaction/src/index.ts)
 
@@ -1252,6 +1266,8 @@ async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearch
 async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 ```
 
+Types: [WebFetchProvider](../core-data-structures/web.md) · [WebFetchRequest](../core-data-structures/web.md) · [WebFetchResult](../core-data-structures/web.md) · [WebSearchProvider](../core-data-structures/web.md) · [WebSearchRequest](../core-data-structures/web.md) · [WebSearchResult](../core-data-structures/web.md)
+
 Source: [`packages/web/web/src/index.ts:74`](../../packages/web/web/src/index.ts)
 
 ## `ctx.workflows` — `WorkflowService` (abstract seam)
@@ -1267,6 +1283,8 @@ Workflow execution seam. Invalid requests throw before publication; a live run i
  */
 abstract start(request: WorkflowStartRequest): WorkflowRun
 ```
+
+Types: [WorkflowRun](../core-data-structures/workflow.md) · [WorkflowStartRequest](../core-data-structures/workflow.md)
 
 Source: [`packages/workflow/workflow/src/index.ts:159`](../../packages/workflow/workflow/src/index.ts)
 
