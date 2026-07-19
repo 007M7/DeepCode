@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-time-context
 
-Opt-in durable context with the current zoned time and elapsed time sampled during model-request preparation. `dsh-agent-spine-demo` and shipped examples do not mount it. Decision record: [the durable time-context RFC](../../../docs/rfc/implemented/feature/2026-07-16-durable-per-step-time-context.md).
+Opt-in durable context with the current zoned time and elapsed time sampled during model-request preparation. `dsh-agent-spine-demo` and shipped examples do not mount it. Decision record: [the durable time-context Agent Note](../../../.agents/notes/implemented/feature/2026-07-16-durable-per-step-time-context.md).
 
 ## Config
 

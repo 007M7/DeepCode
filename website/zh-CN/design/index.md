@@ -16,11 +16,11 @@ Harness 追求三种可组合性的统一：
 
 ## 目录
 
-- [可组合性与插件系统](./composability) — 组合的本质，以及传统插件系统为什么不可靠
-- [作用与余作用](./effects-coeffects) — Cordis 效果系统的理论模型
-- [可逆作用](./revertible-effects) — 时间可组合性的形式化定义与证明
-- [响应式余作用](./reactive-coeffects) — 空间可组合性的服务语义
-- [上下文模型](./context-model) — Context 如何将作用与余作用统一
+- [可组合性与插件系统](composability) — 组合的本质，以及传统插件系统为什么不可靠
+- [作用与余作用](effects-coeffects) — Cordis 效果系统的理论模型
+- [可逆作用](revertible-effects) — 时间可组合性的形式化定义与证明
+- [响应式余作用](reactive-coeffects) — 空间可组合性的服务语义
+- [上下文模型](context-model) — Context 如何将作用与余作用统一
 
 ## 设计如何映射到 Harness
 

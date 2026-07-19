@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-commands
 
-Plugin-owned human-command registry shared by the TUI and ACP adapters. The [plugin command registration RFC](../../../docs/rfc/implemented/feature/2026-07-19-plugin-command-registration.md) owns the boundary and protocol mapping.
+Plugin-owned human-command registry shared by the TUI and ACP adapters. The [plugin command registration Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) owns the boundary and protocol mapping.
 
 ## Service contract
 

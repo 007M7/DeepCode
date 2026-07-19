@@ -30,7 +30,7 @@ This plugin registers **no service** and owns no storage or preview mechanics: p
 
 ## Scope
 
-The policy sees only the FINAL formatted tool result — not a tool's internal resource. If a provider already truncated (e.g. `web-fetch-local.maxBodyChars`), the spill artifact holds the full formatted result the tool returned, not the full original source. Provider/resource caps stay mandatory and separate. Tool-owned early spill (bash streams, subagent rollouts) is future work — see the [tool output spill RFC](../../../docs/rfc/implemented/architecture/2026-07-08-tool-output-spill-files.md).
+The policy sees only the FINAL formatted tool result — not a tool's internal resource. If a provider already truncated (e.g. `web-fetch-local.maxBodyChars`), the spill artifact holds the full formatted result the tool returned, not the full original source. Provider/resource caps stay mandatory and separate. Tool-owned early spill (bash streams, subagent rollouts) is future work — see the [tool output spill Agent Note](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md).
 
 ## Model Experience
 

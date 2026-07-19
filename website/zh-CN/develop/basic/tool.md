@@ -238,5 +238,5 @@ export function apply(ctx: Context) {
 
 ## 下一步
 
-- [插件配置](./config) — 让你的 tool 可配置
+- [插件配置](config) — 让你的 tool 可配置
 - [能力三件套](../practice/) — 了解 seam/impl/consumer 模式

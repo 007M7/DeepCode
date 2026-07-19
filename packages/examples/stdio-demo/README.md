@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-stdio-demo
 
-The **terminal chat app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-spine-demo`](../../examples/agent-spine-demo/README.md)) with JSONL persistence, human interaction, a pre-created `main` agent, and a TTY-selected pi-tui/readline front door. Its `bin` boots a leaf `cordis.yml`.
+The **terminal chat app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md)) with JSONL persistence, human interaction, a pre-created `main` agent, and a TTY-selected pi-tui/readline front door. Its `bin` boots a leaf `cordis.yml`.
 
 It is the terminal counterpart to [`@deepseek-ai/dsh-acp-demo`](../acp-demo/README.md): both consume the same spine, while ACP reserves stdout for JSON-RPC and creates sessions from the client.
 

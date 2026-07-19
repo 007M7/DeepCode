@@ -27,7 +27,7 @@ The id is wired through `cordis.yml` (`resumeSessionId: !!js process.env.RESUME_
 
 ## Code Mode
 
-[`code-mode.cordis.yml`](code-mode.cordis.yml) overlays the same tree with the worker-thread runtime and `tools: { mode: code }`. The model receives one `run_code` transport plus a generated TypeScript SDK for the visible tools; only program output returns to model context. Use `mode: both` to expose native calls alongside `run_code`. See the [Code Mode RFC](../../docs/rfc/implemented/feature/2026-06-15-code-mode.md) for the execution contract.
+[`code-mode.cordis.yml`](code-mode.cordis.yml) overlays the same tree with the worker-thread runtime and `tools: { mode: code }`. The model receives one `run_code` transport plus a generated TypeScript SDK for the visible tools; only program output returns to model context. Use `mode: both` to expose native calls alongside `run_code`. See the [Code Mode Agent Note](../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) for the execution contract.
 
 ```sh
 pnpm run demo:code-mode        # this overlay under the REPL (default UI)
