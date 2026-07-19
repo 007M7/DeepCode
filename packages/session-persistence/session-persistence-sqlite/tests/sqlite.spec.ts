@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
@@ -390,6 +390,61 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
+  it('creates a new database and WAL sidecars with owner-only modes without changing its parent mode', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    const dir = dirname(path)
+    await chmod(dir, 0o755)
+
+    const b = await backend(path)
+    await b.ctx.sessionPersistence.list()
+
+    expect((await stat(dir)).mode & 0o777).toBe(0o755)
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-wal`)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-shm`)).mode & 0o777).toBe(0o600)
+    await b.dispose()
+  })
+
+  it('creates a persistent rollback journal with owner-only mode', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path, journalMode: 'persist' })
+    const m = meta('persist-permissions')
+
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-journal`)).mode & 0o777).toBe(0o600)
+    await fiber.dispose()
+  })
+
+  it('preserves the mode of an existing database file', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    await writeFile(path, '', { mode: 0o644 })
+    await chmod(path, 0o644)
+
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path, journalMode: 'delete' })
+    await ctx.sessionPersistence.list()
+
+    expect((await stat(path)).mode & 0o777).toBe(0o644)
+    await fiber.dispose()
+  })
+
+  it('surfaces an invalid database path during pre-creation', async () => {
+    const path = await freshDbPath()
+    const b = await backend(`${path}\0`)
+
+    await expect(b.ctx.sessionPersistence.list()).rejects.toMatchObject({ code: 'ERR_INVALID_ARG_VALUE' })
+    await b.dispose()
+  })
+
   it('append rolls back and rethrows when an event INSERT fails inside the transaction', async () => {
     const path = await freshDbPath()
     const m = meta('rollback-insert')
