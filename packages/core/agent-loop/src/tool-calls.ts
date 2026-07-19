@@ -106,7 +106,8 @@ function parseArguments(raw: string): unknown {
  * before start; an exclusive reclassification waits for the current pool to
  * drain and remains for the caller's next barrier. Results and contexts commit
  * in model order. Abort stops starts, drains and commits started calls, accepts
- * their contexts into the owning batch, and throws.
+ * their contexts into the owning batch, records results for skipped calls, and
+ * returns an aborted outcome.
  */
 async function runGroup(
   ctx: Context,

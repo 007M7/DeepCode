@@ -77,4 +77,3 @@ The handle every plugin programs against:
 - **No public step-only abort** — `cancel()` clears ALL pending work (queued + steering + in-flight); an abort that preserves queued prompts returns only with a named consumer ([stop-surface RFC](../../../docs/rfc/implemented/simplification/2026-06-20-public-agent-stop-surface.md)).
 - **`HookContext` carries exactly one `MessageSource`** — contributions from several plugins merged onto one tool call collapse under one source; mixed provenance is unrepresentable.
 - **`SessionStartSource` reserves `'clear'`/`'compact'` with no emitter yet** — only `'startup'`/`'resume'` occur until the driving subsystems land (`TODO(compaction)`).
-- **`agent/pre-step`'s `fullSystemPrompt`/`sessionPrefix` parameters are a flagged smell** — compaction is their only consumer; a lazy prompt provider or a compaction-specific pressure seam is the marked revisit.
