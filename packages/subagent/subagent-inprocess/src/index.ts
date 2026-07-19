@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
-import { AgentId, type Agent, type AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent'
@@ -36,7 +36,7 @@ declare module '@deepseek-ai/dsh-agent' {
  * @param agent - the agent whose options carry the depth.
  * @returns its non-negative safe-integer depth.
  */
-export function depthOf(agent: Agent): number {
+function depthOf(agent: Agent): number {
   const depth = agent.options.subagentDepth
   if (depth === undefined) return 0
   if (!Number.isSafeInteger(depth) || depth < 0 || Object.is(depth, -0)) {
@@ -46,7 +46,7 @@ export function depthOf(agent: Agent): number {
 }
 
 /** Thrown when starting a child would exceed the requested depth cap. */
-export class SubagentDepthError extends Error {
+class SubagentDepthError extends Error {
   constructor(public readonly attemptedDepth: number, public readonly maxDepth: number) {
     super(`subagent depth ${attemptedDepth} exceeds maxDepth ${maxDepth}`)
     this.name = 'SubagentDepthError'
@@ -104,11 +104,13 @@ export async function startInProcessRun(
     throw new SubagentDepthError(childDepth, request.maxDepth)
   }
 
-  const childId = AgentId(randomUUID())
+  const childId = SessionId(randomUUID())
   const seedLength = options.seed?.length ?? 0
   const parentHeader = parent.session.header
+  const parentProvider = parent.options.provider
   const parentModel = parent.options.model
   const agentOptions: AgentOptions = {
+    ...parentProvider !== undefined ? { provider: parentProvider } : {},
     ...parentModel !== undefined ? { model: parentModel } : {},
     ...request.agentOptions,
     subagentDepth: childDepth,
@@ -127,8 +129,7 @@ export async function startInProcessRun(
 
   const flags = { cancelled: false }
   const handle = await parent.ctx.agents.create({
-    agentId: childId,
-    sessionId: SessionId(randomUUID()),
+    sessionId: childId,
     meta: {
       ...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
       parentSession: parentHeader.id,
@@ -174,6 +175,7 @@ export async function startInProcessRun(
 
   return {
     id: childId,
+    localAgent: child,
     result,
     dispose(): Promise<void> {
       request.signal.removeEventListener('abort', onAbort)

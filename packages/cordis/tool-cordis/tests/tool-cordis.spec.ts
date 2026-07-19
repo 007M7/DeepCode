@@ -32,8 +32,9 @@ describe('tool registration', () => {
     const names = ctx.tools.schemas().map(schema => schema.name)
     expect(names).toEqual(expect.arrayContaining(['cordis_inspect', 'cordis_mount', 'cordis_unmount']))
     const inspect = ctx.tools.schemas().find(schema => schema.name === 'cordis_inspect')!
-    const props = (inspect.parameters as { properties: Record<string, { enum?: string[] }> }).properties
+    const props = (inspect.parameters as { properties: Record<string, { enum?: string[]; type?: string }> }).properties
     expect(props.what?.enum).toEqual(['services', 'plugins', 'tools', 'dynamic', 'api', 'events'])
+    expect(props.name?.type).toBe('string')
   })
 })
 

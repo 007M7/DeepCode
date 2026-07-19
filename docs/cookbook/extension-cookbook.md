@@ -40,7 +40,7 @@ A UI plugin renders from the `session/event` feed (the assistant token stream as
 
 ```ts
 import type { Context } from 'cordis'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 declare function render(text: string): void
 declare function onUserInput(handler: (text: string) => void): void
@@ -54,7 +54,7 @@ export function apply(ctx: Context) {
       render(event.data.chunk.text)
     }
   })
-  onUserInput(text => ctx.agents.get(AgentId('main'))?.send([{ type: 'text', text }]))
+  onUserInput(text => ctx.agents.get(SessionId('client-session'))?.send([{ type: 'text', text }]))
 }
 ```
 
@@ -87,7 +87,7 @@ export function apply(ctx: Context) {
 
 ## Runnable wirings
 
-Three complete examples load their plugin trees from `cordis.yml`: [`examples/echo-agent`](../../examples/echo-agent) (mock model + echo tool — the all-mock skeleton check, `pnpm run demo:echo`), [`examples/coding-agent`](../../examples/coding-agent) (DeepSeek V4 + the bash tool suite behind a terminal REPL UI, `pnpm run demo:repl`), and [`examples/acp-agent`](../../examples/acp-agent) (an agent exposed as an ACP server over JSON-RPC stdio — the client-driver shape, `pnpm run demo:acp`). Each leaf is just its swappable backends plus an app-package entry: the stdio demos load [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo), the ACP demo loads [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo), and both app packages share the spine via the [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) bundle.
+Six runnable leaves load their plugin trees from `cordis.yml`: [`examples/echo-agent`](../../examples/echo-agent) (mock model + echo tool, `pnpm run demo:echo`), [`examples/repl-agent`](../../examples/repl-agent) (DeepSeek V4 + coding tools through a line-oriented readline REPL, `pnpm run demo:repl`), [`examples/tui-agent`](../../examples/tui-agent) (the same coding composition through full-screen pi-tui, `pnpm run demo:tui`), [`examples/headless-agent`](../../examples/headless-agent) (the same capability class behind a one-shot task and DSH-native output, `pnpm run demo:headless -- "task"`), [`examples/cordis-agent`](../../examples/cordis-agent) (self-inspection and dynamic plugin mounting, `pnpm run demo:cordis`), and [`examples/acp-agent`](../../examples/acp-agent) (an ACP server over JSON-RPC stdio, `pnpm run demo:acp`). The terminal leaves load [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo), the headless leaf loads [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo), the ACP leaf loads [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo), and all three app packages share [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo).
 
 ## The feature → mechanism map
 

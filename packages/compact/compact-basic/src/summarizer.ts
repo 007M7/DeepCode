@@ -58,6 +58,7 @@ const CHECKPOINT_PREAMBLE =
 /** Safe summary content plus the exact auxiliary call envelope recorded in provenance. */
 export interface SummaryResult {
   summary: ContentBlock[]
+  provider: string
   model: string
   maxTokens?: number
 }
@@ -78,17 +79,27 @@ export async function summarizeWithLlm(
   agent: Agent,
   signal?: AbortSignal,
 ): Promise<SummaryResult> {
-  const latestModel = agent.session.requestHeader()?.config.model
-  const model = config.summarizationModel || latestModel || agent.options.model || ''
-  if (model.length === 0) {
+  const latest = agent.session.requestHeader()?.config
+  const configured = config.summarizationProvider.length === 0
+    ? undefined
+    : { provider: config.summarizationProvider, model: config.summarizationModel }
+  const agentTarget = agent.options.provider !== undefined
+    && agent.options.provider.length > 0
+    && agent.options.model !== undefined
+    && agent.options.model.length > 0
+    ? { provider: agent.options.provider, model: agent.options.model }
+    : undefined
+  const target = configured ?? latest ?? agentTarget
+  if (target === undefined) {
     throw new Error(
-      'no model available for summarization: set BasicCompactConfig.summarizationModel, route one request, or set AgentOptions.model',
+      'no provider/model available for summarization: set both BasicCompactConfig summarization fields, route one request, or set both AgentOptions fields',
     )
   }
 
   const assembler = new BlockAssembler()
   const options: GenerateOptions = {
-    model,
+    provider: target.provider,
+    model: target.model,
     messages: [{
       role: 'user',
       content: [{ type: 'text', text: `Summarize this conversation history:\n\n${text}\n\nSummary:` }],
@@ -106,7 +117,12 @@ export async function summarizeWithLlm(
   if (!summary.some(block => block.text.trim().length > 0)) {
     throw new Error('summarization produced no text summary content')
   }
-  return { summary, model: options.model, maxTokens: config.maxTokens }
+  return {
+    summary,
+    provider: options.provider,
+    model: options.model,
+    maxTokens: config.maxTokens,
+  }
 }
 
 /**

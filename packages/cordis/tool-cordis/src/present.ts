@@ -15,11 +15,12 @@ import type { GenericCallView } from '@deepseek-ai/dsh-tools'
  * @param args - the validated call arguments.
  * @returns the generic card the ACP bridge renders.
  */
-export function presentInspectCall(args: { what?: string }): GenericCallView {
+export function presentInspectCall(args: { what?: string; name?: string }): GenericCallView {
+  const target = args.name === undefined ? args.what : `${args.what}: ${args.name}`
   return {
     card: 'generic',
     kind: 'read',
-    title: args.what === undefined ? 'Inspect cordis runtime' : `Inspect cordis runtime: ${args.what}`,
+    title: target === undefined ? 'Inspect cordis runtime' : `Inspect cordis runtime: ${target}`,
   }
 }
 

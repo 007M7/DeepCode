@@ -121,10 +121,10 @@ export class ToolResultPruneService extends Service {
    */
   pruneSession(session: Session): PruneResult {
     const candidates: SnapshotCandidate[] = []
-    for (const node of [...session.surface.nodes]) {
-      const event = session.events[node.seq]
+    for (const seq of [...session.surface.nodes]) {
+      const event = session.events[seq]
       /* v8 ignore next -- surface seqs are validated contiguous log references. */
-      if (event?.type === 'tool/result') candidates.push({ seq: node.seq, event })
+      if (event?.type === 'tool/result') candidates.push({ seq, event })
     }
 
     const pruned: PrunedEntry[] = []

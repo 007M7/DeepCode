@@ -60,8 +60,7 @@ The ordinary contributor pattern is to register the complete local world during 
 
 ```js
 const handle = await ctx.agents.create({
-  agentId: AgentId('reviewer'),
-  sessionId: SessionId('reviewer-session'),
+  sessionId: SessionId('reviewer'),
   agentOptions: { model: 'model-name' },
   setup(agentCtx) {
     agentCtx.systemPrompt.section({

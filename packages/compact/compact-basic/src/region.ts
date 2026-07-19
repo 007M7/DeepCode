@@ -39,7 +39,7 @@ export function selectCompactableRange(
 
   const surfaceNodes = session.surface.nodes
   if (surfaceNodes.length !== pricedNodes.length
-    || surfaceNodes.some((node, index) => node.seq !== pricedNodes[index]?.seq)) {
+    || surfaceNodes.some((seq, index) => seq !== pricedNodes[index]?.seq)) {
     throw new Error('compaction: token-meter surface does not match the current session surface')
   }
 
@@ -64,7 +64,7 @@ export function selectCompactableRange(
   const first = surfaceNodes[0]!
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const cutoff = surfaceNodes[keepFromIdx - 1]!
-  return { start: first.seq, end: cutoff.seq }
+  return { start: first, end: cutoff }
 }
 
 /**
@@ -86,8 +86,8 @@ export async function compactSurfaceRegion(
   signal?: AbortSignal,
 ): Promise<CompactionResult> {
   const nodes = session.surface.nodes
-  const startIdx = nodes.findIndex(node => node.seq === start)
-  const endIdx = nodes.findIndex(node => node.seq === end)
+  const startIdx = nodes.indexOf(start)
+  const endIdx = nodes.indexOf(end)
   if (startIdx === -1) throw new Error(`compactRegion: start seq ${start} not found in surface`)
   if (endIdx === -1) throw new Error(`compactRegion: end seq ${end} not found in surface`)
   if (startIdx > endIdx) {
@@ -110,7 +110,7 @@ export async function compactSurfaceRegion(
     throw new Error('compactRegion: no open turn — compaction events must be enclosed in a turn')
   }
 
-  const shadowedSeqs = nodes.slice(startIdx, endIdx + 1).map(node => node.seq)
+  const shadowedSeqs = nodes.slice(startIdx, endIdx + 1)
   const startEvent = session.append('compact/start', { turn: tail.turn })
   try {
     // Capture after the lock event so any later durable append, including a
@@ -123,7 +123,7 @@ export async function compactSurfaceRegion(
     }
     const shadowedTokenCount = selected.reduce((total, node) => total + node.tokens, 0)
     const text = renderTranscript(session.events, shadowedSeqs)
-    const { summary, model, maxTokens } = await dependencies.summarize(text, agent, signal)
+    const { summary, provider, model, maxTokens } = await dependencies.summarize(text, agent, signal)
 
     const currentMeasurement = dependencies.meter.measure(session)
     if (currentMeasurement.logRevision !== lockedMeasurement.logRevision) {
@@ -145,6 +145,7 @@ export async function compactSurfaceRegion(
       shadowedRange: { start, end },
       shadowedSeqs,
       shadowedTokenCount,
+      provider,
       model,
       ...maxTokens === undefined ? {} : { maxTokens },
     })

@@ -1,9 +1,3 @@
-/**
- * Agent-loop coverage for the successful post-step checkpoint and model-request
- * recovery. These tests keep the recovery boundary narrower than the whole
- * step and pin retry reconstruction, numbering, cancellation, and identity.
- */
-
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, {
@@ -13,12 +7,13 @@ import LlmService, {
   LlmError,
 } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PostToolDecision } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { maxTokensResponse, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 class FailureScriptAdapter extends LlmAdapter {
@@ -105,7 +100,7 @@ async function harness(adapter?: LlmAdapter): Promise<Context> {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -116,12 +111,12 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function send(agent: ReactLoopAgent): void {
+function send(agent: Agent): void {
   agent.send([{ type: 'text', text: 'go' }])
 }
 
 function contextError(message = 'context too large'): LlmError {
-  return new LlmError(message, CONTEXT_WINDOW_EXCEEDED_CODE, 400)
+  return new LlmError(message, CONTEXT_WINDOW_EXCEEDED_CODE)
 }
 
 describe('agent post-step and request-error lifecycle', () => {
@@ -149,12 +144,12 @@ describe('agent post-step and request-error lifecycle', () => {
     }))
     ctx.on('tools/post-execute', async (exec, _result): Promise<PostToolDecision> => ({
       kind: 'accept',
-      additionalContext: {
+      additionalContexts: [{
         content: [{ type: 'text', text: `context for ${exec.callId}` }],
         source: { kind: 'plugin', plugin: 'test' },
-      },
+      }],
     }))
-    const agent = ctx.agentLoop.create(AgentId('post-step-order'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('post-step-order'), { provider: 'mock', model: 'mock' })
     const order: string[] = []
     ctx.on('session/event', (_session, event) => {
       if (
@@ -193,7 +188,7 @@ describe('agent post-step and request-error lifecycle', () => {
   it('fires post-step for max-tokens and lets cancellation override that success', async () => {
     const adapter = new FailureScriptAdapter([maxTokensResponse('partial')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('cancel-post-step-max-tokens'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('cancel-post-step-max-tokens'), { provider: 'mock', model: 'mock' })
     let entered!: () => void
     const postStepEntered = new Promise<void>((resolve) => { entered = resolve })
     ctx.on('agent/post-step', async (_agent, turn, step, signal) => {
@@ -231,7 +226,7 @@ describe('agent post-step and request-error lifecycle', () => {
       parameters: {},
       async execute() { return [{ type: 'text', text: 'worked' }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('dispose-post-step'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('dispose-post-step'), { provider: 'mock', model: 'mock' })
     let entered!: () => void
     const postStepEntered = new Promise<void>((resolve) => { entered = resolve })
     ctx.on('agent/post-step', async (_agent, turn, step, signal) => {
@@ -267,7 +262,7 @@ describe('agent post-step and request-error lifecycle', () => {
   ] as const)('recovers a %s request failure in a new reconstructable step', async (_style, failure) => {
     const adapter = new FailureScriptAdapter([failure, textResponse('recovered')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId(`recover-${_style}`), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId(`recover-${_style}`), { provider: 'mock', model: 'mock' })
     const attempts: number[] = []
     ctx.on('agent/request-error', async (subject, turn, step, error, attempt) => {
       expect(subject).toBe(agent)
@@ -297,7 +292,7 @@ describe('agent post-step and request-error lifecycle', () => {
 
   it.each(streamListenerFailureCases)('does not offer %s to request recovery', async (_name, install) => {
     const ctx = await harness(new FailureScriptAdapter([textResponse('unused')]))
-    const agent = ctx.agentLoop.create(AgentId(`stream-plugin-${_name.replaceAll(' ', '-')}`), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId(`stream-plugin-${_name.replaceAll(' ', '-')}`), { provider: 'mock', model: 'mock' })
     let recoveries = 0
     install(ctx)
     ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _attempt, _signal, next) => {
@@ -310,6 +305,42 @@ describe('agent post-step and request-error lifecycle', () => {
 
     expect(recoveries).toBe(0)
     expect(agent.session.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'error' } } })
+  })
+
+  it('does not offer a nested model-call failure as the outer request failure', async () => {
+    const outer = new FailureScriptAdapter([textResponse('outer adapter must not run')])
+    const nested = new FailureScriptAdapter([contextError('nested overflow')])
+    const ctx = await harness(outer)
+    ctx.llm.registerAdapter(['nested'], nested)
+    ctx.on('llm/stream', (options, next) => {
+      if (options.provider !== 'mock') return next()
+      return (async function* () {
+        yield* ctx.llm.stream({
+          provider: 'nested',
+          model: 'nested',
+          messages: [],
+          ...options.signal === undefined ? {} : { signal: options.signal },
+        })
+        yield* next()
+      })()
+    })
+    const agent = ctx.agentLoop.create(SessionId('nested-stream-not-recoverable'), { provider: 'mock', model: 'mock' })
+    let recoveries = 0
+    ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _attempt, _signal, next) => {
+      recoveries += 1
+      return next()
+    })
+
+    send(agent)
+    await waitForIdle(ctx, agent)
+
+    expect(nested.requests).toHaveLength(1)
+    expect(outer.requests).toHaveLength(0)
+    expect(recoveries).toBe(0)
+    expect(agent.session.events.at(-1)).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'error', message: 'nested overflow', code: CONTEXT_WINDOW_EXCEEDED_CODE } },
+    })
   })
 
   it.each(['prompt-submit', 'prompt-assembly', 'pre-step', 'request'] as const)(
@@ -326,7 +357,7 @@ describe('agent post-step and request-error lifecycle', () => {
       } else {
         ctx.on('agent/request', () => { throw new Error('request middleware failed') })
       }
-      const agent = ctx.agentLoop.create(AgentId(`${boundary}-not-recoverable`), { model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId(`${boundary}-not-recoverable`), { provider: 'mock', model: 'mock' })
       let recoveries = 0
       ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _attempt, _signal, next) => {
         recoveries += 1
@@ -346,6 +377,7 @@ describe('agent post-step and request-error lifecycle', () => {
     for (const failure of ['result', 'tool', 'post-step'] as const) {
       const adapter = new FailureScriptAdapter([
         failure === 'tool' ? toolCallResponse(`call-${failure}`, 'work', {}) : textResponse('done'),
+        ...(failure === 'tool' ? [textResponse('done')] : []),
       ])
       const ctx = await harness(adapter)
       if (failure === 'result') ctx.on('agent/step-result', () => { throw new Error('result failed') })
@@ -353,7 +385,7 @@ describe('agent post-step and request-error lifecycle', () => {
       if (failure === 'tool') {
         vi.spyOn(ctx.tools, 'execute').mockRejectedValue(new Error('tool service failed'))
       }
-      const agent = ctx.agentLoop.create(AgentId(`${failure}-not-recoverable`), { model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId(`${failure}-not-recoverable`), { provider: 'mock', model: 'mock' })
       let recoveries = 0
       ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _attempt, _signal, next) => {
         recoveries += 1
@@ -372,7 +404,7 @@ describe('agent post-step and request-error lifecycle', () => {
   ] as const)('preserves original Error identity for adapter %s', async (_name, makeAdapter) => {
     const original = contextError(`${_name} overflow`)
     const ctx = await harness(makeAdapter(original))
-    const agent = ctx.agentLoop.create(AgentId(`identity-${_name.replaceAll(' ', '-')}`), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId(`identity-${_name.replaceAll(' ', '-')}`), { provider: 'mock', model: 'mock' })
     let seen: Error | undefined
     ctx.on('agent/request-error', async (_agent, _turn, _step, error, _attempt, _signal, next) => {
       seen = error
@@ -388,7 +420,7 @@ describe('agent post-step and request-error lifecycle', () => {
   it('classifies iterator construction and explicit NO_ADAPTER as model-request failures', async () => {
     for (const scenario of ['iterator', 'no-adapter'] as const) {
       const ctx = scenario === 'iterator' ? await harness(new IteratorConstructionFailureAdapter()) : await harness()
-      const agent = ctx.agentLoop.create(AgentId(`request-boundary-${scenario}`), { model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId(`request-boundary-${scenario}`), { provider: 'mock', model: 'mock' })
       let seen = ''
       ctx.on('agent/request-error', async (_agent, _turn, _step, error, _attempt, _signal, next) => {
         seen = error.code ?? ''
@@ -403,7 +435,7 @@ describe('agent post-step and request-error lifecycle', () => {
   it('tracks consecutive retry attempts and resets after a successful request', async () => {
     const capped = new FailureScriptAdapter([contextError('first overflow'), contextError('second overflow')])
     const cappedCtx = await harness(capped)
-    const cappedAgent = cappedCtx.agentLoop.create(AgentId('retry-cap'), { model: 'mock' })
+    const cappedAgent = cappedCtx.agentLoop.create(SessionId('retry-cap'), { provider: 'mock', model: 'mock' })
     const cappedAttempts: number[] = []
     cappedCtx.on('agent/request-error', async (_agent, _turn, _step, _error, attempt, _signal, next) => {
       cappedAttempts.push(attempt)
@@ -425,7 +457,7 @@ describe('agent post-step and request-error lifecycle', () => {
       parameters: {},
       async execute() { return [{ type: 'text', text: 'worked' }] },
     }))
-    const resetAgent = resetCtx.agentLoop.create(AgentId('retry-reset'), { model: 'mock' })
+    const resetAgent = resetCtx.agentLoop.create(SessionId('retry-reset'), { provider: 'mock', model: 'mock' })
     const resetAttempts: { step: number; attempt: number }[] = []
     resetCtx.on('agent/request-error', async (_agent, _turn, step, _error, attempt, _signal, next) => {
       resetAttempts.push({ step, attempt })
@@ -439,7 +471,7 @@ describe('agent post-step and request-error lifecycle', () => {
   it('preserves the original provider error when recovery throws', async () => {
     const adapter = new FailureScriptAdapter([contextError('original overflow')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('recovery-throws'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('recovery-throws'), { provider: 'mock', model: 'mock' })
     ctx.on('agent/request-error', () => { throw new Error('recovery exploded') })
 
     send(agent)
@@ -454,7 +486,7 @@ describe('agent post-step and request-error lifecycle', () => {
   it.each(['cancel', 'dispose'] as const)('keeps %s live through request recovery', async (action) => {
     const adapter = new FailureScriptAdapter([contextError()])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId(`${action}-recovery`), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId(`${action}-recovery`), { provider: 'mock', model: 'mock' })
     let entered!: () => void
     const recoveryEntered = new Promise<void>((resolve) => { entered = resolve })
     ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _attempt, signal) => {

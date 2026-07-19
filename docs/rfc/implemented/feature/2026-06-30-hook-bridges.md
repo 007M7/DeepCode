@@ -12,8 +12,8 @@ The framing that shapes the whole design: **a bridge is a compatibility adapter,
 
 Two independent plugins in the `packages/hooks/` group, each a function/namespace plugin (`name`/`inject`/`Config`/`apply`, NO default export — see [postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md)) injecting only `bash`:
 
-- **`dsh-hooks-claude`** — the CC dialect. Seven of Claude Code's current hook points: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStart`, and `SubagentStop`. Owns CC-shaped per-event stdin payloads (a base of `session_id`/`cwd`/`hook_event_name` plus per-event fields), `CLAUDE_PROJECT_DIR` plus `${CLAUDE_PLUGIN_ROOT}`/`${CLAUDE_PROJECT_DIR}` substitution, and the literal-or-regex matcher mode. A CC hook's stdin carries a **trailing newline**.
-- **`dsh-hooks-codex`** — five of Codex's current hook points: `PreToolUse`, `PostToolUse`, `SessionStart`, `UserPromptSubmit`, and `Stop`. It uses an always-regex matcher, Codex-shaped snake_case payloads with `turn_id`/`model`/`permission_mode` extras written WITHOUT a trailing newline, no Codex plugin-env injection or config-time placeholder substitution, and no pre-tool approval or rewrite path. A tool call's payload carries the real `tool_name` in the bridge's reduced `tool_input: { command }` shape.
+- **`dsh-hooks-claude`** — the CC dialect. Seven of Claude Code's current hook points: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStart`, and `SubagentStop`. Owns CC-shaped per-event stdin payloads (a base of `session_id`/`transcript_path`/`cwd`/`hook_event_name` plus per-event fields), `CLAUDE_PROJECT_DIR` plus `${CLAUDE_PLUGIN_ROOT}`/`${CLAUDE_PROJECT_DIR}` substitution, and the literal-or-regex matcher mode. `transcript_path` is the persistence locator result or `''`; stdin carries a **trailing newline**.
+- **`dsh-hooks-codex`** — five of Codex's current hook points: `PreToolUse`, `PostToolUse`, `SessionStart`, `UserPromptSubmit`, and `Stop`. It uses an always-regex matcher, Codex-shaped snake_case payloads with `turn_id`/`model`/`permission_mode` extras written WITHOUT a trailing newline, no Codex plugin-env injection or config-time placeholder substitution, and no pre-tool approval or rewrite path. `transcript_path` is the same locator result or `null`; tool payloads carry the real `tool_name` in the reduced `tool_input: { command }` shape.
 
 ### Outcome → Decision mapping
 
@@ -35,9 +35,9 @@ The CC bridge's `ask` result is a real permission path, not a terminal bridge de
 
 `agent.inject()` defaults a missing `MessageSource` to `{ kind: 'user' }`, so every bridge `inject()` and `HookContext` passes `{ kind: 'plugin', plugin: 'hooks-claude' | 'hooks-codex' }`. Unit coverage pins the resulting `context/message.source` as the plugin rather than the user.
 
-### Adding context is not a veto — delegate, then fold
+### Adding context is not a veto — delegate, then prepend
 
-A context-only hook must call `next()` and then fold its `additionalContext` into the downstream decision; returning allow or accept directly would bypass later policy listeners. Post-tool block and accept decisions both preserve added context. Prompt allow preserves it, while prompt block drops it because the prompt never reaches the model. Only an explicit hook denial or block short-circuits the waterfall.
+A hook that only attaches `additionalContext` (no block/deny) is NOT a decision the bridge should return on its own: returning `allow`/`accept` from a waterfall listener WITHOUT calling `next()` short-circuits every later `agent/prompt-submit` / `tools/post-execute` listener, so a policy/sandbox plugin registered after the bridge would never see the prompt. Each bridge therefore delegates via `next()` before adding its context to the downstream decision. Both seams carry ordered `additionalContexts` arrays, so the bridge prepends its separately sourced entry while preserving every downstream source, envelope, and metadata field; a downstream prompt block still drops all context because the prompt never reaches the model, while post-tool block semantics may explicitly retain contexts. Code Mode ferries the same array through the outer `run_code` result. Only a real `deny`/`block` from the hook itself short-circuits. Tests assert a later listener can still block a prompt a context-only hook allowed and that retained prompt and post-tool contexts remain separate.
 
 ### CLAUDE_PROJECT_DIR defaults to the session workspace
 

@@ -1,7 +1,8 @@
 /**
  * JSONL durable session-persistence backend. It stores a header and contiguous
  * events in one append-only file per session, and delegates orchestration to
- * {@link PersistenceCoordinator}.
+ * {@link PersistenceCoordinator}. Its side-effect-free locator returns the
+ * absolute per-session log target before materialization.
  * @module @deepseek-ai/dsh-session-persistence-jsonl
  */
 
@@ -12,7 +13,7 @@ import { dirname, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
   SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type StoredPrefix,
+  type PersistenceBackend, type SessionLocation, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -56,6 +57,9 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   private root: string
   private coordinator: PersistenceCoordinator<number>
 
+  /** Runtime host platform used to decide whether directory sync is supported. */
+  readonly internals: { platform: NodeJS.Platform } = { platform: process.platform }
+
   constructor(ctx: Context, public config: Config) {
     super(ctx)
     // Resolve once so later process.cwd() changes cannot split one backend across roots.
@@ -67,6 +71,11 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   // extracting these trivial forwards would add an inheritance seam.
   /* jscpd:ignore-start */
   // --- SessionPersistence service surface (delegated to the coordinator) ---
+
+  /** Resolve the absolute target path without touching the filesystem. */
+  locate(meta: SessionHeader): SessionLocation {
+    return { kind: 'jsonl', path: logPath(this.root, meta.cwd, meta.id) }
+  }
 
   create(meta: SessionHeader): Promise<void> {
     return this.coordinator.create(meta)
@@ -202,11 +211,18 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  /** fsync a directory so a just-created or published entry inside it is crash-durable. */
+  /** fsync a directory when the host exposes that durability primitive. */
   private async syncDir(dir: string): Promise<void> {
     const handle = await open(dir, 'r')
     try {
-      await handle.sync()
+      try {
+        await handle.sync()
+      } catch (error: unknown) {
+        const code = (error as NodeJS.ErrnoException | null)?.code
+        // Node opens directories on Windows but its fsync binding rejects them.
+        // File-content fsync remains mandatory; only this unsupported primitive is skipped.
+        if (this.internals.platform !== 'win32' || code !== 'EPERM') throw error
+      }
     } finally {
       await handle.close()
     }

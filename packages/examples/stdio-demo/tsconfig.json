@@ -33,10 +33,16 @@
       "path": "../agent-spine-demo"
     },
     {
+      "path": "../../context/workspace-context"
+    },
+    {
       "path": "../../ui/user-interaction"
     },
     {
       "path": "../../ui/stdio"
+    },
+    {
+      "path": "../../ui/tui"
     },
     {
       "path": "../../ui/tool-ask-user"

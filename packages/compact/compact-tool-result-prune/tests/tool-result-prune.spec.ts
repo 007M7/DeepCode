@@ -13,6 +13,7 @@ import ToolResultPruneService, {
 } from '@deepseek-ai/dsh-compact-tool-result-prune'
 import type { ToolResultPruneConfig } from '@deepseek-ai/dsh-compact-tool-result-prune'
 
+const MODEL = 'test-model'
 const SMALL: ToolResultPruneConfig = {
   thresholdChars: 50,
   headChars: 4,
@@ -40,6 +41,7 @@ function appendToolStep(
     turn,
     step: 1,
     content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
+    provenance: { provider: MODEL, model: MODEL },
   }, { surfaceOp: 'append' })
   session.append('tool/call', { turn, step: 1, callId, name: 'bash', arguments: '{}' })
   const result = session.append('tool/result', {
@@ -185,7 +187,7 @@ describe('ToolResultPruneService session transaction', () => {
       surfaceOp: { op: 'replace', start: originalSeq, end: originalSeq },
       sourceEventSeqs: [originalSeq],
     })
-    expect(session.surface.nodes.some(node => node.seq === originalSeq)).toBe(false)
+    expect(session.surface.nodes).not.toContain(originalSeq)
   })
 
   it('prunes multiple results, skips short ones, and converges in one pass', () => {

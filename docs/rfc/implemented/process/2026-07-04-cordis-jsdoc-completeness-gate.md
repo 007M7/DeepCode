@@ -20,14 +20,14 @@ The contract:
 - **Explicitness the walk can check**: the gate is a pure-AST pass (no type checker), so a service method must annotate its return type (an inferred return cannot be classified) and surface parameters must be simple identifiers (a binding pattern has no name for `@param` to match).
 - **Violations aggregate** into one error listing every offender — a remediation pass sees the whole list at once. The previously fail-fast `@mode` checks moved into the same aggregated report, with their message texts unchanged.
 
-The tags are **enforcement-only**: `parseJsDoc` now ends description prose at the first block tag (standard JSDoc semantics, which also stops multi-line tag descriptions from leaking into the catalog as prose), so `@param`/`@returns` never change the rendered catalog.
+The generator keeps two views of the same source comment: `parseJsDoc` ends entry prose at the first block tag, while the `ts cordis-catalog` signature block includes the original JSDoc with `@param`, `@returns`, and `@mode` intact. Readers therefore see the complete source contract without block-tag text leaking into the surrounding prose.
 
 Negative-path tests in `packages/core/agent/tests/gen-cordis-catalog.spec.ts` drive `collectEvents`/`collectServices` against synthetic fixtures to prove each guard fires and that the exemptions hold. The authoring rule lives in the root [AGENTS.md](../../../../AGENTS.md) conventions bullet alongside the `@mode` rule.
 
 ## Alternatives considered
 
 - **An ESLint rule** — cannot see the scope's machine definition (which `interface Events` members and which `ctx.<key>` classes are the cordis surface); the catalog generator computes exactly that mapping on every run, so the gate lives there.
-- **Rendering the tags into the catalog** — restructuring the services section into per-method entries was considered and deliberately deferred: source JSDoc plus IDE hover is where method docs are consumed, and the catalog stays an index.
+- **Expanding every method into a separate prose section** — rejected: the catalog stays skimmable by keeping one service section and one signature block, while the JSDoc attached to each declaration preserves the full method contract in place.
 - **An escape-hatch tag** — none exists; the surface is small and curated (12 services, 57 methods, 27 events at adoption), and the point is that the check cannot be waved off.
 
 ## Consequences
@@ -36,4 +36,4 @@ Negative-path tests in `packages/core/agent/tests/gen-cordis-catalog.spec.ts` dr
 - The service surface must annotate return types explicitly and use identifier parameters. Neither constraint bound at adoption (every method already annotated; no destructured seam parameters existed); both are now load-bearing requirements a violating change will discover mechanically.
 - The general AGENTS.md JSDoc rule ("one-liners when one line suffices") acquires a stricter carve-out on this surface: a one-line summary still suffices only when the method has no parameters and a void result.
 - `@param` on `next` or `this` stays legal but unchecked — a deliberate asymmetry: the gate enforces the payload contract and refuses to demand boilerplate.
-- The rendered catalog is unchanged by the tags (prose stops at the first block tag). If method-level rendering is wanted later, that is a catalog-design decision to take separately, not a gap in this gate.
+- Each generated event or method fragment carries its original JSDoc, while the prose summary remains tag-free. Source edits therefore refresh both the readable index and the exact contract shown beside the signature.

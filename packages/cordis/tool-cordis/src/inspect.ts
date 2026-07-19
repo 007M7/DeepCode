@@ -1,7 +1,8 @@
 /**
  * Read-only renderers over the live runtime for `cordis_inspect`: the service list, the flat
  * plugin list, the registered tools, the dynamic-mount table (with per-mount provides/waits),
- * and the catalog-backed `api` / `events` sections.
+ * and the catalog-backed `api` / `events` sections. Exact-name lookups add the
+ * original source JSDoc without inflating the default reports.
  * @module @deepseek-ai/dsh-tool-cordis/inspect
  */
 
@@ -126,6 +127,18 @@ function typeClosure(seeds: string[], types: readonly TypeApiEntry[]): TypeApiEn
   return [...included.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** Render one catalogued service, optionally including source-owned method JSDoc. */
+function serviceLines(entry: ServiceApiEntry, detailed: boolean): string[] {
+  const lines = [`- ${entry.key} — ${entry.summary}`]
+  for (const method of entry.methods) {
+    if (detailed) {
+      for (const docLine of method.jsDoc.split('\n')) lines.push(`    ${docLine}`)
+    }
+    lines.push(`    ${method.signature}`)
+  }
+  return lines
+}
+
 /**
  * Render the generated catalog against the live runtime: live catalogued services with methods,
  * uncatalogued live services with owners, absent loadable services, referenced type shapes, and
@@ -134,6 +147,7 @@ function typeClosure(seeds: string[], types: readonly TypeApiEntry[]): TypeApiEn
  * @param api - generated service entries, replaceable in tests.
  * @param inherited - inherited `ctx` entries, replaceable in tests.
  * @param types - public type shapes, replaceable in tests.
+ * @param name - exact live service key whose methods should include original JSDoc; omitted for the compact catalog.
  * @returns the section lines.
  */
 export function describeApi(
@@ -141,25 +155,33 @@ export function describeApi(
   api: readonly ServiceApiEntry[] = SERVICE_API,
   inherited: readonly InheritedApiEntry[] = INHERITED_CTX_API,
   types: readonly TypeApiEntry[] = TYPE_API,
+  name?: string,
 ): string[] {
   const live = new Map<string, string>()
   for (const impl of liveImpls(ctx)) live.set(impl.name, impl.fiber.name)
   const lines: string[] = []
   const liveMethodTexts: string[] = []
-  for (const entry of api) {
-    if (!live.has(entry.key)) continue
-    lines.push(`- ${entry.key} — ${entry.summary}`)
+  let selected = api.filter(entry => live.has(entry.key))
+  if (name !== undefined) {
+    const entry = api.find(candidate => candidate.key === name)
+    if (!entry) throw new Error(`no catalogued service named "${name}"`)
+    if (!live.has(name)) throw new Error(`catalogued service "${name}" is not running`)
+    selected = [entry]
+  }
+  for (const entry of selected) {
+    lines.push(...serviceLines(entry, name !== undefined))
     for (const method of entry.methods) {
-      lines.push(`    ${method}`)
-      liveMethodTexts.push(method)
+      liveMethodTexts.push(method.signature)
     }
   }
-  const catalogued = new Set(api.map(entry => entry.key))
-  for (const [name, fiber] of [...live].sort(([a], [b]) => a.localeCompare(b))) {
-    if (!catalogued.has(name)) lines.push(`- ${name} (provided by ${fiber}, no catalog entry)`)
+  if (name === undefined) {
+    const catalogued = new Set(api.map(entry => entry.key))
+    for (const [liveName, fiber] of [...live].sort(([a], [b]) => a.localeCompare(b))) {
+      if (!catalogued.has(liveName)) lines.push(`- ${liveName} (provided by ${fiber}, no catalog entry)`)
+    }
+    const notRunning = api.filter(entry => !live.has(entry.key)).map(entry => entry.key)
+    if (notRunning.length > 0) lines.push(`not running (loadable services with no live provider): ${notRunning.join(', ')}`)
   }
-  const notRunning = api.filter(entry => !live.has(entry.key)).map(entry => entry.key)
-  if (notRunning.length > 0) lines.push(`not running (loadable services with no live provider): ${notRunning.join(', ')}`)
   const shapes = typeClosure(liveMethodTexts, types)
   if (shapes.length > 0) {
     lines.push('type shapes (referenced by the signatures above — read these before assuming a field is a string):')
@@ -167,8 +189,10 @@ export function describeApi(
       for (const declLine of shape.declaration.split('\n')) lines.push(`    ${declLine}`)
     }
   }
-  lines.push('inherited ctx API:')
-  for (const entry of inherited) lines.push(`- ${entry.name} — ${entry.summary}`)
+  if (name === undefined) {
+    lines.push('inherited ctx API:')
+    for (const entry of inherited) lines.push(`- ${entry.name} — ${entry.summary}`)
+  }
   return lines
 }
 
@@ -176,13 +200,24 @@ export function describeApi(
  * The `events` section: every harness event with its dispatch mode, one-line
  * summary, and exact signature, closed by the waterfall caution.
  * @param events - the event catalog (the generated one by default; injectable for tests).
+ * @param name - exact event name whose signature should include original JSDoc; omitted for the compact catalog.
  * @returns the section lines.
  */
-export function describeEvents(events: readonly EventApiEntry[] = EVENT_API): string[] {
-  const lines = events.flatMap(event => [
-    `- ${event.name} [${event.mode}] — ${event.summary}`,
-    `    ${event.signature}`,
-  ])
+export function describeEvents(events: readonly EventApiEntry[] = EVENT_API, name?: string): string[] {
+  let selected = events
+  if (name !== undefined) {
+    const event = events.find(candidate => candidate.name === name)
+    if (!event) throw new Error(`no catalogued event named "${name}"`)
+    selected = [event]
+  }
+  const lines = selected.flatMap((event) => {
+    const entry = [`- ${event.name} [${event.mode}] — ${event.summary}`]
+    if (name !== undefined) {
+      for (const docLine of event.jsDoc.split('\n')) entry.push(`    ${docLine}`)
+    }
+    entry.push(`    ${event.signature}`)
+    return entry
+  })
   lines.push('waterfall listeners receive a trailing next() and MUST call it to delegate — returning without next() vetoes the chain.')
   return lines
 }

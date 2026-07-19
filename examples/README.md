@@ -1,6 +1,6 @@
 # Examples
 
-Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: a `cordis.yml` that picks the swappable backends (an LLM adapter, a bash executor), loads one app package, and may add optional product tools or demo-only mocks. The composition — the spine, the front-door cluster, and the boot glue — lives in the app packages ([`@deepseek-ai/dsh-stdio-demo`](../packages/examples/stdio-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo)) and the [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle they share. There is no `start.ts`; the `demo:*` scripts invoke each app package's `bin`.
+Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: a `cordis.yml` that picks the swappable backends (an LLM adapter, a bash executor), loads one app package, and may add optional product tools or demo-only mocks. The composition — the spine, the front-door cluster, and the boot glue — lives in the app packages ([`@deepseek-ai/dsh-stdio-demo`](../packages/examples/stdio-demo), [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo)) and the [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle they share. There is no `start.ts`; the `demo:*` scripts invoke each app package's `bin`.
 
 ## echo-agent
 
@@ -9,17 +9,29 @@ A mock model + echo tool on the stdio chat app — the all-mock skeleton. The le
 - A thin leaf `cordis.yml` loading the `@deepseek-ai/dsh-stdio-demo` app
 - Registering a mock `LlmAdapter` (streaming scripted responses)
 - Registering a tool via `ctx.tools.register()`
-- "Swap the backend, keep the app" — the only difference from `coding-agent` is the adapter
+- "Swap the backend, keep the app" — the only difference from `repl-agent` is the adapter
 
 Run with: `pnpm run demo:echo`. When prompted, type "echo <something>" to trigger a tool call round-trip.
 
-## coding-agent
+## repl-agent
 
-A REPL agent demo: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the same `@deepseek-ai/dsh-stdio-demo` app. The UI is a terminal readline REPL.
+A coding agent with DeepSeek V4, the `read`/`write`/`edit` filesystem tools, the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the `@deepseek-ai/dsh-stdio-demo` app's readline front door.
 
-Run with: `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
+Run with: `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [repl-agent/README.md](repl-agent/README.md) for details.
 
-Run the Code Mode overlay with `pnpm run demo:code-mode`, or pass `acp` for the ACP example. See the [Code Mode example](coding-agent/README.md#code-mode) for its composition and a sample task.
+Run the Code Mode overlay with `pnpm run demo:code-mode`, or pass `acp` for the ACP example. See the [Code Mode example](repl-agent/README.md#code-mode) for its composition and a sample task.
+
+## headless-agent
+
+A non-interactive agent demo that accepts one positional task, runs one complete model/tool turn on the `@deepseek-ai/dsh-cli-demo` app, persists a fresh session, prints `text`, `json`, or `stream-json`, and exits.
+
+Run with: `pnpm run demo:headless -- "task"` (needs `DEEPSEEK_API_KEY`). See [headless-agent/README.md](headless-agent/README.md) for the output contract, safety boundaries, and snapshot suite.
+
+## tui-agent
+
+The full-screen terminal sibling of `repl-agent`: it reuses the same coding backends and tools while forcing the shared terminal app to `dsh-tui`. It is the home of TUI PTY and snapshot scenarios.
+
+Run with: `pnpm run demo:tui` (needs `DEEPSEEK_API_KEY`). See [tui-agent/README.md](tui-agent/README.md) for controls and composition.
 
 ## cordis-agent
 
@@ -29,7 +41,7 @@ Run with: `pnpm run demo:cordis` (needs `DEEPSEEK_API_KEY`). See [cordis-agent/R
 
 ## acp-agent
 
-An agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio, via the [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo) app — drive it from Zed or any other ACP client. Also the home of the keyless snapshot tests.
+An agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio, via the [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo) app — drive it from Zed or any other ACP client. It owns the ACP keyless snapshot suite.
 
 Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mode acp` boots the same server in Code Mode via the `code-mode.cordis.yml` overlay. See [acp-agent/README.md](acp-agent/README.md) for the Zed setup and the snapshot-test design.
 

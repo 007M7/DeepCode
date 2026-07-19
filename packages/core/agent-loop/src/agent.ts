@@ -8,11 +8,11 @@
 
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { AgentId, AgentOptions, AgentStatus, SendOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentOptions, AgentStatus, HookContext, InjectOptions, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import { snapshotJsonValue, type Session } from '@deepseek-ai/dsh-session'
+import { snapshotJsonValue, type Session, type SessionId } from '@deepseek-ai/dsh-session'
 import { Inbox, type InboxMessage } from './inbox.ts'
 import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
 
@@ -54,15 +54,20 @@ export interface PreparedReactLoopAgent {
  * @param id - the concrete agent identity.
  * @param options - loop options for the agent.
  * @param session - the prepared session the agent will own.
+ * @param maxParallelToolCalls - resolved in-flight cap for this agent.
  * @returns the agent and closures bound only to that exact instance.
  */
 export function prepareReactLoopAgent(
-  ctx: Context, id: AgentId, options: AgentOptions, session: Session,
+  ctx: Context,
+  id: SessionId,
+  options: AgentOptions,
+  session: Session,
+  maxParallelToolCalls: number,
 ): PreparedReactLoopAgent {
   if (claimedDriverSessions.has(session)) {
     throw new Error(`session "${session.id}" already has a concrete agent driver`)
   }
-  const agent = new ReactLoopAgent(ctx, id, options, session)
+  const agent = new ReactLoopAgent(ctx, id, options, session, maxParallelToolCalls)
   claimedDriverSessions.add(session)
   const dispose = () => agent[stopDriver]()
   return {
@@ -143,19 +148,27 @@ export class ReactLoopAgent implements Agent {
    * the `disposed` transition fires and leave the promise hanging.
    */
   private idleWaiters: (() => void)[] = []
+  /** Maximum parallel-safe calls allowed in one step. */
+  private readonly maxParallelToolCalls: number
   /**
    * Durability checkpoints started by idle {@link inject} calls. `inject()` is
    * synchronous, so it cannot await them itself; the driver disposer drains
    * this set before the lifecycle unregisters the agent or detaches its session.
    */
   private pendingIdleFlushes = new Set<Promise<void>>()
+  /** Whether the current step is executing an assistant tool-call batch. */
+  private toolBatchActive = false
+  /** Open-turn injections waiting for the active assistant tool-call batch to close. */
+  private deferredInjections: HookContext[] = []
 
   constructor(
     private loopCtx: Context,
-    public readonly id: AgentId,
+    public readonly id: SessionId,
     public readonly options: AgentOptions,
     public readonly session: Session,
+    maxParallelToolCalls: number,
   ) {
+    this.maxParallelToolCalls = maxParallelToolCalls
     const { promise, resolve } = Promise.withResolvers<void>()
     this.disposed = promise
     this.resolveDisposed = resolve
@@ -189,16 +202,24 @@ export class ReactLoopAgent implements Agent {
   }
 
   /**
-   * Accept one public send/steer payload as the exact detached record shared by
-   * the live notification and inbox. Lossless-JSON materialization reads every
-   * nested field once; deep freeze prevents an observer from rewriting queued
-   * work before the loop drains it.
+   * Accept one public message payload as a detached record. Lossless-JSON
+   * materialization reads every nested field once; deep freeze prevents later
+   * caller mutation before an inbox or deferred-injection queue drains it.
    */
-  private acceptInboxMessage(content: ContentBlock[], options?: SendOptions): InboxMessage {
+  private acceptMessage(content: ContentBlock[], options?: SendOptions): InboxMessage {
     const source = this.resolveSource(options)
     const accepted = snapshotJsonValue({ content, source })
     if (accepted === undefined) {
       throw new TypeError('agent message content and source must be losslessly JSON-serializable')
+    }
+    return deepFreeze(accepted)
+  }
+
+  /** Detach one context before it can outlive its caller in the active-batch FIFO. */
+  private acceptContext(context: HookContext): HookContext {
+    const accepted = snapshotJsonValue(context)
+    if (accepted === undefined) {
+      throw new TypeError('agent context must be losslessly JSON-serializable')
     }
     return deepFreeze(accepted)
   }
@@ -210,7 +231,7 @@ export class ReactLoopAgent implements Agent {
 
   send(content: ContentBlock[], options?: SendOptions): void {
     this.assertNotDisposed()
-    const accepted = this.acceptInboxMessage(content, options)
+    const accepted = this.acceptMessage(content, options)
     this.#inbox.enqueue(accepted)
     const info = { source: accepted.source, steering: false } as const
     agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
@@ -219,20 +240,31 @@ export class ReactLoopAgent implements Agent {
   steer(content: ContentBlock[], options?: SendOptions): void {
     this.assertNotDisposed()
     if (this._status !== 'running') { this.send(content, options); return }
-    const accepted = this.acceptInboxMessage(content, options)
+    const accepted = this.acceptMessage(content, options)
     this.#inbox.steer(accepted)
     const info = { source: accepted.source, steering: true } as const
     agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
   }
 
-  inject(content: ContentBlock[], options?: SendOptions): void {
+  inject(content: ContentBlock[], options?: InjectOptions): void {
     this.assertNotDisposed()
     const source = this.resolveSource(options)
+    const context = {
+      content,
+      source,
+      ...options?.envelope !== undefined ? { envelope: options.envelope } : {},
+      ...options?.meta !== undefined ? { meta: options.meta } : {},
+    }
     if (isTurnOpen(this.session)) {
-      // A turn is open in the LOG (decided from the log, not agent status —
-      // status can be `running` with no turn open): the context/message is
-      // turn-enclosed by that turn, so append it directly.
-      this.session.append('context/message', { content, source }, { surfaceOp: 'append' })
+      const accepted = this.acceptContext(context)
+      // Provider protocols require every assistant tool-call batch to be
+      // followed only by its tool results. Historical interrupted batches do
+      // not own new context; only the currently executing batch may defer it.
+      if (this.toolBatchActive) {
+        this.deferredInjections.push(accepted)
+        return
+      }
+      this.session.append('context/message', accepted, { surfaceOp: 'append' })
       return
     }
     // No turn open: wrap the injection in a one-shot turn so every event stays
@@ -244,7 +276,7 @@ export class ReactLoopAgent implements Agent {
     // are contained by Session and cannot create a false append failure.
     try {
       this.session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-      this.session.append('context/message', { content, source }, { surfaceOp: 'append' })
+      this.session.append('context/message', context, { surfaceOp: 'append' })
     } finally {
       // Close the turn if turn/start made it into the log. A pre-commit veto
       // must escape rather than being mistaken for a committed turn/end.
@@ -269,6 +301,34 @@ export class ReactLoopAgent implements Agent {
         const retire = (): void => { this.pendingIdleFlushes.delete(flush) }
         void flush.then(retire, retire)
       }
+    }
+  }
+
+  /** Append deferred open-turn injections after the loop closes a tool-result batch. */
+  private drainDeferredInjections(): void {
+    const pending = this.deferredInjections.splice(0)
+    for (const accepted of pending) {
+      this.session.append('context/message', accepted, { surfaceOp: 'append' })
+    }
+  }
+
+  /**
+   * Run one tool-call batch and drain its deferred context before settlement.
+   * The loop-owned acceptor remains valid after public disposal begins because
+   * the interrupted turn stays open until this batch settles.
+   */
+  private async withToolBatch<T>(
+    run: (acceptContext: (context: HookContext) => void) => Promise<T>,
+  ): Promise<T> {
+    this.toolBatchActive = true
+    const acceptContext = (context: HookContext): void => {
+      this.deferredInjections.push(this.acceptContext(context))
+    }
+    try {
+      return await run(acceptContext)
+    } finally {
+      this.toolBatchActive = false
+      this.drainDeferredInjections()
     }
   }
 
@@ -327,8 +387,9 @@ export class ReactLoopAgent implements Agent {
   [startDriver](): void {
     if (this._status === 'disposed') return
     this.driverStarted = true
-    this.done = runLoop(this.loopCtx, this, {
+    this.done = this.loopCtx.agents.withInitiator(this, () => runLoop(this.loopCtx, {
       inbox: this.#inbox,
+      maxParallelToolCalls: this.maxParallelToolCalls,
       setStatus: (status) => { this.setStatus(status) },
       setAbort: controller => void (this.currentAbort = controller),
       disposed: this.disposed,
@@ -336,9 +397,10 @@ export class ReactLoopAgent implements Agent {
       isCancelled: () => this.cancelRequested,
       cancelReason: () => this.cancelReason,
       clearCancel: () => { this.cancelRequested = false },
+      withToolBatch: run => this.withToolBatch(run),
       // Pre-step cancellation re-parks without emitting a status transition.
       settleIdle: () => { this.settleIdleWaiters() },
-    })
+    }))
   }
 
   /**
