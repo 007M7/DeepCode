@@ -72,7 +72,9 @@ declare module 'cordis' {
   interface Events {
     /**
      * Allow, deny, or ask before dispatch. `next()` delegates to allow; missing
-     * approval support turns `ask` into denial.
+     * approval support turns `ask` into denial. Async gates must observe
+     * `exec.signal`; the registry rechecks cancellation after they settle but
+     * never abandons their promise.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
      * @param exec - the pending call (name, parsed arguments, caller agent).
      * @mode waterfall
@@ -81,7 +83,9 @@ declare module 'cordis' {
     /**
      * Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns
      * a normalized result; wrappers may change only `exec.signal`, while call
-     * identity remains immutable.
+     * identity remains immutable. The registry re-fuses the original caller
+     * signal before the body, so replacement cannot detach caller cancellation;
+     * wrappers must still restore their signal and reach quiescence.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
      * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).
      * @mode waterfall
@@ -122,6 +126,15 @@ export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta
 
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
+  /**
+   * Run one accepted call. Async work must observe or forward `exec.signal` and
+   * settle only after its owned work reaches quiescence. The registry preserves
+   * caller cancellation through around-dispatch signal replacement and does
+   * not abandon this promise, but it cannot hard-kill same-process code.
+   * @param args - losslessly snapshotted, frozen model arguments.
+   * @param exec - execution identity, cancellation signal, and context deferral.
+   * @returns model-facing content plus optional private presentation metadata.
+   */
   execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
@@ -218,8 +231,10 @@ export type ToolExecutionMode =
  * One pending tool call inside the registry pipeline. Parsed arguments cross
  * one lossless-JSON materialization boundary before policy and are deep-frozen;
  * call identity and the registry-assigned {@link token} are readonly. An
- * around-dispatch wrapper may set, replace, or remove `signal`. The registry
- * freezes the complete object before `tools/result` observers run.
+ * around-dispatch wrapper may set, replace, or remove `signal`; immediately
+ * before the body, the registry re-fuses the original caller signal so a
+ * wrapper cannot detach caller cancellation. The registry freezes the complete
+ * object before `tools/result` observers run.
  */
 export interface ToolExecution extends ToolExecutionInput {
   /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
@@ -431,6 +446,18 @@ interface ToolGuardRegistration {
   guard: ToolGuard
 }
 
+/** Caller cancellation captured before around-dispatch wrappers may replace the public signal slot. */
+interface ToolCancellationState {
+  readonly callerSignal: AbortSignal | undefined
+  readonly abortedAtEntry: boolean
+}
+
+/** One dispatch-scoped fused signal plus listener cleanup after the body settles. */
+interface FusedToolSignal {
+  readonly signal: AbortSignal | undefined
+  dispose(): void
+}
+
 /**
  * Tool registry and execution pipeline. Scoped registrations shadow globals;
  * one visibility resolver feeds presentation, lookup, and dispatch.
@@ -452,6 +479,8 @@ export class ToolRegistry extends Service {
 
   /** Context deferred by a running tool body, keyed by its scheduler-owned execution. */
   private deferredContexts = new WeakMap<ToolRunContext, HookContext[]>()
+  /** Original caller cancellation, kept outside the wrapper-mutable execution object. */
+  private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
   private global = new Map<string, ToolDefinition>()
   private scoped = new Map<ScopeKey, Map<string, ToolDefinition>>()
   /** Compiled restriction filters, per scope (see {@link restrict}). */
@@ -774,7 +803,10 @@ export class ToolRegistry extends Service {
    * Execute through pre-policy, guards, around-dispatch, post-policy, and final
    * notification. Tool and listener failures resolve as materialized error
    * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
-   * the same lossless, frozen snapshot final observers receive.
+   * the same lossless, frozen snapshot final observers receive. Cancellation
+   * arriving after entry skips a not-yet-started body or replaces a successful
+   * dispatch outcome with `ABORTED`; already-started work is still drained and
+   * may retain a tool-owned structured error.
    * @param exec - the typed same-process call input. The registry assigns its
    *   correlation token before policy begins.
    * @returns the materialized final result.
@@ -827,6 +859,10 @@ export class ToolRegistry extends Service {
       }
       const execution: ToolRunContext = { ...base, arguments: deepFreeze(detached) }
       this.deferredContexts.set(execution, deferredContexts)
+      this.cancellationStates.set(execution, {
+        callerSignal: signal,
+        abortedAtEntry: signal?.aborted === true,
+      })
       return { kind: 'ready', exec: execution }
     } catch (error: unknown) {
       const execution: ToolRunContext = { ...base, arguments: undefined }
@@ -858,6 +894,9 @@ export class ToolRegistry extends Service {
         () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),
       )
       const decision = gate.kind === 'ask' ? await this.serviceAsk(exec, gate) : gate
+      if (this.callerCancelledAfterEntry(exec)) {
+        return await next({ kind: 'post-result', exec, result: toolAbortedResult() })
+      }
       const denialReason = decision.kind === 'allow'
         ? this.guardReason(exec)
         : decision.reason
@@ -873,7 +912,60 @@ export class ToolRegistry extends Service {
       }
       return await next({ kind: 'dispatch', exec })
     } catch (error: unknown) {
-      return next({ kind: 'final-result', exec, result: toolErrorResult(error) })
+      return this.callerCancelledAfterEntry(exec)
+        ? await next({ kind: 'post-result', exec, result: toolAbortedResult() })
+        : next({ kind: 'final-result', exec, result: toolErrorResult(error) })
+    }
+  }
+
+  /** Whether the original live caller signal aborted after this execution entered the registry. */
+  private callerCancelledAfterEntry(exec: ToolRunContext): boolean {
+    const state = this.cancellationStates.get(exec)
+    /* v8 ignore next -- only registry-minted executions reach the staged scheduler methods */
+    if (state === undefined) throw new Error('tool registry scheduler invariant violated: missing cancellation state')
+    return !state.abortedAtEntry && state.callerSignal?.aborted === true
+  }
+
+  /**
+   * Dispatch the registered body with the original caller signal fused back
+   * into any around-wrapper replacement. Cancellation never abandons the body:
+   * a started promise reaches quiescence before its outcome becomes `ABORTED`.
+   */
+  private async dispatchToolBody(exec: ToolRunContext): Promise<ToolExecutionResult> {
+    const state = this.cancellationStates.get(exec)
+    /* v8 ignore next -- only registry-minted executions reach the staged scheduler methods */
+    if (state === undefined) throw new Error('tool registry scheduler invariant violated: missing cancellation state')
+    const wrapperSignal = exec.signal
+    const fused = fuseToolSignals(state.callerSignal, wrapperSignal)
+    const signal = fused.signal
+    const abortedBeforeBody = isAborted(signal)
+
+    if (!state.abortedAtEntry && abortedBeforeBody) {
+      fused.dispose()
+      return toolAbortedResult()
+    }
+    if (signal === undefined) delete exec.signal
+    else exec.signal = signal
+    try {
+      const tool = this.get(exec.name, exec.agent)
+      if (!tool) throw new ToolNotFoundError(exec.name)
+      const returned = await tool.execute(exec.arguments, exec)
+      const content = Array.isArray(returned) ? returned : returned.content
+      const meta = Array.isArray(returned) ? undefined : returned.meta
+      const result: ToolExecutionResult = {
+        content,
+        isError: false,
+        ...meta !== undefined ? { meta } : {},
+      }
+      return !abortedBeforeBody && isAborted(signal)
+        ? toolAbortedResult(result)
+        : result
+    } catch (error: unknown) {
+      return toolErrorResult(error)
+    } finally {
+      fused.dispose()
+      if (wrapperSignal === undefined) delete exec.signal
+      else exec.signal = wrapperSignal
     }
   }
 
@@ -889,18 +981,7 @@ export class ToolRegistry extends Service {
       const carrier = scopeTarget(this, exec.agent)
       const result = await this.ctx.waterfall(
         carrier, 'tools/execute', exec,
-        async (): Promise<ToolExecutionResult> => {
-          try {
-            const tool = this.get(exec.name, exec.agent)
-            if (!tool) throw new ToolNotFoundError(exec.name)
-            const returned = await tool.execute(exec.arguments, exec)
-            const content = Array.isArray(returned) ? returned : returned.content
-            const meta = Array.isArray(returned) ? undefined : returned.meta
-            return { content, isError: false, ...meta !== undefined ? { meta } : {} }
-          } catch (error: unknown) {
-            return toolErrorResult(error)
-          }
-        },
+        () => this.dispatchToolBody(exec),
       )
       const deferredContexts = this.deferredContexts.get(exec)
       /* v8 ignore next -- dispatch only receives executions minted by this registry's prepare stage */
@@ -914,7 +995,12 @@ export class ToolRegistry extends Service {
             ...result.additionalContexts ?? [],
           ],
         }
-      return { kind: 'post-result', result: resultWithDeferredContexts }
+      return {
+        kind: 'post-result',
+        result: this.callerCancelledAfterEntry(exec) && !resultWithDeferredContexts.isError
+          ? toolAbortedResult(resultWithDeferredContexts)
+          : resultWithDeferredContexts,
+      }
     } catch (error: unknown) {
       return { kind: 'final-result', result: toolErrorResult(error) }
     }
@@ -1066,6 +1152,58 @@ function toolErrorResult(error: unknown): ToolExecutionResult {
     content: [{ type: 'text', text: `Error: ${errorMessage(error)}` }],
     isError: true,
     ...info ? { error: info } : {},
+  }
+}
+
+/** Read live abort state across an await without treating it as synchronously immutable. */
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true
+}
+
+/**
+ * Fuse caller and wrapper cancellation without nesting `AbortSignal.any`.
+ * Keeping the relay dispatch-scoped also removes listeners when work settles.
+ */
+function fuseToolSignals(caller: AbortSignal | undefined, wrapper: AbortSignal | undefined): FusedToolSignal {
+  if (caller === undefined || caller === wrapper) {
+    return { signal: wrapper ?? caller, dispose() {} }
+  }
+  if (wrapper === undefined) return { signal: caller, dispose() {} }
+
+  const controller = new AbortController()
+  let listening = false
+  const dispose = (): void => {
+    if (!listening) return
+    listening = false
+    caller.removeEventListener('abort', abortFromCaller)
+    wrapper.removeEventListener('abort', abortFromWrapper)
+  }
+  const abortFrom = (source: AbortSignal): void => {
+    const reason: unknown = source.reason
+    controller.abort(reason)
+    dispose()
+  }
+  const abortFromCaller = (): void => { abortFrom(caller) }
+  const abortFromWrapper = (): void => { abortFrom(wrapper) }
+
+  if (wrapper.aborted) abortFromWrapper()
+  else if (caller.aborted) abortFromCaller()
+  else {
+    listening = true
+    caller.addEventListener('abort', abortFromCaller, { once: true })
+    wrapper.addEventListener('abort', abortFromWrapper, { once: true })
+  }
+  return { signal: controller.signal, dispose }
+}
+
+/** Canonical result when cancellation prevents dispatch or supersedes a successful outcome. */
+function toolAbortedResult(prior?: ToolExecutionResult): ToolExecutionResult {
+  const additionalContexts = prior?.additionalContexts ?? []
+  return {
+    content: [{ type: 'text', text: 'Error: tool call aborted' }],
+    isError: true,
+    error: { name: 'AbortError', code: 'ABORTED' },
+    ...additionalContexts.length > 0 ? { additionalContexts } : {},
   }
 }
 

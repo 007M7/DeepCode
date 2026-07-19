@@ -857,7 +857,7 @@ describe('the run_code dispatch bridge', () => {
     expect(calls).toEqual([])
   })
 
-  it('rejects a binding invoked after the run is over without dispatching it', async () => {
+  it('reports cancellation after rejecting a late binding without dispatching it', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const calls = registerEcho(ctx)
     const controller = new AbortController()
@@ -868,8 +868,9 @@ describe('the run_code dispatch bridge', () => {
       return { logs: [], value: message }
     }
     const result = await runCode(ctx, 'program', { signal: controller.signal })
-    expect(result.isError).toBe(false)
-    expect((result.content[0] as { text: string }).text).toContain('not dispatched')
+    expect(result.isError).toBe(true)
+    expect(result.error).toEqual({ name: 'AbortError', code: 'ABORTED' })
+    expect((result.content[0] as { text: string }).text).toBe('Error: tool call aborted')
     expect(calls).toEqual([])
   })
 

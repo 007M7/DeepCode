@@ -126,7 +126,7 @@ describe('timeout-policy TOOL_TIMEOUT replacement (deadline wins)', () => {
     expect(result.content[0]).toMatchObject({ text: 'Error: tool call timed out after 100ms' })
   })
 
-  it('does NOT replace when the caller aborts first (upstream cancel, not our timeout)', async () => {
+  it('preserves registry ABORTED when the caller aborts first (upstream cancel, not our timeout)', async () => {
     const ctx = await setup()
     ctx.tools.register(cooperativeTool)
     const upstream = new AbortController()
@@ -134,8 +134,42 @@ describe('timeout-policy TOOL_TIMEOUT replacement (deadline wins)', () => {
     upstream.abort('user cancelled')
     await vi.advanceTimersByTimeAsync(0)
     const result = await pending
-    expect(result.isError).toBe(false)
-    expect(result.content[0]).toMatchObject({ text: 'stopped cooperatively' })
+    expect(result.isError).toBe(true)
+    expect(result.error).toEqual({ name: 'AbortError', code: 'ABORTED' })
+    expect(result.content[0]).toMatchObject({ text: 'Error: tool call aborted' })
+  })
+
+  it('preserves TOOL_TIMEOUT when the deadline wins before a later caller abort', async () => {
+    const ctx = await setup()
+    const sawAbort = Promise.withResolvers<undefined>()
+    const releaseCleanup = Promise.withResolvers<undefined>()
+    ctx.tools.register(defineTool({
+      name: 'slow-cleanup', description: 'settles after abort cleanup', parameters: {}, timeoutMs: 100,
+      async execute(_args, exec) {
+        if (!exec.signal?.aborted) {
+          await new Promise<undefined>((resolve) => {
+            exec.signal?.addEventListener('abort', () => { resolve(undefined) }, { once: true })
+          })
+        }
+        sawAbort.resolve(undefined)
+        await releaseCleanup.promise
+        return [{ type: 'text' as const, text: 'cleanup complete' }]
+      },
+    }))
+    const upstream = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('timeout-first'), name: 'slow-cleanup', arguments: {}, signal: upstream.signal,
+    })
+
+    await vi.advanceTimersByTimeAsync(100)
+    await sawAbort.promise
+    upstream.abort('too late to replace timeout')
+    releaseCleanup.resolve(undefined)
+
+    await expect(pending).resolves.toMatchObject({
+      isError: true,
+      error: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' },
+    })
   })
 })
 

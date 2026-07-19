@@ -741,7 +741,7 @@ Emitted when any prompt provider changes. This registry notification is unfilter
 
 A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed — possibly for one scope only). An UNFILTERED registry-subject notification, deliberately not scope-filtered dispatch: a global change concerns every agent's next assembly, so a scoped listener subscribing here sees every change, not just its own scope's.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L116)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L120)
 
 ### tools/execute
 
@@ -751,7 +751,9 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 /**
  * Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns
  * a normalized result; wrappers may change only `exec.signal`, while call
- * identity remains immutable.
+ * identity remains immutable. The registry re-fuses the original caller
+ * signal before the body, so replacement cannot detach caller cancellation;
+ * wrappers must still restore their signal and reach quiescence.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
  * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).
  * @mode waterfall
@@ -759,11 +761,11 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
 ```
 
-Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a normalized result; wrappers may change only `exec.signal`, while call identity remains immutable. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
+Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a normalized result; wrappers may change only `exec.signal`, while call identity remains immutable. The registry re-fuses the original caller signal before the body, so replacement cannot detach caller cancellation; wrappers must still restore their signal and reach quiescence. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
 
 - `exec` — the allowed call about to dispatch (name, parsed arguments, caller agent, signal).
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L89)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L93)
 
 ### tools/post-execute
 
@@ -786,7 +788,7 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 - `exec` — the call that just ran (name, parsed arguments, caller agent).
 - `result` — the dispatch outcome a listener may accept, replace, or block.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L98)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L102)
 
 ### tools/pre-execute
 
@@ -795,7 +797,9 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 ```ts website-api
 /**
  * Allow, deny, or ask before dispatch. `next()` delegates to allow; missing
- * approval support turns `ask` into denial.
+ * approval support turns `ask` into denial. Async gates must observe
+ * `exec.signal`; the registry rechecks cancellation after they settle but
+ * never abandons their promise.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
  * @param exec - the pending call (name, parsed arguments, caller agent).
  * @mode waterfall
@@ -803,11 +807,11 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 'tools/pre-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
 ```
 
-Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approval support turns `ask` into denial. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
+Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approval support turns `ask` into denial. Async gates must observe `exec.signal`; the registry rechecks cancellation after they settle but never abandons their promise. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
 
 - `exec` — the pending call (name, parsed arguments, caller agent).
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L80)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L82)
 
 ### tools/result
 
@@ -829,7 +833,7 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 - `exec` — the execution object that traversed the pipeline.
 - `result` — a deep-frozen snapshot of the final returned result.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L106)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/tools/src/index.ts#L110)
 
 ## workflow/*
 

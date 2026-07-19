@@ -499,6 +499,302 @@ describe('ToolRegistry', () => {
     expect(order).toEqual(['pre', 'execute:before', 'dispatch', 'execute:after', 'post'])
   })
 
+  it('skips dispatch when caller cancellation arrives while pre-execute awaits', async () => {
+    const ctx = await setup()
+    let dispatched = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'must-not-run',
+      async execute() { dispatched += 1; return [] },
+    })
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.on('tools/pre-execute', async (_exec, next) => {
+      entered.resolve(undefined)
+      await release.promise
+      return await next()
+    })
+
+    const controller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('cancelled-in-pre'), name: 'must-not-run', arguments: {}, signal: controller.signal,
+    })
+    await entered.promise
+    controller.abort('cancelled in policy')
+    release.resolve(undefined)
+
+    await expect(pending).resolves.toMatchObject({
+      content: [{ type: 'text', text: 'Error: tool call aborted' }],
+      isError: true,
+      error: { name: 'AbortError', code: 'ABORTED' },
+    })
+    expect(dispatched).toBe(0)
+  })
+
+  it('materializes ABORTED when an async pre-execute gate throws after cancellation', async () => {
+    const ctx = await setup()
+    let dispatched = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'must-not-run',
+      async execute() { dispatched += 1; return [] },
+    })
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.on('tools/pre-execute', async () => {
+      entered.resolve(undefined)
+      await release.promise
+      throw new Error('gate interrupted')
+    })
+
+    const controller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('cancelled-pre-error'), name: 'must-not-run', arguments: {}, signal: controller.signal,
+    })
+    await entered.promise
+    controller.abort('cancelled in policy')
+    release.resolve(undefined)
+
+    await expect(pending).resolves.toMatchObject({
+      isError: true,
+      error: { name: 'AbortError', code: 'ABORTED' },
+    })
+    expect(dispatched).toBe(0)
+  })
+
+  it('rechecks caller cancellation after an async around-dispatch wrapper delegates', async () => {
+    const ctx = await setup()
+    let dispatched = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'must-not-run',
+      async execute() { dispatched += 1; return [] },
+    })
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const replacement = new AbortController()
+    ctx.on('tools/execute', async (exec, next) => {
+      const upstream = exec.signal
+      exec.signal = replacement.signal
+      try {
+        entered.resolve(undefined)
+        await release.promise
+        return await next()
+      } finally {
+        if (upstream === undefined) delete exec.signal
+        else exec.signal = upstream
+      }
+    })
+
+    const controller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('cancelled-in-around'), name: 'must-not-run', arguments: {}, signal: controller.signal,
+    })
+    await entered.promise
+    controller.abort('cancelled in wrapper')
+    release.resolve(undefined)
+
+    await expect(pending).resolves.toMatchObject({
+      isError: true,
+      error: { name: 'AbortError', code: 'ABORTED' },
+    })
+    expect(dispatched).toBe(0)
+  })
+
+  it('skips dispatch when an around wrapper supplies an already-aborted signal', async () => {
+    const ctx = await setup()
+    let dispatched = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'must-not-run',
+      async execute() { dispatched += 1; return [] },
+    })
+    const replacement = AbortSignal.abort('wrapper cancelled')
+    ctx.on('tools/execute', async (exec, next) => {
+      const upstream = exec.signal
+      exec.signal = replacement
+      try {
+        return await next()
+      } finally {
+        if (upstream === undefined) delete exec.signal
+        else exec.signal = upstream
+      }
+    })
+
+    const controller = new AbortController()
+    const result = await ctx.tools.execute({
+      callId: CallId('cancelled-wrapper'), name: 'must-not-run', arguments: {}, signal: controller.signal,
+    })
+
+    expect(result.error).toEqual({ name: 'AbortError', code: 'ABORTED' })
+    expect(dispatched).toBe(0)
+  })
+
+  it('replaces a late wrapper success with ABORTED and preserves deferred contexts', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'completed-before-wrapper',
+      async execute(_args, exec) {
+        exec.deferContext({
+          content: [{ type: 'text', text: 'completed child work' }],
+          source: { kind: 'plugin', plugin: 'child' },
+        })
+        return [{ type: 'text', text: 'body complete' }]
+      },
+    })
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.on('tools/execute', async (_exec, next) => {
+      const result = await next()
+      entered.resolve(undefined)
+      await release.promise
+      return result
+    })
+    const controller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('cancelled-after-body'), name: 'completed-before-wrapper', arguments: {}, signal: controller.signal,
+    })
+    await entered.promise
+    controller.abort('cancelled while wrapper settled')
+    release.resolve(undefined)
+
+    await expect(pending).resolves.toMatchObject({
+      content: [{ type: 'text', text: 'Error: tool call aborted' }],
+      isError: true,
+      error: { name: 'AbortError', code: 'ABORTED' },
+      additionalContexts: [{ source: { kind: 'plugin', plugin: 'child' } }],
+    })
+  })
+
+  it('fuses caller cancellation back into a wrapper replacement for the running body', async () => {
+    const ctx = await setup()
+    const entered = Promise.withResolvers<undefined>()
+    const replacement = new AbortController()
+    let bodySignal: AbortSignal | undefined
+    ctx.tools.register({
+      ...echoTool,
+      name: 'cooperative',
+      execute(_args, exec) {
+        bodySignal = exec.signal
+        entered.resolve(undefined)
+        if (exec.signal?.aborted) return Promise.resolve([])
+        return new Promise((resolve) => {
+          exec.signal?.addEventListener('abort', () => { resolve([]) }, { once: true })
+        })
+      },
+    })
+    ctx.on('tools/execute', async (exec, next) => {
+      const upstream = exec.signal
+      exec.signal = replacement.signal
+      try {
+        return await next()
+      } finally {
+        if (upstream === undefined) delete exec.signal
+        else exec.signal = upstream
+      }
+    })
+
+    const controller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('cancelled-body'), name: 'cooperative', arguments: {}, signal: controller.signal,
+    })
+    await entered.promise
+    expect(bodySignal).not.toBe(controller.signal)
+    expect(bodySignal).not.toBe(replacement.signal)
+    controller.abort('cancel running body')
+
+    await expect(pending).resolves.toMatchObject({
+      isError: true,
+      error: { name: 'AbortError', code: 'ABORTED' },
+    })
+    expect(bodySignal?.aborted).toBe(true)
+    expect(replacement.signal.aborted).toBe(false)
+  })
+
+  it('restores a removed caller signal for dispatch', async () => {
+    const ctx = await setup()
+    let bodySignal: AbortSignal | undefined
+    ctx.tools.register({
+      ...echoTool,
+      name: 'signal-probe',
+      async execute(_args, exec) { bodySignal = exec.signal; return [] },
+    })
+    ctx.on('tools/execute', async (exec, next) => {
+      const upstream = exec.signal
+      delete exec.signal
+      try {
+        return await next()
+      } finally {
+        if (upstream !== undefined) exec.signal = upstream
+      }
+    })
+    const controller = new AbortController()
+
+    await ctx.tools.execute({
+      callId: CallId('restored-signal'), name: 'signal-probe', arguments: {}, signal: controller.signal,
+    })
+
+    expect(bodySignal).toBe(controller.signal)
+  })
+
+  it('waits for an uncooperative started body before returning ABORTED', async () => {
+    const ctx = await setup()
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<never[]>()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'uncooperative',
+      execute(_args, exec) {
+        exec.deferContext({
+          content: [{ type: 'text', text: 'nested outcome' }],
+          source: { kind: 'plugin', plugin: 'nested' },
+        })
+        entered.resolve(undefined)
+        return release.promise
+      },
+    })
+    const controller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('drain-body'), name: 'uncooperative', arguments: {}, signal: controller.signal,
+    })
+    await entered.promise
+    controller.abort('must still drain')
+
+    const state = await Promise.race([
+      pending.then(() => 'settled' as const),
+      Promise.resolve('pending' as const),
+    ])
+    expect(state).toBe('pending')
+    release.resolve([])
+    await expect(pending).resolves.toMatchObject({
+      isError: true,
+      error: { name: 'AbortError', code: 'ABORTED' },
+      additionalContexts: [{ source: { kind: 'plugin', plugin: 'nested' } }],
+    })
+  })
+
+  it('lets an already-aborted entry signal reach the body for domain-specific cleanup', async () => {
+    const ctx = await setup()
+    let dispatched = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'domain-abort',
+      async execute(_args, exec) {
+        dispatched += 1
+        expect(exec.signal?.aborted).toBe(true)
+        throw new HarnessError('domain cleanup completed', 'DOMAIN_ABORTED')
+      },
+    })
+
+    const result = await ctx.tools.execute({
+      callId: CallId('pre-aborted'), name: 'domain-abort', arguments: {}, signal: AbortSignal.abort(),
+    })
+
+    expect(dispatched).toBe(1)
+    expect(result.error).toEqual({ name: 'HarnessError', code: 'DOMAIN_ABORTED' })
+  })
+
   it('a pre-execute deny short-circuits before tools/execute (the seam never runs)', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
@@ -560,7 +856,7 @@ describe('ToolRegistry', () => {
     expect(result.content[0]).toMatchObject({ text: 'Error: exploded' })
   })
 
-  it('a tools/execute listener can replace exec.signal for the dispatched tool (deadline pattern)', async () => {
+  it('re-fuses the caller signal with an around-dispatch replacement for the body', async () => {
     const ctx = await setup()
     let seenSignal: AbortSignal | undefined
     ctx.tools.register({
@@ -583,7 +879,9 @@ describe('ToolRegistry', () => {
     })
 
     await ctx.tools.execute({ callId: CallId('c1'), name: 'signal-probe', arguments: {}, signal: upstream })
-    expect(seenSignal).toBe(replacement) // dispatch saw the wrapper's replacement, not the upstream
+    expect(seenSignal).toBeDefined()
+    expect(seenSignal).not.toBe(upstream)
+    expect(seenSignal).not.toBe(replacement)
   })
 
   it('a tools/execute listener can short-circuit dispatch by returning a result without next()', async () => {

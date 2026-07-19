@@ -473,7 +473,7 @@ describe('tool-call scheduler: abort handling', () => {
     expect(events(agent).filter(e => e.type === 'tool/result')).toEqual([])
   })
 
-  it('stops starting siblings when abort fires during ordered pre-execute', async () => {
+  it('skips dispatch and stops starting siblings when abort fires during ordered pre-execute', async () => {
     const adapter = new MockAdapter([
       multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }, { id: 'c2', name: 'p', args: { id: '2' } }]),
       textResponse('should never be requested'),
@@ -490,16 +490,14 @@ describe('tool-call scheduler: abort handling', () => {
     })
 
     agent.send([{ type: 'text', text: 'go' }])
-    await until(() => gated.started.length === 1)
-    await new Promise(r => setTimeout(r, 5))
-    expect(gated.started).toEqual(['1'])
-    gated.release('1')
     await waitForIdle(ctx, agent)
 
+    expect(gated.started).toEqual([])
     expect(events(agent).filter(e => e.type === 'tool/call').map(e => e.data.callId))
       .toEqual([CallId('c1')])
-    expect(events(agent).filter(e => e.type === 'tool/result').map(e => e.data.callId))
-      .toEqual([CallId('c1')])
+    const results = events(agent).filter(e => e.type === 'tool/result')
+    expect(results.map(e => e.data.callId)).toEqual([CallId('c1')])
+    expect(results[0]?.data.error).toEqual({ name: 'AbortError', code: 'ABORTED' })
   })
 
   it('stops replenishing after abort, commits started results, and drains accepted additional contexts', async () => {

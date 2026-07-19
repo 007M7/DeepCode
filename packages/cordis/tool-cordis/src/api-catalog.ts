@@ -552,7 +552,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
-        jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy, and final\n * notification. Tool and listener failures resolve as materialized error\n * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is\n * the same lossless, frozen snapshot final observers receive.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
+        jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy, and final\n * notification. Tool and listener failures resolve as materialized error\n * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is\n * the same lossless, frozen snapshot final observers receive. Cancellation\n * arriving after entry skips a not-yet-started body or replaces a successful\n * dispatch outcome with `ABORTED`; already-started work is still drained and\n * may retain a tool-owned structured error.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
       },
     ],
   },
@@ -820,7 +820,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'tools/execute',
     mode: 'waterfall',
     signature: '\'tools/execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>',
-    jsDoc: '/**\n * Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns\n * a normalized result; wrappers may change only `exec.signal`, while call\n * identity remains immutable.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns\n * a normalized result; wrappers may change only `exec.signal`, while call\n * identity remains immutable. The registry re-fuses the original caller\n * signal before the body, so replacement cannot detach caller cancellation;\n * wrappers must still restore their signal and reach quiescence.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).\n * @mode waterfall\n */',
     summary: 'Around-dispatch waterfall for timeout, retry, or metrics.',
   },
   {
@@ -834,7 +834,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'tools/pre-execute',
     mode: 'waterfall',
     signature: '\'tools/pre-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>',
-    jsDoc: '/**\n * Allow, deny, or ask before dispatch. `next()` delegates to allow; missing\n * approval support turns `ask` into denial.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the pending call (name, parsed arguments, caller agent).\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Allow, deny, or ask before dispatch. `next()` delegates to allow; missing\n * approval support turns `ask` into denial. Async gates must observe\n * `exec.signal`; the registry rechecks cancellation after they settle but\n * never abandons their promise.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the pending call (name, parsed arguments, caller agent).\n * @mode waterfall\n */',
     summary: 'Allow, deny, or ask before dispatch.',
   },
   {
