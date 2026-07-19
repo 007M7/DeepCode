@@ -115,7 +115,7 @@ Two failure paths, both documented:
 - **`SessionEventMap`** gains `compact/start` / `compact/summary` / `compact/end` by declaration merging (merge-extensible); `SurfaceEventType` is **not** touched. These are session events, not cordis `Events`, so the event-taxonomy gate needs no entry.
 - **`dsh-compact`** owns `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)`, the cached surface-edge checks that `compactRegion` and `compactIfNeeded` use to avoid splitting a tool-call/result pair. The cache validates current membership by seq and answers both edges from one per-cut balance sequence; stale or missing seqs and orphan results reject. `dsh-session` continues to own the surface `replace` operation, ordered event sequences, and rewrite generation.
 - **`dsh-invariants`** drops its `surface replace: start must be <= end` assertion: a head-anchored compaction lands a high-seq replacement entry at an older range's *position*, so `start > end` numerically is normal and valid (the range is positional, validated by the surface's `indexOf` checks that remain). The turn-enclosure invariant is reused unchanged.
-- **Wiring**: `examples/coding-agent/cordis.yml` loads zero-config `dsh-token-meter` before `dsh-compact-basic`; the service-wide window and compact defaults make the pair usable without repeated numeric policy.
+- **Wiring**: `examples/repl-agent/cordis.yml` loads zero-config `dsh-token-meter` before `dsh-compact-basic`; the service-wide window and compact defaults make the pair usable without repeated numeric policy.
 
 ## Testing
 

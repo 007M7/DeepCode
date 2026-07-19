@@ -42,7 +42,7 @@
     # Keep the persona to identity and behavior; tool plugins own tool guidance.
     # The loop resolves {{model}} from this agent's configuration.
     persona: |
-      You are coding-agent, a coding assistant powered by the {{model}} model.
+      You are a coding agent powered by the {{model}} model.
 
       Verify your work by running the code or tests. Keep answers brief and
       factual.

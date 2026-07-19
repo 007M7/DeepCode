@@ -9,21 +9,21 @@ A mock model + echo tool on the stdio chat app — the all-mock skeleton. The le
 - A thin leaf `cordis.yml` loading the `@deepseek-ai/dsh-stdio-demo` app
 - Registering a mock `LlmAdapter` (streaming scripted responses)
 - Registering a tool via `ctx.tools.register()`
-- "Swap the backend, keep the app" — the only difference from `coding-agent` is the adapter
+- "Swap the backend, keep the app" — the only difference from `repl-agent` is the adapter
 
 Run with: `pnpm run demo:echo`. When prompted, type "echo <something>" to trigger a tool call round-trip.
 
-## coding-agent
+## repl-agent
 
-A coding-agent REPL: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the `@deepseek-ai/dsh-stdio-demo` app's readline front door.
+A coding agent with DeepSeek V4, the `read`/`write`/`edit` filesystem tools, the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the `@deepseek-ai/dsh-stdio-demo` app's readline front door.
 
-Run with: `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
+Run with: `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [repl-agent/README.md](repl-agent/README.md) for details.
 
-Run the Code Mode overlay with `pnpm run demo:code-mode`, or pass `acp` for the ACP example. See the [Code Mode example](coding-agent/README.md#code-mode) for its composition and a sample task.
+Run the Code Mode overlay with `pnpm run demo:code-mode`, or pass `acp` for the ACP example. See the [Code Mode example](repl-agent/README.md#code-mode) for its composition and a sample task.
 
 ## tui-agent
 
-The full-screen terminal sibling of `coding-agent`: it reuses the same coding backends and tools while forcing the shared terminal app to `dsh-tui`. It is the home of TUI PTY and snapshot scenarios.
+The full-screen terminal sibling of `repl-agent`: it reuses the same coding backends and tools while forcing the shared terminal app to `dsh-tui`. It is the home of TUI PTY and snapshot scenarios.
 
 Run with: `pnpm run demo:tui` (needs `DEEPSEEK_API_KEY`). See [tui-agent/README.md](tui-agent/README.md) for controls and composition.
 

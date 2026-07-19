@@ -39,7 +39,7 @@ Harness 使用 `cordis.yml` 描述一个 Agent 加载哪些插件、以什么参
     persistenceRoot: './.sessions'
 ```
 
-### coding-agent 的配置
+### repl-agent 的配置
 
 真实场景——接入 DeepSeek API，带完整工具链：
 
@@ -81,7 +81,7 @@ Harness 使用 `cordis.yml` 描述一个 Agent 加载哪些插件、以什么参
     persistenceRoot: './.sessions'
     welcome: 'agent REPL ready. Give it a coding task.'
     persona: |
-      You are coding-agent, a coding assistant powered by the {{model}} model.
+      You are a coding agent powered by the {{model}} model.
       Verify your work by running the code or tests. Keep answers brief and factual.
 
 # Token 计量：统一定义模型能看到的 token 上限

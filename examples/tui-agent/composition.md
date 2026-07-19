@@ -3,7 +3,7 @@
 
 # TUI Agent App Composition
 
-The TUI agent reuses the coding-agent backend and tool composition while fixing the shared terminal app to the full-screen dsh-tui front door.
+The TUI agent reuses the repl-agent backend and tool composition while fixing the shared terminal app to the full-screen dsh-tui front door.
 
 ```mermaid
 flowchart LR
