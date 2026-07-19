@@ -142,7 +142,7 @@ describe('AgentLoop initiator scope', () => {
     await ctx.fiber.dispose()
   })
 
-  it('keeps child setup under the parent boundary, switches for the child driver, then restores the parent', async () => {
+  it('keeps child setup under the parent boundary and restores the parent while the child driver remains active', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('spawn', 'spawn-child', {}),
       toolCallResponse('observe', 'observe-child', {}),
@@ -153,7 +153,7 @@ describe('AgentLoop initiator scope', () => {
     let parentDuringSetup: Agent | undefined
     let explicitChild: Agent | undefined
     let childDuringDriver: Agent | undefined
-    let parentAfterChild: Agent | undefined
+    let parentWhileChildDriverActive: Agent | undefined
     let child: Agent | undefined
 
     ctx.tools.register(defineTool({
@@ -181,9 +181,9 @@ describe('AgentLoop initiator scope', () => {
           },
         })
         child = handle.agent
+        parentWhileChildDriverActive = ctx.agents.requireInitiator()
         send(handle.agent, 'run child')
         await handle.agent.whenIdle()
-        parentAfterChild = ctx.agents.requireInitiator()
         await handle.dispose()
         return [{ type: 'text', text: 'child completed' }]
       },
@@ -200,7 +200,7 @@ describe('AgentLoop initiator scope', () => {
     expect(parentDuringSetup).toBe(parentHandle.agent)
     expect(explicitChild).toBe(child)
     expect(childDuringDriver).toBe(child)
-    expect(parentAfterChild).toBe(parentHandle.agent)
+    expect(parentWhileChildDriverActive).toBe(parentHandle.agent)
     expect(ctx.agents.currentInitiator()).toBeUndefined()
     await parentHandle.dispose()
     await ctx.fiber.dispose()
