@@ -6,7 +6,7 @@
 
 The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L94)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L97)
 
 ### ctx.llm.registerAdapter(providers, adapter)
 
@@ -29,7 +29,7 @@ Register an adapter for the given provider routes. Throws `LlmError` with code `
 
 **Returns** the disposer that unregisters all of them.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L109)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L112)
 
 ### ctx.llm.listProviders()
 
@@ -45,7 +45,7 @@ Describe provider routes with a registered adapter.
 
 **Returns** detached provider metadata in registration order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L140)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L143)
 
 ### ctx.llm.listModels(provider)
 
@@ -65,7 +65,7 @@ Discover models advertised by one registered provider. Catalog membership is adv
 
 **Returns** detached model metadata in adapter-preferred order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L150)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L153)
 
 ### ctx.llm.stream(options)
 
@@ -74,18 +74,21 @@ Discover models advertised by one registered provider. Catalog membership is adv
  * Stream one model call as raw chunks (token-level deltas). Throws
  * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
  * `options.provider`. Replay state is retained only when the same adapter
- * instance owns its historical provider and the target provider. Dispatches
- * through the `llm/stream` waterfall.
+ * instance owns its historical provider and the target provider. Final
+ * adapter selection, dispatch, and iteration failures retain their original
+ * Error identity and are tagged in a call-local scope for narrow agent-loop
+ * request recovery; middleware and nested-call failures remain untagged for
+ * the outer call.
  * @param options - the full request; `options.provider` selects the adapter.
  * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
  */
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Stream one model call as raw chunks (token-level deltas). Throws `LlmError` with code `NO_ADAPTER` if no adapter is registered for `options.provider`. Replay state is retained only when the same adapter instance owns its historical provider and the target provider. Dispatches through the `llm/stream` waterfall.
+Stream one model call as raw chunks (token-level deltas). Throws `LlmError` with code `NO_ADAPTER` if no adapter is registered for `options.provider`. Replay state is retained only when the same adapter instance owns its historical provider and the target provider. Final adapter selection, dispatch, and iteration failures retain their original Error identity and are tagged in a call-local scope for narrow agent-loop request recovery; middleware and nested-call failures remain untagged for the outer call.
 
 - `options` — the full request; `options.provider` selects the adapter.
 
 **Returns** the chunk stream, possibly wrapped by `llm/stream` listeners.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L208)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L264)

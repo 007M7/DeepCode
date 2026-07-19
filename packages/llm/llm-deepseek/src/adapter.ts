@@ -5,7 +5,7 @@
  * @module dsh-llm-deepseek/adapter
  */
 
-import { attributionHeaders, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { serializeRequest } from './serialize.ts'
 import type { RequestDefaults } from './serialize.ts'
@@ -38,12 +38,17 @@ export interface DeepSeekAdapterOptions {
 /**
  * Map an HTTP status to a stable LlmError code.
  * @param status - status of a non-2xx provider response.
- * @returns `AUTH` (401/403), `RATE_LIMIT` (429), `INVALID_REQUEST` (400), `SERVER` (5xx), or `HTTP_<status>` for anything else.
+ * @param error - parsed provider error body, when available.
+ * @returns the normalized harness error code.
  */
-export function httpErrorCode(status: number): string {
+export function httpErrorCode(status: number, error?: WireError['error']): string {
   if (status === 401 || status === 403) return 'AUTH'
   if (status === 429) return 'RATE_LIMIT'
-  if (status === 400) return 'INVALID_REQUEST'
+  if (status === 400) {
+    const detail = [error?.code, error?.type, error?.message].filter(Boolean).join(' ')
+    if (isContextWindowExceededError(detail)) return CONTEXT_WINDOW_EXCEEDED_CODE
+    return 'INVALID_REQUEST'
+  }
   if (status >= 500) return 'SERVER'
   return `HTTP_${status}`
 }
@@ -92,16 +97,17 @@ export class DeepSeekAdapter extends LlmAdapter {
     })
 
     if (!response.ok) {
-      const code = httpErrorCode(response.status)
       let message = `DeepSeek API error (HTTP ${response.status})`
+      let providerError: WireError['error']
       try {
         const parsed = await response.json() as WireError
-        if (parsed.error?.message) message = parsed.error.message
+        providerError = parsed.error
+        if (providerError?.message) message = providerError.message
       } catch {
-        // Only swallow error-body parsing: the stable code and status-line message
-        // are already captured, so malformed gateway JSON must not mask the failure.
+        // Only swallow error-body parsing: the HTTP status still identifies the
+        // failure, so malformed gateway JSON must not mask it.
       }
-      throw new LlmError(message, code)
+      throw new LlmError(message, httpErrorCode(response.status, providerError))
     }
     if (!response.body) {
       throw new LlmError('DeepSeek API returned no response body', 'EMPTY_RESPONSE')

@@ -18,7 +18,9 @@ export interface BasicCompactConfig {
   maxTokens?: number
   /** Extra attempts after the first compaction when pressure remains above threshold. Defaults to `1`. */
   compactionRetries?: number
-  /** Enable the automatic `agent/pre-step` pressure listener. Defaults to `true`. */
+  /** Maximum retries after canonical context overflow; `0` disables recovery. Defaults to `1`. */
+  maxOverflowRetries?: number
+  /** Enable automatic post-step pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
 }
 
@@ -30,5 +32,6 @@ export interface ResolvedConfig {
   readonly summarizationModel: string
   readonly maxTokens: number
   readonly compactionRetries: number
+  readonly maxOverflowRetries: number
   readonly auto: boolean
 }
