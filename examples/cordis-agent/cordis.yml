@@ -1,4 +1,4 @@
-# Self-referential stdio demo: the coding spine plus tools to inspect the live
+# Self-referential TUI demo: the coding spine plus tools to inspect the live
 # service/plugin/tool/mount/API/event state, mount a model-written plugin under
 # `cordis-dynamic`, and quiescently unmount it. The app bin loads the gitignored
 # root `.env` before reading the required DeepSeek key and optional base URL.
@@ -45,8 +45,8 @@
   name: '@deepseek-ai/dsh-web-fetch-local'
 
 # The app bundle pre-creates the self-referential demo's `main` agent.
-- id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-demo'
+- id: tui-agent
+  name: '@deepseek-ai/dsh-tui-demo'
   config:
     provider: deepseek
     model: deepseek-v4-flash

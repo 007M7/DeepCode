@@ -3,11 +3,14 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
+import { zstdDecompress } from 'node:zlib'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 const cliBin = join(repoRoot, 'packages/examples/cli-demo/lib/bin.js')
+const decompress = promisify(zstdDecompress)
 const dshPackages = [
   'examples/agent-spine-demo', 'examples/cli-demo', 'core/agent', 'core/session',
   'core/system-prompt', 'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash',
@@ -140,8 +143,13 @@ describe.skipIf(!existsSync(cliBin))('dsh-cli-demo BUILT bin', () => {
     const lines = stream.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     expect(lines[0]).toMatchObject({ type: 'session_event', event: { type: 'turn/start' } })
     expect(lines.at(-1)).toMatchObject({ type: 'result', success: true, result: 'BUILT: stream task' })
-    const files = await readdir(join(consumer, '.sessions'), { recursive: true })
-    expect(files.filter(file => file.endsWith('.jsonl'))).toHaveLength(3)
+    const sessionsRoot = join(consumer, '.sessions')
+    const files = await readdir(sessionsRoot, { recursive: true })
+    const logs = files.filter(file => file.endsWith('.jsonl.zstd'))
+    expect(logs).toHaveLength(3)
+    const compressed = await readFile(join(sessionsRoot, logs[0]!))
+    expect(compressed.subarray(0, 4).toString('hex')).toBe('28b52ffd')
+    expect(JSON.parse((await decompress(compressed)).toString())).toMatchObject({ type: 'session' })
   }, 30_000)
 
   it('keeps stdout empty for invalid argv and missing config', async () => {
