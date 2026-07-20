@@ -4,7 +4,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, type Agent, type RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
 import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import ModesService, { DEFAULT_MODE, EXIT_PLAN_MODE, PLAN_MODE, foldMode, resolveConfig } from '../src/index.ts'
@@ -17,9 +17,9 @@ const PLAN_CONFIG = { modes: { plan: { section: TEST_PLAN_SECTION } } } satisfie
  * Drives the REAL plugin: mounts `dsh-mode` beside real `SystemPrompt` and
  * `ToolRegistry` services, with fake Agents carrying real `Session`s (the
  * tool-todo test shape). Turn boundaries are simulated by appending the real
- * boundary events and dispatching the interception seams the loop fires there
- * (`agent/prompt-submit` / `agent/turn-continuation`) — exactly the seams the
- * flush rides in production.
+ * boundary events and dispatching the ordinary interception seams the loop
+ * fires there (`agent/prompt-submit` / `agent/turn-continuation`). Recovery
+ * retry coverage lives in the full-loop integration suite.
  */
 
 function agentWithSession(id = 'agent-1', options: { mode?: string } = {}): Agent & { session: Session } {
@@ -38,8 +38,9 @@ async function setup(config: ModeConfig = PLAN_CONFIG): Promise<Context> {
 /**
  * Append a boundary event and dispatch the interception seam the loop fires
  * there — `agent/prompt-submit` inside the just-opened turn,
- * `agent/turn-continuation` after the step closed — exactly the seams the
- * flush rides (post-commit `session/event` observers are observe-only).
+ * `agent/turn-continuation` after the step closed. Recovery retries use the
+ * separately covered `agent/request-error` wrapper; post-commit
+ * `session/event` observers remain observe-only.
  */
 async function boundary(ctx: Context, agent: Agent & { session: Session }, type: 'turn/start' | 'step/end'): Promise<void> {
   const events = agentEvents(ctx, agent)
@@ -50,6 +51,24 @@ async function boundary(ctx: Context, agent: Agent & { session: Session }, type:
   }
   agent.session.append('step/end', { turn: 1, step: 1 })
   await events.waterfall('agent/turn-continuation', 1, { action: 'stop' }, () => Promise.resolve({ action: 'stop' }))
+}
+
+/** Dispatch the closed-step recovery seam with one terminal decision. */
+function recoveryBoundary(
+  ctx: Context,
+  agent: Agent & { session: Session },
+  decision: RequestErrorDecision,
+): Promise<RequestErrorDecision> {
+  return agentEvents(ctx, agent).waterfall(
+    'agent/request-error',
+    1,
+    1,
+    new Error('request failed'),
+    { message: 'request failed', code: 'SERVER' },
+    [],
+    new AbortController().signal,
+    () => Promise.resolve(decision),
+  )
 }
 
 /** Append a minimal `request/header` snapshot so the log has a "what the model was told" anchor. */
@@ -207,6 +226,31 @@ describe('the boundary flush', () => {
     ctx.modes.set(agent, PLAN_MODE)
     await boundary(ctx, agent, 'step/end')
     expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
+  })
+
+  it('keeps the pending intent parked when recovery does not retry', async () => {
+    const ctx = await setup()
+    const agent = agentWithSession()
+    ctx.modes.set(agent, PLAN_MODE)
+    expect(await recoveryBoundary(ctx, agent, { action: 'fail' })).toEqual({ action: 'fail' })
+    expect(ctx.modes.get(agent)).toEqual({ current: DEFAULT_MODE, pending: PLAN_MODE })
+  })
+
+  it('contains an append failure at the retry boundary without changing its decision', async () => {
+    const ctx = await setup()
+    const warn = vi.fn()
+    ctx.logger.warn = warn as never
+    const agent = agentWithSession()
+    ctx.modes.set(agent, PLAN_MODE)
+    const original = agent.session.append.bind(agent.session)
+    agent.session.append = (((type: string, ...rest: unknown[]) => {
+      if (type === 'mode/set') throw new Error('backend gone')
+      return (original as (...args: unknown[]) => unknown)(type, ...rest)
+    }) as unknown) as typeof agent.session.append
+
+    expect(await recoveryBoundary(ctx, agent, { action: 'retry' })).toEqual({ action: 'retry' })
+    expect(warn).toHaveBeenCalledOnce()
+    expect(ctx.modes.get(agent)).toEqual({ current: DEFAULT_MODE, pending: PLAN_MODE })
   })
 
   it('nets out a flip sequence that returns to the folded mode (no append, no notice)', async () => {
@@ -830,11 +874,13 @@ describe('exit_plan_mode', () => {
 })
 
 describe('HMR disposal', () => {
-  it('unregisters the service, prompt section, and stable exit tool with the plugin fiber', async () => {
+  it('unregisters the service, listeners, prompt section, and stable exit tool with the plugin fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     const fiber = await ctx.plugin(ModesService, PLAN_CONFIG)
+    const agent = agentWithSession('disposed-recovery')
+    ctx.modes.set(agent, PLAN_MODE)
     expect(ctx.get('modes')).toBeInstanceOf(ModesService)
     expect(ctx.tools.get(EXIT_PLAN_MODE)).toBeDefined()
     expect((await ctx.systemPrompt.assemble()).sections.map(section => section.name)).toContain('mode:policy')
@@ -843,5 +889,7 @@ describe('HMR disposal', () => {
     expect(ctx.get('modes')).toBeUndefined()
     expect(ctx.tools.get(EXIT_PLAN_MODE)).toBeUndefined()
     expect((await ctx.systemPrompt.assemble()).sections.map(section => section.name)).not.toContain('mode:policy')
+    expect(await recoveryBoundary(ctx, agent, { action: 'retry' })).toEqual({ action: 'retry' })
+    expect(agent.session.events.some(event => event.type === 'mode/set')).toBe(false)
   })
 })

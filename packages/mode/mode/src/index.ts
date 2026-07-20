@@ -18,14 +18,14 @@
  *
  * User flips go through {@link ModesService.set}: every session event is
  * turn-enclosed and an idle agent has no open turn, so `set()` records a
- * pending intent and the service flushes it on the loop's interception seams
- * — `agent/prompt-submit` (inside the just-opened turn, before its first
- * assembly) and `agent/turn-continuation` (after each step closed, before the
- * next assembly) — both outside the step's tool-execution window and outside
- * any log emit (post-commit `session/event` observers are observe-only and
- * cannot append). A flush that changes what the last logged request header
- * told the model appends one coalesced `context/message` notice in the same
- * frame.
+ * pending intent and the service flushes it on the loop's interception seams:
+ * `agent/prompt-submit` before the first assembly, `agent/turn-continuation`
+ * before a normal successor step, and the post-composed
+ * `agent/request-error` retry decision before a recovery step. These seams are
+ * outside tool execution and log publication (post-commit `session/event`
+ * observers cannot append). A flush that changes what the last logged request
+ * header told the model appends one coalesced `context/message` notice in the
+ * same frame.
  *
  * Agent Note: .agents/notes/implemented/feature/2026-07-07-plan-mode.md
  *
@@ -238,14 +238,14 @@ export class ModesService extends Service {
     // Boundary flushes ride the loop's interception seams, NOT the
     // `session/event` feed: post-commit session observers are observe-only
     // (an append from one would re-enter the publishing append and be
-    // contained away), while these two waterfalls fire OUTSIDE any log emit
-    // and bracket exactly the boundaries the flush wants — prompt-submit
-    // inside the just-opened turn before its first assembly, and
-    // turn-continuation after each step closed before the next assembly (or
-    // the turn's end), so a flushed mode always lands before the prompt that
-    // should reflect it. Contained: a policy plugin must never block a
-    // prompt or a turn; the only throw path in onBoundary is session.append
-    // rejecting mid-teardown.
+    // contained away). Prompt-submit runs before the first assembly;
+    // turn-continuation runs after an ordinary step and before its successor.
+    // Request retries bypass turn-continuation, so the prepended request-error
+    // wrapper delegates through recovery (including async backoff), then
+    // flushes a retry decision before that waterfall returns to the loop. A
+    // flushed mode therefore lands before the prompt that should reflect it.
+    // Contained: policy must never block a prompt or turn; onBoundary can throw
+    // only when session.append rejects during teardown.
     ctx.on('agent/prompt-submit', (agent, _content, _source, next) => {
       try {
         this.onBoundary(agent.session, true)
@@ -262,6 +262,25 @@ export class ModesService extends Service {
       }
       return next()
     })
+    ctx.on('agent/request-error', async (
+      agent,
+      _turn,
+      _step,
+      _error,
+      _failure,
+      _priorFailures,
+      _signal,
+      next,
+    ) => {
+      const decision = await next()
+      if (decision.action !== 'retry') return decision
+      try {
+        this.onBoundary(agent.session, false)
+      } catch (error) {
+        ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
+      }
+      return decision
+    }, { prepend: true })
 
     ctx.on('agent/created', (agent) => {
       const seed = agent.options.mode
@@ -395,8 +414,8 @@ export class ModesService extends Service {
   }
 
   /**
-   * One boundary pass (`turnStart` = a prompt-submit flush, else a
-   * turn-continuation flush): narrate a folded mode the config dropped (once
+   * One boundary pass (`turnStart` = prompt-submit, else a normal-successor or
+   * recovery-retry boundary): narrate a folded mode the config dropped (once
    * per name, turn starts only), then flush the pending intent — append the
    * `mode/set` (skipped when the fold already matches: a net-zero flip
    * sequence) and the one coalesced notice when the flushed mode differs from
