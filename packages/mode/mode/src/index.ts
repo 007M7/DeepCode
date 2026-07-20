@@ -234,6 +234,7 @@ export class ModesService extends Service {
   constructor(ctx: Context, config: ModeConfig = { modes: {} }) {
     super(ctx, 'modes')
     this.resolved = resolveConfig(config)
+    let disposed = false
 
     // Boundary flushes ride the loop's interception seams, NOT the
     // `session/event` feed: post-commit session observers are observe-only
@@ -273,7 +274,10 @@ export class ModesService extends Service {
       next,
     ) => {
       const decision = await next()
-      if (decision.action !== 'retry') return decision
+      // A waterfall can capture this wrapper before Cordis unregisters it.
+      // Do not let that stale continuation mutate the session after its
+      // owning plugin fiber has been disposed.
+      if (disposed || decision.action !== 'retry') return decision
       try {
         this.onBoundary(agent.session, false)
       } catch (error) {
@@ -281,6 +285,7 @@ export class ModesService extends Service {
       }
       return decision
     }, { prepend: true })
+    ctx.effect(() => () => { disposed = true }, 'dsh-mode: close boundary lifetime')
 
     ctx.on('agent/created', (agent) => {
       const seed = agent.options.mode

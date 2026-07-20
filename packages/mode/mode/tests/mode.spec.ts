@@ -874,6 +874,30 @@ describe('exit_plan_mode', () => {
 })
 
 describe('HMR disposal', () => {
+  it('does not flush a retry boundary that resumes after plugin disposal', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const fiber = await ctx.plugin(ModesService, PLAN_CONFIG)
+    const agent = agentWithSession('disposed-in-flight-recovery')
+    const recoveryEntered = Promise.withResolvers<true>()
+    const releaseRecovery = Promise.withResolvers<true>()
+    ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _failure, _history, _signal, _next) => {
+      recoveryEntered.resolve(true)
+      await releaseRecovery.promise
+      return { action: 'retry' }
+    })
+    ctx.modes.set(agent, PLAN_MODE)
+
+    const recovery = recoveryBoundary(ctx, agent, { action: 'fail' })
+    await recoveryEntered.promise
+    await fiber.dispose()
+    releaseRecovery.resolve(true)
+
+    expect(await recovery).toEqual({ action: 'retry' })
+    expect(agent.session.events.some(event => event.type === 'mode/set')).toBe(false)
+  })
+
   it('unregisters the service, listeners, prompt section, and stable exit tool with the plugin fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
