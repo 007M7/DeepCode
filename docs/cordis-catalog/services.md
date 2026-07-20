@@ -7,7 +7,7 @@ Every `ctx.<key>` service a plugin can call: the exact public interface with ori
 
 This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verified fresh by `pnpm run verify-cordis-catalog` (part of `doc-sync`) — do not edit it by hand. Signature blocks use a `ts cordis-catalog` fence and include the original source JSDoc immediately before each event or service method. doc-typecheck skips these bare declaration fragments; type names in a signature link to the page that documents them.
 
-The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns. The **inherited tier** at the end is the cordis-core + loader/hmr/timer `ctx` surface a plugin also sees — pinned vendor source, summarized tersely.
+The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns. The **inherited tier** at the end is the cordis-core + loader/hmr/timer `ctx` surface a plugin also sees — pinned vendor source, summarized tersely. Detailed Context, Fiber, Registry, and Service APIs are generated in the [Cordis core API](core/context.md).
 
 ## `ctx.agentLoop` — `AgentLoop`
 
@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:217`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:223`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -718,9 +718,9 @@ Persistence is intentionally not implemented here — persistence plugins subscr
  * Create a session owned by the calling fiber: disposing that fiber stops
  * event notification and removes the session from the store. `options.seed`
  * populates the session with a copy of those events (replay/fork);
- * `options.meta` attaches creation metadata (validated absolute `cwd`,
- * `parentSession` lineage) as the immutable {@link SessionHeader} (the store
- * fills `version`/`id`/`createdAt`).
+ * `options.meta` attaches creation metadata (validated absolute `cwd`, seed
+ * and parent lineage, and delegation depth) as the immutable
+ * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).
  *
  * For an agent whose session must be torn down IN ORDER with its loop (so the
  * loop's final flush is captured before the store attachment ends), do NOT use this
@@ -832,7 +832,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:549`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:553`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -946,7 +946,7 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 
 Types: [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:153`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:180`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
@@ -1119,6 +1119,43 @@ estimateMessage(message: Message): number
 Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
 
 Source: [`packages/llm/token-meter/src/index.ts:106`](../../packages/llm/token-meter/src/index.ts)
+
+## `ctx.toolResultPrune` — `ToolResultPruneService`
+
+Deterministic head/middle/tail pruning for current tool-result surface nodes.
+
+```ts cordis-catalog
+/**
+ * Measure text content in Unicode code points; non-text blocks cost zero.
+ * @param blocks - tool-result content to measure.
+ * @returns total Unicode code points across text blocks.
+ */
+measureContent(blocks: readonly ContentBlock[]): number
+
+/**
+ * Replace an over-budget text middle while retaining rich-block order.
+ * Text slicing is by Unicode code point, not UTF-16 code unit, so a retained
+ * boundary cannot split a surrogate pair. Grapheme clusters may still split.
+ * @param blocks - original tool-result content.
+ * @returns pruned content, or `null` when the text is within budget.
+ */
+pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
+
+/**
+ * Prune every over-budget tool result from one stable current-surface snapshot.
+ * Each replacement preserves the complete event data except for `content`,
+ * and points at the shadowed node for durable provenance and replay.
+ * @param session - session whose current surface is rewritten.
+ * @returns landed replacements and aggregate Unicode-code-point savings.
+ * @throws when the session rejects a replacement; replacements committed
+ * earlier in the pass remain durable.
+ */
+pruneSession(session: Session): PruneResult
+```
+
+Types: [ContentBlock](../core-data-structures/core.md) · [PruneResult](../core-data-structures/compaction.md) · [Session](../core-data-structures/session.md)
+
+Source: [`packages/compact/compact-tool-result-prune/src/index.ts:39`](../../packages/compact/compact-tool-result-prune/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

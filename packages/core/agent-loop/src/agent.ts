@@ -80,7 +80,6 @@ export function prepareReactLoopAgent(
     },
   }
 }
-
 /**
  * Install the concrete agent's scope context exactly once. Construction and
  * scope minting are mutually referential (the scope key is the agent), so the
@@ -397,7 +396,7 @@ export class ReactLoopAgent implements Agent {
       cancelReason: () => this.cancelReason,
       clearCancel: () => { this.cancelRequested = false },
       withToolBatch: run => this.withToolBatch(run),
-      // Pre-step cancellation re-parks without emitting a status transition.
+      // Pre-start cancellation settles queued-work waiters before publishing idle.
       settleIdle: () => { this.settleIdleWaiters() },
     }))
   }
@@ -444,4 +443,3 @@ export class ReactLoopAgent implements Agent {
     }
   }
 }
-

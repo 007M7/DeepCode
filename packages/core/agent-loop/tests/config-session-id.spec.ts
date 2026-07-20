@@ -47,9 +47,9 @@ describe('config-driven session id', () => {
   it('accepts one exact fresh id and rejects it alongside a resume id', async () => {
     const exact = await makeCoreContext()
     await exact.plugin(AgentLoop, {
-      agents: [{ id: 'main', sessionId: SessionId('stdio-exact'), model: 'mock' }],
+      agents: [{ id: 'main', sessionId: SessionId('config-exact'), model: 'mock' }],
     })
-    expect(exact.agents.get(SessionId('stdio-exact'))?.session.id).toBe('stdio-exact')
+    expect(exact.agents.get(SessionId('config-exact'))?.session.id).toBe('config-exact')
     await exact.fiber.dispose()
 
     const conflicting = await makeCoreContext()
@@ -89,13 +89,13 @@ describe('config-driven session id', () => {
     const ctx = await makeCoreContext()
     await ctx.plugin(SessionPersistenceJsonl, { root })
     ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first'), textResponse('second')]))
-    const config = { agents: [{ id: 'main', sessionId: SessionId('stdio-exact-reload'), model: 'mock' }] }
+    const config = { agents: [{ id: 'main', sessionId: SessionId('config-exact-reload'), model: 'mock' }] }
 
     const firstLoop = await ctx.plugin(AgentLoop, config)
     let first: Agent | undefined
     for (let i = 0; i < 50 && first === undefined; i++) {
       await new Promise(resolve => setTimeout(resolve, 5))
-      first = ctx.agents.get(SessionId('stdio-exact-reload'))
+      first = ctx.agents.get(SessionId('config-exact-reload'))
     }
     expect(first).toBeDefined()
     first!.send([{ type: 'text', text: 'remember me' }], { source: { kind: 'user' } })
@@ -106,14 +106,14 @@ describe('config-driven session id', () => {
     let second: Agent | undefined
     for (let i = 0; i < 50 && second === undefined; i++) {
       await new Promise(resolve => setTimeout(resolve, 5))
-      second = ctx.agents.get(SessionId('stdio-exact-reload'))
+      second = ctx.agents.get(SessionId('config-exact-reload'))
     }
     expect(second).toBeDefined()
     expect(JSON.stringify(second!.session.deriveMessages())).toContain('remember me')
     second!.send([{ type: 'text', text: 'continue' }], { source: { kind: 'user' } })
     await waitForIdle(ctx, second!)
     await ctx.sessions.flush(second!.session)
-    const loaded = await ctx.sessionPersistence.load(SessionId('stdio-exact-reload'))
+    const loaded = await ctx.sessionPersistence.load(SessionId('config-exact-reload'))
     expect(loaded.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
 
     await secondLoop.dispose()
@@ -125,7 +125,7 @@ describe('config-driven session id', () => {
     dirs.push(root)
     const ctx = await makeCoreContext()
     await ctx.plugin(SessionPersistenceJsonl, { root })
-    const sessionId = SessionId('stdio-exact-overlap')
+    const sessionId = SessionId('config-exact-overlap')
     const config = { agents: [{ id: 'main', sessionId, model: 'mock' }] }
     const firstLoop = await ctx.plugin(AgentLoop, config)
     await expect.poll(() => ctx.agents.get(sessionId)).toBeDefined()
@@ -169,7 +169,7 @@ describe('config-driven session id', () => {
     dirs.push(root)
     const ctx = await makeCoreContext()
     await ctx.plugin(SessionPersistenceJsonl, { root })
-    const sessionId = SessionId('stdio-exact-cancel')
+    const sessionId = SessionId('config-exact-cancel')
     const config = { agents: [{ id: 'main', sessionId, model: 'mock' }] }
     const firstLoop = await ctx.plugin(AgentLoop, config)
     await expect.poll(() => ctx.agents.get(sessionId)).toBeDefined()
@@ -213,20 +213,20 @@ describe('config-driven session id', () => {
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
 
     await ctx.plugin(AgentLoop, {
-      agents: [{ id: 'main', sessionId: SessionId('stdio-exact-failure'), model: 'mock' }],
+      agents: [{ id: 'main', sessionId: SessionId('config-exact-failure'), model: 'mock' }],
     })
 
     await expect.poll(() => warn).toHaveBeenCalledWith(expect.stringContaining(
-      'config-driven restore of "stdio-exact-failure" failed: persistence index failed',
+      'config-driven restore of "config-exact-failure" failed: persistence index failed',
     ))
-    expect(failures).toEqual([{ sessionId: SessionId('stdio-exact-failure'), error: failure }])
+    expect(failures).toEqual([{ sessionId: SessionId('config-exact-failure'), error: failure }])
     expect(warn).toHaveBeenCalledWith(
       'agent "main": config-start-failed listener threw: failure observer failed',
     )
     await expect.poll(() => warn).toHaveBeenCalledWith(
       'agent "main": config-start-failed listener rejected: async failure observer failed',
     )
-    expect(ctx.agents.get(SessionId('stdio-exact-failure'))).toBeUndefined()
+    expect(ctx.agents.get(SessionId('config-exact-failure'))).toBeUndefined()
     warn.mockRestore()
     await ctx.fiber.dispose()
   })
@@ -251,12 +251,12 @@ describe('config-driven session id', () => {
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
 
     await ctx.plugin(AgentLoop, {
-      agents: [{ id: 'main', sessionId: SessionId('stdio-exact-unrenderable'), model: 'mock' }],
+      agents: [{ id: 'main', sessionId: SessionId('config-exact-unrenderable'), model: 'mock' }],
     })
 
     await expect.poll(() => failures).toEqual([unrenderable])
     expect(warn).toHaveBeenCalledWith(
-      'agent "main": config-driven restore of "stdio-exact-unrenderable" failed: <unrenderable value>',
+      'agent "main": config-driven restore of "config-exact-unrenderable" failed: <unrenderable value>',
     )
     expect(warn).toHaveBeenCalledWith(
       'agent "main": config-start-failed listener threw: <unrenderable value>',
@@ -281,7 +281,7 @@ describe('config-driven session id', () => {
       ctx.on('agent-loop/config-start-failed', (_sessionId, error) => { failures.push(error) })
 
       const loop = await ctx.plugin(AgentLoop, {
-        agents: [{ id: 'main', sessionId: SessionId('stdio-exact-dispose'), model: 'mock' }],
+        agents: [{ id: 'main', sessionId: SessionId('config-exact-dispose'), model: 'mock' }],
       })
       let disposed = false
       const disposal = loop.dispose().then(() => { disposed = true })
@@ -291,7 +291,7 @@ describe('config-driven session id', () => {
       if (outcome === 'resolve') listing.resolve([])
       else listing.reject(new Error('startup cancelled by teardown'))
       await disposal
-      expect(ctx.agents.get(SessionId('stdio-exact-dispose'))).toBeUndefined()
+      expect(ctx.agents.get(SessionId('config-exact-dispose'))).toBeUndefined()
       expect(failures).toEqual([])
       expect(warn).not.toHaveBeenCalled()
       warn.mockRestore()
