@@ -68,6 +68,7 @@
     { "path": "./packages/fs/tool-fs-search" },
     { "path": "./packages/compact/compact" },
     { "path": "./packages/compact/compact-basic" },
+    { "path": "./packages/compact/compact-tool-result-prune" },
     { "path": "./packages/web/web" },
     { "path": "./packages/web/web-search-exa" },
     { "path": "./packages/web/web-search-perplexity" },

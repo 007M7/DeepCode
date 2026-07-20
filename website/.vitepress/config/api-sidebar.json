@@ -107,6 +107,10 @@
       "link": "/zh-CN/api/harness/token-meter"
     },
     {
+      "text": "ctx.toolResultPrune",
+      "link": "/zh-CN/api/harness/tool-result-prune"
+    },
+    {
       "text": "ctx.tools",
       "link": "/zh-CN/api/harness/tools"
     },
