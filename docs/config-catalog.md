@@ -27,7 +27,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:207`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:209`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
@@ -165,7 +165,7 @@ export interface SkillConfig {
 
 Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`llmRetry`](../packages/llm/llm-retry/src/index.ts) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
 
-Source: [`packages/examples/agent-spine-demo/src/index.ts:60`](../packages/examples/agent-spine-demo/src/index.ts)
+Source: [`packages/examples/agent-spine-demo/src/index.ts:61`](../packages/examples/agent-spine-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -833,6 +833,50 @@ export interface Config {
 
 Source: [`packages/session-query/session-query/src/config.ts:9`](../packages/session-query/session-query/src/config.ts)
 
+## `@deepseek-ai/dsh-session-title`
+
+Requires: `sessions`
+
+```ts config-catalog
+/** Required deterministic fallback and accepted-title limits. */
+export interface Config {
+  /** Maximum whitespace-delimited words in the built-in fallback. */
+  readonly fallbackMaxWords: number
+  /** Maximum UTF-8 bytes in the built-in fallback. */
+  readonly fallbackMaxBytes: number
+  /** Maximum UTF-8 bytes in any accepted title. */
+  readonly maxTitleBytes: number
+}
+```
+
+Source: [`packages/session-title/session-title/src/index.ts:63`](../packages/session-title/session-title/src/index.ts)
+
+## `@deepseek-ai/dsh-session-title-all-messages-llm`
+
+Requires: `sessionTitle` · `llm`
+
+```ts config-catalog
+/** Required LLM policy; this plugin adds no defaults. */
+export type Config = SessionTitleLlmConfig
+```
+
+Depends on: [`SessionTitleLlmConfig`](../packages/session-title/session-title-llm/src/index.ts)
+
+Source: [`packages/session-title/session-title-all-messages-llm/src/index.ts:15`](../packages/session-title/session-title-all-messages-llm/src/index.ts)
+
+## `@deepseek-ai/dsh-session-title-first-message-llm`
+
+Requires: `sessionTitle` · `llm`
+
+```ts config-catalog
+/** Required LLM policy; this plugin adds no defaults. */
+export type Config = SessionTitleLlmConfig
+```
+
+Depends on: [`SessionTitleLlmConfig`](../packages/session-title/session-title-llm/src/index.ts)
+
+Source: [`packages/session-title/session-title-first-message-llm/src/index.ts:15`](../packages/session-title/session-title-first-message-llm/src/index.ts)
+
 ## `@deepseek-ai/dsh-skill`
 
 ```ts config-catalog
@@ -1277,7 +1321,7 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:102`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:103`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 
@@ -1560,6 +1604,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-retention` ([`packages/util/retention/src/index.ts`](../packages/util/retention/src/index.ts))
 - `@deepseek-ai/dsh-scope` ([`packages/core/scope/src/index.ts`](../packages/core/scope/src/index.ts))
 - `@deepseek-ai/dsh-scripts` ([`packages/sdk/scripts/src/index.ts`](../packages/sdk/scripts/src/index.ts))
+- `@deepseek-ai/dsh-session-title-llm` ([`packages/session-title/session-title-llm/src/index.ts`](../packages/session-title/session-title-llm/src/index.ts))
 - `@deepseek-ai/dsh-subagent-inprocess` ([`packages/subagent/subagent-inprocess/src/index.ts`](../packages/subagent/subagent-inprocess/src/index.ts))
 - `@deepseek-ai/dsh-subagent-subprocess` ([`packages/subagent/subagent-subprocess/src/index.ts`](../packages/subagent/subagent-subprocess/src/index.ts))
 - `@deepseek-ai/dsh-telemetry` ([`packages/sdk/telemetry/src/index.ts`](../packages/sdk/telemetry/src/index.ts))

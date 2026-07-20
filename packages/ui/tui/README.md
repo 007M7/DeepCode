@@ -8,7 +8,7 @@ Interactive terminals on macOS, Linux, and Windows are supported. Windows uses p
 
 This package owns interactive terminal presentation and input only. It injects `agents`, `tools`, and `userInteraction`, then drives an agent created or resumed by app or developer code. Agent lifecycle, persistence, and the model-facing [`ask_user_question`](../tool-ask-user/README.md) tool remain separate composition entries.
 
-The TUI rebuilds resumed history from the active session surface, renders Markdown responses and reasoning, applies each tool's `presentCall` / `presentResult` intent to terminal, diff, or generic cards, keeps the latest `todo/write` plan above the editor, and presents `ctx.userInteraction` questions as keyboard-driven overlays. A durable `llm/retry` event retracts the failed step's live chunks and renders the scheduled retry count, delay, and failure in the transcript; success, exhaustion, and cancellation then settle through ordinary session events. The footer totals each logged model step's usage once, including failed attempts, while treating committed-message usage as a fallback for logs without a usage chunk. Surface replacement events rebuild the transcript so compacted history does not reappear.
+The TUI rebuilds resumed history from the active session surface, renders Markdown responses and reasoning, applies each tool's `presentCall` / `presentResult` intent to terminal, diff, or generic cards, keeps the latest `todo/write` plan above the editor, and presents `ctx.userInteraction` questions as keyboard-driven overlays. The latest logged session title becomes the header subtitle, with `welcome` before a title exists, and the terminal window title becomes `<session title> — <configured title>`. A durable `llm/retry` event retracts the failed step's live chunks and renders the scheduled retry count, delay, and failure in the transcript; success, exhaustion, and cancellation then settle through ordinary session events. The footer totals each logged model step's usage once, including failed attempts, while treating committed-message usage as a fallback for logs without a usage chunk. Surface replacement events rebuild the transcript so compacted history does not reappear.
 
 Before model output, session events, tool presenters, questions, configuration, or diagnostics reach pi-tui's ANSI-aware renderers or the terminal title, the TUI renders C0 and C1 controls other than line feeds as visible `\xNN` text. Those sources cannot add terminal control sequences; the TUI and pi-tui retain ownership of terminal rendering and styling.
 
@@ -18,7 +18,7 @@ While the agent is running, editor submissions call `agent.steer()`; otherwise t
 
 | Key | Default | Meaning |
 |---|---|---|
-| `welcome` | `ready.` | Header subtitle |
+| `welcome` | `ready.` | Header subtitle until the session has a logged title. |
 | `sessionId` | `main` | Exact shared agent/session identity driven by the terminal |
 | `showReasoning` | `true` | Render reasoning blocks |
 | `maxToolOutputLines` | `12` | Collapsed tool-card output limit |
@@ -27,7 +27,7 @@ While the agent is running, editor submissions call `agent.steer()`; otherwise t
 | `questionDialogMaxHeight` | `20` | Question-overlay maximum rows |
 | `showHardwareCursor` | `false` | Show the hardware cursor at pi-tui's IME marker |
 | `color` | `true` | Apply the built-in ANSI palette (see [Color](#color)) |
-| `title` | `DeepSeek Harness` | Terminal window title |
+| `title` | `DeepSeek Harness` | Product suffix for the terminal window title. |
 
 ```yaml
 - id: terminal
@@ -55,7 +55,7 @@ Each non-empty editor submission becomes one text block, sent with `agent.send()
 
 #### Token effect
 
-Submitted text is retained under the agent loop's normal session-history and compaction rules. Headers, cards, Markdown rendering, status lines, plans, and help text add no tokens.
+Submitted text is retained under the agent loop's normal session-history and compaction rules. Headers, the logged title, cards, Markdown rendering, status lines, plans, and help text add no tokens.
 
 #### KV Cache effect
 

@@ -27,10 +27,10 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 |---|---|---|
 | `initialize` | static | negotiate `protocolVersion`; advertise baseline prompt capabilities (`text`, plus `resource_link` rendered as text) and `loadSession: true` |
 | `session/new` | `ctx.agents.create({ sessionId, meta:{cwd} })` | creates a new session/agent; N concurrent sessions are allowed, keyed by id; `cwd` must be absolute (it becomes the session's workspace — see Per-session cwd); non-empty `additionalDirectories` and `mcpServers` rejected |
-| `session/load` | `ctx.agents.resume(...)` | reserves the id, verifies the persisted cwd, resumes, and replays user, assistant, and tool events |
+| `session/load` | `ctx.agents.resume(...)` | reserves the id, verifies the persisted cwd, resumes, and replays user, assistant, tool, and title events |
 | `session/prompt` | `agent.send()` | supports ACP `text` and `resource_link` blocks; rejects image/audio/embedded resource and empty prompts; one in-flight prompt PER session (independent); settles on the OWNING turn's end (a turn that ends in `error` rejects the RPC) |
 | `session/cancel` | `agent.cancel()` | the queue-aware cancel: aborts a running step, clears queued + steering work, and drops a turn about to start, then settles the prompt `cancelled` — for ONLY that session (a cancel never touches another session's stream or prompt) |
-| `session/update` | `session/event` | streams user replay, assistant text/reasoning, retry/failure attempt markers, and tool render intents |
+| `session/update` | `session/event` | streams user replay, assistant text/reasoning, retry/failure attempt markers, tool render intents, and `session_info_update` title revisions |
 | `elicitation/create` | `ctx.userInteraction.ask()` | maps `ask_user_question` questions to ACP form elicitations; option descriptions are shown in enum titles, `multi_select` uses ACP array enums, optionless requests use a required `custom` field, and a non-empty custom answer overrides any selected choice |
 | `session/request_permission` | `approval/request` listener | answers one-shot allow/reject requests for bridge-owned calls; foreign or call-less requests delegate and fail closed if unanswered — see "Permission prompts" |
 | `session/set_config_option` | agent-scoped request target / `ctx.permission.set()` | per-session provider+model and permission-preset switching over [session config options](https://agentclientprotocol.com/protocol/session-config-options) — see "Session config options" |
@@ -48,6 +48,8 @@ When `ctx.permission` is composed, the bridge also advertises a `permission` sel
 The shared [`ctx.tasks` runtime](../../tasks/tasks/) fences access to predictable task ids by the owning session; ACP sessions therefore cannot read or stop one another's background work.
 
 ACP updates are append-only, so `llm/retry` emits a visible separator that marks preceding partial model output discarded before the next attempt streams. A terminal model-request failure emits the same discarded-output warning; replay derives both markers from the durable events.
+
+A log-only `session/title` event maps to ACP `session_info_update` with `title` and the event timestamp as `updatedAt`. The same mapping runs for live events and `session/load` replay, so an asynchronously generated late title and a restored persisted title have one wire representation without entering model history.
 
 ## Per-session cwd
 
@@ -112,7 +114,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-When optional consumers are loaded, ACP form answers become the exact JSON shape documented by `dsh-tool-ask-user`. Failures become `Error: ACP user questions must come from an agent-owned request`, `Error: ACP user question has no matching session`, `Error: ACP elicitation request failed`, `Error: ask_user_question was cancelled by the user`, `Error: ask_user_question returned no answer`, or `Error: ask_user_question was aborted before the user answered`. Permission decisions control whether another tool yields success or denial. ACP tool cards, terminal output, diffs, and streamed session updates are UI-only.
+When optional consumers are loaded, ACP form answers become the exact JSON shape documented by `dsh-tool-ask-user`. Failures become `Error: ACP user questions must come from an agent-owned request`, `Error: ACP user question has no matching session`, `Error: ACP elicitation request failed`, `Error: ask_user_question was cancelled by the user`, `Error: ask_user_question returned no answer`, or `Error: ask_user_question was aborted before the user answered`. Permission decisions control whether another tool yields success or denial. ACP tool cards, terminal output, diffs, title updates, and other streamed session updates are UI-only.
 
 #### Token effect
 

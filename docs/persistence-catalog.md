@@ -79,7 +79,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:267`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:274`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:275`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:288`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:318`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:350`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -375,6 +375,22 @@ Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/
 ```
 
 Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
+
+### `session/*`
+
+#### `session/title` — log-only
+
+```ts persistence-catalog
+/**
+ * Latest-wins session title snapshot. Log-only: it never enters the model
+ * surface or derived history.
+ */
+'session/title': SessionTitleEventData
+```
+
+Types: [SessionTitleEventData](core-data-structures/session-title.md)
+
+Source: [`packages/session-title/session-title/src/index.ts:89`](../packages/session-title/session-title/src/index.ts)
 
 ### `steering/*`
 
