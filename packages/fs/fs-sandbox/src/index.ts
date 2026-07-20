@@ -88,7 +88,7 @@ export class SandboxedFileSystem extends LocalFileSystem {
 
   /**
    * Fence the write by the per-call mode, then delegate to the inherited
-   * atomic write. See {@link assertWritable}.
+   * atomic write. See {@link checkedTarget}.
    * @param target - the resolved target to write.
    * @param content - the full new file content.
    * @param expected - the write intent guarding the write; omit for unconditional.
@@ -103,13 +103,12 @@ export class SandboxedFileSystem extends LocalFileSystem {
     signal?: AbortSignal,
     sandboxMode?: SandboxMode,
   ): Promise<FsWriteOutcome> {
-    await this.assertWritable(target, sandboxMode)
-    return super.writeText(target, content, expected, signal)
+    return super.writeText(await this.checkedTarget(target, sandboxMode), content, expected, signal)
   }
 
   /**
    * Fence the edit by the per-call mode, then delegate to the inherited
-   * atomic edit. See {@link assertWritable}.
+   * atomic edit. See {@link checkedTarget}.
    * @param target - the resolved target to edit.
    * @param edit - the literal search/replace request.
    * @param expected - the version guard; omit for an unconditional edit.
@@ -124,31 +123,34 @@ export class SandboxedFileSystem extends LocalFileSystem {
     signal?: AbortSignal,
     sandboxMode?: SandboxMode,
   ): Promise<FsEditOutcome> {
-    await this.assertWritable(target, sandboxMode)
-    return super.editText(target, edit, expected, signal)
+    return super.editText(await this.checkedTarget(target, sandboxMode), edit, expected, signal)
   }
 
   /**
-   * Enforce the per-call mode against `target` before delegating the mutation.
-   * `read-only` denies; `workspace-write` re-canonicalizes the target NOW
-   * (`resolve` realpaths the deepest existing ancestor, reflecting a
-   * concurrently swapped symlink) and requires containment under a writable
-   * root; `danger-full-access` allows. Throws the structured
-   * `FS_SANDBOX_DENIED` on refusal — the tool layer maps it to the model-facing
-   * `[sandbox: …]` marker and the escalation hint.
+   * Enforce the per-call mode against `target` and return the EXACT target the
+   * mutation must use, so the checked identity is the mutated one (no
+   * check-here-write-there TOCTOU). `read-only` denies; `workspace-write`
+   * re-canonicalizes NOW (`resolve` realpaths the deepest existing ancestor,
+   * reflecting a concurrently swapped symlink), requires containment under a
+   * writable root, and returns THAT fresh target; `danger-full-access` returns
+   * the caller's target unfenced. Throws the structured `FS_SANDBOX_DENIED` on
+   * refusal — the tool layer maps it to the model-facing `[sandbox: …]` marker
+   * and the escalation hint.
    */
-  private async assertWritable(target: FsTarget, sandboxMode?: SandboxMode): Promise<void> {
+  private async checkedTarget(target: FsTarget, sandboxMode?: SandboxMode): Promise<FsTarget> {
     const mode = sandboxMode ?? this.defaultMode
-    if (mode === 'danger-full-access') return
+    if (mode === 'danger-full-access') return target
     if (mode === 'read-only') {
       throw new FsError(`cannot write "${target.displayPath}": file access denied under read-only mode`, 'FS_SANDBOX_DENIED')
     }
     // workspace-write: containment on the FRESH canonical path (catches a
-    // symlink ancestor swapped since the tool resolved this target).
+    // symlink ancestor swapped since the tool resolved this target), and the
+    // mutation delegates with THIS fresh target — never the stale one.
     const fresh = await this.resolve(target.displayPath)
     if (!this.writableRoots.some(root => isUnder(fresh.targetKey, root))) {
       throw new FsError(`cannot write "${target.displayPath}": file access denied under workspace-write mode`, 'FS_SANDBOX_DENIED')
     }
+    return fresh
   }
 }
 

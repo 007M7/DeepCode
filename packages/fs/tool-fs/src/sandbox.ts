@@ -112,21 +112,24 @@ export class FsSandboxSurface {
   }
 
   /**
-   * Map a thrown provider error for the model: a `FS_SANDBOX_DENIED` becomes an
-   * error whose text is the shared `[sandbox: …]` denial marker plus the
-   * same-turn escalation hint, so a policy denial reads identically to bash's;
-   * any other error passes through unchanged. A `FS_SANDBOX_DENIED` only arises
-   * under a confining backend, which always advertises the escalation fields,
-   * so the hint always applies here.
+   * Map a thrown provider error for the model: a `FS_SANDBOX_DENIED` becomes a
+   * `FsError` whose text is the shared `[sandbox: …]` denial marker plus the
+   * same-turn escalation hint, so a policy denial reads identically to bash's
+   * WHILE keeping the structured `FS_SANDBOX_DENIED` code — `ToolRegistry`
+   * populates `result.error` only for `HarnessError` instances, so a plain
+   * `Error` would strip the code retry/observers key off. Any other error
+   * passes through unchanged. A `FS_SANDBOX_DENIED` only arises under a
+   * confining backend, which always advertises the escalation fields, so the
+   * hint always applies here.
    * @param error - the error thrown by the mutation.
    * @param stampedMode - the mode stamped onto the call (names the mode in the marker).
-   * @returns the error to throw — the marker error for a sandbox denial, else the original.
+   * @returns the error to throw — the marker `FsError` for a sandbox denial, else the original.
    */
   mapError(error: unknown, stampedMode: SandboxMode | undefined): unknown {
     if (!(error instanceof FsError) || error.code !== 'FS_SANDBOX_DENIED') return error
     // A FS_SANDBOX_DENIED only arises under a confining backend, so defaultMode
     // (hence the resolved mode) is defined here.
     const mode = (stampedMode ?? this.defaultMode) as SandboxMode
-    return new Error(`${sandboxDenialMarker(mode)}\n${escalationHintMarker('operation')}`)
+    return new FsError(`${sandboxDenialMarker(mode)}\n${escalationHintMarker('operation')}`, 'FS_SANDBOX_DENIED', { cause: error })
   }
 }

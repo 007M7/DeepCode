@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
-import { FsError } from '@deepseek-ai/dsh-fs'
+import { FsError, FsTargetKey } from '@deepseek-ai/dsh-fs'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
@@ -144,6 +144,19 @@ describe('workspace-write containment', () => {
     const outcome = await fs.editText(await target(path), { oldString: 'original', newString: 'changed', replaceAll: false })
     expect(outcome.after).toBe('changed')
     expect(await readFile(path, 'utf8')).toBe('changed')
+  })
+
+  it('mutates the freshly checked identity, not a stale outside targetKey (TOCTOU direction)', async () => {
+    // A target whose displayPath is inside the workspace but whose targetKey is
+    // a STALE outside path — as if an ancestor symlink pointed out at the tool's
+    // resolve() and was swapped in before the write. The fence re-resolves
+    // displayPath (now inside) AND delegates with that fresh target, so the byte
+    // lands inside and the stale outside path is never written.
+    const insidePath = join(workspace, 'landed.txt')
+    const staleTarget: FsTarget = { displayPath: insidePath, targetKey: FsTargetKey(join(outside, 'escaped.txt')) }
+    await fs.writeText(staleTarget, 'inside')
+    expect(await readFile(insidePath, 'utf8')).toBe('inside')
+    expect(existsSync(join(outside, 'escaped.txt'))).toBe(false)
   })
 
   it('the workspace root itself passes the fence (path equal to a writable root), failing only on file type', async () => {

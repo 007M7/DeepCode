@@ -60,6 +60,7 @@ flowchart LR
   pkg_sandbox["sandbox"]
   svc_sandbox["ctx.sandbox<br/>Process-sandbox seam"]
   pkg_sandbox_local["sandbox-local"]
+  pkg_sandbox_policy["sandbox-policy"]
   svc_sandboxPolicy["ctx.sandboxPolicy<br/>Sandbox policy home"]
   pkg_fs_sandbox["fs-sandbox"]
   pkg_approval["approval"]
@@ -118,8 +119,8 @@ flowchart LR
   pkg_llm_replay --> svc_llm
   pkg_permission --> svc_permission
   pkg_sandbox --> svc_sandbox
-  pkg_sandbox --> svc_sandboxPolicy
   pkg_sandbox_local --> svc_sandbox
+  pkg_sandbox_policy --> svc_sandboxPolicy
   pkg_session --> svc_sessions
   pkg_session_persistence --> svc_sessionPersistence
   pkg_session_persistence_jsonl --> svc_sessionPersistence
@@ -168,8 +169,6 @@ flowchart LR
   svc_sandbox --> pkg_bash_sandbox
   svc_sandboxPolicy --> pkg_bash_sandbox
   svc_sandboxPolicy --> pkg_fs_sandbox
-  svc_sandboxPolicy --> pkg_tool_bash
-  svc_sandboxPolicy --> pkg_tool_fs
   svc_sessionPersistence --> pkg_acp
   svc_sessionPersistence --> pkg_agent_loop
   svc_sessionPersistence --> pkg_hooks_claude
@@ -228,7 +227,7 @@ flowchart LR
 | `ctx.bash` | `seam` | [`bash`](../packages/bash/bash) | [`bash-local`](../packages/bash/bash-local), [`bash-sandbox`](../packages/bash/bash-sandbox) | [`tool-bash`](../packages/bash/tool-bash), [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors replace bash-local without touching them. |
 | `ctx.bashEnv` | `core` | [`tool-bash`](../packages/bash/tool-bash) | - | - | - | Plugins declare effect-scoped DSH_* facts; tool-bash collects one trusted snapshot per execution and the executor rebuilds the namespace. |
 | `ctx.sandbox` | `seam` | [`sandbox`](../packages/sandbox/sandbox) | [`sandbox-local`](../packages/sandbox/sandbox-local) | [`bash-sandbox`](../packages/bash/bash-sandbox) | - | Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement. |
-| `ctx.sandboxPolicy` | `core` | [`sandbox`](../packages/sandbox/sandbox) | - | [`bash-sandbox`](../packages/bash/bash-sandbox), [`fs-sandbox`](../packages/fs/fs-sandbox), [`tool-bash`](../packages/bash/tool-bash), [`tool-fs`](../packages/fs/tool-fs) | - | The one home for the deployment default mode + workspace root and the per-session `sandbox/mode` override; both enforcing families read it so bash and fs cannot confine to different roots. |
+| `ctx.sandboxPolicy` | `core` | [`sandbox-policy`](../packages/sandbox/sandbox-policy) | - | [`bash-sandbox`](../packages/bash/bash-sandbox), [`fs-sandbox`](../packages/fs/fs-sandbox) | - | The one home for the deployment default mode + workspace root; only the sandboxed executor and provider read the service (the tool layers use the pure `sandbox/mode` fold it also exports). Both enforcing families read it so bash and fs cannot confine to different roots. |
 | `ctx.approval` | `seam` | `approval` | [`acp`](../packages/ui/acp) | [`tools`](../packages/core/tools), [`tool-bash`](../packages/bash/tool-bash) | - | One-shot permission decisions dispatched over the `approval/request` waterfall; answerers are listeners (the ACP bridge for its own agents), absence fails closed to `unavailable`. |
 | `ctx.permission` | `core` | [`permission`](../packages/ui/permission) | - | [`acp`](../packages/ui/acp) | - | User-facing preset table (`workspace-write`/`danger-full-access`) bundling the sandbox-mode and approval-policy knobs; a switch writes one `permission/preset` event through to both knob events. |
 | `ctx.codeRuntime` | `seam` | [`code-runtime`](../packages/code-runtime/code-runtime) | [`code-runtime-worker`](../packages/code-runtime/code-runtime-worker) | [`tools`](../packages/core/tools) | - | Runs one model-written program against host-provided async bindings; backends differ by substrate and language (the tool registry consumes it for Code Mode). |

@@ -196,12 +196,12 @@ const SERVICE_ROLES: ServiceRole[] = [
   },
   {
     key: 'sandboxPolicy',
-    pkg: 'sandbox',
+    pkg: 'sandbox-policy',
     title: 'Sandbox policy home',
     mode: 'core',
     implementations: [],
-    consumers: ['bash-sandbox', 'fs-sandbox', 'tool-bash', 'tool-fs'],
-    note: 'The one home for the deployment default mode + workspace root and the per-session `sandbox/mode` override; both enforcing families read it so bash and fs cannot confine to different roots.',
+    consumers: ['bash-sandbox', 'fs-sandbox'],
+    note: 'The one home for the deployment default mode + workspace root; only the sandboxed executor and provider read the service (the tool layers use the pure `sandbox/mode` fold it also exports). Both enforcing families read it so bash and fs cannot confine to different roots.',
   },
   {
     key: 'approval',
