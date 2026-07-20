@@ -260,11 +260,10 @@ async function runTurn(
       session.append('user/message', { content, source: message.source }, { surfaceOp: 'append' })
       // Every `allow.additionalContexts` entry is a separate context/message the
       // next request also sees. The turn is open, so inject() appends each one
-      // into THIS turn without flattening provenance, framing, or metadata.
+      // into THIS turn without flattening provenance or metadata.
       for (const context of decision.additionalContexts ?? []) {
         agent.inject(context.content, {
           source: context.source,
-          ...context.envelope !== undefined ? { envelope: context.envelope } : {},
           ...context.meta !== undefined ? { meta: context.meta } : {},
         })
       }

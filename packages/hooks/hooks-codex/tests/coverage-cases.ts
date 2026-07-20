@@ -125,7 +125,6 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
         additionalContexts: [{
           content: [{ type: 'text' as const, text: 'from-downstream' }],
           source: { kind: 'plugin' as const, plugin: 'policy' },
-          envelope: 'raw' as const,
           meta: { owner: 'policy' },
         }],
       }))
@@ -140,7 +139,6 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
         { kind: 'plugin', plugin: 'hooks-codex' },
         { kind: 'plugin', plugin: 'policy' },
       ])
-      expect(contexts[1]?.type === 'context/message' && contexts[1].data.envelope).toBe('raw')
       expect(contexts[1]?.type === 'context/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
     })
   })
@@ -171,7 +169,6 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
         additionalContexts: [{
           content: [{ type: 'text' as const, text: 'downstream-note' }],
           source: { kind: 'plugin' as const, plugin: 'policy' },
-          envelope: 'raw' as const,
           meta: { owner: 'policy' },
         }],
       }))
@@ -183,7 +180,6 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
         { kind: 'plugin', plugin: 'hooks-codex' },
         { kind: 'plugin', plugin: 'policy' },
       ])
-      expect(contexts[1]?.type === 'context/message' && contexts[1].data.envelope).toBe('raw')
       expect(contexts[1]?.type === 'context/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
     })
 
