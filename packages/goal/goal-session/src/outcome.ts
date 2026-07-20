@@ -6,11 +6,10 @@ import type { TurnEndReason } from '@deepseek-ai/dsh-session'
 export type GoalRoundOutcome =
   | { readonly kind: 'continue' }
   | { readonly kind: 'pause'; readonly reason: string }
-  | { readonly kind: 'usage-limited'; readonly message: string }
   | {
     readonly kind: 'blocked'
-    readonly reason: 'error' | 'max-tokens' | 'rejected' | 'unknown'
-    readonly detail: string
+    readonly code: 'usage-limited' | 'turn-error' | 'max-tokens' | 'prompt-rejected' | 'unknown-turn-outcome'
+    readonly message: string
   }
   | { readonly kind: 'disarm'; readonly reason: 'durability-failed' | 'disposed' | 'interrupted' }
 
@@ -30,12 +29,12 @@ export function classifyGoalRound(reason: TurnEndReason, durable: boolean): Goal
       return { kind: 'pause', reason: reason.reason ?? 'cancelled' }
     case 'error':
       return reason.code === 'RATE_LIMIT'
-        ? { kind: 'usage-limited', message: reason.message }
-        : { kind: 'blocked', reason: 'error', detail: reason.message }
+        ? { kind: 'blocked', code: 'usage-limited', message: reason.message }
+        : { kind: 'blocked', code: 'turn-error', message: reason.message }
     case 'max-tokens':
-      return { kind: 'blocked', reason: 'max-tokens', detail: 'model output reached max tokens' }
+      return { kind: 'blocked', code: 'max-tokens', message: 'model output reached max tokens' }
     case 'rejected':
-      return { kind: 'blocked', reason: 'rejected', detail: reason.reason }
+      return { kind: 'blocked', code: 'prompt-rejected', message: reason.reason }
     case 'disposed':
       return { kind: 'disarm', reason: 'disposed' }
     case 'interrupted':
@@ -43,6 +42,10 @@ export function classifyGoalRound(reason: TurnEndReason, durable: boolean): Goal
     // TurnEndReason is merge-extensible. An unknown producer cannot opt into
     // automatic retry merely by adding a tag; stop for inspection instead.
     default:
-      return { kind: 'blocked', reason: 'unknown', detail: `unknown turn outcome: ${extensibleReason.kind}` }
+      return {
+        kind: 'blocked',
+        code: 'unknown-turn-outcome',
+        message: `unknown turn outcome: ${extensibleReason.kind}`,
+      }
   }
 }

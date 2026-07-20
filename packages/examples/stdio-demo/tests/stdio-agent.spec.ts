@@ -153,7 +153,7 @@ describe('dsh-stdio-demo app', () => {
     expect(agent?.id).toBe(agent?.session.id)
     expect(agent?.id).toMatch(/^main-session-/)
     expect(agent?.session.header.cwd).toBe(process.cwd())
-    expect(ctx.commands.find(agent!, 'tui', 'goal')).toBeUndefined()
+    expect(ctx.commands.find(agent!, 'goal')).toBeUndefined()
     await ctx.fiber.dispose()
   })
 

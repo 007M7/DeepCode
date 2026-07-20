@@ -424,7 +424,7 @@ Source: [`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/
 
 ### `get_goal`
 
-Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, and whether another continuation is armed. Call this before updating a goal.
+Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal.
 
 ```json
 {
@@ -437,7 +437,7 @@ Source: [`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/
 
 ### `update_goal`
 
-Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds.
+Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.
 
 ```json
 {
@@ -469,6 +469,10 @@ Update the exact current goal revision. edit, pause, and resume require a direct
     "max_goal_rounds": {
       "type": "number",
       "description": "Replacement cap; valid only with action edit."
+    },
+    "blocked_reason": {
+      "type": "string",
+      "description": "Concrete blocking condition; required only with action blocked."
     }
   },
   "required": [

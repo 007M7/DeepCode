@@ -1,0 +1,12 @@
+{
+  "steps": [
+    { "op": "initialize" },
+    { "op": "newSession" },
+    {
+      "op": "promptAndWaitForAgentMessage",
+      "text": "Create a durable two-round goal for the ACP snapshot, inspect it, then report readiness.",
+      "waitForText": "partial"
+    },
+    { "op": "cancel" }
+  ]
+}

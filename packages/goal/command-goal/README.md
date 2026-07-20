@@ -1,12 +1,12 @@
 # @deepseek-ai/dsh-command-goal
 
-Human-facing `/goal` control over [`ctx.goals`](../goal/README.md). The plugin registers one global command through [`ctx.commands`](../../ui/commands/README.md); TUI and ACP discover and execute it without a model turn. The [human goal-command Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-human-goal-command.md) owns the UX and composition decisions.
+Human-facing `/goal` control over [`ctx.goals`](../goal/README.md). The plugin registers one global command through [`ctx.commands`](../../ui/commands/README.md), so every composed command adapter discovers it; the shipped TUI and ACP execute it without a model turn. The [human goal-command Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-human-goal-command.md) owns the UX and composition decisions.
 
 ## Command contract
 
 | Input | Result |
 |---|---|
-| `/goal` | Show the current objective, durable phase, round count/cap, process-local activation, and valid next commands; show usage when no goal exists. |
+| `/goal` | Show the current objective, durable phase, round count/cap, process-local activation, and valid next commands; a blocked goal also shows its policy code and explanation, while no goal shows usage. |
 | `/goal <objective>` | Create and arm a goal, or replace a completed goal with a fresh identity. An unfinished goal is never replaced without an explicit clear. |
 | `/goal edit <objective>` | Edit the current objective without changing its phase or activation. Editing a completed goal creates a fresh active goal. |
 | `/goal pause` | Pause an active goal and disarm continuation. |
