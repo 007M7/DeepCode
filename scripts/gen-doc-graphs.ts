@@ -195,6 +195,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement.',
   },
   {
+    key: 'sandboxPolicy',
+    pkg: 'sandbox-policy',
+    title: 'Sandbox policy home',
+    mode: 'core',
+    implementations: [],
+    consumers: ['bash-sandbox', 'fs-sandbox'],
+    note: 'The one home for the deployment default mode + workspace root; only the sandboxed executor and provider read the service (the tool layers use the pure `sandbox/mode` fold it also exports). Both enforcing families read it so bash and fs cannot confine to different roots.',
+  },
+  {
     key: 'approval',
     pkg: 'approval',
     title: 'Approval seam',
@@ -226,10 +235,10 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'fs',
     title: 'Filesystem provider seam',
     mode: 'seam',
-    implementations: ['fs-local'],
+    implementations: ['fs-local', 'fs-sandbox'],
     consumers: ['tool-fs'],
     companions: ['fs-policy'],
-    note: 'tool-fs executes read/write/edit through ctx.fs; fs-policy contributes observed-state checks through the fs/* event gate.',
+    note: 'tool-fs executes read/write/edit through ctx.fs; fs-sandbox fences mutations by the shared sandbox mode; fs-policy contributes observed-state checks through the fs/* event gate.',
   },
   {
     key: 'compact',

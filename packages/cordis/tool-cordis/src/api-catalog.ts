@@ -241,12 +241,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * List direct children of a directory in stable name order. Returns resolved\n * child targets plus cheap metadata only; never reads file contents.\n * @param target - the resolved directory target.\n * @param signal - aborts the listing.\n * @returns one entry per direct child, in stable name order.\n */',
       },
       {
-        signature: 'abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>',
-        jsDoc: '/**\n * Atomically create or replace UTF-8 text. `expected` guards intent and\n * staleness; omission allows unconditional overwrite.\n * @param target - the resolved target to write.\n * @param content - the full new file content.\n * @param expected - the write intent guarding the write; omit for unconditional.\n * @param signal - aborts before the atomic rename takes effect.\n * @returns the outcome, including the version the write produced.\n */',
+        signature: 'abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsWriteOutcome>',
+        jsDoc: '/**\n * Atomically create or replace UTF-8 text. `expected` guards intent and\n * staleness; omission allows unconditional overwrite.\n * @param target - the resolved target to write.\n * @param content - the full new file content.\n * @param expected - the write intent guarding the write; omit for unconditional.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxMode - the per-call sandbox mode this write runs under; a\n *   sandboxing backend fences the write by it, the bare backend ignores it.\n *   Omit to leave the backend its own default.\n * @returns the outcome, including the version the write produced.\n */',
       },
       {
-        signature: 'abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>',
-        jsDoc: '/**\n * Atomically edit literal text. When supplied, the version guard is checked\n * before matching so stale content reports `FS_STALE_VERSION`; omission edits\n * the current content without a freshness precondition.\n * @param target - the resolved target to edit.\n * @param edit - the literal search/replace request.\n * @param expected - the version guard; omit for an unconditional edit.\n * @param signal - aborts before the atomic rename takes effect.\n * @returns the outcome, including the version the edit produced.\n */',
+        signature: 'abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsEditOutcome>',
+        jsDoc: '/**\n * Atomically edit literal text. When supplied, the version guard is checked\n * before matching so stale content reports `FS_STALE_VERSION`; omission edits\n * the current content without a freshness precondition.\n * @param target - the resolved target to edit.\n * @param edit - the literal search/replace request.\n * @param expected - the version guard; omit for an unconditional edit.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxMode - the per-call sandbox mode this edit runs under; a\n *   sandboxing backend fences the edit by it, the bare backend ignores it.\n *   Omit to leave the backend its own default.\n * @returns the outcome, including the version the edit produced.\n */',
       },
     ],
   },
@@ -303,6 +303,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Wrap `argv` so it executes confined under `policy` on this host; the\n * caller spawns the returned argv in place of its own.\n * @param argv - the exact argv the caller is about to spawn (program plus\n *   arguments), NOT a shell string — a shell-shaped consumer passes\n *   `[\'bash\', \'-c\', command]`.\n * @param policy - the file-effect policy this execution runs under,\n *   carried per call (see {@link SandboxPolicy}).\n * @returns the argv to spawn instead, plus the enforcement completeness\n *   the selected backend achieves for it.\n */',
       },
     ],
+  },
+  {
+    key: 'sandboxPolicy',
+    summary: 'The sandbox-policy service (`ctx.sandboxPolicy`).',
+    methods: [],
   },
   {
     key: 'sessionPersistence',

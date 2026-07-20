@@ -6,7 +6,7 @@
 
 Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/sandbox/sandbox/src/index.ts#L111)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/sandbox/sandbox/src/index.ts#L122)
 
 ### ctx.sandbox.confine(argv, policy)
 
@@ -32,4 +32,4 @@ Wrap `argv` so it executes confined under `policy` on this host; the caller spaw
 
 **Returns** the argv to spawn instead, plus the enforcement completeness the selected backend achieves for it.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/sandbox/sandbox/src/index.ts#L127)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/sandbox/sandbox/src/index.ts#L138)
