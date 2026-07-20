@@ -230,6 +230,12 @@ describe('dsh-tool-workflow', () => {
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRegistry)
       await ctx.plugin(SubagentService)
+      ctx.subagents.registerProvider({
+        name: 'spawn',
+        capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
+        inheritsParentContext: false,
+        start: () => Promise.reject(new Error('the parked-script fixture must not start a child')),
+      })
       await ctx.plugin(WorkerWorkflowEngine, { disposeGraceMs: 30 })
       await ctx.plugin(toolWorkflow, {})
       const parent = { id: SessionId('caller'), options: {} } as unknown as Agent
