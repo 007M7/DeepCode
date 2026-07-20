@@ -143,11 +143,8 @@ export function apply(ctx: Context): void {
       case 'pause':
         ctx.goals.pause(state.agent, ref)
         return
-      case 'usage-limited':
-        ctx.goals.markUsageLimited(state.agent, ref)
-        return
       case 'blocked':
-        ctx.goals.block(state.agent, ref)
+        ctx.goals.block(state.agent, ref, { code: outcome.code, message: outcome.message })
         return
       case 'disarm':
         ctx.goals.disarm(state.agent)
@@ -190,7 +187,7 @@ export function apply(ctx: Context): void {
       if (goal !== undefined && goal.id === attempt.goalId && goal.revision === attempt.revision
         && goal.phase === 'active' && goal.activation === 'armed') {
         const outcome = attempt.phase === 'queued' && attempt.rejectedReason !== undefined && !attempt.stale
-          ? { kind: 'blocked', reason: 'rejected', detail: attempt.rejectedReason } as const
+          ? { kind: 'blocked', code: 'prompt-rejected', message: attempt.rejectedReason } as const
           : classifyGoalRound(attempt.reason, durable)
         if (!attempt.stale) applyOutcome(state, goal, outcome)
       }
@@ -200,7 +197,10 @@ export function apply(ctx: Context): void {
     const goal = currentGoal(state)
     if (goal === undefined || goal.phase !== 'active' || goal.activation !== 'armed') return
     if (goal.roundsStarted >= goal.maxGoalRounds) {
-      ctx.goals.markBudgetLimited(agent, goalRef(goal))
+      ctx.goals.block(agent, goalRef(goal), {
+        code: 'round-limit',
+        message: `Goal reached its configured limit of ${goal.maxGoalRounds} rounds.`,
+      })
       return
     }
 
@@ -228,7 +228,10 @@ export function apply(ctx: Context): void {
       const latest = currentGoal(state)
       if (latest !== undefined && latest.id === goal.id && latest.revision === goal.revision
         && latest.phase === 'active' && latest.activation === 'armed') {
-        ctx.goals.block(agent, goalRef(latest))
+        ctx.goals.block(agent, goalRef(latest), {
+          code: 'queue-failed',
+          message: `Could not queue goal round ${round}: ${renderThrown(error)}`,
+        })
       }
     }
   }

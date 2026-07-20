@@ -29,11 +29,11 @@ The retained prompt names the JSON-quoted objective and `round/maxGoalRounds`, t
 
 | Durable turn outcome | Goal action | Automatic retry |
 |---|---|---|
-| `completed` with goal still active and armed | admit the next round, or mark `budget-limited` at the cap | yes |
+| `completed` with goal still active and armed | admit the next round, or block with code `round-limit` at the cap | yes |
 | cancellation of a reserved/admitted goal round, or its `aborted` outcome | `paused` | no |
 | cancellation with no goal-round attempt | keep durable phase; disarm activation | no |
-| `error` with `RATE_LIMIT` | `usage-limited` | no |
-| other `error`, `max-tokens`, or a non-stale prompt rejection | `blocked` | no |
+| `error` with `RATE_LIMIT` | `blocked` with code `usage-limited` | no |
+| other `error`, `max-tokens`, or a non-stale prompt rejection | `blocked` with a diagnostic code and message | no |
 | durability failure, disposal, interruption, or unknown future outcome | disarm or block for inspection | no |
 
 A goal mutation made during its round supersedes settlement of the older revision. Completion, pause, blocking, and edits therefore remain authoritative even if the physical turn closes afterward. No abnormal result is retried automatically.
@@ -67,5 +67,5 @@ Append-only within an epoch: each admitted round extends the existing conversati
 - **No independent evaluator** — the model-facing goal policy decides when evidence is sufficient for completion and whether a blocker is semantically unchanged; evaluator-backed certification remains deferred.
 - **Same-session execution only** — this package deliberately does not spawn a fresh agent, fork a session prefix, or implement Ralph-style independent attempts; that workflow belongs to its own plugin layer.
 - **Accepted-queue unload race** — Cordis plugin unload is asynchronous. A goal prompt already accepted by the agent inbox can begin and consume its round before unload starts; teardown then cancels the request, disarms the goal, and awaits quiescence. No later round starts.
-- **Round cap, not resource budget** — token, currency, time, and provider quota policies remain independent; `RATE_LIMIT` only maps an observed provider stop into `usage-limited`.
+- **Round cap, not resource budget** — token, currency, time, and provider quota policies remain independent; `RATE_LIMIT` only maps an observed provider stop into the blocked reason code `usage-limited`.
 - **No abnormal auto-retry** — transient provider and persistence failures require a later human-authorized resume rather than an implicit retry policy.
