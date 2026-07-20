@@ -17,6 +17,8 @@ const advancedStreamExpected = join(advancedScenarioDir, 'stream-json.expected.j
 const advancedConfigPath = fileURLToPath(new URL('../advanced.cordis.snapshot.yml', import.meta.url))
 const goalScenarioDir = join(snapshotsDir, 'goal-tools')
 const goalConfigPath = fileURLToPath(new URL('../goal.cordis.snapshot.yml', import.meta.url))
+const ralphScenarioDir = join(snapshotsDir, 'ralph-loop')
+const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', import.meta.url))
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
@@ -213,6 +215,81 @@ describe('headless stream-json snapshots', () => {
 
     expect(result.stderr).toBe('')
     const normalized = normalizeGoalStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(streamExpected, normalized)
+    expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('replays two fresh Ralph rounds through the one-shot app', async () => {
+    const prompt = await scenarioPrompt(ralphScenarioDir, 'ralph-loop')
+    const streamExpected = join(ralphScenarioDir, 'stream-json.expected.jsonl')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'Ralph loop headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-ralph-loop-',
+      binScript,
+      configPath: ralphConfigPath,
+      binArgs: ['--config', ralphConfigPath, '--output-format', 'stream-json', prompt],
+      tsconfigPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        DSH_SNAPSHOT_FILE: join(ralphScenarioDir, 'session.jsonl'),
+        DSH_SNAPSHOT_OVERRIDE: join(ralphScenarioDir, 'replay.override.json'),
+        DSH_SNAPSHOT_CHILD_FILES: [
+          join(ralphScenarioDir, 'session.1.jsonl'),
+          join(ralphScenarioDir, 'session.2.jsonl'),
+        ].join(delimiter),
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd)
+        expect(logs).toHaveLength(3)
+        const parent = logs.find(log => typeof log.header.parentSession !== 'string')
+        if (parent === undefined) throw new Error('Ralph snapshot did not persist its parent session')
+        const parentId = parent.header.id
+        expect(typeof parentId).toBe('string')
+        const children = logs.filter(log => typeof log.header.parentSession === 'string')
+          .sort((left, right) => Number(left.header.createdAt) - Number(right.header.createdAt))
+        expect(children).toHaveLength(2)
+        expect(children.map(child => child.header.parentSession)).toEqual([parentId, parentId])
+        expect(children.map(child => child.header.cwd)).toEqual([parent.header.cwd, parent.header.cwd])
+        expect(parent.header.delegationDepth).toBe(0)
+        expect(children.map(child => child.header.delegationDepth)).toEqual([1, 1])
+        expect(children.map(child => child.header.seedLength)).toEqual([undefined, undefined])
+        expect(new Set(children.map(child => child.header.id)).size).toBe(2)
+
+        const parentRecords = parseJsonl(parent.content)
+        const parentCalls = parentRecords.filter(record => record.type === 'tool/call')
+        expect(parentCalls.map(record => (record.data as JsonObject | undefined)?.name)).toEqual(['ralph'])
+        const parentResult = parentRecords.find(record => record.type === 'tool/result')
+        const parentResultData = parentResult?.data as JsonObject | undefined
+        expect(parentResultData?.isError).toBe(false)
+        expect(JSON.stringify(parentResultData?.content)).toContain('reported completion after 2 rounds')
+
+        const childRecords = children.map(child => parseJsonl(child.content))
+        const childPrompts = childRecords.map((records) => {
+          const message = records.find(record => record.type === 'user/message')
+          return JSON.stringify((message?.data as JsonObject | undefined)?.content)
+        })
+        expect(childPrompts[0]).toContain('Ralph round: 1 of 2.')
+        expect(childPrompts[0]).toContain('(none — this is the first round)')
+        expect(childPrompts[0]).not.toContain('ROUND_ONE_HANDOFF')
+        expect(childPrompts[1]).toContain('Ralph round: 2 of 2.')
+        expect(childPrompts[1]).toContain('ROUND_ONE_HANDOFF')
+        for (const childPrompt of childPrompts) {
+          expect(childPrompt).toContain('Prove two fresh Ralph rounds through the shipped headless app.')
+          expect(childPrompt).not.toContain('Run a two-round fresh-agent Ralph loop')
+        }
+        for (const records of childRecords) {
+          const calls = records.filter(record => record.type === 'tool/call')
+          expect(calls.map(record => (record.data as JsonObject | undefined)?.name))
+            .toEqual(['structured_output'])
+        }
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
     if (refreshing) await writeFile(streamExpected, normalized)
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)

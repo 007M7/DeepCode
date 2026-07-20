@@ -22,6 +22,7 @@ import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
+import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 import { createTuiChat } from '@deepseek-ai/dsh-tui'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -180,6 +181,7 @@ async function mountScenarioContext(
   await ctx.plugin(ToolSubagent, { provider: 'spawn', toolName: 'subagent', enableRunInBackground: false })
   await ctx.plugin(WorkerWorkflowEngine, { provider: 'spawn' })
   await ctx.plugin(ToolWorkflow)
+  await ctx.plugin(ToolRalph)
   await ctx.plugin(CommandService)
   if (scenario.composition === 'code' || scenario.composition === 'advanced') {
     await ctx.plugin(WorkerCodeRuntime, {})

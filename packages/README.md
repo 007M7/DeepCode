@@ -20,7 +20,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`context/`](context/README.md) | Model-visible request context, including workspace instructions and time context | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
 | [`tasks/`](tasks/README.md) | Generic background-task runtime and model-facing `task_*` control tools | Product — stable surface |
-| [`workflow/`](workflow/README.md) | Workflow capability family: the script-engine seam, the worker-thread engine, and the model-facing `workflow` tool | Product — stable surface |
+| [`workflow/`](workflow/README.md) | Workflow capability family: the script-engine seam, worker-thread engine, and model-facing `workflow` and fresh-agent `ralph` tools | Product — stable surface |
 | [`web/`](web/README.md) | Web capability family: the abstract seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
 | [`spill/`](spill/README.md) | Spill capability family: the storage seam, a local impl, and the tool-result spill policy | Product — stable surface |
 | [`todo/`](todo/README.md) | Todo/planning family: the model-facing `todo_write` tool | Product — stable surface |
