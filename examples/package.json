@@ -50,5 +50,8 @@
     "@deepseek-ai/dsh-web": "workspace:*",
     "@deepseek-ai/dsh-web-fetch-local": "workspace:*",
     "@deepseek-ai/dsh-workflow-workerthread": "workspace:*"
+  },
+  "devDependencies": {
+    "node-pty": "1.1.0"
   }
 }
