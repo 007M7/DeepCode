@@ -6635,14 +6635,40 @@ async function dispatchPrompt(sid, text, opts = {}) {
   const meta = state.sessions.get(sid)
   if (meta) meta.running = true
   try {
-    await window.dsh.sendPrompt(sid, text)
+    await sendPromptSettleAware(sid, text, !!opts.settleRetry)
   } catch (err) {
     // Surface the error on the stream (matches the live-send path). We do
     // NOT clear the rest of the queue — a failed drain leaves the remaining
     // items parked so the user can retry / edit rather than losing them.
     appendSystem(`error: ${err.message}`)
+    // A drained message that ultimately failed goes BACK to the queue head
+    // (enqueue + promote) instead of vanishing — the strip stays the source
+    // of truth for "not yet delivered". The already-painted optimistic
+    // bubble stays; the echo adopts it on the eventual successful send.
+    if (opts.requeueOnFailure && msgQueue) {
+      const id = msgQueue.enqueue(sid, text)
+      if (id) msgQueue.promote(sid, id)
+      renderMsgQueueStrip()
+    }
   } finally {
     if (isActive) sendBtn.disabled = false
+  }
+}
+
+// The daemon releases a session's prompt reservation at prompt SETTLEMENT,
+// which can lag the turn/end EVENT by a beat — a drain firing exactly on
+// turn/end can hit "session already has an active prompt" even though the
+// turn is over (observed live 2026-07-20 on stdio-deepseek). Retry only that
+// error, with a short backoff ladder; anything else throws immediately.
+async function sendPromptSettleAware(sid, text, settleRetry) {
+  const delays = settleRetry ? [250, 500, 1000, 2000] : []
+  for (;;) {
+    try {
+      return await window.dsh.sendPrompt(sid, text)
+    } catch (err) {
+      if (delays.length === 0 || !/already has an active prompt/i.test(String(err && err.message))) throw err
+      await new Promise((resolve) => setTimeout(resolve, delays.shift()))
+    }
   }
 }
 
@@ -6666,7 +6692,14 @@ async function drainMsgQueueOnce(sessionId) {
   const next = msgQueue.drain(sessionId)
   renderMsgQueueStrip()
   if (!next) return
-  await dispatchPrompt(sessionId, next.text, { clearComposer: false })
+  await dispatchPrompt(sessionId, next.text, {
+    clearComposer: false,
+    // Drains race the daemon's prompt-reservation release (turn/end event
+    // precedes settlement); retry that one error briefly, and park the
+    // message back at the queue head if it still can't get through.
+    settleRetry: true,
+    requeueOnFailure: true,
+  })
 }
 
 async function cancel() {

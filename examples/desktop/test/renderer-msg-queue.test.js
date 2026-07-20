@@ -194,3 +194,33 @@ test('drained send re-arms inflightTurn so a follow-up Enter queues again', asyn
   assert.equal(sendCalls(dsh).length, before, 'follow-up queued, not sent concurrently')
   assert.deepEqual(renderer.listMsgQueue('s1').map((x) => x.text), ['two', 'three'])
 })
+
+test('drain retries "already has an active prompt" then delivers (settle race)', async () => {
+  const { renderer, document, dsh } = await loadRenderer()
+  const { input } = await activeInflight(renderer, document)
+  input.value = 'parked message'; await renderer.send()
+  let calls = 0
+  dsh.sendPrompt = async (...args) => {
+    dsh.__calls.push(['sendPrompt', ...args])
+    calls += 1
+    if (calls === 1) throw new Error("Error invoking remote method 'session:prompt': Error: session already has an active prompt: x")
+    return { accepted: true }
+  }
+  renderer.onSessionEvent('s1', { type: 'turn/end', seq: 2 })
+  // Retry ladder's first rung is 250ms — wait past it.
+  await new Promise((resolve) => setTimeout(resolve, 450))
+  assert.equal(calls, 2, 'second attempt fired after the settle retry')
+  assert.equal(renderer.listMsgQueue('s1').length, 0, 'queue emptied — message delivered, not dropped')
+})
+
+test('drain requeues at head when the send keeps failing (no message loss)', async () => {
+  const { renderer, document, dsh } = await loadRenderer()
+  const { input } = await activeInflight(renderer, document)
+  input.value = 'doomed message'; await renderer.send()
+  dsh.sendPrompt = async () => { throw new Error('some hard transport failure') }
+  renderer.onSessionEvent('s1', { type: 'turn/end', seq: 2 })
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  const parked = renderer.listMsgQueue('s1')
+  assert.equal(parked.length, 1, 'failed drain went back to the queue')
+  assert.equal(parked[0].text, 'doomed message')
+})
