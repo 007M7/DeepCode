@@ -6,7 +6,30 @@
 
 Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L80)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L81)
+
+### ctx.fs.sandboxMode
+
+```ts website-api
+/**
+/**
+ * The sandbox mode this backend enforces on mutations BY DEFAULT, or
+ * `undefined` when it does not confine at all — the capability fact the tool
+ * layer reads to advertise the escalation fields honestly (mirrors
+ * `BashExecutor.sandboxMode`). The base class and the bare local backend
+ * report `undefined`; a sandboxing backend (`@deepseek-ai/dsh-fs-sandbox`)
+ * overrides it with the deployment default. A session override may make the
+ * effective mode narrower or wider, so strict escalation widening is checked
+ * per call rather than encoded in this default-relative fact.
+ * @returns the configured default mode of a sandboxing backend; `undefined`
+ *   for a backend that never confines.
+ */
+get sandboxMode(): SandboxMode | undefined
+```
+
+/** The sandbox mode this backend enforces on mutations BY DEFAULT, or `undefined` when it does not confine at all — the capability fact the tool layer reads to advertise the escalation fields honestly (mirrors `BashExecutor.sandboxMode`). The base class and the bare local backend report `undefined`; a sandboxing backend (`@deepseek-ai/dsh-fs-sandbox`) overrides it with the deployment default. A session override may make the effective mode narrower or wider, so strict escalation widening is checked per call rather than encoded in this default-relative fact.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L99)
 
 ### ctx.fs.resolve(path, opts?)
 
@@ -30,7 +53,7 @@ Resolve a model/plugin-supplied path into a stable FsTarget. May perform I/O (a 
 
 **Returns** the stable target; the same file yields the same `targetKey`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L94)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L112)
 
 ### ctx.fs.stat(target, signal?)
 
@@ -51,7 +74,7 @@ Return target metadata, or `undefined` when the target does not exist.
 
 **Returns** metadata only, never content; undefined for an absent target.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L102)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L120)
 
 ### ctx.fs.lstat(path, opts?, signal?)
 
@@ -82,7 +105,7 @@ Return path metadata without following the final path component when it is a sym
 
 **Returns** metadata only, never content; undefined for an absent path.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L118)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L136)
 
 ### ctx.fs.readText(target, signal?)
 
@@ -103,7 +126,7 @@ Read the whole regular text file as a single decoded string.
 
 **Returns** the full decoded UTF-8 content.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L126)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L144)
 
 ### ctx.fs.streamText(target, signal?)
 
@@ -127,7 +150,7 @@ Stream the whole regular text file as decoded text chunks (same text semantics a
 
 **Returns** the chunk iterable, decoded and validated like `readText`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L137)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L155)
 
 ### ctx.fs.listDir(target, signal?)
 
@@ -149,9 +172,9 @@ List direct children of a directory in stable name order. Returns resolved child
 
 **Returns** one entry per direct child, in stable name order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L146)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L164)
 
-### ctx.fs.writeText(target, content, expected?, signal?)
+### ctx.fs.writeText(target, content, expected?, signal?, sandboxMode?)
 
 ```ts website-api
 /**
@@ -161,9 +184,12 @@ List direct children of a directory in stable name order. Returns resolved child
  * @param content - the full new file content.
  * @param expected - the write intent guarding the write; omit for unconditional.
  * @param signal - aborts before the atomic rename takes effect.
+ * @param sandboxMode - the per-call sandbox mode this write runs under; a
+ *   sandboxing backend fences the write by it, the bare backend ignores it.
+ *   Omit to leave the backend its own default.
  * @returns the outcome, including the version the write produced.
  */
-abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
+abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsWriteOutcome>
 ```
 
 Atomically create or replace UTF-8 text. `expected` guards intent and staleness; omission allows unconditional overwrite.
@@ -172,12 +198,13 @@ Atomically create or replace UTF-8 text. `expected` guards intent and staleness;
 - `content` — the full new file content.
 - `expected` — the write intent guarding the write; omit for unconditional.
 - `signal` — aborts before the atomic rename takes effect.
+- `sandboxMode` — the per-call sandbox mode this write runs under; a sandboxing backend fences the write by it, the bare backend ignores it. Omit to leave the backend its own default.
 
 **Returns** the outcome, including the version the write produced.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L157)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L178)
 
-### ctx.fs.editText(target, edit, expected?, signal?)
+### ctx.fs.editText(target, edit, expected?, signal?, sandboxMode?)
 
 ```ts website-api
 /**
@@ -188,9 +215,12 @@ Atomically create or replace UTF-8 text. `expected` guards intent and staleness;
  * @param edit - the literal search/replace request.
  * @param expected - the version guard; omit for an unconditional edit.
  * @param signal - aborts before the atomic rename takes effect.
+ * @param sandboxMode - the per-call sandbox mode this edit runs under; a
+ *   sandboxing backend fences the edit by it, the bare backend ignores it.
+ *   Omit to leave the backend its own default.
  * @returns the outcome, including the version the edit produced.
  */
-abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
+abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsEditOutcome>
 ```
 
 Atomically edit literal text. When supplied, the version guard is checked before matching so stale content reports `FS_STALE_VERSION`; omission edits the current content without a freshness precondition.
@@ -199,7 +229,8 @@ Atomically edit literal text. When supplied, the version guard is checked before
 - `edit` — the literal search/replace request.
 - `expected` — the version guard; omit for an unconditional edit.
 - `signal` — aborts before the atomic rename takes effect.
+- `sandboxMode` — the per-call sandbox mode this edit runs under; a sandboxing backend fences the edit by it, the bare backend ignores it. Omit to leave the backend its own default.
 
 **Returns** the outcome, including the version the edit produced.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L169)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L199)

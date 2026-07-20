@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { computeHunkDiffs, diffsFromMeta, type FsDiffMeta } from './diff.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
+import type { FsSandboxSurface } from './sandbox.ts'
 
 /** Validated `edit` arguments after defaulting. */
 interface EditInput {
@@ -20,6 +21,20 @@ interface EditInput {
   oldString: string
   newString: string
   replaceAll: boolean
+}
+
+/**
+ * The `edit` tool's validated argument shape: the base parameters plus the two
+ * escalation fields, advertised only under a confining `ctx.fs` (absent from
+ * the schema otherwise, so the validator rejects them before `execute`).
+ */
+interface EditToolArgs {
+  file_path: string
+  old_string: string
+  new_string: string
+  replace_all?: boolean
+  sandbox_permissions?: string
+  justification?: string
 }
 
 /**
@@ -56,8 +71,9 @@ export function formatEditOutput(displayPath: string, replaceAll: boolean): stri
 /**
  * Register the `edit` tool and its system-prompt guidance.
  * @param ctx - the plugin context; registrations are effects scoped to it, and execution uses its `fs` service.
+ * @param sandbox - the shared sandbox-escalation surface (advertisement, mode stamping, denial mapping).
  */
-export function applyEditTool(ctx: Context): void {
+export function applyEditTool(ctx: Context, sandbox: FsSandboxSurface): void {
   ctx.systemPrompt.section({
     name: 'tool:edit',
     order: 102,
@@ -72,20 +88,31 @@ export function applyEditTool(ctx: Context): void {
       old_string: { type: 'string', required: true, description: 'Literal text to replace. Must match exactly.' },
       new_string: { type: 'string', required: true, description: 'Literal replacement text. Use an empty string to delete the match.' },
       replace_all: { type: 'boolean', description: 'Replace all matches. Defaults to false; when false, old_string must appear exactly once.' },
+      ...sandbox.escalationModes.length > 0 ? sandbox.schemaFields() : {},
     },
-    async execute(args, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
+    async execute(args: EditToolArgs, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
       const input = parseEditArgs(args)
+      // Resolve the per-call sandbox mode (escalation grant > session override
+      // > backend default) BEFORE anything executes.
+      const sandboxMode = await sandbox.stampMode('edit', args, exec)
       const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec))
       // Single-slot decision: the policy plugin returns { version: vObserved } or
       // throws FS_NOT_OBSERVED; the bare default is undefined (unconditional edit).
       // No stat — the bare default never manufactures a version basis.
       const intent = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)
-      const outcome = await ctx.fs.editText(
-        target,
-        { oldString: input.oldString, newString: input.newString, replaceAll: input.replaceAll },
-        intent,
-        exec.signal,
-      )
+      let outcome
+      try {
+        outcome = await ctx.fs.editText(
+          target,
+          { oldString: input.oldString, newString: input.newString, replaceAll: input.replaceAll },
+          intent,
+          exec.signal,
+          sandboxMode,
+        )
+      } catch (error: unknown) {
+        // A sandbox denial becomes the shared [sandbox: …] marker; any other error passes through.
+        throw sandbox.mapError(error, sandboxMode)
+      }
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
       // An edit necessarily changes content, so result metadata carries at least one applied hunk.

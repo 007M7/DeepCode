@@ -145,6 +145,10 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       inReasoning = false
       output.write(`\n  [tool call] ${toolName}(${args})`)
     } else if (event.type === 'tool/result') {
+      // A surface replacement changes future model context; it is not another
+      // execution. Keep the original full-fidelity terminal presentation and
+      // suppress duplicate output during live delivery or log replay.
+      if (event.surfaceOp !== undefined && event.surfaceOp !== 'append') return
       const { content } = event.data
       const text = content.filter(block => block.type === 'text').map(block => block.text).join('')
       output.write(`\n  [tool result] ${text}\n  `)

@@ -8,7 +8,7 @@
 import type { Context } from 'cordis'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, LlmCallConfig, Message, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { ContextEnvelope, JsonValue, Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { JsonValue, Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
@@ -32,8 +32,6 @@ export interface SendOptions {
 
 /** Options specific to durable synthetic context injection. */
 export interface InjectOptions extends SendOptions {
-  /** Keep the canonical context tag, or send caller-owned framing verbatim. */
-  envelope?: ContextEnvelope
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }
@@ -50,8 +48,6 @@ export type AgentStatus = 'idle' | 'running' | 'disposed'
 export interface HookContext {
   content: ContentBlock[]
   source: MessageSource
-  /** Keep the canonical context tag, or use caller-owned framing verbatim. */
-  envelope?: ContextEnvelope
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }

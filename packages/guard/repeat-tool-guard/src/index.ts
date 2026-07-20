@@ -140,7 +140,7 @@ function validateThresholds(values: number[]): number[] {
 
 /**
  * Prepend the guard's reminder while preserving every downstream context's
- * source, envelope, and metadata.
+ * source and metadata.
  */
 function prependContext(ours: HookContext, theirs: HookContext[] | undefined): HookContext[] {
   return [ours, ...theirs ?? []]

@@ -169,21 +169,6 @@ Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-st
 
 Source: [`packages/core/session/src/types.ts:227`](../packages/core/session/src/types.ts)
 
-### `bash/*`
-
-#### `bash/sandbox-mode` — log-only
-
-```ts persistence-catalog
-/**
- * Durable log-only sandbox-mode override; never a surface event or model
- * message. Execution and ACP option reporting fold the latest event through
- * {@link effectiveSandboxMode} without adding a prompt notice.
- */
-'bash/sandbox-mode': { mode: SandboxMode }
-```
-
-Source: [`packages/bash/bash/src/session-mode.ts:20`](../packages/bash/bash/src/session-mode.ts)
-
 ### `compact/*`
 
 #### `compact/end` — log-only
@@ -244,21 +229,24 @@ Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact
 /**
  * In-session context injection (file-change notices, subdir AGENTS.md,
  * skill content, cron notifications, …). Rendered into the derived history
- * as synthetic context — NOT a user prompt. `envelope: 'raw'` lets a caller
- * own the complete model-facing frame; `meta` is durable JSON state omitted
- * from the model projection.
+ * as a synthetic user-role message carrying `content` verbatim — NOT a
+ * user prompt. `meta` is durable JSON state omitted from the model
+ * projection; it is also the intended channel for any future framing
+ * directive (a producer declares the frame, a dedicated renderer applies it —
+ * see the deferred note in
+ * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
+ * so the surface keeps projecting `content` verbatim rather than wrapping it.
  */
 'context/message': {
   content: ContentBlock[]
   source: MessageSource
-  envelope?: ContextEnvelope
   meta?: JsonValue
 }
 ```
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:214`](../packages/core/session/src/types.ts)
 
 ### `hook/*`
 
@@ -320,7 +308,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:33`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src/index.ts)
 
 ### `prompt/*`
 
@@ -336,7 +324,7 @@ Source: [`packages/ui/permission/src/index.ts:33`](../packages/ui/permission/src
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:205`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/types.ts)
 
 ### `request/*`
 
@@ -351,6 +339,24 @@ Source: [`packages/core/session/src/types.ts:205`](../packages/core/session/src/
 ```
 
 Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
+
+### `sandbox/*`
+
+#### `sandbox/mode` — log-only
+
+```ts persistence-catalog
+/**
+ * The session's sandbox mode was switched — log-only (like `approval/*`;
+ * NOT a surface event, carries no `surfaceOp`): durable and replayable,
+ * never in the model transcript. The LAST such event is the session's
+ * override ({@link effectiveSandboxMode}); who asked for it is derivable
+ * from position (an event after the log's last `request/header*` was a
+ * runtime switch by the user; see the tool layer's narrator).
+ */
+'sandbox/mode': { mode: SandboxMode }
+```
+
+Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
 
 ### `steering/*`
 
@@ -374,7 +380,7 @@ Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:198`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:195`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -383,7 +389,7 @@ Source: [`packages/core/session/src/types.ts:198`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:196`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -475,7 +481,7 @@ Source: [`packages/core/session/src/types.ts:243`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:194`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:191`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -491,7 +497,7 @@ Source: [`packages/core/session/src/types.ts:194`](../packages/core/session/src/
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:187`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:184`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -504,4 +510,4 @@ Source: [`packages/core/session/src/types.ts:187`](../packages/core/session/src/
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:200`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:197`](../packages/core/session/src/types.ts)

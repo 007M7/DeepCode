@@ -11,7 +11,7 @@ Implementations must honor these semantics:
 - BashProcess.readOutput is incremental: consecutive reads never repeat output. Lossy reads report truncation and available spill files.
 - Disposal kills all running background processes and awaits their exit.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L49)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L48)
 
 ### ctx.bash.sandboxMode
 
@@ -26,7 +26,7 @@ get sandboxMode(): SandboxMode | undefined
 
 The sandbox mode this executor applies by default, or `undefined` when it does not sandbox commands.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L59)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L58)
 
 ### ctx.bash.resolve(request)
 
@@ -46,7 +46,7 @@ Apply implementation-owned defaults and caps to a request before execution.
 
 **Returns** the fully-specified spec to hand to `run`/`start`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L69)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L68)
 
 ### ctx.bash.run(spec)
 
@@ -66,7 +66,7 @@ Run a command in the foreground; resolves when it finishes.
 
 **Returns** the outcome; nonzero exits, timeout kills, and abort kills resolve with a descriptive result rather than reject.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L77)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L76)
 
 ### ctx.bash.start(spec)
 
@@ -85,4 +85,4 @@ Start a background process and return its handle immediately.
 
 **Returns** the live process handle (reads, kill, quiescence promise).
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L84)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L83)

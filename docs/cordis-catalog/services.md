@@ -286,7 +286,7 @@ abstract start(spec: BashExecSpec): BashProcess
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashProcess](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:49`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:48`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.bashEnv` — `BashEnvRegistry`
 
@@ -317,7 +317,7 @@ list(): BashEnvVariableInfo[]
 
 Types: [DshEnvironment](../core-data-structures/bash.md) · [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/bash/tool-bash/src/index.ts:102`](../../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/tool-bash/src/index.ts:103`](../../packages/bash/tool-bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
@@ -458,9 +458,12 @@ abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
  * @param content - the full new file content.
  * @param expected - the write intent guarding the write; omit for unconditional.
  * @param signal - aborts before the atomic rename takes effect.
+ * @param sandboxMode - the per-call sandbox mode this write runs under; a
+ *   sandboxing backend fences the write by it, the bare backend ignores it.
+ *   Omit to leave the backend its own default.
  * @returns the outcome, including the version the write produced.
  */
-abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
+abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsWriteOutcome>
 
 /**
  * Atomically edit literal text. When supplied, the version guard is checked
@@ -470,14 +473,17 @@ abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, 
  * @param edit - the literal search/replace request.
  * @param expected - the version guard; omit for an unconditional edit.
  * @param signal - aborts before the atomic rename takes effect.
+ * @param sandboxMode - the per-call sandbox mode this edit runs under; a
+ *   sandboxing backend fences the edit by it, the bare backend ignores it.
+ *   Omit to leave the backend its own default.
  * @returns the outcome, including the version the edit produced.
  */
-abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
+abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsEditOutcome>
 ```
 
-Types: [FsDirEntry](../core-data-structures/filesystem.md) · [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsPathInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
+Types: [FsDirEntry](../core-data-structures/filesystem.md) · [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsPathInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md) · [SandboxMode](../core-data-structures/sandbox.md)
 
-Source: [`packages/fs/fs/src/index.ts:80`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:81`](../../packages/fs/fs/src/index.ts)
 
 ## `ctx.llm` — `LlmService`
 
@@ -569,7 +575,7 @@ set(session: Session, name: string): void
 
 Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/ui/permission/src/index.ts:94`](../../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:97`](../../packages/ui/permission/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
@@ -592,7 +598,13 @@ abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 
 Types: [ConfinedArgv](../core-data-structures/sandbox.md) · [SandboxPolicy](../core-data-structures/sandbox.md)
 
-Source: [`packages/sandbox/sandbox/src/index.ts:111`](../../packages/sandbox/sandbox/src/index.ts)
+Source: [`packages/sandbox/sandbox/src/index.ts:122`](../../packages/sandbox/sandbox/src/index.ts)
+
+## `ctx.sandboxPolicy` — `SandboxPolicyService`
+
+The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mode and workspace root; enforcing implementations read defaultMode and workspaceRoot, and the tool layers fold each session's `sandbox/mode` override with effectiveSandboxMode on top.
+
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:60`](../../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
@@ -820,7 +832,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:577`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:549`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -1107,6 +1119,43 @@ estimateMessage(message: Message): number
 Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
 
 Source: [`packages/llm/token-meter/src/index.ts:106`](../../packages/llm/token-meter/src/index.ts)
+
+## `ctx.toolResultPrune` — `ToolResultPruneService`
+
+Deterministic head/middle/tail pruning for current tool-result surface nodes.
+
+```ts cordis-catalog
+/**
+ * Measure text content in Unicode code points; non-text blocks cost zero.
+ * @param blocks - tool-result content to measure.
+ * @returns total Unicode code points across text blocks.
+ */
+measureContent(blocks: readonly ContentBlock[]): number
+
+/**
+ * Replace an over-budget text middle while retaining rich-block order.
+ * Text slicing is by Unicode code point, not UTF-16 code unit, so a retained
+ * boundary cannot split a surrogate pair. Grapheme clusters may still split.
+ * @param blocks - original tool-result content.
+ * @returns pruned content, or `null` when the text is within budget.
+ */
+pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
+
+/**
+ * Prune every over-budget tool result from one stable current-surface snapshot.
+ * Each replacement preserves the complete event data except for `content`,
+ * and points at the shadowed node for durable provenance and replay.
+ * @param session - session whose current surface is rewritten.
+ * @returns landed replacements and aggregate Unicode-code-point savings.
+ * @throws when the session rejects a replacement; replacements committed
+ * earlier in the pass remain durable.
+ */
+pruneSession(session: Session): PruneResult
+```
+
+Types: [ContentBlock](../core-data-structures/core.md) · [PruneResult](../core-data-structures/compaction.md) · [Session](../core-data-structures/session.md)
+
+Source: [`packages/compact/compact-tool-result-prune/src/index.ts:39`](../../packages/compact/compact-tool-result-prune/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
