@@ -819,8 +819,9 @@ describe('TUI user-interaction dialogs', () => {
     result.terminal.send('x')
     result.terminal.send(' ')
     result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('Select at least one option')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('Select at least one option')
+    })
     result.terminal.send('c')
     await tick()
     result.terminal.send('\x1b')
