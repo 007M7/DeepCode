@@ -642,6 +642,16 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await expect(ctx.sessionPersistence.list()).rejects.toThrow(/and cwd belong at/)
   })
 
+  it('list rejects a session header whose id cannot name a storage path', async () => {
+    const bucket = sessionDir(root, undefined)
+    await mkdir(bucket, { recursive: true })
+    await writeFile(join(bucket, 'invalid-id.jsonl'), JSON.stringify({
+      type: 'session', version: 0, id: '', createdAt: 1,
+    }) + '\n')
+
+    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/header id cannot name a storage path/)
+  })
+
   it('load and list reject one id materialized in multiple cwd buckets', async () => {
     const id = SessionId('duplicate')
     for (const cwd of ['/a', '/b']) {
@@ -755,6 +765,21 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.plugin(SessionStore)
     await expect(ctx2.plugin(SessionPersistenceJsonl, { root: filePath })).rejects.toThrow(/ENOTDIR/)
     await ctx2.fiber.dispose()
+  })
+
+  it('list surfaces a root that becomes unusable after plugin load', async () => {
+    await rm(root, { recursive: true })
+    await writeFile(root, 'not a directory')
+
+    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/ENOTDIR/)
+  })
+
+  it('per-id lookup surfaces non-ENOENT storage errors', async () => {
+    const blocker = join(root, 'not-a-directory')
+    await writeFile(blocker, 'x')
+    const backend = ctx.sessionPersistence as unknown as { exists(path: string): Promise<boolean> }
+
+    await expect(backend.exists(join(blocker, 'child.jsonl'))).rejects.toThrow(/ENOTDIR/)
   })
 
   it('materialization surfaces a cwd-bucket storage fault', async () => {
