@@ -6,12 +6,12 @@
  * It boots the REAL agent bin subprocess via the cordis Loader (so the
  * export-shape bug class stays guarded — see docs/postmortem/0001), drives it
  * over real ACP JSON-RPC stdio with a deterministic input script, tees raw
- * stdout (for the golden + a purity check) into an SDK `ClientSideConnection`,
+ * stdout (for the expected-output and purity checks) into an SDK `ClientSideConnection`,
  * and — in record mode — harvests the persisted session JSONL after a graceful
  * shutdown flush. The pure normalizers in ./normalize.ts turn the captured
  * stdout frames and the session-log events into stable, snapshot-able text.
  *
- * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
+ * See .agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  *
  * @module @deepseek-ai/dsh-acp-snapshot/harness
  */
@@ -171,7 +171,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   const cwd = await mkdtemp(join(tmpdir(), 'acp-snap-cwd-'))
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
   // Fixed path length: spill-policy budgets the preview against the REAL path
-  // before stdout normalization, so tmpdir() length differences churn goldens.
+  // before stdout normalization, so tmpdir() length differences churn expected outputs.
   const spillRoot = snapshotSpillRoot()
   // Everything past the temp-dir creation is followed by failure-safe cleanup,
   // so a failure in workspace seeding, spawn, or any step never leaks resources.
@@ -180,7 +180,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   let sessionLogs: HarvestedLog[] = []
   const outcome = await (async (): Promise<RunResult> => {
     // Seed the workspace if the scenario ships one (a file the agent reads/edits).
-    // Copied into the temp cwd so the agent's bash tools see it; the goldens
+    // Copied into the temp cwd so the agent's bash tools see it; the expected outputs
     // normalize the cwd, so the seeded paths stay stable across runs.
     if (opts.workspaceDir !== undefined && existsSync(opts.workspaceDir)) {
       await cp(opts.workspaceDir, cwd, { recursive: true })
@@ -404,11 +404,11 @@ async function runStep(
  * header line, and return them ordered primary-first: the top-level session (no
  * `parentSession`) leads, then each subagent child by ascending `createdAt`.
  *
- * The JSONL backend lays sessions out as `<root>/<cwd-bucket>/<encoded-id>.jsonl`
- * (one bucket per cwd), so a parent and its same-cwd in-process child land in
- * the SAME bucket — collecting all files across all buckets catches both (a
- * first-match short-circuit would silently drop the child). Returns `[]` if no
- * log was produced (a no-session scenario).
+ * Snapshot configs select the JSONL backend's raw mode, which lays sessions
+ * out as `<root>/<cwd-bucket>/<encoded-id>.jsonl` (one bucket per cwd). A
+ * parent and its same-cwd in-process child land in the SAME bucket, so
+ * collecting all files across all buckets catches both. Returns `[]` if no log
+ * was produced (a no-session scenario).
  */
 async function harvestSessionLogs(root: string): Promise<HarvestedLog[]> {
   let cwdDirs: string[]

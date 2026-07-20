@@ -35,8 +35,8 @@ export default defineConfig({
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
       // Per-file so a well-covered big file can't subsidize a bare one.
-      // Every v8 ignore comment must carry a reason — see the quality-gates RFC
-      // (docs/rfc/implemented/process/2026-06-11-quality-gates.md).
+      // Every v8 ignore comment must carry a reason — see the quality-gates Agent Note
+      // (.agents/notes/implemented/process/2026-06-11-quality-gates.md).
       thresholds: {
         perFile: true,
         statements: 100,

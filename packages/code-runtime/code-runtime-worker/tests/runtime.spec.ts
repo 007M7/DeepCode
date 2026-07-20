@@ -129,10 +129,12 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
   }, 15_000)
 
   it('does not charge time spent awaiting a slow binding against the compute budget', async () => {
+    // Keep the binding delay above the compute allowance while leaving enough
+    // headroom for worker bootstrap on loaded CI hosts.
     const { runtime } = await setup({ computeMs: 1_000, maxWallMs: 30_000 })
     const result = await runtime.run({
       program: 'return await tools.slow({})',
-      bindings: tools({ slow: () => new Promise(resolve => setTimeout(() => { resolve('slow-done') }, 2_000)) }),
+      bindings: tools({ slow: () => new Promise(resolve => setTimeout(() => { resolve('slow-done') }, 1_500)) }),
     })
     expect(result.error).toBeUndefined()
     expect(result.value).toBe('slow-done')

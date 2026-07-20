@@ -31,13 +31,13 @@ import {
 } from './normalize.ts'
 
 /** The readable system-prompt snapshot beside each header-pinning fixture. */
-const SYSTEM_PROMPT_SNAPSHOT = 'system-prompt.golden.md'
+const SYSTEM_PROMPT_SNAPSHOT = 'system-prompt.expected.md'
 
 /** The structured tool-schema snapshot beside each header-pinning fixture. */
-const TOOL_SCHEMAS_SNAPSHOT = 'tool-schemas.golden.json'
+const TOOL_SCHEMAS_SNAPSHOT = 'tool-schemas.expected.json'
 
 /** The optional full Windows-native stdout transcript. */
-const WINDOWS_STDOUT_SNAPSHOT = 'stdout.golden.windows.jsonl'
+const WINDOWS_STDOUT_SNAPSHOT = 'stdout.expected.windows.jsonl'
 
 /** Stable session-log token standing in for the sidecar's initial schemas. */
 const TOOLS_TOKEN = '{{tools}}'
@@ -45,7 +45,7 @@ const TOOLS_TOKEN = '{{tools}}'
 /** A snapshot scenario and how its fixtures are produced. */
 export interface Scenario {
   name: string
-  /** Whether the scenario drives at least one model turn (so a JSONL golden applies). */
+  /** Whether the scenario drives at least one model turn (so a JSONL expected output applies). */
   hasModelTurn: boolean
   /**
    * Whether the run persists a comparable session log to diff against the
@@ -106,7 +106,7 @@ export interface Scenario {
   configPath?: string
   /**
    * Whether Windows additionally compares stdout with native separators against
-   * `stdout.golden.windows.jsonl`. The shared canonical stdout golden is still
+   * `stdout.expected.windows.jsonl`. The shared canonical stdout expected output is still
    * compared on every platform, and the fixture guard requires this sidecar
    * exactly when the option is set.
    */
@@ -139,24 +139,24 @@ export function scenarioSkipped(
   return scenario.posixOnly === true && platform === 'win32'
 }
 
-/** One stdout golden selected for a platform run. */
-interface StdoutGoldenVariant {
+/** One stdout expected output selected for a platform run. */
+interface StdoutExpectedVariant {
   file: string
   cwdPathMode: CwdPathMode
 }
 
 /**
- * Select the shared stdout golden plus any platform-native assertion declared by a scenario.
+ * Select the shared stdout expected output plus any platform-native assertion declared by a scenario.
  *
  * @param scenario The scenario whose stdout contract is being selected.
  * @param platform The running Node platform, injectable for unit coverage.
- * @returns The ordered golden variants: shared canonical first, then optional Windows native.
+ * @returns The ordered expected-output variants: shared canonical first, then optional Windows native.
  */
-export function stdoutGoldenVariants(
+export function stdoutExpectedVariants(
   scenario: Scenario,
   platform: NodeJS.Platform = process.platform,
-): StdoutGoldenVariant[] {
-  const canonical: StdoutGoldenVariant = { file: 'stdout.golden.jsonl', cwdPathMode: 'canonical' }
+): StdoutExpectedVariant[] {
+  const canonical: StdoutExpectedVariant = { file: 'stdout.expected.jsonl', cwdPathMode: 'canonical' }
   if (platform !== 'win32' || scenario.pinsNativeWindowsStdout !== true) return [canonical]
   return [canonical, { file: WINDOWS_STDOUT_SNAPSHOT, cwdPathMode: 'native' }]
 }
@@ -171,8 +171,8 @@ export interface SnapshotSuiteOptions {
   scenarios: Scenario[]
   /**
    * `replay` (keyless, the default tier), `record` (live API; re-records the
-   * `recorded` scenarios' fixtures and refreshes the Vitest goldens under
-   * `--update`), or `refresh` (keyless replay that rewrites stdout goldens and
+   * `recorded` scenarios' fixtures and refreshes the Vitest expected outputs under
+   * `--update`), or `refresh` (keyless replay that rewrites stdout expected outputs and
    * comparable session fixtures from the replay run). The caller derives this
    * from `$DSH_SNAPSHOT` — env reading stays outside this library.
    */
@@ -486,7 +486,7 @@ export function stabilizeRefreshLog(fresh: string, existing: string, replacement
 }
 
 /**
- * Register the suite: one test per scenario (the golden/log compares and
+ * Register the suite: one test per scenario (the expected-output and log comparisons and
  * the header-uniformity guard) plus the fixture guard block (no orphan
  * scenario dirs, required files present, exactly one pin per header class,
  * pinning fixtures well-formed, every JSONL prompt-scrubbed, non-pinning
@@ -527,7 +527,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the `authored` ones
       // (sidecar-driven errors/cancel) are never re-recorded. `posixOnly` scenarios skip on
       // Windows, where their process semantics cannot be driven.
-      it.skipIf(scenarioSkipped(scenario, RECORDING))(`snapshot: ${scenario.name} matches the goldens`, async ({ expect }) => {
+      it.skipIf(scenarioSkipped(scenario, RECORDING))(`snapshot: ${scenario.name} matches the expected outputs`, async ({ expect }) => {
         const dir = join(snapshotsDir, scenario.name)
         const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
         const overrideFile = join(dir, 'replay.override.json')
@@ -631,12 +631,12 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           }
         }
 
-        for (const golden of stdoutGoldenVariants(scenario)) {
-          const stdout = normalizeStdout(result.rawStdout, ctx, { cwdPathMode: golden.cwdPathMode })
+        for (const expected of stdoutExpectedVariants(scenario)) {
+          const stdout = normalizeStdout(result.rawStdout, ctx, { cwdPathMode: expected.cwdPathMode })
           if (REFRESHING) {
-            await writeFile(join(dir, golden.file), stdout)
+            await writeFile(join(dir, expected.file), stdout)
           }
-          await expect(stdout, `${golden.file} mismatch`).toMatchFileSnapshot(join(dir, golden.file))
+          await expect(stdout, `${expected.file} mismatch`).toMatchFileSnapshot(join(dir, expected.file))
         }
 
         // A model turn always produces a log worth comparing; a hook scenario can
@@ -713,7 +713,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
 
   describe('snapshot fixtures', () => {
     it('every scenario directory is registered (no orphans)', async () => {
-      // toMatchFileSnapshot does not prune orphaned golden/fixture files, so a
+      // toMatchFileSnapshot does not prune orphaned expected-output or fixture files, so a
       // renamed/removed scenario could leave a stale dir that nothing exercises.
       // Fail loud on any snapshots/<dir> not present in the scenario table.
       const entries = await readdir(snapshotsDir, { withFileTypes: true })
@@ -727,7 +727,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       for (const { name, overridden, pinsHeader, pinsNativeWindowsStdout } of scenarios) {
         const dir = join(snapshotsDir, name)
         expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
-        expect(existsSync(join(dir, 'stdout.golden.jsonl')), `${name}/stdout.golden.jsonl`).toBe(true)
+        expect(existsSync(join(dir, 'stdout.expected.jsonl')), `${name}/stdout.expected.jsonl`).toBe(true)
         expect(
           existsSync(join(dir, WINDOWS_STDOUT_SNAPSHOT)),
           `${name}/${WINDOWS_STDOUT_SNAPSHOT} presence must match \`pinsNativeWindowsStdout\``,

@@ -40,6 +40,10 @@ Start-time features are advertised in `provider.capabilities` because the servic
 - `toolFilter` — apply the requested child tool restriction.
 - `persona` — apply a per-child persona.
 
+## Delegation depth
+
+The seam owns the depth vocabulary shared by implementations and consumers: the `AgentOptions.subagentDepth` declaration, `assertSubagentMaxDepth`, and `delegationDepthOf(agent)`. The persisted `SessionHeader.delegationDepth` is authoritative and monotone — runtime options may deepen the count but never lower it, so a resumed child cannot be re-counted as top-level.
+
 Runtime features are optional methods on `SubagentRun`: `sendMessage?` steers a live child, while `resume?` asynchronously creates a continuation run. Method presence is the capability check.
 
 `inheritsParentContext` is descriptive rather than enforceable. It says only whether the child sees completed parent conversation history (`fork` does; `spawn` and ACP do not), not whether it inherits tools, services, or authority.
@@ -60,7 +64,7 @@ Provider additions and removals also emit `subagent/provider-added` and `subagen
 
 ## Collection model
 
-The model-facing tool collects synchronously by default: it awaits the child result and disposes the run before returning. Background delegation does not change this seam; the consumer registers startup and the eventual run with the generic `ctx.tasks` runtime, then collection and cancellation use the shared task tools. See the [background subagent tasks RFC](../../../docs/rfc/implemented/feature/2026-07-08-background-subagent-tasks.md), the [capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md), and `src/types.ts` for the complete contracts.
+The model-facing tool collects synchronously by default: it awaits the child result and disposes the run before returning. Background delegation does not change this seam; the consumer registers startup and the eventual run with the generic `ctx.tasks` runtime, then collection and cancellation use the shared task tools. See the [background subagent tasks Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md), the [capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md), and `src/types.ts` for the complete contracts.
 
 ## Model Experience
 

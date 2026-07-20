@@ -32,6 +32,7 @@
   "license": "BSD-3-Clause",
   "dependencies": {
     "@deepseek-ai/dsh-helper": "workspace:^",
+    "@deepseek-ai/dsh-telemetry": "workspace:^",
     "commander": "^15.0.0",
     "node-addon-require-builtin": "^0.1.0"
   },

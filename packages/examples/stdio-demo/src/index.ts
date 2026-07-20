@@ -18,7 +18,10 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionPersistenceJsonl, {
+  JsonlCompressionSchema,
+  type JsonlCompression,
+} from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as uiStdio from '@deepseek-ai/dsh-stdio'
@@ -89,6 +92,8 @@ export interface Config {
   dshHome?: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
+  persistenceCompression?: JsonlCompression
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
   welcome?: string
   /** Terminal front-door selection and pi-tui presentation settings. */
@@ -97,7 +102,7 @@ export interface Config {
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
   toolBash?: NonNullable<agentCore.Config['toolBash']>
-  /** Generic background-task control-tool config forwarded through agent-core. */
+  /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /**
    * If set, the pre-created agent RESUMES this persisted session id instead of
@@ -121,11 +126,12 @@ export const Config: z<Config> = z.object({
   tools: ToolRegistry.Config,
   dshHome: z.string(),
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
+  persistenceCompression: JsonlCompressionSchema,
   welcome: z.string().default(DEFAULT_WELCOME),
   ui: UiConfigSchema,
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
-  toolTasks: agentCore.ToolTasksConfigSchema,
+  toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
   resumeSessionId: z.string(),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
@@ -145,7 +151,10 @@ export function composeTerminalApp(ctx: Context, config: Config, isTTY: boolean)
   const sessionId = SessionId(resumeSessionId ?? `main-session-${randomUUID()}`)
   const mode = resolveTerminalMode(config.ui, isTTY)
   if (mode === 'readline') ctx.plugin(ConsoleExporter)
-  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT })
+  ctx.plugin(SessionPersistenceJsonl, {
+    root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
+    ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
+  })
   ctx.plugin(UserInteractionService)
   if (mode === 'tui') {
     ctx.plugin(uiTui, {

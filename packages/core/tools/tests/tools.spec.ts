@@ -384,7 +384,7 @@ describe('ToolRegistry', () => {
       parameters: {},
       async execute(_args, exec) {
         exec.deferContext({ content: [{ type: 'text', text: 'nested-1' }], source: { kind: 'plugin', plugin: 'nested-1' }, meta: { n: 1 } })
-        exec.deferContext({ content: [{ type: 'text', text: 'nested-2' }], source: { kind: 'plugin', plugin: 'nested-2' }, envelope: 'raw' })
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-2' }], source: { kind: 'plugin', plugin: 'nested-2' } })
         return [{ type: 'text', text: 'done' }]
       },
     }))
@@ -418,7 +418,6 @@ describe('ToolRegistry', () => {
       { kind: 'plugin', plugin: 'post' },
     ])
     expect(result.additionalContexts?.[0]?.meta).toEqual({ n: 1 })
-    expect(result.additionalContexts?.[1]?.envelope).toBe('raw')
   })
 
   it('keeps deferred contexts when a composite tool throws, but drops them when the outer call is blocked', async () => {
@@ -1174,7 +1173,7 @@ describe('ToolRegistry.get', () => {
   })
 })
 
-describe('validateArgs (the runtime-validation RFC, part 1)', () => {
+describe('validateArgs (the runtime-validation Agent Note, part 1)', () => {
   it('returns [] for valid args and is total over malformed input', () => {
     const spec = {
       path: { type: 'string', required: true },
@@ -1274,7 +1273,7 @@ describe('validateArgs (the runtime-validation RFC, part 1)', () => {
   })
 })
 
-describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
+describe('defineTool validation (the runtime-validation Agent Note, part 1)', () => {
   it('returns an isError result with the violations when the model sends bad args', async () => {
     const ctx = await setup()
     ctx.tools.register(defineTool({

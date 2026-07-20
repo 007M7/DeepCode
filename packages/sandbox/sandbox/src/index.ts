@@ -8,6 +8,17 @@
 import { Context, Service } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 
+export {
+  ESCALATION_TARGETS,
+  WIDER_MODES,
+  approveEscalation,
+  escalationHintMarker,
+  sandboxDenialMarker,
+  validateEscalationArgs,
+} from './escalation.ts'
+export type { EscalationApproval, EscalationApprover, EscalationOutcome, EscalationRequest } from './escalation.ts'
+export { canonicalPath, writableRoots } from './roots.ts'
+
 /**
  * File-effect policy for confined processes. `read-only` permits only required
  * sinks such as `/dev/null`; `workspace-write` also permits the workspace and a

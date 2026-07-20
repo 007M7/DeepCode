@@ -181,6 +181,11 @@ function gatesForMode(selected: Mode): Gate[] {
           'run',
           'packages/workflow/workflow-workerthread/tests/source-worker.compat.spec.ts',
         ], { label: 'source worker smoke' }),
+        pnpmExec('jsonl-zstd-smoke', [
+          'vitest',
+          'run',
+          'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
+        ], { label: 'JSONL Zstandard smoke' }),
       ]
     case 'pre-push':
       return [
@@ -214,7 +219,6 @@ function ciPrimaryGates(): Gate[] {
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
-    pnpmScript('website-build', 'website:build', { label: 'website build' }),
     pnpmScript('build', 'build', { needs: ['typecheck'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
@@ -234,7 +238,6 @@ function ciStaticGates(): Gate[] {
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
-    pnpmScript('website-build', 'website:build', { label: 'website build' }),
   ]
 }
 
@@ -337,21 +340,21 @@ function docSyncLeafGates(options: {
     pnpmScript('persistence-catalog', 'verify-persistence-catalog', { label: 'persistence catalog' }),
     pnpmScript('doc-graphs', 'verify-doc-graphs', { label: 'doc graphs' }),
     pnpmScript('scoped-events', 'verify-scoped-events', { label: 'scoped events' }),
-    pnpmScript('website-api', 'verify-website-api', { label: 'website api' }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap' }),
     pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
     pnpmScript('package-paths', 'verify-package-paths', { label: 'package paths' }),
     pnpmScript('package-readme-model-experience', 'verify-package-readme-model-experience', { label: 'package README model experience' }),
     pnpmScript('mermaid', 'verify-mermaid'),
-    pnpmScript('rfc-classification', 'verify-rfc-classification', { label: 'rfc classification' }),
-    pnpmScript('rfc-format', 'verify-rfc-format', { label: 'rfc format' }),
+    pnpmScript('agent-note-classification', 'verify-agent-note-classification', { label: 'agent note classification' }),
+    pnpmScript('agent-note-format', 'verify-agent-note-format', { label: 'agent note format' }),
     pnpmScript('type-equivalence', 'verify-type-equiv', { label: 'type equivalence' }),
     pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt' }),
     pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),
     pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets' }),
+    // Keep the VitePress build in this single gate because projection rewrites website/.generated.
+    pnpmScript('docs-site', 'docs:check', { label: 'documentation site' }),
     pnpmScript('package-readme-limitations', 'verify-package-readme-limitations', { label: 'package README limitations' }),
-    pnpmScript('website-yaml', 'verify-website-yaml', { label: 'website yaml' }),
   ]
 }
 
@@ -379,7 +382,7 @@ function demoSmokeGate(options: { needs?: string[] } = {}): Gate {
         for (const bucket of buckets) {
           if (!bucket.isDirectory() || !bucket.name.startsWith('cwd-')) continue
           const entries = await readdir(join(sessionsRoot, bucket.name))
-          if (entries.some(entry => /^main-session-.+\.jsonl$/.test(entry))) {
+          if (entries.some(entry => /^main-session-.+\.jsonl\.zstd$/.test(entry))) {
             found = true
             break
           }

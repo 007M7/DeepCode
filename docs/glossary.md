@@ -1,6 +1,6 @@
 # Glossary
 
-Domain vocabulary for the DeepSeek Harness SDK uses one canonical term per concept. Terms link to their entries with standard Markdown anchors; implementation detail stays in package READMEs and RFCs.
+Domain vocabulary for the DeepSeek Harness SDK uses one canonical term per concept. Terms link to their entries with standard Markdown anchors; implementation detail stays in package READMEs and Agent Notes.
 
 FIXME(glossary-completeness): Expand this glossary before the first release so it covers the SDK's other core and capability subsystems, not only agent scope.
 
@@ -14,4 +14,4 @@ FIXME(glossary-completeness): Expand this glossary before the first release so i
 - **shadowing** — most-specific-wins name resolution: a scoped tool/section/variable replaces its same-named global twin for that scope alone. The per-agent persona and per-agent tool-variant mechanism.
 - **restriction / scope-local registration** — a restriction (`tools.restrict`) filters the GLOBAL tool surface for one scope (compose by intersection); scope-local registrations are merged after that filter. A filtered-away global tool is absent from the prompt AND refuses execution, indistinguishably from a nonexistent one.
 - **setup window** — the creation slot where a creator composes an agent's scoped world (`CreateAgentOptions.setup`): after the scope and agent object exist but before the agent or session is published, `agent/session-start` fires, or the first prompt is assembled. Setup registers; it never drives the agent.
-- **lineage** — parent/child facts carried as data (`parentSession`, `subagentDepth`); never affects visibility. <a id="lineage"></a>
+- **lineage** — parent/child facts carried as data (`parentSession`, durable `delegationDepth`, runtime `subagentDepth`); never affects visibility. <a id="lineage"></a>

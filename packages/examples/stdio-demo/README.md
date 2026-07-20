@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-stdio-demo
 
-The **terminal chat app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-spine-demo`](../../examples/agent-spine-demo/README.md)) with JSONL persistence, human interaction, a pre-created `main` agent, and a TTY-selected pi-tui/readline front door. Its `bin` boots a leaf `cordis.yml`.
+The **terminal chat app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md)) with JSONL persistence, human interaction, a pre-created `main` agent, and a TTY-selected pi-tui/readline front door. Its `bin` boots a leaf `cordis.yml`.
 
 It is the terminal counterpart to [`@deepseek-ai/dsh-acp-demo`](../acp-demo/README.md): both consume the same spine, while ACP reserves stdout for JSON-RPC and creates sessions from the client.
 
@@ -37,6 +37,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | `toolBash` | owner defaults | model-facing bash config routed through `dsh-agent-spine-demo`, including bash's producer-local `enableRunInBackground` |
 | `toolTasks` | owner defaults | generic `task_output` wait bounds routed through `dsh-agent-spine-demo` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
+| `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
 | `welcome` | `ready.` | terminal banner / TUI subtitle |
 | `ui` | `{ mode: 'auto' }` | terminal mode (`auto` / `readline` / `tui`) and nested TUI presentation config |
 | `resumeSessionId` | — | resume a persisted session id instead of starting fresh (sourced from an env var in the leaf) |

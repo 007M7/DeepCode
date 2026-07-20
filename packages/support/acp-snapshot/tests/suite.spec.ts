@@ -19,14 +19,14 @@ import {
   sessionFixtureNames,
   restorePinnedToolSchemas,
   stabilizeRefreshLog,
-  stdoutGoldenVariants,
+  stdoutExpectedVariants,
   unknownToolCallIds,
 } from '../src/suite.ts'
 
 /**
  * Unit tests for the suite factory, by running it: two synthetic suites over the scripted fake
  * ACP bin (./fixtures/fake-acp-agent.ts) register real describe/it trees at collection time,
- * so every factory path — golden and log compares, the per-suite header pin and its uniformity
+ * so every factory path — expected-output and log comparisons, the per-suite header pin and its uniformity
  * guard, record-mode fixture write-back, skip semantics, and the fixture guard block —
  * executes as an ordinary green test.
  *
@@ -63,7 +63,7 @@ const RECORD_SCENARIOS: Scenario[] = [
 
 // Record/refresh modes mutate their snapshots dir, so run them on throwaway
 // copies — except record's documented bootstrap knob, which regenerates the
-// committed record fixtures/goldens in place.
+// committed record fixtures and expected outputs in place.
 const BOOTSTRAP = process.env.ACP_SNAPSHOT_SPEC_BOOTSTRAP === '1'
 const recordDir = BOOTSTRAP ? RECORD_SRC : mkdtempSync(join(tmpdir(), 'acp-snap-record-suite-'))
 if (!BOOTSTRAP) {
@@ -82,9 +82,9 @@ afterAll(async () => {
 })
 
 function staleRefreshFixtures(dir: string): void {
-  writeFileSync(join(dir, 'plain-turn', 'stdout.golden.jsonl'), 'stale stdout\n')
-  writeFileSync(join(dir, 'pin-turn', 'system-prompt.golden.md'), 'STALE PROMPT\n')
-  writeFileSync(join(dir, 'pin-turn', 'tool-schemas.golden.json'), '{"initial":[{"name":"stale"}],"changes":[]}\n')
+  writeFileSync(join(dir, 'plain-turn', 'stdout.expected.jsonl'), 'stale stdout\n')
+  writeFileSync(join(dir, 'pin-turn', 'system-prompt.expected.md'), 'STALE PROMPT\n')
+  writeFileSync(join(dir, 'pin-turn', 'tool-schemas.expected.json'), '{"initial":[{"name":"stale"}],"changes":[]}\n')
 
   const plainBehaviorFile = join(dir, 'plain-turn', 'behavior.json')
   const plainBehavior = JSON.parse(readFileSync(plainBehaviorFile, 'utf8')) as Record<string, unknown>
@@ -92,12 +92,12 @@ function staleRefreshFixtures(dir: string): void {
   writeFileSync(plainBehaviorFile, `${JSON.stringify(plainBehavior, null, 2)}\n`)
 
   writeFileSync(join(dir, 'blocked-log', 'session.jsonl'), [
-    '{"type":"session","id":"99999999-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/blocked-cwd"}',
+    '{"type":"session","id":"99999999-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/blocked-cwd","delegationDepth":0}',
     '{"type":"hook/result","seq":1,"time":13,"data":{"decision":"stale","durationMs":99}}',
     '',
   ].join('\n'))
   writeFileSync(join(dir, 'authored-error', 'session.jsonl'), [
-    '{"type":"session","id":"77777777-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/error-cwd"}',
+    '{"type":"session","id":"77777777-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/error-cwd","delegationDepth":0}',
     '{"type":"turn/end","seq":1,"time":9,"data":{"error":"stale"}}',
     '',
   ].join('\n'))
@@ -119,7 +119,7 @@ describe('defineAcpSnapshotSuite: refresh mode', () => {
 
 describe('defineAcpSnapshotSuite: refresh write-back', () => {
   it('rewrites stdout and comparable logs from a replay-mode child run', () => {
-    const stdout = readFileSync(join(refreshDir, 'plain-turn', 'stdout.golden.jsonl'), 'utf8')
+    const stdout = readFileSync(join(refreshDir, 'plain-turn', 'stdout.expected.jsonl'), 'utf8')
     expect(stdout).not.toContain('stale stdout')
     expect(stdout).toContain('env:{\\"mode\\":\\"replay\\"')
     expect(stdout).not.toContain('\\"mode\\":\\"refresh\\"')
@@ -132,7 +132,7 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
     expect(authored).toContain('"error":"model exploded"')
     expect(authored).not.toContain('"error":"stale"')
 
-    expect(readFileSync(join(refreshDir, 'pin-turn', 'system-prompt.golden.md'), 'utf8')).toBe([
+    expect(readFileSync(join(refreshDir, 'pin-turn', 'system-prompt.expected.md'), 'utf8')).toBe([
       'SYS PROMPT',
       '',
       '<!-- request/header change 1 -->',
@@ -142,7 +142,7 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
       'NEW PROMPT LINE',
       '',
     ].join('\n'))
-    const schemas = readFileSync(join(refreshDir, 'pin-turn', 'tool-schemas.golden.json'), 'utf8')
+    const schemas = readFileSync(join(refreshDir, 'pin-turn', 'tool-schemas.expected.json'), 'utf8')
     expect(schemas).toContain('"description": "D1"')
     expect(schemas).not.toContain('"name":"stale"')
   })
@@ -197,7 +197,7 @@ describe('defineAcpSnapshotSuite: registration contract', () => {
 describe('sessionFixtureNames', () => {
   it('orders the primary and contiguous child fixtures while ignoring other files', () => {
     expect(sessionFixtureNames([
-      'stdout.golden.jsonl',
+      'stdout.expected.jsonl',
       'session.2.jsonl',
       'session.jsonl',
       'session.1.jsonl',
@@ -232,7 +232,7 @@ describe('sessionFixtureNames', () => {
   })
 })
 
-describe('stdoutGoldenVariants', () => {
+describe('stdoutExpectedVariants', () => {
   const scenario: Scenario = {
     name: 'windows-native',
     hasModelTurn: true,
@@ -241,18 +241,18 @@ describe('stdoutGoldenVariants', () => {
   }
 
   it('adds the native sidecar after the shared golden on Windows', () => {
-    expect(stdoutGoldenVariants(scenario, 'win32')).toEqual([
-      { file: 'stdout.golden.jsonl', cwdPathMode: 'canonical' },
-      { file: 'stdout.golden.windows.jsonl', cwdPathMode: 'native' },
+    expect(stdoutExpectedVariants(scenario, 'win32')).toEqual([
+      { file: 'stdout.expected.jsonl', cwdPathMode: 'canonical' },
+      { file: 'stdout.expected.windows.jsonl', cwdPathMode: 'native' },
     ])
   })
 
   it('keeps only the shared golden on other platforms or without the declaration', () => {
-    expect(stdoutGoldenVariants(scenario, 'linux')).toEqual([
-      { file: 'stdout.golden.jsonl', cwdPathMode: 'canonical' },
+    expect(stdoutExpectedVariants(scenario, 'linux')).toEqual([
+      { file: 'stdout.expected.jsonl', cwdPathMode: 'canonical' },
     ])
-    expect(stdoutGoldenVariants({ ...scenario, pinsNativeWindowsStdout: false }, 'win32')).toEqual([
-      { file: 'stdout.golden.jsonl', cwdPathMode: 'canonical' },
+    expect(stdoutExpectedVariants({ ...scenario, pinsNativeWindowsStdout: false }, 'win32')).toEqual([
+      { file: 'stdout.expected.jsonl', cwdPathMode: 'canonical' },
     ])
   })
 })

@@ -1,7 +1,7 @@
 /**
  * Showcase integration: the real `web_fetch` tool + the real spill stack
  * (`dsh-spill-local` backend + `dsh-spill-policy`), exercised through
- * `ctx.tools.execute()`. Proves the RFC's default local-backend path — a large
+ * `ctx.tools.execute()`. Proves the Agent Note's default local-backend path — a large
  * formatted fetch result is automatically retained and spilled with NO
  * tool-specific spill code, and the model-facing text changes ONLY by the
  * deliberate spill notice (the full formatted result lands in the spill file).
@@ -48,7 +48,7 @@ beforeEach(async () => {
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(WebService, { fetchProvider: WebFetchLocal.LOCAL_FETCH_PROVIDER_ID })
   // Provider cap generous so the tool returns a large formatted result; the
-  // policy cap is what triggers the spill (the RFC's separation of concerns).
+  // policy cap is what triggers the spill (the Agent Note's separation of concerns).
   await ctx.plugin(WebFetchLocal, { maxBodyChars: 500_000 })
   await ctx.plugin(LocalSpillStore, { root: spillRoot })
   await ctx.plugin(SpillPolicy, { maxInlineBytes: MAX_INLINE_BYTES })

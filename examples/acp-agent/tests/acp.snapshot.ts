@@ -5,12 +5,12 @@ import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from
 /**
  * The acp-agent example's snapshot suite: the scenario table for
  * `dsh-acp-snapshot`'s suite factory, which owns every compare/guard mechanic
- * (golden + re-persisted-log diffs, record/refresh write-back, the pinned-header
+ * (expected-output + re-persisted-log diffs, record/refresh write-back, the pinned-header
  * uniformity guard, the fixture guards). Fixtures live under `snapshots/<name>/`;
  * `pnpm run test:snapshot:record` re-records model transcripts against the real
- * API; `pnpm run test:snapshot:refresh` rewrites current replay goldens keyless.
- * See the package README (packages/support/acp-snapshot) and the snapshot RFC,
- * docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
+ * API; `pnpm run test:snapshot:refresh` rewrites current replay expected outputs keyless.
+ * See the package README (packages/support/acp-snapshot) and the snapshot Agent Note,
+ * .agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
 // The dsh-acp-demo bin (the demo:acp entry), this example's cordis.yml, and
@@ -30,6 +30,7 @@ const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import
 const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../workspace-context.cordis.yml', import.meta.url))
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
+const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
   switch (value) {
@@ -53,14 +54,15 @@ const SCENARIOS: Scenario[] = [
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  // The fs overlay only adds the spill stack (the sandboxed filesystem tools
+  // live in the base tree), so these scenarios share the default header class.
   {
     name: 'parallel-tool-calls',
     hasModelTurn: true,
     recorded: false,
-    headerClass: 'fs',
     configPath: FS_CONFIG,
   },
-  { name: 'bash-spill', hasModelTurn: true, recorded: false, headerClass: 'fs', configPath: FS_CONFIG },
+  { name: 'bash-spill', hasModelTurn: true, recorded: false, configPath: FS_CONFIG },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
@@ -68,17 +70,14 @@ const SCENARIOS: Scenario[] = [
     name: 'workspace-edit',
     hasModelTurn: true,
     recorded: true,
-    pinsHeader: true,
     pinsNativeWindowsStdout: true,
-    headerClass: 'fs',
-    configPath: FS_CONFIG,
   },
-  { name: 'fs-read', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-write', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-edit', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-read-window', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-policy-reject', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
+  { name: 'fs-read', hasModelTurn: true, recorded: true },
+  { name: 'fs-write', hasModelTurn: true, recorded: true },
+  { name: 'fs-edit', hasModelTurn: true, recorded: true },
+  { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true },
+  { name: 'fs-read-window', hasModelTurn: true, recorded: true },
+  { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
   // ACP exposes the adapter catalog as a session-scoped model select. This
   // scenario pins the default flash request, the switch response, and the
@@ -118,6 +117,13 @@ const SCENARIOS: Scenario[] = [
   { name: 'subagent-multi', hasModelTurn: true, recorded: true },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
+  {
+    name: 'subagent-depth-two-rejection',
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    configPath: DEPTH_TWO_CONFIG,
+  },
   // The workflow tool: the model writes a one-child orchestration script; the
   // child runs as a spawn subagent under the worker-thread engine (its session is the
   // child fixture), and the tool result carries the script's return value.
@@ -147,8 +153,8 @@ const SCENARIOS: Scenario[] = [
   // The mid-turn seams fire during a real model turn, so each is recorded with its hook active
   // (the model's reaction to a deny/block/force-continue is part of the captured transcript).
   // SessionStart/SubagentStart are excluded because detached injection races log
-  // order; SubagentStop writes no transcript, so a golden could not prove it ran.
-  // Unit tests cover those points; the hook-snapshot-matrix RFC owns the rationale.
+  // order; SubagentStop writes no transcript, so an expected output could not prove it ran.
+  // Unit tests cover those points; the hook-snapshot-matrix Agent Note owns the rationale.
   { name: 'hook-cc-promptsubmit-context', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-deny', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-ask', hasModelTurn: true, recorded: true },
@@ -185,6 +191,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'sandbox' },
   { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
   { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
+  { name: 'fs-escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
 ]
 
 defineAcpSnapshotSuite({

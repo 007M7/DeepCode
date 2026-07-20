@@ -15,7 +15,10 @@ import * as acp from '@deepseek-ai/dsh-acp'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionPersistenceJsonl, {
+  JsonlCompressionSchema,
+  type JsonlCompression,
+} from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 
 export const name = 'acp-demo'
@@ -47,13 +50,15 @@ export interface Config {
   dshHome?: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
+  persistenceCompression?: JsonlCompression
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
   toolBash?: NonNullable<agentCore.Config['toolBash']>
-  /** Generic background-task control-tool config forwarded through agent-core. */
+  /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
 }
 
@@ -72,10 +77,11 @@ export const Config: z<Config> = z.object({
   tools: ToolRegistry.Config,
   dshHome: z.string(),
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
+  persistenceCompression: JsonlCompressionSchema,
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
-  toolTasks: agentCore.ToolTasksConfigSchema,
+  toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
 })
 /* jscpd:ignore-end */
 
@@ -89,6 +95,9 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(agentCore, agentCore.pickSpineConfig(config))
   ctx.plugin(UserInteractionService)
-  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT })
+  ctx.plugin(SessionPersistenceJsonl, {
+    root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
+    ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
+  })
   ctx.plugin(acp, { provider: config.provider, model: config.model })
 }

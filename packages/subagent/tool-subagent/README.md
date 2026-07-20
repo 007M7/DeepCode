@@ -8,9 +8,9 @@ Each plugin instance binds one `provider` to one `toolName`; the model receives 
 
 A foreground call passes the execution signal through startup and execution, awaits `run.result`, and always awaits `run.dispose()` before returning. Only `completed` returns final text; abort, refusal, token limit, and other failures become errored tool results without partial output.
 
-With `run_in_background: true`, the tool registers the parent-owned task before starting the provider. A task-owned signal covers pending startup and the child after the starting call returns. `task_kill` and owner disposal abort it. Settlement awaits startup rollback or child disposal, then maps completed final text, abort to `killed`, and other failures to `failed`. The task has no incremental read; generic task tools own later status, collection, cancellation, and notices. See the [background subagent RFC](../../../docs/rfc/implemented/feature/2026-07-08-background-subagent-tasks.md).
+With `run_in_background: true`, the tool registers the parent-owned task before starting the provider. A task-owned signal covers pending startup and the child after the starting call returns. `task_kill` and owner disposal abort it. Settlement awaits startup rollback or child disposal, then maps completed final text, abort to `killed`, and other failures to `failed`. The task has no incremental read; generic task tools own later status, collection, cancellation, and notices. See the [background subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md).
 
-`toolFilter` changes the child's global tool layer but is not a parent-derived authority ceiling. See the [agent-scope security non-goal](../../../docs/rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals).
+`toolFilter` changes the child's global tool layer but is not a parent-derived authority ceiling. See the [agent-scope security non-goal](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals).
 
 ## Config
 
@@ -22,11 +22,11 @@ With `run_in_background: true`, the tool registers the parent-owned task before 
 | `agentOptions` | Default child options, currently including `model`. |
 | `persona` | Per-child persona; requires provider `persona` capability. |
 | `toolFilter` | Per-child global-tool restriction; requires `toolFilter` capability. |
-| `maxDepth` | Absolute delegation-depth cap; requires `depthLimit` capability. |
+| `maxDepth` | Absolute delegation-depth cap, default `3` (`0` forbids delegation); a numeric cap requires the `depthLimit` capability and fails the mount without it. `'provider-managed'` sends no cap for an out-of-process provider whose budget belongs to the child harness. The tool stays visible at the cap; each attempted start checks the calling agent's current depth and returns an errored tool result when rejected. |
 
 ## Concurrency
 
-Foreground and background calls are exclusive. Children may share the parent's workspace or external resources, and a unary classifier cannot prove that sibling delegations have disjoint effects. See the [parallel tool-call RFC](../../../docs/rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
+Foreground and background calls are exclusive. Children may share the parent's workspace or external resources, and a unary classifier cannot prove that sibling delegations have disjoint effects. See the [parallel tool-call Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
 
 ## Model Experience
 

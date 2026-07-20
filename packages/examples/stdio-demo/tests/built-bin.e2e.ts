@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process'
-import { cp, mkdtemp, mkdir, rm, symlink, writeFile, readFile } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readdir, rm, symlink, writeFile, readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
+import { zstdDecompress } from 'node:zlib'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
@@ -15,6 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 const stdioBin = join(repoRoot, 'packages/examples/stdio-demo/lib/bin.js')
+const decompress = promisify(zstdDecompress)
 
 // Symlink each required workspace package by package name so plain Node resolves its built `main`,
 // matching an installed dependency rather than tsconfig paths.
@@ -104,8 +107,8 @@ async function makeConsumer(
   return dir
 }
 
-/** Run the built bin in `cwd` against `configArg` with one stdin line; resolve with stdout/stderr + exit code. */
-function runBuiltBin(cwd: string, configArg: string, line: string): Promise<{ stdout: string; code: number; stderr: string }> {
+/** Run the built bin in `cwd` against `configArg` with piped stdin; resolve with stdout/stderr + exit code. */
+function runBuiltBin(cwd: string, configArg: string, input: string): Promise<{ stdout: string; code: number; stderr: string }> {
   return new Promise((resolve, reject) => {
     // --expose-internals: the cordis Loader resolves bare plugin specifiers via
     // its internal module loader (active only under this flag); demo:echo passes
@@ -128,7 +131,7 @@ function runBuiltBin(cwd: string, configArg: string, line: string): Promise<{ st
     }, 25_000)
     child.on('exit', (code) => { clearTimeout(timer); resolve({ stdout, code: code ?? -1, stderr }) })
     child.on('error', (err) => { clearTimeout(timer); reject(err) })
-    child.stdin.write(`${line}\n`)
+    child.stdin.write(`${input}\n`)
     child.stdin.end()
   })
 }
@@ -153,6 +156,12 @@ describe.skipIf(!existsSync(stdioBin))('dsh-stdio-demo BUILT bin (node lib/bin.j
     expect(stdout).toContain('[tool call] echo')
     expect(stdout).toContain('[tool result] ECHO: HI')
     expect(code).toBe(0)
+    const files = await readdir(join(consumer, '.sessions'), { recursive: true })
+    const log = files.find(file => file.endsWith('.jsonl.zstd'))
+    expect(log).toBeDefined()
+    const compressed = await readFile(join(consumer, '.sessions', log!))
+    expect(compressed.subarray(0, 4).toString('hex')).toBe('28b52ffd')
+    expect(JSON.parse((await decompress(compressed)).toString())).toMatchObject({ type: 'session' })
   }, 30_000)
 
   it('boots cleanly when the config disables an (otherwise unresolvable) entry', async () => {
@@ -164,6 +173,17 @@ describe.skipIf(!existsSync(stdioBin))('dsh-stdio-demo BUILT bin (node lib/bin.j
     expect(stderr).not.toContain('failed to load')
     expect(stdout).toContain('DISABLED-OK ready.')
     expect(stdout).toContain('[tool result] ECHO: HI')
+    expect(code).toBe(0)
+  }, 30_000)
+
+  it('runs two synchronously piped lines as two ordinary turns', async () => {
+    consumer = await makeConsumer('TWO-TURNS ready.')
+    const { stdout, code, stderr } = await runBuiltBin(consumer, './cordis.yml', 'first\nsecond')
+    expect(stderr).not.toContain('UNHANDLED')
+    expect(stdout).toContain('[main turn 1]')
+    expect(stdout).toContain('You said: "first"')
+    expect(stdout).toContain('[main turn 2]')
+    expect(stdout).toContain('You said: "second"')
     expect(code).toBe(0)
   }, 30_000)
 
