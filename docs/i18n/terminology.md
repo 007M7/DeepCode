@@ -65,6 +65,7 @@
 | waterfall | waterfall | waterfall（瀑布式事件） | | |
 | wheel | wheel 包 | | | Python 打包格式 |
 | worktree | worktree | | | git 工作区概念 |
+| Zstandard | Zstandard | | | RFC 8878 compression format; `zstd` remains a code value. |
 
 ## 双语类（中英文文本各自使用中英文）
 

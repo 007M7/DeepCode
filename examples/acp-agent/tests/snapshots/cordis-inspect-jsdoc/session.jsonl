@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"22222222-2222-4222-8222-222222222222","createdAt":1783951000000,"cwd":"/tmp/cordis-inspect-jsdoc"}
+{"type":"session","version":0,"id":"22222222-2222-4222-8222-222222222222","createdAt":1783951000000,"cwd":"/tmp/cordis-inspect-jsdoc","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1784449176717,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1784449176718,"data":{"content":[{"type":"text","text":"Inspect the exact tools service API and tools/pre-execute event with cordis_inspect, then reply with exactly CORDIS_INSPECT_JSDOC_OK."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1784449176720,"data":{"turn":1,"step":1}}
