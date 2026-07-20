@@ -60,6 +60,15 @@ async function scenario(behavior: object): Promise<{ dir: string; fixtureFile: s
 
 const boot: InputStep[] = [{ op: 'initialize' }, { op: 'newSession' }]
 
+function environmentEcho(rawStdout: string): Record<string, unknown> {
+  const frames = rawStdout.trim().split('\n')
+    .map(line => JSON.parse(line) as { params?: { update?: { content?: { text?: unknown } } } })
+  const text = frames.map(frame => frame.params?.update?.content?.text)
+    .find(value => typeof value === 'string' && value.startsWith('env:'))
+  if (typeof text !== 'string') throw new Error('fake ACP agent did not echo its environment')
+  return JSON.parse(text.slice('env:'.length)) as Record<string, unknown>
+}
+
 describe('runScenario', () => {
   it('surfaces an asynchronous child spawn failure through startup and close', async () => {
     const { dir } = await scenario({})
@@ -307,6 +316,19 @@ describe('runScenario', () => {
     expect(result.rawStdout).toContain('replay.override.json')
     // Child paths ride one env var, joined with the platform delimiter.
     expect(result.rawStdout).toContain(JSON.stringify(childFiles.join(delimiter)).slice(1, -1))
+  })
+
+  it('gives concurrent scenarios distinct equal-length spill roots', { timeout: 20_000 }, async () => {
+    const [first, second] = await Promise.all([scenario({ echoEnv: true }), scenario({ echoEnv: true })])
+    const results = await Promise.all([first, second].map(({ fixtureFile }) => runScenario(
+      { steps: [...boot, { op: 'prompt', text: 'env?' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )))
+    const roots = results.map(result => environmentEcho(result.rawStdout).spillRoot)
+    expect(roots.every(root => typeof root === 'string')).toBe(true)
+    expect(new Set(roots).size).toBe(2)
+    expect((roots[0] as string).length).toBe((roots[1] as string).length)
+    expect((roots[0] as string).length).toBe('/tmp/dsh-acp-snapshot-spill'.length)
   })
 
   it('seeds the workspace dir into the temp cwd before the run', { timeout: 20_000 }, async () => {
