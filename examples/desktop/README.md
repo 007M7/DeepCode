@@ -332,10 +332,16 @@ becomes a visualiser of the runtime's actual state.
   that exact seq, edit the user turn, and let a different reply
   stream in. The child is anchored back in the session tree with a
   `⑂ forks from here (N)` card so the branching is legible.
-- **`{ }` JSON drawer — zero loss.** Every event card has a `{ }`
-  button in the corner that swings a drawer holding the raw JSON of
-  the source `session.event`, verbatim. The pretty renderer is a
-  projection; the JSON is the source of truth, always one click away.
+- **`{ }` Inspector — zero loss.** Every inspectable element in the
+  chat stream — user + assistant bubbles, reasoning blocks, tool calls
+  and results, compaction cards, context 📎 injections, subagent
+  cards — carries an unobtrusive `{ }` badge that opens one unified
+  right-side Inspector with three tabs: **Pretty** (a readable,
+  type-specific view of that element), **Raw** (the verbatim
+  `session.event` from the session log, with a seq/type/time header +
+  copy), and **JSON** (the same event through the recursive collapsible
+  Fields tree). The pretty renderer is a projection; the Raw/JSON tabs
+  are the source of truth, always one click away.
 - **Compaction visualisation.** When the runtime emits a
   `session/compact` outcome, the compacted range renders as a
   collapsed banner inline in chat with the summary + token delta

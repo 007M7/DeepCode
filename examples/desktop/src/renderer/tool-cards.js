@@ -591,7 +591,19 @@ function renderJsonBadge(onClick) {
 // Idempotently populate the drawer with call + result JSON and slide it in.
 // `title` is a short label ("tool: bash"); either payload may be null/absent
 // (call-only if result hasn't landed yet).
-function openJsonDrawer({ title, call, result } = {}) {
+//
+// lane-p0-inspector: this is now a thin adapter. When the unified Inspector
+// is loaded (the real app — window.__dshInspector), the call routes there so
+// every `{ }` badge / raw-JSON badge lands in the one Pretty/Raw/JSON drawer
+// instead of this tool-only two-pane one. `event`/`tab` are the new
+// pass-throughs (verbatim source event + initial tab); older callers that
+// pass only {title, call, result} still work. The legacy #tool-json-drawer
+// path below stays intact for node unit tests + early boot (inspector absent).
+function openJsonDrawer({ title, call, result, event, tab } = {}) {
+  const ins = (typeof window !== 'undefined') ? window.__dshInspector : null
+  if (ins && typeof ins.openFromDrawer === 'function') {
+    return ins.openFromDrawer({ title, call, result, event, tab })
+  }
   const drawer = typeof document !== 'undefined' && document.getElementById
     ? document.getElementById('tool-json-drawer') : null
   if (!drawer) return null

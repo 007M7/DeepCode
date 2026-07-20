@@ -510,6 +510,12 @@
                     data-action="load-sample-trace"></button>
           </div>
         </section>
+        <!-- lane-p0-inspector: "back to bottom" chip. Hidden until the reader
+             scrolls up AND new content streams in below (stream-follow.js
+             controller in renderer.js toggles [hidden]); click re-pins the
+             stream to the bottom. -->
+        <button id="stream-scroll-chip" class="stream-scroll-chip" type="button" hidden
+                aria-label="Scroll to latest">↓ 回到底部</button>
         <footer class="composer composer-shell">
           <!-- Next-action suggestion chips. Renderer-side controller
                (next-action-controller in renderer.js) fills this row with
@@ -1508,6 +1514,8 @@
   <script src="./trace-timeline.js"></script><!-- task #203: view B Gantt/waterfall -->
   <script src="./trace-graph.js"></script><!-- task #203: view C agent node graph -->
   <script src="./trace-detail-pane.js"></script><!-- task #205: right-side detail pane (4 tabs) -->
+  <script src="./stream-follow.js"></script><!-- lane-p0-inspector: pure at-bottom auto-follow controller (consumed by renderer stream scroll) -->
+  <script src="./inspector-drawer.js"></script><!-- lane-p0-inspector: unified right-side Inspector (Pretty/Raw/JSON); reuses trace-detail-pane.buildJsonTree above -->
   <script src="./trace-tri-view.js"></script><!-- task #203: view chips + panels -->
   <script src="./price-table.js"></script><!-- task #158: cost chip data source -->
   <script src="./parse-incremental-json.js"></script><!-- task #162 rec 22: partial-JSON tool row -->
@@ -1618,6 +1626,29 @@
         <summary>tool/result &nbsp;<span class="tool-json-note">(content · meta · isError · error · durationMs)</span></summary>
         <pre class="tool-json-pane" data-json-pane="result"></pre>
       </details>
+    </div>
+  </aside>
+
+  <!-- lane-p0-inspector: unified right-side Inspector. Supersedes the
+       #tool-json-drawer above as the live surface (openJsonDrawer now routes
+       here); the legacy drawer DOM is kept in place so its × close-binding
+       + unit-test contract still hold. Non-modal (position: fixed) like the
+       drawer above so the chat stream stays clickable while it is open.
+       Populated + toggled by inspector-drawer.js. -->
+  <aside id="inspector-drawer" class="inspector-drawer" aria-hidden="true" aria-label="Inspector">
+    <div class="inspector-drawer-head">
+      <div class="inspector-drawer-title">inspector</div>
+      <button type="button" id="inspector-drawer-close" class="ghost small" aria-label="Close inspector" title="Close (Esc)">×</button>
+    </div>
+    <div class="inspector-tabs" role="tablist" aria-label="Inspector views">
+      <button type="button" class="inspector-tab active" data-tab="pretty" role="tab" aria-selected="true">Pretty</button>
+      <button type="button" class="inspector-tab" data-tab="raw" role="tab" aria-selected="false">Raw</button>
+      <button type="button" class="inspector-tab" data-tab="json" role="tab" aria-selected="false">JSON</button>
+    </div>
+    <div class="inspector-drawer-body">
+      <div class="inspector-panel" data-panel="pretty" role="tabpanel"></div>
+      <div class="inspector-panel" data-panel="raw" role="tabpanel" hidden></div>
+      <div class="inspector-panel" data-panel="json" role="tabpanel" hidden></div>
     </div>
   </aside>
 

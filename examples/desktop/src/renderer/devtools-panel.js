@@ -569,7 +569,9 @@
       const tc = window.__dshToolCards
       if (tc && typeof tc.openJsonDrawer === 'function') {
         const label = entry.type ? String(entry.type) : 'event'
-        tc.openJsonDrawer({ title: label, call: null, result: entry.event })
+        // lane-p0-inspector: route the devtools raw badge into the inspector's
+        // Raw tab with the verbatim session.event (was the tool-only drawer).
+        tc.openJsonDrawer({ title: label, event: entry.event, tab: 'raw' })
       }
     })
     return btn

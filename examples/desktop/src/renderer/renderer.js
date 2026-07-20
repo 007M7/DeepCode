@@ -775,6 +775,79 @@ function scrollToBottom() {
   streamEl.scrollTop = streamEl.scrollHeight
 }
 
+// lane-p0-inspector: at-bottom auto-follow. The stream hard-scrolls to the
+// tail on discrete events (scrollToBottom above, called from ~18 sites), but
+// the PER-CHUNK streaming path (reasoning / assistant text / tool-call
+// deltas) routes through followStream() so a reader who scrolled UP to
+// re-read an earlier step isn't yanked back to the bottom on every delta.
+// The pure decision lives in stream-follow.js; here we own the DOM wiring.
+const _followCtrl = (typeof window !== 'undefined' && window.__dshStreamFollow
+  && typeof window.__dshStreamFollow.createFollowController === 'function')
+  ? window.__dshStreamFollow.createFollowController({ threshold: 40 })
+  : null
+
+function _streamMetrics() {
+  return { scrollTop: streamEl.scrollTop, scrollHeight: streamEl.scrollHeight, clientHeight: streamEl.clientHeight }
+}
+function _setScrollChip(show) {
+  const chip = document.getElementById('stream-scroll-chip')
+  if (chip) chip.hidden = !show
+}
+// Follow the streaming tail only while the reader is pinned to the bottom.
+// When detached, surfaces the "↓ 回到底部" chip instead of scrolling.
+function followStream() {
+  if (!_followCtrl) { scrollToBottom(); return }
+  const r = _followCtrl.onContent()
+  if (r.follow) streamEl.scrollTop = streamEl.scrollHeight
+  _setScrollChip(r.showChip)
+}
+function bindStreamFollow() {
+  if (!streamEl || !_followCtrl) return
+  if (streamEl.dataset.followWired === '1') return
+  streamEl.dataset.followWired = '1'
+  streamEl.addEventListener('scroll', () => {
+    const r = _followCtrl.onScroll(_streamMetrics())
+    _setScrollChip(r.showChip)
+  })
+  const chip = document.getElementById('stream-scroll-chip')
+  if (chip) {
+    chip.addEventListener('click', () => {
+      _followCtrl.repin()
+      streamEl.scrollTop = streamEl.scrollHeight
+      _setScrollChip(false)
+    })
+  }
+}
+
+// QA-only seam (DSH_QA=1 gated, same gate as __dshOnSessionEvent). Under
+// CDP the stream's scroll position can't be driven reliably — a programmatic
+// scrollTop gets reset on this flex/min-height:0 container and synthetic
+// wheel events don't hit-test through the offscreen GPU path. So a driver
+// can't reproduce "reader scrolled up" via real scrolling. This seam feeds
+// metrics straight into the SAME follow controller the scroll listener uses
+// (window.__dshStreamFollow.onScroll), then re-projects the chip via the same
+// followStream() path — so a shoot exercises the real detach → chip logic,
+// not a faked class toggle.
+if (typeof window !== 'undefined' && window.dshQa) {
+  window.__dshQaFollow = {
+    // Simulate the reader having scrolled `distancePx` up from the bottom.
+    detach(distancePx) {
+      if (!_followCtrl) return { err: 'no follow controller' }
+      const gap = Number.isFinite(distancePx) ? distancePx : 400
+      const r = _followCtrl.onScroll({ scrollTop: 0, scrollHeight: gap + 1000, clientHeight: 1000 })
+      _setScrollChip(r.showChip)
+      return { pinned: _followCtrl.isPinned(), showChip: r.showChip }
+    },
+    // Simulate new streamed content landing (the followStream() decision).
+    content() {
+      followStream()
+      const el = document.getElementById('stream-scroll-chip')
+      return { pinned: _followCtrl ? _followCtrl.isPinned() : null, chipVisible: !!(el && !el.hidden) }
+    },
+    isPinned() { return _followCtrl ? _followCtrl.isPinned() : null },
+  }
+}
+
 // Titlecase mapping for role labels. Kept trivial + covered by
 // test assertions: `appendMessage({ role: 'user' })` produces a `.role-label`
 // child reading "User" (not "USER" / "HUMAN"). The map is small and
@@ -867,6 +940,13 @@ function appendMessage({ role, text, className, seq, optimistic, target }) {
     if (typeof seq === 'number') el.dataset.forkSeq = String(seq)
     attachForkHereButton(el)
   }
+  // lane-p0-inspector: universal click-to-inspect on user + assistant
+  // bubbles (hover-revealed { } badge). Assistant streaming bubbles get
+  // their inspectSeq stamped later at assistant/message finalize.
+  if (role === 'user' || role === 'assistant') {
+    if (typeof seq === 'number') el.dataset.inspectSeq = String(seq)
+    attachBubbleInspect(el, body, role)
+  }
   // assistant/reasoning bubbles land inside the
   // active turn container's `.turn-body` when one is open; user bubbles
   // and any explicit target from the caller override. Streams without a
@@ -875,6 +955,63 @@ function appendMessage({ role, text, className, seq, optimistic, target }) {
   parent.appendChild(el)
   scrollToBottom()
   return body
+}
+
+// lane-p0-inspector: hover-revealed "{ }" inspect badge on user/assistant
+// bubbles. Resolves the source session.event at click time via the bubble's
+// data-inspect-seq (or data-seq) against the active session's cachedEvents;
+// falls back to a reconstructed record built from the bubble's own text so
+// inspect always works even after the source event rolled off the cache cap.
+function attachBubbleInspect(el, body, role) {
+  const ins = window.__dshInspector
+  if (!ins || typeof ins.attachInspectBadge !== 'function') return
+  ins.attachInspectBadge(el, () => {
+    const seqStr = el.dataset.inspectSeq != null ? el.dataset.inspectSeq : el.dataset.seq
+    const seq = (seqStr != null && seqStr !== '') ? Number(seqStr) : null
+    let event = null
+    if (Number.isFinite(seq) && window.__dshChat && typeof window.__dshChat.getEventsForActive === 'function') {
+      const events = window.__dshChat.getEventsForActive() || []
+      event = events.find((e) => e && e.seq === seq) || null
+    }
+    if (!event) {
+      const text = (body && body.textContent) || ''
+      event = {
+        type: role === 'user' ? 'user/message' : 'assistant/message',
+        seq: Number.isFinite(seq) ? seq : undefined,
+        data: { content: [{ type: 'text', text }] },
+        __reconstructed: true,
+      }
+    }
+    return { event, tab: 'pretty' }
+  }, { hover: true })
+}
+
+// lane-p0-inspector: inspect badge on a reasoning block. Reasoning spans many
+// reasoning-delta chunks (no single verbatim wire event), so the inspect
+// target is a reconstructed record carrying the block's full text — labelled
+// as reconstructed in the Raw tab.
+function attachReasoningInspect(r) {
+  const ins = window.__dshInspector
+  if (!ins || typeof ins.attachInspectBadge !== 'function' || !r) return
+  ins.attachInspectBadge(r, () => {
+    const bodyEl = r.querySelector ? (r.querySelector('.reasoning-body') || r) : r
+    const text = (bodyEl && bodyEl.textContent) || ''
+    return {
+      event: { type: 'reasoning', data: { text }, __reconstructed: true },
+      tab: 'pretty',
+    }
+  }, { hover: true })
+}
+
+// lane-p0-inspector: attach an inspect badge anchored to a concrete
+// session.event that is in scope at render time (context / compact / subagent
+// cards). Defaults to a visible badge (opts.hover=false) that callers hang on
+// a card's summary line, matching the tool-card `{ }` pattern.
+function attachEventInspect(el, event, opts) {
+  const ins = window.__dshInspector
+  if (!ins || typeof ins.attachInspectBadge !== 'function' || !el || !event) return
+  const o = opts || {}
+  ins.attachInspectBadge(el, () => ({ event, tab: o.tab || 'pretty' }), { hover: !!o.hover })
 }
 
 // Hover-revealed "fork from here" button on assistant bubbles. The boundary
@@ -1784,6 +1921,9 @@ function appendContextCard({ source, content, seq, kind }) {
     ? `steering: ${summaryText}`
     : `context injection: ${summaryText}`
   summary.append(src, hint)
+  // lane-p0-inspector: inspect the injected payload (source + content) — the
+  // 📎 context card previously had no reachable raw record.
+  attachEventInspect(summary, { type: kind || 'context/message', seq, data: { source, content } }, { tab: 'pretty' })
   const body = document.createElement('div')
   body.className = 'body'
   body.textContent = textFromContentBlocks(content)
@@ -3052,7 +3192,9 @@ function buildRawJsonBadge(event) {
     const tc = window.__dshToolCards
     if (tc && typeof tc.openJsonDrawer === 'function') {
       const label = event && event.type ? String(event.type) : 'event'
-      tc.openJsonDrawer({ title: label, call: null, result: event })
+      // lane-p0-inspector: route the trace-row raw badge into the inspector's
+      // Raw tab with the verbatim session.event (was the tool-only drawer).
+      tc.openJsonDrawer({ title: label, event, tab: 'raw' })
     }
   })
   return btn
@@ -3608,6 +3750,9 @@ function appendCompactMarker(event, meta, sessionId) {
       summary.appendChild(e)
     }
     el.appendChild(summary)
+    // lane-p0-inspector: inspect the compaction — Pretty shows the summary
+    // text, Raw/JSON the verbatim compact/summary event (shadowedSeqs, tokens).
+    attachEventInspect(summary, event, { tab: 'pretty' })
     // Three-tab body — strategy list §1.7: 压前原文 / 压后摘要 / 策略与账
     // as horizontal tabs. Shell owned by compact-card.js (pure module +
     // DOM builder). Fallback path preserves the pre-refactor .body +
@@ -4826,7 +4971,30 @@ function buildRunningSubagentCard(rec) {
     rec.bodyEl = live
   }
   rec.cardEl = wrap
+  // lane-p0-inspector: inspect the RUNNING subagent card. The card spans a
+  // live subtrajectory (no single verbatim wire event yet), so the target is
+  // a reconstructed subagent record carrying the lineage + running status.
+  attachSubagentInspect(wrap, {
+    type: 'subagent/started',
+    data: {
+      parentSessionId: rec.parentSessionId,
+      childSessionId: rec.childSessionId,
+      parentCallId: rec.parentCallId,
+      status: 'running',
+    },
+    __reconstructed: true,
+  })
   return wrap
+}
+
+// lane-p0-inspector: hang an inspect badge on a subagent card's summary line
+// (running or sealed). Anchors to a subagent-shaped event so the Pretty tab
+// projects agentId/status/stopReason/result; the badge sits on the summary
+// like the tool-card `{ }` so a click doesn't toggle the <details>.
+function attachSubagentInspect(cardEl, event) {
+  if (!cardEl || typeof cardEl.querySelector !== 'function') return
+  const summary = cardEl.querySelector('.subagent-trace-summary') || cardEl
+  attachEventInspect(summary, event, { tab: 'pretty' })
 }
 
 function onSessionEvent(sessionId, event) {
@@ -4974,7 +5142,10 @@ function onSessionEvent(sessionId, event) {
       const pending = streamEl.querySelector('.msg.user[data-optimistic="1"]')
       if (pending) {
         delete pending.dataset.optimistic
-        if (typeof event.seq === 'number') pending.dataset.seq = String(event.seq)
+        if (typeof event.seq === 'number') {
+          pending.dataset.seq = String(event.seq)
+          pending.dataset.inspectSeq = String(event.seq)
+        }
       } else {
         appendMessage({ role: 'user', text, seq: event.seq })
       }
@@ -5012,6 +5183,7 @@ function onSessionEvent(sessionId, event) {
             r.id = `reasoning-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
             turnAppendTarget(sessionId).appendChild(r)
             if (bubbleEl) bubbleEl.dataset.reasoningId = r.id
+            attachReasoningInspect(r)
           }
           rb.appendReasoningDelta(r, chunk.text)
         } else {
@@ -5027,6 +5199,7 @@ function onSessionEvent(sessionId, event) {
             r.id = `reasoning-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
             turnAppendTarget(sessionId).appendChild(r)
             if (bubbleEl) bubbleEl.dataset.reasoningId = r.id
+            attachReasoningInspect(r)
           }
           r.textContent += chunk.text
         }
@@ -5111,7 +5284,10 @@ function onSessionEvent(sessionId, event) {
           else argsEl.textContent = `(${preview})`
         }
       }
-      scrollToBottom()
+      // lane-p0-inspector: per-chunk streaming scroll — follow the tail only
+      // while the reader is pinned to the bottom (was unconditional
+      // scrollToBottom(), which yanked a reader who'd scrolled up).
+      followStream()
       return
     }
     case 'assistant/message': {
@@ -5130,6 +5306,9 @@ function onSessionEvent(sessionId, event) {
       // stamp it now.
       if (typeof event.seq === 'number' && body.parentElement) {
         body.parentElement.dataset.seq = String(event.seq)
+        // lane-p0-inspector: anchor the inspect badge to the assistant/message
+        // event (kept distinct from data-fork-seq, which turn/end re-stamps).
+        body.parentElement.dataset.inspectSeq = String(event.seq)
         // Stamp data-fork-seq alongside data-seq. Historically the streaming
         // bubble only carried data-seq, and the fork button consulted the
         // seq via a closure captured at rebind time. Now that the button
@@ -5218,6 +5397,10 @@ function onSessionEvent(sessionId, event) {
       // captured callId; the drawer looks up the latest result on click,
       // not at bind time.
       meta.toolPayloads.set(callId, { name, args: argStr, result: null })
+      // lane-p0-inspector: capture the tool/call session.event so the
+      // inspector can carry its seq/time onto the reconstructed record.
+      // Default to the JSON (fields tree) tab — the "{ }" badge's mental model.
+      const inspectSrcEvent = event
       const openJson = () => {
         const tc = window.__dshToolCards
         if (!tc || !tc.openJsonDrawer) return
@@ -5226,6 +5409,8 @@ function onSessionEvent(sessionId, event) {
           title: `tool: ${payload.name || name}`,
           call: { callId, name: payload.name, arguments: payload.args },
           result: payload.result,
+          event: inspectSrcEvent,
+          tab: 'json',
         })
       }
       const { el: toolBlockEl, resBox } = appendToolCall({ callId, name, args: argStr, onJsonBadge: openJson, target })
@@ -6472,6 +6657,21 @@ window.dsh.onNotify(({ method, params }) => {
         lastAssistantMessage: Array.isArray(params.lastAssistantMessage) ? params.lastAssistantMessage : [],
       }
       const sealed = view.buildInlineSubagentTrace(document, spec, { collapsed: true })
+      // lane-p0-inspector: inspect the sealed subagent return card — anchor to
+      // a subagent/finished-shaped event so Pretty shows status/stopReason +
+      // the last assistant message.
+      attachSubagentInspect(sealed, {
+        type: 'subagent/finished',
+        data: {
+          agentId: params.agentId,
+          childSessionId: params.childSessionId,
+          parentCallId,
+          status: params.status || 'ok',
+          stopReason: typeof params.stopReason === 'string' ? params.stopReason : null,
+          lastAssistantMessage: Array.isArray(params.lastAssistantMessage) ? params.lastAssistantMessage : [],
+        },
+        __reconstructed: true,
+      })
       // If a RUNNING card already sits in the DOM (live path built it on
       // subagent.started), swap it for the sealed card in place. Otherwise
       // append after the spawn row (the pure fixture-replay path).
@@ -6966,8 +7166,10 @@ function bindJsonDrawerClose() {
 }
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', bindJsonDrawerClose, { once: true })
+  document.addEventListener('DOMContentLoaded', bindStreamFollow, { once: true })
 } else {
   bindJsonDrawerClose()
+  bindStreamFollow()
 }
 
 // -- fixture-loader debug buttons (§1.1 / §1.3 trace-samples) ---

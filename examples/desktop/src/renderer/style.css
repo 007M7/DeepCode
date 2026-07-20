@@ -1664,6 +1664,130 @@ body.layout-monitor .stream {
   max-height: 40vh; overflow-y: auto;
 }
 
+/* ===== lane-p0-inspector: unified right-side Inspector ====================
+ * Geometry mirrors .tool-json-drawer (the surface it supersedes): a
+ * non-modal fixed right panel that slides in on .open. Adds a three-tab
+ * header (Pretty / Raw / JSON) between the title bar and the body. */
+.inspector-drawer {
+  position: fixed; top: 0; right: 0; height: 100vh; width: min(560px, 42vw);
+  background: var(--bg); border-left: 1px solid var(--border);
+  box-shadow: -6px 0 16px rgba(0,0,0,0.18);
+  transform: translateX(100%); transition: transform 0.18s ease;
+  z-index: 41; display: flex; flex-direction: column;
+  pointer-events: auto;
+}
+.inspector-drawer.open { transform: translateX(0); }
+.inspector-drawer[aria-hidden="true"] { pointer-events: none; }
+.inspector-drawer[aria-hidden="false"] { pointer-events: auto; }
+.inspector-drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+.inspector-drawer-title {
+  font-family: var(--mono); font-size: 13px; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.inspector-tabs {
+  display: flex; gap: 2px; padding: 6px 10px 0;
+  border-bottom: 1px solid var(--border); background: var(--bg-elev);
+}
+.inspector-tab {
+  appearance: none; background: transparent; border: 0;
+  border-bottom: 2px solid transparent; cursor: pointer;
+  padding: 6px 12px 7px; color: var(--muted);
+  font-size: 12px; letter-spacing: 0.02em;
+}
+.inspector-tab:hover { color: var(--text); }
+.inspector-tab.active {
+  color: var(--text); border-bottom-color: var(--accent);
+}
+.inspector-drawer-body {
+  flex: 1 1 auto; overflow-y: auto; padding: 12px 14px 16px;
+}
+.inspector-panel[hidden] { display: none; }
+
+/* Pretty tab */
+.inspector-pretty-title {
+  font-size: 13px; color: var(--text); font-weight: 600; margin-bottom: 8px;
+}
+.inspector-pretty-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.inspector-meta-chip {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 2px 7px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-elev); font-size: 11px;
+}
+.inspector-meta-key { color: var(--muted); }
+.inspector-meta-value { color: var(--text); }
+.inspector-pretty-block { margin: 0 0 12px; }
+.inspector-pretty-block-label {
+  color: var(--muted); font-size: 11px; letter-spacing: 0.03em;
+  text-transform: uppercase; margin-bottom: 4px;
+}
+.inspector-pretty-block-body {
+  color: var(--text); font-size: 12.5px; line-height: 1.55;
+  white-space: pre-wrap; word-wrap: break-word;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 4px; padding: 8px 10px; max-height: 46vh; overflow-y: auto;
+}
+.inspector-pretty-block-body.mono { font-family: var(--mono); font-size: 11.5px; }
+
+/* Raw tab */
+.inspector-raw-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.inspector-raw-head-label { font-family: var(--mono); font-size: 11px; }
+.inspector-raw-note {
+  font-size: 11px; color: var(--muted); font-style: italic;
+  margin-bottom: 6px; padding-left: 2px;
+}
+.inspector-raw-pre {
+  margin: 0; padding: 10px 12px;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text); font-family: var(--mono); font-size: 11.5px;
+  line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;
+}
+
+/* Universal inspect affordance — same `{ }` glyph as the tool-card badge. */
+.inspect-badge {
+  padding: 1px 6px;
+  border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg-elev); color: var(--muted);
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.inspect-badge:hover { color: var(--accent); border-color: var(--accent); }
+/* Hover-revealed variant for bubbles / reasoning blocks — mirrors the
+ * .fork-here reveal pattern. */
+.inspect-badge-hover {
+  position: absolute; top: 6px; opacity: 0; transition: opacity 0.15s;
+  z-index: 2;
+}
+.msg.user { position: relative; }
+.msg.user .inspect-badge-hover { right: 8px; }
+/* Assistant bubbles already host .fork-here at top-right (right:8px); put the
+ * inspect badge on the left edge so the two never overlap. */
+.msg.assistant .inspect-badge-hover { left: 8px; }
+.msg:hover .inspect-badge-hover { opacity: 1; }
+.reasoning-block { position: relative; }
+.reasoning-block .inspect-badge-hover { right: 8px; top: 4px; }
+.reasoning-block:hover .inspect-badge-hover { opacity: 1; }
+
+/* "back to bottom" chip — floats above the composer when the reader has
+ * scrolled up and new content is streaming in below. */
+.pane[data-pane="chat"] { position: relative; }
+.stream-scroll-chip {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 148px; z-index: 30;
+  padding: 5px 12px; border-radius: 14px;
+  border: 1px solid var(--border); background: var(--bg-elev);
+  color: var(--text); font-size: 12px; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.22);
+}
+.stream-scroll-chip:hover { border-color: var(--accent); color: var(--accent); }
+.stream-scroll-chip[hidden] { display: none; }
+
 /* Code-dispatch sub-call list (fan-out under a run_code tool block) -------- */
 .card-code-dispatch {
   border-top: 1px dashed var(--border); margin-top: 4px; padding-top: 4px;
