@@ -252,7 +252,6 @@ export class ReactLoopAgent implements Agent {
     const context = {
       content,
       source,
-      ...options?.envelope !== undefined ? { envelope: options.envelope } : {},
       ...options?.meta !== undefined ? { meta: options.meta } : {},
     }
     if (isTurnOpen(this.session)) {
