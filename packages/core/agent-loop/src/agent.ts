@@ -10,7 +10,7 @@ import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { AgentOptions, AgentStatus, HookContext, InjectOptions, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { deepFreeze } from '@deepseek-ai/dsh-llm'
+import { deepFreeze, errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { snapshotJsonValue, type Session, type SessionId } from '@deepseek-ai/dsh-session'
 import { Inbox, type InboxMessage } from './inbox.ts'
@@ -80,7 +80,6 @@ export function prepareReactLoopAgent(
     },
   }
 }
-
 /**
  * Install the concrete agent's scope context exactly once. Construction and
  * scope minting are mutually referential (the scope key is the agent), so the
@@ -290,7 +289,7 @@ export class ReactLoopAgent implements Agent {
       if (turnRecorded) {
         // Through the store's flush (the carrier owner), never a raw parallel.
         const flush = this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
-          const rendered = renderThrown(error)
+          const rendered = errorChain(error)
           const err = error instanceof Error ? error : new Error(rendered)
           this.loopCtx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${rendered}`)
           agentEvents(this.loopCtx, this).emit('agent/error', turn, 0, err)
@@ -443,9 +442,4 @@ export class ReactLoopAgent implements Agent {
       await Promise.allSettled([...this.pendingIdleFlushes])
     }
   }
-}
-
-/** Render an ordinary thrown value for the error event and log. */
-function renderThrown(value: unknown): string {
-  return value instanceof Error ? value.message : String(value)
 }

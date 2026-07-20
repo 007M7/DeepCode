@@ -81,23 +81,43 @@ export class DeepSeekAdapter extends LlmAdapter {
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     const body = serializeRequest(options, this.options.defaults ?? {})
+    // Prepared outside the try so the NETWORK label below covers exactly the
+    // transport boundary, never a serialization failure.
+    const payload = JSON.stringify(body)
+    const headers = {
+      'authorization': `Bearer ${this.options.apiKey}`,
+      'content-type': 'application/json',
+      'accept': 'text/event-stream',
+      ...attributionHeaders(),
+      ...options.sessionId !== undefined
+        ? { 'x-deepseek-harness-session-id': String(options.sessionId) }
+        : {},
+    }
 
     // TODO(http): adopt the Cordis HTTP service when shared transport configuration
     // outweighs its additional runtime dependencies.
-    const response = await fetch(`${this.options.baseURL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'authorization': `Bearer ${this.options.apiKey}`,
-        'content-type': 'application/json',
-        'accept': 'text/event-stream',
-        ...attributionHeaders(),
-        ...options.sessionId !== undefined
-          ? { 'x-deepseek-harness-session-id': String(options.sessionId) }
-          : {},
-      },
-      body: JSON.stringify(body),
-      ...options.signal ? { signal: options.signal } : {},
-    })
+    let response: Response
+    try {
+      response = await fetch(`${this.options.baseURL}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: payload,
+        ...options.signal ? { signal: options.signal } : {},
+      })
+    } catch (error: unknown) {
+      // An aborted request rethrows its original rejection (the signal's abort
+      // reason) so the loop classifies it as cancellation, not a provider failure.
+      if (options.signal?.aborted) throw error
+      // fetch wraps every transport failure (DNS, refused connection, TLS,
+      // proxy) in a bare `TypeError: fetch failed` whose actionable detail
+      // lives on `cause`. Wrapping with the endpoint and chaining the cause
+      // lets `errorChain` render the full diagnosis at every reporting seam.
+      throw new LlmError(
+        `DeepSeek API request to ${this.options.baseURL} failed`,
+        'NETWORK',
+        { cause: error },
+      )
+    }
 
     if (!response.ok) {
       let message = `DeepSeek API error (HTTP ${response.status})`
