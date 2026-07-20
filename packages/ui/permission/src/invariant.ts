@@ -1,0 +1,31 @@
+/** Package-owned permission-preset event invariants. @module @deepseek-ai/dsh-permission/invariant */
+
+import type { Context } from 'cordis'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+
+const PACKAGE_NAME = '@deepseek-ai/dsh-permission'
+
+/** Cordis companion plugin name. */
+export const name = 'permission-invariant'
+/** Service required before the companion can reserve package ownership. */
+export const inject = ['invariants']
+
+/** Install validation that durable preset events remain resolvable. */
+const install: InvariantInstaller = Object.assign((ctx: Context, fail: (message: string) => never) => {
+  ctx.on('internal/dispatch', (_mode, eventName, args) => {
+    if (eventName !== 'session/event') return
+    const event = (args as [Session, SessionEvent])[1]
+    if (event.type === 'permission/preset' && !ctx.permission.names.includes(event.data.preset)) {
+      fail(`permission/preset names unknown preset ${JSON.stringify(event.data.preset)}`)
+    }
+  }, { global: true })
+}, { inject: ['permission'] })
+
+/**
+ * Register the permission invariant companion.
+ * @param ctx - Cordis context carrying the invariant service.
+ * @returns the installed registration's disposer after setup succeeds.
+ */
+export const apply = (ctx: Context): Promise<() => void> =>
+  Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))

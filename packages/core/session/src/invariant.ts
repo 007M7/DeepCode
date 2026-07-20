@@ -15,8 +15,8 @@ const PACKAGE_NAME = '@deepseek-ai/dsh-session'
 
 /** Cordis companion plugin name. */
 export const name = 'session-invariant'
-/** Services required before the companion can register. */
-export const inject = ['invariants', 'sessions']
+/** Service required before the companion can reserve package ownership. */
+export const inject = ['invariants']
 
 /** Per-session bookkeeping for relational log checks. */
 interface SessionTrace {
@@ -231,7 +231,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
 
 /**
  * Register the session invariant companion.
- * @param ctx - Cordis context carrying the invariant and session services.
+ * @param ctx - Cordis context carrying the invariant service.
  * @returns the installed registration's disposer after setup succeeds.
  */
 export const apply = (ctx: Context): Promise<() => void> =>

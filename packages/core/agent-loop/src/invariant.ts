@@ -12,8 +12,8 @@ const PACKAGE_NAME = '@deepseek-ai/dsh-agent-loop'
 
 /** Cordis companion plugin name. */
 export const name = 'agent-loop-invariant'
-/** Services required before the companion can register. */
-export const inject = ['invariants', 'sessions']
+/** Service required before the companion can reserve package ownership. */
+export const inject = ['invariants']
 
 /** Install the request-reconstruction contribution into its child registration fiber. */
 const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
@@ -66,7 +66,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
 
 /**
  * Register the agent-loop invariant companion.
- * @param ctx - Cordis context carrying the invariant and session services.
+ * @param ctx - Cordis context carrying the invariant service.
  * @returns the installed registration's disposer after setup succeeds.
  */
 export const apply = (ctx: Context): Promise<() => void> =>

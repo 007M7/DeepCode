@@ -6,12 +6,7 @@
  */
 
 import type { Context } from 'cordis'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { Config as SystemPromptConfig } from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
 import type { Config as ToolRegistryConfig } from '@deepseek-ai/dsh-tools'
 
 /** Configuration forwarded to the prerequisite service plugins. */
@@ -38,6 +33,19 @@ export async function mountAgentLoopTestDependencies(
   ctx: Context,
   options: AgentLoopTestDependenciesOptions = {},
 ): Promise<void> {
+  const [
+    { default: LlmService },
+    { default: SessionStore },
+    { default: SystemPrompt },
+    { default: ToolRegistry },
+    { default: AgentRegistry },
+  ] = await Promise.all([
+    import('@deepseek-ai/dsh-llm'),
+    import('@deepseek-ai/dsh-session'),
+    import('@deepseek-ai/dsh-system-prompt'),
+    import('@deepseek-ai/dsh-tools'),
+    import('@deepseek-ai/dsh-agent'),
+  ])
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, options.systemPrompt ?? {})

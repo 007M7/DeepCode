@@ -256,7 +256,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'register(packageName: string, installer: InvariantInstaller): () => void',
-        jsDoc: '/**\n * Register one package\'s invariant installer. The package name is reserved\n * even when filtering disables its checks. Enabled installers run in a child\n * fiber; failure disposes that fiber and releases the reservation.\n * @param packageName - full npm package name that owns the contribution.\n * @param installer - synchronous listener installer for the child context.\n * @returns an effect-scoped disposer for the registration.\n */',
+        jsDoc: '/**\n * Register one package\'s invariant installer. The package name is reserved\n * even when filtering disables its checks. Enabled installers run in a child\n * fiber; failure disposes that fiber and releases the reservation.\n * @param packageName - full npm package name that owns the contribution.\n * @param installer - listener or startup-check installer for the child context.\n * @returns an effect-scoped disposer for the registration.\n */',
       },
     ],
   },
@@ -1211,7 +1211,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InvariantInstaller',
-    declaration: 'export interface InvariantInstaller {\n    (ctx: Context, fail: InvariantFailure): void;\n    readonly inject?: Inject;\n}',
+    declaration: 'export interface InvariantInstaller {\n    (ctx: Context, fail: InvariantFailure): void | Promise<void>;\n    readonly inject?: Inject;\n}',
   },
   {
     name: 'JsonValue',

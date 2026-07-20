@@ -46,6 +46,9 @@
     },
     {
       "path": "../../bash/bash"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

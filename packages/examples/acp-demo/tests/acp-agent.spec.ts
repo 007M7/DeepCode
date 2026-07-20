@@ -21,7 +21,14 @@ import * as acpAgent from '../src/index.ts'
  */
 async function mount(config: acpAgent.Config, withBash = false): Promise<Context> {
   const ctx = new Context()
-  if (withBash) ctx.provide('bash', { sandboxMode: undefined })
+  if (withBash) {
+    ctx.provide('bash', {
+      sandboxMode: undefined,
+      resolve() { throw new Error('composition test does not execute bash') },
+      run() { throw new Error('composition test does not execute bash') },
+      start() { throw new Error('composition test does not execute bash') },
+    })
+  }
   await ctx.plugin(acpAgent, config)
   // The bundle mounts its children inside apply() (not awaited there); let their
   // fibers settle so the spine services are ready.

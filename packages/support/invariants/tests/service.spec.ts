@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context, Service } from 'cordis'
-import InvariantService, { InvariantError, type Config } from '@deepseek-ai/dsh-invariants'
+import InvariantService, {
+  InvariantError,
+  type Config,
+} from '@deepseek-ai/dsh-invariants'
 
 declare module 'cordis' {
   interface Context {
@@ -255,6 +258,25 @@ describe('InvariantService lifecycle', () => {
     await registerProbe(ctx, '@deepseek-ai/dsh-session', retry)
     ctx.emit('invariants-test/ping')
     expect(retry).toHaveBeenCalledOnce()
+  })
+
+  it('joins asynchronous checks and rolls back their effects on failure', async () => {
+    const { ctx } = await setup()
+    const leaked = vi.fn()
+    const failed = runtimeRegistration(ctx.invariants.register('@deepseek-ai/dsh-async-probe', async (child, fail) => {
+      child.on('invariants-test/ping', leaked, { global: true })
+      await Promise.resolve()
+      fail('asynchronous check failed')
+    }))
+    await expect(Promise.resolve(failed)).rejects.toThrow(/asynchronous check failed/)
+    ctx.emit('invariants-test/ping')
+    expect(leaked).not.toHaveBeenCalled()
+
+    const retry = runtimeRegistration(ctx.invariants.register('@deepseek-ai/dsh-async-probe', async () => {
+      await Promise.resolve()
+    }))
+    await retry
+    await retry()
   })
 
   it('releases a synchronous reservation if the service fiber is already inactive', async () => {

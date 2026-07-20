@@ -631,19 +631,24 @@ describe('malformed replay and listener lifecycle', () => {
     })
     const firstFiber = await ctx.plugin(TokenMeterService)
     activeMeter = ctx.tokenMeter
-    const session = ctx.sessions.create(SessionId('listener-order'))
+    const session = ctx.sessions.create(SessionId('listener-order'), { seed: [{
+      type: 'turn/start',
+      seq: 0,
+      time: 1,
+      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+    }] })
     activeMeter.measure(session)
     session.append('user/message', {
       content: [{ type: 'text', text: 'one' }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
-    expect(revisions).toEqual([1])
-    expect(activeMeter.measure(session).logRevision).toBe(1)
+    expect(revisions).toEqual([2])
+    expect(activeMeter.measure(session).logRevision).toBe(2)
 
     await firstFiber.dispose()
     const secondFiber = await ctx.plugin(TokenMeterService)
     activeMeter = ctx.tokenMeter
-    expect(activeMeter.measure(session).logRevision).toBe(1)
+    expect(activeMeter.measure(session).logRevision).toBe(2)
     await secondFiber.dispose()
   })
 })

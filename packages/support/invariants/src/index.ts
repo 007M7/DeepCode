@@ -1,6 +1,6 @@
 /**
  * Configurable registry for package-owned runtime invariant contributions.
- * Packages register checks from optional `./invariant` companion plugins;
+ * Every workspace package registers checks from a `./invariant` companion;
  * ordinary package entrypoints stay independent of diagnostics.
  *
  * @module @deepseek-ai/dsh-invariants
@@ -28,15 +28,15 @@ export interface Config {
  */
 export type InvariantFailure = (message: string) => never
 
-/** Install one package's listeners into the registration's child context. */
+/** Install one package's checks into the registration's child context. */
 export interface InvariantInstaller {
   /**
    * Install the package contribution.
    * @param ctx - child context owned by this invariant registration.
    * @param fail - reporter bound to the registering package name.
-   * @returns nothing after synchronous listener installation completes.
+   * @returns nothing, or a promise settling after asynchronous checks finish.
    */
-  (ctx: Context, fail: InvariantFailure): void
+  (ctx: Context, fail: InvariantFailure): void | Promise<void>
   /** Services the child installer fiber may access. */
   readonly inject?: Inject
 }
@@ -130,7 +130,7 @@ export class InvariantService extends Service {
    * even when filtering disables its checks. Enabled installers run in a child
    * fiber; failure disposes that fiber and releases the reservation.
    * @param packageName - full npm package name that owns the contribution.
-   * @param installer - synchronous listener installer for the child context.
+   * @param installer - listener or startup-check installer for the child context.
    * @returns an effect-scoped disposer for the registration.
    */
   register(packageName: string, installer: InvariantInstaller): () => void {
@@ -157,11 +157,11 @@ export class InvariantService extends Service {
           }
         }
 
-        const installInvariant = (childCtx: Context) => {
+        const installInvariant = (childCtx: Context) => (
           installer(childCtx, (message): never => {
             throw new InvariantError(packageName, message)
           })
-        }
+        )
         const child = ctx.plugin(installer.inject === undefined
           ? installInvariant
           : Object.assign(installInvariant, { inject: installer.inject }))

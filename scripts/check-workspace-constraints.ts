@@ -93,37 +93,6 @@ function workspaceManifests(): WorkspaceManifest[] {
   return manifests
 }
 
-const dshPackageFiles = [
-  'lib/index.js',
-  'lib/types/**/*.d.ts',
-  'lib/types/**/*.d.ts.map',
-  'src',
-] as const
-
-const dshBinPackageFiles = [
-  'lib/index.js',
-  'lib/bin.js',
-  'lib/types/**/*.d.ts',
-  'lib/types/**/*.d.ts.map',
-  'src',
-] as const
-
-const dshWorkerPackageFiles = [
-  'lib/index.js',
-  'lib/worker.cjs',
-  'lib/types/**/*.d.ts',
-  'lib/types/**/*.d.ts.map',
-  'src',
-] as const
-
-const dshInvariantPackageFiles = [
-  'lib/index.js',
-  'lib/invariant.js',
-  'lib/types/**/*.d.ts',
-  'lib/types/**/*.d.ts.map',
-  'src',
-] as const
-
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-helper': ['lib/assets'],
   '@deepseek-ai/dsh-scripts': [
@@ -139,25 +108,18 @@ function sameStringList(actual: readonly string[] | undefined, expected: readonl
 
 function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
   const extras = manifest.name ? packageFileExtras[manifest.name] ?? [] : []
-  if (extras.length > 0) {
-    return [
-      'lib/index.js',
-      ...manifest.bin ? ['lib/bin.js'] : [],
-      ...extras,
-      'lib/types/**/*.d.ts',
-      'lib/types/**/*.d.ts.map',
-      'src',
-    ]
-  }
-  if (manifest.bin) return dshBinPackageFiles
-  // Package-owned diagnostic companions are separately bundled optional
-  // entries; their source stays in the owner package without bloating root.
-  if (manifest.exports?.['./invariant']) return dshInvariantPackageFiles
-  // A declared "./worker" subpath export sanctions the one extra runtime
-  // bundle a worker-thread entry needs (and NodeNext/publint then validate
-  // that subpath's targets like any other export).
-  if (manifest.exports?.['./worker']) return dshWorkerPackageFiles
-  return dshPackageFiles
+  return [
+    'lib/index.js',
+    // Every package publishes its invariant ownership companion as a separate
+    // bundle; the package-invariant gate validates the companion itself.
+    'lib/invariant.js',
+    ...manifest.bin ? ['lib/bin.js'] : [],
+    ...manifest.exports?.['./worker'] ? ['lib/worker.cjs'] : [],
+    ...extras,
+    'lib/types/**/*.d.ts',
+    'lib/types/**/*.d.ts.map',
+    'src',
+  ]
 }
 
 function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
