@@ -1,6 +1,6 @@
 terminal 100x36 buffer=normal length=36 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
-title "DSH TUI snapshot"
+title "Using ONE run_code program: call — DSH TUI snapshot"
 cursor hidden column=1 viewportRow=29 bufferRow=29
 buffer
 0| "╭──────────────────────────────────────────────────────────────────────────────────────────────────╮"
@@ -10,9 +10,9 @@ buffer
   style 2-9 fg=bright-blue bold
   style 11-17 bold
   style 99-99 fg=bright-blue
-2| "│ Recorded replay: code-mode                                                                       │"
+2| "│ Using ONE run_code program: call                                                                 │"
   style 0-0 fg=bright-blue
-  style 2-27 fg=bright-black
+  style 2-33 fg=bright-black
   style 99-99 fg=bright-blue
 3| "│ deepseek-v4-flash  •  main-session                                                               │"
   style 0-0 fg=bright-blue

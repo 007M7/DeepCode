@@ -13,6 +13,7 @@ import Timer from '@cordisjs/plugin-timer'
 import z from 'schemastery'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
+import SessionTitleService from '@deepseek-ai/dsh-session-title'
 import SystemPrompt, { type Config as SystemPromptConfig } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import SkillService, { type Config as SkillRegistryConfig } from '@deepseek-ai/dsh-skill'
@@ -155,6 +156,11 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(Timer)
   ctx.plugin(LlmService)
   ctx.plugin(SessionStore)
+  ctx.plugin(SessionTitleService, {
+    fallbackMaxWords: 5,
+    fallbackMaxBytes: 40,
+    maxTitleBytes: 80,
+  })
   // Owner schemas resolve defaults; forward toolOrder only when explicitly set.
   ctx.plugin(SystemPrompt, {
     persona: config.persona ?? '',

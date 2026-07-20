@@ -11,6 +11,7 @@ const CWD = '{{cwd}}'
 const SYSTEM = '{{system}}'
 const TOOLS = '{{tools}}'
 const MESSAGE_PREFIX = '{{messagePrefix}}'
+const UPDATED_AT = '{{updatedAt}}'
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
@@ -85,6 +86,8 @@ export function normalizeStdout(rawStdout: string, ctx: NormalizeContext): strin
     if ('id' in frame && frame.id !== undefined && frame.id !== null) {
       frame.id = stableId(frame.id)
     }
+    const update = (frame.params as { update?: Record<string, unknown> } | undefined)?.update
+    if (update?.sessionUpdate === 'session_info_update') update.updatedAt = UPDATED_AT
     return scrubValue(frame, ctx) as Record<string, unknown>
   })
   return frames.map(f => JSON.stringify(f)).join('\n') + '\n'
