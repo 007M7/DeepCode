@@ -132,7 +132,7 @@ export function apply(ctx: Context, config: Config): void {
     point: string,
     matchQuery: string,
     payload: unknown,
-    opts: { agent?: Agent; turn?: number; signal?: AbortSignal },
+    opts: { agent?: Agent; turn?: number; readonly signal: AbortSignal },
   ): Promise<MergedHookOutcome> {
     const groups: MatcherGroup[] = parsed[point] ?? []
     const outputs: HookOutput[] = []
@@ -159,7 +159,7 @@ export function apply(ctx: Context, config: Config): void {
           defaultTimeoutMs,
           ...hookEnv ? { env: hookEnv } : {},
           ...workdir !== undefined ? { cwd: workdir } : {},
-          ...opts.signal ? { signal: opts.signal } : {},
+          signal: opts.signal,
           trailingNewline: true,
           // Discard a `hookSpecificOutput` block whose `hookEventName` names a
           // different event than the one firing (the schemas key it by event).

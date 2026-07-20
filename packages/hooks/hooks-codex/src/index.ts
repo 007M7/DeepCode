@@ -106,7 +106,12 @@ export function apply(ctx: Context, config: Config): void {
     point: string,
     matchQuery: string,
     payload: unknown,
-    opts: { agent?: Agent; turn?: number; signal?: AbortSignal; plainStdoutAsContext?: boolean },
+    opts: {
+      agent?: Agent
+      turn?: number
+      readonly signal: AbortSignal
+      plainStdoutAsContext?: boolean
+    },
   ): Promise<MergedHookOutcome> {
     const groups: MatcherGroup[] = parsed[point] ?? []
     const outputs: HookOutput[] = []
@@ -129,7 +134,7 @@ export function apply(ctx: Context, config: Config): void {
           payload,
           defaultTimeoutMs,
           ...workdir !== undefined ? { cwd: workdir } : {},
-          ...opts.signal ? { signal: opts.signal } : {},
+          signal: opts.signal,
           trailingNewline: false, // Codex writes stdin without a trailing newline.
           // Discard a `hookSpecificOutput` block naming a different event.
           expectedEventName: point,
