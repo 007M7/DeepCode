@@ -13,6 +13,9 @@
     { "path": "../../core/tools" },
     { "path": "../../core/system-prompt" },
     { "path": "../fs" },
-    { "path": "../fs-policy" }
+    { "path": "../fs-policy" },
+    { "path": "../../sandbox/sandbox" },
+    { "path": "../../sandbox/sandbox-policy" },
+    { "path": "../../ui/user-approval" }
   ]
 }
