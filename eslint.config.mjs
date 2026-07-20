@@ -13,6 +13,7 @@ export default tseslint.config(
       '.claude/**', // harness-local state (worktrees, skills) — other checkouts, not this one's sources
       '**/.doc-typecheck-*/**',
       'vendor/**', // vendored source keeps upstream style and idioms
+      'native/**', // imported landlock-run subtree: self-contained workspace with its own gates (native/README.md)
       '**/*.js',
       '**/*.mjs',
       '*.config.ts', // root tool configs (vitest, tsdown) — no project service
