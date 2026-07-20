@@ -27,7 +27,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:213`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:216`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
@@ -646,13 +646,14 @@ Requires: `tools` · `systemPrompt`
 
 ```ts config-catalog
 /**
- * Plugin config: mode definitions by name. The built-in {@link PLAN_MODE}
- * definition is merged in unless overridden; {@link DEFAULT_MODE} is rejected
- * as a key ({@link resolveConfig} throws at load).
+ * Plugin config: mode definitions by name. The deployment must define
+ * {@link PLAN_MODE}, including its complete model instructions;
+ * {@link DEFAULT_MODE} is rejected as a key ({@link resolveConfig} throws at
+ * load).
  */
 export interface ModeConfig {
-  /** Mode definitions by name, overriding or extending the built-in `plan`. */
-  modes?: Record<string, ModeDefinition>
+  /** Mode definitions by name; `plan` is required and owns its full prompt text. */
+  modes: Record<string, ModeDefinition>
 }
 
 /**
@@ -667,7 +668,7 @@ export interface ModeDefinition {
 }
 ```
 
-Source: [`packages/mode/mode/src/index.ts:104`](../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:103`](../packages/mode/mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-permission`
 

@@ -2,13 +2,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
 import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import ModesService, { DEFAULT_MODE, EXIT_PLAN_MODE, PLAN_MODE, foldMode, resolveConfig } from '../src/index.ts'
 import type { ModeConfig } from '../src/index.ts'
+
+const TEST_PLAN_SECTION = 'Test plan mode instructions.'
+const PLAN_CONFIG = { modes: { plan: { section: TEST_PLAN_SECTION } } } satisfies ModeConfig
 
 /**
  * Drives the REAL plugin: mounts `dsh-mode` beside real `SystemPrompt` and
@@ -24,7 +27,7 @@ function agentWithSession(id = 'agent-1', options: { mode?: string } = {}): Agen
   return { id: SessionId(id), session, options } as unknown as Agent & { session: Session }
 }
 
-async function setup(config?: ModeConfig): Promise<Context> {
+async function setup(config: ModeConfig = PLAN_CONFIG): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
@@ -82,36 +85,38 @@ function execute(ctx: Context, name: string, agent?: Agent) {
 }
 
 describe('resolveConfig', () => {
-  it('merges the built-in plan definition: a guidance section, nothing else', () => {
-    const resolved = resolveConfig({})
-    const plan = resolved.definitions.get(PLAN_MODE)
-    expect(plan).toEqual({ section: plan?.section })
-    expect(plan?.section).toContain('plan mode')
+  it('requires the deployment to configure the plan instructions', () => {
+    expect(() => resolveConfig({ modes: {} }))
+      .toThrow('mode "plan" is required; put its model instructions in modes.plan.section')
+    expect(() => resolveConfig({} as ModeConfig))
+      .toThrow('mode "plan" is required; put its model instructions in modes.plan.section')
   })
 
-  it('lets config override plan and add further modes', () => {
+  it('loads the configured plan instructions and further modes verbatim', () => {
     const resolved = resolveConfig({ modes: {
-      plan: { section: 'custom plan' },
+      plan: { section: TEST_PLAN_SECTION },
       review: { section: 'review' },
     } })
-    expect(resolved.definitions.get(PLAN_MODE)).toEqual({ section: 'custom plan' })
+    expect(resolved.definitions.get(PLAN_MODE)).toEqual({ section: TEST_PLAN_SECTION })
     expect(resolved.definitions.get('review')).toEqual({ section: 'review' })
   })
 
   it('rejects the reserved default key loudly', () => {
-    expect(() => resolveConfig({ modes: { default: { section: '' } } }))
+    expect(() => resolveConfig({ modes: { ...PLAN_CONFIG.modes, default: { section: 'policy' } } }))
       .toThrow('"default" is reserved')
   })
 
   it('rejects a malformed definition loudly', () => {
-    expect(() => resolveConfig({ modes: { bad: { section: 5 } as unknown as { section: string } } }))
+    expect(() => resolveConfig({ modes: { ...PLAN_CONFIG.modes, bad: { section: 5 } as unknown as { section: string } } }))
       .toThrow('needs a string `section`')
+    expect(() => resolveConfig({ modes: { plan: { section: '   ' } } }))
+      .toThrow('needs a non-empty `section`')
     // Unknown keys fail loud — a tool allow/deny list and enforcement knobs
     // are deliberately not part of the vocabulary, and a config still
     // carrying one must not be silently accepted as if it shaped anything.
-    expect(() => resolveConfig({ modes: { bad: { section: '', tools: ['read'] } as unknown as { section: string } } }))
+    expect(() => resolveConfig({ modes: { ...PLAN_CONFIG.modes, bad: { section: 'bad', tools: ['read'] } as unknown as { section: string } } }))
       .toThrow('unknown key(s) tools — a definition is { section }')
-    expect(() => resolveConfig({ modes: { bad: { section: '', access: 'read-only' } as unknown as { section: string } } }))
+    expect(() => resolveConfig({ modes: { ...PLAN_CONFIG.modes, bad: { section: 'bad', access: 'read-only' } as unknown as { section: string } } }))
       .toThrow('unknown key(s) access — a definition is { section }')
   })
 })
@@ -137,7 +142,7 @@ describe('foldMode', () => {
 
 describe('ctx.modes: list/get/set', () => {
   it('lists default first, then the configured definitions', async () => {
-    const ctx = await setup({ modes: { review: { section: 's' } } })
+    const ctx = await setup({ modes: { ...PLAN_CONFIG.modes, review: { section: 's' } } })
     expect(ctx.modes.list()).toEqual([DEFAULT_MODE, PLAN_MODE, 'review'])
   })
 
@@ -268,6 +273,46 @@ describe('the boundary flush', () => {
     expect(noticeTexts(agent.session)).toHaveLength(1)
   })
 
+  it('does not repeat a dropped-definition notice after the mode service restarts', async () => {
+    const first = await setup()
+    const original = agentWithSession('dropped-resume')
+    original.session.append('mode/set', { mode: 'retired' })
+    await boundary(first, original, 'turn/start')
+
+    const resumed = agentWithSession('dropped-resume')
+    resumed.session = new Session(SessionId('dropped-resume'), original.session.events)
+    const second = await setup()
+    await boundary(second, resumed, 'turn/start')
+
+    expect(noticeTexts(resumed.session)).toEqual([
+      'Mode "retired" is no longer defined in this deployment\'s configuration; the session continues in the default mode.',
+    ])
+  })
+
+  it('retries a dropped-definition notice when its append fails', async () => {
+    const ctx = await setup()
+    const warn = vi.fn()
+    ctx.logger.warn = warn as never
+    const agent = agentWithSession()
+    agent.session.append('mode/set', { mode: 'retired' })
+    const original = agent.session.append.bind(agent.session)
+    agent.session.append = (((type: string, ...rest: unknown[]) => {
+      if (type === 'context/message') throw new Error('backend gone')
+      return (original as (...args: unknown[]) => unknown)(type, ...rest)
+    }) as unknown) as typeof agent.session.append
+
+    await boundary(ctx, agent, 'turn/start')
+    expect(warn).toHaveBeenCalledOnce()
+    expect(noticeTexts(agent.session)).toEqual([])
+
+    agent.session.append = original
+    await boundary(ctx, agent, 'turn/start')
+    await boundary(ctx, agent, 'turn/start')
+    expect(noticeTexts(agent.session)).toEqual([
+      'Mode "retired" is no longer defined in this deployment\'s configuration; the session continues in the default mode.',
+    ])
+  })
+
   it('contains an append failure instead of blocking the prompt or the turn', async () => {
     const ctx = await setup()
     const warn = vi.fn()
@@ -311,13 +356,18 @@ describe('the boundary flush', () => {
 })
 
 describe('the soft layer', () => {
-  it('keeps a default-mode assembly identical to a no-dsh-mode deployment (exit tool dropped)', async () => {
+  it('keeps the tool schemas identical across default and plan mode', async () => {
     const ctx = await setup()
     registerNamedTools(ctx, ['read', 'write'])
     const agent = agentWithSession()
-    const assembly = await ctx.systemPrompt.assemble({ agent })
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['read', 'write'])
-    expect(assembly.sections.find(section => section.name === 'mode:policy')?.text).toBe('')
+    const defaultAssembly = await ctx.systemPrompt.assemble({ agent })
+    expect(defaultAssembly.tools.map(tool => tool.name)).toEqual([EXIT_PLAN_MODE, 'read', 'write'])
+    expect(defaultAssembly.sections.find(section => section.name === 'mode:policy')?.text).toBe('')
+
+    agent.session.append('mode/set', { mode: PLAN_MODE })
+    const planAssembly = await ctx.systemPrompt.assemble({ agent })
+    expect(planAssembly.tools).toEqual(defaultAssembly.tools)
+    expect(planAssembly.sections.find(section => section.name === 'mode:policy')?.text).toBe(TEST_PLAN_SECTION)
   })
 
   it('leaves an agent-less assembly untouched', async () => {
@@ -328,32 +378,29 @@ describe('the soft layer', () => {
     expect(assembly.sections.find(section => section.name === 'mode:policy')?.text).toBe('')
   })
 
-  it('keeps the full toolset in plan mode, adds the exit tool, and renders the mode section', async () => {
+  it('keeps the full toolset in plan mode and renders the configured mode section', async () => {
     const ctx = await setup()
     registerNamedTools(ctx, ['read', 'write', 'todo_write'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
     const assembly = await ctx.systemPrompt.assemble({ agent })
     expect(assembly.tools.map(tool => tool.name).sort()).toEqual([EXIT_PLAN_MODE, 'read', 'todo_write', 'write'])
-    expect(assembly.sections.find(section => section.name === 'mode:policy')?.text).toContain('plan mode')
+    expect(assembly.sections.find(section => section.name === 'mode:policy')?.text).toBe(TEST_PLAN_SECTION)
   })
 
-  it('drops exit_plan_mode outside plan mode (custom modes never see it)', async () => {
-    const ctx = await setup({ modes: { review: { section: 'reviewing' } } })
+  it('keeps exit_plan_mode visible in custom modes while rendering their guidance', async () => {
+    const ctx = await setup({ modes: { ...PLAN_CONFIG.modes, review: { section: 'reviewing' } } })
     registerNamedTools(ctx, ['read', 'write'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: 'review' })
     const assembly = await ctx.systemPrompt.assemble({ agent })
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['read', 'write'])
+    expect(assembly.tools.map(tool => tool.name)).toEqual([EXIT_PLAN_MODE, 'read', 'write'])
     expect(assembly.sections.find(section => section.name === 'mode:policy')?.text).toBe('reviewing')
   })
 
   it('leaves foreign post-next() additions alone in plan mode (no general tool filtering)', async () => {
-    // A foreign listener that post-processes await next(): the mode filter
-    // wraps outside it (prepend) but hides only the exit tool outside plan —
-    // a foreign addition survives, because which tools a mode admits is
-    // deliberately not this plugin's decision (the effects question stays
-    // parked; module doc).
+    // A foreign listener that post-processes await next(): the addition
+    // survives, because modes do not filter the deployment's tool registry.
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -362,7 +409,7 @@ describe('the soft layer', () => {
       final.tools = [...final.tools, { name: 'added-later', description: 'added after next()', parameters: {} }]
       return final
     })
-    await ctx.plugin(ModesService)
+    await ctx.plugin(ModesService, PLAN_CONFIG)
     registerNamedTools(ctx, ['read'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
@@ -382,7 +429,7 @@ describe('the soft layer', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry, { mode: 'code' })
     await ctx.plugin(FakeRuntime)
-    await ctx.plugin(ModesService)
+    await ctx.plugin(ModesService, PLAN_CONFIG)
     registerNamedTools(ctx, ['read', 'write'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
@@ -406,13 +453,13 @@ describe('the soft layer', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry, { mode: 'both' })
     await ctx.plugin(FakeRuntime)
-    await ctx.plugin(ModesService)
+    await ctx.plugin(ModesService, PLAN_CONFIG)
     registerNamedTools(ctx, ['read', 'write'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
     const assembly = await ctx.systemPrompt.assemble({ agent })
-    // ONE visibility rule covers both surfaces: in plan the exit tool is
-    // present on the wire AND in the SDK, alongside the untouched toolset.
+    // The stable registry contribution reaches both surfaces: the exit tool
+    // is present on the wire AND in the SDK alongside the untouched toolset.
     expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['exit_plan_mode', 'read', 'run_code', 'write'])
     const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
     expect(sdk).toContain('read(args:')
@@ -420,7 +467,7 @@ describe('the soft layer', () => {
     expect(sdk).toContain('exit_plan_mode(args:')
   })
 
-  it('default-mode Code Mode SDK is byte-identical to a no-dsh-mode deployment (exit binding hidden)', async () => {
+  it('keeps the Code Mode SDK byte-identical across mode switches', async () => {
     class FakeRuntime extends CodeRuntime {
       readonly language = 'typescript'
       readonly isolation = 'fake'
@@ -430,23 +477,27 @@ describe('the soft layer', () => {
     await withModes.plugin(SystemPrompt)
     await withModes.plugin(ToolRegistry, { mode: 'code' })
     await withModes.plugin(FakeRuntime)
-    await withModes.plugin(ModesService)
+    await withModes.plugin(ModesService, PLAN_CONFIG)
     registerNamedTools(withModes, ['read', 'write'])
     const agent = agentWithSession()
-    const sdk = (await withModes.systemPrompt.assemble({ agent })).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-    expect(sdk).toContain('read(args:')
-    expect(sdk).toContain('write(args:')
-    // The always-registered exit tool is callable only in plan mode, so a
-    // default-mode SDK advertising it would offer a binding that can only
-    // error — and diverge from a deployment that never loaded dsh-mode:
+    const defaultSdk = (await withModes.systemPrompt.assemble({ agent })).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+    expect(defaultSdk).toContain('read(args:')
+    expect(defaultSdk).toContain('write(args:')
+    expect(defaultSdk).toContain('exit_plan_mode(args:')
+    agent.session.append('mode/set', { mode: PLAN_MODE })
+    const planSdk = (await withModes.systemPrompt.assemble({ agent })).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+    expect(planSdk).toBe(defaultSdk)
+
+    // Loading the mode plugin deliberately adds one stable binding compared
+    // with a deployment that does not compose plan mode at all.
     const bare = new Context()
     await bare.plugin(SystemPrompt)
     await bare.plugin(ToolRegistry, { mode: 'code' })
     await bare.plugin(FakeRuntime)
     registerNamedTools(bare, ['read', 'write'])
     const bareSdk = (await bare.systemPrompt.assemble({ agent })).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-    expect(sdk).toBe(bareSdk)
-    expect(sdk).not.toContain('exit_plan_mode(args:')
+    expect(bareSdk).not.toContain('exit_plan_mode(args:')
+    expect(defaultSdk).not.toBe(bareSdk)
   })
 
   it('treats a dropped folded definition as the default mode', async () => {
@@ -455,7 +506,7 @@ describe('the soft layer', () => {
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: 'retired' })
     const assembly = await ctx.systemPrompt.assemble({ agent })
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['read', 'write'])
+    expect(assembly.tools.map(tool => tool.name)).toEqual([EXIT_PLAN_MODE, 'read', 'write'])
   })
 })
 
@@ -522,6 +573,7 @@ describe('exit_plan_mode', () => {
     const ctx = await setup()
     const schema = ctx.tools.schemas().find(entry => entry.name === EXIT_PLAN_MODE)
     const parameters = schema?.parameters as { required?: string[]; properties?: Record<string, unknown> }
+    expect(schema?.description).toMatch(/^Use only in plan mode\./)
     expect(Object.keys(parameters.properties ?? {})).toEqual(['plan'])
     expect(parameters.required).toEqual(['plan'])
   })
@@ -533,12 +585,24 @@ describe('exit_plan_mode', () => {
     expect(result.content).toEqual([{ type: 'text', text: 'Error: exit_plan_mode requires a calling agent (no session to switch)' }])
   })
 
-  it('rejects a call outside plan mode (defense in depth behind the gate)', async () => {
+  it('rejects a call outside plan mode while remaining advertised', async () => {
     const ctx = await setup()
     const agent = agentWithSession()
+    expect(ctx.tools.schemas().map(tool => tool.name)).toContain(EXIT_PLAN_MODE)
     const result = await callExit(ctx, agent)
     expect(result.isError).toBe(true)
     expect(result.content).toEqual([{ type: 'text', text: 'Error: exit_plan_mode is only available in plan mode' }])
+  })
+
+  it('rejects an empty or heading-less plan before asking the reviewer', async () => {
+    const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
+    for (const plan of ['', 'do things']) {
+      const result = await callExit(ctx, agent, plan)
+      expect(result.isError).toBe(true)
+      expect(result.content).toEqual([{ type: 'text', text: 'Error: exit_plan_mode requires a non-empty markdown plan starting with a # heading' }])
+    }
+    expect(asked).toHaveLength(0)
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
   })
 
   it('degrades to the manual exit when no user-interaction seam is composed', async () => {
@@ -572,10 +636,60 @@ describe('exit_plan_mode', () => {
     expect(foldMode(agent.session.events)).toBe(DEFAULT_MODE)
     expect(asked).toHaveLength(1)
     expect(asked[0]?.agent).toBe(agent)
+    expect(asked[0]?.questions[0]?.detail).toBe('# The plan\n\ndo things')
     expect(asked[0]?.questions[0]?.options?.map(option => option.label)).toEqual(['Approve', 'Keep planning'])
   })
 
-  it('an approved exit keeps the plan surface until the boundary (same-batch fold holds)', async () => {
+  it('carries the exact plan through a Code Mode review and logs the nested dispatch', async () => {
+    const plan = '# Code Mode plan\n\nUse the existing seam.'
+    class ExitRuntime extends CodeRuntime {
+      readonly language = 'typescript'
+      readonly isolation = 'fake'
+      async run(request: CodeRunRequest): Promise<CodeRunResult> {
+        const exit = request.bindings[0]?.functions[EXIT_PLAN_MODE]
+        if (exit === undefined) throw new Error('missing exit_plan_mode binding')
+        return { logs: [], value: await exit({ plan }) }
+      }
+    }
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry, { mode: 'code' })
+    await ctx.plugin(ExitRuntime)
+    await ctx.plugin(ModesService, PLAN_CONFIG)
+    await ctx.plugin(UserInteractionService)
+    const asked: AskUserQuestionRequest[] = []
+    ctx.userInteraction.registerProvider({
+      ask: (request) => {
+        asked.push(request)
+        return Promise.resolve({ answers: [{ id: 'plan-review', selected: ['Approve'] }] })
+      },
+    })
+    const agent = agentWithSession('code-mode-exit')
+    agent.session.append('mode/set', { mode: PLAN_MODE })
+
+    const result = await ctx.tools.execute({
+      callId: CallId(`call-exit-${++callCounter}`),
+      name: RUN_CODE_NAME,
+      arguments: { code: `return await tools.${EXIT_PLAN_MODE}({ plan: ${JSON.stringify(plan)} })` },
+      agent,
+    })
+
+    expect(result.isError).toBe(false)
+    expect(asked).toHaveLength(1)
+    expect(asked[0]?.questions[0]).toMatchObject({
+      header: 'Plan review',
+      question: 'Approve this plan and leave plan mode?',
+      detail: plan,
+    })
+    expect(agent.session.events.find(event => event.type === 'tool/code-dispatch')?.data).toMatchObject({
+      name: EXIT_PLAN_MODE,
+      arguments: { plan },
+      isError: false,
+    })
+    expect(ctx.modes.get(agent)).toEqual({ current: PLAN_MODE, pending: DEFAULT_MODE })
+  })
+
+  it('an approved exit keeps plan guidance until the boundary and never removes the tool', async () => {
     const { ctx, agent } = await setupWithReview({ selected: ['Approve'] })
     const approved = await callExit(ctx, agent)
     expect(approved.isError).toBe(false)
@@ -585,8 +699,12 @@ describe('exit_plan_mode', () => {
     expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
     const assembly = await ctx.systemPrompt.assemble({ agent })
     expect(assembly.tools.some(tool => tool.name === EXIT_PLAN_MODE)).toBe(true)
+    expect(assembly.sections.find(section => section.name === 'mode:policy')?.text).toBe(TEST_PLAN_SECTION)
     await boundary(ctx, agent, 'step/end')
     expect(foldMode(agent.session.events)).toBe(DEFAULT_MODE)
+    const afterExit = await ctx.systemPrompt.assemble({ agent })
+    expect(afterExit.tools).toEqual(assembly.tools)
+    expect(afterExit.sections.find(section => section.name === 'mode:policy')?.text).toBe('')
   })
 
   it('the exit flush narrates nothing — the tool result is the narration', async () => {
@@ -596,13 +714,6 @@ describe('exit_plan_mode', () => {
     await boundary(ctx, agent, 'step/end')
     expect(foldMode(agent.session.events)).toBe(DEFAULT_MODE)
     expect(noticeTexts(agent.session)).toEqual([])
-  })
-
-  it('approve with a note carries the note into the confirmation', async () => {
-    const { ctx, agent } = await setupWithReview({ selected: ['Approve'], custom: 'ship it small' })
-    const result = await callExit(ctx, agent)
-    expect(result.isError).toBe(false)
-    expect(result.content).toEqual([{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step. User note: ship it small' }])
   })
 
   it('keep planning returns the corrective error carrying the feedback verbatim', async () => {
@@ -625,6 +736,36 @@ describe('exit_plan_mode', () => {
     const result = await callExit(ctx, agent)
     expect(result.isError).toBe(true)
     expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; their feedback: add tests first' }])
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
+  })
+
+  it('requires exactly the single Approve selection', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: ['Approve', 'Keep planning'] })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; revise the plan and present it again.' }])
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
+  })
+
+  it('treats custom text alongside Approve as feedback, not consent', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: ['Approve'], custom: 'change the tests' })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; their feedback: change the tests' }])
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
+  })
+
+  it('treats duplicate review answer items as non-consent', async () => {
+    const { ctx, agent } = await setupWithReview()
+    ctx.userInteraction.registerProvider({
+      ask: () => Promise.resolve({ answers: [
+        { id: 'plan-review', selected: ['Approve'] },
+        { id: 'plan-review', selected: ['Keep planning'] },
+      ] }),
+    })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; revise the plan and present it again.' }])
     expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
   })
 
@@ -685,5 +826,22 @@ describe('exit_plan_mode', () => {
       title: 'Plan review',
       content,
     })
+  })
+})
+
+describe('HMR disposal', () => {
+  it('unregisters the service, prompt section, and stable exit tool with the plugin fiber', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const fiber = await ctx.plugin(ModesService, PLAN_CONFIG)
+    expect(ctx.get('modes')).toBeInstanceOf(ModesService)
+    expect(ctx.tools.get(EXIT_PLAN_MODE)).toBeDefined()
+    expect((await ctx.systemPrompt.assemble()).sections.map(section => section.name)).toContain('mode:policy')
+
+    await fiber.dispose()
+    expect(ctx.get('modes')).toBeUndefined()
+    expect(ctx.tools.get(EXIT_PLAN_MODE)).toBeUndefined()
+    expect((await ctx.systemPrompt.assemble()).sections.map(section => section.name)).not.toContain('mode:policy')
   })
 })

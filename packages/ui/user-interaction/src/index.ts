@@ -31,6 +31,8 @@ export interface AskUserQuestionItem {
   id: string
   /** The question to display. */
   question: string
+  /** Optional supporting detail rendered with the question but kept out of option labels. */
+  detail?: string
   /** Optional short heading/group label. */
   header?: string
   /** Optional choices the UI can render as a menu. */

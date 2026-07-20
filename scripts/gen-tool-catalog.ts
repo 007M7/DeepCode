@@ -174,10 +174,10 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.userInteraction (execution time, opportunistic)'],
     writes: ['tool/call', 'mode/set back to default on an approved review', 'tool/result'],
     async mount(ctx) {
-      await ctx.plugin(ModesService)
+      await ctx.plugin(ModesService, { modes: { plan: { section: 'Tool catalog schema harvest.' } } })
     },
     note:
-      'exit_plan_mode presents the plan for the user\'s review over the user-interaction seam (approve / keep planning with feedback); approval flips the logged session mode back to default at the step boundary (same-batch calls stay plan-gated). The assemble filter shows it only while the folded mode is plan.',
+      'exit_plan_mode stays in the model-facing schema in every session mode so transitions add no tool-catalog churn on top of the mode-section change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-interaction seam (approve / keep planning with feedback), and approval flips the logged session mode back to default at the step boundary.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-bash',

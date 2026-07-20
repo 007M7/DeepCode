@@ -751,6 +751,10 @@ class QuestionDialog implements Component, Focusable {
       lines.push(`${this.palette.accent('│')} ${clipped}${' '.repeat(Math.max(0, innerWidth - visibleWidth(clipped)))} ${this.palette.accent('│')}`)
     }
     for (const line of wrapTextWithAnsi(this.palette.bold(displayText(this.question.question)), innerWidth)) push(line)
+    if (this.question.detail !== undefined) {
+      push('')
+      for (const line of wrapTextWithAnsi(displayText(this.question.detail), innerWidth)) push(line)
+    }
     push('')
     if (this.mode === 'custom') {
       for (const line of this.input.render(innerWidth)) push(line)

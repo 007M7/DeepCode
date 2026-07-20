@@ -227,7 +227,7 @@ export async function makeBridgeHarness(options: {
     await ctx.plugin(ToolTodo)
   }
   if (options.withModes) {
-    await ctx.plugin(ModesService)
+    await ctx.plugin(ModesService, { modes: { plan: { section: 'Test plan mode instructions.' } } })
   }
   if (options.withFs) {
     await ctx.plugin(LocalFileSystem, { cwd: options.fsCwd ?? options.storageDir })

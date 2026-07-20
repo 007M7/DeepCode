@@ -87,7 +87,7 @@ export function apply(ctx: Context) {
 
 ## 可运行的组装示例
 
-四个可运行叶子从 `cordis.yml` 加载各自的插件树：[`examples/tui-agent`](../../examples/tui-agent)（通过全屏 TUI 运行的 DeepSeek coding 工具，`pnpm run demo:tui`）、[`examples/headless-agent`](../../examples/headless-agent)（通过单次任务和 DSH 原生输出运行的 coding 能力，`pnpm run demo:headless "task"`）、[`examples/cordis-agent`](../../examples/cordis-agent)（通过 TUI 进行自我检查和动态插件挂载，`pnpm run demo:cordis`）与 [`examples/acp-agent`](../../examples/acp-agent)（通过 JSON-RPC stdio 暴露的 ACP 服务器，`pnpm run demo:acp`）。交互式叶子加载 [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo)，非交互式叶子加载 [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo)，ACP 叶子加载 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，三个 app 包都通过 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) 共享主干。
+可运行叶子从 `examples/*/cordis.yml` 加载各自的插件树；根目录的 `demo:*` 脚本和这些叶子目录是权威清单。交互式叶子使用 [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo)，非交互式叶子使用 [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo)，ACP 叶子使用 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，应用包共享 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo)。
 
 ## 功能→机制映射
 

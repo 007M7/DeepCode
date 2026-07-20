@@ -87,7 +87,7 @@ export function apply(ctx: Context) {
 
 ## Runnable wirings
 
-Four runnable leaves load their plugin trees from `cordis.yml`: [`examples/tui-agent`](../../examples/tui-agent) (DeepSeek coding tools through the full-screen TUI, `pnpm run demo:tui`), [`examples/headless-agent`](../../examples/headless-agent) (the coding capabilities behind a one-shot task and DSH-native output, `pnpm run demo:headless "task"`), [`examples/cordis-agent`](../../examples/cordis-agent) (self-inspection and dynamic plugin mounting through the TUI, `pnpm run demo:cordis`), and [`examples/acp-agent`](../../examples/acp-agent) (an ACP server over JSON-RPC stdio, `pnpm run demo:acp`). Interactive leaves load [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo), non-interactive leaves load [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo), the ACP leaf loads [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo), and all three app packages share [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo).
+Runnable leaves load their plugin trees from `examples/*/cordis.yml`; the root `demo:*` scripts and those leaf directories are the authoritative inventory. Interactive leaves use [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo), non-interactive leaves use [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo), ACP leaves use [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo), and the app packages share [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo).
 
 ## The feature → mechanism map
 

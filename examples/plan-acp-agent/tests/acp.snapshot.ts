@@ -45,13 +45,10 @@ const SCENARIOS: Scenario[] = [
   // class to carry a pin.
   { name: 'modes-advertise', hasModelTurn: false, recorded: false, headerClass: 'plan' },
   // The full plan-mode arc, and NECESSARILY the pinned-header scenario for
-  // the 'plan' class: the first request ships the plan-shaped header (reason
-  // initial) — the full toolset plus exit_plan_mode and the mode section —
-  // and the approved exit narrows it back by exactly that tool and section,
-  // a pure removal the delta encoding CAN express (one header-delta; the
-  // ENTERING flip is a non-tail insertion the append-only tools delta cannot
-  // express, so it falls back to a snapshot — pinned at the unit tier). The
-  // arc: setMode(plan) → the model runs a real `cat` inside plan and
+  // the 'plan' class: the first request ships the configured mode section and
+  // the full toolset, including exit_plan_mode. Approval removes only the
+  // section; the following changed header carries byte-identical tool schemas.
+  // The arc: setMode(plan) → the model runs a real `cat` inside plan and
   // presents the plan via exit_plan_mode → the scripted elicitation approves
   // → the very next step already edits for real, mid-turn.
   { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan', expectedHeaderChanges: 1 },
