@@ -10404,6 +10404,18 @@ textarea:focus-visible {
   animation: traceDeepLinkFlash 1.4s ease-out;
 }
 
+/* Fused step card fallback: when a turn's only trace lives as a fused
+ * tool-block (no trailing drawer), the turn-flow glyph click scrolls
+ * to the card and briefly rings it so the eye tracks the jump. Runs
+ * for ~2s, then the JS strips the class. */
+@keyframes flashRing {
+  0%   { box-shadow: 0 0 0 2px var(--accent, #4c9aff); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}
+.flash-ring {
+  animation: flashRing 2s ease-out;
+}
+
 /* Task #203: full-session trace overlay (opened from Devtools drawer). */
 .devtools-full-trace-overlay {
   position: fixed; inset: 0; z-index: 40;
@@ -12903,4 +12915,59 @@ button.artifact-version:hover {
   color: var(--muted);
   font-size: 12px;
   padding: 12px 16px;
+}
+
+/* -----------------------------------------------------------------------
+ * Step / tool-block fusion (feat/step-card-merge, 2026-07-19).
+ *
+ * A step whose outputs include tool/call events no longer appends a
+ * trailing standalone .trace-card at the stream tail — instead, the
+ * step meta (usage badge / duration / trace panes) is fused INTO the
+ * first tool-block emitted during the step, right where the call
+ * originally landed in the narrative flow. See fuseStepIntoToolBlock
+ * in renderer.js for the DOM shape.
+ *
+ * Visual grammar (Lane A, LangSmith parity):
+ *   collapsed  = one low-key row →  [glyph][name][gist] … [usage][dur][∨]
+ *   expanded   = args + result + edit&re-run panel + inputs/outputs/events
+ *                panes stacked in one card, single left border.
+ * ----------------------------------------------------------------------- */
+.tool-block.trace-card-fused > summary .fused-usage-badge {
+  /* Anchor the right-cluster on the fused summary — mirrors the standalone
+   * .trace-card's `margin-left:auto` on .trace-usage-badge. */
+  margin-left: auto;
+}
+.tool-block.trace-card-fused > summary .fused-duration {
+  margin-left: 6px;
+}
+.tool-block.trace-card-fused > summary .fused-fold-glyph {
+  margin-left: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  transition: transform 120ms ease;
+}
+.tool-block.trace-card-fused[open] > summary .fused-fold-glyph {
+  transform: rotate(180deg);
+}
+/* Panes appear last inside the fused card body; add a hairline separator
+ * so the reader's eye splits "this call" from "the whole step". */
+.tool-block.trace-card-fused > .fused-trace-body {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+/* Nested tool-blocks for multi-call steps: reduce visual weight so the
+ * outer card owns the frame. Fused-call-row keeps its own detail toggle
+ * and edit&re-run affordance. */
+.tool-block.trace-card-fused .fused-call-row {
+  margin: 4px 0 4px 12px;
+  border-left-width: 1px;
+  background: transparent;
+}
+/* edit & re-run affordance is only visible while the tool-block is open
+ * (design confirm §a: no hover-only reveal, keep the collapsed row
+ * quiet). */
+.tool-block:not([open]) > summary .tool-edit-rerun-trigger {
+  display: none;
 }

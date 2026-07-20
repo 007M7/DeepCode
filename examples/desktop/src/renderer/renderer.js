@@ -1444,8 +1444,21 @@ function finishTurnContainer(sessionId, { footerSpec, traceCard, traceSummaryTex
   const hasSignal = tf && typeof tf.specHasAnySignal === 'function'
     ? (!!tf.specHasAnySignal(rawSpec) || !!tf.specHasAnySignal(footerSpec))
     : !!footerSpec
-  const hasTraceCard = !!(traceCard && traceCard.parentNode)
-  if (!hasSignal && !hasTraceCard) {
+  // Fusion: a fused step card is already positioned inline at the tool
+  // call's narrative slot. Lifting it into the footer drawer would tear
+  // it out of the stream — treat it as "no drawer needed here". The
+  // turn-flow glyph already scrolls to it via `dsh-open-turn-trace`
+  // (see the listener below).
+  const isFusedCard = !!(traceCard && traceCard.dataset && traceCard.dataset.stepFused === '1')
+  const hasTraceCard = !isFusedCard && !!(traceCard && traceCard.parentNode)
+  // Fused card path: the trailing standalone .trace-card is suppressed
+  // (the card now lives inline at the tool call's position), so we can't
+  // rely on `hasTraceCard` alone. Keep the footer up when the turn has
+  // at least one fused step so the "turn ended" chip row + flow glyph +
+  // click-to-scroll behavior remain reachable.
+  const hasFusedStep = Array.isArray(turnSteps) && turnSteps.some(
+    s => s && Array.isArray(s._toolBlocks) && s._toolBlocks.length > 0)
+  if (!hasSignal && !hasTraceCard && !hasFusedStep) {
     // Nothing to draw — leave the assistant-turn container clean.
     ct.section.dataset.turnStatus = 'sealed'
     state.currentTurn = null
@@ -1493,7 +1506,7 @@ function finishTurnContainer(sessionId, { footerSpec, traceCard, traceSummaryTex
     })
   }
   let drawer = null
-  if (traceCard && traceCard.parentNode) {
+  if (!isFusedCard && traceCard && traceCard.parentNode) {
     // Lift the trace card out of `streamEl` into a details drawer inside
     // the footer. Preserves whatever internal state the card already has
     // (chunk fold, per-line payload expander). When the tri-view module
@@ -1554,6 +1567,28 @@ function finishTurnContainer(sessionId, { footerSpec, traceCard, traceSummaryTex
       drawer.open = true
       if (typeof drawer.scrollIntoView === 'function') {
         try { drawer.scrollIntoView({ block: 'nearest' }) } catch (_) { /* jsdom */ }
+      }
+    })
+  } else {
+    // Fused-only turn: no trailing drawer was built (the step card lives
+    // in-stream at its tool-call position). The glyph still fires, so
+    // fall back to opening + scrolling to the first fused card inside
+    // this turn's section, plus a brief `.flash-ring` accent so the eye
+    // tracks the jump. Matches the drawer path's "open + scroll" gesture.
+    footer.addEventListener('dsh-open-turn-trace', () => {
+      const section = ct.section
+      if (!section || typeof section.querySelector !== 'function') return
+      const fused = section.querySelector('.tool-block.trace-card-fused')
+      if (!fused) return
+      fused.open = true
+      if (typeof fused.scrollIntoView === 'function') {
+        try { fused.scrollIntoView({ block: 'nearest' }) } catch (_) { /* jsdom */ }
+      }
+      if (fused.classList && typeof fused.classList.add === 'function') {
+        fused.classList.add('flash-ring')
+        setTimeout(() => {
+          try { fused.classList.remove('flash-ring') } catch (_) { /* jsdom */ }
+        }, 2000)
       }
     })
   }
@@ -2041,6 +2076,13 @@ function beginTraceStep(meta, event) {
     inputs: meta.pendingTraceInputs || [],
     outputs: [],
     events: [],
+    // Tool-blocks emitted within this step's window — populated by the
+    // tool/call handler. finishTraceStep fuses these with the step
+    // meta (usage badge + duration + panes) instead of appending a
+    // trailing standalone .trace-card, so the tool row IS the step card
+    // at its narrative position. Text-only steps leave this empty and
+    // fall through to the historical .trace-card render.
+    _toolBlocks: [],
   }
   meta.pendingTraceInputs = []
   // "streaming-first": drop a placeholder card
@@ -2123,6 +2165,20 @@ function finishTraceStep(meta, endSeq, endTime) {
     }
     rec._streamingNode = null
   }
+  // Fusion path: if the step emitted any tool blocks, upgrade the first
+  // one into the step card in place (adds usage badge / duration / step
+  // marker to its summary, absorbs sibling tool-blocks, appends the
+  // trace panes to its body). The narrative position of the tool call
+  // is preserved and the trailing standalone .trace-card is not emitted.
+  // Text-only steps fall through to the historical renderTraceCard path.
+  if (Array.isArray(rec._toolBlocks) && rec._toolBlocks.length > 0) {
+    const fused = fuseStepIntoToolBlock(rec)
+    if (fused) {
+      meta.lastTurnTraceCard = fused
+      return fused
+    }
+    // fall through if fusion failed (defensive)
+  }
   // Return the just-appended trace card so callers (turn/end handler)
   // can lift it into the turn-footer drawer.
   //
@@ -2140,6 +2196,128 @@ function finishTraceStep(meta, endSeq, endTime) {
   const card = renderTraceCard(rec)
   if (card) meta.lastTurnTraceCard = card
   return card
+}
+
+// Fuse the step's aggregated record (usage badge / duration / step marker
+// / trace panes) into the first tool-block emitted during the step.
+// The tool-block stays at its narrative position in the turn body — no
+// standalone .trace-card is appended at the stream tail for tool steps.
+//
+// Multi-call step: the first tool-block becomes the outer card; sibling
+// tool-blocks are moved inside its body (above the trace panes) and the
+// summary shows `<first-tool> +N`.
+//
+// Returns the fused DOM node (also usable as the drawer traceCard via
+// `finishTurnContainer`, though we suppress the drawer for fused steps
+// so the reader doesn't see the same card twice).
+function fuseStepIntoToolBlock(rec) {
+  const agg = window.__dshTraceAgg
+  if (!agg || !rec || !Array.isArray(rec._toolBlocks) || rec._toolBlocks.length === 0) return null
+  const first = rec._toolBlocks[0]
+  const el = first && first.el
+  if (!el || !el.querySelector) return null
+  const doc = el.ownerDocument || document
+  const summary = el.querySelector(':scope > summary')
+  if (!summary) return null
+
+  // Mark the block as a fused step card so callers (finishTurnContainer)
+  // know not to lift it into a trailing drawer + tests can select it.
+  el.classList.add('trace-card-fused')
+  el.dataset.stepFused = '1'
+  if (rec.startSeq !== null) el.dataset.startSeq = String(rec.startSeq)
+  if (rec.endSeq !== null) el.dataset.endSeq = String(rec.endSeq)
+  if (rec.turn !== null) el.dataset.stepTurn = String(rec.turn)
+  if (rec.step !== null) el.dataset.stepIndex = String(rec.step)
+
+  // Multi-call: absorb sibling tool-blocks into this card's body BEFORE
+  // the panes. Update the summary's tool-name to show `<first> +N`.
+  const extras = rec._toolBlocks.slice(1)
+  if (extras.length > 0) {
+    const nameEl = summary.querySelector('.tool-family-name')
+    if (nameEl && typeof first.name === 'string') {
+      nameEl.textContent = `${first.name} +${extras.length}`
+      nameEl.title = extras.map(b => b.name).join(', ')
+    }
+  }
+
+  // Rehost each sibling tool-block as a nested `.fused-call-row` inside
+  // the outer card. `<details>` inside `<details>` is legal DOM; we
+  // keep the child tool-block's own open/close independent so per-call
+  // args/result stay explorable. Insertion order matches call order.
+  for (const extra of extras) {
+    if (!extra || !extra.el) continue
+    const child = extra.el
+    if (child.parentNode) child.parentNode.removeChild(child)
+    child.classList.add('fused-call-row')
+    el.appendChild(child)
+  }
+
+  // Right-cluster on the summary: usage badge, duration pill, fold glyph.
+  // Insert BEFORE any existing `.tool-duration` / `.tool-edit-rerun-trigger`
+  // so the pill+glyph stay at the tail; margin-left:auto on the badge
+  // pushes the whole cluster right per LangSmith parity.
+  const stepUsage = agg.sumUsageForStep ? agg.sumUsageForStep(rec) : null
+  const badgeText = agg.usageBadgeText ? agg.usageBadgeText(stepUsage) : ''
+  const anchor = summary.querySelector('.tool-duration')
+    || summary.querySelector('.tool-edit-rerun-trigger')
+    || null
+  if (badgeText) {
+    const badge = doc.createElement('span')
+    badge.className = 'trace-usage-badge fused-usage-badge'
+    badge.textContent = badgeText
+    if (stepUsage) {
+      let total = 0
+      for (const k of ['inputTokens','outputTokens','cacheReadTokens','cacheWriteTokens','reasoningTokens']) {
+        const v = stepUsage[k]
+        if (Number.isFinite(v)) total += v
+      }
+      badge.title = tokenBreakdownTooltip(stepUsage, total)
+    } else {
+      badge.title = 'Sum of `data.usage` across every assistant/message in this step'
+    }
+    if (anchor && anchor.parentNode === summary) summary.insertBefore(badge, anchor)
+    else summary.appendChild(badge)
+  }
+  const dur = doc.createElement('span')
+  dur.className = 'trace-duration fused-duration'
+  dur.textContent = rec.durationMs !== null ? `${rec.durationMs}ms` : ''
+  if (anchor && anchor.parentNode === summary) summary.insertBefore(dur, anchor)
+  else summary.appendChild(dur)
+  // Right-side fold glyph (LangSmith parity — same ∨ marker as the
+  // standalone trace-card). Toggles the outer `<details>`.
+  const foldGlyph = doc.createElement('span')
+  foldGlyph.className = 'trace-card-fold-glyph fused-fold-glyph mono'
+  foldGlyph.setAttribute('aria-hidden', 'true')
+  foldGlyph.textContent = '∨'
+  foldGlyph.title = 'Fold / unfold this step\'s subtree'
+  foldGlyph.addEventListener('click', function (e) {
+    if (e && e.stopPropagation) e.stopPropagation()
+    if (e && e.preventDefault) e.preventDefault()
+    el.open = !el.open
+  })
+  summary.appendChild(foldGlyph)
+
+  // Body: appended AFTER the existing args/result rows so the tool's
+  // own detail sits above the step-aggregate panes. This mirrors the
+  // standalone trace-card body (meta strip + inputs/outputs/events).
+  const fusedBody = doc.createElement('div')
+  fusedBody.className = 'trace-body fused-trace-body'
+  fusedBody.appendChild(renderTraceStepMetaStrip(rec, stepUsage))
+  const stepModelName = (rec && rec.header && typeof rec.header.model === 'string' && rec.header.model)
+    || modelFromRecEvents(rec)
+    || null
+  const barCtx = (Number.isFinite(rec.startTime) && Number.isFinite(rec.durationMs) && rec.durationMs > 0)
+    ? { startTime: rec.startTime, durationMs: rec.durationMs, stepModel: stepModelName }
+    : (stepModelName ? { stepModel: stepModelName } : null)
+  fusedBody.appendChild(renderTracePane('inputs', rec.inputs, 'events consumed by this step', barCtx))
+  fusedBody.appendChild(renderTracePane('outputs', rec.outputs, 'events produced by this step', barCtx))
+  fusedBody.appendChild(renderTracePane('events', rec.events, 'every SessionEvent inside this step', barCtx))
+  el.appendChild(fusedBody)
+  // stash the step record on the fused node so anything that walks the
+  // DOM for aggregates (turn-footer tri-view, QA probes) finds the same
+  // shape it would on a standalone .trace-card.
+  el._rec = rec
+  return el
 }
 
 function renderTraceCard(rec) {
@@ -5041,6 +5219,23 @@ function onSessionEvent(sessionId, event) {
           seq: typeof event.seq === 'number' ? event.seq : null,
           sessionId,
         })
+      }
+      // step/tool fusion: register the tool-block on the currently-open
+      // trace record so finishTraceStep can upgrade it into the step
+      // card in place instead of appending a trailing standalone
+      // .trace-card. On the FIRST tool block of the step, also retire
+      // the streaming placeholder — its role (marking "step in flight")
+      // is now filled by the tool-block itself.
+      const rec = meta.currentTraceRecord
+      if (rec && Array.isArray(rec._toolBlocks) && toolBlockEl) {
+        if (rec._toolBlocks.length === 0 && rec._streamingNode) {
+          if (typeof rec._streamingNode.remove === 'function') rec._streamingNode.remove()
+          else if (rec._streamingNode.parentNode && rec._streamingNode.parentNode.removeChild) {
+            rec._streamingNode.parentNode.removeChild(rec._streamingNode)
+          }
+          rec._streamingNode = null
+        }
+        rec._toolBlocks.push({ callId, name, el: toolBlockEl })
       }
       return
     }
