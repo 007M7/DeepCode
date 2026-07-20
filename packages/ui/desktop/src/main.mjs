@@ -30,6 +30,23 @@ let initializeResult
 let stderrTail = ''
 /** @type {Map<string, {sessionId: string, loaded: boolean, cwd: string, title?: string}>} */
 const activeSessions = new Map()
+
+let interactionCounter = 0
+/** @type {Map<string, {resolve: (response: unknown) => void, payload: unknown}>} */
+const pendingInteractions = new Map()
+
+/**
+ * Ask the renderer to resolve a permission or elicitation card. The promise
+ * settles when any window responds; pending cards replay on renderer reload.
+ */
+function requestRendererInteraction(kind, request) {
+  return new Promise((resolve) => {
+    const id = `interaction-${++interactionCounter}`
+    const payload = { id, kind, ...request }
+    pendingInteractions.set(id, { resolve, payload })
+    broadcast('interaction:request', payload)
+  })
+}
 const replayingSessions = new Set()
 
 function broadcast(channel, payload) {
@@ -112,31 +129,26 @@ async function startRuntime() {
       return Promise.resolve()
     },
     async requestPermission(params) {
-      const options = params.options.map(option => `${option.name ?? option.optionId} (${option.kind})`)
-      const result = await dialog.showMessageBox(mainWindow, {
-        type: 'question',
-        buttons: [...options, 'Cancel'],
-        cancelId: options.length,
-        defaultId: 0,
-        title: 'Harness permission request',
-        message: params.toolCall.title ?? 'Tool permission request',
-        detail: JSON.stringify(params.toolCall.rawInput ?? params.toolCall, null, 2),
+      const response = await requestRendererInteraction('permission', {
+        sessionId: params.sessionId,
+        title: params.toolCall?.title ?? 'Tool permission request',
+        detail: params.toolCall?.rawInput ?? params.toolCall ?? {},
+        options: params.options.map(option => ({ optionId: option.optionId, name: option.name ?? option.optionId, kind: option.kind })),
       })
-      const option = params.options[result.response]
-      if (option === undefined) return { outcome: { outcome: 'cancelled' } }
-      return { outcome: { outcome: 'selected', optionId: option.optionId } }
+      const optionId = response?.optionId
+      if (typeof optionId === 'string' && params.options.some(option => option.optionId === optionId)) {
+        return { outcome: { outcome: 'selected', optionId } }
+      }
+      return { outcome: { outcome: 'cancelled' } }
     },
     async unstable_createElicitation(params) {
-      const result = await dialog.showMessageBox(mainWindow, {
-        type: 'question',
-        buttons: ['Accept', 'Cancel'],
-        cancelId: 1,
-        defaultId: 0,
-        title: 'Harness needs input',
-        message: params.message,
-        detail: JSON.stringify(params, null, 2),
+      const response = await requestRendererInteraction('elicitation', {
+        sessionId: params.sessionId,
+        title: params.message,
+        detail: params,
+        options: [],
       })
-      return result.response === 0 ? { action: 'accept', content: {} } : { action: 'cancel' }
+      return response?.accepted === true ? { action: 'accept', content: {} } : { action: 'cancel' }
     },
   }), stream)
 
@@ -545,6 +557,13 @@ function registerIpc() {
   ipcMain.handle('feedback:list', (_event, { sessionId, targetId }) => readFeedback(String(sessionId), targetId === undefined ? undefined : String(targetId)))
   ipcMain.handle('feedback:add', (_event, entry) => appendFeedback(entry))
   ipcMain.handle('dev:status', () => devStatus())
+  ipcMain.handle('interaction:respond', (_event, { id, response }) => {
+    const pending = pendingInteractions.get(String(id))
+    if (pending === undefined) return { ok: false }
+    pendingInteractions.delete(String(id))
+    pending.resolve(response)
+    return { ok: true }
+  })
 }
 
 async function createWindow() {
@@ -561,6 +580,12 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
+  })
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    for (const pending of pendingInteractions.values()) {
+      mainWindow?.webContents.send('interaction:request', pending.payload)
+    }
   })
 
   if (process.env.VITE_DEV_SERVER_URL !== undefined) {

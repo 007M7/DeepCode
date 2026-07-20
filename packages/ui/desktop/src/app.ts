@@ -81,6 +81,22 @@ interface LiveTurn {
   errorText?: string
 }
 
+interface InteractionOption {
+  readonly optionId: string
+  readonly name: string
+  readonly kind: string
+}
+
+/** A permission or elicitation request forwarded from the ACP client in main. */
+interface InteractionRequest {
+  readonly id: string
+  readonly kind: 'permission' | 'elicitation'
+  readonly sessionId?: string
+  readonly title: string
+  readonly detail: unknown
+  readonly options: readonly InteractionOption[]
+}
+
 interface PlanItem {
   readonly content: string
   readonly status: string
@@ -170,6 +186,9 @@ const state = {
   traceLoadRevision: 0,
   liveTurnCounter: 0,
   liveToolMeta: new Map<string, LiveToolMeta>(),
+  interactions: [] as InteractionRequest[],
+  queues: new Map<string, string[]>(),
+  pausedQueues: new Set<string>(),
   traceCatchupTimer: undefined as number | undefined,
   traceCatchupAttempts: 0,
 }
@@ -201,6 +220,9 @@ interface ShellRefs {
   waterfall: HTMLElement
   devCanvas: HTMLElement
   sessionCanvas: HTMLElement
+  interactionDock: HTMLElement
+  queueDock: HTMLElement
+  planDock: HTMLElement
   composerForm: HTMLFormElement
   composerInput: HTMLTextAreaElement
   composerHint: HTMLElement
@@ -287,6 +309,9 @@ function buildShell(): void {
           </section>
         </section>
         <section class="module-canvas develop-canvas" id="devCanvas" hidden></section>
+        <div class="composer-dock" id="interactionDock" hidden></div>
+        <div class="composer-dock" id="queueDock" hidden></div>
+        <div class="composer-dock" id="planDock" hidden></div>
         <form class="composer" id="composerForm">
           <textarea id="composerInput" name="prompt" rows="1"></textarea>
           <div class="composer-meta">
@@ -337,6 +362,9 @@ function buildShell(): void {
     waterfall: pick('waterfall'),
     devCanvas: pick('devCanvas'),
     sessionCanvas: pick('sessionCanvas'),
+    interactionDock: pick('interactionDock'),
+    queueDock: pick('queueDock'),
+    planDock: pick('planDock'),
     composerForm: pick('composerForm') as HTMLFormElement,
     composerInput: pick('composerInput') as HTMLTextAreaElement,
     composerHint: pick('composerHint'),
@@ -415,6 +443,11 @@ async function boot(): Promise<void> {
   window.dshDesktop.sessions.onUpdate((payload) => {
     handleSessionUpdate(asSessionUpdate(payload))
   })
+  if (typeof window.dshDesktop.interaction?.onRequest === 'function') {
+    window.dshDesktop.interaction.onRequest((payload) => {
+      handleInteractionRequest(payload)
+    })
+  }
   await Promise.all([refreshRuntime(), refreshDevStatus()])
   await refreshSessions()
 }
@@ -501,6 +534,8 @@ function applyTrace(trace: TracePayload, resetExpansion: boolean): void {
   renderTrajTree()
   renderWaterfall()
   renderInspector()
+  renderPlanDock()
+  renderQueueDock()
   scrollChatToBottom(resetExpansion)
   scheduleTraceCatchup(sessionId)
 }
@@ -636,11 +671,7 @@ function renderLiveTurn(): void {
     if (body !== null) body.textContent = tool.detail
     row.classList.toggle('failed', tool.status === 'failed')
   }
-  const planHost = el.liveTurn.querySelector<HTMLElement>('[data-live="plan"]')
-  if (planHost !== null) {
-    planHost.hidden = live.plan === undefined || live.plan.length === 0
-    planHost.innerHTML = live.plan === undefined ? '' : renderPlanList(live.plan)
-  }
+  renderPlanDock()
   const answer = el.liveTurn.querySelector<HTMLElement>('[data-live="answer"]')
   if (answer !== null) {
     answer.hidden = live.answer.length === 0
@@ -670,13 +701,12 @@ function ensureLiveSkeleton(live: LiveTurn): void {
     el.liveTurn.innerHTML = `
       ${live.userText === undefined ? '' : `
         <article class="message user">
-          <div class="message-card"><div class="user-bubble">${escapeHtml(live.userText)}</div></div>
+          <div class="message-card"><div class="user-bubble">${escapeHtml(live.userText.trim())}</div></div>
         </article>
       `}
       <article class="message assistant live" data-live-key="${live.key}">
         <div class="avatar">A</div>
         <div class="message-card">
-          <div class="plan-host" data-live="plan" hidden></div>
           <div class="activity-list">
             <details class="chat-activity thinking" data-live="thinking" hidden>
               <summary><span>${escapeHtml(t('chat.thinking'))}</span><strong></strong></summary>
@@ -734,9 +764,9 @@ function updateLiveJump(): void {
 
 function updateComposerState(): void {
   const busy = state.busySessionId !== undefined
-  el.sendButton.disabled = busy || !hasDesktopApi() || el.composerInput.value.trim().length === 0
+  el.sendButton.disabled = !hasDesktopApi() || el.composerInput.value.trim().length === 0
   el.cancelButton.hidden = !busy
-  el.composerHint.textContent = busy ? t('chat.working') : t('composer.hint')
+  el.composerHint.textContent = busy ? t('queue.hintBusy') : t('composer.hint')
   el.composerForm.classList.toggle('busy', busy)
   el.composerForm.setAttribute('aria-busy', String(busy))
 }
@@ -772,6 +802,12 @@ async function sendPrompt(prompt: string): Promise<void> {
       const live = state.live.get(DRAFT_SESSION_ID)
       state.live.delete(DRAFT_SESSION_ID)
       if (live !== undefined) state.live.set(sessionId, live)
+      const draftQueue = state.queues.get(DRAFT_SESSION_ID)
+      if (draftQueue !== undefined) {
+        state.queues.set(sessionId, draftQueue)
+        state.queues.delete(DRAFT_SESSION_ID)
+      }
+      if (state.pausedQueues.delete(DRAFT_SESSION_ID)) state.pausedQueues.add(sessionId)
       state.selectedSessionId = sessionId
       state.draftChat = false
       state.busySessionId = sessionId
@@ -794,8 +830,11 @@ async function sendPrompt(prompt: string): Promise<void> {
       await loadTrace(sessionId)
     }
     else state.live.delete(sessionId)
+    maybeSendNextQueued(sessionId)
   } catch (error) {
     state.busySessionId = undefined
+    state.pausedQueues.add(sessionId ?? DRAFT_SESSION_ID)
+    renderQueueDock()
     const live = sessionId === undefined ? state.live.get(DRAFT_SESSION_ID) : state.live.get(sessionId)
     if (live !== undefined) {
       live.status = 'error'
@@ -832,6 +871,8 @@ async function cancelActiveTurn(): Promise<void> {
   const sessionId = state.busySessionId
   if (sessionId === undefined || sessionId === DRAFT_SESSION_ID || !hasDesktopApi()) return
   try {
+    state.pausedQueues.add(sessionId)
+    renderQueueDock()
     await window.dshDesktop.sessions.cancel(sessionId)
     toast(t('chat.cancelRequested'))
   } catch (error) {
@@ -915,6 +956,8 @@ function showModule(module: AppModule): void {
   el.sessionCanvas.hidden = module !== 'sessions'
   el.devCanvas.hidden = module !== 'develop'
   el.composerForm.hidden = module !== 'sessions'
+  renderPlanDock()
+  renderQueueDock()
   if (module === 'develop') renderDevelop()
   renderTopbar()
 }
@@ -950,25 +993,28 @@ function renderConversationTurn(turn: ChatTurn): string {
   const userTarget = turn.userTargetId === undefined ? undefined : state.graph.targets.get(turn.userTargetId)
   const user = userTarget === undefined ? '' : `
     <article class="message user ${selectedTargetClass(userTarget.id)}" role="button" tabindex="0" data-target-id="${escapeHtml(userTarget.id)}">
-      <div class="message-card"><div class="user-bubble">${escapeHtml(contentText(userTarget.output))}</div></div>
+      <div class="message-card"><div class="user-bubble">${escapeHtml(contentText(userTarget.output).trim())}</div></div>
     </article>
   `
-  if (turn.activities.length === 0) return user
+  const turnTarget = state.graph.targets.get(`turn:${turn.turn}`)
+  const reason = String(asRecord(asRecord(turnTarget?.metadata).data ?? turnTarget?.output).kind ?? asRecord(turnTarget?.output).kind ?? '')
+  const errorLine = turnTarget?.status === 'error'
+    ? `<div class="turn-error" role="alert">${escapeHtml(t('chat.turnFailed'))}${reason.length > 0 ? ` · ${escapeHtml(reason)}` : ''}</div>`
+    : ''
+  if (turn.activities.length === 0) return `${user}${errorLine}`
   return `${user}
     <article class="message assistant">
       <div class="avatar">A</div>
       <div class="message-card"><div class="activity-list">${turn.activities.map(renderConversationActivity).join('')}</div></div>
     </article>
-  `
+  ${errorLine}`
 }
 
 function renderConversationActivity(activity: ChatActivity): string {
   const target = state.graph.targets.get(activity.targetId)
   if (target === undefined) return ''
   if (activity.kind === 'tool') return renderChatToolActivity(target)
-  if (activity.kind === 'plan') {
-    return `<section class="plan-activity ${selectedTargetClass(target.id)}" data-target-id="${escapeHtml(target.id)}">${renderPlanList(planItemsOf(target))}</section>`
-  }
+  if (activity.kind === 'plan') return ''
   if (activity.kind === 'text') {
     return `<section class="assistant-prose assistant-segment ${selectedTargetClass(target.id)}" data-target-id="${escapeHtml(target.id)}">${renderMarkdown(assistantText(target.output) || contentText(target.output))}</section>`
   }
@@ -996,6 +1042,117 @@ function renderPlanList(items: readonly PlanItem[]): string {
       </ul>
     </section>
   `
+}
+
+function handleInteractionRequest(payload: unknown): void {
+  const record = asRecord(payload)
+  const id = String(record.id ?? '')
+  if (id.length === 0 || state.interactions.some(item => item.id === id)) return
+  state.interactions.push({
+    id,
+    kind: record.kind === 'elicitation' ? 'elicitation' : 'permission',
+    ...(record.sessionId === undefined ? {} : { sessionId: String(record.sessionId) }),
+    title: String(record.title ?? ''),
+    detail: record.detail,
+    options: (Array.isArray(record.options) ? record.options : []).map(option => ({
+      optionId: String(asRecord(option).optionId ?? ''),
+      name: String(asRecord(option).name ?? asRecord(option).optionId ?? ''),
+      kind: String(asRecord(option).kind ?? ''),
+    })),
+  })
+  renderInteractionDock()
+}
+
+async function respondInteraction(id: string, response: unknown): Promise<void> {
+  // Only answer requests this instance owns: guards double-clicks and replays.
+  if (!state.interactions.some(item => item.id === id)) return
+  state.interactions = state.interactions.filter(item => item.id !== id)
+  renderInteractionDock()
+  try {
+    await window.dshDesktop.interaction.respond(id, response)
+  } catch (error) {
+    showError(String(error))
+  }
+}
+
+/** Permission and question cards block the runtime: they always render. */
+function renderInteractionDock(): void {
+  el.interactionDock.hidden = state.interactions.length === 0
+  el.interactionDock.innerHTML = state.interactions.map(request => `
+    <section class="interaction-card ${request.kind}" role="alertdialog" aria-label="${escapeHtml(interactionTitle(request))}">
+      <header>
+        <strong>${escapeHtml(interactionTitle(request))}</strong>
+        <span>${escapeHtml(truncate(request.title, 120))}</span>
+      </header>
+      ${request.detail === undefined ? '' : `<details class="metadata-line"><summary>${escapeHtml(t('chat.details'))}</summary><pre>${escapeHtml(truncate(formatPayload(request.detail, 'json'), 2000))}</pre></details>`}
+      <div class="interaction-actions">
+        ${request.kind === 'elicitation' ? `<button type="button" class="allow" data-respond-accept="${escapeHtml(request.id)}">${escapeHtml(t('interaction.accept'))}</button>` : ''}
+        ${request.options.map(option => `<button type="button" class="${option.kind.startsWith('allow') ? 'allow' : 'reject'}" data-respond-option="${escapeHtml(option.optionId)}" data-respond-id="${escapeHtml(request.id)}">${escapeHtml(option.name)}</button>`).join('')}
+        <button type="button" data-respond-cancel="${escapeHtml(request.id)}">${escapeHtml(t('interaction.dismiss'))}</button>
+      </div>
+    </section>
+  `).join('')
+}
+
+function interactionTitle(request: InteractionRequest): string {
+  return request.kind === 'permission' ? t('interaction.permissionTitle') : t('interaction.questionTitle')
+}
+
+/* ── Message queue: prompts typed while a turn runs send when it ends ─────── */
+
+function queueFor(sessionId: string): string[] {
+  const queue = state.queues.get(sessionId) ?? []
+  state.queues.set(sessionId, queue)
+  return queue
+}
+
+function renderQueueDock(): void {
+  const sessionId = state.selectedSessionId ?? DRAFT_SESSION_ID
+  const queue = state.queues.get(sessionId) ?? []
+  const paused = state.pausedQueues.has(sessionId)
+  el.queueDock.hidden = state.activeModule !== 'sessions' || queue.length === 0
+  if (el.queueDock.hidden) {
+    el.queueDock.innerHTML = ''
+    return
+  }
+  el.queueDock.innerHTML = `
+    <section class="queue-card">
+      <header><strong>${escapeHtml(t('queue.title'))}</strong><span>${queue.length}</span></header>
+      ${queue.map((text, index) => `
+        <div class="queue-item">
+          <button type="button" class="queue-text" data-queue-edit="${index}" title="${escapeHtml(t('queue.edit'))}">${escapeHtml(truncate(text, 120))}</button>
+          <button type="button" class="queue-remove" data-queue-remove="${index}" aria-label="${escapeHtml(t('queue.remove'))}">×</button>
+        </div>
+      `).join('')}
+      ${paused ? `<footer class="queue-paused"><span>${escapeHtml(t('queue.paused'))}</span><button type="button" data-queue-resume="true">${escapeHtml(t('queue.resume'))}</button></footer>` : ''}
+    </section>
+  `
+}
+
+/** Send the next queued prompt once the turn is over and the queue is running. */
+function maybeSendNextQueued(sessionId: string): void {
+  if (state.busySessionId !== undefined || state.pausedQueues.has(sessionId)) return
+  if (state.selectedSessionId !== sessionId) return
+  const queue = state.queues.get(sessionId) ?? []
+  const next = queue.shift()
+  renderQueueDock()
+  if (next !== undefined) void sendPrompt(next)
+}
+
+/** Latest plan snapshot for the selected session: live beats persisted. */
+function currentPlanItems(): PlanItem[] {
+  const live = currentLiveTurn()
+  if (live?.plan !== undefined && live.plan.length > 0) return [...live.plan]
+  const planTargets = [...state.graph.targets.values()].filter(target => target.kind === 'plan')
+  const last = planTargets[planTargets.length - 1]
+  return last === undefined ? [] : planItemsOf(last)
+}
+
+function renderPlanDock(): void {
+  const items = state.activeModule === 'sessions' ? currentPlanItems() : []
+  const allDone = items.length > 0 && items.every(item => item.status === 'completed')
+  el.planDock.hidden = items.length === 0 || allDone
+  el.planDock.innerHTML = el.planDock.hidden ? '' : renderPlanList(items)
 }
 
 function planItemsOf(target: TraceTarget): PlanItem[] {
@@ -1618,7 +1775,14 @@ function wireStaticEvents(): void {
   el.composerForm.addEventListener('submit', (event) => {
     event.preventDefault()
     const prompt = el.composerInput.value.trim()
-    if (prompt.length === 0 || state.busySessionId !== undefined) return
+    if (prompt.length === 0) return
+    if (state.busySessionId !== undefined) {
+      queueFor(state.selectedSessionId ?? DRAFT_SESSION_ID).push(prompt)
+      el.composerInput.value = ''
+      updateComposerState()
+      renderQueueDock()
+      return
+    }
     void sendPrompt(prompt)
   })
   el.cancelButton.addEventListener('click', () => {
@@ -1717,6 +1881,46 @@ async function handleDelegatedClick(event: MouseEvent): Promise<void> {
   const action = target.closest<HTMLElement>('[data-action]')?.dataset.action
   if (action !== undefined) {
     await handleAction(action)
+    return
+  }
+
+  const respondOption = target.closest<HTMLElement>('[data-respond-option]')
+  if (respondOption !== null) {
+    void respondInteraction(respondOption.dataset.respondId ?? '', { optionId: respondOption.dataset.respondOption })
+    return
+  }
+  const respondAccept = target.closest<HTMLElement>('[data-respond-accept]')?.dataset.respondAccept
+  if (respondAccept !== undefined) {
+    void respondInteraction(respondAccept, { accepted: true })
+    return
+  }
+  const respondCancel = target.closest<HTMLElement>('[data-respond-cancel]')?.dataset.respondCancel
+  if (respondCancel !== undefined) {
+    void respondInteraction(respondCancel, { cancelled: true })
+    return
+  }
+  const queueEdit = target.closest<HTMLElement>('[data-queue-edit]')?.dataset.queueEdit
+  if (queueEdit !== undefined) {
+    const queue = queueFor(state.selectedSessionId ?? DRAFT_SESSION_ID)
+    const [text] = queue.splice(Number(queueEdit), 1)
+    if (text !== undefined) {
+      el.composerInput.value = text
+      updateComposerState()
+      el.composerInput.focus()
+    }
+    renderQueueDock()
+    return
+  }
+  const queueRemove = target.closest<HTMLElement>('[data-queue-remove]')?.dataset.queueRemove
+  if (queueRemove !== undefined) {
+    queueFor(state.selectedSessionId ?? DRAFT_SESSION_ID).splice(Number(queueRemove), 1)
+    renderQueueDock()
+    return
+  }
+  if (target.closest<HTMLElement>('[data-queue-resume]') !== null) {
+    state.pausedQueues.delete(state.selectedSessionId ?? DRAFT_SESSION_ID)
+    renderQueueDock()
+    maybeSendNextQueued(state.selectedSessionId ?? DRAFT_SESSION_ID)
     return
   }
 

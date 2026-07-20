@@ -31,6 +31,10 @@ declare global {
         status(): Promise<unknown>
         openPath(path: string): Promise<unknown>
       }
+      interaction: {
+        onRequest(callback: (payload: unknown) => void): () => void
+        respond(id: string, response: unknown): Promise<unknown>
+      }
     }
   }
 }

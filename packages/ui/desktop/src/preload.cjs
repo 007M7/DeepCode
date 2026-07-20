@@ -41,6 +41,14 @@ const api = {
     status: () => ipcRenderer.invoke('dev:status'),
     openPath: (path) => ipcRenderer.invoke('dev:open-path', { path }),
   },
+  interaction: {
+    onRequest: (callback) => {
+      const listener = (_event, payload) => { callback(payload) }
+      ipcRenderer.on('interaction:request', listener)
+      return () => { ipcRenderer.removeListener('interaction:request', listener) }
+    },
+    respond: (id, response) => ipcRenderer.invoke('interaction:respond', { id, response }),
+  },
 }
 
 contextBridge.exposeInMainWorld('dshDesktop', api)

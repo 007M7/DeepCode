@@ -16,6 +16,13 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve }
 }
 
+function submitPrompt(text: string): void {
+  const composer = document.querySelector<HTMLTextAreaElement>('#composerInput')!
+  composer.value = text
+  composer.dispatchEvent(new Event('input', { bubbles: true }))
+  document.querySelector<HTMLFormElement>('#composerForm')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+}
+
 describe('desktop renderer chat lifecycle', () => {
   beforeEach(() => {
     vi.resetModules()
@@ -94,6 +101,7 @@ describe('desktop renderer chat lifecycle', () => {
       trace: { read: async () => traceRead },
       feedback: { list: async () => [], add: async () => ({}) },
       dev: { status: async () => ({ git: {} }), openPath: async () => ({}) },
+      interaction: { onRequest: () => () => {}, respond: async () => ({}) },
     }
 
     await import('../src/app.ts')
@@ -287,19 +295,14 @@ describe('desktop renderer chat lifecycle', () => {
       trace: { read: async () => traceRead },
       feedback: { list: async () => [], add: async () => ({}) },
       dev: { status: async () => ({ git: {} }), openPath: async () => ({}) },
+      interaction: { onRequest: () => () => {}, respond: async () => ({}) },
     }
 
     await import('../src/app.ts')
     await vi.waitFor(() => {
       expect(document.querySelector('#composerInput')).not.toBeNull()
     })
-    const composer = document.querySelector<HTMLTextAreaElement>('#composerInput')!
-    const form = document.querySelector<HTMLFormElement>('#composerForm')!
-    const send = (text: string): void => {
-      composer.value = text
-      composer.dispatchEvent(new Event('input', { bubbles: true }))
-      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-    }
+    const send = submitPrompt
 
     document.querySelector<HTMLButtonElement>('[data-action="new-session"]')!.click()
     send('first')
@@ -329,9 +332,9 @@ describe('desktop renderer chat lifecycle', () => {
       { content: 'write the report', priority: 'medium', status: 'pending' },
     ] } })
     await vi.waitFor(() => {
-      const livePlan = document.querySelector('[data-live="plan"] .plan-card')
-      expect(livePlan?.textContent).toContain('collect findings')
-      expect(livePlan?.textContent).toContain('0/2')
+      const dockPlan = document.querySelector('#planDock .plan-card')
+      expect(dockPlan?.textContent).toContain('collect findings')
+      expect(dockPlan?.textContent).toContain('0/2')
     })
 
     // Once the persisted log catches up, the view converges with no user action.
@@ -343,10 +346,119 @@ describe('desktop renderer chat lifecycle', () => {
     }, { timeout: 4000 })
     // The live workflow presentation survives the switch to the persisted view.
     expect(document.querySelector('#conversation')?.textContent).toContain('workflow: run audit agents')
-    // The persisted todo/write renders as a checklist card with the streamed kind verb.
-    const planCard = document.querySelector('#conversation .plan-activity .plan-card')
-    expect(planCard?.textContent).toContain('write the report')
-    expect(planCard?.textContent).toContain('1/2')
+    // The checklist docks above the composer (latest persisted snapshot), and
+    // the thread itself does not repeat it.
+    const dockPlan = document.querySelector('#planDock .plan-card')
+    expect(dockPlan?.textContent).toContain('write the report')
+    expect(dockPlan?.textContent).toContain('1/2')
+    expect(document.querySelector('#conversation .plan-activity')).toBeNull()
     expect(document.querySelector('#conversation .chat-activity.tool-use .activity-select span')?.textContent).toBe('执行')
+  })
+
+  it('queues prompts while a turn runs and renders permission cards from main', async () => {
+    const prompts: Deferred<unknown>[] = [deferred(), deferred()]
+    const promptQueue = [...prompts]
+    const promptedTexts: string[] = []
+    const responses: unknown[] = []
+    let interactionCallback: ((payload: unknown) => void) | undefined
+    const turnTrace = {
+      found: true,
+      sessionId: 's-q',
+      header: { id: 's-q' },
+      rawText: '',
+      feedback: [],
+      events: [
+        { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' } } },
+        { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'first' }] } },
+        { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } },
+        { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'first answer' }] } },
+        { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } },
+        { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
+      ],
+    }
+
+    window.dshDesktop = {
+      runtime: {
+        start: async () => ({}),
+        stop: async () => ({}),
+        restart: async () => ({}),
+        status: async () => ({ state: 'running', repoRoot: '/repo' }),
+        onStatus: () => () => {},
+        onStderr: () => () => {},
+      },
+      sessions: {
+        list: async () => ({ sessions: [] }),
+        create: async () => ({ sessionId: 's-q', trace: { ...turnTrace, events: [] } }),
+        load: async () => ({}),
+        prompt: async (_sessionId: string, text: string) => {
+          promptedTexts.push(text)
+          return promptQueue.shift()!.promise
+        },
+        cancel: async () => ({}),
+        reveal: async () => ({}),
+        onUpdate: () => () => {},
+      },
+      trace: { read: async () => turnTrace },
+      feedback: { list: async () => [], add: async () => ({}) },
+      dev: { status: async () => ({ git: {} }), openPath: async () => ({}) },
+      interaction: {
+        onRequest: (callback: (payload: unknown) => void) => {
+          interactionCallback = callback
+          return () => {}
+        },
+        respond: async (id: string, response: unknown) => {
+          responses.push({ id, response })
+          return {}
+        },
+      },
+    }
+
+    await import('../src/app.ts')
+    await vi.waitFor(() => {
+      expect(document.querySelector('#composerInput')).not.toBeNull()
+    })
+    const composer = document.querySelector<HTMLTextAreaElement>('#composerInput')!
+    const send = submitPrompt
+
+    document.querySelector<HTMLButtonElement>('[data-action="new-session"]')!.click()
+    send('first')
+    await vi.waitFor(() => {
+      expect(promptedTexts).toEqual(['first'])
+    })
+
+    // Busy: the next prompt queues instead of being dropped or blocked.
+    send('second')
+    const queueDock = document.querySelector<HTMLElement>('#queueDock')!
+    expect(queueDock.hidden).toBe(false)
+    expect(queueDock.textContent).toContain('second')
+    expect(composer.value).toBe('')
+
+    // A permission request from main renders as a card; answering routes back.
+    interactionCallback?.({
+      id: 'i-1',
+      kind: 'permission',
+      sessionId: 's-q',
+      title: 'bash: rm -rf build',
+      detail: { command: 'rm -rf build' },
+      options: [
+        { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+        { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+      ],
+    })
+    const card = document.querySelector<HTMLElement>('#interactionDock .interaction-card')!
+    expect(card.textContent).toContain('bash: rm -rf build')
+    card.querySelector<HTMLButtonElement>('[data-respond-option="allow-once"]')!.click()
+    await vi.waitFor(() => {
+      expect(responses).toEqual([{ id: 'i-1', response: { optionId: 'allow-once' } }])
+      expect(document.querySelector<HTMLElement>('#interactionDock')?.hidden).toBe(true)
+    })
+
+    // Turn completion drains the queue automatically.
+    prompts[0]!.resolve({ response: {}, trace: turnTrace })
+    await vi.waitFor(() => {
+      expect(promptedTexts).toEqual(['first', 'second'])
+      expect(document.querySelector<HTMLElement>('#queueDock')?.hidden).toBe(true)
+    })
+    expect(document.querySelector('#liveTurn .user-bubble')?.textContent).toBe('second')
   })
 })
