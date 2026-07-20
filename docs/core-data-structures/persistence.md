@@ -6,7 +6,7 @@ The seam is a textbook [capability seam](../../.agents/notes/implemented/archite
 
 ## The flush checkpoint
 
-`session/event` is a *synchronous* notification; persistence plugins buffer it (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end. Flush is `ctx.parallel` (awaited): a turn's events are durably committed before the next turn starts, and the turn boundary is the commit boundary. A rejecting flush is reported via `agent/error` and the logger — never as a session event (it would land past the commit boundary), so the backend keeps its buffered events for the next flush.
+`session/event` is a *synchronous* notification; persistence plugins buffer it (write-behind) until `session/flush`. The loop awaits an ordinary turn's checkpoint before claiming the next queue item; synchronous idle `inject()` schedules its checkpoint without blocking `send()`, and disposal still drains it. A successful flush durably commits the closed turn as one unit; a rejecting flush is reported through `agent/error` and the logger — never as a session event past the closed turn — while the backend keeps its buffered events for the next flush.
 
 ## Crash recovery preserves an interrupted turn
 

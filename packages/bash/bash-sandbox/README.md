@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-bash-sandbox
 
-Sandbox-consuming implementation of the [`@deepseek-ai/dsh-bash`](../bash/) executor seam. Load it **instead of** `@deepseek-ai/dsh-bash-local`, together with a [`ctx.sandbox`](../../sandbox/sandbox/) provider (e.g. [`@deepseek-ai/dsh-sandbox-local`](../../sandbox/sandbox-local/)) — no alternate tool plugin is needed; `dsh-tool-bash` detects the executor's `sandboxMode` capability and adds the escalation fields.
+Sandbox-consuming implementation of the [`@deepseek-ai/dsh-bash`](../bash/) executor seam. Load it **instead of** `@deepseek-ai/dsh-bash-local`, together with a [`ctx.sandbox`](../../sandbox/sandbox/) provider (e.g. [`@deepseek-ai/dsh-sandbox-local`](../../sandbox/sandbox-local/)) and a [`ctx.sandboxPolicy`](../../sandbox/sandbox-policy/) (which owns the default mode + workspace root, shared with the sandboxed filesystem) — no alternate tool plugin is needed; `dsh-tool-bash` detects the executor's `sandboxMode` capability and adds the escalation fields.
 
 The package root exports the default and named `SandboxBashExecutor` plugin plus its `Config`; quoting and result-classification helpers stay internal.
 
@@ -16,7 +16,7 @@ Semantics:
 
 - **Denials are result facts.** A failed run whose stderr carries the selected backend's own denial dialect — the signatures the provider stamps on every wrap (EROFS text under bwrap, EACCES under Landlock, EPERM under Seatbelt) — is reported as `BashRunResult.sandbox.denied: true` (conservative classification, read from the collected stderr tail); every CONFINED run also carries the mode it executed under (`result.sandbox.mode`) and the provider's enforcement completeness (`result.sandbox.enforcement`: `full`, or `partial` on an older Landlock ABI).
 - **Runner failures are sandbox failures, never command failures.** Foreground execution throws `SANDBOX_UNAVAILABLE`; a settled background process stamps `process.sandbox.runnerFailed`, which the bash producer renders through generic `task_output`. Spawn failures also pass through settlement, so confined background handles retain their mode/enforcement facts and release per-process accounting.
-- **Config-time default, per-call policy.** The DEFAULT mode is fixed by this entry's config for the executor's lifetime; `resolve()` stamps it onto every spec, and an explicit request-level `sandboxMode` override — set by the tool layer only for a call whose wider mode a human granted through `ctx.approval` ([the sandbox Agent Note § Escalation](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)) — makes THAT call run, classify, and report under its own mode while every neighbor keeps the default (background facts are stamped per task at settle). The capability fact `ctx.bash.sandboxMode` reports the configured default so the tool layer advertises escalation only when this executor is mounted. The model learns of the sandbox only through result facts — the static bash tool description explains the denial marker; there is no current-mode statement in the system prompt.
+- **Deployment default, per-call policy.** The DEFAULT mode + workspace root are owned by [`ctx.sandboxPolicy`](../../sandbox/sandbox-policy/) (one home both enforcing families read), not this executor's config; `resolve()` stamps the default onto every spec, and an explicit request-level `sandboxMode` override — set by the tool layer only for a call whose wider mode a human granted through `ctx.approval` ([the sandbox Agent Note § Escalation](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)) — makes THAT call run, classify, and report under its own mode while every neighbor keeps the default (background facts are stamped per task at settle). The capability fact `ctx.bash.sandboxMode` reports the configured default so the tool layer advertises escalation only when this executor is mounted. The model learns of the sandbox only through result facts — the static bash tool description explains the denial marker; there is no current-mode statement in the system prompt.
 - **File effects only.** Network and process visibility are deliberately not restricted — the mode vocabulary does not pretend to cover what the backend does not enforce.
 - Process mechanics (spawn, process-group kills, output collection/spill, background handles, credential scrub) are inherited from [`dsh-bash-local`](../bash-local/); runner selection lives in [`dsh-sandbox-local`](../../sandbox/sandbox-local/).
 
@@ -25,11 +25,13 @@ Deny-only at the seam: a denial is a reported fact, and this executor never nego
 ```yaml
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'
-- id: bash
-  name: '@deepseek-ai/dsh-bash-sandbox'
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
   config:
     mode: read-only
     workspaceRoot: !!js process.cwd()
+- id: bash
+  name: '@deepseek-ai/dsh-bash-sandbox'
 ```
 
 The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landlock.e2e.ts`, and `tests/seatbelt.e2e.ts` (the real provider + real runner driven through `ctx.bash`, world-verified, each self-skipping where its runner is absent); see [the acp-agent example's default composition](../../../examples/acp-agent/) for the runnable demo.

@@ -6,7 +6,7 @@ Source: [`packages/compact/compact/src/types.ts`](../../packages/compact/compact
 
 ## The `compact/*` session events
 
-Compaction extends [`SessionEventMap`](session.md) with three event types via declaration merging. All three are **log-only** — they record the compaction lock and its provenance, and never join the surface. `SurfaceEventType` is deliberately NOT extended (only message-producing events reach the model), so the summary itself rides on a separate `user/message` with `surfaceOp: { op: 'replace', start, end }` — the only surface mutation. See the Agent Note for why reusing `user/message` is honest rather than a workaround.
+Compaction extends [`SessionEventMap`](session.md) with three event types via declaration merging. All three are **log-only** — they record the compaction lock and its provenance, and never join the surface. `SurfaceEventType` is deliberately NOT extended (only message-producing events reach the model), so the summary itself rides on a separate `user/message` with `surfaceOp: { op: 'replace', start, end }` — the only surface mutation performed by summary compaction. See the Agent Note for why reusing `user/message` is honest rather than a workaround.
 
 | Event | Payload | Role |
 |---|---|---|
@@ -60,6 +60,36 @@ type CompactionTrigger = 'pressure' | 'context-overflow'
 
 `CompactService` exposes `compactIfNeeded(agent, trigger, signal)` for automatic `pressure` or `context-overflow` policy, returning `null` when no safe work exists, and `compactRegion(...)` for an explicit inclusive surface range. Implementations must forward the supplied signal to summarization. The seam owns no pricing API: the singleton [`ctx.tokenMeter`](token-meter.md) directly owns estimation and replay, while `dsh-compact-basic` owns retention, event sequencing, routed summarization calls, and their configuration.
 
-Pressure compaction runs at serial `agent/post-step`, after successful assistant output, tool results, buffered context, and steering are durable but before `step/end`. Failed-request recovery runs through `agent/request-error` after the failed step closes, and authorizes a fresh numbered-step retry only when the surface replacement generation advances. Region boundaries preserve tool-call/result pairing but do not preserve whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compact-basic` owns thresholds, retained-tail policy, overflow caps, and failure handling.
+Pressure compaction runs at serial `agent/post-step`, after successful assistant output, tool results, buffered context, and steering are durable but before `step/end`. Once pressure or canonical overflow qualifies, compact-basic invokes optional [`ctx.toolResultPrune`](../../packages/compact/compact-tool-result-prune/README.md) before range selection, remeasures through `ctx.tokenMeter`, and can advance the surface without a summary. Failed-request recovery runs through `agent/request-error` after the failed step closes and authorizes a fresh numbered-step retry only when the surface replacement generation advances, even if later summary work throws after pruning; cancellation still wins. Region boundaries preserve tool-call/result pairing but not whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compact-basic` owns thresholds, retained-tail policy, overflow caps, and failure handling.
 
 The seam exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for those edge checks. Both validate current surface membership and reject missing seqs and orphan results; the [package contract](../../packages/compact/compact/README.md#tool-pairing-boundaries) owns their cache semantics.
+
+## Tool-result pruning outcomes
+
+The optional tool-result pruning service reports each durable content replacement and the aggregate Unicode-code-point reduction. Its public result types live in [`compact-tool-result-prune/src/types.ts`](../../packages/compact/compact-tool-result-prune/src/types.ts).
+
+```ts type-equiv
+/** Provenance and size accounting for one landed surface replacement. */
+interface PrunedEntry {
+  /** Full-fidelity tool-result event shadowed by the replacement. */
+  readonly originalSeq: number
+  /** Newly appended pruned tool-result event. */
+  readonly replacementSeq: number
+  /** Tool call shared by the original and replacement. */
+  readonly callId: CallId
+  /** Original text size in Unicode code points. */
+  readonly charsBefore: number
+  /** Replacement text size in Unicode code points. */
+  readonly charsAfter: number
+}
+```
+
+```ts type-equiv
+/** Aggregate outcome of one stable-surface pruning pass. */
+interface PruneResult {
+  /** Replacements in the snapshotted surface order. */
+  readonly pruned: readonly PrunedEntry[]
+  /** Total Unicode code points removed across replacements. */
+  readonly charsRemoved: number
+}
+```

@@ -12,7 +12,9 @@ export default tseslint.config(
       '**/.sessions/**',
       '.claude/**', // harness-local state (worktrees, skills) — other checkouts, not this one's sources
       '**/.doc-typecheck-*/**',
+      'website/.generated/**',
       'vendor/**', // vendored source keeps upstream style and idioms
+      'native/**', // imported landlock-run subtree: self-contained workspace with its own gates (native/README.md)
       '**/*.js',
       '**/*.mjs',
       '*.config.ts', // root tool configs (vitest, tsdown) — no project service
@@ -21,7 +23,7 @@ export default tseslint.config(
 
   // --- our packages: full strictness -------------------------------------
   {
-    files: ['packages/*/*/src/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts'],
+    files: ['packages/*/*/src/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts'],
     extends: [
       ...tseslint.configs.strictTypeChecked,
     ],
@@ -108,7 +110,7 @@ export default tseslint.config(
 
   // --- file-local duplication (all owned TypeScript) ---------------------
   {
-    files: ['packages/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts'],
+    files: ['packages/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts'],
     plugins: { sonarjs },
     rules: {
       // Cross-file clones are covered separately by jscpd.
@@ -125,7 +127,7 @@ export default tseslint.config(
 
   // --- formatting (everything we own) -------------------------------------
   {
-    files: ['packages/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'eslint.config.mjs'],
+    files: ['packages/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts', 'eslint.config.mjs'],
     plugins: { '@stylistic': stylistic },
     rules: {
       '@stylistic/indent': ['error', 2],
