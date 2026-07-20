@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId, type ContentBlock, type GenerateOptions } from '@deepseek-ai/dsh-llm'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { ContinuationDecision } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
@@ -61,7 +61,7 @@ async function setup(script: Script, options: SetupOptions = {}) {
     start: (request: SubagentStartRequest) => startInProcessRun(request, {}),
   })
   ctx.llm.registerAdapter(['mock'], adapter)
-  const parent = ctx.agentLoop.create(AgentId('parent'), { provider: 'mock', model: 'mock' })
+  const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
   return { ctx, parent, adapter, disposeProvider }
 }
 
@@ -322,7 +322,7 @@ describe('in-process structured output', () => {
     await expect(ctx.subagents.start('spawn', structuredRequest(parent, {
       outputSchema: { type: 'object', oneOf: [] } as unknown as StructuredOutputSchema,
     }))).rejects.toThrow(/unsupported output schema/)
-    expect(ctx.agents.get(AgentId('parent'))).toBeDefined()
+    expect(ctx.agents.get(SessionId('parent'))).toBeDefined()
   })
 
   it('a schema carrying non-JSON values fails as OutputSchemaError at the validation boundary', async () => {

@@ -42,9 +42,6 @@
       "path": "../../core/agent"
     },
     {
-      "path": "../../core/agent-execution"
-    },
-    {
       "path": "../../context/workspace-context"
     },
     {

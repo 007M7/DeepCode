@@ -96,11 +96,19 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns isolated per-session replay folds; pressure consumers share immutable revisioned measurements.',
   },
   {
+    key: 'toolResultPrune',
+    pkg: 'compact-tool-result-prune',
+    title: 'Model-free tool-result pruning',
+    mode: 'core',
+    consumers: ['compact-basic'],
+    note: 'Rewrites oversized current tool results through replayable single-node surface replacements before summary compaction.',
+  },
+  {
     key: 'sessions',
     pkg: 'session',
     title: 'In-memory session store',
     mode: 'core',
-    consumers: ['agent-loop', 'agent', 'session-persistence', 'session-query', 'subagent-inprocess', 'invariants'],
+    consumers: ['agent-loop', 'agent', 'cli-demo', 'session-persistence', 'session-query', 'subagent-inprocess', 'invariants'],
     note: 'Owns append-only Session instances and emits the durable session event feed.',
   },
   {
@@ -140,8 +148,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'user-interaction',
     title: 'Human question/answer seam',
     mode: 'seam',
-    implementations: ['stdio-demo', 'acp'],
-    consumers: ['tool-ask-user', 'stdio-demo', 'acp'],
+    implementations: ['tui', 'acp'],
+    consumers: ['tool-ask-user', 'tui', 'acp'],
     note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
   },
   {
@@ -156,18 +164,10 @@ const SERVICE_ROLES: ServiceRole[] = [
   {
     key: 'agents',
     pkg: 'agent',
-    title: 'Agent registry',
+    title: 'Agent service',
     mode: 'core',
-    consumers: ['agent-loop', 'acp', 'subagent-inprocess', 'stdio-demo', 'invariants'],
-    note: 'Owns live Agent handles and the create/resume factory seam.',
-  },
-  {
-    key: 'agentExecution',
-    pkg: 'agent-execution',
-    title: 'Agent execution context',
-    mode: 'core',
-    consumers: ['agent-loop'],
-    note: 'Carries the exact initiating Agent across one process-local asynchronous driver chain; explicit identities remain authoritative at external boundaries.',
+    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess', 'tui-demo', 'invariants'],
+    note: 'Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation.',
   },
   {
     key: 'agentLoop',
@@ -203,6 +203,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement.',
   },
   {
+    key: 'sandboxPolicy',
+    pkg: 'sandbox-policy',
+    title: 'Sandbox policy home',
+    mode: 'core',
+    implementations: [],
+    consumers: ['bash-sandbox', 'fs-sandbox'],
+    note: 'The one home for the deployment default mode + workspace root; only the sandboxed executor and provider read the service (the tool layers use the pure `sandbox/mode` fold it also exports). Both enforcing families read it so bash and fs cannot confine to different roots.',
+  },
+  {
     key: 'approval',
     pkg: 'approval',
     title: 'Approval seam',
@@ -234,10 +243,10 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'fs',
     title: 'Filesystem provider seam',
     mode: 'seam',
-    implementations: ['fs-local'],
+    implementations: ['fs-local', 'fs-sandbox'],
     consumers: ['tool-fs'],
     companions: ['fs-policy'],
-    note: 'tool-fs executes read/write/edit through ctx.fs; fs-policy contributes observed-state checks through the fs/* event gate.',
+    note: 'tool-fs executes read/write/edit through ctx.fs; fs-sandbox fences mutations by the shared sandbox mode; fs-policy contributes observed-state checks through the fs/* event gate.',
   },
   {
     key: 'compact',
@@ -246,14 +255,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'seam',
     implementations: ['compact-basic'],
     consumers: ['compact-basic'],
-    note: 'The basic backend currently consumes the pre-step event directly; a model-facing compact tool remains deferred.',
+    note: 'The basic backend consumes post-step pressure and request-error recovery events; a model-facing compact tool remains deferred.',
   },
   {
     key: 'subagents',
     pkg: 'subagent',
     title: 'Subagent provider registry',
     mode: 'seam',
-    implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp', 'subagent-mock'],
+    implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp'],
     consumers: ['tool-subagent'],
     note: 'Providers implement transports; tool-subagent exposes one configured provider as a model-facing tool name.',
   },
@@ -427,20 +436,20 @@ function stripYamlScalar(value: string): string {
 
 const APP_EXAMPLES = [
   {
-    id: 'echo',
-    rel: 'examples/echo-agent/composition.md',
-    title: 'Echo Agent App Composition',
-    label: 'examples/echo-agent',
-    config: 'examples/echo-agent/cordis.yml',
-    summary: 'The echo demo swaps in a local mock LLM and teaching echo tool, then loads the stdio app package for the shared spine and terminal front door.',
+    id: 'tui',
+    rel: 'examples/tui-agent/composition.md',
+    title: 'TUI Agent App Composition',
+    label: 'examples/tui-agent',
+    config: 'examples/tui-agent/cordis.yml',
+    summary: 'The TUI agent combines the real DeepSeek adapter, coding tools, compaction, subagents, and workflows with the full-screen terminal app package.',
   },
   {
-    id: 'coding',
-    rel: 'examples/coding-agent/composition.md',
-    title: 'Coding Agent App Composition',
-    label: 'examples/coding-agent',
-    config: 'examples/coding-agent/cordis.yml',
-    summary: 'The coding REPL demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.',
+    id: 'headless',
+    rel: 'examples/headless-agent/composition.md',
+    title: 'Headless Agent App Composition',
+    label: 'examples/headless-agent',
+    config: 'examples/headless-agent/cordis.yml',
+    summary: 'The headless demo combines the real DeepSeek adapter and coding capabilities with the one-shot app package, format-pure stdout, and one fresh persisted top-level session.',
   },
   {
     id: 'cordis',
@@ -467,8 +476,10 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   const jsonl = nodeId('bundle', 'jsonl')
   lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
-  if (pluginName === '@deepseek-ai/dsh-stdio-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'stdio')}["readline UI<br/>console logger<br/>pre-created main agent"]`)
+  if (pluginName === '@deepseek-ai/dsh-tui-demo') {
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'tui')}["@deepseek-ai/dsh-tui<br/>pre-created main agent"]`)
+  } else if (pluginName === '@deepseek-ai/dsh-cli-demo') {
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'cli')}["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]`)
   } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]`)
   }
@@ -495,7 +506,7 @@ function renderAppComposition(example: AppExample): string {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
-    if (plugin.name === '@deepseek-ai/dsh-stdio-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
+    if (plugin.name === '@deepseek-ai/dsh-tui-demo' || plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
       renderAppExpansion(lines, pluginNode, plugin.name)
     }
   }
@@ -853,6 +864,11 @@ function renderLifecycle(): string {
     '  LLM-->>Driver: StreamChunk*',
     `  Driver->>Session: ${mermaidCode('assistant/chunk')}*`,
     `  Session-->>SDK: ${mermaidCode('session/event')} ${mermaidCode('assistant/chunk')}*`,
+    '  alt final adapter or terminal in-band request failure',
+    `    Driver->>Session: ${mermaidCode('step/end')}`,
+    `    Driver->>Hooks: ${mermaidCode('agent/request-error')} waterfall`,
+    '    Hooks-->>Driver: retry in a new step or preserve the original error',
+    '  else model request succeeded',
     `  Driver->>Hooks: ${mermaidCode('agent/step-result')} waterfall`,
     `  Driver->>Session: ${mermaidCode('assistant/message')}`,
     '  Driver->>Tools: classify pending call by executionMode',
@@ -867,15 +883,20 @@ function renderLifecycle(): string {
     `      Driver->>Session: ${mermaidCode('tool/result')}`,
     '    end',
     '  end',
+    '  Driver->>Session: post-tool context and steering',
+    `  Driver->>Hooks: ${mermaidCode('agent/post-step')} serial checkpoint`,
     `  Driver->>Session: ${mermaidCode('step/end')}`,
     `  Driver->>Hooks: ${mermaidCode('agent/turn-continuation')} waterfall`,
     `  Driver->>Hooks: ${mermaidCode('agent/turn-stop')} serial terminal checkpoint`,
+    '  end',
     `  Driver->>Session: ${mermaidCode('turn/end')}`,
     `  Driver->>Persistence: ${mermaidCode('session/flush')} parallel checkpoint`,
     `  Driver-->>SDK: ${mermaidCode('agent/status')} idle`,
     '```',
     '',
     'The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.',
+    '',
+    '`dsh-compact-basic` uses `agent/post-step` for pressure after those durable facts and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and a fresh retry step, and returns retry only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.',
     '',
     'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.',
     '',
@@ -951,14 +972,14 @@ function renderSnapshotReplay(): string {
     '  participant Workspace',
     '  participant Replay as llm-replay adapter',
     '  participant ACP as acp-agent subprocess',
-    '  participant Golden as stdout golden',
+    '  participant Expected as stdout expected output',
     '  Recorder->>Fixture: session.jsonl + workspace inputs',
     '  Fixture->>Workspace: seed files and hook configs',
     '  Fixture->>Replay: recorded StreamChunk script',
     `  Replay->>ACP: deterministic ${mermaidCode('llm/stream')} chunks`,
     '  ACP->>Workspace: bash, fs, and hook side effects',
-    '  ACP->>Golden: normalized sessionUpdate stream',
-    '  Golden-->>ACP: diff must be empty',
+    '  ACP->>Expected: normalized sessionUpdate stream',
+    '  Expected-->>ACP: diff must be empty',
     '```',
     '',
     'The fs and hook snapshot matrix is valuable because it proves world state, hook decisions, and failed tool-card rendering, not just that replay returns text.',
@@ -984,8 +1005,8 @@ function renderDocs(): GraphDoc[] {
 function renderIndex(docs: GraphDoc[]): string {
   const labels: Record<string, string> = {
     'docs/capability-seams.md': 'capability seams and core services',
-    'examples/echo-agent/composition.md': 'echo-agent app composition',
-    'examples/coding-agent/composition.md': 'coding-agent app composition',
+    'examples/headless-agent/composition.md': 'headless-agent app composition',
+    'examples/tui-agent/composition.md': 'tui-agent app composition',
     'examples/cordis-agent/composition.md': 'cordis-agent app composition',
     'examples/acp-agent/composition.md': 'acp-agent app composition',
     'docs/event-producer-consumer.md': 'event producer/consumer matrix',
@@ -995,8 +1016,8 @@ function renderIndex(docs: GraphDoc[]): string {
   }
   const modes: Record<string, string> = {
     'docs/capability-seams.md': 'hybrid generated',
-    'examples/echo-agent/composition.md': 'hybrid generated',
-    'examples/coding-agent/composition.md': 'hybrid generated',
+    'examples/headless-agent/composition.md': 'hybrid generated',
+    'examples/tui-agent/composition.md': 'hybrid generated',
     'examples/cordis-agent/composition.md': 'hybrid generated',
     'examples/acp-agent/composition.md': 'hybrid generated',
     'docs/event-producer-consumer.md': 'hybrid generated',
@@ -1017,7 +1038,7 @@ function renderIndex(docs: GraphDoc[]): string {
     ...generatedHeader('Documentation Graph Index'),
     'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog.md](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md).',
     '',
-    'The process decision behind this index is recorded in [the documentation graph RFC](rfc/implemented/process/2026-07-03-documentation-graph-atlas.md).',
+    'The process decision behind this index is recorded in [the documentation graph Agent Note](../.agents/notes/implemented/process/2026-07-03-documentation-graph-atlas.md).',
     '',
     '| Graph | Mode |',
     '| --- | --- |',

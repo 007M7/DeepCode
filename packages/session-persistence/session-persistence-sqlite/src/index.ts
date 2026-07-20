@@ -9,7 +9,7 @@
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   SessionPersistence, PersistenceCoordinator,
@@ -35,12 +35,32 @@ function surfaceBindings(event: SessionEvent): [string | null, string | null] {
   ]
 }
 
+/**
+ * Exclusively create a missing database file with owner-only permissions.
+ * Existing files retain their modes, and errors other than `EEXIST` propagate.
+ * `DatabaseSync` reopens by path, so this does not protect confidentiality or
+ * integrity when another principal can replace the database entry in its parent
+ * directory.
+ */
+async function createDatabaseFile(path: string): Promise<void> {
+  try {
+    const handle = await open(path, 'wx', 0o600)
+    await handle.close()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  }
+}
+
 /** Plugin configuration. */
 export interface Config {
   /**
    * Filesystem path to the SQLite database file. The special value `:memory:`
-   * opens an in-process database (tests); a file path is created (with parent
-   * dirs) on construction.
+   * opens an in-process database (tests). On filesystems with POSIX modes,
+   * missing directories and databases are created owner-only; existing path
+   * modes are preserved. Filesystem setup errors other than an existing database
+   * fail initialization. The backend does not protect confidentiality or
+   * integrity when another principal can replace the database entry in its
+   * parent directory.
    */
   path: string
   /**
@@ -88,6 +108,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     if (path !== ':memory:') {
       const abs = resolve(path)
       await mkdir(dirname(abs), { recursive: true, mode: 0o700 })
+      await createDatabaseFile(abs)
       this.db = openDatabase(abs, journalMode)
     } else {
       this.db = openDatabase(path, journalMode)
@@ -232,14 +253,15 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
    */
   private writeRow(meta: SessionHeader): void {
     this.db.prepare(`
-      INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length, delegation_depth)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         version = excluded.version,
         created_at = excluded.created_at,
         cwd = excluded.cwd,
         parent_session = excluded.parent_session,
-        seed_length = excluded.seed_length
+        seed_length = excluded.seed_length,
+        delegation_depth = excluded.delegation_depth
     `).run(
       meta.id,
       meta.version,
@@ -247,6 +269,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       meta.cwd ?? null,
       meta.parentSession ?? null,
       meta.seedLength ?? null,
+      meta.delegationDepth ?? null,
     )
   }
 }

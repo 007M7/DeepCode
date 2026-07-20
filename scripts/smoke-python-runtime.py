@@ -64,6 +64,7 @@ CUSTOM_CORDIS = """\
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
     root: !!js process.env.DSH_SESSION_ROOT
+    compression: 'none'
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
@@ -391,7 +392,7 @@ def smoke_sdk_default(base_url: str) -> None:
             result = harness.run("reply with the smoke text", session_id="default-smoke")
         assert result.status == "ok", result
         assert result.final_response == EXPECTED_TEXT, result.final_response
-        assert_session_log(sessions, root, EXPECTED_TEXT)
+        assert_zstd_session_log(sessions)
 
 
 def smoke_sdk_custom(base_url: str, executable: Path) -> None:
@@ -585,6 +586,14 @@ def assert_session_log(sessions: Path, cwd: Path, *expected_texts: str) -> None:
             raise AssertionError(f"session log has no {expected!r} response: {logs[0]}")
 
 
+def assert_zstd_session_log(sessions: Path) -> None:
+    logs = list(sessions.rglob("*.jsonl.zstd"))
+    if len(logs) != 1:
+        raise AssertionError(f"expected one Zstandard JSONL session log under {sessions}, found {logs}")
+    if not logs[0].read_bytes().startswith(bytes.fromhex("28b52ffd")):
+        raise AssertionError(f"session log has no Zstandard magic: {logs[0]}")
+
+
 def read_session_logs(sessions: Path) -> dict[str, list[dict[str, object]]]:
     """Parse every persisted JSONL session into a map keyed by header id."""
     logs: dict[str, list[dict[str, object]]] = {}
@@ -628,7 +637,7 @@ def build_snapshot_files(
     child_ids: list[str],
     cwd: Path,
 ) -> dict[str, str]:
-    """Render the SDK result and three persisted logs into stable goldens."""
+    """Render the SDK result and three persisted logs into stable expected outputs."""
     replacements = [(str(cwd), "{{cwd}}"), (SNAPSHOT_SESSION_ID, "{{parent}}")]
     for index, child_id in enumerate(child_ids, start=1):
         replacements.append((child_id, f"{{{{child-{index}}}}}"))

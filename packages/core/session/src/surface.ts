@@ -5,6 +5,7 @@
  * @module @deepseek-ai/dsh-session/surface
  */
 
+import { isDeepStrictEqual } from 'node:util'
 import type { SessionEvent, SurfaceEvent, SurfaceEventType, SurfaceOp } from './types.ts'
 
 /** Runtime counterpart of the message-producing event union. */
@@ -53,6 +54,14 @@ export interface SurfaceFoldResult {
   nodes: number[]
   /** Replacement operations in event order. */
   replacements: SurfaceFoldReplacement[]
+}
+
+/** Readonly live projection of the message-producing session events. */
+export interface SessionSurface {
+  /** Current surface event sequences in model-visible order. */
+  readonly nodes: readonly number[]
+  /** Monotonic count of committed positional replacements. */
+  readonly replaceGeneration: number
 }
 
 /** Mutable state shared by complete and incremental folds. */
@@ -179,11 +188,37 @@ function replacementRange(
   }
 }
 
+/** Restrict a tool-result replacement to one current result's content. */
+function assertToolResultRewrite(
+  event: SessionEvent,
+  shadowedSeqs: readonly number[],
+  events: readonly SessionEvent[],
+): void {
+  if (event.type !== 'tool/result') return
+  if (shadowedSeqs.length !== 1) {
+    throw new Error('tool/result surface replacement must rewrite exactly one current node')
+  }
+  for (const originalSeq of shadowedSeqs) {
+    const original = events[originalSeq]
+    if (original?.type !== 'tool/result') {
+      throw new Error('tool/result surface replacement must target a current tool/result')
+    }
+    const originalRest = { ...original.data } as Record<string, unknown>
+    const replacementRest = { ...event.data } as Record<string, unknown>
+    delete originalRest['content']
+    delete replacementRest['content']
+    if (!isDeepStrictEqual(originalRest, replacementRest)) {
+      throw new Error('tool/result surface replacement may change only content')
+    }
+  }
+}
+
 /** Validate one event at its replay boundary and prepare its atomic fold transition. */
 function planSurfaceEvent(
   state: SurfaceFoldState,
   event: SessionEvent,
   expectedSeq: number,
+  events: readonly SessionEvent[],
 ): SurfacePlan | undefined {
   if (event.seq !== expectedSeq) {
     throw new Error(`session event seq ${event.seq} is not contiguous; expected ${expectedSeq}`)
@@ -196,6 +231,7 @@ function planSurfaceEvent(
   }
   const range = replacementRange(state, surfaceOp)
   assertProvenance(event, range.shadowedSeqs)
+  assertToolResultRewrite(event, range.shadowedSeqs, events)
   return {
     kind: 'replace',
     seq: event.seq,
@@ -210,8 +246,9 @@ function applySurfaceEvent(
   state: SurfaceFoldState,
   event: SessionEvent,
   expectedSeq: number,
+  events: readonly SessionEvent[],
 ): SurfaceFoldReplacement | undefined {
-  const plan = planSurfaceEvent(state, event, expectedSeq)
+  const plan = planSurfaceEvent(state, event, expectedSeq, events)
   if (plan?.kind === 'append') {
     state.nodes.push(plan.seq)
   } else if (plan?.kind === 'replace') {
@@ -231,20 +268,20 @@ function applySurfaceEvent(
  * Replay a complete session log through the canonical surface fold.
  * @param events - session events in contiguous seq order.
  * @returns detached current sequences and replacement history.
- * @throws when an event violates surface metadata, provenance, or range rules.
+ * @throws when an event violates surface metadata, provenance, range, or tool-result rewrite rules.
  */
 export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult {
   const state = createFoldState()
   const replacements: SurfaceFoldReplacement[] = []
   for (const [index, event] of events.entries()) {
-    const replacement = applySurfaceEvent(state, event, index)
+    const replacement = applySurfaceEvent(state, event, index, events)
     if (replacement !== undefined) replacements.push(replacement)
   }
   return { nodes: [...state.nodes], replacements }
 }
 
 /** Incremental ordered surface view and append-boundary validator. */
-export class SurfaceManager {
+export class SurfaceManager implements SessionSurface {
   /** Shared transition state; replacement history is not retained. */
   private _state = createFoldState()
   /** Last processed seq; -1 folds a seeded log on first access. */
@@ -258,7 +295,7 @@ export class SurfaceManager {
    */
   validateNext(event: SessionEvent): void {
     if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
-    planSurfaceEvent(this._state, event, this.log.length)
+    planSurfaceEvent(this._state, event, this.log.length, this.log)
   }
 
   /** Monotonic count of folded positional replacements. */
@@ -277,7 +314,7 @@ export class SurfaceManager {
   private _processDelta(): void {
     for (let i = this._lastProcessedSeq + 1; i < this.log.length; i++) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded by the loop condition
-      applySurfaceEvent(this._state, this.log[i]!, i)
+      applySurfaceEvent(this._state, this.log[i]!, i, this.log)
       this._lastProcessedSeq = i
     }
   }

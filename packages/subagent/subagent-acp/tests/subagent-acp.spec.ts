@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import { buildChildEnv, SENSITIVE_ENV_PATTERN } from '@deepseek-ai/dsh-subagent-subprocess'
+import { buildChildEnv } from '@deepseek-ai/dsh-subagent-subprocess'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as acp from '../src/index.ts'
 import { acpStopReason, acpContentText, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
@@ -58,7 +58,7 @@ function text(blocks: { type: string; text?: string }[]): string {
 /**
  * Poll until `file` exists (the mock touches it once its prompt is in flight),
  * so a cancel test waits on a CONDITION rather than an arbitrary timeout — the
- * subprocess cold-start under tsx is variable, and a fixed sleep both flakes and
+ * subprocess cold-start is variable, and a fixed sleep both flakes and
  * slows the suite. Fails loud if the child never signals readiness.
  */
 async function waitForFile(file: string, timeoutMs = 5000): Promise<void> {
@@ -108,7 +108,6 @@ describe('buildChildEnv', () => {
       // The explicitly-supplied key survives (an opt-in for the child's creds).
       expect(env.DEEPSEEK_API_KEY).toBe('explicit')
       // A normal ambient var is forwarded.
-      expect(SENSITIVE_ENV_PATTERN.test('PATH')).toBe(false)
       expect(env.PATH).toBe(process.env.PATH)
     } finally {
       delete process.env.DSH_ACP_TEST_SECRET_TOKEN
@@ -117,15 +116,22 @@ describe('buildChildEnv', () => {
 })
 
 describe('dsh-subagent-acp', () => {
-  it('drives a child process to completion and returns its streamed output', async () => {
-    const ctx = await setup({ MOCK_TEXT: 'hello from acp child', MOCK_STOP: 'end_turn' })
+  it('drives child processes with parent-unique run ids and returns streamed output', async () => {
+    const ctx = await setup({ MOCK_TEXT: 'hello from acp child', MOCK_STOP: 'end_turn', MOCK_SESSION_ID: 'acp-child-session' })
     const run = await ctx.subagents.start('acp', request('do X'))
+    expect(run.id).not.toBe('acp-child-session')
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('hello from acp child')
     const disposal = run.dispose()
     expect(run.dispose()).toBe(disposal)
     await disposal
+
+    const nextRun = await ctx.subagents.start('acp', request('do X again'))
+    expect(nextRun.id).not.toBe(run.id)
+    expect(nextRun.id).not.toBe('acp-child-session')
+    await nextRun.result
+    await nextRun.dispose()
   })
 
   it('maps a max_tokens stop reason', async () => {
@@ -179,6 +185,31 @@ describe('dsh-subagent-acp', () => {
       )).rejects.toThrow('aborted before the ACP child started')
       // The binary was never launched — no sentinel.
       expect(existsSync(sentinel)).toBe(false)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('reaps a child whose session/new response omits the session id', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-malformed-session-'))
+    const flushed = join(tmp, 'flushed')
+    try {
+      await expect(startAcpRun(request(), {
+        command: process.execPath,
+        args: [mockServer],
+        cwd: process.cwd(),
+        permission: 'reject',
+        env: {
+          MOCK_MISSING_SESSION_ID: '1',
+          MOCK_FLUSH_ON_EOF: flushed,
+          MOCK_FLUSH_DELAY_MS: '20',
+        },
+        disposeEofGraceMs: 1000,
+        disposeGraceMs: 100,
+      })).rejects.toThrow('ACP child published without a session id')
+      // Startup rejects only after its private child reaches quiescence. The
+      // marker proves rollback closed stdin and allowed the child's EOF flush.
+      expect(existsSync(flushed)).toBe(true)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }

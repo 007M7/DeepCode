@@ -10,7 +10,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import TaskService from '@deepseek-ai/dsh-tasks'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
@@ -50,18 +50,17 @@ async function setupWithTasks() {
 }
 
 /**
- * Build a fake {@link Agent} whose session token is `sessionId`, give it a
+ * Build a fake {@link Agent} with the shared agent/session identity, give it a
  * dedicated lifecycle fiber for `Agent.ctx`, and register it in `ctx.agents`.
- * The agent id is deliberately different from the session token so a
- * wrong-field ownership match fails the test.
  */
 function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void = () => {}): Agent {
   const scopeFiber = ctx.plugin(() => {})
+  const id = SessionId(sessionId)
   const agent = {
-    id: `agent-${sessionId}`,
+    id,
     ctx: scopeFiber.ctx,
     inject,
-    session: { header: { version: 0, id: sessionId, createdAt: 0 } },
+    session: { id, header: { version: 0, id, createdAt: 0 } },
   } as unknown as Agent
   ctx.agents.register(agent)
   return agent
@@ -182,12 +181,14 @@ async function setupSandboxed(withApproval = false) {
 
 function sandboxAgent(mode?: 'read-only' | 'workspace-write' | 'danger-full-access', ctx?: Context): Agent {
   const events: Array<{ type: string; data?: Record<string, unknown> }> = [{ type: 'turn/start' }]
-  if (mode !== undefined) events.push({ type: 'bash/sandbox-mode', data: { mode } })
+  if (mode !== undefined) events.push({ type: 'sandbox/mode', data: { mode } })
+  const id = SessionId('sandbox-session')
   return {
-    id: 'sandbox-agent',
+    id,
     ...ctx === undefined ? {} : { ctx: ctx.plugin(() => {}).ctx },
     session: {
-      header: { version: 0, id: 'sandbox-session', createdAt: 0 },
+      id,
+      header: { version: 0, id, createdAt: 0 },
       events,
       append: (type: string, data: Record<string, unknown>) => {
         const event = { type, data }
@@ -286,7 +287,7 @@ describe('bash tool', () => {
   })
 
   // Type and required-key violations are rejected by the harness
-  // (defineTool validates against the SchemaSpec — the arg-validation RFC) before execute.
+  // (defineTool validates against the SchemaSpec — the arg-validation Agent Note) before execute.
   it.each([
     [{}, /missing required property "command"/],
     [{ command: 42, description: 'd' }, /"command" must be a string/],
@@ -552,7 +553,7 @@ describe('sandbox escalation through the generic task producer', () => {
 
     const malformed = sandboxAgent()
     ;(malformed.session.events as unknown as Array<{ type: string; data: { mode: string } }>).push({
-      type: 'bash/sandbox-mode',
+      type: 'sandbox/mode',
       data: { mode: 'unknown-mode' },
     })
     expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('not strictly wider')
@@ -609,7 +610,7 @@ describe('sandbox escalation through the generic task producer', () => {
     const { ctx } = await setupSandboxed(true)
     ctx.approval.request = () => Promise.resolve('rogue' as ApprovalOutcome)
     const result = await call(ctx, 'bash', escalate, sandboxAgent())
-    expect(text(result)).toContain('unreachable variant in ApprovalOutcome')
+    expect(text(result)).toContain('unreachable variant in EscalationOutcome')
   })
 })
 
@@ -945,7 +946,7 @@ describe('the model-facing bash tool builds its request from named args only (no
    * model input into the post-scrub `env` merge or per-run capture budget — NOT
    * to defend a trust boundary
    * (the credential scrub in dsh-bash-local is the security control; see the
-   * bash-stdin-env RFC). Foreground `run()` returns a canned result; `start()`
+   * bash-stdin-env Agent Note). Foreground `run()` returns a canned result; `start()`
    * hands back an already-settled fake handle so the task registration completes.
    */
   class RecordingBashExecutor extends BashExecutor {

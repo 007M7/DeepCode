@@ -8,11 +8,11 @@
 
 import type { Context } from 'cordis'
 import { agentEvents, normalizeAgentCancelCause } from '@deepseek-ai/dsh-agent'
-import type { AgentCancelCause, AgentId, AgentOptions, AgentStatus, HookContext, InjectOptions, SendOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentCancelCause, AgentOptions, AgentStatus, HookContext, InjectOptions, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { deepFreeze } from '@deepseek-ai/dsh-llm'
+import { deepFreeze, errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import { snapshotJsonValue, type Session } from '@deepseek-ai/dsh-session'
+import { snapshotJsonValue, type Session, type SessionId } from '@deepseek-ai/dsh-session'
 import { DISPOSED_INTERRUPT_REASON, TurnCancellation } from './cancellation.ts'
 import { Inbox, type InboxMessage } from './inbox.ts'
 import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
@@ -59,7 +59,11 @@ export interface PreparedReactLoopAgent {
  * @returns the agent and closures bound only to that exact instance.
  */
 export function prepareReactLoopAgent(
-  ctx: Context, id: AgentId, options: AgentOptions, session: Session, maxParallelToolCalls: number,
+  ctx: Context,
+  id: SessionId,
+  options: AgentOptions,
+  session: Session,
+  maxParallelToolCalls: number,
 ): PreparedReactLoopAgent {
   if (claimedDriverSessions.has(session)) {
     throw new Error(`session "${session.id}" already has a concrete agent driver`)
@@ -77,7 +81,6 @@ export function prepareReactLoopAgent(
     },
   }
 }
-
 /**
  * Install the concrete agent's scope context exactly once. Construction and
  * scope minting are mutually referential (the scope key is the agent), so the
@@ -93,7 +96,7 @@ export function bindReactLoopAgentContext(agent: ReactLoopAgent, ctx: Context): 
 /**
  * The concrete {@link Agent} implementation owned by the agent-loop plugin.
  *
- * Owns the inbox (queued + steering FIFOs), one turn cancellation holder, and
+ * Owns the inbox (queued + steering FIFOs), turn cancellation, and
  * the loop driver. Everything observable happens through session events and
  * the agent/* event taxonomy — plugins never need this class.
  */
@@ -118,17 +121,13 @@ export class ReactLoopAgent implements Agent {
   }
 
   private _status: AgentStatus = 'idle'
-  /** Active turn owner, installed before the running notification and retained through flush. */
+  /** Active turn owner from pre-running publication through durability settlement. */
   private turnCancellation: TurnCancellation | undefined
   /** Whether runLoop has been installed into {@link done}. */
   private driverStarted = false
   /** Whether registry publication began and status disposal is externally visible. */
   private published = false
-  /**
-   * Cause-less marker for queued work cancelled before the driver installs a
-   * turn owner. It never represents an active turn and cannot leak a cause into
-   * replacement work.
-   */
+  /** Cause-less marker for queued work cancelled before the driver installs a turn owner. */
   private preRunCancelled = false
   private disposed: Promise<void>
   private resolveDisposed!: () => void
@@ -157,7 +156,7 @@ export class ReactLoopAgent implements Agent {
 
   constructor(
     private loopCtx: Context,
-    public readonly id: AgentId,
+    public readonly id: SessionId,
     public readonly options: AgentOptions,
     public readonly session: Session,
     maxParallelToolCalls: number,
@@ -246,7 +245,6 @@ export class ReactLoopAgent implements Agent {
     const context = {
       content,
       source,
-      ...options?.envelope !== undefined ? { envelope: options.envelope } : {},
       ...options?.meta !== undefined ? { meta: options.meta } : {},
     }
     if (isTurnOpen(this.session)) {
@@ -285,7 +283,7 @@ export class ReactLoopAgent implements Agent {
       if (turnRecorded) {
         // Through the store's flush (the carrier owner), never a raw parallel.
         const flush = this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
-          const rendered = renderThrown(error)
+          const rendered = errorChain(error)
           const err = error instanceof Error ? error : new Error(rendered)
           this.loopCtx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${rendered}`)
           agentEvents(this.loopCtx, this).emit('agent/error', turn, 0, err)
@@ -327,18 +325,16 @@ export class ReactLoopAgent implements Agent {
   }
 
   cancel(cause?: AgentCancelCause): void {
-    // Validate before the idle no-op so misuse fails consistently in every state.
-    const accepted = normalizeAgentCancelCause(cause ?? { kind: 'user' })
-    const active = this.turnCancellation
-    if (active === undefined && !this.#inbox.hasQueued && !this.#inbox.hasSteering) return
-    if (active === undefined) this.preRunCancelled = true
-    // Drop all pending queued + steering work (un-started prompts never run; the
-    // cancelled turn's steering is not re-enqueued). Clear before abort dispatch,
-    // whose synchronous observers may enqueue replacement work that must survive.
-    // This is direct even when the loop is parked in waitForQueued — there is no
-    // turn to stop and nothing left for the parked loop to run, so no wake is needed.
+    const normalized = normalizeAgentCancelCause(cause ?? { kind: 'user' })
+    const cancellation = this.turnCancellation
+    const preRun = cancellation === undefined && (this.#inbox.hasQueued || this.#inbox.hasSteering)
+    if (preRun) {
+      this.preRunCancelled = true
+    }
+    // Clear work already present before abort observers run. A replacement
+    // synchronously enqueued by an observer belongs to the next turn.
     this.#inbox.clear()
-    if (active !== undefined) active.request(accepted)
+    cancellation?.request(normalized)
   }
 
   /**
@@ -376,7 +372,7 @@ export class ReactLoopAgent implements Agent {
   [startDriver](): void {
     if (this._status === 'disposed') return
     this.driverStarted = true
-    this.done = this.loopCtx.agentExecution.run({ agent: this }, () => runLoop(this.loopCtx, this, {
+    this.done = this.loopCtx.agents.withInitiator(this, () => runLoop(this.loopCtx, {
       inbox: this.#inbox,
       maxParallelToolCalls: this.maxParallelToolCalls,
       setStatus: (status) => { this.setStatus(status) },
@@ -386,7 +382,7 @@ export class ReactLoopAgent implements Agent {
         return cancellation
       },
       clearTurnCancellation: (cancellation) => {
-        /* v8 ignore else -- the internal driver clears only the exact holder returned by its latest install */
+        /* v8 ignore else -- the driver clears only the exact owner returned by its latest install. */
         if (this.turnCancellation === cancellation) this.turnCancellation = undefined
       },
       disposed: this.disposed,
@@ -394,7 +390,7 @@ export class ReactLoopAgent implements Agent {
       isPreRunCancelled: () => this.preRunCancelled,
       clearPreRunCancel: () => { this.preRunCancelled = false },
       withToolBatch: run => this.withToolBatch(run),
-      // Pre-run cancellation re-parks without emitting a status transition.
+      // Pre-run cancellation settles queued-work waiters before publishing idle.
       settleIdle: () => { this.settleIdleWaiters() },
     }))
   }
@@ -440,9 +436,4 @@ export class ReactLoopAgent implements Agent {
       await Promise.allSettled([...this.pendingIdleFlushes])
     }
   }
-}
-
-/** Render an ordinary thrown value for the error event and log. */
-function renderThrown(value: unknown): string {
-  return value instanceof Error ? value.message : String(value)
 }

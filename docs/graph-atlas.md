@@ -5,15 +5,15 @@
 
 These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog.md](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md).
 
-The process decision behind this index is recorded in [the documentation graph RFC](rfc/implemented/process/2026-07-03-documentation-graph-atlas.md).
+The process decision behind this index is recorded in [the documentation graph Agent Note](../.agents/notes/implemented/process/2026-07-03-documentation-graph-atlas.md).
 
 | Graph | Mode |
 | --- | --- |
 | [module dependency graph](module-graph.md) | `generated` |
 | [tool schema catalog and package map](tool-catalog.md) | `generated` |
 | [capability seams and core services](capability-seams.md) | `hybrid generated` |
-| [echo-agent app composition](../examples/echo-agent/composition.md) | `hybrid generated` |
-| [coding-agent app composition](../examples/coding-agent/composition.md) | `hybrid generated` |
+| [tui-agent app composition](../examples/tui-agent/composition.md) | `hybrid generated` |
+| [headless-agent app composition](../examples/headless-agent/composition.md) | `hybrid generated` |
 | [cordis-agent app composition](../examples/cordis-agent/composition.md) | `hybrid generated` |
 | [acp-agent app composition](../examples/acp-agent/composition.md) | `hybrid generated` |
 | [event producer/consumer matrix](event-producer-consumer.md) | `hybrid generated` |

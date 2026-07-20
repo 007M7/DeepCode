@@ -7,7 +7,6 @@
 
 import type { Context } from 'cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -44,5 +43,4 @@ export async function mountAgentLoopTestDependencies(
   await ctx.plugin(SystemPrompt, options.systemPrompt ?? {})
   await ctx.plugin(ToolRegistry, options.tools ?? {})
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentExecutionProvider)
 }

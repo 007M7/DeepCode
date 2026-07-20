@@ -1,8 +1,8 @@
 # @deepseek-ai/dsh-acp-demo
 
-The **ACP server app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-spine-demo`](../../examples/agent-spine-demo/README.md)) with the front-door cluster an [Agent Client Protocol](../../ui/acp/README.md) server needs, and a `bin` that boots a leaf `cordis.yml` speaking ACP JSON-RPC on stdio.
+The **ACP server app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md)) with the front-door cluster an [Agent Client Protocol](../../ui/acp/README.md) server needs, and a `bin` that boots a leaf `cordis.yml` speaking ACP JSON-RPC on stdio.
 
-It is the structured counterpart to [`@deepseek-ai/dsh-stdio-demo`](../stdio-demo/README.md): both consume the same spine, but this one bakes in the OPPOSITE front-door cluster.
+It is the structured counterpart to [`@deepseek-ai/dsh-tui-demo`](../tui-demo/README.md): both consume the same spine, but ACP creates sessions from its client and reserves stdout for its wire protocol.
 
 ## What it bakes in — and what it deliberately omits
 
@@ -19,7 +19,7 @@ stdout is the ACP JSON-RPC channel, so the cluster is defined as much by what it
 | ~~console logger~~ | **omitted** — it writes to stdout and would corrupt the protocol frames ([the stdout-purity footgun](../../ui/acp/README.md)) |
 | ~~`hmr`~~ | **omitted** — the editor owns the subprocess |
 
-Because the package wires no logger entry, an ACP leaf has **nothing to get wrong by default**: it only picks backends, so the common mistake — copying a console-logger entry from the stdio config — has no place here. (A leaf author technically *can* still add `@cordisjs/plugin-logger-console` as a sibling entry; the package can't forbid that. So the rule stands: never add a stdout logger to an ACP leaf — stdout is the JSON-RPC channel. Use a stderr exporter if you need logs.)
+Because the package wires no logger entry, an ACP leaf has **nothing to get wrong by default**: it only picks backends. A leaf author can still add `@cordisjs/plugin-logger-console` as a sibling entry, so the rule remains: never add a stdout logger to an ACP leaf; use a stderr exporter instead.
 
 ## Config
 
@@ -32,12 +32,14 @@ Because the package wires no logger entry, an ACP leaf has **nothing to get wron
 | `toolOrder` | — | explicit model-facing tool order (a name list with one `'<unlisted-tools>'` rest entry; absent — lexicographic; an unregistered name fails each turn at prompt assembly), routed to `dsh-system-prompt` |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness home exposed to model bash and used by local skill discovery |
 | `tools` | `{ mode: 'native' }` | tool-registry presentation config (`native` / `code` / `both`), routed through `dsh-agent-spine-demo` |
+| `workspaceContext` | (required) | workspace-instruction byte budget/config, or `false`; routed to the providerless-safe `dsh-workspace-context` plugin |
 | `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-spine-demo` |
 | `toolBash` | owner defaults | model-facing bash config routed through `dsh-agent-spine-demo`, including bash's producer-local `enableRunInBackground` |
 | `toolTasks` | owner defaults | generic `task_output` wait bounds routed through `dsh-agent-spine-demo` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
+| `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
 
-The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the real model, `llm-replay` for keyless snapshot replay) and a bash executor.
+The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the real model, `llm-replay` for keyless snapshot replay), a bash executor, and optionally a `ctx.fs` provider. Workspace context becomes a no-op without `ctx.fs`; the shipped [`examples/acp-agent/cordis.yml`](../../../examples/acp-agent/cordis.yml) selects `dsh-sandbox-policy`, `dsh-fs-sandbox`, `dsh-fs-policy`, and `dsh-tool-fs` so baseline instructions and model-facing `read`/`write`/`edit` share one provider, sandbox mode, workspace root, and observed-version policy.
 
 ## The bin
 
@@ -54,6 +56,10 @@ All diagnostics go to **stderr** — stdout is the protocol.
 ## Model Experience
 
 Indirectly, through `dsh-agent-spine-demo` and `dsh-acp`, which compose each ACP agent's prompt, tools, and message history; this app bundle adds no model-bound content itself.
+
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

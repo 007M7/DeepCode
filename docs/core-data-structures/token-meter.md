@@ -7,6 +7,7 @@ Source: [`packages/llm/token-meter/src/types.ts`](../../packages/llm/token-meter
 ## `TokenMeasurement`
 
 ```ts type-equiv
+/** Detached immutable request-pressure and surface snapshot at one consumed log revision. */
 interface TokenMeasurement {
   /** Number of durable events consumed; equal to the next unread event seq. */
   readonly logRevision: number
@@ -28,6 +29,7 @@ interface TokenMeasurement {
 ## `TokenSurfaceNode`
 
 ```ts type-equiv
+/** One token-priced node in the current ordered session surface. */
 interface TokenSurfaceNode {
   /** Durable sequence number of the surface event. */
   readonly seq: number

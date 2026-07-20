@@ -1,11 +1,11 @@
-# Self-referential stdio demo: the coding spine plus tools to inspect the live
+# Self-referential TUI demo: the coding spine plus tools to inspect the live
 # service/plugin/tool/mount/API/event state, mount a model-written plugin under
 # `cordis-dynamic`, and quiescently unmount it. The app bin loads the gitignored
 # root `.env` before reading the required DeepSeek key and optional base URL.
 # Trust stance: the vm and context façade limit accidental global/framework
 # access but are not a security boundary; mounted code can reach live capabilities
 # such as `ctx.bash`. Grant this toolset like bash access. See
-# ../../docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
+# ../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
 
 # Hot-module reload for the dev/demo loop (needs `node --expose-internals`).
 - id: hmr
@@ -45,8 +45,8 @@
   name: '@deepseek-ai/dsh-web-fetch-local'
 
 # The app bundle pre-creates the self-referential demo's `main` agent.
-- id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-demo'
+- id: tui-agent
+  name: '@deepseek-ai/dsh-tui-demo'
   config:
     provider: deepseek
     model: deepseek-v4-flash

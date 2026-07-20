@@ -7,12 +7,13 @@
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { CompactService } from '@deepseek-ai/dsh-compact'
-import type { CompactionResult } from '@deepseek-ai/dsh-compact'
-import { canonicalHeader } from '@deepseek-ai/dsh-session'
-import type { EpochHeader, Session } from '@deepseek-ai/dsh-session'
-import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
+import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compact'
+import type { Session } from '@deepseek-ai/dsh-session'
+import { CONTEXT_WINDOW_EXCEEDED_CODE, assertNever } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { registerAutomaticCompaction } from './automatic.ts'
+// Type-only: makes the optional sibling service available to `ctx.get()`.
+import type {} from '@deepseek-ai/dsh-compact-tool-result-prune'
 import { resolveConfig } from './config.ts'
 import { compactSurfaceRegion, selectCompactableRange } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
@@ -21,41 +22,15 @@ import type {
   ResolvedConfig,
 } from './types.ts'
 
-export { resolveConfig } from './config.ts'
 export type {
   BasicCompactConfig,
   ResolvedConfig,
 } from './types.ts'
 
-/** Resolve the latest actual routed provider/model, then the complete agent fallback pair. */
-function effectiveTarget(agent: Agent): { provider: string; model: string } | undefined {
-  const latest = agent.session.requestHeader()?.config
-  if (latest !== undefined) return { provider: latest.provider, model: latest.model }
-  const { provider, model } = agent.options
-  if (provider === undefined || provider.length === 0 || model === undefined || model.length === 0) {
-    return undefined
-  }
-  return { provider, model }
-}
-
-/**
- * Build the provisional pre-step request envelope. Prompt and prefix are exact;
- * tools and non-model call config come from the latest logged request because
- * later request middleware has not run yet.
- */
-function provisionalHeader(
-  target: { provider: string; model: string },
-  session: Session,
-  fullSystemPrompt: string,
-  sessionPrefix: readonly Message[],
-): EpochHeader {
-  const latest = session.requestHeader()
-  return canonicalHeader({
-    config: latest === undefined ? target : { ...latest.config, ...target },
-    ...fullSystemPrompt.length === 0 ? {} : { system: fullSystemPrompt },
-    ...latest?.tools === undefined ? {} : { tools: latest.tools },
-    ...sessionPrefix.length === 0 ? {} : { messagePrefix: [...sessionPrefix] },
-  })
+/** Resolve the exact model durably routed for the latest provider request. */
+function routedModel(session: Session): string | undefined {
+  const model = session.requestHeader()?.config.model
+  return model === undefined || model.length === 0 ? undefined : model
 }
 
 /**
@@ -76,6 +51,7 @@ export class BasicCompactService extends CompactService {
     summarizationModel: z.string().default(''),
     maxTokens: z.number().step(1).min(1).default(8192),
     compactionRetries: z.number().step(1).min(0).default(1),
+    maxOverflowRetries: z.number().step(1).min(0).default(1),
     auto: z.boolean().default(true),
   })
 
@@ -85,7 +61,76 @@ export class BasicCompactService extends CompactService {
   constructor(ctx: Context, config: BasicCompactConfig = {}) {
     super(ctx)
     this.config = resolveConfig(config, ctx.tokenMeter)
-    if (this.config.auto) registerAutomaticCompaction(ctx, this)
+    if (this.config.auto) this._registerAutomaticCompaction()
+  }
+
+  /**
+   * Register the automatic post-step pressure and context-overflow recovery
+   * listeners. `compactIfNeeded` stays dynamically dispatched so subclass
+   * overrides are honored at event time.
+   */
+  private _registerAutomaticCompaction(): void {
+    const { ctx } = this
+    const logResult = (result: CompactionResult, trigger: string): void => {
+      ctx.logger.info(
+        `compaction (${trigger}): shadowed ${result.shadowedSeqs.length} surface nodes `
+        + `(seqs ${result.shadowedRange.start}-${result.shadowedRange.end}, `
+        + `~${result.shadowedTokenCount} tokens)`,
+      )
+    }
+
+    ctx.on('agent/post-step', async (
+      agent: Agent,
+      _turn: number,
+      _step: number,
+      signal: AbortSignal,
+    ) => {
+      if (signal.aborted) return
+      try {
+        const result = await this.compactIfNeeded(agent, 'pressure', signal)
+        if (result !== null) logResult(result, 'post-step pressure')
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error)
+        ctx.logger.warn(`post-step compaction failed: ${message}; continuing the turn`)
+      }
+    })
+
+    ctx.on('agent/request-error', async (agent, _turn, _step, error, retryAttempt, signal, next) => {
+      if (error.code !== CONTEXT_WINDOW_EXCEEDED_CODE
+        || retryAttempt >= this.config.maxOverflowRetries
+        || signal.aborted) return next()
+
+      const generation = agent.session.surface.replaceGeneration
+      let result: CompactionResult | null
+      try {
+        result = await this.compactIfNeeded(agent, 'context-overflow', signal)
+      } catch (recoveryError: unknown) {
+        const message = recoveryError instanceof Error ? recoveryError.message : String(recoveryError)
+        // A model-free prune can land before later summary work fails. That
+        // durable reduction is sufficient retry proof; do not discard it just
+        // because the optional second phase threw. Cancellation still wins.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while recovery is awaited.
+        if (!signal.aborted && agent.session.surface.replaceGeneration > generation) {
+          ctx.logger.warn(
+            `context-overflow compaction failed after durable surface progress: ${message}; `
+            + 'retrying from the replacement surface',
+          )
+          return { action: 'retry' }
+        }
+        ctx.logger.warn(
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while recovery is awaited.
+          `context-overflow compaction failed: ${message}; ${signal.aborted
+            ? 'cancellation prevents retry'
+            : 'preserving the original request error'}`,
+        )
+        return next()
+      }
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while compaction is awaited.
+      if (signal.aborted
+        || agent.session.surface.replaceGeneration <= generation) return next()
+      if (result !== null) logResult(result, 'context overflow recovery')
+      return { action: 'retry' }
+    })
   }
 
   /**
@@ -96,7 +141,7 @@ export class BasicCompactService extends CompactService {
    * @param signal - optional cancellation forwarded to the adapter.
    * @returns safe text summary blocks and exact auxiliary-call provenance.
    */
-  async summarize(
+  protected async summarize(
     text: string,
     agent: Agent,
     signal?: AbortSignal,
@@ -105,27 +150,51 @@ export class BasicCompactService extends CompactService {
   }
 
   /**
-   * Check replayed pressure for the provisional pre-step envelope and compact
-   * a tool-balanced head until it falls below the service-wide threshold.
-   * A genuinely model-less router-first step skips this provisional check.
-   * @param agent - agent whose session and provisional provider/model are measured.
-   * @param fullSystemPrompt - current assembled system prompt override.
-   * @param sessionPrefix - current request-only prefix override.
-   * @param signal - live step cancellation signal forwarded to summarization.
-   * @returns the latest compaction result, or `null` when no check/work applies.
+   * Compact for replayed post-step pressure or one provider-confirmed context
+   * overflow. Both triggers price the latest durable routed request envelope;
+   * overflow bypasses the normal threshold and retained-tail policy so it can
+   * force one useful balanced reduction.
+   * @param agent - agent whose latest durable routed request is measured.
+   * @param trigger - normal post-step pressure or context-overflow recovery.
+   * @param signal - live turn cancellation signal forwarded to summarization.
+   * @returns the latest summary compaction result, or `null` when no summary ran.
    */
   override async compactIfNeeded(
     agent: Agent,
-    fullSystemPrompt: string,
-    sessionPrefix: readonly Message[],
+    trigger: CompactionTrigger,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
-    const target = effectiveTarget(agent)
-    if (target === undefined) return null
+    const model = routedModel(agent.session)
+    if (model === undefined) return null
     const meter = this.ctx.tokenMeter
-    const requestHeader = provisionalHeader(target, agent.session, fullSystemPrompt, sessionPrefix)
     const threshold = Math.floor(meter.contextWindow * this.config.thresholdRatio)
-    let measurement = meter.measure(agent.session, requestHeader)
+    let measurement = meter.measure(agent.session)
+    switch (trigger) {
+      case 'context-overflow':
+        break
+      case 'pressure':
+        if (measurement.totalTokens < threshold) return null
+        break
+      /* v8 ignore next -- closed-union exhaustiveness guard */
+      default:
+        assertNever(trigger, 'compaction trigger')
+    }
+
+    // Pruning is optional so compact-basic remains independently composable.
+    // Once either trigger qualifies, land the model-free pass before choosing
+    // a summary range, then remeasure through the singleton replay fold.
+    const prune = this.ctx.get('toolResultPrune')
+    if (prune !== undefined) {
+      prune.pruneSession(agent.session)
+      measurement = meter.measure(agent.session)
+    }
+
+    if (trigger === 'context-overflow') {
+      const range = selectCompactableRange(agent.session, measurement, 0)
+      if (range === null) return null
+      return this.compactRegion(range.start, range.end, agent, signal)
+    }
+
     if (measurement.totalTokens < threshold) return null
 
     let result: CompactionResult | null = null
@@ -137,8 +206,8 @@ export class BasicCompactService extends CompactService {
         /* v8 ignore next -- paired with the defensive post-success branch above. */
         break
       }
-      result = await this.compactRegion(agent.session, range.start, range.end, agent, signal)
-      measurement = meter.measure(agent.session, requestHeader)
+      result = await this.compactRegion(range.start, range.end, agent, signal)
+      measurement = meter.measure(agent.session)
       if (measurement.totalTokens < threshold) return result
     }
 
@@ -149,10 +218,8 @@ export class BasicCompactService extends CompactService {
   }
 
   /**
-   * Compact one inclusive positional surface range using the effective
-   * token meter for all retention and shrink pricing. Reject an agent that does
-   * not own the exact target before any mutation.
-   * @param session - session whose surface is mutated; must equal `agent.session`.
+   * Compact one inclusive positional range from the agent-owned surface using
+   * the effective token meter for all retention and shrink pricing.
    * @param start - inclusive first surface-node seq.
    * @param end - inclusive last surface-node seq.
    * @param agent - owner of the target session, used by the summarizer.
@@ -160,15 +227,12 @@ export class BasicCompactService extends CompactService {
    * @returns the successful durable compaction result.
    */
   override async compactRegion(
-    session: Session,
     start: number,
     end: number,
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
-    if (session !== agent.session) {
-      throw new Error('compactRegion: agent.session must be the exact target session')
-    }
+    const session = agent.session
     return compactSurfaceRegion({
       meter: this.ctx.tokenMeter,
       summarize: (text, owner, abort) => this.summarize(text, owner, abort),

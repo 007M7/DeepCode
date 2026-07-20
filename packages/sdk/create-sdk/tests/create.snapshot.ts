@@ -179,12 +179,12 @@ describe('create-sdk terminal contract', () => {
             "message": "DeepSeek API key",
           },
           {
-            "initialValue": "stdio",
+            "initialValue": "tui",
             "kind": "select",
             "message": "Run interface",
             "options": [
               "ACP server",
-              "Terminal REPL",
+              "Terminal TUI",
               "Embedded context",
             ],
           },

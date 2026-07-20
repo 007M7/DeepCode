@@ -11,17 +11,16 @@ import z from 'schemastery'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import type {} from '@deepseek-ai/dsh-agent-execution'
 import type {
+  Agent,
   AgentFactory,
   AgentHandle,
-  AgentId,
   AgentOptions,
   CreateAgentOptions,
   ResumeAgentOptions,
   SessionStartSource,
 } from '@deepseek-ai/dsh-agent'
-import type {} from '@deepseek-ai/dsh-llm'
+import { errorChain } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionHeader } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -35,8 +34,6 @@ import {
 import type { PreparedReactLoopAgent } from './agent.ts'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 
-export { ReactLoopAgent } from './agent.ts'
-
 /** Fiber states that cannot own or serve a new lifecycle. */
 const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([
   FiberState.UNLOADING,
@@ -47,7 +44,9 @@ const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([
 /** Factory-level ownership of every preparing or live transaction. */
 class FactoryOwnership {
   private accepting = true
+  private readonly inactive = Promise.withResolvers<void>()
   private transactions = new Set<AgentCreationTransaction>()
+  private startupTasks = new Set<Promise<void>>()
 
   constructor(private readonly fiber: Context['fiber']) {}
 
@@ -60,17 +59,31 @@ class FactoryOwnership {
     return () => { this.transactions.delete(transaction) }
   }
 
+  /** Join config startup work that begins before an agent transaction exists. */
+  trackStartup(task: Promise<void>): void {
+    this.startupTasks.add(task)
+    const forget = () => { this.startupTasks.delete(task) }
+    void task.then(forget, forget)
+  }
+
+  /** Resolve `task`, or stop waiting when factory teardown begins. */
+  async waitWhileActive(task: Promise<void>): Promise<void> {
+    await Promise.race([task, this.inactive.promise])
+  }
+
   async dispose(): Promise<void> {
     this.accepting = false
+    this.inactive.resolve()
     const reason = new Error('agent loop is not active')
-    await Promise.all(
-      [...this.transactions].map(transaction => transaction.disposeForFactory(reason)),
-    )
+    await Promise.all([
+      ...[...this.transactions].map(transaction => transaction.disposeForFactory(reason)),
+      ...this.startupTasks,
+    ])
   }
 }
 
 /** Build the public cancellation error while preserving a caller-supplied cause. */
-function signalAbortError(id: AgentId, signal: AbortSignal): Error {
+function signalAbortError(id: SessionId, signal: AbortSignal): Error {
   if (signal.reason instanceof Error) return signal.reason
   return new Error(`agent "${id}" creation aborted`, { cause: signal.reason })
 }
@@ -116,7 +129,7 @@ class AgentCreationTransaction {
     private readonly loopCtx: Context,
     private readonly ownerCtx: Context,
     private readonly ownership: FactoryOwnership,
-    readonly id: AgentId,
+    readonly id: SessionId,
     signal?: AbortSignal,
   ) {
     ownerCtx.fiber.assertActive()
@@ -238,7 +251,7 @@ class AgentCreationTransaction {
     this.publishing = true
     try {
       this.detachSession = agent.ctx.sessions.enter(session)
-      this.detachAgent = this.loopCtx.agents.enter(agent)
+      this.detachAgent = this.loopCtx.agents.enter(agent, this.ownerAgent)
 
       agent.ctx.sessions.announce(session)
       this.assertActive()
@@ -327,6 +340,18 @@ declare module 'cordis' {
   interface Context {
     agentLoop: AgentLoop
   }
+  interface Events {
+    /**
+     * A declarative agent entry failed before it could publish a live agent.
+     * Consumers that buffer work for the configured identity use this
+     * transient signal to reject that work instead of waiting forever. Normal
+     * factory teardown suppresses failures from the cancelled startup attempt.
+     * @param sessionId - exact shared agent/session identity that failed startup.
+     * @param error - persistence, setup, or publication failure.
+     * @mode emit
+     */
+    'agent-loop/config-start-failed'(sessionId: SessionId, error: unknown): void
+  }
 }
 
 export { DEFAULT_MAX_PARALLEL_TOOL_CALLS }
@@ -340,8 +365,10 @@ export interface Config {
   maxParallelToolCalls?: number
   /** Agents created or resumed at plugin startup. */
   agents: (AgentOptions & {
-    /** Registry identity for the live agent. */
-    id: AgentId
+    /** Stable config label used in logs and as the fresh combined-id prefix. */
+    id: string
+    /** Optional stable identity; remounts resume its materialized history, while first use creates it fresh. */
+    sessionId?: SessionId
     /** Optional workspace for a fresh session. */
     cwd?: string
     /** Persisted session to resume instead of creating a fresh session. */
@@ -349,15 +376,34 @@ export interface Config {
   })[]
 }
 
-/** Concrete ReactLoopAgent factory and driver service. */
+/** Reject self-contained identity conflicts before any configured agent starts. */
+function validateConfiguredAgents(agents: Config['agents']): void {
+  const exactIdentities = new Map<SessionId, string>()
+  for (const { id, sessionId, resumeSessionId } of agents) {
+    const hasResumeId = resumeSessionId !== undefined && resumeSessionId !== ''
+    if (sessionId !== undefined && hasResumeId) {
+      throw new Error(`agent "${id}": sessionId and resumeSessionId are mutually exclusive`)
+    }
+    const exactIdentity = hasResumeId ? resumeSessionId : sessionId
+    if (exactIdentity === undefined) continue
+    const firstId = exactIdentities.get(exactIdentity)
+    if (firstId !== undefined) {
+      throw new Error(`agents "${firstId}" and "${id}" use duplicate exact session identity "${exactIdentity}"`)
+    }
+    exactIdentities.set(exactIdentity, id)
+  }
+}
+
+/** Concrete agent factory and driver service. */
 export class AgentLoop extends Service implements AgentFactory {
-  static inject = ['agents', 'agentExecution', 'sessions', 'llm', 'tools', 'systemPrompt']
+  static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt']
 
   /** Runtime schema for declarative agents. */
   static Config = z.object({
     maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS),
     agents: z.array(z.object({
       id: z.string().required(),
+      sessionId: z.string().min(1),
       provider: z.string(),
       model: z.string(),
       cwd: z.string(),
@@ -373,6 +419,7 @@ export class AgentLoop extends Service implements AgentFactory {
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentLoop')
+    validateConfiguredAgents(config.agents)
     this.maxParallelToolCalls = resolveMaxParallelToolCalls(config.maxParallelToolCalls)
     this.ownership = new FactoryOwnership(ctx.fiber)
     this.runtime = { ctx }
@@ -382,19 +429,28 @@ export class AgentLoop extends Service implements AgentFactory {
     ctx.systemPrompt.variable('model', context => context.agent?.options.model)
     ctx.systemPrompt.variable('cwd', context => context.agent?.session.header.cwd)
 
-    for (const { id, cwd, resumeSessionId, ...options } of config.agents) {
+    for (const { id, sessionId, cwd, resumeSessionId, ...options } of config.agents) {
+      const meta = cwd === undefined ? {} : { cwd }
       if (resumeSessionId === undefined || resumeSessionId === '') {
-        this.create(id, options, cwd === undefined ? {} : { cwd })
+        const configuredId = sessionId ?? SessionId(`${id}-session-${randomUUID()}`)
+        const persistence = sessionId === undefined ? undefined : ctx.get('sessionPersistence')
+        if (persistence === undefined) {
+          this.create(configuredId, options, meta)
+        } else {
+          const startup = this.restoreOrCreateConfigured(ctx, persistence, configuredId, options, meta).catch((error: unknown) => {
+            this.reportConfiguredStartupFailure(id, 'restore', configuredId, error)
+          })
+          this.ownership.trackStartup(startup)
+        }
         continue
       }
       ctx.effect(() => {
         const fiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
           void this.resumeWith(ctx, childCtx.sessionPersistence, {
-            agentId: id,
             resumeSessionId,
             agentOptions: options,
           }).catch((error: unknown) => {
-            ctx.logger.warn(`agent "${id}": config-driven resume of "${resumeSessionId}" failed: ${String(error)}`)
+            this.reportConfiguredStartupFailure(id, 'resume', resumeSessionId, error)
           })
         })
         return fiber.dispose
@@ -402,20 +458,83 @@ export class AgentLoop extends Service implements AgentFactory {
     }
   }
 
+  /** Report a contained declarative-start failure to identity-bound consumers. */
+  private reportConfiguredStartupFailure(
+    configId: string,
+    action: 'restore' | 'resume',
+    sessionId: SessionId,
+    error: unknown,
+  ): void {
+    if (!this.ownership.isActive()) return
+    this.ctx.logger.warn(`agent "${configId}": config-driven ${action} of "${sessionId}" failed: ${errorChain(error)}`)
+    const args: unknown[] = ['agent-loop/config-start-failed', sessionId, error]
+    for (const callback of this.ctx.events.dispatch('emit', args)) {
+      try {
+        const returned: unknown = callback(...args)
+        void Promise.resolve(returned).catch((listenerError: unknown) => {
+          this.ctx.logger.warn(`agent "${configId}": config-start-failed listener rejected: ${errorChain(listenerError)}`)
+        })
+      } catch (listenerError: unknown) {
+        this.ctx.logger.warn(`agent "${configId}": config-start-failed listener threw: ${errorChain(listenerError)}`)
+      }
+    }
+  }
+
+  /** Restore a materialized exact config identity on remount, or create it on first use. */
+  private async restoreOrCreateConfigured(
+    ownerCtx: Context,
+    persistence: SessionPersistence,
+    sessionId: SessionId,
+    agentOptions: AgentOptions,
+    meta: Pick<SessionHeader, 'cwd'>,
+  ): Promise<void> {
+    await this.waitForDrainingConfiguredIdentity(ownerCtx, sessionId)
+    if (!this.ownership.isActive()) return
+    const exists = (await persistence.list()).some(header => header.id === sessionId)
+    if (!this.ownership.isActive()) return
+    if (exists) {
+      await this.resumeWith(ownerCtx, persistence, { resumeSessionId: sessionId, agentOptions })
+      return
+    }
+    this.create(sessionId, agentOptions, meta)
+  }
+
+  /** Wait for an already-disposed same-id lifecycle to finish registry teardown. */
+  private async waitForDrainingConfiguredIdentity(ownerCtx: Context, sessionId: SessionId): Promise<void> {
+    const current = ownerCtx.agents.get(sessionId)
+    if (current?.status !== 'disposed') return
+
+    const released = Promise.withResolvers<void>()
+    const checkReleased = (): void => {
+      if (ownerCtx.agents.get(sessionId) === undefined && ownerCtx.sessions.get(sessionId) === undefined) {
+        released.resolve()
+      }
+    }
+    const disposeAgentListener = ownerCtx.on('agent/disposed', checkReleased)
+    const disposeSessionListener = ownerCtx.on('session/disposed', checkReleased)
+    try {
+      checkReleased()
+      await this.ownership.waitWhileActive(released.promise)
+    } finally {
+      disposeAgentListener()
+      disposeSessionListener()
+    }
+  }
+
   /**
-   * Create an agent on a fresh per-run session, owned by the accessing fiber.
-   * Constructor-driven config calls use the loop fiber itself.
-   * @param id - agent registry id.
+   * Create an agent and session under one caller-supplied identity, owned by
+   * the accessing fiber. Constructor-driven config calls mint a fresh combined
+   * id before entering this boundary.
+   * @param id - shared agent/session identity.
    * @param options - concrete loop options.
    * @param meta - optional fresh-session workspace metadata.
    * @returns the published running agent.
    */
-  create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent {
+  create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): Agent {
     const loopCtx = this.runtime.ctx
     const transaction = new AgentCreationTransaction(loopCtx, this.ctx, this.ownership, id)
     try {
-      const sessionId = SessionId(`${id}-session-${randomUUID()}`)
-      const session = loopCtx.sessions.prepare(sessionId, { meta })
+      const session = loopCtx.sessions.prepare(id, { meta })
       const agent = transaction.prepare(options, session, this.maxParallelToolCalls)
       transaction.publish('startup')
       return agent
@@ -439,7 +558,7 @@ export class AgentLoop extends Service implements AgentFactory {
       this.runtime.ctx,
       ownerCtx,
       this.ownership,
-      options.agentId,
+      options.sessionId,
       options.signal,
     )
     try {
@@ -484,7 +603,7 @@ export class AgentLoop extends Service implements AgentFactory {
       this.runtime.ctx,
       ownerCtx,
       this.ownership,
-      options.agentId,
+      options.resumeSessionId,
       options.signal,
     )
     try {
@@ -492,12 +611,7 @@ export class AgentLoop extends Service implements AgentFactory {
       transaction.assertActive()
       const session = this.runtime.ctx.sessions.prepare(options.resumeSessionId, {
         seed: loaded.events,
-        meta: {
-          createdAt: loaded.meta.createdAt,
-          ...loaded.meta.cwd === undefined ? {} : { cwd: loaded.meta.cwd },
-          ...loaded.meta.parentSession === undefined ? {} : { parentSession: loaded.meta.parentSession },
-          ...loaded.meta.seedLength === undefined ? {} : { seedLength: loaded.meta.seedLength },
-        },
+        meta: loaded.meta,
       })
       const agent = transaction.prepare(agentOptions, session, this.maxParallelToolCalls)
       await transaction.waitFor(options.setup?.(agent.ctx))

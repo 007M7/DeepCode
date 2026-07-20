@@ -18,7 +18,6 @@ import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools
 import SkillService, { type Config as SkillRegistryConfig } from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentExecutionProvider from '@deepseek-ai/dsh-agent-execution'
 import TaskService from '@deepseek-ai/dsh-tasks'
 import * as invariants from '@deepseek-ai/dsh-invariants'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
@@ -32,6 +31,8 @@ export const name = 'agent-spine-demo'
 
 /** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
 export interface SkillConfig {
+  /** Mount the bundled local skill provider and model-facing skill tool (default true). */
+  enabled?: boolean
   /** Registry-level discovery cache settings. */
   registry?: SkillRegistryConfig
   /** Local filesystem skill provider settings. */
@@ -74,12 +75,13 @@ export interface Config {
   skills?: SkillConfig
   /** Model-facing bash tool config, including this producer's background opt-in. */
   toolBash?: toolBash.Config
-  /** Generic background-task control-tool wait bounds. */
-  toolTasks?: toolTasks.Config
+  /** Generic background-task controls; set false to keep the task service without model-facing task tools. */
+  toolTasks?: toolTasks.Config | false
 }
 
 /** The skill config schema exported for app packages that forward `skills`. */
 export const SkillConfigSchema: z<SkillConfig> = z.object({
+  enabled: z.boolean().default(true),
   registry: SkillService.Config,
   local: SkillLocal.Config,
   tool: toolSkill.Config,
@@ -101,7 +103,7 @@ export const Config = z.intersect([
     skills: SkillConfigSchema,
     workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
     toolBash: ToolBashConfigSchema,
-    toolTasks: ToolTasksConfigSchema,
+    toolTasks: z.union([z.const(false), ToolTasksConfigSchema]),
   }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks'>>,
 ]) as unknown as z<Config>
 
@@ -138,7 +140,7 @@ export function apply(ctx: Context, config: Config): void {
   const nestedDshHome = config.skills?.local?.dshHome
   if (config.dshHome !== undefined && nestedDshHome !== undefined
     && resolveDshHome(config.dshHome) !== resolveDshHome(nestedDshHome)) {
-    throw new Error('agent-core: dshHome and skills.local.dshHome must resolve to the same directory')
+    throw new Error('agent-spine-demo: dshHome and skills.local.dshHome must resolve to the same directory')
   }
   const dshHome = resolveDshHome(config.dshHome ?? nestedDshHome)
 
@@ -151,10 +153,12 @@ export function apply(ctx: Context, config: Config): void {
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
   })
   ctx.plugin(ToolRegistry, config.tools ?? {})
-  ctx.plugin(SkillService, config.skills?.registry ?? {})
-  ctx.plugin(SkillLocal, Object.assign({}, config.skills?.local, { dshHome }))
+  const skillsEnabled = config.skills?.enabled ?? true
+  if (skillsEnabled) {
+    ctx.plugin(SkillService, config.skills?.registry ?? {})
+    ctx.plugin(SkillLocal, Object.assign({}, config.skills?.local, { dshHome }))
+  }
   ctx.plugin(AgentRegistry)
-  ctx.plugin(AgentExecutionProvider)
   ctx.plugin(TaskService)
   ctx.plugin(invariants)
   ctx.plugin(toolBash, Object.assign({}, config.toolBash, { dshHome }))
@@ -163,8 +167,8 @@ export function apply(ctx: Context, config: Config): void {
   }
   // Both plugins prepend session-prefix messages. Registration order is the
   // rendered order, so workspace instructions must precede the skill catalog.
-  ctx.plugin(toolSkill, config.skills?.tool ?? {})
-  ctx.plugin(toolTasks, config.toolTasks ?? {})
+  if (skillsEnabled) ctx.plugin(toolSkill, config.skills?.tool ?? {})
+  if (config.toolTasks !== false) ctx.plugin(toolTasks, config.toolTasks ?? {})
   ctx.plugin(AgentLoop, {
     agents: config.agents ?? [],
     ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},

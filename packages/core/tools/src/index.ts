@@ -139,7 +139,7 @@ export interface ToolDefinition extends ToolSchema {
    * Opted-in executions must not mutate parent-owned state. Shared state must
    * tolerate concurrent dispatch; recorder races are permitted only when they
    * commute or fail closed. See the
-   * [parallel-tool-call RFC](../../../../docs/rfc/implemented/feature/2026-07-10-parallel-tool-call-execution.md)
+   * [parallel-tool-call Agent Note](../../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)
    * for the full contract.
    * @param args - parsed arguments; `defineTool` validates before calling.
    * @returns Whether this call may join a parallel group.
@@ -235,8 +235,8 @@ export interface ToolExecution extends ToolExecutionInput {
 export interface ToolRunContext extends ToolExecution {
   /**
    * Defer one nested-dispatch context until this tool's final result reaches
-   * the agent loop. Contexts retain their individual source, envelope, and
-   * metadata and are emitted in call order.
+   * the agent loop. Contexts retain their individual source and metadata and
+   * are emitted in call order.
    */
   deferContext(context: HookContext): void
 }
@@ -958,14 +958,19 @@ export class ToolRegistry extends Service {
     // Freeze the remaining mutable signal slot before observers receive the
     // shared WeakMap-keyable execution object.
     Object.freeze(exec)
+    const { name: toolName, callId } = exec
+    const reportFailure = (error: unknown): void => {
+      this.ctx.logger.warn(`tool "${toolName}" (${callId}): tools/result observer failed: ${errorMessage(error)}`)
+    }
     const callbacks = this.ctx.events.dispatch('emit', [
       scopeTarget(this, exec.agent), 'tools/result', exec, result,
     ])
     for (const callback of callbacks) {
       try {
-        callback(exec, result)
+        const returned: unknown = callback(exec, result)
+        void Promise.resolve(returned).catch(reportFailure)
       } catch (error: unknown) {
-        this.ctx.logger.warn(`tool "${exec.name}" (${exec.callId}): tools/result observer failed: ${errorMessage(error)}`)
+        reportFailure(error)
       }
     }
   }
