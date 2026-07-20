@@ -6,7 +6,6 @@
 
 import { parseArgs as parseNodeArgs } from 'node:util'
 import { Command } from 'commander'
-import { splitForwardedArgs } from './forwarding.ts'
 
 /** Commands implemented by the dsh-sdk launcher. */
 type DshSdkCommand = 'start' | 'dev' | 'build' | 'config' | 'create'
@@ -35,7 +34,9 @@ export function parseDshSdkArgs(argv: readonly string[]): DshSdkArgs {
   if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
     return { forwarded: [], help: true }
   }
-  const { launcher: launcherArgv, forwarded: passthrough } = splitForwardedArgs(argv)
+  const separator = argv.indexOf('--')
+  const launcherArgv = separator === -1 ? argv : argv.slice(0, separator)
+  const passthrough = separator === -1 ? [] : argv.slice(separator + 1)
   let parsed: DshSdkArgs | undefined
   const program = new Command()
     .name('dsh-sdk')

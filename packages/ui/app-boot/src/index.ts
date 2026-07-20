@@ -6,12 +6,29 @@
  */
 
 import { pathToFileURL } from 'node:url'
-import { dirname, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 
-export { resolveConfigPath } from './config-path.ts'
+/**
+ * Resolve the config to boot. Replay swaps a `cordis.yml` basename for
+ * `cordis.snapshot.yml` in the same directory; every other mode keeps the path.
+ * @param configPath - the requested config path (absolute, or relative to `cwd`).
+ * @param snapshotMode - the bin's `$DSH_SNAPSHOT` value; only `'replay'` swaps the
+ *   basename.
+ * @param cwd - the base a relative `configPath` resolves against.
+ * @returns the absolute path of the config to boot.
+ */
+export function resolveConfigPath(
+  configPath: string, snapshotMode: string | undefined, cwd: string = process.cwd(),
+): string {
+  const absolute = resolve(cwd, configPath)
+  if (snapshotMode !== 'replay') return absolute
+  const dir = dirname(absolute)
+  const replayName = basename(absolute).replace(/cordis\.ya?ml$/, 'cordis.snapshot.yml')
+  return resolve(dir, replayName)
+}
 
 /**
  * Load the optional gitignored `.env` from `dir`. Missing files fall back to the
