@@ -79,11 +79,16 @@ class CatalogSearchBashExecutor extends BashExecutor {
   }
 }
 
-/** Register the descriptor needed to mount schema-producing consumers. */
+/**
+ * Register the descriptor needed to mount schema-producing consumers. Declares
+ * the full capability set of the shipped in-process providers so consumers
+ * mount under their shipped defaults (tool-subagent's default numeric maxDepth
+ * requires `depthLimit`).
+ */
 function registerCatalogSubagentProvider(ctx: Context, name: string): void {
   const provider: SubagentProvider = {
     name,
-    capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+    capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
     inheritsParentContext: false,
     start: () => Promise.reject(new Error('tool-catalog provider cannot start a child')),
   }
