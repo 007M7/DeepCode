@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"19a0ab16-a36d-49c8-bac2-c1b2208844ad","createdAt":1784451778257,"cwd":"/var/folders/_g/59jgff8x2gqd39f5vy1wnbfc0000gn/T/acp-snap-cwd-CuULie"}
+{"type":"session","version":0,"id":"19a0ab16-a36d-49c8-bac2-c1b2208844ad","createdAt":1784451778257,"cwd":"/var/folders/_g/59jgff8x2gqd39f5vy1wnbfc0000gn/T/acp-snap-cwd-CuULie","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1784451778261,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1784451778262,"data":{"content":[{"type":"text","text":"Remember this fact for later: the project codeword is MARMALADE. Reply with the single word OK and stop. Do not use any tools."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1784451778263,"data":{"turn":1,"step":1}}

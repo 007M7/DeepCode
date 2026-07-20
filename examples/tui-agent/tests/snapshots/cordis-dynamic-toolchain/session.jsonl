@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"11111111-1111-4111-8111-111111111111","createdAt":1783950000000,"cwd":"/tmp/advanced-acp"}
+{"type":"session","version":0,"id":"11111111-1111-4111-8111-111111111111","createdAt":1783950000000,"cwd":"/tmp/advanced-acp","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783957884479,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783957884479,"data":{"content":[{"type":"text","text":"Run this advanced flow exactly once: mount a no-op Cordis plugin named snapshot-marker; use run_code to inspect the live dynamic mounts through tools.cordis_inspect; delegate once to a direct spawn child; run one workflow that delegates to another spawn child; unmount dyn-1; then reply with exactly ADVANCED_ACP_OK."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1783957884486,"data":{"turn":1,"step":1}}

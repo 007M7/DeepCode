@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"23127c8b-3c39-4dca-8cb6-8111f50bd23f","createdAt":1784451767994,"cwd":"/var/folders/_g/59jgff8x2gqd39f5vy1wnbfc0000gn/T/acp-snap-cwd-ogFsTm"}
+{"type":"session","version":0,"id":"23127c8b-3c39-4dca-8cb6-8111f50bd23f","createdAt":1784451767994,"cwd":"/var/folders/_g/59jgff8x2gqd39f5vy1wnbfc0000gn/T/acp-snap-cwd-ogFsTm","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1784451767996,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1784451767996,"data":{"content":[{"type":"text","text":"Use the subagent tool TWICE, once at a time, to delegate two subtasks to child agents. First subtask: 'Reply with exactly the word ALPHA and nothing else.' Second subtask (after the first returns): 'Reply with exactly the word BETA and nothing else.' After both subagents return, reply with the single word PARENT_DONE and stop. Do not use the bash tool."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1784451768000,"data":{"turn":1,"step":1}}
