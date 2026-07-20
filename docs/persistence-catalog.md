@@ -169,21 +169,6 @@ Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-st
 
 Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
 
-### `bash/*`
-
-#### `bash/sandbox-mode` — log-only
-
-```ts persistence-catalog
-/**
- * Durable log-only sandbox-mode override; never a surface event or model
- * message. Execution and ACP option reporting fold the latest event through
- * {@link effectiveSandboxMode} without adding a prompt notice.
- */
-'bash/sandbox-mode': { mode: SandboxMode }
-```
-
-Source: [`packages/bash/bash/src/session-mode.ts:20`](../packages/bash/bash/src/session-mode.ts)
-
 ### `compact/*`
 
 #### `compact/end` — log-only
@@ -320,7 +305,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:33`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src/index.ts)
 
 ### `prompt/*`
 
@@ -351,6 +336,24 @@ Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/
 ```
 
 Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/types.ts)
+
+### `sandbox/*`
+
+#### `sandbox/mode` — log-only
+
+```ts persistence-catalog
+/**
+ * The session's sandbox mode was switched — log-only (like `approval/*`;
+ * NOT a surface event, carries no `surfaceOp`): durable and replayable,
+ * never in the model transcript. The LAST such event is the session's
+ * override ({@link effectiveSandboxMode}); who asked for it is derivable
+ * from position (an event after the log's last `request/header*` was a
+ * runtime switch by the user; see the tool layer's narrator).
+ */
+'sandbox/mode': { mode: SandboxMode }
+```
+
+Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
 
 ### `steering/*`
 

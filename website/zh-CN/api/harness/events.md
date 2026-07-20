@@ -470,7 +470,7 @@ Single-slot decision for the next FileSystem.editText. Calling `next()` yields a
 - `target` — the resolved target about to be edited.
 - `actor` — the opaque tool-execution context the decider keys off.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L61)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L62)
 
 ### fs/observed
 
@@ -494,7 +494,7 @@ Record a successful observation. Listeners must be synchronous recorders: throws
 - `version` — the version the actor now holds as its observation.
 - `actor` — the observing tool-execution context; undefined records nothing useful.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L70)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L71)
 
 ### fs/write-intent
 
@@ -517,7 +517,7 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 - `target` — the resolved target about to be written.
 - `actor` — the opaque tool-execution context the decider keys off.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L53)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L54)
 
 ## llm/*
 
