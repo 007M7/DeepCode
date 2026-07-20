@@ -287,7 +287,7 @@ describe('bash tool', () => {
   })
 
   // Type and required-key violations are rejected by the harness
-  // (defineTool validates against the SchemaSpec — the arg-validation Agent Note) before execute.
+  // (defineTool validates against the ParameterSchemaSpec — the arg-validation Agent Note) before execute.
   it.each([
     [{}, /missing required property "command"/],
     [{ command: 42, description: 'd' }, /"command" must be a string/],
@@ -303,7 +303,7 @@ describe('bash tool', () => {
     expect(text(result)).toMatch(pattern)
   })
 
-  // Value constraints the SchemaSpec can't express stay in the tool body.
+  // Value constraints the ParameterSchemaSpec can't express stay in the tool body.
   it.each([
     [{ command: '  ', description: 'd' }, /invalid command/],
     [{ command: 'x', description: '   ' }, /invalid description/],

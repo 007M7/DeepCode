@@ -80,19 +80,19 @@ ctx.tools.register(defineTool({
 }))
 ```
 
-The helper converts the author-facing `SchemaSpec` (with `required: true` as a per-property boolean) to standard JSON Schema for the wire format and uses the same typed spec for execute/presentation validation. Raw JSON-Schema tool definitions (from MCP servers) are still accepted by the registry directly.
+The unified schema DSL uses `ParameterSchemaSpec` for the implicit open parameter object and `ValueSchemaSpec` for any JSON-value root. It supports `string`, `number`, `integer`, `boolean`, `null`, `array`, `object`, author-only `json`, and exact-one `oneOf`; scalar `enum`/`const` values are type-correct. Every explicit DSL object declares `additionalProperties: true | false`, while the implicit parameter root and raw JSON Schema keep the standard open default.
 
 A `defineTool` definition validates model arguments before execution and turns missing required values, wrong primitives, invalid enum members, and nested violations into `ToolArgsError` (`INVALID_ARGS`) for the normal error-result path. Extra keys are allowed, defaults are not applied, and object or array fields without `properties` or `items` receive only a type check. Raw-registered tools own their validation.
 
-See `defineTool`, `validateArgs`, `ToolArgsError`, `SchemaSpec`, `InferArgs`, and `schemaSpecToJsonSchema` in the public API for details.
+See `defineTool`, `validateArgs`, `ToolArgsError`, `ValueSchemaSpec`, `ParameterSchemaSpec`, `InferValue`, `InferArgs`, `valueSchemaSpecToJsonSchema`, and `parameterSchemaSpecToJsonSchema` in the public API for details.
 
 Optional `timeoutMs` must be positive and finite; it is policy metadata, not model-visible schema.
 
 Optional `isConcurrencySafe(args)` receives typed, softly validated arguments. Exact `true` permits concurrent dispatch/body execution; invalid input and all other outcomes remain exclusive. Opted-in bodies do not mutate parent-owned state, and shared-state races must commute or fail closed. The [parallel tool-call Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md) owns the full safety contract.
 
-### Structured-output schema subset
+### Enforced raw JSON Schema subset
 
-`StructuredOutputSchema` is the object-rooted raw JSON Schema subset used by subagents and workflows for machine-readable results. It accepts one scalar `type`, object `properties`/`required`/boolean `additionalProperties`, array `items`, and scalar `enum`/`const`. The annotations `description`, `title`, `default`, and `examples` are ignored but must remain JSON data. Type arrays, undeclared required keys, and unsupported keywords fail through `OutputSchemaError` rather than being ignored; `validateStructuredValue()` returns path-qualified violations without throwing.
+`JsonSchemaNode` is the raw counterpart shared by tool outputs, Code Mode generation, subagents, and workflows. It permits any JSON root, an annotation-only unconstrained JSON node, and exact-one `oneOf`; annotations must remain lossless JSON. `assertSupportedJsonSchema()` rejects unsupported constructs, while `validateJsonSchemaValue()` returns path-qualified violations. Subagents and workflows retain their caller-defined object-root requirement through `assertObjectJsonSchema()` and `ObjectJsonSchema`, not through a limitation in the shared vocabulary.
 
 ### Tool-owned UI presentation
 

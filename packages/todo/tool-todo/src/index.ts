@@ -28,7 +28,7 @@ const DESCRIPTION =
   + '(not started), `in_progress` (being worked on now), `completed` (finished).'
 
 /**
- * Validate the value constraints the SchemaSpec can't express and build the canonical {@link
+ * Validate the value constraints the ParameterSchemaSpec can't express and build the canonical {@link
  * TodoItem}[]: trimmed non-empty unique content and at most one in-progress item. The registry
  * has already enforced the status enum; the cast below records that guarantee.
  */
@@ -67,6 +67,7 @@ export function apply(ctx: Context): void {
         description: 'The COMPLETE task list, replacing any previous list.',
         items: {
           type: 'object',
+          additionalProperties: true,
           properties: {
             content: { type: 'string', required: true, description: 'What the task is — a short imperative line.' },
             status: {

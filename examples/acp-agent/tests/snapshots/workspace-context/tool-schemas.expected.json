@@ -288,6 +288,7 @@
             "description": "The COMPLETE task list, replacing any previous list.",
             "items": {
               "type": "object",
+              "additionalProperties": true,
               "properties": {
                 "content": {
                   "type": "string",
@@ -373,6 +374,7 @@
           "meta": {
             "type": "object",
             "description": "The workflow identity block (plain JSON — never code).",
+            "additionalProperties": true,
             "properties": {
               "name": {
                 "type": "string",
@@ -391,6 +393,7 @@
                 "description": "Optional phase declarations matched by phase() calls.",
                 "items": {
                   "type": "object",
+                  "additionalProperties": true,
                   "properties": {
                     "title": {
                       "type": "string",
@@ -422,7 +425,8 @@
           },
           "args": {
             "type": "object",
-            "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]})."
+            "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]}).",
+            "additionalProperties": true
           }
         },
         "required": [

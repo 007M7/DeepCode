@@ -5,8 +5,8 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import ToolRegistry, {
-  defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
-  type InferArgs, type SchemaSpec, type PreToolDecision, type PostToolDecision,
+  defineTool, JsonSchemaError, parameterSchemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
+  type InferArgs, type JsonValue, type ParameterSchemaSpec, type PreToolDecision, type PostToolDecision,
   type ToolExecution, type ToolExecutionResult,
 } from '@deepseek-ai/dsh-tools'
 
@@ -775,13 +775,13 @@ describe('ToolRegistry', () => {
 })
 
 describe('defineTool / schema DSL', () => {
-  it('converts SchemaSpec to standard JSON Schema with required array', () => {
+  it('converts ParameterSchemaSpec to standard JSON Schema with required array', () => {
     const spec = {
       path: { type: 'string', required: true, description: 'Absolute path' },
       offset: { type: 'number' },
       limit: { type: 'number', description: 'Max lines' },
-    } satisfies SchemaSpec
-    const jsonSchema = schemaSpecToJsonSchema(spec)
+    } satisfies ParameterSchemaSpec
+    const jsonSchema = parameterSchemaSpecToJsonSchema(spec)
     expect(jsonSchema).toEqual({
       type: 'object',
       properties: {
@@ -794,7 +794,7 @@ describe('defineTool / schema DSL', () => {
   })
 
   it('handles empty spec (no properties, no required)', () => {
-    expect(schemaSpecToJsonSchema({})).toEqual({
+    expect(parameterSchemaSpecToJsonSchema({})).toEqual({
       type: 'object',
       properties: {},
     })
@@ -804,19 +804,21 @@ describe('defineTool / schema DSL', () => {
     const spec = {
       config: {
         type: 'object',
+        additionalProperties: true,
         required: true,
         properties: {
           host: { type: 'string', required: true },
           port: { type: 'number' },
         },
       },
-    } satisfies SchemaSpec
-    const jsonSchema = schemaSpecToJsonSchema(spec)
+    } satisfies ParameterSchemaSpec
+    const jsonSchema = parameterSchemaSpecToJsonSchema(spec)
     expect(jsonSchema).toEqual({
       type: 'object',
       properties: {
         config: {
           type: 'object',
+          additionalProperties: true,
           properties: {
             host: { type: 'string' },
             port: { type: 'number' },
@@ -958,8 +960,8 @@ describe('schema DSL edge cases', () => {
   it('emits enum values in JSON Schema property', () => {
     const spec = {
       color: { type: 'string', enum: ['red', 'green', 'blue'], description: 'Color choice' },
-    } satisfies SchemaSpec
-    const jsonSchema = schemaSpecToJsonSchema(spec)
+    } satisfies ParameterSchemaSpec
+    const jsonSchema = parameterSchemaSpecToJsonSchema(spec)
     expect(jsonSchema.properties['color']).toMatchObject({
       type: 'string',
       enum: ['red', 'green', 'blue'],
@@ -970,8 +972,8 @@ describe('schema DSL edge cases', () => {
   it('emits default value in JSON Schema property', () => {
     const spec = {
       limit: { type: 'number', default: 25 },
-    } satisfies SchemaSpec
-    const jsonSchema = schemaSpecToJsonSchema(spec)
+    } satisfies ParameterSchemaSpec
+    const jsonSchema = parameterSchemaSpecToJsonSchema(spec)
     expect(jsonSchema.properties['limit']).toMatchObject({
       type: 'number',
       default: 25,
@@ -981,8 +983,8 @@ describe('schema DSL edge cases', () => {
   it('handles array items without nested properties (plain type array)', () => {
     const spec = {
       tags: { type: 'array', items: { type: 'string' } },
-    } satisfies SchemaSpec
-    const jsonSchema = schemaSpecToJsonSchema(spec)
+    } satisfies ParameterSchemaSpec
+    const jsonSchema = parameterSchemaSpecToJsonSchema(spec)
     expect(jsonSchema.properties['tags']).toEqual({
       type: 'array',
       items: { type: 'string' },
@@ -992,8 +994,8 @@ describe('schema DSL edge cases', () => {
   it('handles enum and default together in one property', () => {
     const spec = {
       level: { type: 'string', enum: ['low', 'high'], default: 'low' },
-    } satisfies SchemaSpec
-    const jsonSchema = schemaSpecToJsonSchema(spec)
+    } satisfies ParameterSchemaSpec
+    const jsonSchema = parameterSchemaSpecToJsonSchema(spec)
     expect(jsonSchema.properties['level']).toMatchObject({
       type: 'string',
       enum: ['low', 'high'],
@@ -1004,8 +1006,8 @@ describe('schema DSL edge cases', () => {
   it('omits description, enum, default keys when not specified', () => {
     const spec = {
       bare: { type: 'string' },
-    } satisfies SchemaSpec
-    const jsonSchema = schemaSpecToJsonSchema(spec)
+    } satisfies ParameterSchemaSpec
+    const jsonSchema = parameterSchemaSpecToJsonSchema(spec)
     const prop = jsonSchema.properties['bare'] as Record<string, unknown>
     expect(prop).toEqual({ type: 'string' })
     expect('description' in prop).toBe(false)
@@ -1016,8 +1018,8 @@ describe('schema DSL edge cases', () => {
   it('handles array with no items (items omitted)', () => {
     const spec = {
       raw: { type: 'array' },
-    } satisfies SchemaSpec
-    const jsonSchema = schemaSpecToJsonSchema(spec)
+    } satisfies ParameterSchemaSpec
+    const jsonSchema = parameterSchemaSpecToJsonSchema(spec)
     expect(jsonSchema.properties['raw']).toEqual({
       type: 'array',
     })
@@ -1027,13 +1029,14 @@ describe('schema DSL edge cases', () => {
     const spec = {
       config: {
         type: 'object',
+        additionalProperties: true,
         properties: {
           host: { type: 'string' },
           port: { type: 'number' },
         },
       },
-    } satisfies SchemaSpec
-    const jsonSchema = schemaSpecToJsonSchema(spec)
+    } satisfies ParameterSchemaSpec
+    const jsonSchema = parameterSchemaSpecToJsonSchema(spec)
     expect(jsonSchema.properties['config']).toMatchObject({
       type: 'object',
       properties: {
@@ -1064,6 +1067,7 @@ describe('schema DSL optional and nested contracts', () => {
         type: 'array'
         items: {
           type: 'object'
+          additionalProperties: true
           properties: {
             host: { type: 'string'; required: true }
             port: { type: 'number' }
@@ -1073,7 +1077,7 @@ describe('schema DSL optional and nested contracts', () => {
     }>
     expectTypeOf<Args>().toEqualTypeOf<{
       names: string[]
-      servers?: { host: string; port?: number }[]
+      servers?: ({ host: string; port?: number } & Record<string, JsonValue>)[]
     }>()
   })
 
@@ -1083,20 +1087,22 @@ describe('schema DSL optional and nested contracts', () => {
         type: 'array',
         items: {
           type: 'object',
+          additionalProperties: true,
           properties: {
             host: { type: 'string', required: true },
             port: { type: 'number' },
           },
         },
       },
-    } satisfies SchemaSpec
-    expect(schemaSpecToJsonSchema(spec)).toEqual({
+    } satisfies ParameterSchemaSpec
+    expect(parameterSchemaSpecToJsonSchema(spec)).toEqual({
       type: 'object',
       properties: {
         servers: {
           type: 'array',
           items: {
             type: 'object',
+            additionalProperties: true,
             properties: {
               host: { type: 'string' },
               port: { type: 'number' },
@@ -1178,7 +1184,7 @@ describe('validateArgs (the runtime-validation Agent Note, part 1)', () => {
     const spec = {
       path: { type: 'string', required: true },
       limit: { type: 'number' },
-    } satisfies SchemaSpec
+    } satisfies ParameterSchemaSpec
     expect(validateArgs(spec, { path: '/tmp' })).toEqual([])
     expect(validateArgs(spec, { path: '/tmp', limit: 5 })).toEqual([])
     // never throws regardless of shape
@@ -1188,18 +1194,18 @@ describe('validateArgs (the runtime-validation Agent Note, part 1)', () => {
   })
 
   it('flags a missing required key and a required key present as undefined', () => {
-    const spec = { path: { type: 'string', required: true } } satisfies SchemaSpec
+    const spec = { path: { type: 'string', required: true } } satisfies ParameterSchemaSpec
     expect(validateArgs(spec, {})).toEqual(['missing required property "path"'])
     expect(validateArgs(spec, { path: undefined })).toEqual(['missing required property "path"'])
   })
 
   it('allows extra keys (no additionalProperties:false) and omitted optionals', () => {
-    const spec = { path: { type: 'string', required: true } } satisfies SchemaSpec
+    const spec = { path: { type: 'string', required: true } } satisfies ParameterSchemaSpec
     expect(validateArgs(spec, { path: '/tmp', extra: 1 })).toEqual([])
   })
 
   it('does not apply defaults (validation only)', () => {
-    const spec = { limit: { type: 'number', default: 25 } } satisfies SchemaSpec
+    const spec = { limit: { type: 'number', default: 25 } } satisfies ParameterSchemaSpec
     // absent optional is valid, and validation does not synthesize the default
     expect(validateArgs(spec, {})).toEqual([])
   })
@@ -1209,39 +1215,41 @@ describe('validateArgs (the runtime-validation Agent Note, part 1)', () => {
       s: { type: 'string' },
       n: { type: 'number' },
       b: { type: 'boolean' },
-    } satisfies SchemaSpec
+    } satisfies ParameterSchemaSpec
     expect(validateArgs(spec, { s: 1 })).toEqual(['"s" must be a string'])
     expect(validateArgs(spec, { n: 'x' })).toEqual(['"n" must be a number'])
     expect(validateArgs(spec, { b: 'x' })).toEqual(['"b" must be a boolean'])
   })
 
   it('checks enum membership', () => {
-    const spec = { color: { type: 'string', enum: ['red', 'green'] } } satisfies SchemaSpec
+    const spec = { color: { type: 'string', enum: ['red', 'green'] } } satisfies ParameterSchemaSpec
     expect(validateArgs(spec, { color: 'red' })).toEqual([])
     expect(validateArgs(spec, { color: 'blue' })).toEqual(['"color" must be one of ["red","green"]'])
   })
 
-  it('checks enum uniformly with the converter (enum on a non-string prop)', () => {
-    // The converter emits `enum` regardless of type; the validator must agree.
-    // `enum` is string[], so a number value can never be a member.
-    const spec = { n: { type: 'number', enum: ['1', '2'] } } as unknown as SchemaSpec
-    expect(validateArgs(spec, { n: 1 })).toEqual(['"n" must be one of ["1","2"]'])
+  it('enforces type-correct scalar enum declarations', () => {
+    const spec = { n: { type: 'number', enum: [1, 2] } } satisfies ParameterSchemaSpec
+    expect(validateArgs(spec, { n: 1 })).toEqual([])
+    expect(validateArgs(spec, { n: 3 })).toEqual(['"n" must be one of [1,2]'])
+    const invalid = { n: { type: 'number', enum: ['1', '2'] } } as unknown as ParameterSchemaSpec
+    expect(() => validateArgs(invalid, { n: 1 })).toThrow(JsonSchemaError)
   })
 
-  it('rejects an unknown SchemaType at runtime (assertNever guard)', () => {
-    const spec = { x: { type: 'weird' } } as unknown as SchemaSpec
-    expect(() => validateArgs(spec, { x: 1 })).toThrow(/unreachable variant.*validateArgs/)
+  it('rejects an unknown schema type at the author boundary', () => {
+    const spec = { x: { type: 'weird' } } as unknown as ParameterSchemaSpec
+    expect(() => validateArgs(spec, { x: 1 })).toThrow(JsonSchemaError)
   })
 
   it('recurses into nested objects (and an object without properties only type-checks)', () => {
     const spec = {
       config: {
         type: 'object',
+        additionalProperties: true,
         required: true,
         properties: { host: { type: 'string', required: true }, port: { type: 'number' } },
       },
-      bag: { type: 'object' },
-    } satisfies SchemaSpec
+      bag: { type: 'object', additionalProperties: true },
+    } satisfies ParameterSchemaSpec
     expect(validateArgs(spec, { config: { host: 'h' }, bag: { anything: true } })).toEqual([])
     expect(validateArgs(spec, { config: { port: 9 }, bag: 5 })).toEqual([
       'missing required property "config.host"',
@@ -1253,7 +1261,7 @@ describe('validateArgs (the runtime-validation Agent Note, part 1)', () => {
     const spec = {
       tags: { type: 'array', items: { type: 'string' } },
       raw: { type: 'array' },
-    } satisfies SchemaSpec
+    } satisfies ParameterSchemaSpec
     expect(validateArgs(spec, { tags: ['a', 'b'], raw: [1, {}, 'x'] })).toEqual([])
     expect(validateArgs(spec, { tags: ['a', 2] })).toEqual(['"tags[1]" must be a string'])
     // a non-array value for an array-typed prop
@@ -1264,9 +1272,9 @@ describe('validateArgs (the runtime-validation Agent Note, part 1)', () => {
     const spec = {
       servers: {
         type: 'array',
-        items: { type: 'object', properties: { host: { type: 'string', required: true } } },
+        items: { type: 'object', additionalProperties: true, properties: { host: { type: 'string', required: true } } },
       },
-    } satisfies SchemaSpec
+    } satisfies ParameterSchemaSpec
     expect(validateArgs(spec, { servers: [{ host: 'a' }, {}] })).toEqual([
       'missing required property "servers[1].host"',
     ])

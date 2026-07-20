@@ -1337,6 +1337,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface InjectOptions extends SendOptions {\n    meta?: JsonValue;\n}',
   },
   {
+    name: 'JsonSchemaNode',
+    declaration: 'export interface JsonSchemaNode {\n    type?: JsonSchemaType;\n    oneOf?: JsonSchemaNode[];\n    properties?: Record<string, JsonSchemaNode>;\n    required?: string[];\n    additionalProperties?: boolean;\n    items?: JsonSchemaNode;\n    enum?: JsonSchemaScalar[];\n    const?: JsonSchemaScalar;\n    description?: string;\n    title?: string;\n    default?: JsonValue;\n    examples?: JsonValue;\n}',
+  },
+  {
+    name: 'JsonSchemaScalar',
+    declaration: 'export type JsonSchemaScalar = string | number | boolean | null;',
+  },
+  {
+    name: 'JsonSchemaType',
+    declaration: 'export type JsonSchemaType = \'object\' | \'array\' | \'string\' | \'number\' | \'integer\' | \'boolean\' | \'null\';',
+  },
+  {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
@@ -1367,6 +1379,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MessageSourceMap',
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    };\n}',
+  },
+  {
+    name: 'ObjectJsonSchema',
+    declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
   {
     name: 'PresetOption',
@@ -1545,22 +1561,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: CallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: unknown;\n};',
   },
   {
-    name: 'StructuredOutputSchema',
-    declaration: 'export type StructuredOutputSchema = StructuredSchemaNode & {\n    type: \'object\';\n};',
-  },
-  {
-    name: 'StructuredScalar',
-    declaration: 'export type StructuredScalar = string | number | boolean | null;',
-  },
-  {
-    name: 'StructuredSchemaNode',
-    declaration: 'export interface StructuredSchemaNode {\n    type: StructuredSchemaType;\n    properties?: Record<string, StructuredSchemaNode>;\n    required?: string[];\n    additionalProperties?: boolean;\n    items?: StructuredSchemaNode;\n    enum?: StructuredScalar[];\n    const?: StructuredScalar;\n    description?: string;\n    title?: string;\n    default?: unknown;\n    examples?: unknown;\n}',
-  },
-  {
-    name: 'StructuredSchemaType',
-    declaration: 'export type StructuredSchemaType = \'object\' | \'array\' | \'string\' | \'number\' | \'integer\' | \'boolean\' | \'null\';',
-  },
-  {
     name: 'SubagentCapabilities',
     declaration: 'export interface SubagentCapabilities {\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
   },
@@ -1578,7 +1578,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentStartRequest',
-    declaration: 'export interface SubagentStartRequest {\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: StructuredOutputSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
+    declaration: 'export interface SubagentStartRequest {\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
   },
   {
     name: 'SubagentStopReason',

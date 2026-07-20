@@ -7,7 +7,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import type { Config as ToolConfig, StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
+import type { Config as ToolConfig, ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { startInProcessRun } from '../src/index.ts'
@@ -27,7 +27,7 @@ interface SetupOptions {
   codeRun?: (request: CodeRunRequestLike) => Promise<{ logs: never[]; value?: unknown }>
 }
 
-const SCHEMA: StructuredOutputSchema = {
+const SCHEMA: ObjectJsonSchema = {
   type: 'object',
   properties: { answer: { type: 'number' }, note: { type: 'string' } },
   required: ['answer'],
@@ -320,17 +320,17 @@ describe('in-process structured output', () => {
   it('rejects a schema outside the subset loud, before any child exists', async () => {
     const { ctx, parent } = await setup([])
     await expect(ctx.subagents.start('spawn', structuredRequest(parent, {
-      outputSchema: { type: 'object', oneOf: [] } as unknown as StructuredOutputSchema,
-    }))).rejects.toThrow(/unsupported output schema/)
+      outputSchema: { type: 'object', oneOf: [] } as unknown as ObjectJsonSchema,
+    }))).rejects.toThrow(/unsupported JSON schema/)
     expect(ctx.agents.get(SessionId('parent'))).toBeDefined()
   })
 
-  it('a schema carrying non-JSON values fails as OutputSchemaError at the validation boundary', async () => {
+  it('a schema carrying non-JSON values fails as JsonSchemaError at the validation boundary', async () => {
     const { ctx, parent } = await setup([])
     // Semantic assertion runs before provider startup.
     await expect(ctx.subagents.start('spawn', structuredRequest(parent, {
-      outputSchema: { type: 'object', default: () => {} } as unknown as StructuredOutputSchema,
-    }))).rejects.toThrow(/unsupported output schema.*annotation must be JSON data/)
+      outputSchema: { type: 'object', default: () => {} } as unknown as ObjectJsonSchema,
+    }))).rejects.toThrow(/unsupported JSON schema.*annotation must be lossless JSON data/)
   })
 
   it('a post-execute BLOCK on the capture call denies the capture: log and result agree on failure', async () => {
@@ -547,7 +547,7 @@ describe('in-process structured output', () => {
     })
 
     it('two concurrent structured children each see their OWN schema', async () => {
-      const otherSchema: StructuredOutputSchema = {
+      const otherSchema: ObjectJsonSchema = {
         type: 'object',
         properties: { verdict: { type: 'string', enum: ['real', 'bogus'] } },
         required: ['verdict'],

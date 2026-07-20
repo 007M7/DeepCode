@@ -37,10 +37,11 @@ export function apply(ctx: Context) {
 ```ts
 export const parameters = {
   path: { type: 'string', required: true },
-  limit: { type: 'number' },
+  limit: { type: 'integer' },
   recursive: { type: 'boolean' },
+  parent: { type: 'null' },
 }
-// Inferred type: { path: string; limit?: number; recursive?: boolean }
+// Inferred type: { path: string; limit?: number; recursive?: boolean; parent?: null }
 ```
 
 ### 枚举
@@ -49,7 +50,7 @@ export const parameters = {
 export const parameters = {
   mode: { type: 'string', required: true, enum: ['read', 'write', 'append'] },
 }
-// Inferred type: { mode: string } (enum values are validated at runtime)
+// Inferred type: { mode: 'read' | 'write' | 'append' }
 ```
 
 ### 嵌套对象
@@ -58,13 +59,14 @@ export const parameters = {
 export const parameters = {
   options: {
     type: 'object',
+    additionalProperties: true,
     properties: {
       timeout: { type: 'number' },
       retries: { type: 'number' },
     },
   },
 }
-// Inferred type: { options?: { timeout?: number; retries?: number } }
+// The declared fields are inferred; additional JSON-valued keys are allowed.
 ```
 
 ### 数组
@@ -83,12 +85,16 @@ export const parameters = {
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `type` | `'string' \| 'number' \| 'boolean' \| 'object' \| 'array'` | 值类型 |
+| `type` | `'string' \| 'number' \| 'integer' \| 'boolean' \| 'null' \| 'object' \| 'array' \| 'json'` | 值类型；`json` 接受任意无损 JSON 值 |
 | `required` | `true` | 标记为必填（影响类型推导） |
 | `description` | `string` | 发送给模型的描述 |
-| `enum` | `string[]` | 允许的枚举值 |
-| `properties` | `SchemaSpec` | 嵌套属性（type 为 object 时） |
-| `items` | `SchemaProp` | 数组元素 schema（type 为 array 时） |
+| `enum` / `const` | 匹配类型的标量值 | 允许的字面量值，在编写和运行时边界校验 |
+| `properties` | `ParameterSchemaSpec` | 对象的嵌套属性 |
+| `additionalProperties` | `true \| false` | 每个显式对象节点都必须声明 |
+| `items` | `ValueSchemaSpec` | 数组的元素 schema |
+| `oneOf` | 至少两个 `ValueSchemaSpec` 分支 | 要求恰好匹配一个分支；代替 `type` 使用 |
+
+外层 `parameters` 映射是一个隐式的开放对象。显式嵌套对象需自行选择是否开放；不通过 `defineTool` 注册的原始 JSON Schema 保持 JSON Schema 的默认开放语义。
 
 ## execute 函数
 

@@ -14,7 +14,7 @@ import type { Context } from 'cordis'
 import type { ContinuationStop } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
-import { ToolArgsError, validateStructuredValue, type StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
+import { ToolArgsError, validateJsonSchemaValue, type ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 
 /** The model-facing tool name a structured child must call to finish. */
 export const STRUCTURED_OUTPUT_TOOL = 'structured_output'
@@ -44,10 +44,10 @@ export interface StructuredAttachment {
  * its creation window. Child disposal removes every registration.
  * @param childCtx - the child agent's scope context (`setup`'s argument).
  * @param schema - the trusted, already-asserted schema subset to enforce (see
- *   `assertSupportedOutputSchema` in dsh-tools).
+ *   `assertObjectJsonSchema` in dsh-tools).
  * @returns the attachment handle (read `captured()` after the child settles).
  */
-export function attachStructuredRuntime(childCtx: Context, schema: StructuredOutputSchema): StructuredAttachment {
+export function attachStructuredRuntime(childCtx: Context, schema: ObjectJsonSchema): StructuredAttachment {
   /**
    * Validated values staged by the capture tool body, awaiting THEIR OWN
    * authoritative `tools/result` notification. The execution object's identity
@@ -75,7 +75,7 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
   childCtx.tools.register({
     ...schemaEntry,
     execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]> {
-      const violations = validateStructuredValue(schema, args)
+      const violations = validateJsonSchemaValue(schema, args)
       // ToolArgsError → isError result with INVALID_ARGS: the model retries
       // within the same turn, exactly like a schema-validated defineTool call.
       if (violations.length > 0) throw new ToolArgsError(violations)

@@ -206,7 +206,7 @@ export class BashEnvRegistry extends Service {
   }
 }
 
-/** Parsed tool args; execute validates value constraints absent from SchemaSpec. */
+/** Parsed tool args; execute validates value constraints absent from ParameterSchemaSpec. */
 interface BashToolArgs {
   command: string
   description: string

@@ -36,6 +36,8 @@ Pass `run_code` the body of an async TypeScript function (erasable syntax only �
 The available tools:
 
 ```ts
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
+
 declare const tools: {
   /** Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a task id immediately; read its output with `task_output` and stop it with `task_kill`. Attempting a command the sandbox may deny is safe and expected: run it and read the marker rather than assuming the denial. When a command is denied and a wider mode would let it succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a one-sentence `justification`. Do not detour through chat to ask permission first — the approval prompt raised by that retry is how the user consents. If the session states approval prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. Never escalate speculatively: ground the request in a real denial — normally the one this command just hit; escalating up front is fine only when this session already denied the same access. A rejected escalation is final for that command — stop and explain, never work around it — but it does not forbid attempting or escalating other commands later. */
   bash(args: {
@@ -53,31 +55,31 @@ declare const tools: {
     sandbox_permissions?: "workspace-write" | "danger-full-access";
     /** Required with sandbox_permissions: one sentence for the user explaining why this exact command needs the wider access. */
     justification?: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** Inspect the live cordis runtime that is running THIS agent. Read-only. Sections: `services` (every provided ctx service and the plugin fiber that owns it), `plugins` (a flat list of the loaded plugins with their lifecycle states), `tools` (the model-facing tools currently registered, i.e. what you can call), `dynamic` (plugins you mounted via cordis_mount: id, name, state, provided services, awaited services), `api` (method signatures AND argument/return type shapes for every LIVE service — read this before writing plugin code that calls a service), `events` (every harness event with its dispatch mode and exact signature — pick listener targets here). Omit `what` to get all six sections. With `what:"api"` or `what:"events"`, pass an exact `name` to narrow to one service/event and include its original source JSDoc. */
   cordis_inspect(args: {
     /** Limit the report to one section. Omit for all sections. */
     what?: "services" | "plugins" | "tools" | "dynamic" | "api" | "events";
     /** Exact service key or event name whose original JSDoc to include; valid only with what:"api" or what:"events". */
     name?: string;
-  }): Promise<string>;
-  /** Mount a NEW cordis plugin into the live runtime that is running THIS agent (self-modification). `code` runs as the body of an async JavaScript function in an isolated sandbox and MUST `return` a plugin. Two forms: FUNCTION form `return (ctx) => { … }` — declares no inject, so it can register tools, listen to events, and provide services, but reaching ANY service (e.g. ctx.bash) throws; use it only when you need no services. OBJECT form `return { name?, inject: ['bash', 'llm', …], apply(ctx) { … } }` — declares dependencies, and cordis activates the plugin only after the services exist; PREFER this form. You may reach ONLY the services you list in inject: an undeclared service throws even if it exists, because an undeclared dependency would not be cleaned up if its provider is unmounted. BEFORE calling a service from your code, read cordis_inspect what:"api" — it lists method signatures AND the type shapes of their arguments/returns (do not guess a field's type; e.g. a bash run's stdout is an object, not a string). Inside `apply`, use the standard cordis API: `ctx.on(event, listener)` to observe events (see cordis_inspect what:"events"), or call `harness.registerTool(ctx, harness.defineTool({ name, description, parameters: { text: { type: 'string', required: true } }, async execute(args) { … } }))` to give yourself a new tool — it becomes callable on your NEXT step. Tool parameters: each key IS a property — { type: 'string'|'number'|'boolean'|'object'|'array', required?: true, description?, enum?, items?, properties? }; a JSON-Schema-style { type: 'object', properties, required: […] } wrapper and type 'integer' are also accepted and normalized. A tool's `execute` MUST return an ARRAY of content blocks, e.g. `return [{ type: 'text', text: someString }]` — never a bare string. Mounts can COMPOSE: one plugin may `ctx.provide('name', value)` a service and another may declare `inject: ['name']` to consume it — the consumer stays pending until the provider exists and returns to pending when the provider is unmounted. Everything registered inside `apply` is cleaned up automatically on unmount. Sandbox globals: `console` (tagged `[cordis:<id>]`, writes through to the harness terminal), `harness.defineTool`, `harness.registerTool`, `btoa`, `atob`, `TextEncoder`, `TextDecoder`. Node APIs are DISABLED — do filesystem/network/timer work through the cordis services, never Node built-ins: `require`, `setTimeout`/`setInterval`, and `fetch` throw redirect errors; `process` and `Buffer` are undefined. Instead use inject: ['fs'] + ctx.fs for files, inject: ['web'] + ctx.web for HTTP, inject: ['bash'] + ctx.bash for processes, and inject: ['timer'] + ctx.setTimeout/ctx.setInterval for timing (fiber effects, auto-cleaned on unmount) — cordis_inspect what:"api" shows what THIS runtime provides. Write PLAIN JavaScript, not TypeScript (no `as`, no type annotations). Cautions: (1) waterfall events (e.g. tools/pre-execute) hand the listener a trailing `next` callback which MUST be called — returning without `next()` VETOES the call; prefer plain notification events unless you intend to intercept. (2) Never await something that only resolves after the current turn (your code runs INSIDE a tool call of that turn — it would deadlock). (3) Your `ctx` is a restricted façade: you can register tools, observe events, provide/consume services, and use timers, but framework internals (ctx.root, ctx.fiber, ctx.extend, ctx.plugin, …) are withheld. It is not a security boundary though — the services you inject (e.g. ctx.bash) reach the real runtime. */
+  } & Record<string, JsonValue>): Promise<string>;
+  /** Mount a NEW cordis plugin into the live runtime that is running THIS agent (self-modification). `code` runs as the body of an async JavaScript function in an isolated sandbox and MUST `return` a plugin. Two forms: FUNCTION form `return (ctx) => { … }` — declares no inject, so it can register tools, listen to events, and provide services, but reaching ANY service (e.g. ctx.bash) throws; use it only when you need no services. OBJECT form `return { name?, inject: ['bash', 'llm', …], apply(ctx) { … } }` — declares dependencies, and cordis activates the plugin only after the services exist; PREFER this form. You may reach ONLY the services you list in inject: an undeclared service throws even if it exists, because an undeclared dependency would not be cleaned up if its provider is unmounted. BEFORE calling a service from your code, read cordis_inspect what:"api" — it lists method signatures AND the type shapes of their arguments/returns (do not guess a field's type; e.g. a bash run's stdout is an object, not a string). Inside `apply`, use the standard cordis API: `ctx.on(event, listener)` to observe events (see cordis_inspect what:"events"), or call `harness.registerTool(ctx, harness.defineTool({ name, description, parameters: { text: { type: 'string', required: true } }, async execute(args) { … } }))` to give yourself a new tool — it becomes callable on your NEXT step. Tool parameters: each key IS a property — { type: 'string'|'number'|'integer'|'boolean'|'null'|'object'|'array'|'json', required?: true, description?, enum?, const?, items?, properties? }; every direct DSL object declares additionalProperties: true|false, and oneOf: [schema, schema, ...] replaces type for an exact-one union. A raw JSON-Schema { type: 'object', properties, required?: […] } wrapper is also accepted with open-by-default objects. A tool's `execute` MUST return an ARRAY of content blocks, e.g. `return [{ type: 'text', text: someString }]` — never a bare string. Mounts can COMPOSE: one plugin may `ctx.provide('name', value)` a service and another may declare `inject: ['name']` to consume it — the consumer stays pending until the provider exists and returns to pending when the provider is unmounted. Everything registered inside `apply` is cleaned up automatically on unmount. Sandbox globals: `console` (tagged `[cordis:<id>]`, writes through to the harness terminal), `harness.defineTool`, `harness.registerTool`, `btoa`, `atob`, `TextEncoder`, `TextDecoder`. Node APIs are DISABLED — do filesystem/network/timer work through the cordis services, never Node built-ins: `require`, `setTimeout`/`setInterval`, and `fetch` throw redirect errors; `process` and `Buffer` are undefined. Instead use inject: ['fs'] + ctx.fs for files, inject: ['web'] + ctx.web for HTTP, inject: ['bash'] + ctx.bash for processes, and inject: ['timer'] + ctx.setTimeout/ctx.setInterval for timing (fiber effects, auto-cleaned on unmount) — cordis_inspect what:"api" shows what THIS runtime provides. Write PLAIN JavaScript, not TypeScript (no `as`, no type annotations). Cautions: (1) waterfall events (e.g. tools/pre-execute) hand the listener a trailing `next` callback which MUST be called — returning without `next()` VETOES the call; prefer plain notification events unless you intend to intercept. (2) Never await something that only resolves after the current turn (your code runs INSIDE a tool call of that turn — it would deadlock). (3) Your `ctx` is a restricted façade: you can register tools, observe events, provide/consume services, and use timers, but framework internals (ctx.root, ctx.fiber, ctx.extend, ctx.plugin, …) are withheld. It is not a security boundary though — the services you inject (e.g. ctx.bash) reach the real runtime. */
   cordis_mount(args: {
     /** Body of an async JS function; must `return` the plugin to mount. */
     code: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** Dispose a plugin previously mounted with cordis_mount, by id. All its registrations (event listeners, tools, services) are cleaned up through the cordis effect lifecycle. Returns only after disposal has fully completed (quiescence, not just a request to stop). */
   cordis_unmount(args: {
     /** The dynamic mount id returned by cordis_mount (e.g. "dyn-1"). */
     id: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** Create one persisted same-session completion goal when the current direct human request is a long-running objective that should continue across autonomous goal rounds. You may infer that intent without requiring the user to say "create a goal". Do not use this for trivial single-turn work. Execution rejects non-human and subagent authority. */
   create_goal(args: {
     /** The concrete completion objective inferred from the direct human request. */
     objective: string;
     /** Optional positive safe-integer limit on automatic continuation rounds. */
     max_goal_rounds?: number;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** Edit an existing UTF-8 text file by replacing literal text. */
   edit(args: {
     /** Path to edit, resolved by the filesystem backend. */
@@ -92,16 +94,16 @@ declare const tools: {
     sandbox_permissions?: "workspace-write" | "danger-full-access";
     /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. */
     justification?: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal. */
-  get_goal(args: Record<string, unknown>): Promise<string>;
+  get_goal(args: Record<string, JsonValue>): Promise<string>;
   /** Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools. */
   ralph(args: {
     /** The immutable completion objective for every fresh Ralph round. */
     objective: string;
     /** Optional positive safe-integer round cap, bounded by the deployment ceiling. */
     maxRounds?: number;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** Read a UTF-8 text file and return line-numbered content. */
   read(args: {
     /** Path to read, resolved by the filesystem backend. */
@@ -110,12 +112,12 @@ declare const tools: {
     offset?: number;
     /** Maximum number of lines to return. Defaults to 2000. */
     limit?: number;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill. */
   skill(args: {
     /** The exact skill name from the available skills list. */
     name: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`. */
   subagent(args: {
     /** A short (3-5 word) description of the delegated task, for display. */
@@ -124,7 +126,7 @@ declare const tools: {
     prompt: string;
     /** Run as a background task and return its id; collect with task_output or stop with task_kill. */
     run_in_background?: boolean;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`. */
   subagent_fork(args: {
     /** A short (3-5 word) description of the delegated task, for display. */
@@ -133,16 +135,16 @@ declare const tools: {
     prompt: string;
     /** Run as a background task and return its id; collect with task_output or stop with task_kill. */
     run_in_background?: boolean;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** Request cancellation of a running background task by task id. Returns immediately; the task settles as killed once its work actually stops. */
   task_kill(args: {
     /** Task id returned by the tool that started the background work. */
     task_id: string;
     /** Optional short reason, recorded in the log and forwarded to the task. */
     reason?: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** List your background tasks (running and finished) with their ids, kinds, and statuses. */
-  task_list(args: Record<string, unknown>): Promise<string>;
+  task_list(args: Record<string, JsonValue>): Promise<string>;
   /** Read a background task. Stream tasks return only output since the previous read; final-output tasks return their result after settlement. Every response ends with `[status: ...]`. Reads are non-blocking unless `wait: true`, which waits up to the configured cap. */
   task_output(args: {
     /** Task id returned by the tool that started the background work. */
@@ -151,7 +153,7 @@ declare const tools: {
     wait?: boolean;
     /** Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum. */
     timeout_ms?: number;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** Record and update a structured task list for the current work. Send the ENTIRE list every call — it REPLACES the previous list (there are no partial updates, no per-item edits). Use it to plan multi-step work and show progress: add one todo per concrete step before you start. Keep AT MOST ONE todo `in_progress` at a time; while work remains, exactly one active task should be `in_progress`. Mark a todo `completed` the moment it is done (do not batch completions), and allow no `in_progress` item only once all work is complete. Skip the list for trivial single-step tasks. Statuses: `pending` (not started), `in_progress` (being worked on now), `completed` (finished). */
   todo_write(args: {
     /** The COMPLETE task list, replacing any previous list. */
@@ -160,8 +162,8 @@ declare const tools: {
       content: string;
       /** pending (not started) | in_progress (now) | completed (done). */
       status: "pending" | "in_progress" | "completed";
-    })[];
-  }): Promise<string>;
+    } & Record<string, JsonValue>)[];
+  } & Record<string, JsonValue>): Promise<string>;
   /** Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason. */
   update_goal(args: {
     /** Exact id returned by get_goal. */
@@ -176,7 +178,7 @@ declare const tools: {
     max_goal_rounds?: number;
     /** Concrete blocking condition; required only with action blocked. */
     blocked_reason?: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn. The workflow's identity rides the `meta` parameter as JSON: required `name` (short kebab-case) and `description` strings, optional `whenToUse` string and `phases` array (`{title, detail?, provider?, model?}`). The `script` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO `export const meta` statement — meta is a parameter, not code), running with top-level await; end with `return <value>` — the value must be JSON-serializable and is this tool's result. Script-body hooks: - `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const — no oneOf/pattern/format/numeric bounds) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly. - `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages. - `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`. - `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim. Misused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) throw errors that ALWAYS kill the script — they never dissolve into a per-item `null`. Constraints: concurrency and total-agent caps apply; no filesystem, network, timers, or Node.js APIs are provided — the agents do the work, the script only coordinates them. The run executes in the foreground: this call returns when the whole script finishes. */
   workflow(args: {
     /** The plain-JS workflow script body (top-level await allowed; NO `export const meta` statement; end with `return <json-value>`). */
@@ -190,7 +192,7 @@ declare const tools: {
       /** Optional guidance on when this workflow applies. */
       whenToUse?: string;
       /** Optional phase declarations matched by phase() calls. */
-      phases?: {
+      phases?: ({
         /** The phase title phase() calls match by exact string. */
         title: string;
         /** Optional one-line description of the phase. */
@@ -199,11 +201,11 @@ declare const tools: {
         provider?: string;
         /** Optional model override this phase is expected to use. */
         model?: string;
-      }[];
-    };
+      } & Record<string, JsonValue>)[];
+    } & Record<string, JsonValue>;
     /** Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {"files": [...]}). */
-    args?: Record<string, unknown>;
-  }): Promise<string>;
+    args?: Record<string, JsonValue>;
+  } & Record<string, JsonValue>): Promise<string>;
   /** Create or fully replace a UTF-8 text file. */
   write(args: {
     /** Path to write, resolved by the filesystem backend. */
@@ -214,6 +216,6 @@ declare const tools: {
     sandbox_permissions?: "workspace-write" | "danger-full-access";
     /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. */
     justification?: string;
-  }): Promise<string>;
+  } & Record<string, JsonValue>): Promise<string>;
 }
 ```

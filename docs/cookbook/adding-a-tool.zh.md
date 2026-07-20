@@ -35,7 +35,7 @@ export function apply(ctx: Context) {
 
 ## execute() 契约的规则
 
-- **参数已为你校验。** `defineTool` 在 `execute` 运行前，会根据 `SchemaSpec` 校验模型生成的 `arguments`（类型、必填键、枚举成员、嵌套对象/数组——见[运行时参数校验](../../.agents/notes/implemented/architecture/2026-06-11-runtime-arg-validation.md)），因此 `execute` 内部的 args 已匹配 `InferArgs`。你仍需手动检查 DSL 无法表达的值约束（非空字符串、正数、跨字段规则），对这些情况抛出描述性 Error。直接注册的原始 JSON-Schema 工具（MCP）不由 harness 校验，它们自行校验输入。
+- **参数已为你校验。** `defineTool` 在 `execute` 运行前，会根据统一的 `ParameterSchemaSpec` 校验模型生成的 `arguments`（类型、必填键、字面量约束、恰好匹配一个分支的联合以及嵌套值——见[运行时参数校验](../../.agents/notes/implemented/architecture/2026-06-11-runtime-arg-validation.md)），因此 `execute` 内的 args 会匹配 `InferArgs`。显式对象节点必须声明 `additionalProperties: true | false`；隐式参数根对象保持开放。你仍需手动检查 schema DSL 无法表达的约束，例如非空字符串、正数或跨字段规则。直接注册的原始 JSON Schema 工具自行负责输入校验。
 - **注册借用你的只读定义。** 类型化的同进程贡献不是序列化边界；注册后不要修改其 schema 或替换回调。`schemas()` 只物化显式的模型可见投影。如需热替换工具，请 dispose 其所属副作用并注册替代品；回调闭包内的可变状态仍是普通的插件状态。
 - **执行身份受保护。** 注册表在一次递归遍历中将 `arguments` 物化为分离的无损 JSON，在策略开始前冻结该值，并分配一个不透明的 `exec.token`；`callId`、`name`、`arguments`、`agent`、`token` 以及可选的外层传输 `parent` token 在整个分发过程中保持不可变。`parent` 仅用于身份标识，不暴露活跃的外层执行。请将 `args` 视为只读输入。around-dispatch 包装器只能添加、替换或移除 `exec.signal`，以施加取消或截止时间。
 - **抛出异常或返回非 JSON 数据意味着 `isError`。** 注册表捕获异常，并在观察者运行前物化最终结果。格式错误或非 JSON 的结果变为 `{ isError: true }`，防止出现无法记录的活跃成功。基础设施故障请抛异常；当模型需要解读领域失败时，请在结果文本中报告。

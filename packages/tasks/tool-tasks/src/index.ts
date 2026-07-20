@@ -41,7 +41,7 @@ export function statusLine(snapshot: TaskSnapshot): string {
     : `[status: ${snapshot.status}]`
 }
 
-/** Validate the non-empty constraint that SchemaSpec cannot express. */
+/** Validate the non-empty constraint that ParameterSchemaSpec cannot express. */
 function validateTaskId(value: string): TaskId {
   if (value.length === 0) {
     throw new Error(`invalid task_id: expected a non-empty string, got ${JSON.stringify(value)}`)

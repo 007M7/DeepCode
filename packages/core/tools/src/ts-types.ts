@@ -7,6 +7,8 @@
  */
 
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
+import { assertSupportedJsonSchema } from './json-schema.ts'
+import type { JsonSchemaScalar } from './json-schema.ts'
 
 /** Property names that are valid bare TS identifiers; anything else is quoted. */
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/
@@ -30,47 +32,72 @@ function docLines(description: unknown, indent: number): string[] {
   return [`${pad(indent)}/** ${collapsed.replaceAll('*/', String.raw`*\/`)} */`]
 }
 
+/** Render one scalar already validated by the unified schema boundary. */
+function renderScalar(value: JsonSchemaScalar): string {
+  return JSON.stringify(value)
+}
+
+/** Render a validated scalar `const`/`enum`, falling back to the broad type. */
+function renderConstrainedScalar(node: Record<string, unknown>, type: string): string {
+  const broad = type === 'integer' ? 'number' : type
+  if (Object.hasOwn(node, 'const')) return renderScalar(node.const as JsonSchemaScalar)
+  if (Object.hasOwn(node, 'enum')) {
+    return (node.enum as JsonSchemaScalar[]).map(renderScalar).join(' | ')
+  }
+  return broad
+}
+
+/** Parenthesize a union or object intersection before applying `[]`. */
+function arrayItem(type: string): string {
+  return type.includes('|') || type.includes('&') ? `(${type})[]` : `${type}[]`
+}
+
 /**
- * Map one JSON-Schema node to a TypeScript type literal. Handles exactly the
- * subset the `defineTool` DSL emits — `object` (`properties` + `required`),
- * `string` (with `enum` → a literal union), `number`, `boolean`, `array`
- * (`items`) — and returns `unknown` for anything else, without throwing.
+ * Map one enforced JSON-Schema node to a TypeScript type literal. Supports
+ * every unified schema construct and returns `unknown` for malformed or
+ * unsupported inputs without throwing.
  * @param schema - the JSON-Schema node (any shape; hostile inputs degrade).
  * @param indent - the indentation level for nested object members.
  * @returns the TS type text (multi-line for objects with properties).
  */
 export function jsonSchemaToTs(schema: unknown, indent = 0): string {
-  if (typeof schema !== 'object' || schema === null) return 'unknown'
+  try {
+    assertSupportedJsonSchema(schema)
+  } catch {
+    return 'unknown'
+  }
   const node = schema as Record<string, unknown>
+  if (Object.hasOwn(node, 'oneOf')) {
+    return (node.oneOf as unknown[]).map(branch => jsonSchemaToTs(branch, indent)).join(' | ')
+  }
+  if (!Object.hasOwn(node, 'type')) return 'JsonValue'
   switch (node.type) {
-    case 'string': {
-      if (Array.isArray(node.enum) && node.enum.length > 0 && node.enum.every(value => typeof value === 'string')) {
-        return node.enum.map(value => JSON.stringify(value)).join(' | ')
-      }
-      return 'string'
-    }
-    case 'number': return 'number'
-    case 'boolean': return 'boolean'
+    case 'string': return renderConstrainedScalar(node, 'string')
+    case 'number': return renderConstrainedScalar(node, 'number')
+    case 'integer': return renderConstrainedScalar(node, 'integer')
+    case 'boolean': return renderConstrainedScalar(node, 'boolean')
+    case 'null': return renderConstrainedScalar(node, 'null')
     case 'array': {
-      const item = jsonSchemaToTs(node.items, indent)
-      // Parenthesize a union item type so `('a' | 'b')[]` parses as intended.
-      return item.includes('|') ? `(${item})[]` : `${item}[]`
+      return arrayItem(Object.hasOwn(node, 'items') ? jsonSchemaToTs(node.items, indent) : 'JsonValue')
     }
     case 'object': {
       const properties = node.properties
-      if (typeof properties !== 'object' || properties === null) return 'Record<string, unknown>'
+      const open = node.additionalProperties !== false
+      if (properties === undefined) return open ? 'Record<string, JsonValue>' : 'Record<string, never>'
       const entries = Object.entries(properties as Record<string, unknown>)
-      if (entries.length === 0) return 'Record<string, unknown>'
-      const required = new Set(Array.isArray(node.required) ? node.required.filter(name => typeof name === 'string') : [])
+      if (entries.length === 0) return open ? 'Record<string, JsonValue>' : 'Record<string, never>'
+      const required = new Set(node.required as string[] | undefined)
       const lines: string[] = ['{']
       for (const [name, prop] of entries) {
-        const description = typeof prop === 'object' && prop !== null ? (prop as Record<string, unknown>).description : undefined
+        const description = (prop as Record<string, unknown>).description
         lines.push(...docLines(description, indent + 1))
         lines.push(`${pad(indent + 1)}${renderKey(name)}${required.has(name) ? '' : '?'}: ${jsonSchemaToTs(prop, indent + 1)};`)
       }
       lines.push(`${pad(indent)}}`)
-      return lines.join('\n')
+      const declared = lines.join('\n')
+      return open ? `${declared} & Record<string, JsonValue>` : declared
     }
+    /* v8 ignore next -- assertSupportedJsonSchema narrowed this closed type union. */
     default: return 'unknown'
   }
 }
@@ -106,5 +133,6 @@ export function renderToolsSdk(schemas: ToolSchema[]): string {
   const declaration = members.length > 0
     ? `declare const tools: {\n${members.join('\n')}\n}`
     : 'declare const tools: {}'
-  return `${SDK_INSTRUCTIONS}\n\n\`\`\`ts\n${declaration}\n\`\`\``
+  const jsonValue = 'type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }'
+  return `${SDK_INSTRUCTIONS}\n\n\`\`\`ts\n${jsonValue}\n\n${declaration}\n\`\`\``
 }

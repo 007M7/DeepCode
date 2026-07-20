@@ -131,6 +131,7 @@ export function apply(ctx: Context, config: Config): void {
       },
       meta: {
         type: 'object',
+        additionalProperties: true,
         required: true,
         description: 'The workflow identity block (plain JSON — never code).',
         properties: {
@@ -142,6 +143,7 @@ export function apply(ctx: Context, config: Config): void {
             description: 'Optional phase declarations matched by phase() calls.',
             items: {
               type: 'object',
+              additionalProperties: true,
               properties: {
                 title: { type: 'string', required: true, description: 'The phase title phase() calls match by exact string.' },
                 detail: { type: 'string', description: 'Optional one-line description of the phase.' },
@@ -154,6 +156,7 @@ export function apply(ctx: Context, config: Config): void {
       },
       args: {
         type: 'object',
+        additionalProperties: true,
         description: 'Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {"files": [...]}).',
       },
     },

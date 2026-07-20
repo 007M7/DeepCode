@@ -1,122 +1,124 @@
 /**
- * Structured-output JSON Schema subset for subagents and workflows. It supports
- * one scalar `type`; object `properties`/`required`/boolean
- * `additionalProperties`; array `items`; scalar `enum`/`const`; and JSON-valued
- * annotations. Unsupported or misplaced keywords reject rather than being
- * accepted without enforcement, and structured-output roots must be objects.
+ * Enforced JSON Schema subset shared by tool outputs, generated Code Mode
+ * types, subagents, and workflows. The subset accepts any JSON root, an
+ * annotation-only schema for unconstrained JSON, one scalar `type`, object
+ * `properties`/`required`/boolean `additionalProperties`, array `items`,
+ * type-correct scalar `enum`/`const`, and exact-one `oneOf`.
+ *
+ * Unsupported or misplaced keywords reject rather than being accepted without
+ * enforcement. Consumers that require an object root apply
+ * {@link assertObjectJsonSchema} at their own boundary.
  * @module dsh-tools/json-schema
  */
 
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
+import { isJsonValue, type JsonValue } from '@deepseek-ai/dsh-session'
 
-/** The scalar values `enum`/`const` may carry (finite numbers only). */
-export type StructuredScalar = string | number | boolean | null
+/** Scalar JSON values supported by `enum` and `const`. */
+export type JsonSchemaScalar = string | number | boolean | null
 
-/** The `type` keywords the subset accepts. */
-export type StructuredSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null'
+/** Single-type keywords accepted by the enforced subset. */
+export type JsonSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null'
+
+/** Scalar-only schema types accepted by literal constraints. */
+type JsonSchemaScalarType = Exclude<JsonSchemaType, 'object' | 'array'>
 
 /**
- * One node of the structured-output schema subset. Recursive via `properties`
- * and `items`; see the module doc for the exact keyword semantics.
+ * One raw JSON Schema node in the enforced subset. The optional fields express
+ * the external wire shape; {@link assertSupportedJsonSchema} rejects invalid
+ * combinations before a caller treats the node as trusted.
  */
-export interface StructuredSchemaNode {
-  type: StructuredSchemaType
+export interface JsonSchemaNode {
+  /** Omit with no constraints for any JSON value, or use `oneOf`. */
+  type?: JsonSchemaType
+  /** Exactly one branch must validate; at least two branches are required. */
+  oneOf?: JsonSchemaNode[]
   /** Nested property schemas (`type: 'object'` only). */
-  properties?: Record<string, StructuredSchemaNode>
+  properties?: Record<string, JsonSchemaNode>
   /** Required property names; each must appear in `properties`. */
   required?: string[]
-  /** `false` rejects undeclared keys; absent/`true` allows them (JSON Schema default). */
+  /** `false` rejects undeclared keys; absent/`true` follows JSON Schema's open default. */
   additionalProperties?: boolean
-  /** Item schema (`type: 'array'` only); absent ⇒ any JSON items. */
-  items?: StructuredSchemaNode
-  /** Allowed values (scalar types only). */
-  enum?: StructuredScalar[]
-  /** The single allowed value (scalar types only). */
-  const?: StructuredScalar
+  /** Item schema (`type: 'array'` only); absent accepts any JSON item. */
+  items?: JsonSchemaNode
+  /** Allowed values for a scalar node. */
+  enum?: JsonSchemaScalar[]
+  /** The single allowed value for a scalar node. */
+  const?: JsonSchemaScalar
   /** Annotation, ignored for validation. */
   description?: string
   /** Annotation, ignored for validation. */
   title?: string
-  /** Annotation, ignored for validation (must still be JSON data). */
-  default?: unknown
-  /** Annotation, ignored for validation (must still be JSON data). */
-  examples?: unknown
+  /** Annotation, ignored for validation but required to be lossless JSON. */
+  default?: JsonValue
+  /** Annotation, ignored for validation but required to be lossless JSON. */
+  examples?: JsonValue
 }
 
-/** A structured-output schema: an OBJECT-rooted {@link StructuredSchemaNode}. */
-export type StructuredOutputSchema = StructuredSchemaNode & { type: 'object' }
+/** A consumer-constrained object-rooted schema. */
+export type ObjectJsonSchema = JsonSchemaNode & { type: 'object' }
 
 /**
- * Thrown by {@link assertSupportedOutputSchema} when a schema falls outside the
- * supported subset. Extends {@link HarnessError} (`code: 'UNSUPPORTED_SCHEMA'`)
- * so seam code and tool results can route on it; `violations` lists every
- * offending path, not just the first.
+ * Thrown when a raw schema falls outside the enforced subset. `violations`
+ * lists every offending path instead of stopping at the first author error.
  */
-export class OutputSchemaError extends HarnessError {
-  /** The individual violation messages, in walk order. */
+export class JsonSchemaError extends HarnessError {
+  /** Individual schema violations in walk order. */
   readonly violations: string[]
 
   constructor(violations: string[]) {
-    super(`unsupported output schema: ${violations.join('; ')}`, 'UNSUPPORTED_SCHEMA')
-    this.name = 'OutputSchemaError'
+    super(`unsupported JSON schema: ${violations.join('; ')}`, 'UNSUPPORTED_SCHEMA')
+    this.name = 'JsonSchemaError'
     this.violations = violations
   }
 }
 
-/** The keywords the subset accepts, checked (`constraint`) or ignored (`annotation`). */
-const CONSTRAINT_KEYWORDS = new Set(['type', 'properties', 'required', 'additionalProperties', 'items', 'enum', 'const'])
+const CONSTRAINT_KEYWORDS = new Set([
+  'type',
+  'oneOf',
+  'properties',
+  'required',
+  'additionalProperties',
+  'items',
+  'enum',
+  'const',
+])
 const ANNOTATION_KEYWORDS = new Set(['description', 'title', 'default', 'examples'])
-
-const SCHEMA_TYPES: readonly StructuredSchemaType[] = ['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']
+const SCHEMA_TYPES: readonly JsonSchemaType[] = ['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']
 
 /**
- * Whether a value is a PLAIN JSON object — non-null, non-array, and with a
- * prototype chain of at most one link (`null`-proto, or any realm's
- * `Object.prototype`, whose own prototype is `null`). Realm-agnostic on
- * purpose: a schema materialized in another realm carries THAT realm's
- * `Object.prototype`, which an identity check would wrongly reject. Exotic
- * hosts (`Date`, `Map`, class instances) have longer chains and are rejected —
- * they would serialize lossily (`Date` → string, `Map` → `{}`) instead of
- * failing loud.
+ * Test for a realm-agnostic plain JSON record without accepting arrays or
+ * exotic objects.
+ * @param value - candidate record from any JavaScript realm.
+ * @returns Whether the value has a plain-object prototype chain.
  */
-function isObjectLike(value: unknown): value is Record<string, unknown> {
+export function isPlainJsonRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const proto: unknown = Object.getPrototypeOf(value)
   return proto === null || Object.getPrototypeOf(proto) === null
 }
 
-/** Whether a value is a supported scalar (`enum`/`const` member): string, finite number, boolean, or null. */
-function isStructuredScalar(value: unknown): value is StructuredScalar {
-  return value === null || typeof value === 'string' || typeof value === 'boolean'
-    || (typeof value === 'number' && Number.isFinite(value))
+/** Lossless finite JSON number, excluding negative zero. */
+function isJsonNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && !Object.is(value, -0)
 }
 
-/**
- * Whether a value is JSON data (annotation payloads only): scalars, arrays, and
- * object-likes of such values. Realm-agnostic on purpose (no prototype check) —
- * the schema may have been materialized from another realm; structural JSON-ness
- * is what the wire needs. Cycles are rejected via `seen`.
- */
-function isJsonData(value: unknown, seen: Set<object>): boolean {
-  if (isStructuredScalar(value)) return true
-  // The scalar check above already returned for null, so `object` here is a real object.
-  if (typeof value !== 'object') return false
-  if (seen.has(value)) return false
-  seen.add(value)
-  try {
-    if (Array.isArray(value)) return value.every(entry => isJsonData(entry, seen))
-    // A non-plain object (Date, Map, class instance) is NOT JSON data even when
-    // it has no enumerable values — it would serialize lossily, not loudly.
-    if (!isObjectLike(value)) return false
-    return Object.values(value).every(entry => isJsonData(entry, seen))
-  } finally {
-    seen.delete(value)
+/** Whether a scalar is valid for one declared schema type. */
+function scalarMatches(type: JsonSchemaScalarType, value: unknown): value is JsonSchemaScalar {
+  switch (type) {
+    case 'string': return typeof value === 'string'
+    case 'number': return isJsonNumber(value)
+    case 'integer': return isJsonNumber(value) && Number.isInteger(value)
+    case 'boolean': return typeof value === 'boolean'
+    case 'null': return value === null
+    /* v8 ignore next -- JsonSchemaScalarType is closed; this retains compile-time exhaustiveness. */
+    default: return assertNever(type, 'JsonSchemaType')
   }
 }
 
-/** Collect subset violations for one schema node (recursive walk). */
+/** Collect every violation for one raw schema node. */
 function checkSchemaNode(node: unknown, path: string, violations: string[], seen: Set<object>): void {
-  if (!isObjectLike(node)) {
+  if (!isPlainJsonRecord(node)) {
     violations.push(`${path} must be a schema object`)
     return
   }
@@ -125,199 +127,258 @@ function checkSchemaNode(node: unknown, path: string, violations: string[], seen
     return
   }
   seen.add(node)
-
-  for (const key of Object.keys(node)) {
-    if (CONSTRAINT_KEYWORDS.has(key)) continue
-    if (ANNOTATION_KEYWORDS.has(key)) {
-      if (!isJsonData(node[key], new Set())) violations.push(`${path}.${key} annotation must be JSON data`)
-      continue
+  try {
+    for (const key of Object.keys(node)) {
+      if (CONSTRAINT_KEYWORDS.has(key)) continue
+      if (ANNOTATION_KEYWORDS.has(key)) {
+        try {
+          if (!isJsonValue(node[key])) violations.push(`${path}.${key} annotation must be lossless JSON data`)
+        } catch {
+          violations.push(`${path}.${key} annotation must be lossless JSON data`)
+        }
+        continue
+      }
+      violations.push(`${path}.${key} is not a supported keyword (subset: type/oneOf/properties/required/additionalProperties/items/enum/const + annotations)`)
     }
-    violations.push(`${path}.${key} is not a supported keyword (subset: type/properties/required/additionalProperties/items/enum/const + annotations)`)
-  }
-  if (typeof node.description !== 'undefined' && typeof node.description !== 'string') {
-    violations.push(`${path}.description must be a string`)
-  }
-  if (typeof node.title !== 'undefined' && typeof node.title !== 'string') {
-    violations.push(`${path}.title must be a string`)
-  }
+    if (node.description !== undefined && typeof node.description !== 'string') {
+      violations.push(`${path}.description must be a string`)
+    }
+    if (node.title !== undefined && typeof node.title !== 'string') {
+      violations.push(`${path}.title must be a string`)
+    }
 
-  const type = node.type
-  if (typeof type !== 'string' || !(SCHEMA_TYPES as readonly unknown[]).includes(type)) {
-    violations.push(Array.isArray(type)
-      ? `${path}.type must be a single type string (type arrays are not supported)`
-      : `${path}.type must be one of ${SCHEMA_TYPES.join('/')}`)
+    const hasType = Object.hasOwn(node, 'type')
+    const hasOneOf = Object.hasOwn(node, 'oneOf')
+    if (hasType && hasOneOf) {
+      violations.push(`${path} cannot declare both type and oneOf`)
+      return
+    }
+    if (!hasType && !hasOneOf) {
+      for (const key of ['properties', 'required', 'additionalProperties', 'items', 'enum', 'const']) {
+        if (Object.hasOwn(node, key)) violations.push(`${path}.${key} requires type or oneOf`)
+      }
+      return
+    }
+
+    if (hasOneOf) {
+      const oneOf = node.oneOf
+      if (!Array.isArray(oneOf) || oneOf.length < 2) {
+        violations.push(`${path}.oneOf must be an array of at least two schemas`)
+      } else {
+        for (let index = 0; index < oneOf.length; index++) {
+          checkSchemaNode(oneOf[index], `${path}.oneOf[${index}]`, violations, seen)
+        }
+      }
+      for (const key of ['properties', 'required', 'additionalProperties', 'items', 'enum', 'const']) {
+        if (Object.hasOwn(node, key)) violations.push(`${path}.${key} is not supported beside oneOf`)
+      }
+      return
+    }
+
+    const type = node.type
+    if (typeof type !== 'string' || !(SCHEMA_TYPES as readonly unknown[]).includes(type)) {
+      violations.push(Array.isArray(type)
+        ? `${path}.type must be a single type string (type arrays are not supported)`
+        : `${path}.type must be one of ${SCHEMA_TYPES.join('/')}`)
+      return
+    }
+    const schemaType = type as JsonSchemaType
+    const allowedFor: Record<string, JsonSchemaType[]> = {
+      properties: ['object'],
+      required: ['object'],
+      additionalProperties: ['object'],
+      items: ['array'],
+      enum: ['string', 'number', 'integer', 'boolean', 'null'],
+      const: ['string', 'number', 'integer', 'boolean', 'null'],
+    }
+    for (const [key, types] of Object.entries(allowedFor)) {
+      if (Object.hasOwn(node, key) && !types.includes(schemaType)) {
+        violations.push(`${path}.${key} is not supported on type "${schemaType}"`)
+      }
+    }
+
+    switch (schemaType) {
+      case 'object': {
+        const properties = node.properties
+        if (Object.hasOwn(node, 'properties')) {
+          if (!isPlainJsonRecord(properties)) {
+            violations.push(`${path}.properties must be an object of schemas`)
+          } else {
+            for (const [key, child] of Object.entries(properties)) {
+              checkSchemaNode(child, `${path}.properties.${key}`, violations, seen)
+            }
+          }
+        }
+        const required = node.required
+        if (Object.hasOwn(node, 'required')) {
+          if (!Array.isArray(required) || required.some(entry => typeof entry !== 'string')) {
+            violations.push(`${path}.required must be an array of strings`)
+          } else {
+            const declared = isPlainJsonRecord(properties) ? properties : {}
+            for (const key of required as string[]) {
+              if (!Object.hasOwn(declared, key)) violations.push(`${path}.required names "${key}" which is not in properties`)
+            }
+          }
+        }
+        if (Object.hasOwn(node, 'additionalProperties') && typeof node.additionalProperties !== 'boolean') {
+          violations.push(`${path}.additionalProperties must be a boolean`)
+        }
+        break
+      }
+      case 'array': {
+        if (Object.hasOwn(node, 'items')) checkSchemaNode(node.items, `${path}.items`, violations, seen)
+        break
+      }
+      case 'string':
+      case 'number':
+      case 'integer':
+      case 'boolean':
+      case 'null': {
+        const allowed = node.enum
+        if (Object.hasOwn(node, 'enum')) {
+          if (!Array.isArray(allowed) || allowed.length === 0 || !allowed.every(entry => scalarMatches(schemaType, entry))) {
+            violations.push(`${path}.enum must be a non-empty array of ${schemaType} values`)
+          }
+        }
+        if (Object.hasOwn(node, 'const') && !scalarMatches(schemaType, node.const)) {
+          violations.push(`${path}.const must be a ${schemaType} value`)
+        }
+        break
+      }
+      /* v8 ignore next -- schemaType was narrowed from the closed SCHEMA_TYPES table above. */
+      default: assertNever(schemaType, 'JsonSchemaType')
+    }
+  } finally {
     seen.delete(node)
-    return
   }
-  const schemaType = type as StructuredSchemaType
-
-  // Keywords that only make sense on one type are rejected elsewhere — an
-  // `items` on an object (or `properties` on a string) is a schema-author bug
-  // the subset surfaces rather than ignores.
-  const allowedFor: Record<string, StructuredSchemaType[]> = {
-    properties: ['object'],
-    required: ['object'],
-    additionalProperties: ['object'],
-    items: ['array'],
-    enum: ['string', 'number', 'integer', 'boolean', 'null'],
-    const: ['string', 'number', 'integer', 'boolean', 'null'],
-  }
-  for (const [key, types] of Object.entries(allowedFor)) {
-    if (key in node && !types.includes(schemaType)) {
-      violations.push(`${path}.${key} is not supported on type "${schemaType}"`)
-    }
-  }
-
-  switch (schemaType) {
-    case 'object': {
-      const properties = node.properties
-      if (properties !== undefined) {
-        if (!isObjectLike(properties)) {
-          violations.push(`${path}.properties must be an object of schemas`)
-        } else {
-          for (const [key, child] of Object.entries(properties)) {
-            checkSchemaNode(child, `${path}.properties.${key}`, violations, seen)
-          }
-        }
-      }
-      const required = node.required
-      if (required !== undefined) {
-        if (!Array.isArray(required) || required.some(entry => typeof entry !== 'string')) {
-          violations.push(`${path}.required must be an array of strings`)
-        } else {
-          const declared = isObjectLike(properties) ? properties : {}
-          // The guard above proved every entry is a string.
-          for (const key of required as string[]) {
-            // Own-property check: `in` would let inherited names (`toString`)
-            // satisfy the declared-in-properties contract via the prototype.
-            if (!Object.hasOwn(declared, key)) violations.push(`${path}.required names "${key}" which is not in properties`)
-          }
-        }
-      }
-      if (node.additionalProperties !== undefined && typeof node.additionalProperties !== 'boolean') {
-        violations.push(`${path}.additionalProperties must be a boolean`)
-      }
-      break
-    }
-    case 'array': {
-      if (node.items !== undefined) checkSchemaNode(node.items, `${path}.items`, violations, seen)
-      break
-    }
-    case 'string':
-    case 'number':
-    case 'integer':
-    case 'boolean':
-    case 'null': {
-      const allowed = node.enum
-      if (allowed !== undefined) {
-        if (!Array.isArray(allowed) || allowed.length === 0 || !allowed.every(entry => isStructuredScalar(entry))) {
-          violations.push(`${path}.enum must be a non-empty array of scalars`)
-        }
-      }
-      if ('const' in node && !isStructuredScalar(node.const)) {
-        violations.push(`${path}.const must be a scalar`)
-      }
-      break
-    }
-    /* v8 ignore start -- defensive: schemaType was membership-checked against SCHEMA_TYPES above, so no runtime value reaches here */
-    default:
-      assertNever(schemaType, 'assertSupportedOutputSchema')
-    /* v8 ignore stop */
-  }
-
-  seen.delete(node)
 }
 
 /**
- * Assert `schema` is a supported {@link StructuredOutputSchema} — object-rooted
- * and entirely within the enforced subset. Throws {@link OutputSchemaError}
- * (`UNSUPPORTED_SCHEMA`) listing EVERY violation; returns (and narrows) on
- * success. Call this at the seam boundary, before any child is created.
- * @param schema - the caller-supplied schema (unknown until asserted).
- * @returns nothing — the assertion signature narrows `schema` to
- * {@link StructuredOutputSchema} in the caller's scope on normal return.
+ * Assert that an arbitrary raw schema uses only the enforced subset.
+ * Annotation-only schemas are accepted as the standard unconstrained-JSON
+ * form; callers that require an object root use {@link assertObjectJsonSchema}.
+ * @param schema - untrusted raw JSON Schema.
+ * @returns Assertion that the schema belongs to the supported subset.
  */
-export function assertSupportedOutputSchema(schema: unknown): asserts schema is StructuredOutputSchema {
+export function assertSupportedJsonSchema(schema: unknown): asserts schema is JsonSchemaNode {
   const violations: string[] = []
   checkSchemaNode(schema, 'schema', violations, new Set())
-  if (violations.length === 0 && (schema as StructuredSchemaNode).type !== 'object') {
-    violations.push('schema.type must be "object" (structured output is object-rooted)')
-  }
-  if (violations.length > 0) throw new OutputSchemaError(violations)
+  if (violations.length > 0) throw new JsonSchemaError(violations)
 }
 
-/** Collect violations for one value against an (already asserted) schema node. */
-function checkValue(node: StructuredSchemaNode, value: unknown, path: string): string[] {
+/**
+ * Assert the enforced subset plus the object-root constraint retained by
+ * subagent and workflow structured outputs.
+ * @param schema - untrusted caller-supplied schema.
+ * @returns Assertion that the schema belongs to the supported subset and has an object root.
+ */
+export function assertObjectJsonSchema(schema: unknown): asserts schema is ObjectJsonSchema {
+  const violations: string[] = []
+  checkSchemaNode(schema, 'schema', violations, new Set())
+  if (violations.length === 0 && (schema as JsonSchemaNode).type !== 'object') {
+    violations.push('schema.type must be "object" (structured output is object-rooted)')
+  }
+  if (violations.length > 0) throw new JsonSchemaError(violations)
+}
+
+/** Safely test the lossless JSON boundary when a getter may throw. */
+function safelyIsJsonValue(value: unknown): boolean {
+  try {
+    return isJsonValue(value)
+  } catch {
+    return false
+  }
+}
+
+/** Root-aware diagnostic path for the parameter validator's empty sentinel. */
+function diagnosticPath(path: string): string {
+  return path === '' ? 'arguments' : path
+}
+
+/** Append one object property without a leading dot at an implicit root. */
+function propertyPath(path: string, key: string): string {
+  return path === '' ? key : `${path}.${key}`
+}
+
+/** Collect value violations for one trusted schema node. */
+function checkValue(node: JsonSchemaNode, value: unknown, path: string): string[] {
+  if (node.oneOf !== undefined) {
+    const matches = node.oneOf.filter(branch => checkValue(branch, value, path).length === 0).length
+    return matches === 1 ? [] : [`"${diagnosticPath(path)}" must match exactly one oneOf branch (matched ${matches})`]
+  }
+  if (node.type === undefined) {
+    return safelyIsJsonValue(value) ? [] : [`"${diagnosticPath(path)}" must be a lossless JSON value`]
+  }
+
   switch (node.type) {
     case 'object': {
-      if (!isObjectLike(value)) return [`"${path}" must be an object`]
+      if (!isPlainJsonRecord(value)) return [`"${diagnosticPath(path)}" must be an object`]
       const violations: string[] = []
       const properties = node.properties ?? {}
-      // Own-property discipline throughout: JSON carries own enumerable
-      // properties only, so an inherited `toString` must not satisfy
-      // `required`, dodge `additionalProperties: false`, or be validated as if
-      // the value carried it.
       for (const key of node.required ?? []) {
-        if (!Object.hasOwn(value, key) || value[key] === undefined) violations.push(`missing required property "${path}.${key}"`)
+        if (!Object.hasOwn(value, key) || value[key] === undefined) violations.push(`missing required property "${propertyPath(path, key)}"`)
       }
       for (const [key, child] of Object.entries(properties)) {
         if (!Object.hasOwn(value, key) || value[key] === undefined) continue
-        violations.push(...checkValue(child, value[key], `${path}.${key}`))
+        violations.push(...checkValue(child, value[key], propertyPath(path, key)))
       }
       if (node.additionalProperties === false) {
         for (const key of Object.keys(value)) {
-          if (!Object.hasOwn(properties, key)) violations.push(`"${path}.${key}" is not a declared property (additionalProperties: false)`)
+          if (!Object.hasOwn(properties, key)) violations.push(`"${propertyPath(path, key)}" is not a declared property (additionalProperties: false)`)
         }
       }
-      return violations
+      if (violations.length > 0) return violations
+      return safelyIsJsonValue(value) ? [] : [`"${diagnosticPath(path)}" must be a lossless JSON object`]
     }
     case 'array': {
-      if (!Array.isArray(value)) return [`"${path}" must be an array`]
-      if (!node.items) return []
+      if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return [`"${diagnosticPath(path)}" must be an array`]
       const items = node.items
-      return value.flatMap((entry, index) => checkValue(items, entry, `${path}[${index}]`))
+      const violations = items === undefined
+        ? []
+        : value.flatMap((entry, index) => checkValue(items, entry, `${path}[${index}]`))
+      if (violations.length > 0) return violations
+      return safelyIsJsonValue(value) ? [] : [`"${diagnosticPath(path)}" must be a dense lossless JSON array`]
     }
     case 'string': {
-      if (typeof value !== 'string') return [`"${path}" must be a string`]
+      if (typeof value !== 'string') return [`"${diagnosticPath(path)}" must be a string`]
       break
     }
     case 'number': {
-      if (typeof value !== 'number' || !Number.isFinite(value)) return [`"${path}" must be a finite number`]
+      if (typeof value !== 'number') return [`"${diagnosticPath(path)}" must be a number`]
+      if (!isJsonNumber(value)) return [`"${diagnosticPath(path)}" must be a finite JSON number`]
       break
     }
     case 'integer': {
-      if (typeof value !== 'number' || !Number.isInteger(value)) return [`"${path}" must be an integer`]
+      if (!isJsonNumber(value) || !Number.isInteger(value)) return [`"${diagnosticPath(path)}" must be an integer`]
       break
     }
     case 'boolean': {
-      if (typeof value !== 'boolean') return [`"${path}" must be a boolean`]
+      if (typeof value !== 'boolean') return [`"${diagnosticPath(path)}" must be a boolean`]
       break
     }
     case 'null': {
-      if (value !== null) return [`"${path}" must be null`]
+      if (value !== null) return [`"${diagnosticPath(path)}" must be null`]
       break
     }
-    default:
-      return assertNever(node.type, 'validateStructuredValue')
+    default: return assertNever(node.type, 'JsonSchemaType')
   }
-  // Scalar constraint checks, shared by every scalar branch above.
-  if (node.enum && !node.enum.includes(value)) {
-    return [`"${path}" must be one of ${JSON.stringify(node.enum)}`]
+  if (node.enum !== undefined && !node.enum.includes(value)) {
+    return [`"${diagnosticPath(path)}" must be one of ${JSON.stringify(node.enum)}`]
   }
-  if ('const' in node && value !== node.const) {
-    return [`"${path}" must be ${JSON.stringify(node.const)}`]
+  if (Object.hasOwn(node, 'const') && value !== node.const) {
+    return [`"${diagnosticPath(path)}" must be ${JSON.stringify(node.const)}`]
   }
   return []
 }
 
 /**
- * Validate a value against an (already {@link assertSupportedOutputSchema}-
- * asserted) schema. Returns human-readable, path-qualified violation messages
- * — empty means valid. Total: never throws, however malformed the value.
- * @param schema - the asserted schema to check against.
- * @param value - the candidate value (e.g. parsed tool-call arguments).
- * @returns every violation found, in walk order (empty = valid).
+ * Validate a candidate value against an asserted raw schema. The function is
+ * total for arbitrary values and returns path-qualified violations.
+ * @param schema - a schema accepted by {@link assertSupportedJsonSchema}.
+ * @param value - the candidate JSON value.
+ * @param path - root label used in diagnostics.
+ * @returns All violations in walk order; empty means valid.
  */
-export function validateStructuredValue(schema: StructuredOutputSchema, value: unknown): string[] {
-  return checkValue(schema, value, 'value')
+export function validateJsonSchemaValue(schema: JsonSchemaNode, value: unknown, path = 'value'): string[] {
+  return checkValue(schema, value, path)
 }

@@ -23,26 +23,41 @@ import { renderToolsSdk } from './ts-types.ts'
 
 export {
   defineTool,
-  schemaSpecToJsonSchema,
+  valueSchemaSpecToJsonSchema,
+  parameterSchemaSpecToJsonSchema,
   validateArgs,
   ToolArgsError,
-  type SchemaSpec,
-  type SchemaProp,
-  type SchemaType,
+  type ValueSchemaAnnotations,
+  type StringValueSchemaSpec,
+  type NumberValueSchemaSpec,
+  type IntegerValueSchemaSpec,
+  type BooleanValueSchemaSpec,
+  type NullValueSchemaSpec,
+  type ArrayValueSchemaSpec,
+  type ObjectValueSchemaSpec,
+  type JsonValueSchemaSpec,
+  type OneOfValueSchemaSpec,
+  type ValueSchemaSpec,
+  type ParameterPropertySpec,
+  type ParameterSchemaSpec,
+  type ParameterJsonSchema,
+  type InferValue,
   type InferArgs,
   type DefineToolOptions,
-  type JsonSchemaObject,
 } from './schema.ts'
 
 export {
-  assertSupportedOutputSchema,
-  validateStructuredValue,
-  OutputSchemaError,
-  type StructuredOutputSchema,
-  type StructuredSchemaNode,
-  type StructuredSchemaType,
-  type StructuredScalar,
+  assertSupportedJsonSchema,
+  assertObjectJsonSchema,
+  validateJsonSchemaValue,
+  JsonSchemaError,
+  type JsonSchemaNode,
+  type ObjectJsonSchema,
+  type JsonSchemaType,
+  type JsonSchemaScalar,
 } from './json-schema.ts'
+
+export type { JsonValue } from '@deepseek-ai/dsh-session'
 
 export { CodeRunFailedError, RUN_CODE_NAME } from './code-mode.ts'
 export { jsonSchemaToTs, renderToolsSdk } from './ts-types.ts'

@@ -57,65 +57,65 @@ interface ToolDefinition extends ToolSchema {
 
 `execute` receives `args: unknown` — a raw `ToolDefinition` validates its own input. First-party tools don't write that by hand; they use `defineTool`, which validates and narrows for them.
 
-## The typed schema DSL
+## The unified JSON-value schema DSL
 
-Plugin authors write per-property specs with a boolean `required: true`, and a type-level helper maps the spec to the `execute` argument type — zero casts. The DSL is *machinery that types* `ToolDefinition`; it is intentionally a sub-page detail, not core.
+Plugin authors use one vocabulary for typed parameters and typed output values. `ValueSchemaSpec` supports `string`, `number`, `integer`, `boolean`, `null`, `array`, `object`, author-only `json`, and exact-one `oneOf`; scalar `enum` and `const` values must match their node type. An explicit object node always declares `additionalProperties: true | false`. Parameter definitions remain an implicit open object property map, with `required: true` attached to each required property.
 
 Source: [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts)
 
 ```ts type-equiv
-/** One schema-spec property entry. */
-interface SchemaProp {
-  type: SchemaType
-  /** Per-property required flag (NOT the JSON Schema top-level required array). */
-  required?: true
-  /** Human-readable description, surfaced in the JSON Schema as well. */
-  description?: string
-  /** Enum of allowed values (strings only). */
-  enum?: string[]
-  /**
-   * Model-visible JSON Schema default annotation. Validation does not apply it;
-   * dynamic tool mounts may supply it even though first-party definitions do not.
-   */
-  default?: unknown
-  /** Nested properties for type: 'object'. */
-  properties?: SchemaSpec
-  /** Items schema for type: 'array'. */
-  items?: SchemaProp
-}
+/** One author-facing schema for any lossless JSON value root. */
+type ValueSchemaSpec =
+  | StringValueSchemaSpec
+  | NumberValueSchemaSpec
+  | IntegerValueSchemaSpec
+  | BooleanValueSchemaSpec
+  | NullValueSchemaSpec
+  | ArrayValueSchemaSpec
+  | ObjectValueSchemaSpec
+  | JsonValueSchemaSpec
+  | OneOfValueSchemaSpec
+```
+
+```ts type-equiv
+/** One implicit parameter-root property, optionally required. */
+type ParameterPropertySpec = ValueSchemaSpec & { required?: true }
 ```
 
 ```ts type-equiv
 /**
- * The author-facing parameter schema: a shallow map of property name to
- * {@link SchemaProp}. Required-ness is a per-property boolean (`required:
- * true`), not a separate array.
+ * Tool parameter schema. The map itself is an implicit open object root;
+ * requiredness remains a per-property `required: true` annotation.
  */
-type SchemaSpec = Record<string, SchemaProp>
+type ParameterSchemaSpec = Record<string, ParameterPropertySpec>
 ```
 
-`SchemaType` is the primitive union `'string' | 'number' | 'boolean' | 'object' | 'array'`. `InferArgs<S>` maps a `SchemaSpec` to the TS argument type — `required: true` props become required keys, everything else genuinely optional:
+`{ type: 'json' }` infers `JsonValue` and compiles to an annotation-only unconstrained raw schema. Output roots can be objects, arrays, scalars, or null. `InferValue<S>` honors literal constraints and object openness; `InferArgs<P>` turns per-property requiredness into required and optional keys:
 
 ```ts type-equiv
 /**
- * Infer the TS argument type for a complete {@link SchemaSpec}.
- *
- * Properties marked `required: true` are required keys; all others are
- * genuinely optional keys (`?`), so callers may omit them entirely.
- *
- * Example:
- * ```ts
- * type Args = InferArgs<{ path: { type: 'string'; required: true }; limit: { type: 'number' } }>
- * // → { path: string; limit?: number }
- * ```
+ * Infer the TypeScript value accepted by an author-facing value schema.
+ * Output schemas may therefore infer object, array, scalar, or null roots.
  */
-type InferArgs<S extends SchemaSpec> = Simplify<
-  & { [K in RequiredKeys<S>]: InferPropValue<S[K]> }
-  & { [K in Exclude<keyof S, RequiredKeys<S>>]?: InferPropValue<S[K]> }
->
+type InferValue<S extends ValueSchemaSpec> =
+  S extends StringValueSchemaSpec ? InferScalar<S, string> :
+    S extends NumberValueSchemaSpec | IntegerValueSchemaSpec ? InferScalar<S, number> :
+      S extends BooleanValueSchemaSpec ? InferScalar<S, boolean> :
+        S extends NullValueSchemaSpec ? null :
+          S extends ArrayValueSchemaSpec
+            ? S extends { items: infer I extends ValueSchemaSpec } ? InferValue<I>[] : JsonValue[]
+            : S extends ObjectValueSchemaSpec ? InferObject<S> :
+              S extends JsonValueSchemaSpec ? JsonValue :
+                S extends OneOfValueSchemaSpec ? InferValue<S['oneOf'][number]> :
+                  never
 ```
 
-`defineTool({ name, description, parameters, execute, … })` ties it together: `parameters` is a `SchemaSpec`, `execute(args, exec)` gets `args: InferArgs<typeof parameters>`, and the helper converts the spec to JSON Schema (`schemaSpecToJsonSchema`) for the wire and validates model-generated args (`validateArgs`) before the typed body runs. A mismatch throws `ToolArgsError` (`code: 'INVALID_ARGS'`), which the registry turns into an `isError` result so the model can self-correct. Why a custom DSL and not schemastery: tool parameters need JSON Schema (the LLM wire format), not validation/transformation — the lightweight DSL gives the best authoring DX with the smallest surface.
+```ts type-equiv
+/** Infer the TypeScript argument object for an implicit parameter schema. */
+type InferArgs<S extends ParameterSchemaSpec> = InferProperties<S>
+```
+
+`defineTool({ name, description, parameters, execute, … })` ties parameter inference to `parameterSchemaSpecToJsonSchema()` and `validateArgs()`. `valueSchemaSpecToJsonSchema()` compiles value/output declarations through the same enforced raw subset. A parameter mismatch throws `ToolArgsError` (`INVALID_ARGS`), which the registry returns through the normal tool-error path. Raw JSON Schema remains open by default; unsupported keywords reject instead of being accepted without enforcement.
 
 Registration is a trusted same-process contract. The registry borrows the typed definition as readonly input and validates only semantic requirements such as a positive finite `timeoutMs`; `schemas()` materializes the explicit model-facing projection at the model boundary so execution and presentation share one resolved definition without leaking callbacks onto the wire.
 
@@ -288,55 +288,57 @@ Call `next()` for the default or return a decision to short-circuit. Pre-policy 
 
 Post-policy may replace content; a block becomes an `isError` result containing its corrective feedback. `tools/result` receives the frozen execution and result after normalization; observers cannot transform them, and observer failures are contained. Unknown and throwing tools both become structured errors (`ToolNotFoundError` maps to `UNKNOWN_TOOL`), so the call fails without ending the turn.
 
-## The structured-output schema subset
+## The enforced raw JSON Schema subset
 
-The vocabulary a caller uses to demand a machine-readable result from a subagent (`SubagentStartRequest.outputSchema`, [subagent.md](subagent.md#the-start-request)) or a workflow `agent()` call. It is deliberately NOT full JSON Schema: the schema travels verbatim to the model as a forced tool's `parameters`, and the produced value is validated client-side by `validateStructuredValue` — so every accepted keyword must be one the validator actually enforces, and `assertSupportedOutputSchema` rejects anything else loud (`OutputSchemaError`, listing every violation). Both walkers reason over own enumerable properties only (JSON carries nothing else) and reject non-plain objects (`Date`, `Map`) that would serialize lossily.
+Raw schemas from subagents, workflows, MCP, and dynamic registrations use the wire-level counterpart of the author DSL. `assertSupportedJsonSchema()` accepts any JSON root, `validateJsonSchemaValue()` enforces it, and `JsonSchemaError` reports every unsupported or malformed schema path. The empty annotation-only node means unconstrained lossless JSON. `oneOf` requires at least two branches and a value must match exactly one. Consumers that still require an object root call `assertObjectJsonSchema()` and carry `ObjectJsonSchema`; this is how subagent/workflow caller-defined structured output remains object-rooted without restricting the shared vocabulary.
 
 ```ts type-equiv
-/** The scalar values `enum`/`const` may carry (finite numbers only). */
-type StructuredScalar = string | number | boolean | null
+/** Scalar JSON values supported by `enum` and `const`. */
+type JsonSchemaScalar = string | number | boolean | null
 ```
 
 ```ts type-equiv
-/** The `type` keywords the subset accepts. */
-type StructuredSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null'
+/** Single-type keywords accepted by the enforced subset. */
+type JsonSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null'
 ```
 
 ```ts type-equiv
 /**
- * One node of the structured-output schema subset. Recursive via `properties`
- * and `items`; see the module doc for the exact keyword semantics.
+ * One raw JSON Schema node in the enforced subset. The optional fields express
+ * the external wire shape; {@link assertSupportedJsonSchema} rejects invalid
+ * combinations before a caller treats the node as trusted.
  */
-interface StructuredSchemaNode {
-  type: StructuredSchemaType
+interface JsonSchemaNode {
+  /** Omit with no constraints for any JSON value, or use `oneOf`. */
+  type?: JsonSchemaType
+  /** Exactly one branch must validate; at least two branches are required. */
+  oneOf?: JsonSchemaNode[]
   /** Nested property schemas (`type: 'object'` only). */
-  properties?: Record<string, StructuredSchemaNode>
+  properties?: Record<string, JsonSchemaNode>
   /** Required property names; each must appear in `properties`. */
   required?: string[]
-  /** `false` rejects undeclared keys; absent/`true` allows them (JSON Schema default). */
+  /** `false` rejects undeclared keys; absent/`true` follows JSON Schema's open default. */
   additionalProperties?: boolean
-  /** Item schema (`type: 'array'` only); absent ⇒ any JSON items. */
-  items?: StructuredSchemaNode
-  /** Allowed values (scalar types only). */
-  enum?: StructuredScalar[]
-  /** The single allowed value (scalar types only). */
-  const?: StructuredScalar
+  /** Item schema (`type: 'array'` only); absent accepts any JSON item. */
+  items?: JsonSchemaNode
+  /** Allowed values for a scalar node. */
+  enum?: JsonSchemaScalar[]
+  /** The single allowed value for a scalar node. */
+  const?: JsonSchemaScalar
   /** Annotation, ignored for validation. */
   description?: string
   /** Annotation, ignored for validation. */
   title?: string
-  /** Annotation, ignored for validation (must still be JSON data). */
-  default?: unknown
-  /** Annotation, ignored for validation (must still be JSON data). */
-  examples?: unknown
+  /** Annotation, ignored for validation but required to be lossless JSON. */
+  default?: JsonValue
+  /** Annotation, ignored for validation but required to be lossless JSON. */
+  examples?: JsonValue
 }
 ```
 
-A schema is an object-rooted node (`enum`/`const` are scalar-only; `description`/`title`/`default`/`examples` are annotations, allowed and ignored but still required to be JSON data — they ride the wire):
-
 ```ts type-equiv
-/** A structured-output schema: an OBJECT-rooted {@link StructuredSchemaNode}. */
-type StructuredOutputSchema = StructuredSchemaNode & { type: 'object' }
+/** A consumer-constrained object-rooted schema. */
+type ObjectJsonSchema = JsonSchemaNode & { type: 'object' }
 ```
 
 ## Tool-presentation UI vocabulary
