@@ -220,3 +220,156 @@ test('renderSessionGraph: empty state when no events', () => {
   const empty = container._children[0]
   assert.equal(empty.className, 'chat-session-graph-empty')
 })
+
+// -- Session graph: event ordering & labels --------------------------------
+// The runtime protocol serialises turn/start before its triggering
+// user/message echo — the main stream masks this with an optimistic
+// bubble + echo adoption dance (renderer.js ~L809), but the Graph view
+// sees the raw wire order. These tests pin the reorder/repair pass in
+// deriveGraph() so a wire-order fixture still draws the DAG in causal
+// order, and pin the enriched node labels.
+
+test('deriveGraph: sorts out-of-order events by evt.seq', () => {
+  const events = [
+    { type: 'turn/start', seq: 6, data: { turnId: 't1' } },
+    { type: 'user/message', seq: 1, data: { text: 'hello' } },
+    { type: 'turn/end', seq: 8, data: { turnId: 't1' } },
+    { type: 'turn/start', seq: 2, data: { turnId: 't0' } },
+    { type: 'user/message', seq: 5, data: { text: 'again' } },
+    { type: 'turn/end', seq: 4, data: { turnId: 't0' } },
+  ]
+  const g = graph.deriveGraph(events)
+  const kinds = g.nodes.map((n) => n.kind)
+  // seq-sorted stream is: u1 t2 e4 u5 t6 e8 → nodes u, t, u, t
+  assert.deepEqual(kinds, ['user', 'turn', 'user', 'turn'])
+})
+
+test('deriveGraph: repairs (turn/start, user/message) reversal at close seq', () => {
+  // Wire-order bug: turn/start echoes before its triggering user/message.
+  // Both events share an adjacent seq window, so the repair pass must
+  // swap them so user precedes its turn in the DAG.
+  const events = [
+    { type: 'turn/start', seq: 2, data: { turnId: 't0' } },
+    { type: 'user/message', seq: 3, data: { text: 'do the thing' } },
+    { type: 'assistant/message', seq: 4, data: { text: 'ok' } },
+    { type: 'turn/end', seq: 5, data: { turnId: 't0' } },
+  ]
+  const g = graph.deriveGraph(events)
+  assert.equal(g.nodes.length, 2)
+  assert.equal(g.nodes[0].kind, 'user', 'user node must come first')
+  assert.equal(g.nodes[1].kind, 'turn', 'turn node must follow user')
+  const succ = g.edges.find((e) => e.kind === 'succession')
+  assert.equal(succ.from, g.nodes[0].id)
+  assert.equal(succ.to, g.nodes[1].id)
+})
+
+test('deriveGraph: repairs pair even when seqs are identical', () => {
+  const events = [
+    { type: 'turn/start', seq: 10, data: { turnId: 't0' } },
+    { type: 'user/message', seq: 10, data: { text: 'same tick' } },
+  ]
+  const g = graph.deriveGraph(events)
+  assert.deepEqual(g.nodes.map((n) => n.kind), ['user', 'turn'])
+})
+
+test('deriveGraph: preserves user AFTER turn on genuine barge-in (seq gap)', () => {
+  // Barge-in: user interrupts an in-flight turn much later than start.
+  // The gap (seq 20 vs 10) is too wide to be an echo — must stay
+  // ordered as the wire had it (turn then user), because chronology is
+  // real.
+  const events = [
+    { type: 'turn/start', seq: 10, data: { turnId: 't0' } },
+    { type: 'user/message', seq: 20, data: { text: 'wait cancel' } },
+  ]
+  const g = graph.deriveGraph(events)
+  assert.deepEqual(g.nodes.map((n) => n.kind), ['turn', 'user'])
+})
+
+test('deriveGraph: user node label carries a truncated first-line preview', () => {
+  const events = [
+    { type: 'user/message', seq: 1, data: { text: 'short one' } },
+    { type: 'turn/start', seq: 2, data: { turnId: 't0' } },
+    { type: 'user/message', seq: 3, data: { text: 'x'.repeat(80) } },
+    { type: 'user/message', seq: 4, data: { text: 'line1\nline2\nline3' } },
+  ]
+  const g = graph.deriveGraph(events)
+  const users = g.nodes.filter((n) => n.kind === 'user')
+  assert.equal(users.length, 3)
+  assert.equal(users[0].label, 'user · "short one"')
+  // Long-string label is truncated with an ellipsis (label = `user · "`
+  // (8) + up to 28 preview + `"` (1) = at most 37 chars).
+  assert.ok(users[1].label.endsWith('…"'), 'long text should be truncated with an ellipsis')
+  assert.ok(users[1].label.length <= 38, 'label must not exceed the 28-char preview cap + framing')
+  // Truncated preview exposes full text on hover via node.title.
+  assert.equal(users[1].title, 'x'.repeat(80))
+  // Only the first line is used; subsequent lines are dropped.
+  assert.equal(users[2].label, 'user · "line1"')
+})
+
+test('deriveGraph: turn node label appends stopReason when set', () => {
+  const events = [
+    { type: 'turn/start', seq: 1, data: { turnId: 't0' } },
+    { type: 'turn/end', seq: 2, data: { turnId: 't0', stopReason: 'end_turn' } },
+    { type: 'turn/start', seq: 3, data: { turnId: 't1' } },
+    { type: 'turn/end', seq: 4, data: { turnId: 't1' } },
+    { type: 'turn/start', seq: 5, data: { turnId: 't2' } },
+    { type: 'turn/end', seq: 6, data: { turnId: 't2', stopReason: 'cancelled' } },
+  ]
+  const g = graph.deriveGraph(events)
+  const turns = g.nodes.filter((n) => n.kind === 'turn' || n.kind === 'interrupt')
+  assert.equal(turns[0].label, '#0 · end_turn')
+  assert.equal(turns[1].label, '#1', 'no stopReason → no suffix')
+  assert.equal(turns[2].kind, 'interrupt')
+  assert.match(turns[2].label, /^#2 · cancelled$/)
+})
+
+test('deriveGraph: reorder preserves fork parent + interrupt classification', () => {
+  // buildFixture()'s scenario with each (turn/start, user/message) pair
+  // swapped to simulate the wire-order bug. Fork/interrupt outcomes
+  // must land on the exact same edges after the repair pass.
+  const events = [
+    { type: 'turn/start', seq: 2, data: { turnId: 't0' } },
+    { type: 'user/message', seq: 1, data: { text: 'hello there' } },
+    { type: 'assistant/message', seq: 3, data: { text: 'hi' } },
+    { type: 'turn/end', seq: 4, data: { turnId: 't0' } },
+
+    { type: 'turn/start', seq: 6, data: { turnId: 't1' } },
+    { type: 'user/message', seq: 5, data: { text: 'run a task' } },
+    { type: 'assistant/message', seq: 7, data: { text: 'sure' } },
+    { type: 'turn/end', seq: 8, data: { turnId: 't1' } },
+
+    { type: 'session/fork', seq: 9, data: { fromTurnId: 't1', childSessionId: 'child-abc' } },
+
+    { type: 'turn/start', seq: 11, data: { turnId: 't2' } },
+    { type: 'user/message', seq: 10, data: { text: 'wait, cancel' } },
+    { type: 'user/interrupt', seq: 12, data: {} },
+    { type: 'turn/end', seq: 13, data: { turnId: 't2', stopReason: 'cancelled' } },
+  ]
+  const g = graph.deriveGraph(events)
+  const forkEdge = g.edges.find((e) => e.kind === 'fork')
+  assert.ok(forkEdge, 'fork edge missing after reorder')
+  const forkParent = g.nodes.find((n) => n.id === forkEdge.from)
+  assert.equal(forkParent.turnId, 't1')
+  const interruptNode = g.nodes.find((n) => n.kind === 'interrupt')
+  assert.ok(interruptNode, 'interrupt node missing after reorder')
+  assert.equal(interruptNode.turnId, 't2')
+  // First succession edge on the main line goes user → turn (repaired).
+  const first = g.edges.find((e) => e.kind === 'succession')
+  assert.equal(g.nodes.find((n) => n.id === first.from).kind, 'user')
+  assert.equal(g.nodes.find((n) => n.id === first.to).kind, 'turn')
+})
+
+test('renderSessionGraph: emits SVG <title> tooltip for truncated user labels', () => {
+  const doc = makeMiniDoc()
+  const container = doc.createElement('div')
+  container.ownerDocument = doc
+  graph.renderSessionGraph(container, {
+    events: [{ type: 'user/message', seq: 1, data: { text: 'y'.repeat(60) } }],
+  })
+  const svg = container._children[0]
+  const userG = svg._children.find((c) => typeof c.className === 'string' && c.className.includes('node-user'))
+  assert.ok(userG, 'user node group missing')
+  const titleEl = userG._children.find((c) => c.tagName === 'TITLE')
+  assert.ok(titleEl, 'expected <title> tooltip child on the user node')
+  assert.equal(titleEl.textContent, 'y'.repeat(60))
+})

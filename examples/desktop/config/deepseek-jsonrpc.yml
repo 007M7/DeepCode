@@ -31,8 +31,8 @@
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
     models:
-      - id: deepseek-v4-flash
-      - id: deepseek-v4-pro
+      - deepseek-v4-flash
+      - deepseek-v4-pro
     # Showcase default: pin thinking on so the reasoning fold — our headline
     # visualization — is visible out of the box for a first-run user. The
     # provider default is already "enabled", but a future flip would silently

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<!-- Same 8-artifact fixture, but the third row is opened so the L1
+     body (path + ghost "Open in browser" button) is visible for the
+     inline-expand selfie. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>artifact-compact fixture (expanded)</title>
+  <link rel="stylesheet" href="../../src/renderer/style.css">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+    .app { display: flex; height: 100vh; }
+    .main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+    .header { padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+    #stream { flex: 1; }
+    .artifact-live-dot { animation: none !important; }
+    .artifact-card.artifact-flash { border-color: var(--border) !important; background: var(--bg-elev) !important; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="main">
+      <div class="header">Fixture: L1 body expanded on row 3</div>
+      <div id="stream" class="stream"></div>
+    </div>
+  </div>
+  <script>
+    window.dsh = { onArtifact: (cb) => { window.__cb = cb }, openArtifact: async () => ({ ok: true }), mockArtifact: async () => {} }
+  </script>
+  <script src="../../src/renderer/artifacts.js"></script>
+  <script>
+    const entries = [
+      { artifactId: 'session.md', kind: 'md', version: 3, path: '/w/.artifacts/session.md' },
+      { artifactId: 'tools.md',   kind: 'md', version: 1, path: '/w/.artifacts/tools.md' },
+      { artifactId: 'AGENTS.md',  kind: 'md', version: 2, path: '/w/harness/dsh-demo-worktrees/lane-artifact-compact/.artifacts/AGENTS.md' },
+      { artifactId: 'plan.md',    kind: 'md', version: 5, path: '/w/.artifacts/plan.md' },
+      { artifactId: 'trace.md',   kind: 'md', version: 1, path: '/w/.artifacts/trace.md' },
+      { artifactId: 'growth.md',  kind: 'md', version: 7, path: '/w/.artifacts/growth.md' },
+      { artifactId: 'recap.md',   kind: 'md', version: 2, path: '/w/.artifacts/recap.md' },
+      { artifactId: 'notes.md',   kind: 'md', version: 4, path: '/w/.artifacts/notes.md' },
+    ]
+    setTimeout(() => {
+      for (const e of entries) window.__cb(e)
+      // Open the third artifact so the L1 body is captured.
+      const c = document.querySelectorAll('.artifact-card')[2]
+      if (c) c.open = true
+    }, 20)
+  </script>
+</body>
+</html>

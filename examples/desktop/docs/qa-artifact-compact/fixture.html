@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<!-- Reproducible fixture for the artifact-card compact-row change.
+     Mocks 8 md artifact events so the auto-group + L0 row can be shot in
+     one screenshot without booting the whole Electron shell. Used only
+     for docs/qa-artifact-compact/ selfies; not shipped. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>artifact-compact fixture</title>
+  <link rel="stylesheet" href="../../src/renderer/style.css">
+  <style>
+    /* Bare-minimum host chrome: give the .stream a viewport-height body
+       so scroll behaviour matches the real shell. */
+    html, body { height: 100%; margin: 0; }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+    .app { display: flex; height: 100vh; }
+    .main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+    .header {
+      padding: 10px 16px; border-bottom: 1px solid var(--border);
+      font-size: 13px; color: var(--muted);
+    }
+    #stream { flex: 1; }
+    /* Silence the pulse + the arrival flash for a stable selfie so the
+       real resting-state layout (auto-group fusion, muted colors) shows. */
+    .artifact-live-dot { animation: none !important; }
+    .artifact-card.artifact-flash { border-color: var(--border) !important; background: var(--bg-elev) !important; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="main">
+      <div class="header">Fixture: 8 markdown artifacts arriving in a row</div>
+      <div id="stream" class="stream"></div>
+    </div>
+  </div>
+  <!-- Fake bridge — artifacts.js only touches window.dsh.onArtifact +
+       window.dsh.openArtifact + window.dsh.mockArtifact. -->
+  <script>
+    window.dsh = {
+      onArtifact: (cb) => { window.__cb = cb },
+      openArtifact: async () => ({ ok: true }),
+      mockArtifact: async () => {},
+    }
+  </script>
+  <script src="../../src/renderer/artifacts.js"></script>
+  <script>
+    // Fire 8 md artifact events, then a divergent HTML one for variety.
+    const entries = [
+      { artifactId: 'session.md', kind: 'md', version: 3, path: '/w/.artifacts/session.md' },
+      { artifactId: 'tools.md',   kind: 'md', version: 1, path: '/w/.artifacts/tools.md' },
+      { artifactId: 'AGENTS.md',  kind: 'md', version: 2, path: '/w/.artifacts/AGENTS.md' },
+      { artifactId: 'plan.md',    kind: 'md', version: 5, path: '/w/.artifacts/plan.md' },
+      { artifactId: 'trace.md',   kind: 'md', version: 1, path: '/w/.artifacts/trace.md' },
+      { artifactId: 'growth.md',  kind: 'md', version: 7, path: '/w/.artifacts/growth.md' },
+      { artifactId: 'recap.md',   kind: 'md', version: 2, path: '/w/.artifacts/recap.md' },
+      { artifactId: 'notes.md',   kind: 'md', version: 4, path: '/w/.artifacts/notes.md' },
+    ]
+    setTimeout(() => {
+      for (const e of entries) window.__cb(e)
+    }, 20)
+  </script>
+</body>
+</html>

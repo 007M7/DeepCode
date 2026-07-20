@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<!-- "Before" reproduction for docs/qa-artifact-compact/ — mirrors the
+     pre-2026-07-18 hero-card artifact shape. Inline copy of the old
+     builder + the pre-fix CSS block so the before/after diff is
+     screenshot-comparable without git bisect. Not shipped. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>artifact-compact fixture (BEFORE)</title>
+  <link rel="stylesheet" href="../../src/renderer/style.css">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+    .app { display: flex; height: 100vh; }
+    .main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+    .header {
+      padding: 10px 16px; border-bottom: 1px solid var(--border);
+      font-size: 13px; color: var(--muted);
+    }
+    #stream { flex: 1; }
+    .artifact-live-dot { animation: none !important; }
+    /* --- BEFORE styling (pre-fix): wide flex-row with hero button.
+       This is a verbatim replay of the pre-fix style.css block that the
+       compact-row change replaced. Kept out of the shipped stylesheet
+       — this override only applies inside this fixture. */
+    .artifact-card {
+      align-self: flex-start; max-width: 780px; width: 100%;
+      background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 12px;
+      display: flex; align-items: center; gap: 12px;
+      transition: border-color 0.4s, background 0.4s;
+    }
+    .artifact-icon { font-size: 22px; line-height: 1; flex: 0 0 auto; }
+    .artifact-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .artifact-name {
+      font-family: var(--mono); font-size: 12.5px; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .artifact-meta {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; color: var(--muted);
+    }
+    .artifact-kind {
+      text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 1px 6px; border-radius: 3px;
+      background: var(--bg-elev-2); color: var(--muted);
+    }
+    .artifact-version { color: var(--accent); font-family: var(--mono); }
+    .artifact-live-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--ok);
+    }
+    .artifact-open {
+      flex: 0 0 auto; font-size: 12px; padding: 6px 12px;
+      background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="main">
+      <div class="header">BEFORE: 8 markdown artifacts (hero-card shape)</div>
+      <div id="stream" class="stream"></div>
+    </div>
+  </div>
+  <script>
+    const entries = [
+      { artifactId: 'session.md', kind: 'md', version: 3, path: '/w/.artifacts/session.md' },
+      { artifactId: 'tools.md',   kind: 'md', version: 1, path: '/w/.artifacts/tools.md' },
+      { artifactId: 'AGENTS.md',  kind: 'md', version: 2, path: '/w/.artifacts/AGENTS.md' },
+      { artifactId: 'plan.md',    kind: 'md', version: 5, path: '/w/.artifacts/plan.md' },
+      { artifactId: 'trace.md',   kind: 'md', version: 1, path: '/w/.artifacts/trace.md' },
+      { artifactId: 'growth.md',  kind: 'md', version: 7, path: '/w/.artifacts/growth.md' },
+      { artifactId: 'recap.md',   kind: 'md', version: 2, path: '/w/.artifacts/recap.md' },
+      { artifactId: 'notes.md',   kind: 'md', version: 4, path: '/w/.artifacts/notes.md' },
+    ]
+    // Pre-fix DOM builder (replayed verbatim).
+    const stream = document.getElementById('stream')
+    for (const entry of entries) {
+      const el = document.createElement('div')
+      el.className = 'artifact-card'
+      el.innerHTML = ''
+      const icon = document.createElement('span')
+      icon.className = 'artifact-icon'
+      icon.textContent = '📄'
+      const body = document.createElement('div')
+      body.className = 'artifact-body'
+      const name = document.createElement('div')
+      name.className = 'artifact-name'
+      name.textContent = entry.artifactId
+      const meta = document.createElement('div')
+      meta.className = 'artifact-meta'
+      const kind = document.createElement('span'); kind.className = 'artifact-kind'; kind.textContent = entry.kind
+      const ver  = document.createElement('span'); ver.className  = 'artifact-version'; ver.textContent = `v${entry.version}`
+      const dot  = document.createElement('span'); dot.className  = 'artifact-live-dot'
+      meta.append(kind, ver, dot)
+      body.append(name, meta)
+      const btn = document.createElement('button')
+      btn.className = 'artifact-open primary'
+      btn.textContent = 'Open in browser'
+      el.append(icon, body, btn)
+      stream.appendChild(el)
+    }
+  </script>
+</body>
+</html>

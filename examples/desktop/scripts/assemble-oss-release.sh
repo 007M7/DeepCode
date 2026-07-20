@@ -197,6 +197,38 @@ if grep -q '"name": "dsh-desktop-demo"' "$PKGJSON"; then
 fi
 echo "  rewrote: package.json name → dsh-desktop"
 
+# ─── Stage 2d: whitelist-restore hand-picked assets ─────────────────────
+# Stage 2 rm's whole directories in EXCLUDES (e.g. docs/demo-shots) to
+# keep ~90 MB of screenshot archives / internal QA runs out of the OSS
+# release tree. A very small number of individual files under those
+# excluded parents ARE meant to ship — for example the single final
+# walkthrough recording referenced from README. Restore them here by
+# re-extracting straight from the same git HEAD used in Stage 1, so we
+# ship exactly the committed bytes (no lookaside copy that could drift).
+#
+# Fail loud if a whitelisted file is missing from HEAD — that means the
+# source repo forgot to commit it and README's link would 404.
+WHITELIST=(
+  "docs/demo-shots/showcase-2026-07-18/demo-walkthrough.mp4"
+)
+echo "[assemble-oss-release] restoring ${#WHITELIST[@]} whitelist entries…"
+for path in "${WHITELIST[@]}"; do
+  # `git archive` errors non-zero if the path isn't in HEAD, so we probe
+  # first with `git ls-tree` and give a readable error before the extract.
+  if ! (cd "$REPO_ROOT" && git ls-tree --name-only HEAD -- "$path" \
+        | grep -qxF "$path"); then
+    echo "  MISSING: $path is not in HEAD — commit it in the source repo first" >&2
+    exit 3
+  fi
+  (cd "$REPO_ROOT" && git archive HEAD -- "$path") | tar -x -C "$OUT_DIR"
+  target="$OUT_DIR/$path"
+  if [ ! -f "$target" ]; then
+    echo "  RESTORE-FAIL: $path did not land in $OUT_DIR" >&2
+    exit 3
+  fi
+  echo "  restored: $path"
+done
+
 # ─── Stage 3: verification grep ─────────────────────────────────────────
 # Any residual hit here means the exclude list has drifted — abort.
 echo "[assemble-oss-release] verifying scrub…"
