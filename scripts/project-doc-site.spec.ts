@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { docsPages, type DocsPage } from '../website/docs.ts'
-import { addProjectionFrontmatter, rewriteMarkdown } from './project-doc-site.ts'
+import { addProjectionFrontmatter, projectedPageContent, rewriteMarkdown } from './project-doc-site.ts'
 
 const roots: string[] = []
 
@@ -173,5 +173,35 @@ describe('addProjectionFrontmatter', () => {
     expect(addProjectionFrontmatter('---\nlayout: home\n---\n', 'docs/index.md')).toBe(
       '---\neditSource: "docs/index.md"\nlayout: home\n---\n',
     )
+  })
+})
+
+describe('projectedPageContent', () => {
+  const page = (sidebar: DocsPage['sidebar']): DocsPage => ({
+    locale: 'root',
+    contentLocale: 'zh-CN',
+    source: 'docs/index.zh.md',
+    route: 'index.md',
+    label: 'Home',
+    sidebar,
+    section: 'Home',
+    order: 0,
+  })
+
+  it('omits the source-only body from locale home pages', () => {
+    expect(projectedPageContent(
+      '---\nlayout: home\nhero:\n  name: Harness\n---\n\n# Harness\n\n[English](index.md) | 中文\n',
+      page(null),
+    )).toBe('---\nlayout: home\nhero:\n  name: Harness\n---\n')
+  })
+
+  it('keeps the full body for ordinary pages', () => {
+    const markdown = '---\ntitle: Guide\n---\n\n# Guide\n'
+    expect(projectedPageContent(markdown, page('zh-guide'))).toBe(markdown)
+  })
+
+  it('rejects a locale home source without frontmatter', () => {
+    expect(() => projectedPageContent('# Harness\n', page(null)))
+      .toThrow('locale home source "docs/index.zh.md" must start with YAML frontmatter')
   })
 })

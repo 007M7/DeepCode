@@ -268,6 +268,26 @@ export function addProjectionFrontmatter(markdown: string, sourcePath: string): 
   return `---\n${field}\n---\n\n${markdown}`
 }
 
+/**
+ * Select the Markdown rendered for one published page.
+ *
+ * @param markdown Rewritten canonical Markdown content.
+ * @param page Publication manifest entry for the content.
+ * @returns Full Markdown for ordinary pages or frontmatter-only Markdown for a locale home page.
+ */
+export function projectedPageContent(markdown: string, page: DocsPage): string {
+  if (page.sidebar !== null) return markdown
+  if (!markdown.startsWith('---\n')) {
+    throw new Error(`project-doc-site: locale home source ${JSON.stringify(page.source)} must start with YAML frontmatter.`)
+  }
+  const closingDelimiter = '\n---\n'
+  const closing = markdown.indexOf(closingDelimiter, 4)
+  if (closing === -1) {
+    throw new Error(`project-doc-site: locale home source ${JSON.stringify(page.source)} has unclosed YAML frontmatter.`)
+  }
+  return markdown.slice(0, closing + closingDelimiter.length)
+}
+
 /** Canonical Markdown files watched by the local VitePress dev server. */
 export function docsSourceFiles(): string[] {
   return [...new Set(docsPages.map(page => resolve(root, page.source)))]
@@ -297,6 +317,6 @@ export function projectDocs(): void {
       repoRoot: root,
       repositoryRef,
     })
-    writeFileSync(output, addProjectionFrontmatter(projected, page.source))
+    writeFileSync(output, addProjectionFrontmatter(projectedPageContent(projected, page), page.source))
   }
 }
