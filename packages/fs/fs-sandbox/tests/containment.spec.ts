@@ -27,6 +27,7 @@ describe('filesystem sandbox containment', () => {
 
   it('uses case-insensitive lexical comparison for Windows-style containment', async () => {
     expect(await isPathUnder(join(base.toUpperCase(), 'child'), base.toLowerCase(), false)).toBe(true)
+    expect(await isPathUnder(join(base, 'case-sensitive-child'), base, true)).toBe(true)
   })
 
   it('recognizes an alias-equivalent root by filesystem identity for a missing target', async () => {

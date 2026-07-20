@@ -9,9 +9,11 @@ import type { BigIntStats } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { dirname, sep } from 'node:path'
 
+const MISSING_CODES: ReadonlySet<NodeJS.ErrnoException['code']> = new Set(['ENOENT', 'ENOTDIR'])
+
 function isMissing(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException).code
-  return code === 'ENOENT' || code === 'ENOTDIR'
+  return MISSING_CODES.has(code)
 }
 
 function comparablePath(path: string, caseSensitive: boolean): string {
