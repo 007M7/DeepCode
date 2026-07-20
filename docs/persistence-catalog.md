@@ -244,21 +244,24 @@ Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact
 /**
  * In-session context injection (file-change notices, subdir AGENTS.md,
  * skill content, cron notifications, …). Rendered into the derived history
- * as synthetic context — NOT a user prompt. `envelope: 'raw'` lets a caller
- * own the complete model-facing frame; `meta` is durable JSON state omitted
- * from the model projection.
+ * as a synthetic user-role message carrying `content` verbatim — NOT a
+ * user prompt. `meta` is durable JSON state omitted from the model
+ * projection; it is also the intended channel for any future framing
+ * directive (a producer declares the frame, a dedicated renderer applies it —
+ * see the deferred note in
+ * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
+ * so the surface keeps projecting `content` verbatim rather than wrapping it.
  */
 'context/message': {
   content: ContentBlock[]
   source: MessageSource
-  envelope?: ContextEnvelope
   meta?: JsonValue
 }
 ```
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:212`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/types.ts)
 
 ### `hook/*`
 
@@ -336,7 +339,7 @@ Source: [`packages/ui/permission/src/index.ts:33`](../packages/ui/permission/src
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:201`](../packages/core/session/src/types.ts)
 
 ### `request/*`
 
@@ -374,7 +377,7 @@ Source: [`packages/core/session/src/types.ts:244`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:197`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:194`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -383,7 +386,7 @@ Source: [`packages/core/session/src/types.ts:197`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:195`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:192`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -474,7 +477,7 @@ Source: [`packages/core/session/src/types.ts:242`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:190`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -490,7 +493,7 @@ Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:187`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:184`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -503,4 +506,4 @@ Source: [`packages/core/session/src/types.ts:187`](../packages/core/session/src/
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:199`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:196`](../packages/core/session/src/types.ts)

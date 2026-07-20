@@ -369,7 +369,7 @@ describe('deriveMessages with surface', () => {
     s.append('steering/message', { turn: 1, content: [{ type: 'text', text: 'focus' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const messages = s.deriveMessages()
     expect(messages).toHaveLength(2)
-    expect(messages[0]!.content[0]).toMatchObject({ type: 'text', text: '<context source="plugin">' })
+    expect(messages[0]!.content).toEqual([{ type: 'text', text: 'file changed' }])
     expect(messages[1]!.content).toEqual([{ type: 'text', text: 'focus' }])
   })
 })

@@ -42,7 +42,7 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 
 A same-file edit starts with `Updated instructions from: <path>` and says to use the new content instead of the previously loaded content. A candidate switch additionally names the old path. When no candidate remains, the message is `Instructions removed: <path>` followed by `The previously loaded instructions from this file no longer apply.` Literal `</system-reminder>` text inside an instruction file is escaped so file content cannot close the plugin-owned frame.
 
-The core `context/message` envelope is disabled for these messages because the plugin already owns the complete `<system-reminder>` framing. This is caller-selected with `envelope: 'raw'`; ordinary injected context still receives the canonical `<context source="...">` envelope.
+The plugin owns the complete `<system-reminder>` framing, and every `context/message` (from this plugin or any other) reaches the model verbatim as a user-role message with no wrapping.
 
 ## State And Refresh
 
