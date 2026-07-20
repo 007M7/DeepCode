@@ -7,7 +7,14 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, Message, StreamChunk } from './types.ts'
+import type {
+  GenerateOptions,
+  LlmModelContext,
+  LlmModelInfo,
+  LlmProviderInfo,
+  Message,
+  StreamChunk,
+} from './types.ts'
 import { deepFreeze } from './call-config.ts'
 import { HarnessError } from './error.ts'
 import { bindAdapterFailureScope, markLlmAdapterFailure } from './adapter-failure.ts'
@@ -80,6 +87,20 @@ export abstract class LlmAdapter {
    */
   listModels(_provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve([])
+  }
+
+  /**
+   * Resolve context capacity for one model accepted by this adapter. Absence
+   * means the adapter does not know the capacity, not that routing is invalid.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _model - exact model id passed to {@link GenerateOptions.model}.
+   * @returns provider-owned context metadata, or `undefined` when unavailable.
+   */
+  resolveModelContext(
+    _provider: string,
+    _model: string,
+  ): Promise<LlmModelContext | undefined> {
+    return Promise.resolve(undefined)
   }
 
   /**
@@ -175,6 +196,29 @@ export class LlmService extends Service {
         ...model.description === undefined ? {} : { description: model.description },
       }
     })
+  }
+
+  /**
+   * Resolve context capacity from the adapter that owns one exact route.
+   * This query is independent of the advisory model catalog: an unlisted model
+   * may return metadata, while `undefined` never rejects later routing.
+   * @param provider - registered provider route to inspect.
+   * @param model - exact model id passed to the adapter.
+   * @returns detached context metadata, or `undefined` when the adapter has none.
+   */
+  async resolveModelContext(
+    provider: string,
+    model: string,
+  ): Promise<LlmModelContext | undefined> {
+    const context = await this.registration(provider).adapter.resolveModelContext(provider, model)
+    if (context === undefined) return undefined
+    if (!Number.isInteger(context.contextWindow) || context.contextWindow <= 0) {
+      throw new LlmError(
+        `adapter returned invalid context metadata for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_CONTEXT',
+      )
+    }
+    return { contextWindow: context.contextWindow }
   }
 
   private registration(provider: string): { adapter: LlmAdapter; provider: LlmProviderInfo } {

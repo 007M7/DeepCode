@@ -10,26 +10,75 @@ import { CompactService } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compact'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, assertNever } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { resolveConfig } from './config.ts'
+import {
+  resolveCompactSpec,
+  resolveConfig,
+  resolveTargetPolicy,
+  TargetPressureConfigError,
+} from './config.ts'
 import { compactSurfaceRegion, selectCompactableRange } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
 import type {
   BasicCompactConfig,
+  ModelCompactPolicyConfig,
   ResolvedConfig,
 } from './types.ts'
 
 export type {
   BasicCompactConfig,
+  CompactPolicyConfig,
+  ModelCompactPolicyConfig,
+  ResolvedCompactSpec,
   ResolvedConfig,
+  ResolvedRetention,
+  ResolvedTargetPolicy,
 } from './types.ts'
 
-/** Resolve the exact model durably routed for the latest provider request. */
-function routedModel(session: Session): string | undefined {
-  const model = session.requestHeader()?.config.model
-  return model === undefined || model.length === 0 ? undefined : model
+/** Resolve the exact provider/model durably routed for the latest request. */
+function routedTarget(
+  session: Session,
+): Pick<LlmCallConfig, 'provider' | 'model'> | undefined {
+  const config = session.requestHeader()?.config
+  if (config === undefined || config.provider.length === 0 || config.model.length === 0) {
+    return undefined
+  }
+  return { provider: config.provider, model: config.model }
 }
+
+/** Resolve the conversation target used to select an optional policy override. */
+function conversationTarget(
+  agent: Agent,
+): Pick<LlmCallConfig, 'provider' | 'model'> | undefined {
+  const routed = routedTarget(agent.session)
+  if (routed !== undefined) return routed
+  if (agent.options.provider === undefined || agent.options.provider.length === 0
+    || agent.options.model === undefined || agent.options.model.length === 0) return undefined
+  return { provider: agent.options.provider, model: agent.options.model }
+}
+
+const thresholdRatioSchema = z.number()
+const retainRatioSchema = z.number()
+const retainTokensSchema = z.number().step(1).min(0)
+const summarizationProviderSchema = z.string()
+const summarizationModelSchema = z.string()
+const maxTokensSchema = z.number().step(1).min(1)
+const compactionRetriesSchema = z.number().step(1).min(0)
+const maxOverflowRetriesSchema = z.number().step(1).min(0)
+
+const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
+  provider: z.string().required(),
+  model: z.string().required(),
+  thresholdRatio: thresholdRatioSchema,
+  retainRatio: retainRatioSchema,
+  retainTokens: retainTokensSchema,
+  summarizationProvider: summarizationProviderSchema,
+  summarizationModel: summarizationModelSchema,
+  maxTokens: maxTokensSchema,
+  compactionRetries: compactionRetriesSchema,
+  maxOverflowRetries: maxOverflowRetriesSchema,
+})
 
 /**
  * Dependency-light compaction backend using `ctx.tokenMeter` for pressure,
@@ -43,22 +92,26 @@ export class BasicCompactService extends CompactService {
   static inject = ['llm', 'tokenMeter']
 
   static Config: z<BasicCompactConfig> = z.object({
-    thresholdRatio: z.number().default(0.8),
-    retainTokens: z.number().step(1),
-    summarizationProvider: z.string().default(''),
-    summarizationModel: z.string().default(''),
-    maxTokens: z.number().step(1).min(1).default(8192),
-    compactionRetries: z.number().step(1).min(0).default(1),
-    maxOverflowRetries: z.number().step(1).min(0).default(1),
-    auto: z.boolean().default(true),
+    thresholdRatio: thresholdRatioSchema,
+    retainRatio: retainRatioSchema,
+    retainTokens: retainTokensSchema,
+    summarizationProvider: summarizationProviderSchema,
+    summarizationModel: summarizationModelSchema,
+    maxTokens: maxTokensSchema,
+    compactionRetries: compactionRetriesSchema,
+    maxOverflowRetries: maxOverflowRetriesSchema,
+    modelPolicies: z.array(modelPolicy),
+    auto: z.boolean(),
   })
 
   /** Resolved and validated compaction configuration. */
   readonly config: ResolvedConfig
 
+  private readonly warnedPressureConfigTargets = new Set<string>()
+
   constructor(ctx: Context, config: BasicCompactConfig = {}) {
     super(ctx)
-    this.config = resolveConfig(config, ctx.tokenMeter)
+    this.config = resolveConfig(config)
     if (this.config.auto) this._registerAutomaticCompaction()
   }
 
@@ -88,15 +141,21 @@ export class BasicCompactService extends CompactService {
         const result = await this.compactIfNeeded(agent, 'pressure', signal)
         if (result !== null) logResult(result, 'post-step pressure')
       } catch (error: unknown) {
+        if (error instanceof TargetPressureConfigError) {
+          if (this.warnedPressureConfigTargets.has(error.targetKey)) return
+          this.warnedPressureConfigTargets.add(error.targetKey)
+        }
         const message = error instanceof Error ? error.message : String(error)
         ctx.logger.warn(`post-step compaction failed: ${message}; continuing the turn`)
       }
     })
 
     ctx.on('agent/request-error', async (agent, _turn, _step, error, retryAttempt, signal, next) => {
-      if (error.code !== CONTEXT_WINDOW_EXCEEDED_CODE
-        || retryAttempt >= this.config.maxOverflowRetries
-        || signal.aborted) return next()
+      if (error.code !== CONTEXT_WINDOW_EXCEEDED_CODE || signal.aborted) return next()
+      const target = routedTarget(agent.session)
+      if (target === undefined) return next()
+      const policy = resolveTargetPolicy(this.config, target)
+      if (retryAttempt >= policy.maxOverflowRetries) return next()
 
       let generation: number
       let result: CompactionResult | null
@@ -131,7 +190,11 @@ export class BasicCompactService extends CompactService {
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
-    return summarizeWithLlm(this.ctx, this.config, text, agent, signal)
+    const target = conversationTarget(agent)
+    const config = target === undefined
+      ? this.config
+      : resolveTargetPolicy(this.config, target)
+    return summarizeWithLlm(this.ctx, config, text, agent, signal)
   }
 
   /**
@@ -149,8 +212,9 @@ export class BasicCompactService extends CompactService {
     trigger: CompactionTrigger,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
-    const model = routedModel(agent.session)
-    if (model === undefined) return null
+    const target = routedTarget(agent.session)
+    if (target === undefined) return null
+    const policy = resolveTargetPolicy(this.config, target)
     const meter = this.ctx.tokenMeter
     switch (trigger) {
       case 'context-overflow': {
@@ -166,13 +230,22 @@ export class BasicCompactService extends CompactService {
         assertNever(trigger, 'compaction trigger')
     }
 
-    const threshold = Math.floor(meter.contextWindow * this.config.thresholdRatio)
+    const context = await this.ctx.llm.resolveModelContext(target.provider, target.model)
+    const targetKey = `${target.provider}/${target.model}`
+    if (context === undefined) {
+      throw new TargetPressureConfigError(
+        targetKey,
+        `compact-basic: no context capacity for ${targetKey}; `
+        + 'configure contextWindow on that adapter model',
+      )
+    }
+    const spec = resolveCompactSpec(policy, context.contextWindow)
     let measurement = meter.measure(agent.session)
-    if (measurement.totalTokens < threshold) return null
+    if (measurement.totalTokens < spec.thresholdTokens) return null
 
     let result: CompactionResult | null = null
-    for (let attempt = 0; attempt <= this.config.compactionRetries; attempt += 1) {
-      const range = selectCompactableRange(agent.session, measurement, this.config.retainTokens)
+    for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
+      const range = selectCompactableRange(agent.session, measurement, spec.retainTokens)
       if (range === null) {
         /* v8 ignore else -- concrete replacement preserves a compactable checkpoint; subclass hooks cannot mutate it. */
         if (result === null) return null
@@ -181,12 +254,12 @@ export class BasicCompactService extends CompactService {
       }
       result = await this.compactRegion(range.start, range.end, agent, signal)
       measurement = meter.measure(agent.session)
-      if (measurement.totalTokens < threshold) return result
+      if (measurement.totalTokens < spec.thresholdTokens) return result
     }
 
     throw new Error(
-      `compaction still above threshold after ${this.config.compactionRetries + 1} compaction attempts `
-      + `(${measurement.totalTokens} estimated tokens >= threshold ${threshold})`,
+      `compaction still above threshold after ${spec.compactionRetries + 1} compaction attempts `
+      + `(${measurement.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
     )
   }
 

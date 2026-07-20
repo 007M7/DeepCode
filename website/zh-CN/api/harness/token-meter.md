@@ -6,18 +6,7 @@
 
 Replay owner for one service-wide estimator and isolated per-session folds.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/token-meter/src/index.ts#L106)
-
-### ctx.tokenMeter.contextWindow
-
-```ts website-api
-/** Provider context-window capacity used by pressure consumers. */
-readonly contextWindow: number
-```
-
-Provider context-window capacity used by pressure consumers.
-
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/token-meter/src/index.ts#L112)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/token-meter/src/index.ts#L82)
 
 ### ctx.tokenMeter.measure(session, requestHeader?)
 
@@ -50,7 +39,7 @@ Provider usage is reused only when the latest successful call's canonical reques
 
 **Returns** a detached deeply immutable pressure and surface measurement.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/token-meter/src/index.ts#L143)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/token-meter/src/index.ts#L114)
 
 ### ctx.tokenMeter.estimateMessage(message)
 
@@ -69,4 +58,4 @@ Heuristically price one model-visible message.
 
 **Returns** content and role-framing tokens under the fixed service heuristic.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/token-meter/src/index.ts#L181)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/token-meter/src/index.ts#L152)

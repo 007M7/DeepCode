@@ -34,6 +34,7 @@ export const LINK_MAP: Record<string, string> = {
   ContinuationStop: 'core.md',
   GenerateOptions: 'core.md',
   LlmCallConfig: 'core.md',
+  LlmModelContext: 'core.md',
   LlmModelInfo: 'core.md',
   LlmProviderInfo: 'core.md',
   Message: 'core.md',

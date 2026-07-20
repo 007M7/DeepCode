@@ -52,15 +52,17 @@ Harness 使用 `cordis.yml` 描述一个 Agent 加载哪些插件、以什么参
 
 # LLM 后端：从 npm 包加载，具备接入 DeepSeek API 能力
 # `!!js` 从环境变量读取密钥，不会写进配置文件
-# `models` 声明该适配器能处理哪些模型名
+# `models` 提供可选模型目录，并为精确模型声明上下文容量
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
     models:
-      - deepseek-v4-pro
-      - deepseek-v4-flash
+      - id: deepseek-v4-pro
+        contextWindow: 128000
+      - id: deepseek-v4-flash
+        contextWindow: 128000
 
 # Bash 执行器：让 Agent 能跑 shell 命令
 # timeoutMs 设置单条命令的超时时间
@@ -84,11 +86,9 @@ Harness 使用 `cordis.yml` 描述一个 Agent 加载哪些插件、以什么参
       You are a coding agent powered by the {{model}} model.
       Verify your work by running the code or tests. Keep answers brief and factual.
 
-# Token 计量：统一定义模型能看到的 token 上限
+# Token 计量：从持久日志计算请求压力；模型容量由上面的适配器提供
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'
-  config:
-    contextWindow: 128000
 
 # 自动压缩：对话太长时自动总结旧内容，腾出上下文空间
 # thresholdRatio 超过这个比例就触发压缩
@@ -97,7 +97,7 @@ Harness 使用 `cordis.yml` 描述一个 Agent 加载哪些插件、以什么参
   name: '@deepseek-ai/dsh-compact-basic'
   config:
     thresholdRatio: 0.8
-    retainTokens: 20480
+    retainRatio: 0.16
     maxTokens: 8192
     compactionRetries: 1
 
@@ -243,7 +243,7 @@ config:
 |------|------|--------|------|
 | `apiKey` | string | `$DEEPSEEK_API_KEY` | API 密钥。省略则从环境变量读取 |
 | `baseURL` | string | `$DEEPSEEK_BASE_URL` 或官方地址 | API 端点 |
-| `models` | string[] | `['deepseek-v4-flash', 'deepseek-v4-pro']` | 注册的模型名列表 |
+| `models` | object[] | V4 Flash 与 V4 Pro（各 `128000` token） | 建议模型目录；每项包含 `id`，可选 `name`、`description` 与 `contextWindow` |
 | `thinking` | `'enabled'` \| `'disabled'` | `'enabled'` | 是否开启思维链 |
 | `reasoningEffort` | `'high'` \| `'max'` | — | 思维链深度（仅 thinking 开启时有效） |
 
@@ -265,14 +265,16 @@ config:
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `contextWindow` | number | **必填** | 模型的上下文窗口大小（token） |
-| `thresholdRatio` | number | **必填** | token 占用超过此比例时触发压缩（0-1） |
-| `retainTokens` | number | **必填** | 压缩后至少保留多少 token 的近期内容 |
-| `maxTokens` | number | **必填** | 总结时的最大输出 token |
+| `thresholdRatio` | number | `0.8` | token 占用超过路由模型容量的此比例时触发压缩（0-1） |
+| `retainRatio` | number | `0.16` | 压缩后按路由模型容量比例保留近期内容；与 `retainTokens` 互斥 |
+| `retainTokens` | number | — | 按绝对 token 数保留近期内容；与 `retainRatio` 互斥 |
+| `summarizationProvider` | string | `''`（使用当前提供方） | 专门用于总结的提供方；与 `summarizationModel` 同时设置 |
 | `summarizationModel` | string | `''`（用当前模型） | 专门用于总结的模型名 |
-| `compactionRetries` | number | **必填** | 首次压缩后仍超标时的额外重试次数 |
-| `auto` | boolean | `true` | 是否自动在每步前检查并触发压缩 |
-| `charsPerToken` | number | `4` | 每 token 估算字符数。中文应设 1-2 |
+| `maxTokens` | number | `8192` | 总结时的最大输出 token |
+| `compactionRetries` | number | `1` | 首次压缩后仍超标时的额外重试次数 |
+| `maxOverflowRetries` | number | `1` | 提供方确认上下文溢出后的最大恢复重试次数 |
+| `modelPolicies` | object[] | `[]` | 按精确 `{ provider, model }` 组合部分覆盖上述策略 |
+| `auto` | boolean | `true` | 是否在每个成功步骤后检查压力，并处理规范化上下文溢出 |
 
 ### fs-local（文件系统）
 

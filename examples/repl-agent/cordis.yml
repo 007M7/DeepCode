@@ -47,12 +47,12 @@
       Verify your work by running the code or tests. Keep answers brief and
       factual.
 
-# Replay-aware request pressure with one service-wide context window.
+# Replay-aware request pressure; the routed adapter supplies model capacity.
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'
 
 # Summarize an older range after measured pressure or a canonical provider overflow.
-# Service-wide policy provides pressure, retention, and one overflow-retry default.
+# Ratios scale against the routed model's context window.
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
 

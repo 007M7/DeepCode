@@ -54,12 +54,10 @@ describe('real Loader composition', () => {
     const loaded = await loadYaml([
       "- name: '@deepseek-ai/dsh-llm'",
       "- name: '@deepseek-ai/dsh-token-meter'",
-      '  config:',
-      '    contextWindow: 4096',
       "- name: '@deepseek-ai/dsh-compact-basic'",
       '  config:',
       '    thresholdRatio: 0.5',
-      '    retainTokens: 512',
+      '    retainRatio: 0.125',
       '    auto: false',
     ])
 
@@ -67,11 +65,10 @@ describe('real Loader composition', () => {
       .filter(entry => entry.fiber === undefined && !entry.disabled)
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
-    expect(loaded.tokenMeter.contextWindow).toBe(4096)
     expect(loaded.get('compact')).toBeInstanceOf(BasicCompactService)
     expect((loaded.compact as BasicCompactService).config).toMatchObject({
       thresholdRatio: 0.5,
-      retainTokens: 512,
+      retainRatio: 0.125,
       auto: false,
     })
   })
@@ -79,8 +76,8 @@ describe('real Loader composition', () => {
   it('rejects stale token-meter config after Schemastery normalization', async () => {
     context = new Context()
     await expect(context.plugin(TokenMeterService, {
-      models: { legacy: { contextWindow: 4096 } },
-    } as never)).rejects.toThrow(/TokenMeterConfig: unknown key "models"/)
+      contextWindow: 4096,
+    })).rejects.toThrow(/TokenMeterConfig: unknown key "contextWindow"/)
   })
 
   it('rejects stale compact-basic config after Schemastery normalization', async () => {
@@ -90,5 +87,19 @@ describe('real Loader composition', () => {
     await expect(context.plugin(BasicCompactService, {
       models: { legacy: { thresholdRatio: 0.5 } },
     } as never)).rejects.toThrow(/BasicCompactConfig: unknown key "models"/)
+  })
+
+  it('rejects a capacity-independent merged ratio conflict during plugin load', async () => {
+    context = new Context()
+    await context.plugin(LlmService)
+    await context.plugin(TokenMeterService)
+    await expect(context.plugin(BasicCompactService, {
+      retainRatio: 0.2,
+      modelPolicies: [{
+        provider: 'test-provider',
+        model: 'test-model',
+        thresholdRatio: 0.1,
+      }],
+    })).rejects.toThrow(/modelPolicies\[0\]: retainRatio \(0.2\).*thresholdRatio \(0.1\)/)
   })
 })

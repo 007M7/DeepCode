@@ -6,7 +6,7 @@
 
 The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L97)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L118)
 
 ### ctx.llm.registerAdapter(providers, adapter)
 
@@ -29,7 +29,7 @@ Register an adapter for the given provider routes. Throws `LlmError` with code `
 
 **Returns** the disposer that unregisters all of them.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L112)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L133)
 
 ### ctx.llm.listProviders()
 
@@ -45,7 +45,7 @@ Describe provider routes with a registered adapter.
 
 **Returns** detached provider metadata in registration order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L143)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L164)
 
 ### ctx.llm.listModels(provider)
 
@@ -65,7 +65,30 @@ Discover models advertised by one registered provider. Catalog membership is adv
 
 **Returns** detached model metadata in adapter-preferred order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L153)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L174)
+
+### ctx.llm.resolveModelContext(provider, model)
+
+```ts website-api
+/**
+ * Resolve context capacity from the adapter that owns one exact route.
+ * This query is independent of the advisory model catalog: an unlisted model
+ * may return metadata, while `undefined` never rejects later routing.
+ * @param provider - registered provider route to inspect.
+ * @param model - exact model id passed to the adapter.
+ * @returns detached context metadata, or `undefined` when the adapter has none.
+ */
+async resolveModelContext( provider: string, model: string, ): Promise<LlmModelContext | undefined>
+```
+
+Resolve context capacity from the adapter that owns one exact route. This query is independent of the advisory model catalog: an unlisted model may return metadata, while `undefined` never rejects later routing.
+
+- `provider` — registered provider route to inspect.
+- `model` — exact model id passed to the adapter.
+
+**Returns** detached context metadata, or `undefined` when the adapter has none.
+
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L209)
 
 ### ctx.llm.stream(options)
 
@@ -91,4 +114,4 @@ Stream one model call as raw chunks (token-level deltas). Throws `LlmError` with
 
 **Returns** the chunk stream, possibly wrapped by `llm/stream` listeners.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L264)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L308)

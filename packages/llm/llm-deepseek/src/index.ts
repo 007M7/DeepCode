@@ -20,8 +20,8 @@ export const name = 'llm-deepseek'
 export const inject = ['llm']
 
 const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
-  { id: 'deepseek-v4-flash' },
-  { id: 'deepseek-v4-pro' },
+  { id: 'deepseek-v4-flash', contextWindow: 128_000 },
+  { id: 'deepseek-v4-pro', contextWindow: 128_000 },
 ]
 
 /**
@@ -47,6 +47,7 @@ const catalogModel: z<DeepSeekCatalogModel> = z.object({
   id: z.string().required(),
   name: z.string(),
   description: z.string(),
+  contextWindow: z.number().step(1).min(1),
 })
 
 export const Config: z<Config> = z.object({
@@ -68,12 +69,19 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
     if (model.name !== undefined && model.name.length === 0) {
       throw new Error(`llm-deepseek: catalog model "${model.id}" has an empty name`)
     }
+    if (model.contextWindow !== undefined
+      && (!Number.isInteger(model.contextWindow) || model.contextWindow <= 0)) {
+      throw new Error(
+        `llm-deepseek: catalog model "${model.id}" contextWindow must be a positive integer`,
+      )
+    }
     if (seen.has(model.id)) throw new Error(`llm-deepseek: duplicate catalog model "${model.id}"`)
     seen.add(model.id)
     return {
       id: model.id,
       ...model.name === undefined ? {} : { name: model.name },
       ...model.description === undefined ? {} : { description: model.description },
+      ...model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow },
     }
   })
 }
