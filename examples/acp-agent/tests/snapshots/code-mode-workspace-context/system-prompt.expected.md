@@ -22,7 +22,7 @@ Approval prompts are disabled in this session: actions that require approval are
 
 Use the workflow tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.
 
-Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop or fresh-agent iterative execution. Each Ralph round starts a fresh child with no conversation seed and uses the shared workspace as durable memory. Use same-session goal tools for ordinary long-running objectives, and plain subagents or workflows for bounded delegation and fan-out.
+Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop or fresh-agent iterative execution. Each Ralph round starts a fresh child with no conversation seed and uses the shared workspace as durable memory. Completion and blockers are worker reports, not independent evaluation. Use same-session goal tools for ordinary long-running objectives, and plain subagents or workflows for bounded delegation and fan-out.
 
 ## Writing code for run_code
 
@@ -58,7 +58,7 @@ declare const tools: {
   create_goal(args: {
     /** The concrete completion objective inferred from the direct human request. */
     objective: string;
-    /** Optional positive safe-integer cap; omission uses the goal-domain deployment default. */
+    /** Optional positive safe-integer limit on automatic continuation rounds. */
     max_goal_rounds?: number;
   }): Promise<string>;
   /** Edit an existing UTF-8 text file by replacing literal text. */
@@ -72,9 +72,9 @@ declare const tools: {
     /** Replace all matches. Defaults to false; when false, old_string must appear exactly once. */
     replace_all?: boolean;
   }): Promise<string>;
-  /** Read the current same-session goal, including its exact id/revision, durable phase, admitted round count, cap, and live process-local activation. Call this before updating a goal. */
+  /** Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, and whether another continuation is armed. Call this before updating a goal. */
   get_goal(args: Record<string, unknown>): Promise<string>;
-  /** Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns on completion, a concrete blocker, or the round limit. Ordinary long-running same-session work belongs to goal tools. */
+  /** Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools. */
   ralph(args: {
     /** The immutable completion objective for every fresh Ralph round. */
     objective: string;
@@ -141,7 +141,7 @@ declare const tools: {
       status: "pending" | "in_progress" | "completed";
     })[];
   }): Promise<string>;
-  /** Update the exact current goal revision. edit, pause, and resume require a direct top-level human turn. complete and blocked additionally accept the exact admitted goal round. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds. */
+  /** Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds. */
   update_goal(args: {
     /** Exact id returned by get_goal. */
     goal_id: string;

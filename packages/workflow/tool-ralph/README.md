@@ -4,11 +4,13 @@ The model-facing `ralph` tool runs a fixed foreground workflow that gives one im
 
 ## Contract
 
-`ralph({ objective, maxRounds? })` waits for the entire run. The deployment config's `maxRounds` is both the default and a ceiling on a call override. Every Ralph round starts one child through `subagentProvider`; that provider must exist, support structured output, and report `inheritsParentContext: false`. The configured provider is carried as `WorkflowStartRequest.subagentProvider`, so the fixed script cannot inspect or change routing and the ordinary model-written `workflow` tool gains no provider selector.
+`ralph({ objective, maxRounds? })` waits for the entire run. The deployment config's `maxRounds` is both the default and a ceiling on a call override. Every Ralph round starts one child through `subagentProvider`; that provider must exist, support structured output, and report `inheritsParentContext: false`. The configured provider is carried as `WorkflowStartRequest.subagentProvider`, so the fixed script cannot inspect or change routing and the ordinary model-written `workflow` tool gains no provider selector. The resolved round cap is also carried as `WorkflowStartRequest.maxTotalAgents`, coordinating the fixed loop with the engine's total-child backstop; the engine rejects a Ralph cap above its deployment ceiling before publishing a run.
 
 Each child receives only the immutable objective, its current Ralph round and cap, a shared-workspace-as-authority instruction, and the previous structured handoff. The workspace is long-term memory; parent conversation and prior child sessions are not seeded. Reports have `status: continue | complete | blocked`, a non-empty summary, evidence, next steps, and blocker text. Status-specific semantics and the serialized `maxHandoffChars` ceiling are validated inside the fixed workflow and again at the consumer boundary. Invalid, missing, or oversized reports fail the workflow instead of being truncated or mistaken for cap exhaustion.
 
-The terminal tool result is `complete`, `blocked`, or `budget-limited`, with the last bounded report and number of rounds started. Child self-declaration determines completion in this cut. A workflow failure or cancellation is an error result; partial output is never success.
+The successful terminal tool result is `complete`, `blocked`, or `budget-limited`, with the last bounded report and number of rounds started. Completion and blocker labels explicitly say that a worker reported the outcome; they are not independent certification. `maxResultChars` bounds the complete successful text including its envelope and truncation marker, without altering the validated report used as a cross-round handoff.
+
+An ordinary child failure produces an error naming the failed round and retaining the last successful handoff when one exists. Ralph does not retry that round. Fatal provider-start, transport, worker, or workflow failures remain workflow errors and may settle before the fixed script can return a handoff. Cancellation is also an error; partial output is never success.
 
 ## Lifecycle and cancellation
 
@@ -25,6 +27,7 @@ The pending call is a `generic` card titled `ralph`; the immutable objective is 
 | `subagentProvider` | `spawn` | Fresh structured-output provider used for every round. |
 | `maxRounds` | `256` | Default and deployment ceiling for one Ralph run. |
 | `maxHandoffChars` | `16384` | Maximum serialized characters in one round report. |
+| `maxResultChars` | `16384` | Maximum characters in the complete successful parent result. |
 
 All config values are normalized and validated when the plugin applies, including direct application outside Loader schema normalization. Provider capabilities are resolved immediately before each call because provider registration can change under plugin lifecycle and HMR.
 
@@ -39,7 +42,7 @@ Every parent request in this plugin's registration scope receives the fixed rout
 ##### Ralph guidance
 
 ```markdown
-Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop or fresh-agent iterative execution. Each Ralph round starts a fresh child with no conversation seed and uses the shared workspace as durable memory. Use same-session goal tools for ordinary long-running objectives, and plain subagents or workflows for bounded delegation and fan-out.
+Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop or fresh-agent iterative execution. Each Ralph round starts a fresh child with no conversation seed and uses the shared workspace as durable memory. Completion and blockers are worker reports, not independent evaluation. Use same-session goal tools for ordinary long-running objectives, and plain subagents or workflows for bounded delegation and fan-out.
 ```
 
 #### Token effect
@@ -68,11 +71,11 @@ Prefix-stable while the definition and visibility are unchanged.
 
 #### What the model sees
 
-Each child sees the standalone fixed round prompt plus the structured-output capture contract. The parent sees only the original call and one terminal result containing status, round count, and pretty-printed final report; intermediate child messages and reports do not enter the parent conversation.
+Each child sees the standalone fixed round prompt plus the structured-output capture contract. The parent sees only the original call and one terminal result containing a worker-reported status, round count, and pretty-printed final report; intermediate child messages and reports do not enter the parent conversation. A failed ordinary child instead yields an error with its round number and, after round one, the last successful handoff.
 
 #### Token effect
 
-Every round pays for a fresh child context. The parent result is bounded indirectly by `maxHandoffChars`; child work remains outside the parent context.
+Every round pays for a fresh child context. `maxHandoffChars` bounds cross-round state and `maxResultChars` independently bounds the complete successful parent text; child work remains outside the parent context.
 
 #### KV Cache effect
 
@@ -84,4 +87,5 @@ Each fresh child has an independent request cache. The parent result appends aft
 - **Foreground only** — there is no task id, background collection, process-resume checkpoint, scheduler, or wall-clock start policy.
 - **The workspace is the only cross-round long-term memory** — one bounded report is the explicit handoff, and uncommitted conversational reasoning disappears with each child.
 - **One round is one fresh child** — there is no within-round fan-out, model/provider switching, fork context, or model-call-selected provider.
+- **Ordinary child failure is terminal for the run** — the fixed script reports the failed round and last successful handoff but does not retry; fatal workflow infrastructure failures can end before that state is returned.
 - **Only round count bounds aggregate effort** — token, price, and elapsed-time budgets are deferred.

@@ -12,7 +12,7 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 |---|---|
 | `@deepseek-ai/dsh-agent-spine-demo` | the spine, pre-creating a `main` agent from this app's provider/model pair with `process.cwd()` as the fresh session cwd and carrying its `persona` |
 | `@deepseek-ai/dsh-commands` | the human-command registry consumed by the TUI front door and optional command plugins |
-| `@deepseek-ai/dsh-command-goal` | the direct `/goal` producer; the app enables the spine's persisted-goal stack with it |
+| `@deepseek-ai/dsh-command-goal` | the direct `/goal` producer mounted only for the TUI front door; readline retains the model-mediated goal path |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by confirmation tools |
 | `@deepseek-ai/dsh-tool-ask-user` | the model-facing `ask_user_question` tool |
@@ -38,7 +38,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-spine-demo` |
 | `toolBash` | owner defaults | model-facing bash config routed through `dsh-agent-spine-demo`, including bash's producer-local `enableRunInBackground` |
 | `toolTasks` | owner defaults | generic `task_output` wait bounds routed through `dsh-agent-spine-demo` |
-| `goals` | owner defaults | persisted goal-domain and model-tool config; `false` removes the goal stack and `/goal` producer |
+| `goals` | owner defaults | persisted goal-domain and model-tool config; `false` removes the goal stack and the TUI `/goal` producer |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 | `welcome` | `ready.` | terminal banner / TUI subtitle |
 | `ui` | `{ mode: 'auto' }` | terminal mode (`auto` / `readline` / `tui`) and nested TUI presentation config |

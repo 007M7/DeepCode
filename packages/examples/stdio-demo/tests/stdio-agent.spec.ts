@@ -118,17 +118,25 @@ describe('dsh-stdio-demo app', () => {
 
     calls.length = 0
     stdioAgent.composeTerminalApp(ctx, {
-      provider: 'mock', model: 'mock', workspaceContext: false, goals: false, ui: { mode: 'readline' },
+      provider: 'mock', model: 'mock', workspaceContext: false, goals: false, ui: { mode: 'tui' },
+    }, true)
+    expect(calls.map(call => call.name)).toContain('ui-tui')
+    expect(calls.map(call => call.name)).not.toContain('command-goal')
+    expect(calls.find(call => call.name === 'agent-spine-demo')?.config).toMatchObject({ goals: false })
+
+    calls.length = 0
+    stdioAgent.composeTerminalApp(ctx, {
+      provider: 'mock', model: 'mock', workspaceContext: false, ui: { mode: 'readline' },
     }, false)
     expect(calls.map(call => call.name)).toContain('ui-stdio')
     expect(calls.map(call => call.name)).toContain('ConsoleExporter')
     expect(calls.map(call => call.name)).not.toContain('ui-tui')
     expect(calls.map(call => call.name)).not.toContain('command-goal')
-    expect(calls.find(call => call.name === 'agent-spine-demo')?.config).toMatchObject({ goals: false })
+    expect(calls.find(call => call.name === 'agent-spine-demo')?.config).toMatchObject({ goals: {} })
   })
 
   it('composes the spine + front-door cluster and pre-creates the main agent', async () => {
-    const ctx = await mount({ provider: 'mock', model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-demo-spec', skills: await isolatedSkillsConfig(), workspaceContext: false })
+    const ctx = await mount({ provider: 'mock', model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-demo-spec', skills: await isolatedSkillsConfig(), workspaceContext: false, ui: { mode: 'readline' } })
     // The spine services (brought up by the agent-spine-demo bundle) are all present.
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
@@ -145,7 +153,7 @@ describe('dsh-stdio-demo app', () => {
     expect(agent?.id).toBe(agent?.session.id)
     expect(agent?.id).toMatch(/^main-session-/)
     expect(agent?.session.header.cwd).toBe(process.cwd())
-    expect(ctx.commands.find(agent!, 'tui', 'goal')).toBeDefined()
+    expect(ctx.commands.find(agent!, 'tui', 'goal')).toBeUndefined()
     await ctx.fiber.dispose()
   })
 

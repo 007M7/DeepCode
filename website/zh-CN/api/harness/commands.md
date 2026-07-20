@@ -6,7 +6,7 @@
 
 Human-command registry. Plain-context definitions are global; definitions registered through a command-injected child of an agent context shadow globals for that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L216)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L235)
 
 ### ctx.commands.register(definition)
 
@@ -25,7 +25,7 @@ Register a global or calling-agent-scoped command.
 
 **Returns** the exact effect disposer that unregisters this definition.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L229)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L248)
 
 ### ctx.commands.list(agent, surface)
 
@@ -46,7 +46,7 @@ List the effective immutable command descriptors for one agent and surface.
 
 **Returns** name-sorted descriptors after scoped shadowing and surface filtering.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L257)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L276)
 
 ### ctx.commands.find(agent, surface, name)
 
@@ -69,7 +69,7 @@ Resolve one effective command definition.
 
 **Returns** the scoped shadow or global definition when visible on the surface.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L272)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L291)
 
 ### ctx.commands.execute(agent, surface, line, signal)
 
@@ -94,4 +94,4 @@ Parse and execute a known command without sending it to the model.
 
 **Returns** a detached result, or `undefined` when syntax/name/surface does not resolve.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L285)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L304)

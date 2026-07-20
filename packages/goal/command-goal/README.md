@@ -15,7 +15,7 @@ Human-facing `/goal` control over [`ctx.goals`](../goal/README.md). The plugin r
 
 Control words are case-insensitive only when they occupy the complete input. Every other non-empty suffix is an objective, so `/goal pause after verification` creates that literal objective. The goal domain trims and validates objectives. Because the generic command plane has no modal editor or confirmation primitive, `edit` takes its replacement inline and an unfinished replacement returns a direct error instructing the user to edit or clear.
 
-Expected domain rejections become direct command errors. Unexpected implementation failures still reject dispatch so adapters can report them as command failures. Generic command text and output remain live UI state; every accepted mutation is persisted and made model-visible by `dsh-goal` rather than by this plugin.
+Expected domain rejections become stable direct command errors without exposing branded ids or revisions. Unexpected implementation failures still reject dispatch so adapters can report them as command failures. Generic command text and output remain live UI state; every accepted mutation is persisted and made model-visible by `dsh-goal` rather than by this plugin.
 
 ## Composition
 
@@ -30,7 +30,7 @@ The producer injects `commands` and `goals`. A custom app mounts their owners pl
   name: '@deepseek-ai/dsh-command-goal'
 ```
 
-The terminal and ACP demo apps enable the complete persisted-goal stack and this command by default; `goals: false` removes both. The UI-less `agent-spine-demo` requires an explicit `goals: {}` so headless one-shot callers do not silently change from one physical turn to a multi-round operation.
+The TUI and ACP demo apps enable the complete persisted-goal stack and this command by default; `goals: false` removes both. The terminal app's readline mode keeps the model-mediated goal stack but does not mount this producer because that front door does not consume commands. The UI-less `agent-spine-demo` requires an explicit `goals: {}` so headless one-shot callers do not silently change from one physical turn to a multi-round operation.
 
 ## Model Experience
 

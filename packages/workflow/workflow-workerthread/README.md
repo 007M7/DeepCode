@@ -34,7 +34,7 @@ Unknown options, malformed arguments, unsupported schemas, tripped caps, provide
 
 ## Run sequence
 
-`start()` validates meta and parses the body, creates the worker, and returns a holder-owned `WorkflowRun`. Source mode installs TypeScript transforms through a data-URL bootstrap; built mode passes sibling `lib/worker.cjs` as a filesystem path because pkg's VFS hook expects CommonJS. Both work under ordinary Node. A ready/go handshake prevents a start-signal cancellation racing worker boot from executing the script's initial synchronous slice.
+`start()` validates meta, parses the body, resolves a registered normalized provider route, and resolves any per-run total-child cap before creating a worker or publishing `workflow/start`. A requested `maxTotalAgents` must be a positive safe integer no greater than the engine's configured deployment ceiling. Source mode installs TypeScript transforms through a data-URL bootstrap; built mode passes sibling `lib/worker.cjs` as a filesystem path because pkg's VFS hook expects CommonJS. Both work under ordinary Node. A ready/go handshake prevents a start-signal cancellation racing worker boot from executing the script's initial synchronous slice.
 
 For each `agent()` call:
 
@@ -81,7 +81,7 @@ The host keeps a ledger of forwarded child starts. A graceful worker supplies th
 | `syncTimeoutMs` | `5000` | VM timeout for the script's initial synchronous slice. |
 | `disposeGraceMs` | `5000` | Bound before force-settlement/termination and for public disposal. |
 
-An owning consumer may set `WorkflowStartRequest.subagentProvider` for one run. This is an engine-level route, not a script hook or a model-facing option; the ordinary `workflow` tool leaves it unset.
+An owning consumer may set `WorkflowStartRequest.subagentProvider` and `WorkflowStartRequest.maxTotalAgents` for one run. These are engine-level policy, not script hooks or model-facing options; the ordinary `workflow` tool leaves both unset. A per-run total-child cap may lower but never raise the configured `maxTotalAgents` ceiling.
 
 ## Model Experience
 

@@ -402,12 +402,17 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(0)
   })
 
-  it('disarms an admitted round whose closing durability checkpoint fails', async () => {
+  it('disarms an admitted round when a later injection hides its failed closing checkpoint', async () => {
     const test = await harness([textResponse('not durable')])
+    let injected = false
     test.ctx.on('session/flush', (session) => {
       const lastStart = session.events.findLast(event => event.type === 'turn/start')
       if (lastStart?.type === 'turn/start' && lastStart.data.trigger.kind === 'message'
-        && lastStart.data.trigger.source.kind === 'goal') {
+        && lastStart.data.trigger.source.kind === 'goal' && !injected) {
+        injected = true
+        test.agent.inject([{ type: 'text', text: 'concurrent completion notice' }], {
+          source: { kind: 'plugin', plugin: 'test' },
+        })
         return Promise.reject(new Error('round flush failed'))
       }
     })
@@ -421,6 +426,10 @@ describe('same-session goal driving', () => {
 
     expect(goal?.phase).toBe('active')
     expect(test.adapter.requests).toHaveLength(1)
+    const turns = test.agent.session.events.filter(event => event.type === 'turn/start')
+    const goalTurn = turns.findIndex(event => event.data.trigger.source.kind === 'goal')
+    const injectedTurn = turns.findIndex(event => event.data.trigger.source.kind === 'plugin')
+    expect(injectedTurn).toBeGreaterThan(goalTurn)
   })
 
   it('blocks the goal when a custom agent rejects the otherwise valid send', async () => {
@@ -556,6 +565,42 @@ describe('same-session goal driving', () => {
     await test.agent.whenIdle()
 
     expect(test.ctx.goals.get(test.agent)).toBeUndefined()
+    expect(test.adapter.requests).toHaveLength(0)
+  })
+
+  it('disarms without durably pausing when cancellation belongs to unrelated human work', async () => {
+    const test = await harness(['hang'])
+    test.agent.send([{ type: 'text', text: 'inspect something first' }])
+    await waitForRequests(test.adapter, 1)
+    const created = test.ctx.goals.create(test.agent, { objective: 'continue after inspection' })
+
+    test.agent.cancel('cancel the inspection')
+    await test.agent.whenIdle()
+
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({
+      id: created.id,
+      revision: created.revision,
+      phase: 'active',
+      activation: 'disarmed',
+      roundsStarted: 0,
+    })
+  })
+
+  it('falls back to disarming when a cancelled reservation cannot be paused', async () => {
+    const test = await harness([])
+    const cancel = test.ctx.on('agent/queued', (agent, _content, info) => {
+      if (agent !== test.agent || info.source.kind !== 'goal') return
+      cancel()
+      vi.spyOn(test.ctx.goals, 'pause').mockImplementationOnce(() => {
+        throw new Error('pause failed')
+      })
+      agent.cancel('cancel the reserved goal round')
+    })
+    test.ctx.goals.create(test.agent, { objective: 'fail closed after cancellation' })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.activation === 'disarmed')
+
+    expect(goal).toMatchObject({ phase: 'active', revision: 1, roundsStarted: 0 })
     expect(test.adapter.requests).toHaveLength(0)
   })
 

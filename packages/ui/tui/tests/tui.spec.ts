@@ -510,6 +510,35 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await result.ctx.fiber.dispose()
   })
 
+  it('suppresses a successful plugin result that settles as TUI disposal starts', async () => {
+    const result = await setup()
+    let started!: () => void
+    const ready = new Promise<void>((resolve) => { started = resolve })
+    let resolveCommand!: (result: { kind: 'success'; text: string }) => void
+    result.ctx.commands.register({
+      name: 'late-success',
+      description: 'Resolve while the TUI closes',
+      surfaces: ['tui'],
+      handler: () => new Promise((resolve) => {
+        resolveCommand = resolve
+        started()
+      }),
+    })
+
+    result.terminal.send('/late-success')
+    result.terminal.send('\r')
+    await ready
+    resolveCommand({ kind: 'success', text: 'must not render after disposal' })
+    // Let the command boundary accept the result before disposal, but leave the
+    // TUI continuation queued so the success-side disposal guard owns the race.
+    await Promise.resolve()
+    await result.controller.dispose()
+    await tick()
+
+    expect(result.terminal.output).not.toContain('must not render after disposal')
+    await result.ctx.fiber.dispose()
+  })
+
   it('cancels before /exit while running and handles agent errors/disposal', async () => {
     const result = await setup({ status: 'running' })
     result.terminal.send('/exit')

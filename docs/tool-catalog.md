@@ -411,7 +411,7 @@ Create one persisted same-session completion goal when the current direct human 
     },
     "max_goal_rounds": {
       "type": "number",
-      "description": "Optional positive safe-integer cap; omission uses the goal-domain deployment default."
+      "description": "Optional positive safe-integer limit on automatic continuation rounds."
     }
   },
   "required": [
@@ -424,7 +424,7 @@ Source: [`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/
 
 ### `get_goal`
 
-Read the current same-session goal, including its exact id/revision, durable phase, admitted round count, cap, and live process-local activation. Call this before updating a goal.
+Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, and whether another continuation is armed. Call this before updating a goal.
 
 ```json
 {
@@ -437,7 +437,7 @@ Source: [`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/
 
 ### `update_goal`
 
-Update the exact current goal revision. edit, pause, and resume require a direct top-level human turn. complete and blocked additionally accept the exact admitted goal round. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds.
+Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds.
 
 ```json
 {
@@ -487,7 +487,7 @@ create, edit, pause, and resume require direct-human root authority; complete an
 
 ### `ralph`
 
-Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns on completion, a concrete blocker, or the round limit. Ordinary long-running same-session work belongs to goal tools.
+Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools.
 
 ```json
 {

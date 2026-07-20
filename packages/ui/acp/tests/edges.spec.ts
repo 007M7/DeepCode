@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,6 +24,9 @@ describe('acp bridge — demux & config edges', () => {
     harness = await makeBridgeHarness({ storageDir, script: [textResponse('foreign')] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await vi.waitFor(() => {
+      expect(harness!.updates.some(update => update.sessionUpdate === 'available_commands_update')).toBe(true)
+    })
     const before = harness.updates.length
 
     const { agent: foreign } = await harness.ctx.agents.create({ sessionId: SessionId('foreign-session'), agentOptions: { provider: 'mock', model: 'mock' } })

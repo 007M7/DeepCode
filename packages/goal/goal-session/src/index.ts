@@ -276,8 +276,8 @@ export function apply(ctx: Context): void {
     /** Mark a post-turn persistence failure before idle scheduling can run. */
     ctx.on('agent/error', (agent, turn) => {
       const state = stateFor(agent)
-      const last = agent.session.events.at(-1)
-      if (last?.type !== 'turn/end' || last.data.turn !== turn) return
+      const closed = agent.session.events.some(event => event.type === 'turn/end' && event.data.turn === turn)
+      if (!closed) return
       if (state.attempt?.turn === turn) state.flushFailedTurns.add(turn)
       disarm(state)
     })
@@ -312,11 +312,21 @@ export function apply(ctx: Context): void {
     })
     ctx.on('agent/cancel-requested', (agent, reason) => {
       const state = stateFor(agent)
+      const attempt = state.attempt
       state.attempt = undefined
       state.competingQueued = false
       const goal = currentGoal(state)
       if (goal?.phase === 'active' && goal.activation === 'armed') {
-        applyOutcome(state, goal, { kind: 'pause', reason })
+        if (attempt === undefined) {
+          disarm(state)
+          return
+        }
+        try {
+          applyOutcome(state, goal, { kind: 'pause', reason })
+        } catch (error: unknown) {
+          ctx.logger.warn(`goal-session: could not pause cancelled goal for agent "${agent.id}": ${renderThrown(error)}`)
+          disarm(state)
+        }
       }
     })
     ctx.on('goal/changed', (agent) => {
