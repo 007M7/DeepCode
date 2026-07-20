@@ -458,6 +458,7 @@ describe('runScenario', () => {
 
   it.each([
     [{ op: 'prompt', text: 'x' }, /prompt before newSession/],
+    [{ op: 'promptAndWaitForAgentMessage', text: 'x', waitForText: 'later' }, /promptAndWaitForAgentMessage before newSession/],
     [{ op: 'promptExpectError', text: 'x' }, /promptExpectError before newSession/],
     [{ op: 'promptAndCancel', text: 'x' }, /promptAndCancel before newSession/],
     [{ op: 'cancel' }, /cancel before newSession/],
