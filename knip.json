@@ -2,7 +2,7 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "exclude": ["duplicates"],
   "ignoreBinaries": ["bwrap", "python3", "sandbox-exec"],
-  "ignoreWorkspaces": ["vendor/*", "python/sdk-runtime", "website"],
+  "ignoreWorkspaces": ["vendor/*", "python/sdk-runtime"],
   "workspaces": {
     ".": {
       "project": ["scripts/**/*.ts"]
@@ -17,6 +17,16 @@
       ],
       "project": ["**/*.ts"],
       "ignoreDependencies": ["@deepseek-ai/.+", "@cordisjs/.+"]
+    },
+    "website": {
+      "project": ["**/*.ts"],
+      "ignoreDependencies": [
+        "@braintree/sanitize-url",
+        "cytoscape",
+        "cytoscape-cose-bilkent",
+        "dayjs",
+        "debug"
+      ]
     },
     "packages/*/*": {
       "entry": ["tests/**/*.spec.ts"],
