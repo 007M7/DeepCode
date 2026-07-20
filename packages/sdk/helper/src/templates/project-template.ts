@@ -20,7 +20,7 @@ export interface ProjectTemplateContext {
   model: string
   modelLiteral: string
   isAcp: boolean
-  isStdio: boolean
+  isTui: boolean
   isEmbed: boolean
   packageManager: PackageManagerName
   installArgs: string
@@ -60,7 +60,7 @@ export function createProjectTemplateContext(
     model: profile.runtime.model,
     modelLiteral: JSON.stringify(profile.runtime.model),
     isAcp: runInterface === 'acp',
-    isStdio: runInterface === 'stdio',
+    isTui: runInterface === 'tui',
     isEmbed: runInterface === 'embed',
     packageManager: profile.packageManager.name,
     installArgs: profile.packageManager.installCommand().join(' '),
@@ -105,7 +105,7 @@ export function createAppProjectArtifacts(
 
 /** Build package scripts owned by the selected app feature option. */
 export function createAppPackageScripts(context: ProjectTemplateContext): Readonly<Record<'dev' | 'start', string>> {
-  const modelArg = context.isStdio ? ` -- --model=${JSON.stringify(context.model)}` : ''
+  const modelArg = context.isTui ? ` -- --model=${JSON.stringify(context.model)}` : ''
   return {
     dev: `dsh-sdk dev index.ts${modelArg}`,
     start: `dsh-sdk start index.js${modelArg}`,

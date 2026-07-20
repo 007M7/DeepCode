@@ -1,8 +1,8 @@
 # @deepseek-ai/dsh-cli-demo
 
-Headless one-shot app and bin for running one agent task without a readline or editor client. It composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), JSONL persistence, and exactly one fresh top-level agent. The bin submits the task, waits for its durable turn ending, renders the selected output, disposes to quiescence, and exits.
+Headless one-shot app and bin for running one agent task without an interactive UI or editor client. It composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), JSONL persistence, and exactly one fresh top-level agent. The bin submits the task, waits for its durable turn ending, renders the selected output, disposes to quiescence, and exits.
 
-The package mounts no console logger, readline UI, user-interaction service, or `ask_user_question` tool. Stdout is reserved for the selected output format; diagnostics use stderr.
+The package mounts no console logger, interactive UI, user-interaction service, or `ask_user_question` tool. Stdout is reserved for the selected output format; diagnostics use stderr.
 
 ## Config
 
@@ -33,7 +33,7 @@ dsh-cli-demo [--config path] [--output-format text|json|stream-json] <task>
 The root headless-agent example supplies its leaf:
 
 ```sh
-pnpm run demo:headless -- "inspect the failing test and fix it"
+pnpm run demo:headless "inspect the failing test and fix it"
 ```
 
 Loader configs with bare package specifiers require `node --expose-internals` or the Loader's optional native fallback. The root command supplies the Node flag.

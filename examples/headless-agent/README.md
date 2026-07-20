@@ -8,7 +8,7 @@ Headless one-shot agent wiring: DeepSeek V4 + local bash and filesystem tools + 
 # repo root .env (gitignored) or exported env:
 #   DEEPSEEK_API_KEY=sk-…
 #   DEEPSEEK_BASE_URL=https://…   # optional; defaults to the public API
-pnpm run demo:headless -- "fix the failing test in this workspace"
+pnpm run demo:headless "fix the failing test in this workspace"
 pnpm run demo:headless --output-format json -- "summarize the implementation"
 pnpm run demo:headless --output-format stream-json -- "run the focused tests"
 ```

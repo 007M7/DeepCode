@@ -6,7 +6,7 @@ Options:
   --base-url <url>
   --api-key <key>
   --model <name>
-  --interface <acp|stdio|embed>
+  --interface <acp|tui|embed>
   --pm <npm|pnpm|yarn>
   --install / --no-install
   --config <path>

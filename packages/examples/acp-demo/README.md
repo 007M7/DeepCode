@@ -2,7 +2,7 @@
 
 The **ACP server app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md)) with the front-door cluster an [Agent Client Protocol](../../ui/acp/README.md) server needs, and a `bin` that boots a leaf `cordis.yml` speaking ACP JSON-RPC on stdio.
 
-It is the structured counterpart to [`@deepseek-ai/dsh-stdio-demo`](../stdio-demo/README.md): both consume the same spine, but this one bakes in the OPPOSITE front-door cluster.
+It is the structured counterpart to [`@deepseek-ai/dsh-tui-demo`](../tui-demo/README.md): both consume the same spine, but ACP creates sessions from its client and reserves stdout for its wire protocol.
 
 ## What it bakes in — and what it deliberately omits
 
@@ -19,7 +19,7 @@ stdout is the ACP JSON-RPC channel, so the cluster is defined as much by what it
 | ~~console logger~~ | **omitted** — it writes to stdout and would corrupt the protocol frames ([the stdout-purity footgun](../../ui/acp/README.md)) |
 | ~~`hmr`~~ | **omitted** — the editor owns the subprocess |
 
-Because the package wires no logger entry, an ACP leaf has **nothing to get wrong by default**: it only picks backends, so the common mistake — copying a console-logger entry from the stdio config — has no place here. (A leaf author technically *can* still add `@cordisjs/plugin-logger-console` as a sibling entry; the package can't forbid that. So the rule stands: never add a stdout logger to an ACP leaf — stdout is the JSON-RPC channel. Use a stderr exporter if you need logs.)
+Because the package wires no logger entry, an ACP leaf has **nothing to get wrong by default**: it only picks backends. A leaf author can still add `@cordisjs/plugin-logger-console` as a sibling entry, so the rule remains: never add a stdout logger to an ACP leaf; use a stderr exporter instead.
 
 ## Config
 
