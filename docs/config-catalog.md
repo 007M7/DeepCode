@@ -303,6 +303,22 @@ export interface BasicCompactConfig {
 
 Source: [`packages/compact/compact-basic/src/types.ts:8`](../packages/compact/compact-basic/src/types.ts)
 
+## `@deepseek-ai/dsh-compact-tool-result-prune`
+
+```ts config-catalog
+/** Character-budget policy for deterministic tool-result pruning. */
+export interface ToolResultPruneConfig {
+  /** Prune when total text exceeds this many Unicode code points. Defaults to `8192`. */
+  thresholdChars?: number
+  /** Maximum leading Unicode code points retained. Defaults to `4096`. */
+  headChars?: number
+  /** Maximum trailing Unicode code points retained. Defaults to `1024`. */
+  tailChars?: number
+}
+```
+
+Source: [`packages/compact/compact-tool-result-prune/src/types.ts:4`](../packages/compact/compact-tool-result-prune/src/types.ts)
+
 ## `@deepseek-ai/dsh-fs-local`
 
 ```ts config-catalog

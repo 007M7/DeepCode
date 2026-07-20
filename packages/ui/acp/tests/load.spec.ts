@@ -161,6 +161,53 @@ describe('acp bridge — session/load replay', () => {
     expect(meta.terminal_exit?.exit_code).toBe(0)
   })
 
+  it('keeps one terminal completion live and on replay when a pruning replacement is logged', async () => {
+    live = await makeBridgeHarness({
+      storageDir,
+      withBash: true,
+      script: [toolCallResponse('c1', 'bash', { command: 'echo full', description: 'Print full output' }), textResponse('done')],
+    })
+    await live.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: { _meta: { terminal_output: true } } })
+    const { sessionId } = await live.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await live.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'run it' }] })
+
+    const session = live.ctx.agents.get(SessionId(sessionId))!.session
+    const original = session.events.find(event => event.type === 'tool/result')
+    if (original?.type !== 'tool/result') throw new Error('expected original tool/result')
+    const liveCompletions = () => live!.updates.filter(update =>
+      update.sessionUpdate === 'tool_call_update' && update.toolCallId === 'c1')
+    expect(liveCompletions()).toHaveLength(1)
+    expect((liveCompletions()[0] as { _meta?: { terminal_output?: { data: string } } })._meta?.terminal_output?.data)
+      .toBe('full\n')
+
+    session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('tool/result', {
+      ...original.data,
+      content: [{ type: 'text', text: '[... tool result middle pruned ...]' }],
+    }, {
+      surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
+      sourceEventSeqs: [original.seq],
+    })
+    session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+
+    // The replacement is durable but is not another live completion.
+    expect(session.events.filter(event => event.type === 'tool/result')).toHaveLength(2)
+    expect(JSON.stringify(session.deriveMessages())).toContain('tool result middle pruned')
+    expect(liveCompletions()).toHaveLength(1)
+    await live.dispose()
+    live = undefined
+
+    loader = await makeBridgeHarness({ storageDir, withBash: true, script: [] })
+    await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: { _meta: { terminal_output: true } } })
+    await loader.client.loadSession({ sessionId, cwd: process.cwd(), mcpServers: [] })
+
+    const replayed = loader.updates.filter(update =>
+      update.sessionUpdate === 'tool_call_update' && update.toolCallId === 'c1')
+    expect(replayed).toHaveLength(1)
+    expect((replayed[0] as { _meta?: { terminal_output?: { data: string } } })._meta?.terminal_output?.data)
+      .toBe('full\n')
+  })
+
   it('a load whose resume finishes after a client disconnect leaks no live session', async () => {
     // Stall persistence so transport closes while resume is pending. Whether the SDK rejects first
     // or the bridge's post-await guard fires, no agent may survive for the dead connection.
