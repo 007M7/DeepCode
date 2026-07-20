@@ -140,7 +140,7 @@ export function apply(ctx: Context, config: Config): void {
   const nestedDshHome = config.skills?.local?.dshHome
   if (config.dshHome !== undefined && nestedDshHome !== undefined
     && resolveDshHome(config.dshHome) !== resolveDshHome(nestedDshHome)) {
-    throw new Error('agent-core: dshHome and skills.local.dshHome must resolve to the same directory')
+    throw new Error('agent-spine-demo: dshHome and skills.local.dshHome must resolve to the same directory')
   }
   const dshHome = resolveDshHome(config.dshHome ?? nestedDshHome)
 
