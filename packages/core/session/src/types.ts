@@ -1,5 +1,5 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, LlmFailure, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from './json.ts'
 
 /** Identifies one session in the store (and its persistence artifacts). */
@@ -106,9 +106,13 @@ export interface TurnEndReasonMap {
    * The turn failed: a step threw or the model reported a failure. `step` is the
    * step number the failure occurred on (the operational error's location — the
    * single durable record of an in-turn failure; live diagnostics also fire via
-   * `agent/error`). `code` is the error's code when one was attached.
+   * `agent/error`). Final model-request failures retain their normalized facts
+   * as one `failure`; other turn failures retain their live Error message/code.
    */
-  error: { kind: 'error'; step: number; message: string; code?: string }
+  error: { kind: 'error'; step: number } & (
+    | { failure: LlmFailure; message?: never; code?: never }
+    | { message: string; code?: string; failure?: never }
+  )
   disposed: { kind: 'disposed' }
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }

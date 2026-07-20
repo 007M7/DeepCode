@@ -24,6 +24,9 @@ export class HarnessError extends Error {
 /** Canonical provider-neutral code for a model request rejected because its context window was exceeded. */
 export const CONTEXT_WINDOW_EXCEEDED_CODE = 'CONTEXT_WINDOW_EXCEEDED'
 
+/** Canonical provider-neutral code for an exhausted account quota or balance. */
+export const QUOTA_EXCEEDED_CODE = 'QUOTA'
+
 /** Structured codes and plain phrases that explicitly name a context bound being exceeded. */
 const STRUCTURED_CONTEXT_OVERFLOW = new RegExp(
   String.raw`(?:^|[^a-z0-9])context[\s_-](?:length|window)[\s_-]`
@@ -60,6 +63,20 @@ export function isContextWindowExceededError(detail: string): boolean {
     || TOO_LARGE_FOR_CONTEXT.test(detail)
     || /\b(?:input|prompt|request)\s+(?:is\s+)?too\s+(?:long|large)\s+for\s+(?:this|the)\s+model\b/i.test(detail)
     || EXCEEDS_MODEL_CONTEXT.test(detail)
+}
+
+/**
+ * Recognize provider wording that identifies an exhausted account quota rather
+ * than a transient request-rate limit.
+ * @param detail - provider error code/type/message text joined into one string.
+ * @returns true only for terminal quota, balance, credit, budget, or usage-limit wording.
+ */
+export function isQuotaExceededError(detail: string): boolean {
+  return /\binsufficient[\s_-]+(?:quota|balance|credits?)\b/i.test(detail)
+    || /\b(?:quota|usage[\s_-]+limit)[\s_-]+(?:exceeded|exhausted|reached)\b/i.test(detail)
+    || /\bexceed(?:ed|s)?[\s_-]+(?:(?:your|the)[\s_-]+)?(?:current[\s_-]+)?quota\b/i.test(detail)
+    || /\b(?:balance|credits?)[\s_-]+(?:exhausted|depleted)\b/i.test(detail)
+    || /\bout[\s_-]+of[\s_-]+(?:credits?|budget)\b/i.test(detail)
 }
 
 /**
