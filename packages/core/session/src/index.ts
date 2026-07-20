@@ -562,9 +562,9 @@ export class SessionStore extends Service {
    * Create a session owned by the calling fiber: disposing that fiber stops
    * event notification and removes the session from the store. `options.seed`
    * populates the session with a copy of those events (replay/fork);
-   * `options.meta` attaches creation metadata (validated absolute `cwd`,
-   * `parentSession` lineage) as the immutable {@link SessionHeader} (the store
-   * fills `version`/`id`/`createdAt`).
+   * `options.meta` attaches creation metadata (validated absolute `cwd`, seed
+   * and parent lineage, and delegation depth) as the immutable
+   * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).
    *
    * For an agent whose session must be torn down IN ORDER with its loop (so the
    * loop's final flush is captured before the store attachment ends), do NOT use this
