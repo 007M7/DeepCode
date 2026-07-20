@@ -48,8 +48,6 @@ function phaseLabel(phase: GoalPhase): string {
     case 'active': return 'active'
     case 'paused': return 'paused'
     case 'blocked': return 'blocked'
-    case 'usage-limited': return 'usage limited'
-    case 'budget-limited': return 'limited by round budget'
     case 'complete': return 'complete'
     /* v8 ignore next 2 -- GoalPhase is closed and every member is handled above */
     default: return assertNever(phase, 'goal phase')
@@ -66,10 +64,7 @@ function commandHint(goal: GoalView): string {
   switch (goal.phase) {
     case 'paused':
     case 'blocked':
-    case 'usage-limited':
       return '/goal edit <objective>, /goal resume, /goal clear'
-    case 'budget-limited':
-      return '/goal edit <objective>, /goal clear; after the agent raises the round cap, /goal resume'
     case 'complete':
       return '/goal <objective>, /goal clear'
     /* v8 ignore next 2 -- the active branch and every non-active phase are handled above */
@@ -79,11 +74,16 @@ function commandHint(goal: GoalView): string {
 
 /** Render direct UI output without exposing compare-and-set internals. */
 function renderGoal(title: string, goal: GoalView): CommandResult {
+  const reason = goal.phase === 'blocked' ? goal.blockedReason : undefined
+  /* v8 ignore next -- durable replay guarantees every blocked goal carries its validated reason */
+  if (goal.phase === 'blocked' && reason === undefined) throw new TypeError('blocked goal is missing its reason')
+  const blocker = reason === undefined ? [] : [`Blocker: ${reason.code}: ${reason.message}`]
   return {
     kind: 'success',
     text: [
       title,
       `Status: ${phaseLabel(goal.phase)}`,
+      ...blocker,
       `Objective: ${goal.objective}`,
       `Rounds: ${goal.roundsStarted}/${goal.maxGoalRounds}`,
       `Activation: ${goal.activation}`,
@@ -159,7 +159,7 @@ function executeGoalCommand(ctx: Context, invocation: CommandInvocation): Comman
   }
 }
 
-/** Register the Codex-shaped `/goal` human command on TUI and ACP surfaces. */
+/** Register the Codex-shaped `/goal` command for every composed command adapter. */
 export function apply(ctx: Context): void {
   ctx.commands.register({
     name: 'goal',

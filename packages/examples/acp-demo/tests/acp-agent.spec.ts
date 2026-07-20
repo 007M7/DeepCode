@@ -96,7 +96,7 @@ describe('dsh-acp-demo composition', () => {
       sessionId: 'disabled-goals' as import('@deepseek-ai/dsh-session').SessionId,
       agentOptions: { provider: 'mock', model: 'mock' },
     })
-    expect(ctx.commands.find(handle.agent, 'acp', 'goal')).toBeUndefined()
+    expect(ctx.commands.find(handle.agent, 'goal')).toBeUndefined()
     await handle.dispose()
     await ctx.fiber.dispose()
   })

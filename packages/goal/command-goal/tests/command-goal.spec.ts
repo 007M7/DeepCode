@@ -74,7 +74,6 @@ async function harness(): Promise<Harness> {
 async function run(test: Harness, suffix = ''): Promise<NonNullable<Awaited<ReturnType<CommandService['execute']>>>> {
   const result = await test.ctx.commands.execute(
     test.agent,
-    'tui',
     `/goal${suffix}`,
     new AbortController().signal,
   )
@@ -87,20 +86,8 @@ function ref(goal: NonNullable<ReturnType<GoalService['get']>>): GoalRef {
   return { id: goal.id, revision: goal.revision }
 }
 
-/** Append one admitted goal round for budget-limited presentation coverage. */
-function appendRound(test: Harness, goal: NonNullable<ReturnType<GoalService['get']>>): void {
-  const source = { kind: 'goal', goalId: goal.id, revision: goal.revision, round: 1 } as const
-  const turn = nextTurn(test.session)
-  test.session.append('turn/start', { turn, trigger: { kind: 'message', source } })
-  test.session.append('user/message', {
-    content: [{ type: 'text', text: 'goal round' }],
-    source,
-  }, { surfaceOp: 'append' })
-  test.session.append('turn/end', { turn, reason: { kind: 'completed' } })
-}
-
 describe('@deepseek-ai/dsh-command-goal registration', () => {
-  it('registers one global TUI/ACP command with Loader-safe exports and disposes it', async () => {
+  it('registers one global command with Loader-safe exports and disposes it', async () => {
     const test = await harness()
     expect(commandGoal.name).toBe('command-goal')
     expect(commandGoal.inject).toEqual(['commands', 'goals'])
@@ -108,16 +95,15 @@ describe('@deepseek-ai/dsh-command-goal registration', () => {
     const loader = Object.create(Loader.prototype) as Loader
     expect(loader.unwrapExports(commandGoal)).toBe(commandGoal)
 
-    expect(test.ctx.commands.list(test.agent, 'tui')).toContainEqual({
+    expect(test.ctx.commands.list(test.agent)).toContainEqual({
       name: 'goal',
       description: 'set or view the goal for a long-running task',
       input: { hint: '[<objective>|clear|edit <objective>|pause|resume]' },
-      surfaces: ['tui', 'acp'],
     })
-    expect(test.ctx.commands.find(test.agent, 'acp', 'goal')).toBeDefined()
+    expect(test.ctx.commands.find(test.agent, 'goal')).toBeDefined()
 
     await test.plugin.dispose()
-    expect(test.ctx.commands.find(test.agent, 'tui', 'goal')).toBeUndefined()
+    expect(test.ctx.commands.find(test.agent, 'goal')).toBeUndefined()
   })
 })
 
@@ -227,22 +213,16 @@ describe('/goal human command', () => {
     expect((await run(test)).text).toContain('Status: paused')
 
     goal = test.ctx.goals.resume(test.agent, ref(goal))
-    goal = test.ctx.goals.block(test.agent, ref(goal))
-    expect((await run(test)).text).toContain('Status: blocked')
+    goal = test.ctx.goals.block(test.agent, ref(goal), {
+      code: 'upstream-unavailable',
+      message: 'Provider unavailable',
+    })
+    const blocked = await run(test)
+    expect(blocked.text).toContain('Status: blocked')
+    expect(blocked.text).toContain('Blocker: upstream-unavailable: Provider unavailable')
 
     goal = test.ctx.goals.resume(test.agent, ref(goal))
-    goal = test.ctx.goals.markUsageLimited(test.agent, ref(goal))
-    expect((await run(test)).text).toContain('Status: usage limited')
-
-    goal = test.ctx.goals.resume(test.agent, ref(goal))
-    appendRound(test, goal)
-    goal = test.ctx.goals.get(test.agent)!
-    goal = test.ctx.goals.markBudgetLimited(test.agent, ref(goal))
-    const limited = await run(test)
-    expect(limited.text).toContain('Status: limited by round budget')
-    expect(limited.text).toContain('after the agent raises the round cap, /goal resume')
-
-    goal = test.ctx.goals.complete(test.agent, ref(goal))
+    test.ctx.goals.complete(test.agent, ref(goal))
     const complete = await run(test)
     expect(complete.text).toContain('Status: complete')
     expect(complete.text).toContain('Commands: /goal <objective>, /goal clear')
