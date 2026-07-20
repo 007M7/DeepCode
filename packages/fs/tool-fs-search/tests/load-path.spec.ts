@@ -18,8 +18,47 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import { BashExecutor } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import * as toolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+
+const RG_PROBE_COMMAND = 'command -v rg >/dev/null 2>&1'
+
+/**
+ * Deterministic bash service for this Loader guard: the test wants to exercise
+ * the real unwrap/inject path, not depend on whether the host image has rg.
+ */
+class ProbeSuccessBashExecutor extends BashExecutor {
+  override resolve(request: BashExecRequest): BashExecSpec {
+    return {
+      command: request.command,
+      workdir: request.workdir ?? '/work',
+      timeoutMs: request.timeoutMs ?? 60_000,
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
+      signal: request.signal,
+      sandboxMode: request.sandboxMode,
+    }
+  }
+
+  override run(spec: BashExecSpec): Promise<BashRunResult> {
+    if (spec.command !== RG_PROBE_COMMAND) {
+      throw new Error(`unexpected command in load-path guard: ${spec.command}`)
+    }
+    return Promise.resolve({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      aborted: false,
+      timeoutMs: spec.timeoutMs,
+      stdout: { text: '', truncated: false },
+      stderr: { text: '', truncated: false },
+    })
+  }
+
+  override start(): BashProcess {
+    throw new Error('load-path guard must not start background processes')
+  }
+}
 
 describe('dsh-tool-fs-search real-load-path guard', () => {
   it('has no default export and keeps name/inject/Config through unwrapExports', () => {
@@ -38,7 +77,7 @@ describe('dsh-tool-fs-search real-load-path guard', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(LocalBashExecutor, {})
+    await ctx.plugin(ProbeSuccessBashExecutor)
 
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(toolFsSearch) as Parameters<Context['plugin']>[0]
