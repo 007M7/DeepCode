@@ -350,10 +350,10 @@ describe('the soft layer', () => {
 
   it('leaves foreign post-next() additions alone in plan mode (no general tool filtering)', async () => {
     // A foreign listener that post-processes await next(): the mode filter
-    // wraps outside it (prepend) but hides only the exit tool outside plan
-    // and the bash trio under an unhonorable cap — a foreign addition
-    // survives, because which tools a mode admits is deliberately not this
-    // plugin's decision (the effects question stays parked; module doc).
+    // wraps outside it (prepend) but hides only the exit tool outside plan —
+    // a foreign addition survives, because which tools a mode admits is
+    // deliberately not this plugin's decision (the effects question stays
+    // parked; module doc).
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -388,8 +388,8 @@ describe('the soft layer', () => {
     agent.session.append('mode/set', { mode: PLAN_MODE })
     const assembly = await ctx.systemPrompt.assemble({ agent })
     expect(assembly.tools.map(tool => tool.name)).toEqual(['run_code'])
-    // The SDK documents the full binding set plus the exit — plan mode no
-    // longer prunes capabilities; its restraint is the section + the sandbox.
+    // The SDK documents the full binding set plus the exit — a mode never
+    // prunes capabilities; it restrains by the section's guidance alone.
     const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
     expect(sdk).toContain('read(args:')
     expect(sdk).toContain('write(args:')

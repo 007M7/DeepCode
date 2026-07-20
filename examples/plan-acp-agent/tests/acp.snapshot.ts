@@ -8,17 +8,16 @@ import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from
  * `DSH_SNAPSHOT=replay`).
  *
  * The recorded scenarios re-execute the fs tools AND the sandboxed bash
- * executor for real on replay (the replay overlay swaps only the model), so
- * the plan-mode arc doubles as a live check of plan's read-only `access`
- * cap: the recorded `cat` runs under the host's actual runner (Seatbelt on
- * macOS, bwrap on Linux CI). The recorded commands stay `cat`-shaped —
+ * executor for real on replay (the replay overlay swaps only the model): the
+ * recorded `cat` runs under the host's actual runner (Seatbelt on macOS,
+ * bwrap on Linux CI), under the sandbox's own configured mode — plan mode
+ * does not change it. The recorded commands stay `cat`-shaped —
  * byte-identical across those backends and across GNU/BSD userlands — and
  * the transcripts carry NO sandbox denial (a denied command's stderr is the
  * backend's dialect; the denial→marker path is pinned at dsh-tool-bash's
- * unit tier, and the cap's clamp at dsh-mode's). Prompts pin the model to
- * RELATIVE paths, because a recorded absolute temp path would neither replay
- * on another host nor normalize (the normalizers scrub the RUN's own cwd,
- * not the recording's).
+ * unit tier). Prompts pin the model to RELATIVE paths, because a recorded
+ * absolute temp path would neither replay on another host nor normalize
+ * (the normalizers scrub the RUN's own cwd, not the recording's).
  */
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
@@ -50,11 +49,11 @@ const SCENARIOS: Scenario[] = [
   // initial) — the full toolset plus exit_plan_mode and the mode section —
   // and the approved exit narrows it back by exactly that tool and section,
   // a pure removal the delta encoding CAN express (one header-delta; the
-  // ENTERING flip's front-of-list insertion has no delta form and falls back
-  // to a snapshot, pinned at the unit tier). The arc: setMode(plan) → the
-  // model runs a real `cat` through the clamped read-only sandbox and
+  // ENTERING flip is a non-tail insertion the append-only tools delta cannot
+  // express, so it falls back to a snapshot — pinned at the unit tier). The
+  // arc: setMode(plan) → the model runs a real `cat` inside plan and
   // presents the plan via exit_plan_mode → the scripted elicitation approves
-  // → the very next step already runs unclamped and edits for real, mid-turn.
+  // → the very next step already edits for real, mid-turn.
   { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan', expectedHeaderDeltas: 1 },
   // The keep-planning branch: one presentation, the scripted review answers
   // with free-text feedback (no approval), and the corrective isError carries

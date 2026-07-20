@@ -82,9 +82,9 @@ describe('plan mode through the agent loop', () => {
     expect(header.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'write'])
     expect(header.data.header.system).toContain('plan mode')
 
-    // No general tool gate: the write RUNS — plan's non-shell restraint is
-    // the section's guidance (the shell restraint is the sandbox clamp,
-    // pinned in mode.spec). The mode itself stays plan throughout.
+    // No tool gate: the write RUNS — plan restrains by the section's
+    // guidance alone (enforcement lives on the independent sandbox/approval
+    // axes). The mode itself stays plan throughout.
     const result = findEvent(log, 'tool/result')
     expect(result.data.isError).toBe(false)
     expect(foldMode(log)).toBe(PLAN_MODE)
@@ -115,8 +115,10 @@ describe('plan mode through the agent loop', () => {
       { type: 'text', text: 'The user switched this session to plan mode.' },
     ])
     // The header change is logged as a FULL fallback snapshot, not a delta:
-    // adding exit_plan_mode reorders the canonical tool list (it sorts
-    // first), and a pure reordering is inexpressible in the delta encoding.
+    // the tools delta can only APPEND additions, while the canonical
+    // (alphabetical) order places exit_plan_mode before read/write — a
+    // non-tail insertion the writer's round-trip guard rejects, so it
+    // falls back.
     const second = findEvent(log, 'request/header', 'last')
     expect(second.data.reason).toBe('fallback')
     expect(second.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'write'])
