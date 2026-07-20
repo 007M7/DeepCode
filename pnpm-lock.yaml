@@ -227,6 +227,10 @@ importers:
       '@deepseek-ai/dsh-workflow-workerthread':
         specifier: workspace:*
         version: link:../packages/workflow/workflow-workerthread
+    devDependencies:
+      node-pty:
+        specifier: 1.1.0
+        version: 1.1.0
 
   packages/bash/bash:
     devDependencies:
@@ -6179,6 +6183,9 @@ packages:
   neo-async@2.6.2:
     resolution: {integrity: sha512-Yd3UES5mWCSqR+qNT93S3UoYUkqAZ9lLg8a7g9rimsWmYGK8cVToA4/sF3RrshdyV3sAGMXVUmpMYOw+dLpOuw==}
 
+  node-addon-api@7.1.1:
+    resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
+
   node-addon-landlock-run-linux-arm64@0.0.0-test.0:
     resolution: {integrity: sha512-oJsXcC33qKl9mWYx0n9YPJ2pUAoY39PoIX0Gx4lDrSCTEvENFrEaODAsQYNY+eEGpn9YMN7E+FOftvea3/1FqQ==}
     engines: {node: '>=20'}
@@ -6255,6 +6262,9 @@ packages:
   node-fetch@3.3.2:
     resolution: {integrity: sha512-dRB78srN/l6gqWulah9SrxeYnxeddIG30+GOqK/9OlLVyLg3HPnr6SqOWTWOXKRwC2eGYCkZ59NNuSgvSrpgOA==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+
+  node-pty@1.1.0:
+    resolution: {integrity: sha512-20JqtutY6JPXTUnL0ij1uad7Qe1baT46lyolh2sSENDd4sTzKZ4nmAFkeAARDKwmlLjPx6XKRlwRUxwjOy+lUg==}
 
   non-layered-tidy-tree-layout@2.0.2:
     resolution: {integrity: sha512-gkXMxRzUH+PB0ax9dUN0yYF0S25BqeAYqhgMaLUFmpXLEk7Fcu8f4emJuOAY0V8kjDICxROIKsTAKsV/v355xw==}
@@ -10605,6 +10615,8 @@ snapshots:
 
   neo-async@2.6.2: {}
 
+  node-addon-api@7.1.1: {}
+
   node-addon-landlock-run-linux-arm64@0.0.0-test.0:
     optional: true
 
@@ -10672,6 +10684,10 @@ snapshots:
       data-uri-to-buffer: 4.0.1
       fetch-blob: 3.2.0
       formdata-polyfill: 4.0.10
+
+  node-pty@1.1.0:
+    dependencies:
+      node-addon-api: 7.1.1
 
   non-layered-tidy-tree-layout@2.0.2:
     optional: true
