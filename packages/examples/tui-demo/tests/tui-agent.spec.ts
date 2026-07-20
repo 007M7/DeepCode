@@ -41,17 +41,19 @@ describe('dsh-tui-demo app', () => {
     })
 
     expect(calls.map(call => call.name)).toEqual([
+      'CommandService',
       'SessionPersistenceJsonl',
       'UserInteractionService',
       'ui-tui',
       'agent-spine-demo',
       'tool-ask-user',
     ])
-    expect(calls[0]?.config).toEqual({ root: '/tmp/tui-sessions', compression: 'none' })
-    const tuiConfig = calls[2]?.config as { sessionId: string }
+    expect(calls[0]?.config).toBeUndefined()
+    expect(calls[1]?.config).toEqual({ root: '/tmp/tui-sessions', compression: 'none' })
+    const tuiConfig = calls[3]?.config as { sessionId: string }
     expect(tuiConfig).toMatchObject({ welcome: 'TUI ready', color: false, maxToolOutputLines: 3 })
     expect(tuiConfig.sessionId).toMatch(/^main-session-[0-9a-f-]{36}$/)
-    const spineConfig = calls[3]?.config as {
+    const spineConfig = calls[4]?.config as {
       readonly agents: Array<Record<string, unknown>>
       readonly maxParallelToolCalls: number
       readonly persona: string
@@ -82,9 +84,9 @@ describe('dsh-tui-demo app', () => {
       workspaceContext: false,
     })
 
-    expect(calls[0]?.config).toEqual({ root: './.sessions' })
-    expect(calls[2]?.config).toEqual({ welcome: 'ready.', sessionId: 'persisted-session' })
-    expect((calls[3]?.config as { agents: Array<Record<string, unknown>> }).agents[0]).toMatchObject({
+    expect(calls[1]?.config).toEqual({ root: './.sessions' })
+    expect(calls[3]?.config).toEqual({ welcome: 'ready.', sessionId: 'persisted-session' })
+    expect((calls[4]?.config as { agents: Array<Record<string, unknown>> }).agents[0]).toMatchObject({
       id: 'main',
       resumeSessionId: 'persisted-session',
     })
@@ -99,9 +101,9 @@ describe('dsh-tui-demo app', () => {
       workspaceContext: false,
     })
 
-    const tuiConfig = calls[2]?.config as { sessionId: string }
+    const tuiConfig = calls[3]?.config as { sessionId: string }
     expect(tuiConfig.sessionId).toMatch(/^main-session-[0-9a-f-]{36}$/)
-    expect((calls[3]?.config as { agents: Array<Record<string, unknown>> }).agents[0])
+    expect((calls[4]?.config as { agents: Array<Record<string, unknown>> }).agents[0])
       .toMatchObject({ sessionId: tuiConfig.sessionId })
   })
 

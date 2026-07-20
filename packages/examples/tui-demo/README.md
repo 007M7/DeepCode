@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-tui-demo
 
-The full-screen terminal app: a Cordis plugin that composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), JSONL persistence, keyboard-backed user interaction, a pre-created `main` agent, and [`@deepseek-ai/dsh-tui`](../../ui/tui/README.md). Its `bin` boots a leaf `cordis.yml`.
+The full-screen terminal app: a Cordis plugin that composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), the human-command registry, JSONL persistence, keyboard-backed user interaction, a pre-created `main` agent, and [`@deepseek-ai/dsh-tui`](../../ui/tui/README.md). Its `bin` boots a leaf `cordis.yml`.
 
 Use [`@deepseek-ai/dsh-cli-demo`](../cli-demo/README.md) for pipes, scripts, and other non-interactive runs. This package requires a TTY pair and has no line-oriented fallback.
 
@@ -9,6 +9,7 @@ Use [`@deepseek-ai/dsh-cli-demo`](../cli-demo/README.md) for pipes, scripts, and
 | Plugin | Why it is here |
 |---|---|
 | `@deepseek-ai/dsh-agent-spine-demo` | Shared services, model-facing tools, and one configured `main` agent |
+| `@deepseek-ai/dsh-commands` | Human-only discovery and dispatch consumed by the TUI and command plugins |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | Durable session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-user-interaction` | Provider-neutral human question service |
 | `@deepseek-ai/dsh-tui` | Full-screen transcript, editor, tool cards, plan, and question overlays |
@@ -70,7 +71,7 @@ Fresh runs mint a `main-session-<uuid>` session id and pass it to both the TUI a
 
 #### What the model sees
 
-Each non-empty editor submission becomes a user message; a submission during a running turn becomes steering. The shared spine contributes the configured persona, workspace instructions, skill catalog, and visible tool schemas. TUI rendering itself is not model-visible.
+Each non-empty non-command editor submission becomes a user message; a submission during a running turn becomes steering. Slash-command input and output remain human-only. The shared spine contributes the configured persona, workspace instructions, skill catalog, and visible tool schemas. TUI rendering itself is not model-visible.
 
 #### Token effect
 

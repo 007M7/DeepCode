@@ -9,6 +9,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import WorkerCodeRuntime from '@deepseek-ai/dsh-code-runtime-worker'
+import CommandService from '@deepseek-ai/dsh-commands'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
@@ -179,6 +180,7 @@ async function mountScenarioContext(
   await ctx.plugin(ToolSubagent, { provider: 'spawn', toolName: 'subagent', enableRunInBackground: false })
   await ctx.plugin(WorkerWorkflowEngine, { provider: 'spawn' })
   await ctx.plugin(ToolWorkflow)
+  await ctx.plugin(CommandService)
   if (scenario.composition === 'code' || scenario.composition === 'advanced') {
     await ctx.plugin(WorkerCodeRuntime, {})
   }

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tui-demo",
-  "description": "Full-screen terminal app: agent spine + JSONL persistence + pi-tui front door + pre-created main agent",
+  "description": "Full-screen terminal app: agent spine + human commands + JSONL persistence + pi-tui front door + pre-created main agent",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -35,6 +35,7 @@
     "@deepseek-ai/dsh-app-boot": "^0.0.1",
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-agent-loop": "^0.0.1",
+    "@deepseek-ai/dsh-commands": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
     "@deepseek-ai/dsh-agent-spine-demo": "^0.0.1",
     "@deepseek-ai/dsh-workspace-context": "^0.0.1",
@@ -53,6 +54,7 @@
     "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
+    "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-agent-spine-demo": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",

@@ -157,10 +157,18 @@ const SERVICE_ROLES: ServiceRole[] = [
   {
     key: 'modes',
     pkg: 'mode',
-    title: 'Session-mode policy state',
+    title: 'Session-mode state',
     mode: 'core',
     consumers: ['stdio-agent', 'acp'],
-    note: 'Folds the logged per-agent mode (mode/set), flushes user flips at turn boundaries, and enforces the mode through the assemble filter and the tools/pre-execute gate.',
+    note: 'Folds the logged per-agent mode (mode/set), flushes user flips at turn boundaries, and renders mode guidance plus the reviewed exit.',
+  },
+  {
+    key: 'commands',
+    pkg: 'commands',
+    title: 'Human command registry',
+    mode: 'core',
+    consumers: ['tui', 'acp'],
+    note: 'Plugins register direct human commands; TUI and ACP consume the same effective per-agent catalog without sending invocations to the model.',
   },
   {
     key: 'skills',

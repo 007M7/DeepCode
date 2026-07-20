@@ -1,7 +1,7 @@
 /**
  * Full-screen terminal app: the default agent spine ({@link @deepseek-ai/dsh-agent-spine-demo})
- * plus JSONL persistence, keyboard-backed user interaction, and one pre-created
- * agent whose exact session identity the TUI drives. Swappable adapters,
+ * plus human commands, JSONL persistence, keyboard-backed user interaction,
+ * and one pre-created agent whose exact session identity the TUI drives. Swappable adapters,
  * executors, optional tools, and HMR stay in the leaf. This Loader plugin
  * intentionally exposes named exports only; a default export would hide its
  * `Config` schema (see docs/postmortem/0001).
@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto'
 import z from 'schemastery'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
+import CommandService from '@deepseek-ai/dsh-commands'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import SessionPersistenceJsonl, {
@@ -97,6 +98,7 @@ export const Config: z<Config> = z.object({
 export function composeTuiApp(ctx: Context, config: Config): void {
   const resumeSessionId = config.resumeSessionId === '' ? undefined : config.resumeSessionId
   const sessionId = SessionId(resumeSessionId ?? `main-session-${randomUUID()}`)
+  ctx.plugin(CommandService)
   ctx.plugin(SessionPersistenceJsonl, {
     root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
     ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
