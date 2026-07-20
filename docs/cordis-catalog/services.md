@@ -7,7 +7,7 @@ Every `ctx.<key>` service a plugin can call: the exact public interface with ori
 
 This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verified fresh by `pnpm run verify-cordis-catalog` (part of `doc-sync`) — do not edit it by hand. Signature blocks use a `ts cordis-catalog` fence and include the original source JSDoc immediately before each event or service method. doc-typecheck skips these bare declaration fragments; type names in a signature link to the page that documents them.
 
-The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns. The **inherited tier** at the end is the cordis-core + loader/hmr/timer `ctx` surface a plugin also sees — pinned vendor source, summarized tersely.
+The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns. The **inherited tier** at the end is the cordis-core + loader/hmr/timer `ctx` surface a plugin also sees — pinned vendor source, summarized tersely. Detailed Context, Fiber, Registry, and Service APIs are generated in the [Cordis core API](core/context.md).
 
 ## `ctx.agentLoop` — `AgentLoop`
 

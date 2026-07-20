@@ -214,7 +214,6 @@ function ciPrimaryGates(): Gate[] {
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
-    pnpmScript('website-build', 'website:build', { label: 'website build' }),
     pnpmScript('build', 'build', { needs: ['typecheck'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
@@ -234,7 +233,6 @@ function ciStaticGates(): Gate[] {
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
-    pnpmScript('website-build', 'website:build', { label: 'website build' }),
   ]
 }
 
@@ -337,7 +335,6 @@ function docSyncLeafGates(options: {
     pnpmScript('persistence-catalog', 'verify-persistence-catalog', { label: 'persistence catalog' }),
     pnpmScript('doc-graphs', 'verify-doc-graphs', { label: 'doc graphs' }),
     pnpmScript('scoped-events', 'verify-scoped-events', { label: 'scoped events' }),
-    pnpmScript('website-api', 'verify-website-api', { label: 'website api' }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap' }),
     pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
@@ -350,8 +347,9 @@ function docSyncLeafGates(options: {
     pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt' }),
     pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),
     pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets' }),
+    // Keep the VitePress build in this single gate because projection rewrites website/.generated.
+    pnpmScript('docs-site', 'docs:check', { label: 'documentation site' }),
     pnpmScript('package-readme-limitations', 'verify-package-readme-limitations', { label: 'package README limitations' }),
-    pnpmScript('website-yaml', 'verify-website-yaml', { label: 'website yaml' }),
   ]
 }
 

@@ -17,27 +17,28 @@ The append-only event types. Merge-extensible: a plugin declares extra event typ
  */
 interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started it — a drained message
-   * batch or an idle-time injection. The turn is the durability/replay
+   * Opens turn `turn`. `trigger` records what started it — one claimed queued
+   * message or an idle-time injection. The turn is the durability/replay
    * boundary: every event sits between a `turn/start` and its matching
    * `turn/end` (the turn-enclosure invariant).
    */
   'turn/start': { turn: number; trigger: TurnTrigger }
   /**
    * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
-   * fires the awaited `session/flush` checkpoint at every turn end, so the turn
-   * boundary is also the durable-commit boundary.
+   * awaits `session/flush` after an ordinary turn ends before claiming the next
+   * queued item. Success commits the turn; rejection is reported live and does
+   * not prevent later work.
    */
   'turn/end': { turn: number; reason: TurnEndReason }
   /** Opens step `step` of turn `turn` — one model call plus the tool executions it requested. */
   'step/start': { turn: number; step: number }
   /** Closes step `step` of turn `turn`. */
   'step/end': { turn: number; step: number }
-  /** A user-visible prompt (queued message drained at turn start). */
+  /** A user-visible prompt (the queued message claimed for this turn). */
   'user/message': { content: ContentBlock[]; source: MessageSource }
   /**
    * Durable record of a prompt veto and its reason. It is log-only: the blocked
-   * prompt never enters the model-visible surface, including in a mixed batch.
+   * prompt never enters the model-visible surface, and its turn runs zero steps.
    */
   'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
   /**
@@ -480,8 +481,8 @@ interface TurnEndReasonMap {
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
-   * Policy blocked every prompt before the first step. The zero-step turn still
-   * records a balanced durable boundary and the veto reason.
+   * Policy blocked the turn's claimed prompt before the first step. The
+   * zero-step turn still records a balanced durable boundary and veto reason.
    */
   rejected: { kind: 'rejected'; reason: string }
   /**
@@ -492,7 +493,7 @@ interface TurnEndReasonMap {
 }
 ```
 
-`max-tokens` mirrors the model-call `FinishReason` of the same name: any `max-tokens` step in a turn makes the whole turn end `max-tokens` rather than `completed` (the cut-short fact wins over a later continuation), so a consumer can tell a clean stop from a truncated one — but only over `completed`: the `disposed`/`aborted`/`error` outcomes take precedence. `rejected` is a zero-step turn whose whole prompt batch an `agent/prompt-submit` hook blocked (the ACP bridge maps it to `cancelled`). `interrupted` is the one reason no loop emits — it is synthesized by crash recovery (see [persistence.md](persistence.md)). Both maps are merge-extensible.
+`max-tokens` mirrors the model-call `FinishReason` of the same name: any `max-tokens` step in a turn makes the whole turn end `max-tokens` rather than `completed` (the cut-short fact wins over a later continuation), so a consumer can tell a clean stop from a truncated one — but only over `completed`: the `disposed`/`aborted`/`error` outcomes take precedence. `rejected` is a zero-step turn whose claimed prompt an `agent/prompt-submit` hook blocked (the ACP bridge maps it to `cancelled`). `interrupted` is the one reason no loop emits — it is synthesized by crash recovery (see [persistence.md](persistence.md)). Both maps are merge-extensible.
 
 ## The turn-enclosure invariant
 

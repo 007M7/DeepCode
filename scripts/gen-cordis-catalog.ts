@@ -5,9 +5,10 @@
  * curated table below. `--check` verifies both committed artifacts.
  */
 
-import { globSync, readFileSync, writeFileSync } from 'node:fs'
-import { resolve, sep } from 'node:path'
+import { globSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, resolve, sep } from 'node:path'
 import ts from 'typescript'
+import { renderCordisCoreApiPages } from './cordis-core-api.ts'
 import { checkParams, checkReturns, parseJsDoc, parseTags, pointer, rawJsDoc, reportViolations, type Mode } from './jsdoc.ts'
 import { cordisModuleBody, eventMembers, serviceClasses } from './cordis-walk.ts'
 
@@ -266,8 +267,7 @@ interface InheritedEntry {
   source: string
 }
 
-// cordisModuleBody / eventMembers / serviceClasses live in cordis-walk.ts,
-// shared with gen-website-api.ts — one walk, two renderers.
+// cordisModuleBody / eventMembers / serviceClasses live in cordis-walk.ts.
 
 /** The signature text of a method-signature member (everything but a body). */
 function memberSignature(member: ts.TypeElement | ts.ClassElement, sf: ts.SourceFile): string {
@@ -505,7 +505,7 @@ export function renderEvents(events: EventEntry[]): string {
     '',
     GATE_NOTICE,
     '',
-    'The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns, grouped by scope. The **inherited tier** at the end is the cordis-core + loader/hmr/timer event surface a plugin also sees — pinned vendor source, summarized tersely.',
+    'The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns, grouped by scope. The **inherited tier** at the end is the cordis-core + loader/hmr/timer event surface a plugin also sees — pinned vendor source, summarized tersely. The event-dispatch methods themselves are generated in the [Cordis core Events API](core/events.md).',
     '',
     'Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`).',
     '',
@@ -540,7 +540,7 @@ export function renderServices(services: ServiceEntry[]): string {
     '',
     GATE_NOTICE,
     '',
-    'The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns. The **inherited tier** at the end is the cordis-core + loader/hmr/timer `ctx` surface a plugin also sees — pinned vendor source, summarized tersely.',
+    'The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns. The **inherited tier** at the end is the cordis-core + loader/hmr/timer `ctx` surface a plugin also sees — pinned vendor source, summarized tersely. Detailed Context, Fiber, Registry, and Service APIs are generated in the [Cordis core API](core/context.md).',
     '',
   ]
   for (const s of services) lines.push(...renderService(s))
@@ -564,6 +564,7 @@ function main(): void {
   const outputs: [string, string][] = [
     [OUT_EVENTS, renderEvents(collectEvents())],
     [OUT_SERVICES, renderServices(collectServices())],
+    ...renderCordisCoreApiPages(),
   ]
   if (process.argv.includes('--check')) {
     const stale: string[] = []
@@ -580,15 +581,19 @@ function main(): void {
       if (committed !== content) stale.push(out)
     }
     if (stale.length === 0) {
-      console.log(`gen-cordis-catalog: ${OUT_EVENTS} and ${OUT_SERVICES} are up to date.`)
+      console.log(`gen-cordis-catalog: ${outputs.length} generated file(s) are up to date.`)
       process.exit(0)
     }
     console.error(`gen-cordis-catalog: ${stale.join(' and ')} ${stale.length === 1 ? 'is' : 'are'} stale. Run \`pnpm run gen-cordis-catalog\` and commit the result.`)
     process.exit(1)
   }
 
-  for (const [out, content] of outputs) writeFileSync(resolve(root, out), content)
-  console.log(`gen-cordis-catalog: wrote ${OUT_EVENTS} and ${OUT_SERVICES}.`)
+  for (const [out, content] of outputs) {
+    const destination = resolve(root, out)
+    mkdirSync(dirname(destination), { recursive: true })
+    writeFileSync(destination, content)
+  }
+  console.log(`gen-cordis-catalog: wrote ${outputs.length} generated file(s).`)
 }
 
 // Run only when invoked as a script, not when imported by a test.

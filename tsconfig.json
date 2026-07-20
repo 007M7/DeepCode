@@ -9,7 +9,9 @@
     "examples/*/start.ts",
     "examples/*/tests/**/*.ts",
     "packages/*/*/tests/**/*.ts",
-    "scripts/**/*.ts"
+    "scripts/**/*.ts",
+    "website/**/*.ts",
+    "website/.vitepress/**/*.ts"
   ],
   "references": [
     { "path": "./vendor/cosmokit" },
