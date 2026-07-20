@@ -135,8 +135,8 @@ describe('goal tool registration and presentation', () => {
       card: 'generic', title: 'Create goal', kind: 'other', rawInput: 'ship',
     })
     expect(ctx.tools.get('update_goal')?.presentCall?.({
-      goal_id: 'goal-1', revision: 2, action: 'blocked',
-    })).toEqual({ card: 'generic', title: 'Mark goal', kind: 'other', rawInput: 'goal-1' })
+      goal_id: 'goal-1', revision: 2, action: 'blocked', blocked_reason: 'Waiting for a human choice.',
+    })).toEqual({ card: 'generic', title: 'Mark goal', kind: 'other', rawInput: 'Waiting for a human choice.' })
     expect(ctx.tools.get('update_goal')?.presentCall?.({
       goal_id: 'goal-1', revision: 2, action: 'resume',
     })).toEqual({ card: 'generic', title: 'Resume goal', kind: 'other', rawInput: 'goal-1' })
@@ -391,6 +391,26 @@ describe('goal tool state transitions', () => {
       max_goal_rounds: 2,
     }, root.agent)
     expect(terminalUpdate.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    const blockedWithoutReason = await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: created.revision, action: 'blocked',
+    }, root.agent)
+    expect(blockedWithoutReason.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    const blockedWithEmptyReason = await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: created.revision, action: 'blocked', blocked_reason: ' ',
+    }, root.agent)
+    expect(blockedWithEmptyReason.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    const completeWithReason = await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: created.revision, action: 'complete', blocked_reason: 'Not a blocker.',
+    }, root.agent)
+    expect(completeWithReason.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    const editWithReason = await execute(ctx, 'update_goal', {
+      goal_id: created.id,
+      revision: created.revision,
+      action: 'edit',
+      objective: 'still valid',
+      blocked_reason: 'Not valid for edit.',
+    }, root.agent)
+    expect(editWithReason.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
     const malformedRef = await execute(ctx, 'update_goal', {
       goal_id: '', revision: 0, action: 'edit', objective: 'x',
     }, root.agent)
@@ -423,16 +443,26 @@ describe('goal tool state transitions', () => {
     for (let round = 1; round <= 2; round += 1) {
       turn = openTurn(root, { kind: 'goal', goalId: ref.id, revision: ref.revision, round })
       const result = await execute(ctx, 'update_goal', {
-        goal_id: ref.id, revision: ref.revision, action: 'blocked',
+        goal_id: ref.id,
+        revision: ref.revision,
+        action: 'blocked',
+        blocked_reason: 'The required credential is still unavailable.',
       }, root.agent)
       expect(result.error?.code).toBe('GOAL_TOOL_BLOCK_THRESHOLD')
       closeTurn(root, turn)
     }
     openTurn(root, { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 3 })
     const blocked = await execute(ctx, 'update_goal', {
-      goal_id: ref.id, revision: ref.revision, action: 'blocked',
+      goal_id: ref.id,
+      revision: ref.revision,
+      action: 'blocked',
+      blocked_reason: 'The required credential is still unavailable.',
     }, root.agent)
-    expect(resultGoal(blocked)).toMatchObject({ phase: 'blocked', roundsStarted: 3 })
+    expect(resultGoal(blocked)).toMatchObject({
+      phase: 'blocked',
+      blockedReason: { code: 'model-reported', message: 'The required credential is still unavailable.' },
+      roundsStarted: 3,
+    })
   })
 
   it('lets direct human authority block before the model threshold', async () => {
@@ -440,8 +470,18 @@ describe('goal tool state transitions', () => {
     openTurn(root, { kind: 'user' })
     const created = ctx.goals.create(root.agent, { objective: 'human stop' })
     const blocked = await execute(ctx, 'update_goal', {
-      goal_id: created.id, revision: created.revision, action: 'blocked',
+      goal_id: created.id,
+      revision: created.revision,
+      action: 'blocked',
+      blocked_reason: 'The user asked to stop until a prerequisite is available.',
     }, root.agent)
-    expect(resultGoal(blocked)).toMatchObject({ phase: 'blocked', roundsStarted: 0 })
+    expect(resultGoal(blocked)).toMatchObject({
+      phase: 'blocked',
+      blockedReason: {
+        code: 'model-reported',
+        message: 'The user asked to stop until a prerequisite is available.',
+      },
+      roundsStarted: 0,
+    })
   })
 })

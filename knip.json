@@ -11,7 +11,6 @@
       "entry": [
         "echo-agent/src/*.ts",
         "echo-agent/tests/fixtures/goal/goal/seed-goal.ts",
-        "echo-agent/tests/fixtures/goal/tool-goal/scripted-llm.ts",
         "headless-agent/tests/fixtures/cli-mock-llm.ts",
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "*/tests/**/*.e2e.ts",

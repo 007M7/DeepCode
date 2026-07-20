@@ -51,7 +51,8 @@ const CREATE_DESCRIPTION =
 
 const GET_DESCRIPTION =
   'Read the current same-session goal, including its exact id/revision, objective, phase, completed '
-  + 'continuation rounds, round limit, and whether another continuation is armed. Call this before updating a goal.'
+  + 'continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. '
+  + 'Call this before updating a goal.'
 
 /** Render policy guidance with its deployment-selected blocked threshold. */
 function guidance(blockedAfter: number): string {
@@ -62,7 +63,8 @@ function guidance(blockedAfter: number): string {
     + 'a human asks to continue or resume in any wording or language, use update_goal action '
     + 'resume to rearm it. Mark complete only when the objective is actually achieved. Mark '
     + `blocked only after the same blocking condition persists for at least ${blockedAfter} `
-    + 'consecutive goal rounds; difficulty, uncertainty, or useful remaining work is not blocked.'
+    + 'consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, '
+    + 'or useful remaining work is not blocked.'
 }
 
 /** Validate config even when apply is called directly outside Loader normalization. */
@@ -97,6 +99,7 @@ function renderGoal(goal: GoalView | undefined): string {
       phase: goal.phase,
       roundsStarted: goal.roundsStarted,
       maxGoalRounds: goal.maxGoalRounds,
+      ...goal.blockedReason === undefined ? {} : { blockedReason: goal.blockedReason },
     },
     activation: goal.activation,
   })
@@ -183,7 +186,7 @@ export function apply(ctx: Context, config: Config): void {
     description: 'Update the exact current goal revision. edit, pause, and resume require a direct '
       + 'top-level human request. During an automatic continuation of the current goal, complete '
       + 'and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains '
-      + 'responsible for judging that the same condition persisted across those rounds.',
+      + 'responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.',
     parameters: {
       goal_id: { type: 'string', required: true, description: 'Exact id returned by get_goal.' },
       revision: { type: 'number', required: true, description: 'Exact positive revision returned by get_goal.' },
@@ -195,6 +198,10 @@ export function apply(ctx: Context, config: Config): void {
       },
       objective: { type: 'string', description: 'Replacement objective; valid only with action edit.' },
       max_goal_rounds: { type: 'number', description: 'Replacement cap; valid only with action edit.' },
+      blocked_reason: {
+        type: 'string',
+        description: 'Concrete blocking condition; required only with action blocked.',
+      },
     },
     execute(args, exec) {
       const execution = goalToolExecution(ctx, exec)
@@ -205,6 +212,9 @@ export function apply(ctx: Context, config: Config): void {
       }
       if (args.action === 'edit') {
         requireDirectHuman(ctx, execution)
+        if (args.blocked_reason !== undefined) {
+          throw new HarnessError('blocked_reason is valid only with action blocked', 'GOAL_TOOL_INVALID_UPDATE')
+        }
         const goal = ctx.goals.edit(execution.agent, ref, replacements)
         observeMutation(terminalTurns, execution, false)
         return Promise.resolve([{
@@ -214,9 +224,9 @@ export function apply(ctx: Context, config: Config): void {
       }
       if (args.action === 'pause' || args.action === 'resume') {
         requireDirectHuman(ctx, execution)
-        if (args.objective !== undefined || args.max_goal_rounds !== undefined) {
+        if (args.objective !== undefined || args.max_goal_rounds !== undefined || args.blocked_reason !== undefined) {
           throw new HarnessError(
-            'objective and max_goal_rounds are valid only with action edit',
+            'objective and max_goal_rounds are valid only with action edit; blocked_reason is valid only with action blocked',
             'GOAL_TOOL_INVALID_UPDATE',
           )
         }
@@ -233,6 +243,13 @@ export function apply(ctx: Context, config: Config): void {
           'GOAL_TOOL_INVALID_UPDATE',
         )
       }
+      if (args.action === 'complete' && args.blocked_reason !== undefined) {
+        throw new HarnessError('blocked_reason is valid only with action blocked', 'GOAL_TOOL_INVALID_UPDATE')
+      }
+      if (args.action === 'blocked'
+        && (args.blocked_reason === undefined || args.blocked_reason.trim().length === 0)) {
+        throw new HarnessError('blocked_reason is required with action blocked', 'GOAL_TOOL_INVALID_UPDATE')
+      }
       if (args.action === 'blocked' && authority.kind === 'goal-round'
         && authority.goal.roundsStarted < resolved.blockedAfterConsecutiveRounds) {
         throw new HarnessError(
@@ -243,14 +260,17 @@ export function apply(ctx: Context, config: Config): void {
       }
       const goal = args.action === 'complete'
         ? ctx.goals.complete(execution.agent, ref)
-        : ctx.goals.block(execution.agent, ref)
+        : ctx.goals.block(execution.agent, ref, {
+          code: 'model-reported',
+          message: args.blocked_reason as string,
+        })
       observeMutation(terminalTurns, execution, authority.kind === 'goal-round')
       return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
     },
     presentCall: args => present(
       `${args.action === 'blocked' ? 'Mark' : args.action.charAt(0).toUpperCase() + args.action.slice(1)} goal`,
       'other',
-      args.objective ?? args.goal_id,
+      args.blocked_reason ?? args.objective ?? args.goal_id,
     ),
   }))
 }
