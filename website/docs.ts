@@ -238,6 +238,21 @@ const reference = mirroredPages([
     order,
   })),
   ...([
+    ['context.md', 'Context', 'Context'],
+    ['events.md', 'Events', 'Events'],
+    ['fiber.md', 'Fiber', 'Fiber'],
+    ['registry.md', 'Plugin Registry', 'Plugin Registry'],
+    ['service.md', 'Service', 'Service'],
+  ] as const).map(([file, rootLabel, enLabel], order): MirroredPage => ({
+    source: `docs/cordis-catalog/core/${file}`,
+    route: `reference/cordis-api/${file}`,
+    contentLocale: 'en-US',
+    label: { root: rootLabel, en: enLabel },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: 'Cordis API', en: 'Cordis Core API' },
+    order,
+  })),
+  ...([
     ['core.md', '核心数据结构', 'Core data structures'],
     ['scope.md', '作用域', 'Scopes'],
     ['session.md', '会话', 'Sessions'],

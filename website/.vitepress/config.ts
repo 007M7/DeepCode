@@ -15,6 +15,7 @@ const sectionOrder = [
   '实战',
   '概念',
   '生成参考',
+  'Cordis API',
   '数据结构',
   '开发手册',
   'Guide',
@@ -23,6 +24,7 @@ const sectionOrder = [
   'Practice',
   'Concepts',
   'Generated reference',
+  'Cordis Core API',
   'Data structures',
   'Cookbook',
 ]

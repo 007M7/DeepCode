@@ -160,6 +160,18 @@ describe('docsPages locale routes', () => {
       }
     }
   })
+
+  it('publishes the Cordis core API under matching locale structures', () => {
+    const files = ['context.md', 'events.md', 'fiber.md', 'registry.md', 'service.md']
+    for (const file of files) {
+      const root = docsPages.find(page => page.route === `reference/cordis-api/${file}`)
+      const english = docsPages.find(page => page.route === `en/reference/cordis-api/${file}`)
+      expect(root?.source).toBe(`docs/cordis-catalog/core/${file}`)
+      expect(root?.section).toBe('Cordis API')
+      expect(english?.source).toBe(root?.source)
+      expect(english?.section).toBe('Cordis Core API')
+    }
+  })
 })
 
 describe('addProjectionFrontmatter', () => {
