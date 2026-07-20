@@ -422,6 +422,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (tasks === undefined) {
           throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
         }
+        // The caller owns cancellation until TaskService commits detached ownership.
+        if (exec.signal.aborted) return []
         // Task preflight finishes before the starter can spawn a process.
         const id = tasks.start({
           kind: 'bash',

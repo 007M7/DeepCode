@@ -7,7 +7,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -181,7 +181,11 @@ async function setupSandboxed(withApproval = false) {
   return { ctx, bash: ctx.bash as RecordingSandboxExecutor }
 }
 
-function sandboxAgent(mode?: 'read-only' | 'workspace-write' | 'danger-full-access', ctx?: Context): Agent {
+function sandboxAgent(
+  mode?: 'read-only' | 'workspace-write' | 'danger-full-access',
+  ctx?: Context,
+  onAppend?: (type: string) => void,
+): Agent {
   const events: Array<{ type: string; data?: Record<string, unknown> }> = [{ type: 'turn/start' }]
   if (mode !== undefined) events.push({ type: 'sandbox/mode', data: { mode } })
   const id = SessionId('sandbox-session')
@@ -195,6 +199,7 @@ function sandboxAgent(mode?: 'read-only' | 'workspace-write' | 'danger-full-acce
       append: (type: string, data: Record<string, unknown>) => {
         const event = { type, data }
         events.push(event)
+        onAppend?.(type)
         return event
       },
     },
@@ -598,6 +603,29 @@ describe('sandbox escalation through the generic task producer', () => {
     const background = await call(ctx, 'bash', { ...escalate, run_in_background: true }, agent)
     expect(text(background)).toBe('started background task bash-1')
     expect(bash.modes).toEqual(['workspace-write', 'workspace-write'])
+  })
+
+  it('does not publish detached work when cancellation follows the escalation grant', async () => {
+    const { ctx, bash } = await setupSandboxed(true)
+    const controller = new AbortController()
+    const agent = sandboxAgent(undefined, ctx, (type) => {
+      if (type === 'approval/decided') controller.abort()
+    })
+    ctx.agents.register(agent)
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    const start = vi.spyOn(bash, 'start')
+
+    const result = await ctx.tools.execute({
+      callId: CallId('cancelled-escalation-background'),
+      name: 'bash',
+      arguments: { ...escalate, run_in_background: true },
+      agent,
+      signal: controller.signal,
+    })
+
+    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED })
+    expect(text(result)).toBe('Error: tool call aborted')
+    expect(start).not.toHaveBeenCalled()
   })
 
   it('uses the session override for ordinary calls and evaluates widening against it', async () => {

@@ -25,7 +25,7 @@ export function apply(ctx: Context) {
     async execute(args, exec) {
       // args is TYPED from the schema: { path: string; limit?: number }
       // exec carries immutable identity + token; signal is the operational field
-      return [{ type: 'text', text: await readFile(args.path, 'utf8') }]
+      return [{ type: 'text', text: await readFile(args.path, { encoding: 'utf8', signal: exec.signal }) }]
     },
   }))
 }
