@@ -22,7 +22,7 @@ With `run_in_background: true`, the tool registers the parent-owned task before 
 | `agentOptions` | Default child options, currently including `model`. |
 | `persona` | Per-child persona; requires provider `persona` capability. |
 | `toolFilter` | Per-child global-tool restriction; requires `toolFilter` capability. |
-| `maxDepth` | Absolute delegation-depth cap; requires `depthLimit` capability. |
+| `maxDepth` | Absolute delegation-depth cap, default `3` (`0` forbids delegation); a numeric cap requires the `depthLimit` capability and fails the mount without it. `'provider-managed'` sends no cap for an out-of-process provider whose budget belongs to the child harness. The tool stays visible at the cap; each attempted start checks the calling agent's current depth and returns an errored tool result when rejected. |
 
 ## Concurrency
 

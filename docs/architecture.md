@@ -27,11 +27,12 @@ A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | singleton replay-aware request/surface pressure |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
+| `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | shared sandbox policy home |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
 | `ctx.fs` | [`fs/`](../packages/fs/README.md) | filesystem provider primitives and policy events |
 | `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry and progressive disclosure |
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
-| `ctx.compact` | [`compact/`](../packages/compact/README.md) | session-log compaction |
+| `ctx.compact`, `ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | summary compaction; optional model-free result pruning |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry + generic `task_*` control tools |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
@@ -54,11 +55,11 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 
 ## Default Loop Lifecycle
 
-The shipped loop drains work from prompt through checkpoint. Every pause is a service call or event available to plugins.
+The shipped loop drains prompt-to-checkpoint work through plugin-visible services and events.
 
-A **session** is an append-only event log. A **turn** drains queued input until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension points.
+A **session** is an append-only log. Each ordinary **turn** claims one queued `send()` item; injection claims none. A claimed `send()` successor awaits the preceding claimed ordinary turn's checkpoint but may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)). A turn ends when model and plugins stop it. A **step** is one model request plus tools. Below ([sequence companion](agent-lifecycle.md)), quotes mark durable events; other names are extension points.
 
-Startup resolves identity. No id mints `<config-id>-session-<uuid>`; `sessionId` resumes or creates; `resumeSessionId` requires history. Active failures emit `agent-loop/config-start-failed(sessionId, error)`, so front doors reject work; teardown stays silent.
+No id mints `<config-id>-session-<uuid>`; `sessionId` resumes/creates; `resumeSessionId` needs history. Resume restores lineage, seeds, and delegation depth pre-publication. Failures emit `agent-loop/config-start-failed(sessionId, error)`; front doors reject; teardown stays silent.
 
 ### Turn Flow
 
@@ -68,13 +69,13 @@ choose declarative identity and fresh/resume path
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
-  wait for queued messages
+  wait for a queued message
   emit agent/status(running)
   TURN:
     'turn/start'
-    each queued message -> agent/prompt-submit
+    claimed message -> agent/prompt-submit
       allowed prompt -> 'user/message' plus injected context
-    every prompt blocked -> 'turn/end'(rejected)
+      blocked prompt -> 'prompt/blocked' -> 'turn/end'(rejected)
     STEP loop:
       drain steering
       assemble system prompt and tool schemas
@@ -85,7 +86,7 @@ forever:
       agent/request (config only) -> log request/header -> llm/stream (frozen)
       on final adapter-path or terminal in-band failure:
         'step/end'
-        agent/request-error(original error, consecutive retry attempt, signal)
+        agent/request-error(original error, failure facts, immutable prior failures, signal)
         retry in the next numbered step or preserve the original error
       otherwise:
         'assistant/chunk'
@@ -110,11 +111,11 @@ Each step assembles ordered prompt sections, tool schemas, and `{{name}}` variab
 
 Tool-time context—including async `agent.inject()` notices and post-tool `additionalContexts`—settles, then follows recorded results. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering before signal closure. Leftovers become queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through turn close and flush, and discards later steering but preserves queued prompts.
 
-`dsh-compact-basic` handles pressure and canonical overflow at checkpoints; retry requires a balanced surface replacement ([decision](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)).
+Pruning precedes summaries; overflow retries require durable progress. Bounded transient retries compose on `agent/request-error`; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
 
 ### Failure Boundaries
 
-The turn is the containment boundary. Final adapter-path and terminal in-band failures close the step before `agent/request-error`; retry opens a numbered step; otherwise, the provider error survives. Attempts reset on success.
+The turn is the containment boundary. Adapter failures close the step, entering `agent/request-error` with the exact `Error`, `LlmFailure`, and retry history. Retry opens a numbered step; success clears history; exhaustion stores the failure on `turn/end`. Failed chunks commit no message or tool.
 
 Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched model tool calls receive synthetic `tool/call` and `ABORTED_BEFORE_DISPATCH` result pairs before `turn/end`. `cancel()` clears queues and aborts active work; disposal awaits quiescence before unregistering.
 
@@ -136,13 +137,13 @@ The session log is the source of truth. `deriveMessages()` projects session even
 
 **Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, headers by folding `request/header` — and dev invariants assert this ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
-Durability is a plugin concern. Persistence backends buffer synchronous `session/event` notifications and the loop awaits a turn-end checkpoint before moving on. The `SessionPersistence` seam stores `SessionEvent` directly, with metadata in `SessionHeader`; JSONL and SQLite share one contract suite.
+Durability is a plugin concern. Backends buffer synchronous `session/event` notifications; the loop awaits a turn-end checkpoint. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, with SQLite under one contract.
 
 ### Model Content
 
 Messages contain typed blocks (`text`, `reasoning`, `tool-call`, `tool-result`) derived from merge-extensible `ContentBlockMap`; the same pattern types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New block types coordinate adapters, UI bridges, compaction pricing, token metering, and persistence as one repo-wide contract; replay measurement types live in [token-meter.md](core-data-structures/token-meter.md).
 
-Streaming uses raw chunks (`block-start` through `finish`) and `BlockAssembler`. The loop logs and assembles chunks, storing provider/model provenance plus replay state. An `LlmAdapter` implements `stream()`, registers provider routes, and may expose selector metadata; it resolves and validates model ids. Replay state reaches targets only when both routes map to one adapter instance, which owns validation and conversion. The contract lives in [llm-streaming.md](core-data-structures/llm-streaming.md).
+Streaming uses raw chunks and `BlockAssembler`. One `LlmAdapter.stream()` is one provider attempt; adapters report facts, while recovery policy lives on `agent/request-error`. The loop logs chunks and successful provenance/replay state. Remote adapters stop stalled transport with per-read idle watchdogs. Replay state reaches targets only when routes share an adapter instance ([contract](core-data-structures/llm-streaming.md)).
 
 ## Extension And Composition
 
@@ -156,7 +157,7 @@ Some seams bend the template deliberately: LLM combines interface and consumer b
 
 ### Bundles And Apps
 
-`dsh-agent-spine-demo` bundles the default spine ([README](../packages/examples/agent-spine-demo/README.md)). `dsh-stdio-demo` selects `dsh-tui` for interactive terminals and line-oriented `dsh-stdio` for pipes; `dsh-cli-demo` runs one persisted headless turn with format-pure stdout; `dsh-acp-demo` adds stdout-pure ACP over JSON-RPC ([ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies its default only without an explicit config channel and drives `dsh-jsonrpc` over line-delimited JSON-RPC ([Python SDK](../python/README.md)). Deployments remain thin leaves with swappable backends and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-spine-demo` bundles the default spine ([README](../packages/examples/agent-spine-demo/README.md)). `dsh-tui-demo` owns the interactive full-screen terminal; `dsh-cli-demo` runs one persisted headless turn with format-pure stdout; `dsh-acp-demo` adds stdout-pure ACP over JSON-RPC ([ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies its default only without an explicit config channel and drives `dsh-jsonrpc` over line-delimited JSON-RPC ([Python SDK](../python/README.md)). Deployments remain thin leaves with swappable backends and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Where New Behavior Goes
 

@@ -11,11 +11,13 @@ How this repo tests, tier by tier, and the rules that keep a green suite meaning
 
 ## The with-key policy: inference is cheap here
 
-We are DeepSeek — do not ration real-API tests. A no-key test proves plumbing; only a with-key run proves the agent works against a real model. Write many: file-writing prompts, multi-turn conversations, tool use, cancellation mid-stream. Highest-value are **smoke tests** that boot the real example, send one real prompt, and check the world — they catch the "green unit tests, broken product" class that mocks structurally cannot ([postmortem 0001](postmortem/0001-acp-default-export-drops-inject.md)). The self-skip exists only so secretless CI and keyless contributors aren't blocked; it is not a cost signal. Every example ships a keyless smoke and — unless keyless-by-nature — a with-key smoke ([examples/AGENTS.md](../examples/AGENTS.md)).
+We are DeepSeek — do not ration real-API tests. A no-key test proves plumbing; only a with-key run proves the agent works against a real model. Write many: file-writing prompts, multi-turn conversations, tool use, cancellation mid-stream. Highest-value are **smoke tests** that boot the real example, send one real prompt, and check the world — they catch the "green unit tests, broken product" class that mocks structurally cannot ([postmortem 0001](postmortem/0001-acp-default-export-drops-inject.md)). The self-skip exists only so secretless CI and keyless contributors aren't blocked; it is not a cost signal. Every example ships both a keyless smoke and a with-key smoke ([examples/AGENTS.md](../examples/AGENTS.md)).
 
 ## Prefer the real implementation over a mock
 
 Mock only the genuinely expensive or non-deterministic boundary (the LLM adapter, the network, the clock); keep everything downstream real. A hand-rolled stand-in proves the bridge moves bytes, not that the shipping tool behaves as asserted — the two drift while the test stays green. Example: bridge tool-call tests run the scripted mock MODEL but the real tool + real executor (`makeBridgeHarness({ withBash: true })` plugs `dsh-bash-local` + `dsh-tool-bash` and runs an actual `echo`).
+
+Recovery tests separate pre/post-chunk failures by step and prove failed chunks derive no message or tool side effect. Cover exhaustion, cancellation, policy composition, persistence, status, wire counts, transport-closing idle timeouts, and shipping Loader composition.
 
 ## Verify the world, not the self-report
 

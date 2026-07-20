@@ -45,8 +45,7 @@ export interface Config {
   /**
    * Tool filter applied to every child. Filtered tools disappear from its
    * prompt and reject execution. Requires the provider's `toolFilter`
-   * capability; unknown names fail startup. Children otherwise see this tool,
-   * so deny it or set `maxDepth` to bound recursion.
+   * capability; unknown names fail startup.
    */
   toolFilter?: {
     /** Global tool names the child keeps; everything else is removed. */
@@ -55,10 +54,15 @@ export interface Config {
     deny?: string[]
   }
   /**
-   * Maximum child depth. Requires the provider's `depthLimit` capability and a
-   * non-negative safe integer. Omission is unbounded.
+   * Maximum child depth: a non-negative safe integer (default `3`; `0` forbids
+   * delegation entirely), or `'provider-managed'` to send no cap. A numeric cap
+   * requires the provider's `depthLimit` capability (mount fails loud
+   * otherwise). The provider checks the calling agent's current depth at every
+   * start; the tool remains model-visible so runtime policy owns rejection.
+   * `'provider-managed'` is for an out-of-process provider (ACP) whose
+   * recursion budget belongs to the child harness's own deployment.
    */
-  maxDepth?: number
+  maxDepth?: number | 'provider-managed'
 }
 
 export const Config: z<Config> = z.object({
@@ -76,7 +80,7 @@ export const Config: z<Config> = z.object({
     allow: z.array(z.string()).default(undefined as unknown as string[]),
     deny: z.array(z.string()).default(undefined as unknown as string[]),
   }).default(undefined as unknown as { allow: string[]; deny: string[] }),
-  maxDepth: z.natural().max(Number.MAX_SAFE_INTEGER),
+  maxDepth: z.union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed' as const)]).default(3),
 })
 
 /**
@@ -195,6 +199,7 @@ function providerWording(inheritsConversation: boolean): { description: string; 
 }
 
 function startRequest(config: Config, prompt: string, parent: Agent, signal: AbortSignal): SubagentStartRequest {
+  const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined
   return {
     prompt: [{ type: 'text', text: prompt }],
     parent,
@@ -202,7 +207,7 @@ function startRequest(config: Config, prompt: string, parent: Agent, signal: Abo
     ...config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
-    ...config.maxDepth !== undefined ? { maxDepth: config.maxDepth } : {},
+    ...maxDepth !== undefined ? { maxDepth } : {},
   }
 }
 
@@ -218,8 +223,9 @@ async function settleStart(start: Promise<SubagentRun>, signal: AbortSignal): Pr
 }
 
 export function apply(ctx: Context, config: Config): void {
-  // Direct apply() bypasses Schemastery's numeric constraints.
-  assertSubagentMaxDepth(config.maxDepth)
+  // Direct apply() bypasses Schemastery's numeric constraints. A direct-apply
+  // omission stays capless (the schema default only runs through the loader).
+  if (config.maxDepth !== 'provider-managed') assertSubagentMaxDepth(config.maxDepth)
   // Reject an empty explicit filter at load instead of failing every delegation.
   if (config.toolFilter !== undefined && config.toolFilter.allow === undefined && config.toolFilter.deny === undefined) {
     throw new Error('tool-subagent: `toolFilter` is configured but names neither `allow` nor `deny` — remove the key or fill the filter')
@@ -228,6 +234,15 @@ export function apply(ctx: Context, config: Config): void {
   // can change provider availability while this fiber remains active.
   let disposeTool: (() => void) | undefined
   const mount = (provider: SubagentProvider): void => {
+    // A numeric cap the provider cannot enforce is a misconfiguration — fail at
+    // mount (the earliest point the provider's capabilities are known), not on
+    // the first delegation.
+    if (typeof config.maxDepth === 'number' && !provider.capabilities.depthLimit) {
+      throw new Error(
+        `tool-subagent: provider "${provider.name}" cannot enforce maxDepth (no depthLimit capability) — `
+        + 'set maxDepth: \'provider-managed\' to leave the recursion budget to the provider',
+      )
+    }
     const wording = providerWording(provider.inheritsParentContext)
     const backgroundEnabled = config.enableRunInBackground !== false
     disposeTool = ctx.tools.register(defineTool({

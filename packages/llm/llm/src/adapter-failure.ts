@@ -5,10 +5,10 @@
  */
 
 import { HarnessError } from './error.ts'
-import type { StreamChunk } from './types.ts'
+import type { LlmFailure, StreamChunk } from './types.ts'
 
-/** Errors proven to originate in one model call's final adapter boundary. */
-export type AdapterFailureScope = WeakSet<Error>
+/** Errors and normalized facts proven to originate in one model call's final adapter boundary. */
+export type AdapterFailureScope = WeakMap<Error, LlmFailure>
 
 /** Call-local failure scopes keyed by the exact stream handle returned to a consumer. */
 const adapterFailureScopes = new WeakMap<AsyncIterable<StreamChunk>, AdapterFailureScope>()
@@ -47,8 +47,69 @@ export function markLlmAdapterFailure(
   const error = value instanceof Error
     ? value as Error & { code?: string }
     : new HarnessError(String(value), 'UNKNOWN', { cause: value })
-  failures.add(error)
+  const carried = error instanceof HarnessError ? ownFailureSnapshot(error) : undefined
+  const failure = carried !== undefined && carried.code === error.code ? carried : Object.freeze({
+    message: errorMessage(error),
+    code: harnessErrorCode(error),
+  })
+  failures.set(error, failure)
   return error
+}
+
+/** Snapshot an own data property without invoking an SDK-defined accessor. */
+function ownFailureSnapshot(error: Error): LlmFailure | undefined {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, 'failure')
+    return descriptor !== undefined && 'value' in descriptor
+      ? failureSnapshot(descriptor.value)
+      : undefined
+  } catch (_sdkPropertyTrap) {
+    return undefined
+  }
+}
+
+/** Validate and detach an arbitrary serializable failure payload. */
+function failureSnapshot(value: unknown): LlmFailure | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  try {
+    const candidate = value as Partial<LlmFailure>
+    const message = candidate.message
+    const code = candidate.code
+    const status = candidate.status
+    const providerRetryAfterMs = candidate.providerRetryAfterMs
+    const requestId = candidate.requestId
+    if (typeof message !== 'string' || message.length === 0
+      || typeof code !== 'string' || code.length === 0
+      || (status !== undefined && (!Number.isInteger(status) || status < 100 || status > 599))
+      || (providerRetryAfterMs !== undefined
+        && (!Number.isFinite(providerRetryAfterMs) || providerRetryAfterMs <= 0))
+      || (requestId !== undefined && (typeof requestId !== 'string' || requestId.length === 0))) return undefined
+    return Object.freeze({
+      message,
+      code,
+      ...status === undefined ? {} : { status },
+      ...providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs },
+      ...requestId === undefined ? {} : { requestId },
+    })
+  } catch (_sdkFailureGetter) {
+    return undefined
+  }
+}
+
+/** Read an SDK error message without letting an accessor replace the primary failure. */
+function errorMessage(error: Error): string {
+  try {
+    const message: unknown = error.message
+    if (typeof message === 'string' && message.length > 0) return message
+  } catch (_sdkMessageGetter) {
+    // The fallback below preserves a serializable failure beside the original Error.
+  }
+  return 'LLM adapter failed'
+}
+
+/** Trust only Harness-owned codes; third-party SDK codes are not our taxonomy. */
+function harnessErrorCode(error: Error): string {
+  return error instanceof HarnessError ? error.code : 'UNKNOWN'
 }
 
 /**
@@ -64,4 +125,19 @@ export function isLlmAdapterFailure(
 ): value is Error & { code?: string } {
   const failures = adapterFailureScopes.get(stream)
   return value instanceof Error && failures !== undefined && failures.has(value)
+}
+
+/**
+ * Retrieve normalized provider facts only for an Error tagged by this exact
+ * model call's final adapter boundary.
+ * @param stream - the exact stream returned to the consumer.
+ * @param value - the caught failure.
+ * @returns the immutable facts for that call, or `undefined` for middleware, nested, or consumer failures.
+ */
+export function llmFailureOf(
+  stream: AsyncIterable<StreamChunk>,
+  value: unknown,
+): LlmFailure | undefined {
+  const failures = adapterFailureScopes.get(stream)
+  return value instanceof Error ? failures?.get(value) : undefined
 }

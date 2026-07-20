@@ -44,6 +44,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import type { ContentBlock, LlmCallConfig, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-llm-retry'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 // Side-effect type import: resolves `ctx.get('permission')` to the service.
@@ -481,7 +482,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     reason: TurnEndReason,
   ): void => {
     if (reason.kind === 'error') {
-      inflight.reject(internalError(`turn failed: ${reason.message}`))
+      inflight.reject(internalError(`turn failed: ${'failure' in reason ? reason.failure.message : reason.message}`))
     } else {
       inflight.resolve(turnEndToStopReason(reason))
     }
@@ -827,10 +828,11 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // session/cancel maps to the queue-aware agent.cancel(reason): it aborts
         // a RUNNING step, clears the queued + steering FIFOs, and drops a
         // turn that is about to start (the pre-step window) — so a queued-but-
-        // not-yet-started prompt never runs, and a prompt accepted right after
-        // cannot be batched into the cancelled turn. Scoped to THIS session's
+        // not-yet-started prompt never runs, while a prompt accepted afterward
+        // remains a separate queued turn. Scoped to THIS session's
         // agent — a cancel in one session never touches another's stream or
-        // pending prompt (RFC 011 isolation). We ALSO settle the in-flight prompt
+        // pending prompt (multi-session isolation).
+        // We ALSO settle the in-flight prompt
         // as cancelled directly here: do NOT rely on the resulting turn/end to
         // settle it, because cancel() may drop the turn before any turn/end is
         // emitted, and removing this direct settle would move the RPC's
@@ -1035,11 +1037,13 @@ function validateMcpServers(params: { mcpServers?: unknown[] }): void {
  * identical update stream from the same event log.
  *
  * - `assistant/chunk` text-delta/reasoning-delta → message/thought chunks
+ * - `llm/retry` and terminal model failure → visible discarded-attempt markers
  * - `user/message` → `user_message_chunk` during load replay only — so a
  *   loaded transcript reconstructs the USER side of each turn without echoing
  *   a live `session/prompt` back to the client
  * - `tool/call`   → `tool_call` (pending)
- * - `tool/result` → `tool_call_update` (completed/failed)
+ * - appended `tool/result` → `tool_call_update` (completed/failed)
+ * - replacement `tool/result` → no update (context rewrite, not execution)
  *
  * Tool-call presentation (title/kind/rawInput, and the completed-state content)
  * is owned by each TOOL via `presentCall`/`presentResult` — the bridge never
@@ -1081,6 +1085,13 @@ export function streamSessionEventUpdate(
       }
       return
     }
+    case 'llm/retry': {
+      const text = '\n\n[Previous model attempt discarded; retrying '
+        + `${event.data.retry}/${event.data.maxRetries} in ${event.data.delayMs}ms: `
+        + `${event.data.failure.message}]\n\n`
+      notify({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } })
+      return
+    }
     case 'user/message': {
       if (!includeUserMessages) return
       // Replay the user's prompt so a loaded session shows both sides of each
@@ -1100,6 +1111,10 @@ export function streamSessionEventUpdate(
       return
     }
     case 'tool/result': {
+      // Replacements (for example model-free pruning) are transcript rewrites,
+      // not repeated tool executions. Re-presenting one would consume no
+      // pending call and could clobber the original terminal/diff completion.
+      if (event.surfaceOp !== undefined && event.surfaceOp !== 'append') return
       const view = presenter.result(event.data.callId, event.data.content, event.data.isError, event.data.meta)
       notify({ sessionId, update: toolResultUpdate(event.data.callId, view, event.data.isError, terminal) })
       return
@@ -1108,7 +1123,13 @@ export function streamSessionEventUpdate(
       notify({ sessionId, update: { sessionUpdate: 'plan', ...todosToPlan(event.data.todos) } })
       return
     }
-    // turn/step boundaries, context/message, steering,
+    case 'turn/end': {
+      if (event.data.reason.kind !== 'error' || !('failure' in event.data.reason)) return
+      const text = `\n\n[Model attempt failed; any partial output above is discarded: ${event.data.reason.failure.message}]\n\n`
+      notify({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } })
+      return
+    }
+    // non-error turn/step boundaries, context/message, steering,
     // assistant/message — no direct ACP client update.
     default:
       return

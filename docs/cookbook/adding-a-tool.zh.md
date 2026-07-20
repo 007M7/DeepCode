@@ -2,7 +2,7 @@
 
 [English](adding-a-tool.md) | 中文
 
-如何为模型赋予一项新能力。参考实现：`examples/echo-agent/src/echo-tool.ts`（最小化）和 `packages/bash/tool-bash`（生产级，由三个包（package）构成的 seam）。
+如何为模型赋予一项新能力。下文的最小形态展示这项契约；`packages/bash/tool-bash` 是生产级、由三个包（package）构成的 seam。
 
 ## 最小形态
 

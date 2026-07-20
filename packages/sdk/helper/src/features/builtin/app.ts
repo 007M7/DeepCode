@@ -29,7 +29,7 @@ const ID = featureId('app')
 
 function appProjectResources(
   profile: ProjectProfile,
-  runInterface: 'acp' | 'stdio' | 'embed',
+  runInterface: 'acp' | 'tui' | 'embed',
 ): readonly ProjectResource[] {
   const context = createProjectTemplateContext(profile, runInterface)
   const scripts = createAppPackageScripts(context)
@@ -43,10 +43,10 @@ function appProjectResources(
 }
 
 class AppOption extends FeatureOption {
-  override readonly id: 'acp' | 'stdio' | 'embed'
+  override readonly id: 'acp' | 'tui' | 'embed'
   override readonly label: string
 
-  constructor(id: 'acp' | 'stdio' | 'embed', label: string) {
+  constructor(id: 'acp' | 'tui' | 'embed', label: string) {
     super()
     this.id = id
     this.label = label
@@ -56,7 +56,7 @@ class AppOption extends FeatureOption {
   override markerConfigEntries(): readonly { id: string; name: string }[] {
     switch (this.id) {
       case 'acp': return [{ id: 'acp', name: '@deepseek-ai/dsh-acp' }]
-      case 'stdio': return [{ id: 'stdio', name: '@deepseek-ai/dsh-stdio' }]
+      case 'tui': return [{ id: 'tui', name: '@deepseek-ai/dsh-tui' }]
       case 'embed': return []
     }
   }
@@ -65,7 +65,7 @@ class AppOption extends FeatureOption {
   override matchesConfigEntries(entries: readonly { id: string; name: string }[], profile: ProjectProfile): boolean {
     if (this.id !== 'embed') return super.matchesConfigEntries(entries, profile)
     return entries.some(entry => entry.id === 'agent-loop' && entry.name === '@deepseek-ai/dsh-agent-loop')
-      && !entries.some(entry => entry.name === '@deepseek-ai/dsh-acp' || entry.name === '@deepseek-ai/dsh-stdio')
+      && !entries.some(entry => entry.name === '@deepseek-ai/dsh-acp' || entry.name === '@deepseek-ai/dsh-tui')
   }
 
   override contribution(profile: ProjectProfile): ProjectContribution {
@@ -83,7 +83,7 @@ class AppOption extends FeatureOption {
             config: { model: profile.runtime.model },
           }, ['model'], config => requiredString(config, 'model')),
         ])
-      case 'stdio':
+      case 'tui':
         return new ProjectContribution([
           ...appProjectResources(profile, this.id),
           ...npmCordisConfigEntry(ID, {
@@ -91,10 +91,10 @@ class AppOption extends FeatureOption {
             name: '@deepseek-ai/dsh-user-interaction',
           }),
           ...npmCordisConfigEntry(ID, {
-            id: 'stdio',
-            name: '@deepseek-ai/dsh-stdio',
+            id: 'tui',
+            name: '@deepseek-ai/dsh-tui',
             config: {
-              welcome: 'agent REPL ready. Give it a coding task.',
+              welcome: 'TUI agent ready. Give it a coding task.',
               sessionId: new JsExpression('process.env.DSH_SDK_SESSION_ID'),
             },
           }, ['welcome', 'sessionId'], config => [
@@ -108,7 +108,7 @@ class AppOption extends FeatureOption {
   }
 }
 
-/** Required app selection represented by acp, stdio, or embed options. */
+/** Required app selection represented by ACP, TUI, or embed options. */
 export class AppFeature extends ExclusiveOptionFeature {
   override readonly id = ID
   override readonly summary = 'Run interface'
@@ -116,7 +116,7 @@ export class AppFeature extends ExclusiveOptionFeature {
   override readonly requires = [featureId('spine')]
   override readonly options = [
     new AppOption('acp', 'ACP server'),
-    new AppOption('stdio', 'Terminal REPL'),
+    new AppOption('tui', 'Terminal TUI'),
     new AppOption('embed', 'Embedded context'),
   ]
 
