@@ -165,6 +165,14 @@
   }
 
   function renderTile(entry, openArtifact) {
+    // Board reuse decision (lane-artifact-inline, 2026-07-20): the List row
+    // grew an expandable inline md/html preview, but the Board tile does NOT
+    // reuse it. A tile is a single <button> whose whole click target opens
+    // the artifact in the browser; the inline preview needs interactive
+    // links (<a>) and an expand toggle, and nesting those inside a <button>
+    // is invalid HTML and would hijack the tile's open-on-click. The tile
+    // keeps its cheap first-line thumbnail (thumbnailPreview) instead; deep
+    // reading happens on the List row or in the browser.
     const tile = document.createElement('button')
     tile.type = 'button'
     tile.className = 'artifact-tile'

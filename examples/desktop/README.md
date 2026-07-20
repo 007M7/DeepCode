@@ -505,10 +505,17 @@ in the target profile.
 - **Mission Control has no persistence.** A page reload wipes the
   aggregate and reseeds from the next `session/list` refresh — the
   view is a live overlay, not a store.
-- **Artifact preview opens in your default browser.** No embedded
-  webview, no cloud tunnel; the shell hosts a `127.0.0.1` static
-  server and drops a card into chat when a new file appears in the
-  artifact dir.
+- **Artifact preview: inline peek in-stream, full view in the browser.**
+  Each artifact card can expand a low-key inline preview — Markdown
+  rendered read-only by a tiny dependency-free renderer (`md-mini.js`,
+  text-node-only, so any raw HTML inside the doc stays literal), and
+  `.html` framed in a `sandbox="allow-scripts"` iframe pointed at the
+  existing `127.0.0.1` server. There is still **no embedded webview for
+  full pages**: the inline frame is a fixed-height peek, and "Open in
+  browser" remains the path for the real, full-size artifact. Previews
+  are collapsed by default and lazy (content builds on first expand);
+  when the artifact server isn't up the `.html` expand falls back to the
+  open-in-browser action instead of a broken frame.
 - **Growth reads jsonl + `session/list`.** A follow-up will migrate to
   the `session/list` + `session/events` aggregation so events that
   never touch the overlay (pure chat activity) also show up.
@@ -659,9 +666,12 @@ under `docs/`:
   `src/renderer/widgets.js` and the three header mocks.
 - **Artifact preview** — `127.0.0.1` static server + SSE live-reload
   that watches `~/Library/Application Support/dsh-desktop-demo/.artifacts/`
-  (override with `DSH_ARTIFACT_DIR=…`). Opens in your default browser;
-  no embedded webview. Tool-driven and debug-mock paths both exercised.
-  See `src/main/artifact-server.js`.
+  (override with `DSH_ARTIFACT_DIR=…`). Cards carry an inline peek —
+  `.md` rendered read-only by `src/renderer/md-mini.js`, `.html` framed
+  in a `sandbox="allow-scripts"` iframe — while the full view still opens
+  in your default browser (no embedded webview for full pages).
+  Tool-driven and debug-mock paths both exercised. See
+  `src/main/artifact-server.js` and `src/renderer/md-mini.js`.
 
 ### Design docs
 

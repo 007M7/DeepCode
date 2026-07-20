@@ -761,6 +761,80 @@ body.layout-monitor .stream {
 .artifact-body-actions { display: flex; gap: 8px; }
 .artifact-open { font-size: 12px; padding: 4px 10px; }
 
+/* Inline preview (lane-artifact-inline): md / html artifacts get a low-key
+ * expandable strip under the L1 actions. Collapsed by default so the card
+ * stays a quiet row; the region only builds its content on first expand. */
+.artifact-preview { display: flex; flex-direction: column; gap: 0; }
+.artifact-preview-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  align-self: flex-start;
+  background: none; border: none; cursor: pointer;
+  padding: 2px 4px; margin: 0;
+  font-size: 11px; color: var(--text-tertiary);
+  border-radius: 3px;
+}
+.artifact-preview-toggle:hover { color: var(--accent); background: var(--accent-soft); }
+.artifact-preview-caret {
+  font-size: 9px; line-height: 1; display: inline-block;
+  transform: translateY(0.5px);
+}
+.artifact-preview-label { letter-spacing: 0.02em; }
+.artifact-preview-region {
+  margin-top: 6px;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: var(--bg-elev-1);
+  overflow: hidden;
+}
+.artifact-preview-note {
+  padding: 8px 10px; display: flex; align-items: center; gap: 6px;
+}
+/* Rendered markdown block — tight, readable, capped visual scale so the
+ * inline peek doesn't try to be a full document reader. */
+.artifact-preview-md {
+  padding: 4px 12px 10px; max-height: 360px; overflow: auto;
+  font-size: 12px; line-height: 1.55; color: var(--text);
+}
+.artifact-preview-md .md-mini-h { margin: 10px 0 4px; line-height: 1.3; font-weight: 600; }
+.artifact-preview-md .md-mini-h1 { font-size: 16px; }
+.artifact-preview-md .md-mini-h2 { font-size: 14px; }
+.artifact-preview-md .md-mini-h3 { font-size: 13px; }
+.artifact-preview-md .md-mini-h4,
+.artifact-preview-md .md-mini-h5,
+.artifact-preview-md .md-mini-h6 { font-size: 12px; color: var(--muted); }
+.artifact-preview-md .md-mini-p { margin: 4px 0; }
+.artifact-preview-md .md-mini-list { margin: 4px 0; padding-left: 20px; }
+.artifact-preview-md .md-mini-list li { margin: 2px 0; }
+.artifact-preview-md .md-mini-code {
+  font-family: var(--mono); font-size: 11px;
+  background: var(--bg-elev-2); padding: 1px 5px; border-radius: 3px;
+}
+.artifact-preview-md .md-mini-pre {
+  background: var(--bg-elev-2); border-radius: 4px;
+  padding: 8px 10px; margin: 6px 0; overflow: auto;
+}
+.artifact-preview-md .md-mini-pre code {
+  font-family: var(--mono); font-size: 11px; color: var(--text);
+  background: none; padding: 0;
+}
+.artifact-preview-md .md-mini-quote {
+  margin: 6px 0; padding: 2px 0 2px 10px;
+  border-left: 3px solid var(--border); color: var(--muted);
+}
+.artifact-preview-md .md-mini-hr {
+  border: none; border-top: 1px solid var(--border); margin: 10px 0;
+}
+.artifact-preview-md .md-mini-link { color: var(--accent); cursor: pointer; }
+.artifact-preview-md .md-mini-link:hover { text-decoration: underline; }
+.artifact-preview-md .md-mini-truncated {
+  margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border);
+  font-size: 10px; color: var(--text-tertiary);
+}
+/* Sandboxed html preview iframe — fixed height, full width of the region. */
+.artifact-preview-frame {
+  display: block; width: 100%; height: 360px; border: none;
+  background: #fff;
+}
+
 /* Auto-group: consecutive artifact cards get wrapped in an
  * `.artifact-group` container by the renderer so the group owns its own
  * zero-gap layout (the stream's 12px flex-gap would otherwise dominate).

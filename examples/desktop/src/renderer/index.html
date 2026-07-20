@@ -1474,6 +1474,11 @@
        reach the Board/Timeline/Evolution views without waiting for a
        real run to emit fs artifacts. -->
   <script src="./artifact-board-seed.js"></script>
+  <!-- Minimal Markdown → DOM renderer (window.__dshMdMini) for in-stream
+       inline .md artifact previews. MUST load before artifacts.js, which
+       calls it when expanding an .md card's preview. Dependency-free and
+       innerHTML-free: model text reaches the DOM only as text nodes. -->
+  <script src="./md-mini.js"></script>
   <script src="./artifacts.js"></script>
   <script src="./plugin-runtime-fold.js"></script>
   <script src="./mcp-tool-name.js"></script>

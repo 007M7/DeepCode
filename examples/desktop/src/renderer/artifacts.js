@@ -53,7 +53,17 @@
   function ensureBucket(sid) {
     let b = bySession.get(sid)
     if (!b) {
-      b = { cards: new Map(), history: new Map(), panelEl: null, currentView: 'list' }
+      b = {
+        cards: new Map(),
+        history: new Map(),
+        panelEl: null,
+        currentView: 'list',
+        // Per-card inline-preview open state, keyed by artifactId. Cards
+        // persist in the transcript DOM so their expanded/collapsed state
+        // survives naturally, but tracking it here lets a rebuilt card
+        // (and the unit tests) restore the last state deterministically.
+        previewOpen: new Set(),
+      }
       bySession.set(sid, b)
     }
     return b
@@ -285,8 +295,201 @@
     return out
   }
 
+  // Classify an artifact for inline preview. `.md` gets the mini markdown
+  // renderer; `.html` gets a sandboxed iframe pointed at the artifact
+  // server. Everything else has no inline preview (open-in-browser only).
+  // Kind is taken from the event's `kind` when present, else sniffed off
+  // the path extension so fixture events that only carry a path still work.
+  function previewKind(entry) {
+    const kind = String(entry.kind || '').toLowerCase()
+    if (kind === 'md' || kind === 'markdown') return 'md'
+    if (kind === 'html') return 'html'
+    const p = String(entry.path || entry.artifactId || '').toLowerCase()
+    if (/\.(md|markdown)$/.test(p)) return 'md'
+    if (/\.html?$/.test(p)) return 'html'
+    return null
+  }
+
+  // Latest captured blob for an artifact, if any. The real ArtifactServer
+  // does not ship content on the wire, but fixtures (and the debug seed)
+  // do; recordHistory keeps it. Used as the md preview source so the
+  // fixture path renders real content without a network round-trip.
+  function latestBlob(entry) {
+    if (typeof entry.blob === 'string') return entry.blob
+    const arr = history.get(entry.artifactId)
+    if (!arr || !arr.length) return null
+    const latest = arr.reduce((a, b) => (a.version >= b.version ? a : b))
+    return typeof latest.blob === 'string' ? latest.blob : null
+  }
+
+  // Build the artifact server URL for an .html artifact. Prefer the URL the
+  // event already carries (real ArtifactServer stamps `url`); otherwise ask
+  // the preload bridge for the base and compose it the same way the server
+  // does (encodeURIComponent, but keep `/` path separators). Returns null
+  // when no server is up so callers fall back to open-in-browser.
+  async function resolveHtmlUrl(entry) {
+    if (typeof entry.url === 'string' && entry.url) return entry.url
+    if (!(window.dsh && typeof window.dsh.getArtifactBase === 'function')) return null
+    try {
+      const base = await window.dsh.getArtifactBase()
+      if (!base || !base.url) return null
+      const id = encodeURIComponent(entry.artifactId).replace(/%2F/gi, '/')
+      return base.url.replace(/\/$/, '') + '/a/' + id + '/'
+    } catch (err) {
+      console.error('getArtifactBase failed', err)
+      return null
+    }
+  }
+
+  // Inline preview strip: a <details>-free expandable region (we can't nest
+  // a <details> inside the card's <details> and get independent toggle
+  // state, so this is a button + region pair). Collapsed by default;
+  // content builds lazily on first expand. Open state is mirrored into the
+  // session bucket's previewOpen set so it's restorable.
+  function buildPreview(entry) {
+    const kind = previewKind(entry)
+    if (kind !== 'md' && kind !== 'html') return null
+
+    const wrap = document.createElement('div')
+    wrap.className = 'artifact-preview'
+    wrap.dataset.previewKind = kind
+
+    const toggle = document.createElement('button')
+    toggle.type = 'button'
+    toggle.className = 'artifact-preview-toggle'
+    toggle.setAttribute('aria-expanded', 'false')
+    const caret = document.createElement('span')
+    caret.className = 'artifact-preview-caret'
+    caret.setAttribute('aria-hidden', 'true')
+    caret.textContent = '▸'
+    const label = document.createElement('span')
+    label.className = 'artifact-preview-label'
+    label.textContent = kind === 'md' ? 'preview markdown' : 'preview page'
+    toggle.append(caret, label)
+
+    const region = document.createElement('div')
+    region.className = 'artifact-preview-region'
+    region.hidden = true
+
+    let built = false
+    const expand = () => {
+      wrap.classList.add('is-open')
+      toggle.setAttribute('aria-expanded', 'true')
+      caret.textContent = '▾'
+      region.hidden = false
+      bucket().previewOpen.add(entry.artifactId)
+      if (!built) {
+        built = true
+        if (kind === 'md') buildMdPreview(region, entry)
+        else buildHtmlPreview(region, entry)
+      }
+    }
+    const collapse = () => {
+      wrap.classList.remove('is-open')
+      toggle.setAttribute('aria-expanded', 'false')
+      caret.textContent = '▸'
+      region.hidden = true
+      bucket().previewOpen.delete(entry.artifactId)
+    }
+    toggle.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (region.hidden) expand()
+      else collapse()
+    })
+
+    wrap.append(toggle, region)
+
+    // Restore prior open state (rebuilt card / test-driven restore).
+    // Opening the preview also means opening the parent <details> so the
+    // region is visible (a closed <details> hides non-summary children).
+    // Deferred to a microtask so the card is appended and `.closest` can
+    // find the parent.
+    if (bucket().previewOpen.has(entry.artifactId)) {
+      Promise.resolve().then(() => {
+        const parentCard = wrap.closest ? wrap.closest('.artifact-card') : null
+        if (parentCard) parentCard.open = true
+        expand()
+      })
+    }
+
+    return wrap
+  }
+
+  function buildMdPreview(region, entry) {
+    const md = window.__dshMdMini
+    const blob = latestBlob(entry)
+    if (!md) {
+      const note = document.createElement('div')
+      note.className = 'artifact-preview-note muted small'
+      note.textContent = 'markdown renderer unavailable'
+      region.appendChild(note)
+      return
+    }
+    if (typeof blob !== 'string') {
+      // No content on the wire (real ArtifactServer path). Be honest and
+      // point at the browser rather than fake a render.
+      const note = document.createElement('div')
+      note.className = 'artifact-preview-note muted small'
+      note.textContent = '内容未随事件传入 · 用「在浏览器打开」查看'
+      region.appendChild(note)
+      return
+    }
+    const onLink = (href) => {
+      if (window.dsh && typeof window.dsh.openExternalUrl === 'function') {
+        window.dsh.openExternalUrl(href)
+      }
+    }
+    const rendered = md.render(blob, { document, onLink })
+    rendered.classList.add('artifact-preview-md')
+    region.appendChild(rendered)
+  }
+
+  function buildHtmlPreview(region, entry) {
+    // Show a placeholder while we resolve whether a server is up; swap in
+    // the sandboxed iframe or the fallback once known.
+    const pending = document.createElement('div')
+    pending.className = 'artifact-preview-note muted small'
+    pending.textContent = 'loading preview…'
+    region.appendChild(pending)
+
+    resolveHtmlUrl(entry).then((url) => {
+      pending.remove()
+      if (!url) {
+        // Server not up (e.g. stdio profile without artifacts). Offer the
+        // existing open-in-browser action rather than a broken frame.
+        const note = document.createElement('div')
+        note.className = 'artifact-preview-note muted small'
+        note.textContent = 'artifact 服务未启动 · '
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'artifact-open ghost small'
+        btn.textContent = 'Open in browser'
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation()
+          if (btn.getAttribute('aria-disabled') === 'true') return
+          invokeOpen(entry, btn, 'Open in browser')
+        })
+        note.appendChild(btn)
+        region.appendChild(note)
+        return
+      }
+      const frame = document.createElement('iframe')
+      frame.className = 'artifact-preview-frame'
+      // Sandbox: allow the page's own scripts to run (many artifacts are
+      // interactive) but withhold allow-same-origin so the framed doc can't
+      // reach back into the 127.0.0.1 origin's storage/cookies, and grant
+      // nothing else (no top-nav, popups, forms, downloads).
+      frame.setAttribute('sandbox', 'allow-scripts')
+      frame.setAttribute('loading', 'lazy')
+      frame.setAttribute('referrerpolicy', 'no-referrer')
+      frame.setAttribute('title', 'Artifact preview: ' + entry.artifactId)
+      frame.src = url
+      region.appendChild(frame)
+    })
+  }
+
   function invokeOpen(entry, actionEl, restoreLabel) {
-    if (!actionEl) return
     actionEl.setAttribute('aria-disabled', 'true')
     actionEl.classList.add('is-busy')
     const done = (label) => {
@@ -403,6 +606,14 @@
     actionRow.append(openBtn)
 
     body.append(pathRow, actionRow)
+
+    // ---- inline preview (md / html) -----------------------------------
+    // A low-key expandable strip under the actions. Collapsed by default so
+    // the card stays a single quiet row; lazy — content only builds on
+    // first expand. Only .md and .html artifacts get it; other kinds
+    // (svg/binary/etc) keep the open-in-browser affordance alone.
+    const preview = buildPreview(entry)
+    if (preview) body.append(preview)
 
     el.append(summary, body)
     // Kick a fresh-flash so the arrival is noticeable.
