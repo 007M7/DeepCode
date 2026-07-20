@@ -27,9 +27,9 @@ import {
 } from './runtime.ts'
 import type {
   CreateGoalRequest,
-  CreateGoalSpec,
   EditGoalRequest,
   GoalActivation,
+  GoalBlockReason,
   GoalChangeMeta,
   GoalChanged,
   GoalClearChangeMeta,
@@ -79,6 +79,12 @@ interface GoalCache {
   readonly pending: PendingGoalChange[]
 }
 
+/** Validated create input with every deployment default materialized. */
+interface ResolvedCreateGoal {
+  readonly objective: string
+  readonly maxGoalRounds: number
+}
+
 /** Validate a caller-visible positive safe-integer round cap. */
 function resolveMaxGoalRounds(value: number): number {
   if (!Number.isSafeInteger(value) || value < 1) {
@@ -93,6 +99,31 @@ function resolveObjective(value: string): string {
     throw new GoalError('goal objective must be a non-empty string', 'GOAL_INVALID_OBJECTIVE')
   }
   return value.trim()
+}
+
+/** Materialize deployment defaults and validate one create request. */
+function resolveCreateGoal(request: CreateGoalRequest, defaultMaxGoalRounds: number): ResolvedCreateGoal {
+  return {
+    objective: resolveObjective(request.objective),
+    maxGoalRounds: resolveMaxGoalRounds(request.maxGoalRounds ?? defaultMaxGoalRounds),
+  }
+}
+
+/** Validate and detach one policy-owned blocker explanation. */
+function resolveBlockReason(reason: unknown): GoalBlockReason {
+  const record = typeof reason === 'object' && reason !== null && !Array.isArray(reason)
+    ? reason as Record<string, unknown>
+    : undefined
+  const code = record?.['code']
+  const message = record?.['message']
+  if (typeof code !== 'string' || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(code)
+    || typeof message !== 'string' || message.trim().length === 0) {
+    throw new GoalError(
+      'goal block reason requires a lower-kebab-case code and a non-empty message',
+      'GOAL_INVALID_BLOCK_REASON',
+    )
+  }
+  return { code, message: message.trim() }
 }
 
 /** Compare the complete canonical payloads used for deferred reconciliation. */
@@ -122,18 +153,6 @@ export class GoalService extends Service {
   }
 
   /**
-   * Materialize deployment defaults and validate one create request.
-   * @param request - objective plus optional caller-selected round cap.
-   * @returns detached, fully resolved create specification.
-   */
-  resolveCreate(request: CreateGoalRequest): CreateGoalSpec {
-    return {
-      objective: resolveObjective(request.objective),
-      maxGoalRounds: resolveMaxGoalRounds(request.maxGoalRounds ?? this.resolved.defaultMaxGoalRounds),
-    }
-  }
-
-  /**
    * Read the current goal for one exact live agent.
    * @param agent - owning live agent.
    * @returns a fresh view or `undefined` when no goal is current.
@@ -154,7 +173,7 @@ export class GoalService extends Service {
    * @returns the created live view.
    */
   create(agent: Agent, request: CreateGoalRequest): GoalView {
-    const spec = this.resolveCreate(request)
+    const spec = resolveCreateGoal(request, this.resolved.defaultMaxGoalRounds)
     const cache = this.prepareMutation(agent)
     const current = cache.state.goal
     if (current !== undefined && current.phase !== 'complete') {
@@ -213,7 +232,7 @@ export class GoalService extends Service {
   resume(agent: Agent, ref: GoalRef): GoalView {
     const cache = this.prepareMutation(agent)
     const current = this.expectCurrent(cache, ref)
-    const resumable: readonly GoalPhase[] = ['active', 'paused', 'blocked', 'usage-limited', 'budget-limited']
+    const resumable: readonly GoalPhase[] = ['active', 'paused', 'blocked']
     if (!resumable.includes(current.phase)) {
       throw this.transitionError(current, 'resume', resumable)
     }
@@ -240,7 +259,7 @@ export class GoalService extends Service {
       agent,
       ref,
       'complete',
-      ['active', 'paused', 'blocked', 'usage-limited', 'budget-limited'],
+      ['active', 'paused', 'blocked'],
       'complete',
       'disarmed',
     )
@@ -250,45 +269,20 @@ export class GoalService extends Service {
    * Mark an active goal blocked and disarm it.
    * @param agent - owning live agent.
    * @param ref - expected current revision.
-   * @returns the blocked view.
+   * @param reason - policy-owned stable code and human-readable explanation.
+   * @returns the blocked view with its durable reason.
    */
-  block(agent: Agent, ref: GoalRef): GoalView {
-    return this.transition(agent, ref, 'block', ['active'], 'blocked', 'disarmed')
-  }
-
-  /**
-   * Mark an active goal stopped by an external usage limit.
-   * @param agent - owning live agent.
-   * @param ref - expected current revision.
-   * @returns the usage-limited view.
-   */
-  markUsageLimited(agent: Agent, ref: GoalRef): GoalView {
-    return this.transition(agent, ref, 'mark-usage-limited', ['active'], 'usage-limited', 'disarmed')
-  }
-
-  /**
-   * Mark an active goal stopped at its configured round cap.
-   * @param agent - owning live agent.
-   * @param ref - expected current revision.
-   * @returns the budget-limited view.
-   */
-  markBudgetLimited(agent: Agent, ref: GoalRef): GoalView {
+  block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView {
     const cache = this.prepareMutation(agent)
     const current = this.expectCurrent(cache, ref)
     if (current.phase !== 'active') {
-      throw this.transitionError(current, 'mark-budget-limited', ['active'])
-    }
-    if (cache.state.roundsStarted < current.maxGoalRounds) {
-      throw new GoalError(
-        `goal "${current.id}" has started ${cache.state.roundsStarted}/${current.maxGoalRounds} rounds`,
-        'GOAL_INVALID_TRANSITION',
-      )
+      throw this.transitionError(current, 'block', ['active'])
     }
     return this.commitCurrent(
       agent,
       cache,
-      'mark-budget-limited',
-      this.withPhase(current, 'budget-limited'),
+      'block',
+      { ...this.withPhase(current, 'blocked'), blockedReason: resolveBlockReason(reason) },
       'disarmed',
     )
   }
@@ -384,7 +378,13 @@ export class GoalService extends Service {
 
   /** Build a new revision with one replacement phase. */
   private withPhase(current: GoalSnapshot, phase: GoalPhase): GoalSnapshot {
-    return { ...current, revision: current.revision + 1, phase }
+    return {
+      id: current.id,
+      revision: current.revision + 1,
+      objective: current.objective,
+      phase,
+      maxGoalRounds: current.maxGoalRounds,
+    }
   }
 
   /** Shared validated phase transition. */

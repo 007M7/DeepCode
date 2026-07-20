@@ -543,7 +543,7 @@ Goal mutation accepted by one live agent. The matching context event is already 
 - `agent` — agent whose session owns the goal.
 - `change` — fresh current projection or clear tombstone.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/types.ts#L166)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/types.ts#L167)
 
 ## llm/*
 

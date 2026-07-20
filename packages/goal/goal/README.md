@@ -11,13 +11,13 @@ Event-sourced same-session goal state. The service retains one current completio
     defaultMaxGoalRounds: 256
 ```
 
-`defaultMaxGoalRounds` must be a positive safe integer. `resolveCreate()` materializes this deployment default before `create()` commits a goal; a request-level value overrides it.
+`defaultMaxGoalRounds` must be a positive safe integer. `create()` materializes this deployment default internally before committing a goal; a request-level value overrides it.
 
 ## Service contract
 
-`ctx.goals` accepts only the exact live `Agent` instance registered under its id. `get()` returns a detached `GoalView`; mutations use a `GoalRef { id, revision }` compare-and-set fence and reject stale refs. The service exposes create, edit, pause, resume, complete, block, usage-limit, budget-limit, and clear verbs through the generated [service catalog](../../../docs/cordis-catalog/services.md).
+`ctx.goals` accepts only the exact live `Agent` instance registered under its id. `get()` returns a detached `GoalView`; mutations use a `GoalRef { id, revision }` compare-and-set fence and reject stale refs. The service exposes create, edit, pause, resume, complete, block, and clear verbs through the generated [service catalog](../../../docs/cordis-catalog/services.md). Creation default resolution is an internal implementation step, not an additional public verb.
 
-At most one goal is current. Creation produces an active revision-one goal and arms it. A non-complete goal must be edited, transitioned, or cleared; a completed goal may be replaced by a globally fresh id. Edits retain phase and activation. Pause, completion, blocking, limit transitions, and clear disarm activation. Resume accepts a stopped phase or a disarmed active goal only while the configured round cap has remaining capacity; an active armed goal rejects the redundant operation.
+At most one goal is current. Creation produces an active revision-one goal and arms it. A non-complete goal must be edited, transitioned, or cleared; a completed goal may be replaced by a globally fresh id. Edits retain phase, blocker reason, and activation. Pause, completion, blocking, and clear disarm activation. A block records a policy-owned lower-kebab-case code plus a normalized free-form explanation; provider limits, configured budgets, execution errors, and requests for human input all use this one durable phase rather than multiplying lifecycle states. Resume accepts a stopped phase or a disarmed active goal only while the configured round cap has remaining capacity; it clears any former blocker reason. An active armed goal rejects the redundant operation.
 
 Every non-clear mutation appends a complete versioned snapshot through `agent.inject()`; clear appends a revisioned tombstone. The raw `context/message`, its `{ kind: 'goal' }` source, and its metadata must agree exactly. Replay rejects malformed shapes, source/content drift, discontinuous revisions, illegal lifecycle transitions, non-monotonic per-goal timestamps, and non-sequential goal rounds. Mutation timestamps clamp against the preceding goal update when wall time moves backward.
 
@@ -35,7 +35,7 @@ Policy plugins call the service verbs and react to the scoped `goal/changed` eve
 
 #### What the model sees
 
-Each mutation is one raw user-role context block. A snapshot is rendered as `<goal_state>{"goal":...,"roundsStarted":...,"createdAt":...,"updatedAt":...}</goal_state>`; a clear renders the tombstone id/revision and `clearedAt`. There is no hidden state summary outside the log.
+Each mutation is one raw user-role context block. A snapshot is rendered as `<goal_state>{"goal":...,"roundsStarted":...,"createdAt":...,"updatedAt":...}</goal_state>`; a clear renders the tombstone id/revision and `clearedAt`. There is no hidden state summary outside the log. The descriptive XML delimiter follows this repository's existing `<workspace_context>` convention and [Anthropic's published XML-tag prompting guidance](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices#structure-prompts-with-xml-tags); it is public model-experience prior art, not a claim about any provider's proprietary training corpus.
 
 #### Token effect
 

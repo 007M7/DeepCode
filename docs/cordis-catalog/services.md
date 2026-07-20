@@ -485,13 +485,6 @@ Goal service (`ctx.goals`) backed exclusively by the owning session log.
 
 ```ts cordis-catalog
 /**
- * Materialize deployment defaults and validate one create request.
- * @param request - objective plus optional caller-selected round cap.
- * @returns detached, fully resolved create specification.
- */
-resolveCreate(request: CreateGoalRequest): CreateGoalSpec
-
-/**
  * Read the current goal for one exact live agent.
  * @param agent - owning live agent.
  * @returns a fresh view or `undefined` when no goal is current.
@@ -546,25 +539,10 @@ complete(agent: Agent, ref: GoalRef): GoalView
  * Mark an active goal blocked and disarm it.
  * @param agent - owning live agent.
  * @param ref - expected current revision.
- * @returns the blocked view.
+ * @param reason - policy-owned stable code and human-readable explanation.
+ * @returns the blocked view with its durable reason.
  */
-block(agent: Agent, ref: GoalRef): GoalView
-
-/**
- * Mark an active goal stopped by an external usage limit.
- * @param agent - owning live agent.
- * @param ref - expected current revision.
- * @returns the usage-limited view.
- */
-markUsageLimited(agent: Agent, ref: GoalRef): GoalView
-
-/**
- * Mark an active goal stopped at its configured round cap.
- * @param agent - owning live agent.
- * @param ref - expected current revision.
- * @returns the budget-limited view.
- */
-markBudgetLimited(agent: Agent, ref: GoalRef): GoalView
+block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView
 
 /**
  * Clear the current goal while retaining a durable tombstone and history.
@@ -575,9 +553,9 @@ markBudgetLimited(agent: Agent, ref: GoalRef): GoalView
 clear(agent: Agent, ref: GoalRef): GoalRef
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [CreateGoalSpec](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
+Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:104`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:131`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.llm` — `LlmService`
 
