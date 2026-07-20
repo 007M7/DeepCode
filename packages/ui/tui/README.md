@@ -2,7 +2,7 @@
 
 The interactive terminal front door for DeepSeek Harness agents, built on [`@earendil-works/pi-tui`](https://www.npmjs.com/package/@earendil-works/pi-tui). It requires stdin and stdout TTYs; scripts and Loader pipes should compose [`@deepseek-ai/dsh-stdio`](../stdio/README.md) instead.
 
-The implemented [TUI feature RFC](../../../docs/rfc/implemented/feature/2026-07-17-dedicated-full-screen-tui-front-door.md) owns the front-door decision; the [terminal-state snapshot RFC](../../../docs/rfc/implemented/testing/2026-07-18-tui-terminal-state-snapshots.md) owns its verification strategy.
+The implemented [TUI feature Agent Note](../../../.agents/notes/implemented/feature/2026-07-17-dedicated-full-screen-tui-front-door.md) owns the front-door decision; the [terminal-state snapshot Agent Note](../../../.agents/notes/implemented/testing/2026-07-18-tui-terminal-state-snapshots.md) owns its verification strategy.
 
 This package owns interactive terminal presentation and input only. It injects `agents`, `tools`, and `userInteraction`, then drives an agent created or resumed by app or developer code. Agent lifecycle, persistence, and the model-facing [`ask_user_question`](../tool-ask-user/README.md) tool remain separate composition entries.
 
@@ -47,15 +47,31 @@ The palette uses the standard 16-color ANSI foregrounds and SGR attributes, whic
 
 ### Interactive prompt input
 
-**What the model sees**: Each non-empty editor submission becomes one text block, sent with `agent.send()` while the target agent is idle and `agent.steer()` while it is running. Slash commands and keybindings are TUI-only.
+#### What the model sees
 
-**Token effect**: Submitted text is retained under the agent loop's normal session-history and compaction rules. Headers, cards, Markdown rendering, status lines, plans, and help text add no tokens.
+Each non-empty editor submission becomes one text block, sent with `agent.send()` while the target agent is idle and `agent.steer()` while it is running. Slash commands and keybindings are TUI-only.
+
+#### Token effect
+
+Submitted text is retained under the agent loop's normal session-history and compaction rules. Headers, cards, Markdown rendering, status lines, plans, and help text add no tokens.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ### Interactive user-question answers
 
-**What the model sees**: When a consumer calls `ctx.userInteraction.ask()`, this provider presents each question in order and returns selected option labels or `custom` text. Abort, cancellation, or UI disposal becomes `Error: ask_user_question was interrupted before the user answered` through `dsh-tool-ask-user`.
+#### What the model sees
 
-**Token effect**: Waiting and terminal overlays add no tokens; the resolved answer or error is model-visible only through the calling tool or plugin's result.
+When a consumer calls `ctx.userInteraction.ask()`, this provider presents each question in order and returns selected option labels or `custom` text. Abort, cancellation, or UI disposal becomes `Error: ask_user_question was interrupted before the user answered` through `dsh-tool-ask-user`.
+
+#### Token effect
+
+Waiting and terminal overlays add no tokens; the resolved answer or error is model-visible only through the calling tool or plugin's result.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

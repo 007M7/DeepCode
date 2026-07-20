@@ -23,7 +23,7 @@ name: E2E (real DeepSeek API)
 # in the BASE repo's context WITH secrets while still able to check out untrusted
 # fork code — a textbook key-leak vector, especially once this repo is public.
 # The fork/secret model and its public-repo implications are recorded in
-# docs/rfc/implemented/testing/2026-06-19-real-api-e2e-ci.md.
+# .agents/notes/implemented/testing/2026-06-19-real-api-e2e-ci.md.
 #
 # Note: scheduled triggers are auto-disabled after 60 days of repo inactivity;
 # push/pull_request/workflow_dispatch act as backstops.

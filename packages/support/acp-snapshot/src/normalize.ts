@@ -60,7 +60,7 @@ function scrubValue(value: unknown, ctx: NormalizeContext): unknown {
 }
 
 /**
- * Normalize a raw stdout transcript (newline-delimited JSON-RPC frames) into a stable golden
+ * Normalize a raw stdout transcript (newline-delimited JSON-RPC frames) into a stable expected output
  * in the same shape as the wire: one compact JSON frame per line (NDJSON), with the JSON-RPC
  * `id` rewritten to a per-transcript sequence (1, 2, 3, …) and all volatile strings scrubbed.
  * Invalid JSON throws, doubling as a protocol-stdout purity check.
@@ -72,7 +72,7 @@ function scrubValue(value: unknown, ctx: NormalizeContext): unknown {
 export function normalizeStdout(rawStdout: string, ctx: NormalizeContext): string {
   const lines = rawStdout.split('\n').filter(line => line.trim().length > 0)
   // Map each distinct JSON-RPC id (request/response correlate by id) to a stable
-  // sequence number, in first-seen order, so id churn doesn't perturb the golden.
+  // sequence number, in first-seen order, so id churn doesn't perturb the expected output.
   const idSeq = new Map<string, number>()
   const stableId = (id: unknown): number => {
     const key = JSON.stringify(id)
@@ -91,7 +91,7 @@ export function normalizeStdout(rawStdout: string, ctx: NormalizeContext): strin
 }
 
 /**
- * Normalize a session JSONL log into a stable golden: the header line's
+ * Normalize a session JSONL log into a stable expected output: the header line's
  * volatile fields (`createdAt`, `id`, `cwd`) and every event's `time` are
  * zeroed/scrubbed, all volatile strings scrubbed, and `seq` is LEFT INTACT
  * (deterministic by contract). Output is JSONL in the same shape as the input —
@@ -112,7 +112,7 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
       // Event line: zero the epoch-ms timestamp; keep seq (deterministic).
       record.time = 0
       // A hook/result carries the hook's wall-clock runtime (`data.durationMs`),
-      // which is run-to-run noise like `time` — zero it so the golden reflects
+      // which is run-to-run noise like `time` — zero it so the expected output reflects
       // the hook's decision/exit, not how long the shell took.
       if (record.type === 'hook/result' && record.data !== null && typeof record.data === 'object') {
         const data = record.data as Record<string, unknown>

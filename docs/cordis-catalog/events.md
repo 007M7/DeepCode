@@ -463,7 +463,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
  * adapter's stream, or yield your own chunks to short-circuit.
  * @param options - the full request. A LOOP-built request arrives
  *   deep-frozen (mutation throws): its content is a pure function of the
- *   session log (the reconstructability RFC), so listeners read it, never
+ *   session log (the reconstructability Agent Note), so listeners read it, never
  *   rewrite it. A hand-built one-shot (compaction summarize) is the
  *   caller's own object and stays mutable here.
  * @mode waterfall

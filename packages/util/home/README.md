@@ -12,6 +12,10 @@ The resolver reads its inputs at call time. It does not cache a result, create t
 
 Indirectly, through `dsh-tool-bash`, which exposes the resolved path to model bash as `DSH_HOME` without adding a prompt section.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **Resolution only** — the resolver makes a path absolute but does not create it, check access, or canonicalize symlinks; each consumer owns those filesystem decisions.

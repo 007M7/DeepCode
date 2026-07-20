@@ -22,15 +22,31 @@ Spawn advertises `{ outputSchema: true, depthLimit: true, toolFilter: true, pers
 
 ### Child-agent request
 
-**What the model sees**: The fresh child receives the standalone task content verbatim, inherits the parent model and workspace by default, and sees the global prompt with any configured child-scoped persona shadow. A tool filter removes global wire schemas, executable lookup, and Code Mode SDK bindings for that child but leaves independently registered guidance. It receives zero parent conversation messages; the filter is visibility/composition, not an authority grant inherited from the parent.
+#### What the model sees
 
-**Token effect**: The child pays for a new independent context and history; no parent-history tokens are duplicated. Persona changes this child's repeated prompt cost, while filtering changes its schema or generated SDK cost.
+The fresh child receives the standalone task content verbatim, inherits the parent model and workspace by default, and sees the global prompt with any configured child-scoped persona shadow. A tool filter removes global wire schemas, executable lookup, and Code Mode SDK bindings for that child but leaves independently registered guidance. It receives zero parent conversation messages; the filter is visibility/composition, not an authority grant inherited from the parent.
+
+#### Token effect
+
+The child pays for a new independent context and history; no parent-history tokens are duplicated. Persona changes this child's repeated prompt cost, while filtering changes its schema or generated SDK cost.
+
+#### KV Cache effect
+
+Independent of the parent request cache. Child history grows append-only, while persona, tool-filter, generated-SDK, provider, or model changes establish a different child prefix.
 
 ### Parent tool result, indirectly
 
-**What the model sees**: Through `dsh-tool-subagent`, the parent receives only the child's final output or stop-reason error.
+#### What the model sees
 
-**Token effect**: Parent input grows by one data-dependent result retained until compaction.
+Through `dsh-tool-subagent`, the parent receives only the child's final output or stop-reason error.
+
+#### Token effect
+
+Parent input grows by one data-dependent result retained until compaction.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

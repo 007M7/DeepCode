@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-repeat-tool-guard
 
-An advisory loop-breaker, not a model-facing tool: it never appears in the tool list, never vetoes or rewrites a call, and adds exactly one behavior — it watches each agent's stream of tool calls, counts runs of consecutive calls to the same tool with identical canonicalized arguments, and at configured run lengths injects an escalating advisory reminder telling the model to stop repeating itself, re-read the last result, and either change approach or conclude. The decision (retry differently, gather more evidence, or finish) stays entirely with the model: a legitimately repeated call is delayed by nothing and blocked by nothing. Decision record: [the repeat-tool-guard RFC](../../../docs/rfc/implemented/feature/2026-07-08-repeat-tool-guard.md).
+An advisory loop-breaker, not a model-facing tool: it never appears in the tool list, never vetoes or rewrites a call, and adds exactly one behavior — it watches each agent's stream of tool calls, counts runs of consecutive calls to the same tool with identical canonicalized arguments, and at configured run lengths injects an escalating advisory reminder telling the model to stop repeating itself, re-read the last result, and either change approach or conclude. The decision (retry differently, gather more evidence, or finish) stays entirely with the model: a legitimately repeated call is delayed by nothing and blocked by nothing. Decision record: [the repeat-tool-guard Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-repeat-tool-guard.md).
 
 ## Config
 
@@ -40,23 +40,31 @@ Unit suites drive a real agent loop against a mock adapter (no network) and cove
 
 ### First-threshold context message
 
-**What the model sees**: At the first configured consecutive-repeat threshold, that agent receives the reminder below. No tool schema or normal-call text is added.
+#### What the model sees
 
-**Token effect**: Zero tokens before the threshold. The reminder is retained history for that agent.
+At the first configured consecutive-repeat threshold, that agent receives the reminder below. No tool schema or normal-call text is added.
 
-#### First-threshold reminder
+##### First-threshold reminder
 
 ```markdown
 You are repeating the exact same tool call with identical arguments. Carefully analyze the previous result before calling again: if the task is not complete, try a different approach or different arguments instead of repeating the call.
 ```
 
+#### Token effect
+
+Zero tokens before the threshold. The reminder is retained history for that agent.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ### Later-threshold context message
 
-**What the model sees**: A later threshold receives the detailed reminder template below. A capped argument preview ends exactly `… (+<omitted> more chars)`.
+#### What the model sees
 
-**Token effect**: Each reminder is retained history; `argumentsPreviewChars` bounds its data-dependent argument text, while agents keep independent counters.
+A later threshold receives the detailed reminder template below. A capped argument preview ends exactly `… (+<omitted> more chars)`.
 
-#### Later-threshold reminder
+##### Later-threshold reminder
 
 ```markdown
 Repeated tool call detected:
@@ -65,6 +73,14 @@ Repeated tool call detected:
 - arguments: <canonicalArguments>
 The repeated calls are not making progress. Do not call this tool with these exact arguments again. Inspect the latest result and choose a different action, different arguments, or finish the task if enough evidence has been gathered.
 ```
+
+#### Token effect
+
+Each reminder is retained history; `argumentsPreviewChars` bounds its data-dependent argument text, while agents keep independent counters.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

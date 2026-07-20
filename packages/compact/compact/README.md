@@ -10,7 +10,7 @@ This package is the interface tier of the compaction capability, split so each c
 | `@deepseek-ai/dsh-compact-basic` | a backend: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-tool-compact` (deferred) | the model-facing `/compact` tool over `ctx.compact` |
 
-Unlike the bash seam, this interface depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "interface depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
+Unlike the bash seam, this interface depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "interface depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md).
 
 ## Service API (`ctx.compact`)
 
@@ -61,15 +61,31 @@ Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and 
 
 ### Conversation history, when a backend is invoked
 
-**What the model sees**: A successful implementation replaces an older surface range with one user-role summary checkpoint; the raw events stay logged but stop appearing in derived model messages. The seam itself performs no rewrite.
+#### What the model sees
 
-**Token effect**: Zero direct tokens from this interface. A backend trades many retained history tokens for one summary and leaves the recent tail unchanged.
+A successful implementation replaces an older surface range with one user-role summary checkpoint; the raw events stay logged but stop appearing in derived model messages. The seam itself performs no rewrite.
+
+#### Token effect
+
+Zero direct tokens from this interface. A backend trades many retained history tokens for one summary and leaves the recent tail unchanged.
+
+#### KV Cache effect
+
+A successful backend replacement invalidates reuse from the first shadowed history token; the seam itself does not alter a request.
 
 ### Transcript supplied to a compaction consumer
 
-**What the model sees**: `renderTranscript()` joins entries with one blank line and renders them exactly as `User: <content>`, `Assistant: <content>`, `Tool result (call <callId>): <content>`, `Tool error (call <callId>): <content>`, `[Context: <content>]`, or `[Steering: <content>]`. Non-text blocks render exactly as `[reasoning: <text>]`, `[tool-call: <name>(<arguments>)]`, `[tool-result: <content>]`, `[tool-result]`, or `[<block-type>]`.
+#### What the model sees
 
-**Token effect**: Data-dependent input tokens are paid only by the auxiliary model or consumer that requests this transcript; the conversation model does not receive a duplicate transcript.
+`renderTranscript()` joins entries with one blank line and renders them exactly as `User: <content>`, `Assistant: <content>`, `Tool result (call <callId>): <content>`, `Tool error (call <callId>): <content>`, `[Context: <content>]`, or `[Steering: <content>]`. Non-text blocks render exactly as `[reasoning: <text>]`, `[tool-call: <name>(<arguments>)]`, `[tool-result: <content>]`, `[tool-result]`, or `[<block-type>]`.
+
+#### Token effect
+
+Data-dependent input tokens are paid only by the auxiliary model or consumer that requests this transcript; the conversation model does not receive a duplicate transcript.
+
+#### KV Cache effect
+
+No conversation-cache invalidation. A consumer's auxiliary request can reuse only the exact prefix produced by this rendering; changed or compacted entries invalidate reuse from their first difference.
 
 ## Known Limitations and Deferred Work
 

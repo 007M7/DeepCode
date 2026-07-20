@@ -34,9 +34,9 @@ The spine is everything COMMON to every front door. The swappable and front-door
 - **the LLM adapter** — the bundle ships the abstract `llm` service; the leaf registers a concrete adapter on `ctx.llm` (`llm-deepseek`, `llm-pi-ai`, `llm-replay`).
 - **the bash executor** — the bundle ships `tool-bash` (the consumer schema); the leaf provides `ctx.bash` (`bash-local` or a sandboxed impl).
 - **non-local skill providers** — the bundle ships the skill registry, the local filesystem provider, and the `skill` tool; deployments can add other providers such as embedded or remote catalogs as siblings.
-- **presentation + per-app infra** — the terminal (`dsh-tui` / `dsh-stdio`) or ACP front door and `hmr`. These form the coupled front-door cluster that the app packages ([`dsh-stdio-demo`](../../examples/stdio-demo/README.md), [`dsh-acp-demo`](../../examples/acp-demo/README.md)) bake in. `timer` is in the spine because it is common and stdout-silent; front doors own stdout and remain outside.
+- **presentation + per-app infra** — the terminal (`dsh-tui` / `dsh-stdio`) or ACP front door and `hmr`. These form the coupled front-door cluster that the app packages ([`dsh-stdio-demo`](../stdio-demo/README.md), [`dsh-acp-demo`](../acp-demo/README.md)) bake in. `timer` is in the spine because it is common and stdout-silent; front doors own stdout and remain outside.
 
-This is the [interface/implementation/consumer seam](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md) raised to the composition level: the bundle owns the shared spine, the leaf owns the backends, the app package owns the front door.
+This is the [interface/implementation/consumer seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) raised to the composition level: the bundle owns the shared spine, the leaf owns the backends, the app package owns the front door.
 
 ## Config
 
@@ -46,7 +46,7 @@ import type { Config } from '@deepseek-ai/dsh-agent-spine-demo'
 // workspaceContext requires { maxBytes } or false; the other owner schemas supply defaults.
 ```
 
-The bundle FORWARDS each field to the child that owns it: `agents` and `maxParallelToolCalls` to `agent-loop` (`agents` defaults to `[]`; the cap defaults there), so each app supplies its own pre-created agents — a stdio app pre-creates `main`, while the ACP app creates agents on demand at `session/new`; `persona` and `toolOrder` to `dsh-system-prompt`; `tools` to the tool registry for its presentation mode; `skills.registry`, `skills.local`, and `skills.tool` to the skill registry, local provider, and model-facing consumer; the required `workspaceContext` choice to `dsh-workspace-context` (`{ maxBytes }` enables loading and `false` disables it); and `toolBash`/`toolTasks` to the two model-facing tool plugins the bundle owns. It resolves `dshHome` once through [`@deepseek-ai/dsh-home`](../../util/home/README.md) and forwards that absolute value to tool-bash's managed environment and local skill discovery. An absent top-level `dshHome` adopts `skills.local.dshHome`; supplying both with different resolved paths fails loudly. `toolBash.enableRunInBackground` controls only the bash producer, while `toolTasks` controls generic `task_output` wait bounds; independently loaded producers keep their own config. Workspace instructions register before the skill catalog so their session-prefix message renders first. App packages use `pickSpineConfig()` to copy only these bundle-owned fields.
+The bundle FORWARDS each field to the child that owns it: `agents` and `maxParallelToolCalls` to `agent-loop` (`agents` defaults to `[]`; the cap defaults there), so each app supplies its own pre-created agents — a stdio app pre-creates `main`, while the ACP app creates agents on demand at `session/new`; `persona` and `toolOrder` to `dsh-system-prompt`; `tools` to the tool registry for its presentation mode; `skills.registry`, `skills.local`, and `skills.tool` to the skill registry, local provider, and model-facing consumer; the required `workspaceContext` choice to `dsh-workspace-context` (`{ maxBytes }` enables loading and `false` disables it); and `toolBash`/`toolTasks` to the two model-facing tool plugins the bundle owns. Set `skills.enabled: false` to omit both the local provider and model-facing skill tool, and set `toolTasks: false` to retain the task service for foreground producers without exposing `task_output` / `task_list` / `task_kill`. It resolves `dshHome` once through [`@deepseek-ai/dsh-home`](../../util/home/README.md) and forwards that absolute value to tool-bash's managed environment and enabled local skill discovery. An absent top-level `dshHome` adopts `skills.local.dshHome`; supplying both with different resolved paths fails loudly. `toolBash.enableRunInBackground` controls only the bash producer; independently loaded producers keep their own config. Workspace instructions register before the skill catalog so their session-prefix message renders first. App packages use `pickSpineConfig()` to copy only these bundle-owned fields.
 
 ## Why a code bundle, not a shared YAML include
 
@@ -56,7 +56,11 @@ A YAML include can deduplicate config but cannot own a bin or provide front-door
 
 Indirectly, through `dsh-system-prompt`, `dsh-tool-skill`, `dsh-tool-bash`, and `dsh-tools`, which this bundle mounts without adding model-bound wrapper content.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
-- **The spine set is fixed in code** — `apply()` mounts every child unconditionally (including `tool-bash`); no config excludes or replaces one, so swapping the loop or dropping a spine member means composing a different bundle.
+- **Most of the spine set is fixed in code** — `apply()` always mounts the core services and `tool-bash`; config can omit the bundled skills and task-control tools, but swapping the loop or dropping another spine member means composing a different bundle.
 - **`dsh-invariants` mounts unconditionally** — this bundle has no toggle, so every composition using it pays the dev-mode relational assertions; Session's always-on validation and freezing are separate.

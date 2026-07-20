@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-acp-demo
 
-The **ACP server app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-spine-demo`](../../examples/agent-spine-demo/README.md)) with the front-door cluster an [Agent Client Protocol](../../ui/acp/README.md) server needs, and a `bin` that boots a leaf `cordis.yml` speaking ACP JSON-RPC on stdio.
+The **ACP server app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md)) with the front-door cluster an [Agent Client Protocol](../../ui/acp/README.md) server needs, and a `bin` that boots a leaf `cordis.yml` speaking ACP JSON-RPC on stdio.
 
 It is the structured counterpart to [`@deepseek-ai/dsh-stdio-demo`](../stdio-demo/README.md): both consume the same spine, but this one bakes in the OPPOSITE front-door cluster.
 
@@ -54,6 +54,10 @@ All diagnostics go to **stderr** — stdout is the protocol.
 ## Model Experience
 
 Indirectly, through `dsh-agent-spine-demo` and `dsh-acp`, which compose each ACP agent's prompt, tools, and message history; this app bundle adds no model-bound content itself.
+
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

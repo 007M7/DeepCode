@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest'
 const snapshotsDir = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const scenarioDir = join(snapshotsDir, 'advanced-toolchain')
 const sessionFixture = join(scenarioDir, 'session.jsonl')
-const streamGolden = join(scenarioDir, 'stream-json.golden.jsonl')
+const streamExpected = join(scenarioDir, 'stream-json.expected.jsonl')
 const configPath = fileURLToPath(new URL('../advanced.cordis.snapshot.yml', import.meta.url))
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
@@ -134,7 +134,7 @@ describe('headless stream-json snapshots', () => {
 
     expect(result.stderr).toBe('')
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)
-    if (refreshing) await writeFile(streamGolden, normalized)
-    expect(normalized).toBe(await readFile(streamGolden, 'utf8'))
+    if (refreshing) await writeFile(streamExpected, normalized)
+    expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

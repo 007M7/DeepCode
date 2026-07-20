@@ -42,6 +42,10 @@ A child that resolves normally with a non-completed stop reason is not an infras
 
 Indirectly, through `dsh-tool-workflow` and a workflow engine, which create child-agent requests and return a retained parent tool result.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **Foreground collection only** — the caller owns one live run and awaits it; background start/poll, spill handles, and detached collection are deferred.
@@ -50,4 +54,4 @@ Indirectly, through `dsh-tool-workflow` and a workflow engine, which create chil
 - **No token-budget vocabulary** — engines cap concurrency, items, and children, but neither the request nor result accounts for model tokens across children.
 - **Runs are holder-owned, not service-tracked** — unloading the engine does not discover independent live handles; every consumer must dispose the run it started.
 
-See the [dynamic-workflows RFC](../../../docs/rfc/implemented/feature/2026-07-05-dynamic-workflows.md) for the deferred workflow surface.
+See the [dynamic-workflows Agent Note](../../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md) for the deferred workflow surface.
