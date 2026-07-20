@@ -8,6 +8,7 @@ This guide gets an agent running in five minutes.
 
 - [Node.js](https://nodejs.org/) ^22.19 or >= 24
 - [pnpm](https://pnpm.io/) 11 through Corepack
+- A [DeepSeek Platform](https://platform.deepseek.com/) API key
 
 ```sh
 node -v
@@ -15,24 +16,31 @@ corepack enable
 pnpm -v
 ```
 
-## Step 1: run the keyless Headless demo
+## Step 1: install and configure the API key
 
 ```sh
 git clone https://github.com/deepseek-harness/deepseek-harness.git
 cd deepseek-harness
 pnpm install
-pnpm run demo:echo "echo hello world"
 ```
 
-The local mock model calls the `echo` tool, which returns the text in uppercase, and the final response is printed without opening an interactive UI. Use `--output-format stream-json` when you need the canonical event stream.
-
-## Step 2: use a real model in the TUI
-
-Get an API key from [DeepSeek Platform](https://platform.deepseek.com/) and create the gitignored repository-root `.env`:
+Create the gitignored repository-root `.env`:
 
 ```sh
 DEEPSEEK_API_KEY=sk-your-key-here
 ```
+
+## Step 2: run one Headless task
+
+Run a non-interactive task and print its final answer:
+
+```sh
+pnpm run demo:headless "summarize the architecture of this workspace"
+```
+
+Headless runs one complete model/tool turn, persists the session, prints the result, and exits. Use `--output-format stream-json` when you need the canonical event stream.
+
+## Step 3: use the TUI
 
 Start the interactive coding agent:
 
@@ -44,7 +52,7 @@ The full-screen agent can read and write files, run commands, delegate subtasks,
 
 ## What happened
 
-echo-agent uses the Headless `@deepseek-ai/dsh-cli-demo` app; tui-agent uses the interactive `@deepseek-ai/dsh-tui-demo` app. Both load the same providerless agent spine, while their `cordis.yml` files select the model and capability plugins appropriate to each surface.
+headless-agent uses the `@deepseek-ai/dsh-cli-demo` app; tui-agent uses the interactive `@deepseek-ai/dsh-tui-demo` app. Both load the same providerless agent spine, while their `cordis.yml` files select the DeepSeek model and capability plugins appropriate to each surface.
 
 ## Next steps
 

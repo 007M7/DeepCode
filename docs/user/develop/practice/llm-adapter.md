@@ -145,9 +145,8 @@ The repository contains complete implementations:
 
 - `packages/llm/llm-deepseek/` — DeepSeek API adapter using the OpenAI-compatible format
 - `packages/llm/llm-pi-ai/` — Pi AI adapter using a different API format
-- `examples/echo-agent/src/mock-llm.ts` — minimal local teaching adapter
 
-Start with the mock adapter to study a complete chunk sequence without network behavior.
+Compare the two shipped adapters to see the same harness contract implemented over different provider SDKs.
 
 ## Error handling
 

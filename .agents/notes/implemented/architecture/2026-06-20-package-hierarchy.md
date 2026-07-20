@@ -2,7 +2,7 @@
 
 Status: implemented
 
-The later [fold-stdio-helper](../simplification/2026-07-04-fold-stdio-ui-helper.md) decision superseded the original `support/ui-stdio` placement, and the [remove-stdio-agent](../simplification/2026-07-20-remove-stdio-agent.md) decision subsequently removed that surface entirely. The uniform depth-two hierarchy remains the decision owned here.
+The later [fold-stdio-helper](../simplification/2026-07-04-fold-stdio-ui-helper.md) decision superseded the original `support/ui-stdio` placement, and the [redundant-agent removal](../simplification/2026-07-20-remove-stdio-and-echo-agents.md) subsequently removed that surface entirely. The uniform depth-two hierarchy remains the decision owned here.
 
 ## Problem
 

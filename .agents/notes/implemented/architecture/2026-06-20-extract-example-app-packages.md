@@ -16,7 +16,6 @@ Each example is now **mostly an invocation of an app package**, splitting the wi
 - **`@deepseek-ai/dsh-tui-demo`**, **`@deepseek-ai/dsh-cli-demo`**, and **`@deepseek-ai/dsh-acp-demo`** bake in their process roles. TUI includes the full-screen UI and a pre-created `main`; Headless includes the one-shot driver and a pre-created `main`; ACP includes the bridge and no pre-created agent. All three include JSONL persistence and omit stdout loggers.
 - **`start.ts` is gone.** Each app package exposes a bin; the `demo:*` scripts invoke it. Loader boot, `.env` loading, and fail-loud guards live in the shared [`@deepseek-ai/dsh-app-boot`](../../../../packages/ui/app-boot) package (unit-tested under the per-file coverage gate — see [share the app bins' boot glue](../simplification/2026-07-04-share-app-bin-boot-glue.md)); the thin self-executing entries are driven by keyless Loader-path tests.
 - **Each leaf `cordis.yml` collapses** to backends, optional product tools, and one app entry carrying the app config. TUI and Headless route model/session choices onto a pre-created agent; ACP routes the initial provider/model onto its bridge.
-- **echo-agent loads `dsh-cli-demo`**, swapping the LLM backend to the local `mock-llm` and adding the local `echo-tool` at the leaf. `mock-llm.ts` and `echo-tool.ts` stay as example-local teaching plugins.
 - **`base.yml`, `base-core.yml`, and `acp-agent/acp-tail.yml` are retired** — the spine they shared now lives in `dsh-agent-spine-demo`.
 
 `bash-local` and the LLM adapter stay **leaf choices**: the bundle ships `tool-bash` (the consumer schema), the leaf picks the executor implementation, so a sandboxed executor or replay adapter swaps in without touching the app.
@@ -39,13 +38,13 @@ The old `base*.yml`/`acp-tail.yml` includes already deduped the *config*, but a 
 ## Verification
 
 - Example directories contain only their config, README, and tests: `start.ts`, the infrastructure preamble, and the shared YAML includes are gone.
-- `demo:echo`, `demo:tui`, `demo:headless`, and `demo:acp` invoke the app-package bins.
+- `demo:tui`, `demo:headless`, and `demo:acp` invoke the app-package bins.
 - Each new package has a README and per-file 100% coverage; each app package also has a keyless real-Loader-path bin smoke that catches export-shape failures described in [postmortem 0001](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md).
 - The ACP replay transcript remains unchanged because the plugin set and load order did not change.
 
 ## Consequences
 
-- **The bare-plugin-tree pedagogy.** echo-agent's inlined `cordis.yml` showed every plugin at once; the spine now lives behind a bundle, so seeing the whole tree means opening `dsh-agent-spine-demo`. The app package's README carries that teaching weight.
+- **The bare-plugin-tree pedagogy.** The spine lives behind a bundle, so seeing the whole tree means opening `dsh-agent-spine-demo`. The app package's README carries that teaching weight.
 - **A layer of indirection.** "What does this demo load?" becomes a package read, not a single YAML scan.
 
 ## Related
@@ -53,4 +52,4 @@ The old `base*.yml`/`acp-tail.yml` includes already deduped the *config*, but a 
 - Supersedes [Make the shared example base providerless](../../rejected/architecture/2026-06-20-providerless-example-base.md): renaming `base.yml` to the providerless core is moot once the spine moves into `dsh-agent-spine-demo` and the `base*.yml` files are deleted.
 - Builds on the [capability-seams](2026-06-13-capability-seams.md) interface/implementation/consumer split — backends and presentation stay leaf choices; the spine is the shared bundle.
 - Complements [Reorganize packages into a modular hierarchy](2026-06-20-package-hierarchy.md): the new app/core packages slot into existing groups under that hierarchy (`core` for the reusable spine bundle, `ui` for the app-specific front doors).
-- The later [remove-stdio-agent decision](../simplification/2026-07-20-remove-stdio-agent.md) owns the final TUI/Headless split and removal of the line-oriented app.
+- The later [redundant-agent removal](../simplification/2026-07-20-remove-stdio-and-echo-agents.md) owns the final TUI/Headless split and removes the line-oriented and mock-only leaves.

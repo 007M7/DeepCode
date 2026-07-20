@@ -145,9 +145,8 @@ ctx.llm.registerAdapter(['model-name-1', 'model-name-2'], adapter)
 
 - `packages/llm/llm-deepseek/` — DeepSeek API 适配器（OpenAI 兼容格式）
 - `packages/llm/llm-pi-ai/` — Pi AI 适配器（不同的 API 格式）
-- `examples/echo-agent/src/mock-llm.ts` — 最简 mock 适配器（教学用）
 
-mock 适配器是学习 StreamChunk 协议的最佳起点——它用纯本地逻辑演示了完整的 chunk 序列。
+对比这两个已交付的适配器，可以看到同一套 harness 契约如何在不同提供方 SDK 之上实现。
 
 ## 错误处理
 

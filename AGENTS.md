@@ -58,7 +58,6 @@ pnpm run build          # tsc emits lib/types, tsdown bundles runtime
 pnpm run hygiene        # knip + publint + workspace constraints + NodeNext consumer check
 pnpm run doc-sync       # all documentation gates; see the doc-sync script in package.json
 pnpm run website:build  # VitePress build (doubles as the site's dead-link check)
-pnpm run demo:echo "task"    # mock-model headless agent, no key needed
 pnpm run demo:headless "task" # one-shot agent (needs DEEPSEEK_API_KEY)
 pnpm run demo:tui       # full-screen TUI coding agent (needs DEEPSEEK_API_KEY)
 pnpm run demo:cordis    # self-referential demo: the agent modifies its own runtime (needs key)
@@ -85,12 +84,7 @@ pnpm run website:build
 pnpm run verify-module-graph
 pnpm run build
 pnpm run hygiene
-out=$(pnpm run demo:echo --output-format stream-json -- "echo ci smoke" 2>&1)
-printf '%s\n' "$out" | grep -q '"type":"tool/call"'
-printf '%s\n' "$out" | grep -q 'ECHO: CI SMOKE'
-test -n "$(find .sessions -path '.sessions/cwd-*/main-session-*.jsonl' -type f -print -quit)"
-rm -rf .sessions
-DSH_EXAMPLE_MODE=lib pnpm exec vitest run --config vitest.e2e.config.ts examples/echo-agent/tests/echo.e2e.ts examples/tui-agent/tests/tui-keyless-smoke.e2e.ts packages/examples/cli-demo/tests/built-bin.e2e.ts packages/examples/acp-demo/tests/built-bin.e2e.ts packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
+DSH_EXAMPLE_MODE=lib pnpm exec vitest run --config vitest.e2e.config.ts examples/headless-agent/tests/keyless-smoke.e2e.ts examples/tui-agent/tests/tui-keyless-smoke.e2e.ts packages/examples/cli-demo/tests/built-bin.e2e.ts packages/examples/acp-demo/tests/built-bin.e2e.ts packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
 ```
 
 `test:coverage`, not `test`, is the gate ([why](docs/testing.md)); report only commands actually run.

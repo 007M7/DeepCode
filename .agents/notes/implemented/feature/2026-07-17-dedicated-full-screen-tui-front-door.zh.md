@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-在本入口引入时，面向行的 agent 负责 pipe 与普通终端，但全屏 coding 界面必须负责原始输入、差分绘制、光标状态、浮层和终端恢复。把这两类契约合并到一个 UI 插件中，会迫使面向 stream 的路径依赖仅适用于 TTY 的生命周期。后续的[移除 stdio agent 决策](../simplification/2026-07-20-remove-stdio-agent.md)移除了这一重复的面向行 agent；本 Note 继续负责 TUI 设计。
+在本入口引入时，面向行的 agent 负责 pipe 与普通终端，但全屏 coding 界面必须负责原始输入、差分绘制、光标状态、浮层和终端恢复。把这两类契约合并到一个 UI 插件中，会迫使面向 stream 的路径依赖仅适用于 TTY 的生命周期。后续的[移除重复 agent 决策](../simplification/2026-07-20-remove-stdio-and-echo-agents.md)移除了这个面向行 agent；本 Note 继续负责 TUI 设计。
 
 交互通道必须继续作为 Cordis 插件，使用与其他入口相同的 agent（智能体）、会话、工具和用户交互服务。它需要恢复持久历史、跟随压缩替换、显示工具自有的呈现内容，并在启动失败和资源释放时恢复终端。独立聊天应用或第二套 agent 组合会在插件图之外重复实现这些行为。
 

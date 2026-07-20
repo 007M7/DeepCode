@@ -8,6 +8,7 @@
 
 - [Node.js](https://nodejs.org/) ^22.19 或 >= 24
 - 通过 Corepack 使用 [pnpm](https://pnpm.io/) 11
+- [DeepSeek Platform](https://platform.deepseek.com/) API key
 
 ```sh
 node -v
@@ -15,24 +16,31 @@ corepack enable
 pnpm -v
 ```
 
-## 第一步：运行 keyless Headless 演示
+## 第一步：安装并配置 API key
 
 ```sh
 git clone https://github.com/deepseek-harness/deepseek-harness.git
 cd deepseek-harness
 pnpm install
-pnpm run demo:echo "echo hello world"
 ```
 
-本地 mock 模型会调用 `echo` 工具，由工具返回大写文本，最终回复在不打开交互式 UI 的情况下直接输出。需要规范事件流时可使用 `--output-format stream-json`。
-
-## 第二步：在 TUI 中使用真实模型
-
-前往 [DeepSeek Platform](https://platform.deepseek.com/) 获取 API key，并创建已被 Git 忽略的仓库根目录 `.env`：
+在仓库根目录创建已被 Git 忽略的 `.env`：
 
 ```sh
 DEEPSEEK_API_KEY=sk-your-key-here
 ```
+
+## 第二步：运行一个 Headless 任务
+
+运行一个非交互式任务并打印最终回答：
+
+```sh
+pnpm run demo:headless "summarize the architecture of this workspace"
+```
+
+Headless 运行一个完整的模型/工具轮次，持久化会话，打印结果后退出。需要规范事件流时可使用 `--output-format stream-json`。
+
+## 第三步：使用 TUI
 
 启动交互式 coding agent：
 
@@ -44,7 +52,7 @@ pnpm run demo:tui
 
 ## 回头看
 
-echo-agent 使用 Headless `@deepseek-ai/dsh-cli-demo` app，tui-agent 使用交互式 `@deepseek-ai/dsh-tui-demo` app。二者加载同一个 providerless agent spine，并通过各自的 `cordis.yml` 为对应 surface 选择模型和能力插件。
+headless-agent 使用 `@deepseek-ai/dsh-cli-demo` app，tui-agent 使用交互式 `@deepseek-ai/dsh-tui-demo` app。二者加载同一个 providerless agent spine，并通过各自的 `cordis.yml` 为对应 surface 选择 DeepSeek 模型和能力插件。
 
 ## 下一步
 

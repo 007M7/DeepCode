@@ -9,8 +9,9 @@
     },
     "examples": {
       "entry": [
-        "echo-agent/src/*.ts",
         "headless-agent/tests/fixtures/cli-mock-llm.ts",
+        "headless-agent/tests/fixtures/time-context-driver.ts",
+        "headless-agent/tests/fixtures/time-context-mock-llm.ts",
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "*/tests/**/*.e2e.ts",
         "*/tests/**/*.snapshot.ts"

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Test driver that sends two turns through one headless Loader composition. */
+/** Test driver that sends two turns through one Headless Loader composition. */
 
 import { boot, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 import { runOneShot } from '@deepseek-ai/dsh-cli-demo/src/cli.ts'

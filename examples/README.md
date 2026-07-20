@@ -1,17 +1,6 @@
 # Examples
 
-Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: a `cordis.yml` that picks swappable backends, loads one app package, and may add optional product tools or demo-only mocks. The composition and boot glue live in [`@deepseek-ai/dsh-tui-demo`](../packages/examples/tui-demo), [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo), and their shared [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle. There is no `start.ts`; the `demo:*` scripts invoke each app package's bin.
-
-## echo-agent
-
-A mock model + echo tool on the headless one-shot app — the all-mock skeleton. It demonstrates:
-
-- A thin leaf `cordis.yml` loading the `@deepseek-ai/dsh-cli-demo` app
-- Registering a mock `LlmAdapter` (streaming scripted responses)
-- Registering a tool via `ctx.tools.register()`
-- A network-free Headless task with text or DSH-native JSON output
-
-Run with: `pnpm run demo:echo "echo hello"`. The task prefix `echo ` triggers a tool-call round trip.
+Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: a `cordis.yml` that picks swappable backends, loads one app package, and may add optional product tools. The composition and boot glue live in [`@deepseek-ai/dsh-tui-demo`](../packages/examples/tui-demo), [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo), and their shared [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle. There is no `start.ts`; the `demo:*` scripts invoke each app package's bin.
 
 ## headless-agent
 

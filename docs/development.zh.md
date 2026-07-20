@@ -63,7 +63,7 @@ lefthook 在 `lefthook.yml` 中配置，作为评审前的本地早期检查点�
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。请在编辑 vendor 代码前先阅读 `vendor/README.md`。
 
-这些钩子并不与 CI 完全一致。特别是：`pre-push` 运行不带覆盖率的单元测试，而 CI 运行 `pnpm run test:coverage`；CI 还会运行 echo-agent 和 built-bin 冒烟测试，并在 Node 22.19、24 和 26 上执行兼容性矩阵。
+这些钩子并不与 CI 完全一致。特别是：`pre-push` 运行不带覆盖率的单元测试，而 CI 运行 `pnpm run test:coverage`；CI 还会运行 built-bin 冒烟测试，并在 Node 22.19、24 和 26 上执行兼容性矩阵。
 
 ## CI 门禁
 
@@ -102,10 +102,10 @@ pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext dec
 
 ## 演示
 
-Headless echo 演示不需要 API 凭证：
+单次运行的 Headless coding agent 需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
 
 ```sh
-pnpm run demo:echo "echo hello"
+pnpm run demo:headless "summarize this workspace"
 ```
 
 全屏交互式 coding agent 需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：

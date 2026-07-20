@@ -63,7 +63,7 @@ lefthook is configured in `lefthook.yml` as an early local checkpoint before rev
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
-These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs echo-agent and built-bin smoke tests and exercises the compatibility matrix on Node 22.19, 24, and 26.
+These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs built-bin smoke tests and exercises the compatibility matrix on Node 22.19, 24, and 26.
 
 ## CI gates
 
@@ -102,10 +102,10 @@ When changing package public behavior, update the relevant README or JSDoc in th
 
 ## Demos
 
-The Headless echo demo does not need API credentials:
+The one-shot Headless coding agent needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
-pnpm run demo:echo "echo hello"
+pnpm run demo:headless "summarize this workspace"
 ```
 
 The full-screen interactive coding agent needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:

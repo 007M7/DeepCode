@@ -6,7 +6,7 @@ English | [中文](2026-07-17-dedicated-full-screen-tui-front-door.zh.md)
 
 ## Problem
 
-At the time this front door was introduced, the line-oriented agent handled pipes and ordinary terminals, but a full-screen coding interface had to own raw input, differential screen drawing, cursor state, overlays, and terminal restoration. Combining those contracts in one UI plugin would have coupled a stream-oriented path to a TTY-only lifecycle. The later [remove-stdio-agent decision](../simplification/2026-07-20-remove-stdio-agent.md) removes that redundant line agent; this Note continues to own the TUI design.
+At the time this front door was introduced, the line-oriented agent handled pipes and ordinary terminals, but a full-screen coding interface had to own raw input, differential screen drawing, cursor state, overlays, and terminal restoration. Combining those contracts in one UI plugin would have coupled a stream-oriented path to a TTY-only lifecycle. The later [redundant-agent removal](../simplification/2026-07-20-remove-stdio-and-echo-agents.md) removes that line agent; this Note continues to own the TUI design.
 
 The interactive channel must remain a Cordis plugin over the same agent, session, tool, and user-interaction services as every other front door. It needs to resume durable history, follow compaction replacements, display tool-owned presentation, and restore the terminal on startup failure and disposal. A standalone chat application or a second agent composition would duplicate behavior outside the plugin graph.
 

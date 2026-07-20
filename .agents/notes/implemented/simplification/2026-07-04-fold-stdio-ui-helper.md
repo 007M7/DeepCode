@@ -2,7 +2,7 @@
 
 Status: implemented
 
-The later [remove-stdio-agent decision](2026-07-20-remove-stdio-agent.md) supersedes this package-placement decision and removes the folded package, app, and line-oriented surface entirely.
+The later [redundant-agent removal](2026-07-20-remove-stdio-and-echo-agents.md) supersedes this package-placement decision and removes the folded package, app, and line-oriented surface entirely.
 
 ## Problem
 

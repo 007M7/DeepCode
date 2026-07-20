@@ -436,14 +436,6 @@ function stripYamlScalar(value: string): string {
 
 const APP_EXAMPLES = [
   {
-    id: 'echo',
-    rel: 'examples/echo-agent/composition.md',
-    title: 'Echo Agent App Composition',
-    label: 'examples/echo-agent',
-    config: 'examples/echo-agent/cordis.yml',
-    summary: 'The echo demo swaps in a local mock LLM and teaching echo tool, then loads the headless one-shot app package.',
-  },
-  {
     id: 'tui',
     rel: 'examples/tui-agent/composition.md',
     title: 'TUI Agent App Composition',
@@ -1013,7 +1005,6 @@ function renderDocs(): GraphDoc[] {
 function renderIndex(docs: GraphDoc[]): string {
   const labels: Record<string, string> = {
     'docs/capability-seams.md': 'capability seams and core services',
-    'examples/echo-agent/composition.md': 'echo-agent app composition',
     'examples/headless-agent/composition.md': 'headless-agent app composition',
     'examples/tui-agent/composition.md': 'tui-agent app composition',
     'examples/cordis-agent/composition.md': 'cordis-agent app composition',
@@ -1025,7 +1016,6 @@ function renderIndex(docs: GraphDoc[]): string {
   }
   const modes: Record<string, string> = {
     'docs/capability-seams.md': 'hybrid generated',
-    'examples/echo-agent/composition.md': 'hybrid generated',
     'examples/headless-agent/composition.md': 'hybrid generated',
     'examples/tui-agent/composition.md': 'hybrid generated',
     'examples/cordis-agent/composition.md': 'hybrid generated',
