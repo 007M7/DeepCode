@@ -99,8 +99,8 @@ export interface LoopHandle {
 
 /**
  * Drive queued messages as independent durable turns until disposal. Plugin
- * failures end the current turn without terminating the driver. The caller establishes the
- * `ctx.agents.withInitiator()` boundary before entry; package-private
+ * failures end the current turn without terminating the driver. The caller
+ * establishes the `ctx.agents.withInitiator()` boundary before entry; package-private
  * orchestration recovers that exact Agent and captures its Session locally.
  * @param ctx - the plugin context the loop reaches its initiating Agent,
  * events (agent/…, session/flush), and services (systemPrompt, llm, tools)

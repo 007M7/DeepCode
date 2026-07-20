@@ -362,7 +362,9 @@ interface Agent {
   readonly ctx: Context
 
   /**
-   * Queue one detached, frozen lossless-JSON item; if claimed, it is the sole ordinary message in a FIFO-ordered turn.
+   * Queue one detached, frozen lossless-JSON item. If claimed, it is the sole
+   * ordinary message in its FIFO-ordered turn; the next claimed item waits for
+   * that turn's checkpoint.
    * Invalid input throws synchronously before notification or enqueue.
    */
   send(content: ContentBlock[], options?: SendOptions): void
@@ -385,9 +387,10 @@ interface Agent {
 
   /**
    * Clear all queued and steering work, including items waiting to start, and
-   * abort the active step. The supplied reason is preserved across pre-step and active
-   * cancellation windows, and `whenIdle()` resolves after cancellation reaches
-   * quiescence. Idle cancellation is a no-op and does not arm a later cancel.
+   * abort the active step. The supplied reason is preserved across pre-step
+   * and active cancellation windows, and `whenIdle()` resolves after
+   * cancellation reaches quiescence. Idle cancellation is a no-op and does not
+   * arm a later cancel.
    */
   cancel(reason?: string): void
 
@@ -429,7 +432,8 @@ interface HookContext {
 /**
  * Prompt interception result. `allow.content` replaces the prompt and each
  * `additionalContexts` entry becomes a separate context message. `block`
- * records a durable `prompt/blocked` and ends that prompt's zero-step turn as rejected.
+ * records a durable `prompt/blocked` and ends the claimed prompt's zero-step
+ * turn as rejected.
  */
 type PromptDecision =
   | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
