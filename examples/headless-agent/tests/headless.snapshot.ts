@@ -253,6 +253,8 @@ describe('headless stream-json snapshots', () => {
         expect(children).toHaveLength(2)
         expect(children.map(child => child.header.parentSession)).toEqual([parentId, parentId])
         expect(children.map(child => child.header.cwd)).toEqual([parent.header.cwd, parent.header.cwd])
+        expect(parent.header.delegationDepth).toBe(0)
+        expect(children.map(child => child.header.delegationDepth)).toEqual([1, 1])
         expect(children.map(child => child.header.seedLength)).toEqual([undefined, undefined])
         expect(new Set(children.map(child => child.header.id)).size).toBe(2)
 

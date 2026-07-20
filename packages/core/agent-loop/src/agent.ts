@@ -252,7 +252,6 @@ export class ReactLoopAgent implements Agent {
     const context = {
       content,
       source,
-      ...options?.envelope !== undefined ? { envelope: options.envelope } : {},
       ...options?.meta !== undefined ? { meta: options.meta } : {},
     }
     if (isTurnOpen(this.session)) {
@@ -403,7 +402,7 @@ export class ReactLoopAgent implements Agent {
       cancelReason: () => this.cancelReason,
       clearCancel: () => { this.cancelRequested = false },
       withToolBatch: run => this.withToolBatch(run),
-      // Pre-step cancellation re-parks without emitting a status transition.
+      // Pre-start cancellation settles queued-work waiters before publishing idle.
       settleIdle: () => { this.settleIdleWaiters() },
     }))
   }

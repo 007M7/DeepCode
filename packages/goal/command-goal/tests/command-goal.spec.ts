@@ -33,7 +33,6 @@ function appendInjection(session: Session, content: ContentBlock[], options?: In
   session.append('context/message', {
     content,
     source,
-    ...options?.envelope === undefined ? {} : { envelope: options.envelope },
     ...options?.meta === undefined ? {} : { meta: options.meta },
   }, { surfaceOp: 'append' })
   session.append('turn/end', { turn, reason: { kind: 'completed' } })
