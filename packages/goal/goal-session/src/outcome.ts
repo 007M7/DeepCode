@@ -28,8 +28,7 @@ export function classifyGoalRound(reason: TurnEndReason, durable: boolean): Goal
     case 'aborted':
       return { kind: 'pause', reason: reason.reason ?? 'cancelled' }
     case 'error': {
-      const code = reason.failure?.code ?? reason.code
-      const message = reason.failure?.message ?? reason.message ?? 'model request failed'
+      const { code, message } = reason.failure ?? reason
       return code === 'RATE_LIMIT' || code === 'QUOTA'
         ? { kind: 'blocked', code: 'usage-limited', message }
         : { kind: 'blocked', code: 'turn-error', message }
