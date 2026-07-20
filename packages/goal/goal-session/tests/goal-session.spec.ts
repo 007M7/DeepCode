@@ -6,7 +6,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalView } from '@deepseek-ai/dsh-goal'
-import { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -232,7 +232,7 @@ describe('same-session goal driving', () => {
   })
 
   it.each([
-    ['rate limit', Object.assign(new Error('slow down'), { code: 'RATE_LIMIT' }), 'usage-limited'],
+    ['rate limit', new LlmError('slow down', 'RATE_LIMIT'), 'usage-limited'],
     ['request error', new Error('provider broke'), 'turn-error'],
     ['max tokens', maxTokensResponse('unfinished'), 'max-tokens'],
   ] as const)('stops after a %s without an automatic retry', async (_label, response, code) => {
