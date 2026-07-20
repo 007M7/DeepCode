@@ -25,6 +25,8 @@ peerDependencyRules:
 allowBuilds:
   esbuild: true
   lefthook: true
+  # Cross-platform PTY boundary for the TUI process smoke, including ConPTY on Windows.
+  node-pty: true
   # Pulled in by @earendil-works/pi-ai (optional LLM API backend). pnpm lists
   # them only because they ship lifecycle scripts, but those are no-ops we don't
   # need, so we deny them — install still succeeds.

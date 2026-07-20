@@ -30,7 +30,7 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 | `session/load` | `ctx.agents.resume(...)` | reserves the id, verifies the persisted cwd, resumes, and replays user, assistant, and tool events |
 | `session/prompt` | `agent.send()` | supports ACP `text` and `resource_link` blocks; rejects image/audio/embedded resource and empty prompts; one in-flight prompt PER session (independent); settles on the OWNING turn's end (a turn that ends in `error` rejects the RPC) |
 | `session/cancel` | `agent.cancel()` | the queue-aware cancel: aborts a running step, clears queued + steering work, and drops a turn about to start, then settles the prompt `cancelled` — for ONLY that session (a cancel never touches another session's stream or prompt) |
-| `session/update` | `session/event` | streams user replay, assistant text/reasoning, and tool render intents |
+| `session/update` | `session/event` | streams user replay, assistant text/reasoning, retry/failure attempt markers, and tool render intents |
 | `elicitation/create` | `ctx.userInteraction.ask()` | maps `ask_user_question` questions to ACP form elicitations; option descriptions are shown in enum titles, `multi_select` uses ACP array enums, optionless requests use a required `custom` field, and a non-empty custom answer overrides any selected choice |
 | `session/request_permission` | `approval/request` listener | answers one-shot allow/reject requests for bridge-owned calls; foreign or call-less requests delegate and fail closed if unanswered — see "Permission prompts" |
 | `session/set_config_option` | agent-scoped request target / `ctx.permission.set()` | per-session provider+model and permission-preset switching over [session config options](https://agentclientprotocol.com/protocol/session-config-options) — see "Session config options" |
@@ -46,6 +46,8 @@ The bridge advertises a `model`-category select in `session/new` and `session/lo
 When `ctx.permission` is composed, the bridge also advertises a `permission` select. Options come from the deployment's preset table; the current value comes from the session fold, with switch-away-only `custom` for unmatched knobs. `session/set_config_option` accepts advertised presets and writes both sandbox-mode and approval-policy events through `PermissionService.set()`. Open-turn switches append immediately; idle switches overlay responses and anchor at the next `agent/prompt-submit`, before request assembly. A crash before anchoring restores the durable fold. See the [model-catalog Agent Note](../../../.agents/notes/implemented/architecture/2026-07-15-llm-model-catalog-and-acp-selection.md), [sandbox Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md), [`dsh-permission`](../permission/README.md), and [protocol matrix](acp-feature-support.md#6-session-modes--config-options--models).
 
 The shared [`ctx.tasks` runtime](../../tasks/tasks/) fences access to predictable task ids by the owning session; ACP sessions therefore cannot read or stop one another's background work.
+
+ACP updates are append-only, so `llm/retry` emits a visible separator that marks preceding partial model output discarded before the next attempt streams. A terminal model-request failure emits the same discarded-output warning; replay derives both markers from the durable events.
 
 ## Per-session cwd
 
