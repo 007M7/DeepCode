@@ -31,7 +31,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`session-query/`](session-query/README.md) | Session retrieval: logical corpus, bounded reads, lineage, and event relationships | Product — stable surface |
 | [`sdk/`](sdk/README.md) | Project SDK tooling | Product — stable surface |
 | [`ui/`](ui/README.md) | Editor/client integration surfaces: ACP bridge, JSON-RPC SDK server, user-approval/user-interaction seams, ask-user tool | Product — stable surface |
-| [`examples/`](examples/README.md) | Demo bundles (agent-spine + stdio/one-shot CLI/ACP/JSON-RPC bins) the leaves load | Support — example infra |
+| [`examples/`](examples/README.md) | Demo bundles (agent-spine + TUI/one-shot CLI/ACP/JSON-RPC bins) the leaves load | Support — example infra |
 | [`support/`](support/README.md) | Support infrastructure (testkits, invariants, replay, Loader smokes) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (`Branded<B>`, Harness home/path helpers, timeout, retention) | Support — small, stable, harness-dep-free |
 

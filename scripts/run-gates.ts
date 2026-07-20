@@ -5,9 +5,8 @@
  * independent commands can overlap and which commands wait for built artifacts.
  */
 import { spawn } from 'node:child_process'
-import { readdir, rm } from 'node:fs/promises'
 import { availableParallelism } from 'node:os'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
 type Mode =
@@ -215,7 +214,6 @@ function ciPrimaryGates(): Gate[] {
     pnpmScript('duplication', 'duplication'),
     coverageGate(),
     snapshotGate(),
-    demoSmokeGate({ needs: ['lint'] }),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
@@ -234,16 +232,10 @@ function ciStaticGates(): Gate[] {
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
-    ...staticDemoSmokeGates(),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
   ]
-}
-
-function staticDemoSmokeGates(): Gate[] {
-  // Native Windows session persistence is outside the gates-only support scope.
-  return process.platform === 'win32' ? [] : [demoSmokeGate()]
 }
 
 function ciArtifactGates(): Gate[] {
@@ -358,50 +350,14 @@ function docSyncLeafGates(options: {
   ]
 }
 
-function demoSmokeGate(options: { needs?: string[] } = {}): Gate {
-  const dependencyOptions = options.needs === undefined ? {} : { needs: options.needs }
-  return {
-    id: 'demo-smoke',
-    label: 'demo smoke',
-    displayCommand: 'pnpm run demo:echo',
-    ...pnpmInvocation(['run', 'demo:echo']),
-    input: 'echo ci smoke\n',
-    ...dependencyOptions,
-    verify: async (result) => {
-      const output = result.stdout + result.stderr
-      const sessionsRoot = join(root, '.sessions')
-      try {
-        if (!output.includes('[tool call] echo({"text":"ci smoke"})')) {
-          throw new Error('demo smoke did not show the echo tool call.')
-        }
-        if (!output.includes('[tool result] ECHO: CI SMOKE')) {
-          throw new Error('demo smoke did not show the echo tool result.')
-        }
-        const buckets = await readdir(sessionsRoot, { withFileTypes: true })
-        let found = false
-        for (const bucket of buckets) {
-          if (!bucket.isDirectory() || !bucket.name.startsWith('cwd-')) continue
-          const entries = await readdir(join(sessionsRoot, bucket.name))
-          if (entries.some(entry => /^main-session-.+\.jsonl\.zstd$/.test(entry))) {
-            found = true
-            break
-          }
-        }
-        if (!found) throw new Error('demo smoke did not create a main-session JSONL log in a cwd bucket.')
-      } finally {
-        await rm(sessionsRoot, { recursive: true, force: true })
-      }
-    },
-  }
-}
-
 function builtBinSmokeGate(): Gate {
   return pnpmExec('built-bin-smoke', [
     'vitest',
     'run',
     '--config',
     'vitest.e2e.config.ts',
-    'packages/examples/stdio-demo/tests/built-bin.e2e.ts',
+    'examples/headless-agent/tests/keyless-smoke.e2e.ts',
+    'examples/tui-agent/tests/tui-keyless-smoke.e2e.ts',
     'packages/examples/cli-demo/tests/built-bin.e2e.ts',
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     'packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts',
@@ -413,6 +369,7 @@ function builtBinSmokeGate(): Gate {
   ], {
     label: 'built-bin smoke',
     needs: ['build'],
+    env: { DSH_EXAMPLE_MODE: 'lib' },
   })
 }
 

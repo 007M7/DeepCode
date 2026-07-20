@@ -1,13 +1,13 @@
 {
-  "name": "@deepseek-ai/dsh-stdio-demo",
-  "description": "Terminal chat app: agent spine + JSONL persistence + TTY pi-tui/readline front-door selection + pre-created main agent",
+  "name": "@deepseek-ai/dsh-tui-demo",
+  "description": "Full-screen terminal app: agent spine + JSONL persistence + pi-tui front door + pre-created main agent",
   "version": "0.0.1",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "bin": {
-    "dsh-stdio-demo": "lib/bin.js"
+    "dsh-tui-demo": "lib/bin.js"
   },
   "exports": {
     ".": {
@@ -32,7 +32,6 @@
   "peerDependencies": {
     "@cordisjs/plugin-include": "^1.0.4",
     "@cordisjs/plugin-loader": "^1.0.0-rc.5",
-    "@cordisjs/plugin-logger-console": "^1.0.0",
     "@deepseek-ai/dsh-app-boot": "^0.0.1",
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-agent-loop": "^0.0.1",
@@ -41,7 +40,6 @@
     "@deepseek-ai/dsh-workspace-context": "^0.0.1",
     "@deepseek-ai/dsh-session": "^0.0.1",
     "@deepseek-ai/dsh-session-persistence-jsonl": "^0.0.1",
-    "@deepseek-ai/dsh-stdio": "^0.0.1",
     "@deepseek-ai/dsh-tui": "^0.0.1",
     "@deepseek-ai/dsh-tool-ask-user": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
@@ -52,7 +50,6 @@
   "devDependencies": {
     "@cordisjs/plugin-include": "workspace:^",
     "@cordisjs/plugin-loader": "workspace:^",
-    "@cordisjs/plugin-logger-console": "workspace:^",
     "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
@@ -62,7 +59,6 @@
     "@deepseek-ai/dsh-workspace-context": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",
-    "@deepseek-ai/dsh-stdio": "workspace:^",
     "@deepseek-ai/dsh-tui": "workspace:^",
     "@deepseek-ai/dsh-tool-ask-user": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
