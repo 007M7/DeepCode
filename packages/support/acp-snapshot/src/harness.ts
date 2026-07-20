@@ -395,11 +395,11 @@ async function runStep(
  * header line, and return them ordered primary-first: the top-level session (no
  * `parentSession`) leads, then each subagent child by ascending `createdAt`.
  *
- * The JSONL backend lays sessions out as `<root>/<cwd-bucket>/<encoded-id>.jsonl`
- * (one bucket per cwd), so a parent and its same-cwd in-process child land in
- * the SAME bucket — collecting all files across all buckets catches both (a
- * first-match short-circuit would silently drop the child). Returns `[]` if no
- * log was produced (a no-session scenario).
+ * Snapshot configs select the JSONL backend's raw mode, which lays sessions
+ * out as `<root>/<cwd-bucket>/<encoded-id>.jsonl` (one bucket per cwd). A
+ * parent and its same-cwd in-process child land in the SAME bucket, so
+ * collecting all files across all buckets catches both. Returns `[]` if no log
+ * was produced (a no-session scenario).
  */
 async function harvestSessionLogs(root: string): Promise<HarvestedLog[]> {
   let cwdDirs: string[]

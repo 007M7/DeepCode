@@ -23,7 +23,9 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
 async function harness(adapter: MockAdapter, sessionRoot?: string, dshHome?: string) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  if (sessionRoot !== undefined) await ctx.plugin(SessionPersistenceJsonl, { root: sessionRoot })
+  if (sessionRoot !== undefined) {
+    await ctx.plugin(SessionPersistenceJsonl, { root: sessionRoot, compression: 'none' })
+  }
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(TaskService)
   await ctx.plugin(ToolTasks)
