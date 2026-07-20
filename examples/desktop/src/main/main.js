@@ -18,6 +18,7 @@ const M = require('./plugin-market.js')
 const GH = require('./gh-prs.js')
 const Growth = require('./growth-log.js')
 const GrowthV2 = require('./growth-v2.js')
+const FeedbackAnnotations = require('./feedback-annotations.js')
 const { normalizeInterruptRequest } = require('./interrupt-normalize.js')
 const { classifyForkErrorMessage } = require('./fork-error-classify.js')
 const { revealWindow } = require('./window-reveal.js')
@@ -829,6 +830,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('growth:v2Read', () => GrowthV2.readAll())
   ipcMain.handle('growth:v2AddRubric', (_e, { compactWindowId, form } = {}) => GrowthV2.addRubric(compactWindowId, form))
   ipcMain.handle('growth:v2AddError', (_e, { compactWindowId, form } = {}) => GrowthV2.addError(compactWindowId, form))
+
+  // lane-wf-feedback: per-event RL-annotation store (inspector Feedback tab).
+  // Records land in ~/.dsh-desktop/feedback-annotations.json as a flat list of
+  // { sessionId, seq, verdict, note, rubricDim?, at }. Read on drawer open to
+  // prefill + paint the ✓ marker; upsert keyed by (sessionId, seq).
+  ipcMain.handle('feedback:list', () => FeedbackAnnotations.list())
+  ipcMain.handle('feedback:upsert', (_e, { form } = {}) => FeedbackAnnotations.upsert(form))
+  ipcMain.handle('feedback:remove', (_e, { form } = {}) => FeedbackAnnotations.remove(form))
 
   // ---------------------------------------------------------------------
   // Hub page (#186 + #190).

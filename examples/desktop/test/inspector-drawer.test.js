@@ -25,6 +25,7 @@ test('normalizeTab: known tabs pass through; unknown falls back to pretty', () =
   assert.equal(inspector.normalizeTab('pretty'), 'pretty')
   assert.equal(inspector.normalizeTab('raw'), 'raw')
   assert.equal(inspector.normalizeTab('json'), 'json')
+  assert.equal(inspector.normalizeTab('feedback'), 'feedback')
   assert.equal(inspector.normalizeTab('bogus'), 'pretty')
   assert.equal(inspector.normalizeTab(undefined), 'pretty')
 })
@@ -342,9 +343,11 @@ test('index.html: #inspector-drawer aside with three tabs + panels exists', () =
   assert.match(html, /data-tab="pretty"/, 'Pretty tab button')
   assert.match(html, /data-tab="raw"/, 'Raw tab button')
   assert.match(html, /data-tab="json"/, 'JSON tab button')
+  assert.match(html, /data-tab="feedback"/, 'Feedback tab button')
   assert.match(html, /data-panel="pretty"/, 'Pretty panel')
   assert.match(html, /data-panel="raw"/, 'Raw panel')
   assert.match(html, /data-panel="json"/, 'JSON panel')
+  assert.match(html, /data-panel="feedback"/, 'Feedback panel')
   assert.match(html, /id="inspector-drawer-close"/, 'close button target for the × / Escape bindings')
 })
 
@@ -385,14 +388,14 @@ function buildDrawerDom(doc) {
   drawer.setAttribute('aria-hidden', 'true')
   const title = doc.createElement('div'); title.className = 'inspector-drawer-title'; title.textContent = 'inspector'
   drawer.appendChild(title)
-  for (const t of ['pretty', 'raw', 'json']) {
+  for (const t of ['pretty', 'raw', 'json', 'feedback']) {
     const tab = doc.createElement('button')
     tab.className = 'inspector-tab' + (t === 'pretty' ? ' active' : '')
     tab.dataset.tab = t
     tab.setAttribute('aria-selected', t === 'pretty' ? 'true' : 'false')
     drawer.appendChild(tab)
   }
-  for (const p of ['pretty', 'raw', 'json']) {
+  for (const p of ['pretty', 'raw', 'json', 'feedback']) {
     const panel = doc.createElement('div')
     panel.className = 'inspector-panel'
     panel.dataset.panel = p
@@ -512,3 +515,113 @@ test('close(): removes the open class + marks aria-hidden', () => {
     assert.equal(drawer.getAttribute('aria-hidden'), 'true')
   } finally { cleanupDom() }
 })
+
+// --- Feedback tab (lane-wf-feedback) --------------------------------------
+
+test('renderFeedback: builds verdict thumbs, rubric select, note, and Save; injected dims populate the select', () => {
+  const { doc } = makeShim()
+  const host = doc.createElement('div')
+  inspector.renderFeedback(doc, host, {
+    event: { type: 'assistant/message', seq: 7 },
+    sessionId: 'sess-1',
+    dimensions: [{ id: 'convergence', label: 'Convergence' }, { id: 'no-regression', label: 'No regression' }],
+    existing: null,
+    onSave: () => {},
+  })
+  assert.ok(host.querySelector('.inspector-feedback'), 'feedback form root renders')
+  assert.ok(host.querySelector('[aria-label="Thumbs up"]'), 'thumbs-up button')
+  assert.ok(host.querySelector('[aria-label="Thumbs down"]'), 'thumbs-down button')
+  const select = host.querySelector('.inspector-feedback-dim-select')
+  assert.ok(select, 'rubric dimension select renders')
+  // (none) + 2 injected dims = 3 options
+  assert.equal(select.children.length, 3)
+  assert.ok(host.querySelector('.inspector-feedback-note-input'), 'note textarea')
+  assert.ok(host.querySelector('.inspector-feedback-save'), 'Save button')
+})
+
+test('renderFeedback: an existing annotation prefills verdict, note, and rubric dim', () => {
+  const { doc } = makeShim()
+  const host = doc.createElement('div')
+  inspector.renderFeedback(doc, host, {
+    event: { type: 'assistant/message', seq: 7 },
+    sessionId: 'sess-1',
+    dimensions: [{ id: 'convergence', label: 'Convergence' }],
+    existing: { sessionId: 'sess-1', seq: 7, verdict: 'up', note: 'good turn', rubricDim: 'convergence' },
+    onSave: () => {},
+  })
+  const up = host.querySelector('[aria-label="Thumbs up"]')
+  assert.equal(up.classList.contains('active'), true, 'thumbs-up reflects the stored verdict')
+  const note = host.querySelector('.inspector-feedback-note-input')
+  assert.equal(note.value, 'good turn')
+  const select = host.querySelector('.inspector-feedback-dim-select')
+  assert.equal(select.value, 'convergence')
+})
+
+test('renderFeedback: Save collects the form and hands it to onSave', () => {
+  const { doc } = makeShim()
+  const host = doc.createElement('div')
+  let captured = null
+  inspector.renderFeedback(doc, host, {
+    event: { type: 'assistant/message', seq: 12 },
+    sessionId: 'sess-9',
+    dimensions: [{ id: 'convergence', label: 'Convergence' }],
+    existing: null,
+    onSave: (form) => { captured = form; return { ok: true } },
+  })
+  // Toggle thumbs-up, type a note, pick a dim, then Save.
+  host.querySelector('[aria-label="Thumbs up"]').dispatch('click')
+  host.querySelector('.inspector-feedback-note-input').value = 'needs work'
+  host.querySelector('.inspector-feedback-dim-select').value = 'convergence'
+  host.querySelector('.inspector-feedback-save').dispatch('click')
+  assert.ok(captured, 'onSave fired')
+  assert.equal(captured.sessionId, 'sess-9')
+  assert.equal(captured.seq, 12)
+  assert.equal(captured.verdict, 'up')
+  assert.equal(captured.note, 'needs work')
+  assert.equal(captured.rubricDim, 'convergence')
+})
+
+test('renderFeedback: a second click on the active verdict clears it (toggle to null)', () => {
+  const { doc } = makeShim()
+  const host = doc.createElement('div')
+  let captured = null
+  inspector.renderFeedback(doc, host, {
+    event: { type: 'assistant/message', seq: 3 },
+    sessionId: 's',
+    dimensions: [],
+    existing: { sessionId: 's', seq: 3, verdict: 'down', note: '' },
+    onSave: (form) => { captured = form },
+  })
+  const down = host.querySelector('[aria-label="Thumbs down"]')
+  assert.equal(down.classList.contains('active'), true)
+  down.dispatch('click') // toggle off
+  assert.equal(down.classList.contains('active'), false)
+  host.querySelector('.inspector-feedback-save').dispatch('click')
+  assert.equal(captured.verdict, null)
+})
+
+test('open(): Feedback tab renders the annotation form anchored to the event', () => {
+  const { ins, drawer } = loadInspectorWithDom()
+  try {
+    ins.open({ event: { type: 'assistant/message', seq: 7, data: { content: [] } }, tab: 'feedback', sessionId: 'sess-x' })
+    const panel = drawer.querySelector('.inspector-panel[data-panel="feedback"]')
+    assert.equal(panel.hidden, false, 'feedback panel shows')
+    assert.ok(panel.querySelector('.inspector-feedback'), 'feedback form mounted')
+    const feedbackTab = drawer.querySelector('.inspector-tab[data-tab="feedback"]')
+    assert.equal(feedbackTab.getAttribute('aria-selected'), 'true')
+  } finally { cleanupDom() }
+})
+
+test('attachInspectBadge: stamps (sessionId, seq) on the badge for marker refresh', () => {
+  const { ins, doc } = loadInspectorWithDom()
+  try {
+    const host = doc.createElement('div')
+    const badge = ins.attachInspectBadge(host, () => ({
+      event: { type: 'assistant/message', seq: 42 }, tab: 'pretty', sessionId: 'sess-7',
+    }))
+    assert.ok(badge, 'badge created')
+    assert.equal(badge.getAttribute('data-annot-session'), 'sess-7')
+    assert.equal(badge.getAttribute('data-annot-seq'), '42')
+  } finally { cleanupDom() }
+})
+

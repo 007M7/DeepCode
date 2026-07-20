@@ -149,6 +149,15 @@ const NON_IIFE_ALLOWLIST = new Set([
   // require()s it so it must not be IIFE-wrapped. Sole top-level binding is
   // `function createMsgQueue`, unique across the shared scope.
   'msg-queue-model.js',
+  // lane-wf-feedback (2026-07-20) two dual-exported pure models — same shape
+  // as msg-queue-model.js. CommonJS require for node --test, window.__dsh*
+  // for the renderer; neither is IIFE-wrapped.
+  //   workflow-live-model.js       — folds on-wire workflow.event frames into
+  //                                   the aggregate buildWorkflowCard model.
+  //   feedback-annotation-model.js — per-event RL-annotation index behind the
+  //                                   inspector Feedback tab.
+  'workflow-live-model.js',
+  'feedback-annotation-model.js',
 ])
 
 function listRendererScripts() {

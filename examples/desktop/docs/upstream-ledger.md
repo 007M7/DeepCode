@@ -274,3 +274,91 @@ small wire addition that lets the workaround retire.
 
 **Reference.** PR #374 review comment by @ZiyaZhang —
 https://github.com/deepseek-harness/deepseek-harness/pull/374#issuecomment-5016306211
+
+---
+
+## L-5  Runtime should expose a mid-turn steer / context-inject RPC on the wire
+
+**Symptom.** The composer cannot send a "steer" while a turn is running. A
+researcher watching the agent go down the wrong path mid-turn has no way to
+nudge it ("actually, check the other file first") without waiting for the
+turn to end. The receiving half of this feature already renders — steering
+and context-injection events paint as 📎 cards in the stream and the context
+rail — but there is no *send* path: the shell can start a turn
+(`session/prompt`) and cancel a turn (`session/cancel`), and nothing in
+between.
+
+**Root cause.** The kernel already has the seam; the wire never exposes it.
+
+- `packages/core/agent-loop/src/agent.ts:219` — `Agent.steer(content,
+  options)` exists: when a turn is running it accepts the message into the
+  inbox as a *steering* message (`steering: true`) rather than starting a new
+  turn.
+- `packages/core/agent-loop/src/agent.ts:227` — `Agent.inject(content,
+  options)` exists: it appends a `context/message` event, turn-enclosed when
+  a turn is open (`agent.ts:235`) or wrapped in a one-shot turn when not
+  (`agent.ts:247`). This is the model-visible⟺logged injection primitive.
+- `packages/ui/jsonrpc/src/protocol.ts:30-43` — the client→server `METHOD`
+  map exposes `session/prompt` (`:34`) and `session/cancel` (`:35`) but no
+  `session/steer` or `context/inject`. The one mid-turn channel that *does*
+  cross the wire goes the other direction: `HOST_METHOD.sessionInterrupt`
+  (`protocol.ts:57`) is server→client. There is no client→server verb that
+  reaches `agent.steer` / `agent.inject`.
+
+So the runtime can already *do* the thing (the kernel method is shipped and
+tested — see `packages/core/agent-loop/tests/agent.spec.ts:196`, a balanced
+`turn/start · context/message · turn/end`); the wire just never gave the
+shell a way to *ask* for it.
+
+**Local workaround.** Message queue (merged, lane-msg-queue): a mid-turn
+Enter doesn't drop the text and doesn't error on the wire's one-in-flight-
+prompt rule — it parks the text in a per-session FIFO
+(`src/renderer/msg-queue-model.js`) and auto-sends the head as a fresh
+`session/prompt` when the current turn ends
+(`src/renderer/renderer.js:107` + `drainMsgQueueOnce`). So a steer degrades
+to a *queued next-turn message*: the intent survives, but it lands after the
+turn instead of redirecting it mid-flight, and it arrives as an ordinary
+user prompt rather than a `steering: true` inbox message.
+
+Spot the workaround in code review by `src/renderer/msg-queue-model.js` (the
+whole file) and the `drainMsgQueueOnce` / enqueue-on-inflight path in
+`renderer.js`. The receiving-side render that's already waiting for the real
+feature is `src/renderer/context-rail.js:38` (`context/message`) and
+`:46` (`steering/message`) — the 📎 cards light up today for injects the
+runtime emits on its own; they'd light up for shell-originated steers the
+moment the send path exists.
+
+**Upstream fix (needed).** Add a client→server RPC that rides the existing
+kernel seam, e.g.:
+
+```
+Method: session/steer            (or context/inject)
+Params: {
+  sessionId: string,
+  content: ContentBlock[],       // the steer/injection payload
+  mode?: 'steer' | 'inject',     // steer → agent.steer (running turn only);
+                                 // inject → agent.inject (context/message)
+  source?: { kind, ... }         // provenance, same shape context/message carries
+}
+Result: {
+  accepted: boolean,             // false if the session id was unknown / disposed
+  applied: 'steered' | 'injected' | 'queued'
+}
+```
+
+The handler in `HarnessSdkServer` routes to `agent.steer(content, options)`
+when a turn is running and `agent.inject(content, options)` otherwise — both
+already exist (`agent.ts:219,227`). The load-bearing invariant to preserve is
+**model-visible ⟺ logged**: whatever the model sees mid-turn must appear on
+the session event stream as a `context/message` / `steering/message` (which
+`agent.inject` already guarantees via `session.append`), so replay and the
+📎 cards stay faithful — no side-channel that reaches the model without a
+log record, and no log record the model never saw.
+
+**Precedent in ledger.** Same shape as L-1 / L-2 / L-4: the shell paints
+over a gap the runtime should own (here, the receiving half already renders;
+only the send verb is missing), and the fix is a small wire addition that
+lets the queue workaround retire — once `session/steer` lands, a mid-turn
+Enter can route to it instead of the FIFO, and queued-message degradation
+becomes the fallback for older runtimes only.
+

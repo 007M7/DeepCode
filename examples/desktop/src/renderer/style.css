@@ -1781,6 +1781,41 @@ body.layout-monitor .stream {
 }
 .inspector-panel[hidden] { display: none; }
 
+/* Feedback tab (lane-wf-feedback) — per-event RL annotation form. */
+.inspector-feedback { display: flex; flex-direction: column; gap: 12px; }
+.inspector-feedback-id { font-family: var(--mono); font-size: 11px; }
+.inspector-feedback-verdict { display: flex; gap: 8px; }
+.inspector-feedback-thumb {
+  padding: 6px 12px; font-size: 12px; line-height: 1;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-elev); color: var(--text); cursor: pointer;
+}
+.inspector-feedback-thumb:hover { border-color: var(--accent); }
+.inspector-feedback-thumb.up.active {
+  border-color: color-mix(in oklab, var(--ok) 55%, var(--border));
+  background: color-mix(in oklab, var(--ok) 14%, var(--bg-elev));
+}
+.inspector-feedback-thumb.down.active {
+  border-color: color-mix(in oklab, var(--danger, var(--warn)) 55%, var(--border));
+  background: color-mix(in oklab, var(--danger, var(--warn)) 14%, var(--bg-elev));
+}
+.inspector-feedback-dim { display: flex; flex-direction: column; gap: 4px; }
+.inspector-feedback-dim-label,
+.inspector-feedback-note-label { font-size: 11px; }
+.inspector-feedback-dim-select {
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px;
+  background: var(--bg-elev); color: var(--text); font-size: 12px;
+}
+.inspector-feedback-note { display: flex; flex-direction: column; gap: 4px; }
+.inspector-feedback-note-input {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  padding: 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-elev); color: var(--text);
+  font-family: inherit; font-size: 12px; line-height: 1.4;
+}
+.inspector-feedback-actions { display: flex; align-items: center; gap: 10px; }
+.inspector-feedback-status { font-size: 11px; }
+
 /* Pretty tab */
 .inspector-pretty-title {
   font-size: 13px; color: var(--text); font-weight: 600; margin-bottom: 8px;
@@ -1832,6 +1867,11 @@ body.layout-monitor .stream {
   cursor: pointer;
 }
 .inspect-badge:hover { color: var(--accent); border-color: var(--accent); }
+/* lane-wf-feedback: a badge whose event carries a feedback annotation wears a
+ * small ✓ after the "{ }" glyph so a reader can see, at a glance, which events
+ * are already annotated. Rendered via ::after so the badge text stays "{ }". */
+.inspect-badge-annotated { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, var(--border)); }
+.inspect-badge-annotated::after { content: '✓'; margin-left: 3px; font-size: 9px; }
 /* Hover-revealed variant for bubbles / reasoning blocks — mirrors the
  * .fork-here reveal pattern. */
 .inspect-badge-hover {
@@ -6360,6 +6400,12 @@ textarea:focus-visible {
   background: color-mix(in oklab, var(--warn) 12%, var(--bg-elev));
   color: color-mix(in oklab, var(--warn) 65%, var(--text));
   border: 1px dashed color-mix(in oklab, var(--warn) 45%, var(--border));
+}
+.workflow-card-chip--live {
+  padding: 1px 6px; border-radius: 4px; font-size: 10px;
+  background: color-mix(in oklab, var(--ok) 12%, var(--bg-elev));
+  color: color-mix(in oklab, var(--ok) 70%, var(--text));
+  border: 1px solid color-mix(in oklab, var(--ok) 40%, var(--border));
 }
 .workflow-body { display: flex; flex-direction: column; gap: 4px; }
 .workflow-body-empty { color: var(--muted); font-style: italic; padding: 4px 2px; }

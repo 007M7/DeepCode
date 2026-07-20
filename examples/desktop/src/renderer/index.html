@@ -1555,6 +1555,7 @@
   <script src="./subagent-drilldown.js"></script>
   <script src="./context-rail.js"></script>
   <script src="./workflow-view.js"></script>
+  <script src="./workflow-live-model.js"></script><!-- lane-wf-feedback: fold on-wire workflow.event frames into the aggregate card model -->
   <script src="./subagent-view.js"></script>
   <script src="./subagent-lineage.js"></script><!-- ticket #15 A: live child event router -->
   <script src="./debug-fixtures.js"></script>
@@ -1566,7 +1567,8 @@
   <script src="./trace-graph.js"></script><!-- task #203: view C agent node graph -->
   <script src="./trace-detail-pane.js"></script><!-- task #205: right-side detail pane (4 tabs) -->
   <script src="./stream-follow.js"></script><!-- lane-p0-inspector: pure at-bottom auto-follow controller (consumed by renderer stream scroll) -->
-  <script src="./inspector-drawer.js"></script><!-- lane-p0-inspector: unified right-side Inspector (Pretty/Raw/JSON); reuses trace-detail-pane.buildJsonTree above -->
+  <script src="./feedback-annotation-model.js"></script><!-- lane-wf-feedback: per-event RL annotation index (consumed by inspector Feedback tab) -->
+  <script src="./inspector-drawer.js"></script><!-- lane-p0-inspector: unified right-side Inspector (Pretty/Raw/JSON/Feedback); reuses trace-detail-pane.buildJsonTree above -->
   <script src="./trace-tri-view.js"></script><!-- task #203: view chips + panels -->
   <script src="./price-table.js"></script><!-- task #158: cost chip data source -->
   <script src="./parse-incremental-json.js"></script><!-- task #162 rec 22: partial-JSON tool row -->
@@ -1696,11 +1698,13 @@
       <button type="button" class="inspector-tab active" data-tab="pretty" role="tab" aria-selected="true">Pretty</button>
       <button type="button" class="inspector-tab" data-tab="raw" role="tab" aria-selected="false">Raw</button>
       <button type="button" class="inspector-tab" data-tab="json" role="tab" aria-selected="false">JSON</button>
+      <button type="button" class="inspector-tab" data-tab="feedback" role="tab" aria-selected="false">Feedback</button><!-- lane-wf-feedback: per-event RL annotation -->
     </div>
     <div class="inspector-drawer-body">
       <div class="inspector-panel" data-panel="pretty" role="tabpanel"></div>
       <div class="inspector-panel" data-panel="raw" role="tabpanel" hidden></div>
       <div class="inspector-panel" data-panel="json" role="tabpanel" hidden></div>
+      <div class="inspector-panel" data-panel="feedback" role="tabpanel" hidden></div>
     </div>
   </aside>
 

@@ -137,6 +137,17 @@ test('isMock flag adds the mock chip; without it, chip is absent', () => {
   assert.strictEqual(collectByClass(withoutMock, 'workflow-card-chip--mock').length, 0)
 })
 
+test('isLive flag adds the live chip (not the mock chip); the two are exclusive', () => {
+  const seq = loadFixture('1.6-workflow-seq.json')
+  const live = view.buildWorkflowCard(makeDoc(), seq.workflow, { isLive: true })
+  assert.strictEqual(collectByClass(live, 'workflow-card-chip--live').length, 1)
+  assert.strictEqual(collectByClass(live, 'workflow-card-chip--mock').length, 0)
+  // isMock wins when both are (wrongly) set — a card is never both live+mock.
+  const both = view.buildWorkflowCard(makeDoc(), seq.workflow, { isMock: true, isLive: true })
+  assert.strictEqual(collectByClass(both, 'workflow-card-chip--mock').length, 1)
+  assert.strictEqual(collectByClass(both, 'workflow-card-chip--live').length, 0)
+})
+
 test('showReplayBar mounts prev/next and clamps at ends', () => {
   const doc = makeDoc()
   const seq = loadFixture('1.6-workflow-seq.json')

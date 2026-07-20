@@ -17,13 +17,18 @@
 // The DOM produced here is container-agnostic; the caller decides where it
 // lands.
 //
-// The workflow/* Cordis events don't cross the JSON-RPC wire yet (see
-// coverage doc §1 "workflow/* Cordis events"; wire patch owned by
-// impl-plugin-wire). So the fixtures each carry `_mock:true` at the top
-// and this module quietly renders a "mock · workflow/* not on wire" chip
-// so a reader can tell demo pixels from real ones. Once the wire lands,
-// callers pass through the same {name, kind, ...shape} object and the chip
-// swaps to a live spinner.
+// The workflow/* Cordis events NOW cross the JSON-RPC wire as `workflow.event`
+// notifications (runtime commit dd29d8631, integration/desktop-demo). Two feed
+// paths land in this module:
+//   - LIVE: renderer.js subscribes to the `workflow.event` notification, folds
+//     the incremental frames through workflow-live-model.js into an aggregate
+//     {name, kind:'seq', steps[]} object, and passes it with `{ isLive:true }`.
+//     Live cards wear a small "live · workflow.event" chip. On profiles/runtimes
+//     that never mount ctx.workflows the notification simply never fires, so
+//     nothing renders — no chip, no error.
+//   - MOCK: the Debug popover still mints fixture cards (each fixture carries
+//     `_mock:true`) with `{ isMock:true }`; those keep the "mock · workflow/*
+//     not on wire yet" chip so a reader can tell demo pixels from real ones.
 //
 // Exports:
 //   classifyWorkflowKind(kind)      → 'seq'|'fan-out'|'dag'|'iter'|'branch'|'unknown'
@@ -31,7 +36,9 @@
 //   buildWorkflowCard(doc, wf, opts)→ HTMLElement
 //
 // buildWorkflowCard opts:
-//   isMock?: boolean               — show the "mock" chip in the head
+//   isMock?: boolean               — show the "mock · not on wire" chip
+//   isLive?: boolean               — show the "live · workflow.event" chip
+//                                    (mutually exclusive with isMock)
 //   activeStepId?: string          — highlight the current step (replay pointer)
 //   onStepClick?(stepId, wf)       — click handler for a step node
 //   showReplayBar?: boolean        — mount replay bar with prev/next buttons
@@ -355,7 +362,16 @@ function buildWorkflowCard(doc, wf, opts = {}) {
     const chip = doc.createElement('span');
     chip.className = 'workflow-card-chip workflow-card-chip--mock';
     chip.textContent = 'mock · workflow/* not on wire yet';
-    chip.title = 'workflow/* Cordis events do not cross the JSON-RPC transport yet; this card is fixture-driven to demo the shape.';
+    chip.title = 'This card is fixture-driven (Debug popover) to demo the shape — not a live run.';
+    head.appendChild(chip);
+  } else if (opts.isLive) {
+    // Live cards are fed off the on-wire `workflow.event` notification via
+    // workflow-live-model.js. The chip is the honest counterpart to the mock
+    // chip — no "not on wire" caveat, and it never appears on fixture cards.
+    const chip = doc.createElement('span');
+    chip.className = 'workflow-card-chip workflow-card-chip--live';
+    chip.textContent = 'live · workflow.event';
+    chip.title = 'Fed from the runtime\'s workflow.event notifications (workflow/* Cordis events bridged onto the JSON-RPC wire).';
     head.appendChild(chip);
   }
   card.appendChild(head);

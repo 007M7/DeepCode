@@ -990,7 +990,7 @@ function attachBubbleInspect(el, body, role) {
         __reconstructed: true,
       }
     }
-    return { event, tab: 'pretty' }
+    return { event, tab: 'pretty', sessionId: state.activeSessionId }
   }, { hover: true })
 }
 
@@ -1007,6 +1007,7 @@ function attachReasoningInspect(r) {
     return {
       event: { type: 'reasoning', data: { text }, __reconstructed: true },
       tab: 'pretty',
+      sessionId: state.activeSessionId,
     }
   }, { hover: true })
 }
@@ -1019,7 +1020,7 @@ function attachEventInspect(el, event, opts) {
   const ins = window.__dshInspector
   if (!ins || typeof ins.attachInspectBadge !== 'function' || !el || !event) return
   const o = opts || {}
-  ins.attachInspectBadge(el, () => ({ event, tab: o.tab || 'pretty' }), { hover: !!o.hover })
+  ins.attachInspectBadge(el, () => ({ event, tab: o.tab || 'pretty', sessionId: state.activeSessionId }), { hover: !!o.hover })
 }
 
 // Hover-revealed "fork from here" button on assistant bubbles. The boundary
@@ -2651,6 +2652,20 @@ if (typeof window !== 'undefined' && window.dshQa) {
   // defensively (introduced in an earlier lane) — this exposes it under
   // the same DSH_QA=1 gate so a driver can write, not just read.
   window.__dshRendererState = state
+  // lane-wf-feedback: direct-dispatch seam for the on-wire `workflow.event`
+  // notification, so the CDP shoot can feed the REAL wire shape through the
+  // same onWorkflowEvent path the live notification uses — no daemon + no
+  // workflow engine required. Ensures the accumulator exists (bootUi may not
+  // have run yet in a headless QA boot).
+  window.__dshOnWorkflowEvent = function (workflowEventParams) {
+    if (!state.workflowLiveModel) {
+      const wfMod = window.__dshWorkflowLiveModel
+      if (wfMod && typeof wfMod.createWorkflowLiveModel === 'function') {
+        state.workflowLiveModel = wfMod.createWorkflowLiveModel()
+      }
+    }
+    onWorkflowEvent(workflowEventParams)
+  }
 }
 
 // the step's meta strip — a horizontal chip row (turn / step
@@ -6666,6 +6681,63 @@ async function cancel() {
 
 // -- event wiring ------------------------------------------------------------
 
+// lane-wf-feedback: consume one on-wire `workflow.event` notification param
+// ({ kind, runId, meta, payload }). Fold it through the accumulator, then
+// mount or refresh the aggregate workflow card. Correlation: the wire carries
+// no sessionId, so we anchor to the enclosing `workflow` tool/call block on
+// the active stream (matching how the bridge documents runId ⟷ tool_call). If
+// no such block is on screen we append the card at the stream tail as a
+// standalone live card. Unknown-kind / malformed frames fold to null → no-op.
+function onWorkflowEvent(params) {
+  const model = state.workflowLiveModel
+  const view = window.__dshWorkflowView
+  if (!model || !view || typeof view.buildWorkflowCard !== 'function') return
+  const runId = model.apply(params)
+  if (!runId) return // unknown kind / malformed — render nothing
+  const wf = model.toCard(runId)
+  if (!wf) return
+  const card = view.buildWorkflowCard(document, wf, {
+    isLive: true,
+    showReplayBar: false,
+  })
+  card.dataset.workflowRunId = runId
+  card.classList.add('workflow-card-live')
+
+  // Replace an existing live card for the same run (incremental re-render),
+  // else mount fresh. Anchor priority: (a) directly after the workflow
+  // tool/call block whose args named this run, (b) stream tail.
+  const existing = streamEl.querySelector(
+    `.workflow-card-live[data-workflow-run-id="${cssEscape(runId)}"]`)
+  if (existing && existing.parentElement) {
+    existing.parentElement.replaceChild(card, existing)
+    return
+  }
+  const anchor = findWorkflowToolAnchor(wf.name)
+  if (anchor && anchor.parentElement) {
+    anchor.parentElement.insertBefore(card, anchor.nextSibling)
+  } else {
+    streamEl.appendChild(card)
+  }
+  scrollToBottom()
+}
+
+// Best-effort: find the `workflow` tool/call block on the active stream whose
+// arguments named `wfName`, so a live workflow card mounts inline with the
+// call that spawned it. Returns null when there's no match (→ tail append).
+function findWorkflowToolAnchor(wfName) {
+  const blocks = streamEl.querySelectorAll('.tool-block[data-tool-name="workflow"]')
+  if (!blocks || blocks.length === 0) return null
+  if (!wfName) return blocks[blocks.length - 1]
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const b = blocks[i]
+    const txt = b.textContent || ''
+    if (txt.indexOf(wfName) >= 0) return b
+  }
+  // No arg match — fall back to the most recent workflow call so the card
+  // still lands next to a workflow tool block rather than orphaned at the tail.
+  return blocks[blocks.length - 1]
+}
+
 window.dsh.onNotify(({ method, params }) => {
   // Forward every notification to Mission Control so its aggregate stays
   // live regardless of which tab is active. The mission module is a no-op
@@ -6857,6 +6929,15 @@ window.dsh.onNotify(({ method, params }) => {
     renderSessionList()
     void refreshSessionList()
     appendSystem(`subagent finished: ${params.agentId} (${params.status})`)
+  } else if (method === 'workflow.event') {
+    // lane-wf-feedback: live workflow card. The wire (runtime commit
+    // dd29d8631) ships incremental `workflow.event` frames keyed by `runId`
+    // with NO sessionId — the run correlates back to the enclosing `workflow`
+    // tool/call on the active session's stream. We fold each frame into the
+    // accumulator and (re)mount one aggregate card anchored to that tool
+    // block; on a runtime that never mounts ctx.workflows this branch never
+    // fires, so nothing renders.
+    onWorkflowEvent(params)
   }
 })
 window.dsh.onStatus(({ status, profile, model, supportedModels }) => {
@@ -8056,6 +8137,15 @@ async function bootUi() {
     const lineageMod = window.__dshSubagentLineage
     if (lineageMod && typeof lineageMod.createSubagentLineage === 'function') {
       state.subagentStore = lineageMod.createSubagentLineage()
+    }
+  }
+  // lane-wf-feedback: instantiate the workflow-live accumulator once. Folds
+  // the on-wire `workflow.event` frames into aggregate card models; kept on
+  // `state` so reset paths and the renderer-harness seam can inspect it.
+  if (!state.workflowLiveModel) {
+    const wfMod = window.__dshWorkflowLiveModel
+    if (wfMod && typeof wfMod.createWorkflowLiveModel === 'function') {
+      state.workflowLiveModel = wfMod.createWorkflowLiveModel()
     }
   }
   // Expose the send-side handles used by the Plugins tab (vibeStart hands

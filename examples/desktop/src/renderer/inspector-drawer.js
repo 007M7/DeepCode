@@ -32,7 +32,7 @@
 ;(function () {
   const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined'
 
-  const TABS = ['pretty', 'raw', 'json']
+  const TABS = ['pretty', 'raw', 'json', 'feedback']
 
   // --- pure helpers ------------------------------------------------------
 
@@ -345,9 +345,186 @@
     host.appendChild(pre)
   }
 
+  // The rubric dimension list the Feedback tab's dropdown offers. Reused from
+  // the SAME source Evals/rubrics-model.js uses (MULTI_TURN_DIMENSIONS) so a
+  // researcher annotates against the locked RL dimension vocabulary rather
+  // than an inspector-local copy. Falls back to an empty list pre-load.
+  function feedbackDimensions () {
+    const rm = (typeof window !== 'undefined') ? window.__dshRubricsModel : null
+    const dims = rm && Array.isArray(rm.MULTI_TURN_DIMENSIONS) ? rm.MULTI_TURN_DIMENSIONS : []
+    return dims.map((d) => ({ id: d.id, label: d.label }))
+  }
+
+  // Read the annotation index (renderer cache) for an event's (sessionId, seq)
+  // so the tab prefills + the marker paints without an IPC round-trip. Returns
+  // the stored record or null.
+  function currentAnnotation (sessionId, event) {
+    const fm = (typeof window !== 'undefined') ? window.__dshFeedbackModel : null
+    if (!fm || !fm.createAnnotationIndex) return null
+    const idx = feedbackIndex()
+    if (!idx) return null
+    const seq = event && Number(event.seq)
+    if (!Number.isFinite(seq) || !sessionId) return null
+    return idx.get(sessionId, seq)
+  }
+
+  // Lazily-created singleton annotation index, hydrated from disk on first use.
+  let _idx = null
+  function feedbackIndex () {
+    const fm = (typeof window !== 'undefined') ? window.__dshFeedbackModel : null
+    if (!fm || !fm.createAnnotationIndex) return null
+    if (!_idx) _idx = fm.createAnnotationIndex()
+    return _idx
+  }
+
+  // The session id the Feedback tab keys annotations to. Prefer the explicit
+  // `open({ sessionId })` value; fall back to the renderer's active session
+  // (the tool-card `{ }` path routes through openFromDrawer without a sessionId,
+  // so the active session is the honest owner of the event on screen).
+  function effectiveSessionId () {
+    if (state.sessionId != null && state.sessionId !== '') return state.sessionId
+    const chat = (typeof window !== 'undefined') ? window.__dshChat : null
+    if (chat && typeof chat.getActiveSessionId === 'function') {
+      const sid = chat.getActiveSessionId()
+      if (sid != null && sid !== '') return String(sid)
+    }
+    return null
+  }
+
+  // Hydrate the annotation index from persisted records (feedback.list()).
+  // Called at boot by the renderer; safe to call repeatedly.
+  function hydrateFeedback (entries) {
+    const idx = feedbackIndex()
+    if (idx) idx.hydrate(entries)
+  }
+
+  // Feedback tab renderer (doc-injected for tests). Builds the up/down verdict
+  // buttons, the rubric-dimension <select>, the note <textarea>, and a Save
+  // row. `opts.onSave(form)` receives the collected form on submit; the browser
+  // wiring passes a handler that persists via window.dsh.feedback + updates the
+  // cache. `existing` prefills from the current annotation.
+  function renderFeedback (doc, host, ctx) {
+    if (!host) return
+    host.textContent = ''
+    const o = ctx || {}
+    const existing = o.existing || null
+    const dims = Array.isArray(o.dimensions) ? o.dimensions : feedbackDimensions()
+
+    const wrap = doc.createElement('div')
+    wrap.className = 'inspector-feedback'
+
+    // Identity line — which event this annotation is keyed to.
+    const idLine = doc.createElement('div')
+    idLine.className = 'inspector-feedback-id muted'
+    const seqTxt = (o.event && typeof o.event.seq === 'number') ? `seq ${o.event.seq}` : 'seq —'
+    idLine.textContent = o.sessionId ? `${seqTxt} · session ${String(o.sessionId).slice(0, 8)}` : seqTxt
+    wrap.appendChild(idLine)
+
+    // Verdict row: thumbs up / down. A second click on the active verdict
+    // clears it (toggle to null).
+    const verdictRow = doc.createElement('div')
+    verdictRow.className = 'inspector-feedback-verdict'
+    let verdict = existing && (existing.verdict === 'up' || existing.verdict === 'down')
+      ? existing.verdict : null
+    const upBtn = doc.createElement('button')
+    upBtn.type = 'button'
+    upBtn.className = 'inspector-feedback-thumb up'
+    upBtn.textContent = '↑ good'
+    upBtn.setAttribute('aria-label', 'Thumbs up')
+    const downBtn = doc.createElement('button')
+    downBtn.type = 'button'
+    downBtn.className = 'inspector-feedback-thumb down'
+    downBtn.textContent = '↓ bad'
+    downBtn.setAttribute('aria-label', 'Thumbs down')
+    const reflectVerdict = () => {
+      upBtn.classList.toggle('active', verdict === 'up')
+      downBtn.classList.toggle('active', verdict === 'down')
+      upBtn.setAttribute('aria-pressed', verdict === 'up' ? 'true' : 'false')
+      downBtn.setAttribute('aria-pressed', verdict === 'down' ? 'true' : 'false')
+    }
+    upBtn.addEventListener('click', () => { verdict = verdict === 'up' ? null : 'up'; reflectVerdict() })
+    downBtn.addEventListener('click', () => { verdict = verdict === 'down' ? null : 'down'; reflectVerdict() })
+    verdictRow.appendChild(upBtn); verdictRow.appendChild(downBtn)
+    reflectVerdict()
+    wrap.appendChild(verdictRow)
+
+    // Rubric dimension select (optional).
+    const dimRow = doc.createElement('div')
+    dimRow.className = 'inspector-feedback-dim'
+    const dimLabel = doc.createElement('label')
+    dimLabel.className = 'inspector-feedback-dim-label muted'
+    dimLabel.textContent = 'rubric dimension'
+    const dimSelect = doc.createElement('select')
+    dimSelect.className = 'inspector-feedback-dim-select'
+    const noneOpt = doc.createElement('option')
+    noneOpt.value = ''
+    noneOpt.textContent = '(none)'
+    dimSelect.appendChild(noneOpt)
+    for (const d of dims) {
+      const opt = doc.createElement('option')
+      opt.value = d.id
+      opt.textContent = d.label
+      if (existing && existing.rubricDim === d.id) opt.selected = true
+      dimSelect.appendChild(opt)
+    }
+    if (existing && existing.rubricDim) dimSelect.value = existing.rubricDim
+    dimRow.appendChild(dimLabel); dimRow.appendChild(dimSelect)
+    wrap.appendChild(dimRow)
+
+    // Note textarea.
+    const noteWrap = doc.createElement('div')
+    noteWrap.className = 'inspector-feedback-note'
+    const noteLabel = doc.createElement('label')
+    noteLabel.className = 'inspector-feedback-note-label muted'
+    noteLabel.textContent = 'note'
+    const note = doc.createElement('textarea')
+    note.className = 'inspector-feedback-note-input'
+    note.rows = 4
+    note.placeholder = 'Why? (free text — this is the RL-annotation seed)'
+    if (existing && typeof existing.note === 'string') note.value = existing.note
+    noteWrap.appendChild(noteLabel); noteWrap.appendChild(note)
+    wrap.appendChild(noteWrap)
+
+    // Save / status row.
+    const actions = doc.createElement('div')
+    actions.className = 'inspector-feedback-actions'
+    const save = doc.createElement('button')
+    save.type = 'button'
+    save.className = 'inspector-feedback-save primary small'
+    save.textContent = 'Save annotation'
+    const status = doc.createElement('span')
+    status.className = 'inspector-feedback-status muted'
+    actions.appendChild(save); actions.appendChild(status)
+    wrap.appendChild(actions)
+
+    save.addEventListener('click', () => {
+      const form = {
+        sessionId: o.sessionId,
+        seq: o.event && o.event.seq,
+        verdict,
+        note: note.value || '',
+        rubricDim: dimSelect.value || undefined,
+      }
+      if (typeof o.onSave === 'function') {
+        const r = o.onSave(form)
+        // onSave may be sync (tests) or return a promise (browser IPC).
+        if (r && typeof r.then === 'function') {
+          status.textContent = 'saving…'
+          r.then((res) => { status.textContent = (res && res.cleared) ? 'cleared' : 'saved ✓' },
+                 () => { status.textContent = 'save failed' })
+        } else {
+          status.textContent = 'saved ✓'
+        }
+      }
+    })
+
+    host.appendChild(wrap)
+    return wrap
+  }
+
   // --- drawer state + wiring (browser only) ------------------------------
 
-  const state = { event: null, tab: 'pretty', title: '' }
+  const state = { event: null, tab: 'pretty', title: '', sessionId: null }
 
   function drawerEl () {
     return (isBrowser && document.getElementById) ? document.getElementById('inspector-drawer') : null
@@ -370,7 +547,15 @@
     if (!host) return
     if (state.tab === 'pretty') renderPretty(doc, host, projectPretty(state.event))
     else if (state.tab === 'raw') renderRaw(doc, host, formatRaw(state.event))
-    else renderJson(doc, host, state.event)
+    else if (state.tab === 'feedback') {
+      const sid = effectiveSessionId()
+      renderFeedback(doc, host, {
+        event: state.event,
+        sessionId: sid,
+        existing: currentAnnotation(sid, state.event),
+        onSave: persistAnnotation,
+      })
+    } else renderJson(doc, host, state.event)
 
     const titleEl = drawer.querySelector('.inspector-drawer-title')
     if (titleEl) titleEl.textContent = state.title || projectPretty(state.event).title || 'inspector'
@@ -385,13 +570,16 @@
 
   // Open the inspector anchored to `event` (a real or reconstructed
   // session.event). `tab` selects the initial tab; `title` overrides the
-  // derived headline.
+  // derived headline. `sessionId` keys the Feedback tab's annotation record
+  // (the wire event may not carry it, so the caller supplies the owning
+  // session).
   function open (input) {
     const opts = input || {}
     if (!opts.event) return null
     state.event = opts.event
     state.tab = normalizeTab(opts.tab)
     state.title = opts.title || ''
+    state.sessionId = opts.sessionId != null ? String(opts.sessionId) : null
     const drawer = drawerEl()
     if (!drawer) return null
     renderActivePanel(drawer)
@@ -401,6 +589,62 @@
     drawer._escHandler = escHandler
     document.addEventListener('keydown', escHandler)
     return drawer
+  }
+
+  // Browser wiring for the Feedback tab's Save button: persist via
+  // window.dsh.feedback, update the renderer cache, and refresh any ✓ markers
+  // on inspect badges for this (sessionId, seq). Returns the IPC promise so the
+  // renderer can show saving/saved state. In tests (no window.dsh) this is a
+  // no-op that still updates the in-memory index so the marker logic is
+  // exercisable without IPC.
+  function persistAnnotation (form) {
+    const idx = feedbackIndex()
+    // Optimistic cache update first so the marker + prefill are immediate.
+    if (idx) idx.put(form)
+    refreshInspectMarkers()
+    const bridge = (typeof window !== 'undefined' && window.dsh && window.dsh.feedback) ? window.dsh.feedback : null
+    if (!bridge || typeof bridge.upsert !== 'function') {
+      return { ok: true, offline: true }
+    }
+    return bridge.upsert(form).then((res) => {
+      // Reconcile the cache with the authoritative server record.
+      if (res && res.entry && idx) idx.put(res.entry)
+      else if (res && res.cleared && idx) idx.remove(form.sessionId, form.seq)
+      refreshInspectMarkers()
+      return res
+    })
+  }
+
+  // Repaint the ✓ marker on every mounted inspect badge that resolves to an
+  // annotated (sessionId, seq). A badge's own data-annot-seq is set at attach
+  // time, but some hosts (assistant bubbles) stamp their data-inspect-seq
+  // AFTER the badge attaches, so we fall back to the nearest ancestor carrying
+  // data-inspect-seq / data-seq. Cheap — badges are few on screen.
+  function refreshInspectMarkers () {
+    if (!isBrowser || !document.querySelectorAll) return
+    const idx = feedbackIndex()
+    if (!idx) return
+    const activeSid = effectiveSessionId()
+    const badges = document.querySelectorAll('.inspect-badge')
+    badges.forEach((b) => {
+      let sid = b.getAttribute('data-annot-session') || activeSid
+      let seqAttr = b.getAttribute('data-annot-seq')
+      if (seqAttr == null && b.closest) {
+        const host = b.closest('[data-inspect-seq],[data-seq]')
+        if (host) seqAttr = host.getAttribute('data-inspect-seq') || host.getAttribute('data-seq')
+      }
+      const seq = Number(seqAttr)
+      if (!sid || !Number.isFinite(seq)) { setBadgeAnnotated(b, false); return }
+      setBadgeAnnotated(b, idx.has(sid, seq))
+    })
+  }
+
+  // Toggle the ✓ marker class on one badge.
+  function setBadgeAnnotated (badge, on) {
+    if (!badge) return
+    badge.classList.toggle('inspect-badge-annotated', !!on)
+    if (on) badge.setAttribute('data-annotated', '1')
+    else badge.removeAttribute('data-annotated')
   }
 
   // Adapter for the legacy tool-cards.openJsonDrawer contract, so its call
@@ -431,7 +675,7 @@
     } else {
       event = { type: 'event', data: {}, __reconstructed: true }
     }
-    return open({ event, tab: opts.tab || 'json', title: opts.title })
+    return open({ event, tab: opts.tab || 'json', title: opts.title, sessionId: opts.sessionId })
   }
 
   function close () {
@@ -444,10 +688,12 @@
   }
 
   // Build an unobtrusive "{ }" inspect affordance and hang it on `el`. The
-  // caller supplies `getTarget()` returning { event, tab, title } resolved at
-  // click time (so bubbles can synthesize from live DOM text). `opts.hover`
-  // makes it a hover-revealed badge (bubble / reasoning) rather than an
-  // always-visible one.
+  // caller supplies `getTarget()` returning { event, tab, title, sessionId }
+  // resolved at click time (so bubbles can synthesize from live DOM text).
+  // `opts.hover` makes it a hover-revealed badge (bubble / reasoning) rather
+  // than an always-visible one. If the target's (sessionId, seq) already has a
+  // feedback annotation, the badge paints a ✓ marker up front (and refreshes
+  // after a save via refreshInspectMarkers).
   function attachInspectBadge (el, getTarget, opts) {
     if (!isBrowser || !el) return null
     const o = opts || {}
@@ -455,13 +701,27 @@
     btn.type = 'button'
     btn.className = 'inspect-badge' + (o.hover ? ' inspect-badge-hover' : '')
     btn.textContent = '{ }'
-    btn.title = 'Inspect · Pretty / Raw / JSON'
-    btn.setAttribute('aria-label', 'Inspect this element (Pretty, Raw, JSON)')
+    btn.title = 'Inspect · Pretty / Raw / JSON / Feedback'
+    btn.setAttribute('aria-label', 'Inspect this element (Pretty, Raw, JSON, Feedback)')
+    // Record identity on the badge so refreshInspectMarkers can find + repaint
+    // it after an annotation lands. Resolve once at attach time; a re-resolve
+    // on click keeps it current if the target's seq changes.
+    const stamp = (target) => {
+      if (!target) return
+      if (target.sessionId != null) btn.setAttribute('data-annot-session', String(target.sessionId))
+      const seq = target.event && Number(target.event.seq)
+      if (Number.isFinite(seq)) btn.setAttribute('data-annot-seq', String(seq))
+      const idx = feedbackIndex()
+      if (idx && target.sessionId != null && Number.isFinite(seq)) {
+        setBadgeAnnotated(btn, idx.has(String(target.sessionId), seq))
+      }
+    }
+    try { stamp(typeof getTarget === 'function' ? getTarget() : null) } catch { /* resolve is best-effort at attach */ }
     btn.addEventListener('click', (e) => {
       if (e && e.stopPropagation) e.stopPropagation()
       if (e && e.preventDefault) e.preventDefault()
       const target = typeof getTarget === 'function' ? getTarget() : null
-      if (target && target.event) open(target)
+      if (target && target.event) { stamp(target); open(target) }
     })
     el.appendChild(btn)
     return btn
@@ -478,6 +738,15 @@
     tabs.forEach((btn) => {
       btn.addEventListener('click', () => { if (btn.dataset) setTab(btn.dataset.tab) })
     })
+    // lane-wf-feedback: hydrate the annotation index from disk so ✓ markers
+    // paint on first badge attach. Best-effort — a missing bridge (early boot /
+    // headless) leaves the index empty.
+    const bridge = (window.dsh && window.dsh.feedback) ? window.dsh.feedback : null
+    if (bridge && typeof bridge.list === 'function') {
+      Promise.resolve(bridge.list()).then((res) => {
+        if (res && Array.isArray(res.entries)) { hydrateFeedback(res.entries); refreshInspectMarkers() }
+      }).catch(() => { /* annotations are additive; a read miss is non-fatal */ })
+    }
   }
 
   if (isBrowser) {
@@ -489,7 +758,9 @@
     // pure
     normalizeTab, projectPretty, formatRaw, kindForEvent, TABS,
     // dom renderers (doc-injected)
-    renderPretty, renderRaw, renderJson,
+    renderPretty, renderRaw, renderJson, renderFeedback,
+    // feedback annotation cache
+    hydrateFeedback, refreshInspectMarkers, feedbackDimensions,
     // drawer
     open, openFromDrawer, close, setTab, install, attachInspectBadge,
   }

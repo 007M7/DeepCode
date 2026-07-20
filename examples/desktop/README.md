@@ -364,16 +364,33 @@ becomes a visualiser of the runtime's actual state.
   that exact seq, edit the user turn, and let a different reply
   stream in. The child is anchored back in the session tree with a
   `⑂ forks from here (N)` card so the branching is legible.
+- **Workflow cards — live.** When a composition mounts the workflow
+  engine, the runtime bridges its `workflow/*` Cordis lifecycle events
+  onto the wire as `workflow.event` notifications. The shell folds those
+  incremental frames (start / phase / log / agent-start / agent-end /
+  end, keyed by `runId`) into a live workflow card anchored to the
+  `workflow` tool call that spawned the run — each workflow-agent shows
+  as a step, `running` then `done`/`failed` as it settles, under a
+  `live · workflow.event` chip. On profiles/runtimes that never mount
+  `ctx.workflows` the notification simply never fires, so nothing
+  renders. (The Debug popover still mints the five fixture shapes
+  — seq / fan-out / dag / iter / branch — carrying a `mock` chip.)
 - **`{ }` Inspector — zero loss.** Every inspectable element in the
   chat stream — user + assistant bubbles, reasoning blocks, tool calls
   and results, compaction cards, context 📎 injections, subagent
   cards — carries an unobtrusive `{ }` badge that opens one unified
-  right-side Inspector with three tabs: **Pretty** (a readable,
+  right-side Inspector with four tabs: **Pretty** (a readable,
   type-specific view of that element), **Raw** (the verbatim
   `session.event` from the session log, with a seq/type/time header +
-  copy), and **JSON** (the same event through the recursive collapsible
-  Fields tree). The pretty renderer is a projection; the Raw/JSON tabs
-  are the source of truth, always one click away.
+  copy), **JSON** (the same event through the recursive collapsible
+  Fields tree), and **Feedback** (a per-event RL annotation: thumbs
+  up/down + a note + an optional rubric dimension drawn from the same
+  locked dimension set the Evals rubrics use). Annotated events show a
+  small ✓ on their `{ }` badge; the record —
+  `{sessionId, seq, verdict, note, rubricDim?, at}` — persists to
+  `~/.dsh-desktop/feedback-annotations.json` as the RL-annotation seed.
+  The pretty renderer is a projection; the Raw/JSON tabs are the source
+  of truth, always one click away.
 - **Compaction visualisation.** When the runtime emits a
   `session/compact` outcome, the compacted range renders as a
   collapsed banner inline in chat with the summary + token delta

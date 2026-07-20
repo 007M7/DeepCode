@@ -164,6 +164,15 @@ contextBridge.exposeInMainWorld('dsh', {
     v2AddRubric: (compactWindowId, form) => ipcRenderer.invoke('growth:v2AddRubric', { compactWindowId, form }),
     v2AddError: (compactWindowId, form) => ipcRenderer.invoke('growth:v2AddError', { compactWindowId, form }),
   },
+  // -- feedback annotations (inspector Feedback tab / RL seed) ----------------
+  // Per-event annotation store at ~/.dsh-desktop/feedback-annotations.json.
+  // list() returns { ok, entries:[{sessionId,seq,verdict,note,rubricDim?,at}] };
+  // upsert(form)/remove(form) key on (sessionId, seq) and return { ok, ... }.
+  feedback: {
+    list: () => ipcRenderer.invoke('feedback:list'),
+    upsert: (form) => ipcRenderer.invoke('feedback:upsert', { form }),
+    remove: (form) => ipcRenderer.invoke('feedback:remove', { form }),
+  },
   // -- pull requests page ----------------------------------------------------
   // `list` returns the 60s-cached payload; `refresh` bypasses the cache.
   // Both go through the same normalized shape: { rows, repo, source, viewer,
