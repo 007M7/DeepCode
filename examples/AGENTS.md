@@ -13,7 +13,7 @@ Each example has both:
 
 Mock-only examples require only the keyless tier; state that exception in the test.
 
-Keyless stdio smokes use `@deepseek-ai/dsh-loader-smoke`; tests supply paths, environment, input, and assertions. Every checked-in test Cordis config lives under its corresponding `examples/<agent>/` leaf. Map a package-owned config to `examples/<agent>/tests/fixtures/<group>/<package>/cordis.yml`, keep its driver and assertions package-local, and declare every package it names in both root `tsconfig.json` references and `examples/package.json`.
+Keyless process smokes use `@deepseek-ai/dsh-loader-smoke` for Loader launch resolution; terminal tests wrap that launch in a pseudo-terminal. Tests supply paths, environment, input, and assertions. Every checked-in test Cordis config lives under its corresponding `examples/<agent>/` leaf. Map a package-owned config to `examples/<agent>/tests/fixtures/<group>/<package>/cordis.yml`, keep its driver and assertions package-local, and declare every package it names in both root `tsconfig.json` references and `examples/package.json`.
 
 Do not inventory example tests here; the `tests/` trees and root scripts are authoritative.
 

@@ -3,5 +3,5 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "description": "Runnable demo: stdin chat with a scripted mock model + echo tool"
+  "description": "Runnable headless demo: scripted mock model + echo tool"
 }

@@ -7,91 +7,44 @@ This guide gets an agent running in five minutes.
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) ^22.19 or >= 24
-- [pnpm](https://pnpm.io/) 11 (use Corepack to select the repository-pinned version)
+- [pnpm](https://pnpm.io/) 11 through Corepack
 
 ```sh
-# Check versions
-node -v   # v22.19.x, or v24.x and newer
+node -v
 corepack enable
-pnpm -v   # 11.x
+pnpm -v
 ```
 
-## Step 1: run echo-agent
-
-echo-agent needs no API key and runs after dependencies are installed.
+## Step 1: run the keyless Headless demo
 
 ```sh
-# Clone the repository
 git clone https://github.com/deepseek-harness/deepseek-harness.git
 cd deepseek-harness
-
-# Install dependencies
 pnpm install
-
-# Start echo-agent
-pnpm run demo:echo
+pnpm run demo:echo "echo hello world"
 ```
 
-The process prints:
+The local mock model calls the `echo` tool, which returns the text in uppercase, and the final response is printed without opening an interactive UI. Use `--output-format stream-json` when you need the canonical event stream.
 
-```
-echo-agent ready. Type a message ("echo <text>" triggers the tool).
->
-```
+## Step 2: use a real model in the TUI
 
-Enter:
-
-```
-> echo hello world
-```
-
-The model issues a tool call, and the echo tool returns the text in uppercase:
-
-```
-[tool call] echo({"text":"hello world"})
-[tool result] ECHO: HELLO WORLD
-```
-
-Your local environment is ready.
-
-## Step 2: use a real model
-
-Next, connect a real DeepSeek model and run the complete command-line agent.
-
-### Get an API key
-
-Get an API key from [DeepSeek Platform](https://platform.deepseek.com/).
-
-### Configure the environment
-
-Create a gitignored `.env` file in the repository root:
+Get an API key from [DeepSeek Platform](https://platform.deepseek.com/) and create the gitignored repository-root `.env`:
 
 ```sh
 DEEPSEEK_API_KEY=sk-your-key-here
 ```
 
-### Start repl-agent
+Start the interactive coding agent:
 
 ```sh
-pnpm run demo:repl
+pnpm run demo:tui
 ```
 
-```
-agent REPL ready. Give it a coding task.
->
-```
-
-This is a complete coding assistant that can read and write files, run commands, and delegate subtasks.
-
-Try a task:
-
-```
-> Create hello.js in the current directory, print "Hello from Harness!", and run it
-```
+The full-screen agent can read and write files, run commands, delegate subtasks, and track a plan. Try: `Create hello.js in the current directory, print "Hello from Harness!", and run it`.
 
 ## What happened
 
-echo-agent and repl-agent use the same application framework (`@deepseek-ai/dsh-stdio-demo`). Their `cordis.yml` files select different plugins and configuration. Custom agents use the same composition model.
+echo-agent uses the Headless `@deepseek-ai/dsh-cli-demo` app; tui-agent uses the interactive `@deepseek-ai/dsh-tui-demo` app. Both load the same providerless agent spine, while their `cordis.yml` files select the model and capability plugins appropriate to each surface.
 
 ## Next steps
 

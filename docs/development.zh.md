@@ -9,7 +9,7 @@
 - Node.js 支持 22.19+ 与 24+。CI 覆盖 22.19、24 和 26；见 [Node 引擎下限 Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md)。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中固定使用 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，请先运行 `corepack enable`。
 - Git。
-- 可选：一个 DeepSeek API key，用于 REPL/ACP（Agent Client Protocol） agent（智能体）演示和真实 API 的 e2e 测试。
+- 可选：一个 DeepSeek API key，用于 TUI/Headless/ACP（Agent Client Protocol） agent（智能体）演示和真实 API 的 e2e 测试。
 
 ## 首次搭建
 
@@ -102,19 +102,13 @@ pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext dec
 
 ## 演示
 
-echo 演示不需要 API 凭证：
+Headless echo 演示不需要 API 凭证：
 
 ```sh
-pnpm run demo:echo
+pnpm run demo:echo "echo hello"
 ```
 
-repl-agent 示例使用面向行的 readline 前端，并需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
-
-```sh
-pnpm run demo:repl
-```
-
-全屏 TUI 通过 pi-tui 前端复用 repl-agent 组装，并需要相同的凭证：
+全屏交互式 coding agent 需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
 
 ```sh
 pnpm run demo:tui

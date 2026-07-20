@@ -358,18 +358,17 @@ function demoSmokeGate(options: { needs?: string[] } = {}): Gate {
   return {
     id: 'demo-smoke',
     label: 'demo smoke',
-    displayCommand: 'pnpm run demo:echo',
-    ...pnpmInvocation(['run', 'demo:echo']),
-    input: 'echo ci smoke\n',
+    displayCommand: 'pnpm run demo:echo --output-format stream-json -- "echo ci smoke"',
+    ...pnpmInvocation(['run', 'demo:echo', '--output-format', 'stream-json', '--', 'echo ci smoke']),
     ...dependencyOptions,
     verify: async (result) => {
       const output = result.stdout + result.stderr
       const sessionsRoot = join(root, '.sessions')
       try {
-        if (!output.includes('[tool call] echo({"text":"ci smoke"})')) {
+        if (!output.includes('"type":"tool/call"') || !output.includes('"name":"echo"')) {
           throw new Error('demo smoke did not show the echo tool call.')
         }
-        if (!output.includes('[tool result] ECHO: CI SMOKE')) {
+        if (!output.includes('ECHO: CI SMOKE')) {
           throw new Error('demo smoke did not show the echo tool result.')
         }
         const buckets = await readdir(sessionsRoot, { withFileTypes: true })
@@ -396,7 +395,8 @@ function builtBinSmokeGate(): Gate {
     'run',
     '--config',
     'vitest.e2e.config.ts',
-    'packages/examples/stdio-demo/tests/built-bin.e2e.ts',
+    'examples/echo-agent/tests/echo.e2e.ts',
+    'examples/tui-agent/tests/tui-keyless-smoke.e2e.ts',
     'packages/examples/cli-demo/tests/built-bin.e2e.ts',
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     'packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts',
@@ -408,6 +408,7 @@ function builtBinSmokeGate(): Gate {
   ], {
     label: 'built-bin smoke',
     needs: ['build'],
+    env: { DSH_EXAMPLE_MODE: 'lib' },
   })
 }
 

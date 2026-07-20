@@ -7,93 +7,46 @@
 ## 环境准备
 
 - [Node.js](https://nodejs.org/) ^22.19 或 >= 24
-- [pnpm](https://pnpm.io/) 11（建议通过 Corepack 使用仓库固定的版本）
+- 通过 Corepack 使用 [pnpm](https://pnpm.io/) 11
 
 ```sh
-# Check versions
-node -v   # v22.19.x, or v24.x and newer
+node -v
 corepack enable
-pnpm -v   # 11.x
+pnpm -v
 ```
 
-## 第一步：运行 echo-agent
-
-echo-agent 不需要 API key，装好依赖就能跑。
+## 第一步：运行 keyless Headless 演示
 
 ```sh
-# Clone the repository
 git clone https://github.com/deepseek-harness/deepseek-harness.git
 cd deepseek-harness
-
-# Install dependencies
 pnpm install
-
-# Start echo-agent
-pnpm run demo:echo
+pnpm run demo:echo "echo hello world"
 ```
 
-启动后你会看到：
+本地 mock 模型会调用 `echo` 工具，由工具返回大写文本，最终回复在不打开交互式 UI 的情况下直接输出。需要规范事件流时可使用 `--output-format stream-json`。
 
-```
-echo-agent ready. Type a message ("echo <text>" triggers the tool).
->
-```
+## 第二步：在 TUI 中使用真实模型
 
-试着输入：
-
-```
-> echo hello world
-```
-
-你会看到模型发起了一次 tool call（工具调用），echo 工具将文本转为大写并返回：
-
-```
-[tool call] echo({"text":"hello world"})
-[tool result] ECHO: HELLO WORLD
-```
-
-恭喜！环境没问题。
-
-## 第二步：使用真实模型调用
-
-接下来接入真实的 DeepSeek 模型，跑一个完整的命令行 Agent。
-
-### 获取 API Key
-
-前往 [DeepSeek Platform](https://platform.deepseek.com/) 获取你的 API key。
-
-### 配置环境变量
-
-在仓库根目录创建 `.env` 文件（已被 gitignore）：
+前往 [DeepSeek Platform](https://platform.deepseek.com/) 获取 API key，并创建已被 Git 忽略的仓库根目录 `.env`：
 
 ```sh
 DEEPSEEK_API_KEY=sk-your-key-here
 ```
 
-### 启动 repl-agent
+启动交互式 coding agent：
 
 ```sh
-pnpm run demo:repl
+pnpm run demo:tui
 ```
 
-```
-agent REPL ready. Give it a coding task.
->
-```
-
-这就是一个完整的编程助手，它能读写文件、跑命令、拆分子任务。
-
-试着给它一个任务：
-
-```
-> Create hello.js in the current directory, print "Hello from Harness!", and run it
-```
+这个全屏 Agent 可以读写文件、运行命令、分配子任务和跟踪计划。可以尝试：`Create hello.js in the current directory, print "Hello from Harness!", and run it`。
 
 ## 回头看
 
-echo-agent 和 repl-agent 用的是同一个应用框架(`@deepseek-ai/dsh-stdio-demo`)，区别只在 `cordis.yml`——换了哪些插件、填了什么配置。你以后定制自己的 Agent 也是同样的方式。
+echo-agent 使用 Headless `@deepseek-ai/dsh-cli-demo` app，tui-agent 使用交互式 `@deepseek-ai/dsh-tui-demo` app。二者加载同一个 providerless agent spine，并通过各自的 `cordis.yml` 为对应 surface 选择模型和能力插件。
 
 ## 下一步
 
-- [配置文件](./config.md) — 了解 `cordis.yml` 的完整语法
-- [开发插件](../develop/basic/) — 编写你自己的 tool 或后端
+- [配置文件](./config.md) — 了解 `cordis.yml` 的格式
+- [开发插件](../develop/basic/) — 编写自己的 tool 或后端

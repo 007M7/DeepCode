@@ -9,7 +9,7 @@ This onboarding guide helps project contributors get started with the local envi
 - Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md).
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git.
-- Optional: a DeepSeek API key for the REPL/ACP agent demos and real-API e2e tests.
+- Optional: a DeepSeek API key for the TUI/Headless/ACP agent demos and real-API e2e tests.
 
 ## First-time setup
 
@@ -102,19 +102,13 @@ When changing package public behavior, update the relevant README or JSDoc in th
 
 ## Demos
 
-The echo demo does not need API credentials:
+The Headless echo demo does not need API credentials:
 
 ```sh
-pnpm run demo:echo
+pnpm run demo:echo "echo hello"
 ```
 
-The repl-agent demo uses the line-oriented readline front door and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
-
-```sh
-pnpm run demo:repl
-```
-
-The full-screen TUI reuses the repl-agent composition through the pi-tui front door and needs the same credentials:
+The full-screen interactive coding agent needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
 pnpm run demo:tui

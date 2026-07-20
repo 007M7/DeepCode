@@ -3,13 +3,11 @@
 
 # Echo Agent App Composition
 
-The echo demo swaps in a local mock LLM and teaching echo tool, then loads the stdio app package for the shared spine and terminal front door.
+The echo demo swaps in a local mock LLM and teaching echo tool, then loads the headless one-shot app package.
 
 ```mermaid
 flowchart LR
   cfg["examples/echo-agent<br/>cordis.yml"]
-  plugin_echo_hmr["hmr<br/>@cordisjs/plugin-hmr"]
-  cfg --> plugin_echo_hmr
   plugin_echo_mock_llm["mock-llm<br/>./src/mock-llm.ts"]
   cfg --> plugin_echo_mock_llm
   plugin_echo_echo_tool["echo-tool<br/>./src/echo-tool.ts"]
@@ -18,11 +16,11 @@ flowchart LR
   cfg --> plugin_echo_bash
   plugin_echo_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
   cfg --> plugin_echo_fs_local
-  plugin_echo_stdio_agent["stdio-agent<br/>@deepseek-ai/dsh-stdio-demo"]
-  cfg --> plugin_echo_stdio_agent
-  plugin_echo_stdio_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
-  plugin_echo_stdio_agent --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
-  plugin_echo_stdio_agent --> frontdoor_stdio["dsh-tui (TTY) / dsh-stdio (pipes)<br/>pre-created main agent"]
+  plugin_echo_cli_agent["cli-agent<br/>@deepseek-ai/dsh-cli-demo"]
+  cfg --> plugin_echo_cli_agent
+  plugin_echo_cli_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
+  plugin_echo_cli_agent --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
+  plugin_echo_cli_agent --> frontdoor_cli["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]
   bundle_agent_core --> spine_llm["ctx.llm"]
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]
@@ -31,12 +29,11 @@ flowchart LR
 
 | Plugin id | Package / module |
 | --- | --- |
-| `hmr` | `@cordisjs/plugin-hmr` |
 | `mock-llm` | `./src/mock-llm.ts` |
 | `echo-tool` | `./src/echo-tool.ts` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
-| `stdio-agent` | `@deepseek-ai/dsh-stdio-demo` |
+| `cli-agent` | `@deepseek-ai/dsh-cli-demo` |
 
 Source config: [`examples/echo-agent/cordis.yml`](cordis.yml).
 
