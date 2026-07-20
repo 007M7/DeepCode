@@ -385,10 +385,10 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
     const flat = JSON.stringify(adapter.requests[0]!.messages)
     expect(flat).toContain('file changed: a.ts')
-    expect(flat).toContain('<context source=\\"plugin\\">')
+    expect(flat).not.toContain('<context source=')
   })
 
-  it('inject() can persist raw structured context without the generic context envelope', async () => {
+  it('inject() persists structured context content verbatim with durable hidden meta', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('raw-context'), { provider: 'mock', model: 'mock' })
@@ -401,14 +401,13 @@ describe('agent loop', () => {
 
     agent.inject([{ type: 'text', text }], {
       source: { kind: 'plugin', plugin: 'workspace-context' },
-      envelope: 'raw',
       meta,
     })
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
     const contextEvent = agent.session.events.find(event => event.type === 'context/message')
-    expect(contextEvent?.type === 'context/message' && contextEvent.data).toMatchObject({ envelope: 'raw', meta })
+    expect(contextEvent?.type === 'context/message' && contextEvent.data).toMatchObject({ meta })
     const requestText = JSON.stringify(adapter.requests[0]!.messages)
     expect(requestText).toContain('Additional instructions from: pkg/AGENTS.md')
     expect(requestText).not.toContain('<context source=')
@@ -432,7 +431,6 @@ describe('agent loop', () => {
         const first = { type: 'text' as const, text: 'mid-turn notice' }
         agent.inject([first], {
           source: { kind: 'plugin', plugin: 'x' },
-          envelope: 'raw',
           meta,
         })
         first.text = 'mutated after inject'
@@ -458,7 +456,6 @@ describe('agent loop', () => {
     expect(contexts).toHaveLength(2)
     expect(result.seq).toBeLessThan(contexts[0]!.seq)
     expect(contexts[0]?.type === 'context/message' && contexts[0].data).toMatchObject({
-      envelope: 'raw',
       meta,
     })
     expect(contexts.flatMap(event => event.type === 'context/message' ? event.data.content : []))

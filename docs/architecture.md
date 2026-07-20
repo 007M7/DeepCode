@@ -27,6 +27,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | singleton replay-aware request/surface pressure |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
+| `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | shared sandbox policy home |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
 | `ctx.fs` | [`fs/`](../packages/fs/README.md) | filesystem provider primitives and policy events |
 | `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry and progressive disclosure |

@@ -41,7 +41,6 @@
     { "doc": "docs/core-data-structures/token-meter.md", "symbol": "TokenMeasurement", "source": "packages/llm/token-meter/src/types.ts" },
     { "doc": "docs/core-data-structures/token-meter.md", "symbol": "TokenSurfaceNode", "source": "packages/llm/token-meter/src/types.ts" },
 
-    { "doc": "docs/core-data-structures/session.md", "symbol": "ContextEnvelope", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEventMap", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "EpochHeader", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "TodoItem", "source": "packages/core/session/src/types.ts" },

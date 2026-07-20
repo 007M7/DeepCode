@@ -159,7 +159,7 @@ interface CollectedOutput {
 
 ## File sandbox: `BashSandboxInfo`
 
-A sandbox-consuming executor exposes its configured fallback through `BashExecutor.sandboxMode`. The tool layer folds each session's durable `bash/sandbox-mode` override and may replace it for one user-approved strictly wider call. The mode/enforcement vocabulary is owned by the [`@deepseek-ai/dsh-sandbox` seam](sandbox.md); modes govern file effects only.
+A sandbox-consuming executor exposes its configured fallback through `BashExecutor.sandboxMode`. The tool layer folds each session's durable `sandbox/mode` override (owned by [`@deepseek-ai/dsh-sandbox-policy`](../../packages/sandbox/sandbox-policy/README.md)) and may replace it for one user-approved strictly wider call. The mode/enforcement vocabulary is owned by the [`@deepseek-ai/dsh-sandbox` seam](sandbox.md); modes govern file effects only.
 
 A sandboxed run reports its mode, conservative denial classification, and enforcement completeness. `runnerFailed` marks a sandbox runner failure before the command ran; foreground execution throws `SANDBOX_UNAVAILABLE`, while a settled background process has only its facts channel.
 

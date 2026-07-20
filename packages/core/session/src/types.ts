@@ -2,9 +2,6 @@ import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from './json.ts'
 
-/** Canonical context-tag framing, or caller-owned framing rendered verbatim. */
-export type ContextEnvelope = 'context' | 'raw'
-
 /** Identifies one session in the store (and its persistence artifacts). */
 export type SessionId = Branded<'SessionId'>
 
@@ -205,14 +202,17 @@ export interface SessionEventMap {
   /**
    * In-session context injection (file-change notices, subdir AGENTS.md,
    * skill content, cron notifications, …). Rendered into the derived history
-   * as synthetic context — NOT a user prompt. `envelope: 'raw'` lets a caller
-   * own the complete model-facing frame; `meta` is durable JSON state omitted
-   * from the model projection.
+   * as a synthetic user-role message carrying `content` verbatim — NOT a
+   * user prompt. `meta` is durable JSON state omitted from the model
+   * projection; it is also the intended channel for any future framing
+   * directive (a producer declares the frame, a dedicated renderer applies it —
+   * see the deferred note in
+   * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
+   * so the surface keeps projecting `content` verbatim rather than wrapping it.
    */
   'context/message': {
     content: ContentBlock[]
     source: MessageSource
-    envelope?: ContextEnvelope
     meta?: JsonValue
   }
   /** Raw stream chunk — token-level replay fidelity. */
