@@ -27,6 +27,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../llm/llm-retry"
+    },
+    {
       "path": "../../core/tools"
     },
     {

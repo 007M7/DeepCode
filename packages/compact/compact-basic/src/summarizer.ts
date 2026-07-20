@@ -141,14 +141,10 @@ export function frameSummary(summary: readonly ContentBlock[]): ContentBlock[] {
 /** Map a terminal summarization finish to its fail-closed error. */
 function finishError(finish: FinishReason): Error | undefined {
   switch (finish.kind) {
-    case 'error': {
-      const error = new Error(finish.message) as Error & { code?: string }
-      if (finish.code !== undefined) error.code = finish.code
-      return error
-    }
+    case 'error':
     case 'aborted': {
-      const error = new Error('summarization stream aborted') as Error & { code?: string }
-      error.code = 'ABORTED'
+      const error = new Error(finish.failure.message) as Error & { code?: string }
+      error.code = finish.failure.code
       return error
     }
     case 'max-tokens': {

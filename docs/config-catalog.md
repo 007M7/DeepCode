@@ -27,7 +27,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:206`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:207`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
@@ -68,6 +68,8 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Bounded transient model-request retry policy forwarded through agent-core. */
+  llmRetry?: NonNullable<agentCore.Config['llmRetry']>
 }
 ```
 
@@ -117,8 +119,8 @@ Source: [`packages/core/agent-loop/src/index.ts:360`](../packages/core/agent-loo
  * `dshHome` to bash environment and local skill discovery, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
  * workspace-context loader, and `toolBash`/`toolTasks` to the model-facing tool
- * plugins this bundle owns. `invariants` configures global and package-filtered
- * relational checks. Owner schemas supply defaults for optional input;
+ * plugins this bundle owns. `llmRetry` configures bounded request recovery;
+ * `invariants` configures global and package-filtered relational checks. Owner schemas supply defaults for optional input;
  * workspace context instead requires an explicit byte budget or `false` because
  * it changes model-visible input. Producer opt-in stays producer-local:
  * `toolBash` configures bash only; independently composed producers keep their
@@ -147,6 +149,8 @@ export interface Config {
   toolTasks?: toolTasks.Config | false
   /** Global enablement and package-name filters for invariant companions. */
   invariants?: InvariantConfig
+  /** Bounded transient model-request retry policy. */
+  llmRetry?: llmRetry.Config
 }
 
 /** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
@@ -162,9 +166,9 @@ export interface SkillConfig {
 }
 ```
 
-Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`InvariantConfig`](#deepseek-aidsh-invariants) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
+Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`InvariantConfig`](#deepseek-aidsh-invariants) · [`llmRetry`](../packages/llm/llm-retry/src/index.ts) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
 
-Source: [`packages/examples/agent-spine-demo/src/index.ts:64`](../packages/examples/agent-spine-demo/src/index.ts)
+Source: [`packages/examples/agent-spine-demo/src/index.ts:65`](../packages/examples/agent-spine-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -237,6 +241,8 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task control-tool config forwarded through agent-spine-demo. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Bounded transient model-request retry policy forwarded through agent-spine-demo. */
+  llmRetry?: NonNullable<agentCore.Config['llmRetry']>
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
 }
@@ -477,6 +483,8 @@ export interface Config {
   reasoningEffort?: 'high' | 'max'
   /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
   models?: DeepSeekCatalogModel[]
+  /** Maximum provider idle time while one stream read is outstanding (default five minutes). */
+  streamIdleTimeoutMs?: number
 }
 
 /** One optional model entry advertised by the hand-written adapter. */
@@ -490,7 +498,7 @@ export interface DeepSeekCatalogModel {
 }
 ```
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:33`](../packages/llm/llm-deepseek/src/index.ts)
+Source: [`packages/llm/llm-deepseek/src/index.ts:34`](../packages/llm/llm-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
 
@@ -525,16 +533,14 @@ export interface PiAiProviderProfile {
   timeoutMs?: number
   /** WebSocket connection timeout in milliseconds. */
   websocketConnectTimeoutMs?: number
-  /** Provider SDK retry count. */
-  maxRetries?: number
-  /** Maximum provider-requested retry delay in milliseconds. */
-  maxRetryDelayMs?: number
+  /** Maximum provider idle time while one stream read is outstanding. */
+  streamIdleTimeoutMs?: number
 }
 ```
 
 Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `ThinkingLevel` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:40`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:48`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 
@@ -579,6 +585,28 @@ export interface ReplayModelConfig {
 ```
 
 Source: [`packages/support/llm-replay/src/index.ts:375`](../packages/support/llm-replay/src/index.ts)
+
+## `@deepseek-ai/dsh-llm-retry`
+
+Requires: `agents`
+
+```ts config-catalog
+/** Deployment-owned limits and classification for transient request recovery. */
+export interface Config {
+  /** Maximum transient retries after the first request (default 2). */
+  maxTransientRetries?: number
+  /** Initial local exponential-backoff delay in milliseconds (default 500). */
+  initialDelayMs?: number
+  /** Maximum accepted or locally scheduled delay in milliseconds (default 10000). */
+  maxDelayMs?: number
+  /** Symmetric random multiplier range around one (default 0.1). */
+  jitterRatio?: number
+  /** Stable failure codes eligible for this policy. */
+  retryableCodes?: string[]
+}
+```
+
+Source: [`packages/llm/llm-retry/src/index.ts:39`](../packages/llm/llm-retry/src/index.ts)
 
 ## `@deepseek-ai/dsh-mcp-client`
 
@@ -1268,7 +1296,7 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:101`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:102`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 

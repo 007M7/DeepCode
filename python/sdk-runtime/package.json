@@ -35,6 +35,7 @@
     "@deepseek-ai/dsh-compact-tool-result-prune": "workspace:^",
     "@deepseek-ai/dsh-llm-deepseek": "workspace:^",
     "@deepseek-ai/dsh-llm-pi-ai": "workspace:^",
+    "@deepseek-ai/dsh-llm-retry": "workspace:^",
     "@deepseek-ai/dsh-permission": "workspace:^",
     "@deepseek-ai/dsh-paths": "workspace:^",
     "@deepseek-ai/dsh-repeat-tool-guard": "workspace:^",

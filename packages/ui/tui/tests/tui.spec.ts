@@ -7,6 +7,7 @@ import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   createTuiChat,
   mountTui,
@@ -284,6 +285,68 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.drainInput).toHaveBeenCalledWith(100, 20)
   })
 
+  it('counts failed and recovered request usage once per step', async () => {
+    const result = await setup()
+    result.session.append('assistant/chunk', {
+      turn: 1,
+      step: 1,
+      chunk: { type: 'usage', usage: { inputTokens: 10, outputTokens: 2 } },
+    })
+    result.session.append('llm/retry', {
+      turn: 1,
+      step: 1,
+      retry: 1,
+      maxRetries: 2,
+      delayMs: 500,
+      failure: { message: 'temporary', code: 'SERVER' },
+    })
+    result.session.append('assistant/chunk', {
+      turn: 1,
+      step: 2,
+      chunk: { type: 'usage', usage: { inputTokens: 7, outputTokens: 3 } },
+    })
+    appendAssistant(
+      result.session,
+      [{ type: 'text', text: 'recovered' }],
+      { inputTokens: 7, outputTokens: 3 },
+      { turn: 1, step: 2 },
+    )
+    await tick()
+
+    expect(result.terminal.output).toContain('↑17 ↓5')
+    await dispose(result)
+  })
+
+  it('retracts a failed live stream and renders its durable retry status', async () => {
+    const result = await setup()
+    result.session.append('assistant/chunk', {
+      turn: 1,
+      step: 1,
+      chunk: { type: 'text-delta', index: 0, text: 'discarded partial answer' },
+    })
+    result.session.append('llm/retry', {
+      turn: 1,
+      step: 1,
+      retry: 1,
+      maxRetries: 2,
+      delayMs: 500,
+      failure: { message: 'rate limited', code: 'RATE_LIMIT', status: 429 },
+    })
+    result.session.append('llm/retry', {
+      turn: 1,
+      step: 2,
+      retry: 2,
+      maxRetries: 2,
+      delayMs: 1_000,
+      failure: { message: 'failed before chunks', code: 'SERVER', status: 503 },
+    })
+    await tick()
+
+    expect(result.terminal.output).toContain('Retrying model request (1/2) in 500ms: rate limited')
+    expect(result.terminal.output).toContain('Retrying model request (2/2) in 1000ms: failed before chunks')
+    await dispose(result)
+  })
+
   it('renders the ANSI palette and every markdown/content style', async () => {
     const result = await setup({
       config: { color: true },
@@ -468,10 +531,16 @@ describe('pi-tui chat lifecycle and transcript', () => {
     events.session.append('turn/end', { turn: 5, reason: { kind: 'rejected', reason: 'policy' } })
     events.session.append('turn/start', { turn: 6, trigger: { kind: 'message', source: { kind: 'user' } } })
     events.session.append('turn/end', { turn: 6, reason: { kind: 'interrupted' } })
+    events.session.append('turn/start', { turn: 7, trigger: { kind: 'message', source: { kind: 'user' } } })
+    events.session.append('turn/end', {
+      turn: 7,
+      reason: { kind: 'error', step: 1, failure: { message: 'structured provider failure', code: 'SERVER' } },
+    })
     agentEvents(events.ctx, events.agent).emit('agent/disposed')
     await tick()
     expect(events.terminal.output).toContain('live failure')
     expect(events.terminal.output).toContain('durable failure')
+    expect(events.terminal.output).toContain('structured provider failure')
     expect(events.terminal.output).toContain('stopped')
     expect(events.terminal.output).toContain('output-token limit')
     expect(events.terminal.output).toContain('Turn rejected')

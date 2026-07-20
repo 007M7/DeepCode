@@ -36,6 +36,7 @@
     { "path": "./packages/ui/tool-ask-user" },
     { "path": "./packages/context/workspace-context" },
     { "path": "./packages/core/agent-loop" },
+    { "path": "./packages/llm/llm-retry" },
     { "path": "./packages/examples/agent-spine-demo" },
     { "path": "./packages/examples/cli-demo" },
     { "path": "./packages/bash/bash" },

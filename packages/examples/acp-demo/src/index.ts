@@ -60,6 +60,8 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Bounded transient model-request retry policy forwarded through agent-core. */
+  llmRetry?: NonNullable<agentCore.Config['llmRetry']>
 }
 
 // Each front door owns a complete, directly readable config schema; extracting
@@ -82,6 +84,7 @@ export const Config: z<Config> = z.object({
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
+  llmRetry: agentCore.LlmRetryConfigSchema,
 })
 /* jscpd:ignore-end */
 

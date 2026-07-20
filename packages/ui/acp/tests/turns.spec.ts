@@ -49,6 +49,15 @@ describe('acp bridge — turn outcomes', () => {
       .rejects.toThrow(/turn failed: provider boom/)
   })
 
+  it('rejects an ordinary plugin turn failure through the same ACP boundary', async () => {
+    harness = await makeBridgeHarness({ storageDir, script: [textResponse('must not run')] })
+    harness.ctx.on('agent/pre-step', () => { throw new Error('plugin pre-step failed') })
+    const sessionId = await newSession(harness)
+
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
+      .rejects.toThrow(/turn failed: plugin pre-step failed/)
+  })
+
   it('streams a tool call as tool_call then tool_call_update', async () => {
     harness = await makeBridgeHarness({
       storageDir,

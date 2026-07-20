@@ -100,7 +100,7 @@ export function errorResponse(message: string): StreamChunk[] {
   return [
     { type: 'block-start', index: 0, blockType: 'text' },
     { type: 'text-delta', index: 0, text: 'partial' },
-    { type: 'finish', reason: { kind: 'error', message, code: 'PROVIDER_ERROR' } },
+    { type: 'finish', reason: { kind: 'error', failure: { message, code: 'PROVIDER_ERROR' } } },
   ]
 }
 

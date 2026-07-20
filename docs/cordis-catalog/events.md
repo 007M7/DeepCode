@@ -75,7 +75,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:314`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:315`](../../packages/core/agent/src/types.ts)
 
 ### `agent/post-step` — serial
 
@@ -201,17 +201,18 @@ Recover a model-request failure after its failed step has closed. `retry` opens 
  * @param turn - the open turn number.
  * @param step - the failed step number.
  * @param error - the original model-request failure.
- * @param retryAttempt - zero-based number of prior recovery retries.
+ * @param failure - serializable facts normalized at the final adapter boundary.
+ * @param priorFailures - immutable failures that already authorized another request in this consecutive sequence.
  * @param signal - the turn abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, retryAttempt: number, signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>
+'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:281`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:282`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -322,7 +323,7 @@ Override whether the turn continues. The default continues after tool calls or s
 
 Types: [Agent](../core-data-structures/core.md) · [ContinuationDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:291`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:292`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -343,7 +344,7 @@ Monotonic terminal-stop checkpoint after continuation and steering are folded; a
 
 Types: [Agent](../core-data-structures/core.md) · [ContinuationStop](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:301`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:302`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 
@@ -473,7 +474,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:43`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:44`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 

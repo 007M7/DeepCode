@@ -224,7 +224,7 @@ interface GenerateOptions {
 }
 ```
 
-Why a model response stopped is a merge-extensible reason:
+Why a model response stopped is a merge-extensible reason. Terminal provider failures carry the streaming contract's [`LlmFailure`](llm-streaming.md#llmfailure):
 
 ```ts type-equiv
 /**
@@ -235,8 +235,8 @@ interface FinishReasonMap {
   'stop': { kind: 'stop' }
   'tool-calls': { kind: 'tool-calls' }
   'max-tokens': { kind: 'max-tokens' }
-  'aborted': { kind: 'aborted' }
-  'error': { kind: 'error'; message: string; code?: string }
+  'aborted': { kind: 'aborted'; failure: LlmFailure }
+  'error': { kind: 'error'; failure: LlmFailure }
 }
 ```
 
@@ -448,14 +448,14 @@ type ContinuationDecision =
   | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
 ```
 
-`agent/request-error` receives the original `RequestError`, whose optional provider-neutral `code` supports stable routing without message parsing:
+`agent/request-error` receives the exact original `RequestError` beside its immutable `LlmFailure`, an immutable list of failures that already authorized another request in the consecutive sequence, the turn signal, and `next()`. Recovery plugins route on `failure.code`, not the live error's message; each policy counts only its own codes, and a successful request clears the history:
 
 ```ts type-equiv
 /** Model-request failure with an optional machine-routable provider code. */
 type RequestError = Error & { code?: string }
 ```
 
-It returns a `RequestErrorDecision`; `retry` opens a new numbered step after the recovery listener's durable mutation, while `fail` preserves that error:
+It returns a `RequestErrorDecision`; `retry` opens a new numbered step after the recovery listener's durable mutation, while `fail` retains the structured failure on `turn/end`:
 
 ```ts type-equiv
 /** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */

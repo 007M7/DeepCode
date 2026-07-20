@@ -7,7 +7,7 @@
 
 import type { Context } from 'cordis'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import type { ContentBlock, LlmCallConfig, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmCallConfig, LlmFailure, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 declare module '@deepseek-ai/dsh-system-prompt' {
@@ -273,12 +273,13 @@ declare module 'cordis' {
      * @param turn - the open turn number.
      * @param step - the failed step number.
      * @param error - the original model-request failure.
-     * @param retryAttempt - zero-based number of prior recovery retries.
+     * @param failure - serializable facts normalized at the final adapter boundary.
+     * @param priorFailures - immutable failures that already authorized another request in this consecutive sequence.
      * @param signal - the turn abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, retryAttempt: number, signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>
+    'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>
     /**
      * Override whether the turn continues. The default continues after tool
      * calls or steering and stops otherwise; a continue reason becomes steering.

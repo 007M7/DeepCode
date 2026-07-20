@@ -7,7 +7,7 @@ import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-a
 import { resolveConfig } from '@deepseek-ai/dsh-compact-basic/src/config.ts'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
 import LlmService, { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, LlmAdapter } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
@@ -873,9 +873,9 @@ describe('default one-shot summarizer', () => {
   })
 
   it.each([
-    [{ kind: 'error', message: 'provider failed', code: 'PROVIDER' }, 'PROVIDER', /provider failed/],
-    [{ kind: 'error', message: 'opaque' }, undefined, /opaque/],
-    [{ kind: 'aborted' }, 'ABORTED', /aborted/],
+    [{ kind: 'error', failure: { message: 'provider failed', code: 'PROVIDER' } }, 'PROVIDER', /provider failed/],
+    [{ kind: 'error', failure: { message: 'opaque', code: 'UNKNOWN' } }, 'UNKNOWN', /opaque/],
+    [{ kind: 'aborted', failure: { message: 'summarization aborted', code: 'ABORTED' } }, 'ABORTED', /aborted/],
     [{ kind: 'max-tokens' }, 'MAX_TOKENS', /token cap/],
   ] as Array<[(StreamChunk & { type: 'finish' })['reason'], string | undefined, RegExp]>) (
     'rejects terminal finish %#',
@@ -913,8 +913,10 @@ describe('automatic listener and loader composition', () => {
     signal = SIGNAL,
     next: () => Promise<{ action: 'fail' | 'retry' }> = () => Promise.resolve({ action: 'fail' }),
   ): Promise<{ action: 'fail' | 'retry' }> {
+    const failure: LlmFailure = { message: error.message, code: error.code ?? 'UNKNOWN' }
+    const priorFailures = Object.freeze(Array.from({ length: retryAttempt }, () => failure))
     return agentEvents(ctx, owner).waterfall(
-      'agent/request-error', 1, 1, error, retryAttempt, signal, next,
+      'agent/request-error', 1, 1, error, failure, priorFailures, signal, next,
     )
   }
 
