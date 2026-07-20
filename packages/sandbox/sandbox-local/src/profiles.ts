@@ -4,9 +4,8 @@
  * @module @deepseek-ai/dsh-sandbox-local/profiles
  */
 
-import { realpathSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { grantArgs as landlockGrantArgs } from 'node-addon-landlock-run'
+import { writableRoots } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 
 /**
@@ -36,31 +35,23 @@ export function landlockProfileArgs(policy: SandboxPolicy): string[] {
   return landlockGrantArgs({ readOnly: ['/'], readWrite })
 }
 
-/** Resolve a granted root to the canonical path the Seatbelt kernel sees. */
-function canonicalPath(path: string): string {
-  try {
-    return realpathSync(path)
-  } catch {
-    // Missing or unreadable roots stay as spelled; an unresolved root grants
-    // nothing until it exists, which is the conservative outcome.
-    return path
-  }
-}
-
 /** Quote one path as an SBPL string literal. */
 function sbplString(path: string): string {
   return `"${path.replaceAll('\\', String.raw`\\`).replaceAll('"', String.raw`\"`)}"`
 }
 
 /**
- * Build the sandbox-exec arguments and SBPL profile for one policy.
+ * Build the sandbox-exec arguments and SBPL profile for one policy. The
+ * writable roots come from the shared {@link writableRoots} helper (canonical,
+ * deduplicated) so the Seatbelt grant and the in-process fs fence
+ * (`@deepseek-ai/dsh-fs-sandbox`) can never drift apart.
  * @param policy - file-effect policy to express as an SBPL profile.
  * @returns sandbox-exec arguments before the trailing separator and command argv.
  */
 export function seatbeltProfileArgs(policy: SandboxPolicy): string[] {
   const forms = ['(version 1)', '(allow default)', '(deny file-write*)', `(allow file-write* (literal ${sbplString('/dev/null')}))`]
-  if (policy.mode === 'workspace-write') {
-    const roots = [...new Set([policy.workspaceRoot, '/tmp', tmpdir()].map(canonicalPath))]
+  const roots = writableRoots(policy)
+  if (roots.length > 0) {
     forms.push(`(allow file-write* ${roots.map(root => `(subpath ${sbplString(root)})`).join(' ')})`)
   }
   return ['-p', forms.join(' ')]

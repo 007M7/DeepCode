@@ -7,10 +7,12 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
+import type {} from '@deepseek-ai/dsh-user-approval'
 import { applyReadTool, READ_LIMIT, STREAM_MIN_SIZE } from './read.ts'
 import { applyWriteTool } from './write.ts'
 import { applyEditTool } from './edit.ts'
 import { READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from './read-render.ts'
+import { FsSandboxSurface } from './sandbox.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-fs'
@@ -61,6 +63,10 @@ export function apply(ctx: Context, config: Config): void {
     maxBytes: resolved.readMaxBytes,
     streamMinSize: resolved.readStreamMinSize,
   })
-  applyWriteTool(ctx)
-  applyEditTool(ctx)
+  // One escalation surface shared by both mutating tools: advertisement gating,
+  // per-call mode stamping, and denial-marker mapping, all keyed off whether
+  // the mounted ctx.fs confines (ctx.fs.sandboxMode).
+  const sandbox = new FsSandboxSurface(ctx)
+  applyWriteTool(ctx, sandbox)
+  applyEditTool(ctx, sandbox)
 }
