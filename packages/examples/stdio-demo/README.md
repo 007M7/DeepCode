@@ -36,6 +36,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-spine-demo` |
 | `toolBash` | owner defaults | model-facing bash config routed through `dsh-agent-spine-demo`, including bash's producer-local `enableRunInBackground` |
 | `toolTasks` | owner defaults | generic `task_output` wait bounds routed through `dsh-agent-spine-demo` |
+| `llmRetry` | owner defaults | bounded transient model-request retry policy routed through `dsh-agent-spine-demo` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 | `welcome` | `ready.` | terminal banner / TUI subtitle |
 | `ui` | `{ mode: 'auto' }` | terminal mode (`auto` / `readline` / `tui`) and nested TUI presentation config |

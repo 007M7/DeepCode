@@ -16,6 +16,7 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-loop'
+import type {} from '@deepseek-ai/dsh-llm-retry'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   UserInteractionError,
@@ -119,6 +120,10 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   // append order keeps `inReasoning` transitions deterministic across chunk and
   // boundary events.
   let inReasoning = false
+  const resetReasoning = (): void => {
+    if (inReasoning) output.write('\x1B[0m')
+    inReasoning = false
+  }
   ctx.on('session/event', (session, event) => {
     if (event.type === 'assistant/chunk') {
       const { chunk } = event.data
@@ -135,22 +140,31 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
     } else if (event.type === 'turn/start') {
       const label = target?.session === session ? 'main' : session.id
       output.write(`\n[${label} turn ${event.data.turn}] `)
+    } else if (event.type === 'llm/retry') {
+      resetReasoning()
+      output.write(
+        `\n  [previous model attempt discarded; retry ${event.data.retry}/${event.data.maxRetries}`
+        + ` in ${event.data.delayMs}ms: ${event.data.failure.message}]\n  `,
+      )
     } else if (event.type === 'turn/end') {
-      if (inReasoning) output.write('\x1B[0m')
-      inReasoning = false
+      resetReasoning()
+      if (event.data.reason.kind === 'error') {
+        const message = 'failure' in event.data.reason
+          ? event.data.reason.failure.message
+          : event.data.reason.message
+        output.write(`\n  [model attempt failed; any partial output above is discarded: ${message}]`)
+      }
       output.write('\n> ')
     } else if (event.type === 'tool/call') {
       const { name: toolName, arguments: args } = event.data
-      if (inReasoning) output.write('\x1B[0m')
-      inReasoning = false
+      resetReasoning()
       output.write(`\n  [tool call] ${toolName}(${args})`)
     } else if (event.type === 'tool/result') {
       const { content } = event.data
       const text = content.filter(block => block.type === 'text').map(block => block.text).join('')
       output.write(`\n  [tool result] ${text}\n  `)
     } else if (event.type === 'todo/write') {
-      if (inReasoning) output.write('\x1B[0m')
-      inReasoning = false
+      resetReasoning()
       const glyph = (status: string): string =>
         status === 'completed' ? '[x]' : status === 'in_progress' ? '[~]' : '[ ]'
       const lines = event.data.todos.map(todo => `    ${glyph(todo.status)} ${todo.content}`).join('\n')

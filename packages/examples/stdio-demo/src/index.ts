@@ -99,6 +99,8 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Bounded transient model-request retry policy forwarded through agent-core. */
+  llmRetry?: NonNullable<agentCore.Config['llmRetry']>
   /**
    * If set, the pre-created agent RESUMES this persisted session id instead of
    * starting fresh. Sourced from an env var in the leaf `cordis.yml`
@@ -126,6 +128,7 @@ export const Config: z<Config> = z.object({
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
+  llmRetry: agentCore.LlmRetryConfigSchema,
   resumeSessionId: z.string(),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })

@@ -11,7 +11,7 @@ This package owns the terminal channel only. It injects `agents` and `userIntera
 | `welcome` | `ready.` | Banner printed before the first prompt |
 | `sessionId` | `main` | Exact agent/session identity driven by stdin and observed for EOF shutdown |
 
-The plugin seeds display labels from the live agent registry, then tracks `agent/created` and `agent/disposed` so HMR and externally managed agents render consistently. While an initial exact identity is pending, it buffers nonblank input until `agent/session-start` and observes live `agent-loop/config-start-failed`; a matching failure drops queued lines, reports the loss, and lets piped EOF finish instead of hanging. The composing app must mount this front door before its config-created agent. Disposal closes readline and unregisters every listener/provider through Cordis effects.
+The plugin seeds display labels from the live agent registry, then tracks `agent/created` and `agent/disposed` so HMR and externally managed agents render consistently. While an initial exact identity is pending, it buffers nonblank input until `agent/session-start` and observes live `agent-loop/config-start-failed`; a matching failure drops queued lines, reports the loss, and lets piped EOF finish instead of hanging. When a composed retry policy closes a failed step, the append-only transcript inserts an explicit discarded-attempt marker before later chunks; terminal request failure marks any preceding partial output discarded. The composing app must mount this front door before its config-created agent. Disposal closes readline and unregisters every listener/provider through Cordis effects.
 
 ```yaml
 - id: stdio

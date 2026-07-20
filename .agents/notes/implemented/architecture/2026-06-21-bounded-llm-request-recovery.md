@@ -1,6 +1,6 @@
 # Agent Note: Bounded recovery for transient LLM request failures
 
-Status: proposed
+Status: implemented
 
 ## Problem
 
@@ -8,19 +8,19 @@ Status: proposed
 
 That boundary is already safe for another request attempt. Raw `assistant/chunk` events carry the failed `turn` and `step`, message derivation ignores them unless a successful `assistant/message` cites them, tool calls are dispatched only after a successful terminal finish and assembly, and a retry opens a new numbered step from the durable log. The harness therefore does not need a second response lifecycle or tentative-output protocol to keep two attempts separate.
 
-Three narrower gaps remain.
+The prior boundary left three narrower gaps.
 
 - Provider failures retain only a message and usually a code. HTTP status, retry delay, and provider request id are discarded or recoverable only through provider-specific error objects, so generic recovery cannot make or explain a decision without parsing text.
-- Retry ownership differs by adapter. The hand-written DeepSeek adapter makes one attempt, while pi-ai profiles can enable opaque library retries. Combining hidden transport retries with a future `agent/request-error` listener would multiply attempts and omit intermediate failures from the session log.
+- Retry ownership differs by adapter. The hand-written DeepSeek adapter makes one attempt, while pi-ai profiles can enable opaque library retries. Combining hidden transport retries with an `agent/request-error` listener would multiply attempts and omit intermediate failures from the session log.
 - A recovered failure has no durable status fact. The failed step and chunks remain reconstructable, but an observer cannot tell whether the agent is deliberately backing off, for how long, or why. A long silent wait looks like a stalled loop.
 
 The goal is bounded recovery from transient failures of the same explicit provider/model request. Provider or model failover, response splicing, and semantic output repair are different problems and have no current consumer.
 
-## Proposal
+## Decision
 
 ### Preserve failure facts without embedding policy
 
-Add one JSON-serializable `LlmFailure` payload to `@deepseek-ai/dsh-llm`:
+`@deepseek-ai/dsh-llm` exports one JSON-serializable `LlmFailure` payload:
 
 ```ts ignore-check
 type ProviderRequestId = Branded<'ProviderRequestId'>
@@ -29,7 +29,7 @@ interface LlmFailure {
   message: string
   code: string
   status?: number
-  retryAfterMs?: number
+  providerRetryAfterMs?: number
   requestId?: ProviderRequestId
 }
 ```
@@ -46,9 +46,9 @@ The initial shared transient-code set is intentionally small: the adapters' exis
 
 ### Put retry policy on the existing failed-step seam
 
-Add a function plugin, `@deepseek-ai/dsh-llm-retry`, that listens to `agent/request-error`. It introduces no service or new loop branch; the agent-loop package changes only the data carried through its existing failed-step recovery control flow.
+`@deepseek-ai/dsh-llm-retry` is a function plugin that listens to `agent/request-error`. It introduces no service or new loop branch; the agent-loop package changes only the data carried through its existing failed-step recovery control flow.
 
-Replace the scalar `retryAttempt` argument with the current `LlmFailure` and an immutable list of prior failures that led to another request attempt in this consecutive recovery sequence. `dsh-llm-retry` counts only prior failures whose codes are in its configured transient set, while `dsh-compact-basic` counts only prior context-overflow failures. A successful model request clears the history as it clears the current scalar. Alternating transient and context-overflow failures therefore consume their owning policy budgets independently; the maximum request count is one plus the sum of the finite budgets of the loaded recovery policies.
+The `agent/request-error` seam carries the current `LlmFailure` and an immutable list of prior failures that led to another request attempt in this consecutive recovery sequence. `dsh-llm-retry` counts only prior failures whose codes are in its configured transient set, while `dsh-compact-basic` counts only prior context-overflow failures. A successful model request clears the history. Alternating transient and context-overflow failures therefore consume their owning policy budgets independently; the maximum request count is one plus the sum of the finite budgets of the loaded recovery policies.
 
 The plugin resolves and validates this deployment configuration at load:
 
@@ -64,7 +64,7 @@ interface Config {
 
 The defaults are two transient retries, a 500 millisecond initial delay, a 10 second delay cap, 10 percent jitter, and the four transient codes above. The count and delay bounds match the conservative edge of the inspected implementations: [OpenCode uses two request retries with 500 ms/10 s bounds](https://github.com/anomalyco/opencode/blob/9976269ab1accfc9f9dc98a4a688c516934de422/%70ackages/llm/src/route/executor.ts#L36-L39), [Pi separates three agent-level retries from provider retries and defaults provider retries to zero](https://github.com/earendil-works/pi/blob/3da591ab74ab9ab407e72ed882600b2c851fae21/%70ackages/coding-agent/docs/settings.md#L139-L147), and [Codex uses finite request/stream budgets plus a five-minute idle timeout](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/model-provider-info/src/lib.rs#L25-L33). Ten percent follows [Codex's bounded jitter](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/codex-client/src/retry.rs#L40-L47). Two retries mean at most three provider requests when no other recovery policy applies. `maxTransientRetries` is a non-negative integer, delays are positive finite numbers with `initialDelayMs <= maxDelayMs`, `jitterRatio` is in `[0, 1]`, and codes are non-empty and unique. These are Cordis config fields rather than hidden constants so deployments can choose different cost and latency budgets.
 
-For an eligible failure with budget remaining, the one-based transient retry count uses bounded exponential backoff. A valid provider `retryAfterMs` replaces exponential backoff only when it does not exceed `maxDelayMs`; a longer provider delay causes delegation instead of an earlier retry that violates the provider instruction. Local backoff multiplies by an injected random factor in `[1 - jitterRatio, 1 + jitterRatio]` and clamps the final value to `maxDelayMs`; provider delay is not jittered.
+For an eligible failure with budget remaining, the one-based transient retry count uses bounded exponential backoff. A valid `providerRetryAfterMs` replaces exponential backoff only when it does not exceed `maxDelayMs`; a longer provider delay causes delegation instead of an earlier retry that violates the provider instruction. Local backoff multiplies by an injected random factor in `[1 - jitterRatio, 1 + jitterRatio]` and clamps the final value to `maxDelayMs`; provider delay is not jittered.
 
 The plugin owns a lifetime `AbortController` and tracks every active backoff callback. Each wait fuses the waterfall's turn signal with that lifetime signal. Effect cleanup first unregisters the listener, then aborts and awaits the active callbacks; a captured callback whose lifetime signal aborts returns `fail` and can neither retry nor enter the rest of its captured waterfall after disposal. This makes HMR disposal quiescent even though Cordis has already captured the listener.
 
@@ -78,15 +78,15 @@ The agent-spine demo bundle loads the plugin so the shared stdio/TUI, one-shot C
 
 Adapters perform one provider request per `stream()` call. The pi-ai adapter removes public `maxRetries` and `maxRetryDelayMs` profile fields and disables library retries; the hand-written adapter keeps its current single-attempt behavior. This prevents an SDK budget from multiplying the agent budget and ensures every transient retry is represented by a closed failed step plus `llm/retry`.
 
-`ctx.llm.stream()` remains the raw one-attempt waterfall. Direct callers such as compaction summarization receive the structured failure but do not gain automatic retry, because they have no agent step boundary or general durable place to separate attempts. A future direct-call consumer may justify a buffering helper that retries only before emitting a chunk, but this proposal does not add one speculatively.
+`ctx.llm.stream()` remains the raw one-attempt waterfall. Direct callers such as compaction summarization receive the structured failure but do not gain automatic retry, because they have no agent step boundary or general durable place to separate attempts. A future direct-call consumer may justify a buffering helper that retries only before emitting a chunk; this decision adds no such helper.
 
 ### Bound stalled streams where they can be stopped
 
-Each adapter exposes a validated `streamIdleTimeoutMs` configuration field with the five-minute prior-art default cited above. The interval covers each outstanding iterator `next()` from demand to the next valid `StreamChunk`; time a consumer spends between `next()` calls is not provider idle time.
+Each adapter exposes a validated `streamIdleTimeoutMs` configuration field with the five-minute prior-art default cited above. The interval is capped at Node's maximum timer delay so it cannot be clamped to one millisecond. It covers each outstanding iterator `next()` from demand to the next valid `StreamChunk`; time a consumer spends between `next()` calls is not provider idle time.
 
-Extend `@deepseek-ai/dsh-timeout` with a rearmable idle-watchdog primitive. One stable local `AbortController` is fused with the caller signal and passed to the transport for the whole adapter call; each outstanding `next()` arms the watchdog, resolution disarms it, and the next demand rearms it. Timeout aborts that stable controller with a capability-owned `TimeoutReason`, and `finally` clears the timer. The adapter classifies its watchdog as `TIMEOUT` and an earlier upstream abort as `ABORTED`. The existing one-shot `deadline()` is not presented as a sliding timer.
+`@deepseek-ai/dsh-timeout` exposes a rearmable idle-watchdog primitive. One stable local `AbortController` is fused with the caller signal and passed to the transport for the whole adapter call; each outstanding `next()` arms the watchdog, resolution disarms it, and the next demand rearms it. Timeout aborts that stable controller with a capability-owned `TimeoutReason`, and `finally` clears the timer. The adapter classifies its watchdog as `TIMEOUT` and an earlier upstream abort as `ABORTED`. The existing one-shot `deadline()` is not presented as a sliding timer.
 
-The two adapters must prove termination at their actual boundaries. The hand-written adapter aborts its fetch/reader, and the pi-ai adapter maps the stable signal through the SDK only after a test proves the SDK stops the request. A timer that merely rejects a consumer promise while leaving the request running does not satisfy the contract.
+Boundary tests prove termination at both actual transports. The hand-written adapter aborts its fetch/reader, and the pi-ai adapter maps the stable signal through the SDK and proves the SDK closes the response. A timer that merely rejects a consumer promise while leaving the request running does not satisfy the contract.
 
 ### Keep attempts separate in the existing log
 
@@ -112,31 +112,30 @@ If recovery is exhausted, the final failure is stored once on `turn/end.reason` 
 - **Log retry status only through the process logger** — rejected because process logs do not reconstruct session behavior and cannot drive replayed UI state.
 - **Keep only flat codes** — rejected because retry delay and provider request id are structured provider facts, and HTTP status is necessary for diagnosis when different wire failures share one stable code.
 
-## Acceptance criteria
+## Verification
 
 - `LlmFailure` is the single serializable payload for thrown, error-finish, and aborted-finish final-adapter failures; normalization preserves stable code, status, retry delay, branded provider request id, error cause, and caller-abort versus adapter-timeout classification where available.
 - An adapter-thrown `Error` reaches `agent/request-error` as the exact same object while its sidecar `LlmFailure` reaches the adjacent argument; tests retain the existing identity assertion for extensible and frozen third-party errors.
 - DeepSeek and pi-ai adapter tests cover representative 400, 401/403, 429, 5xx, connection, malformed/truncated stream, timeout, abort, retry-after seconds/date, request-id, and unknown-SDK-error paths without recovery policy parsing message text.
-- Pi-ai performs one wire attempt per adapter call, and a wire-level test rejects any regression that silently restores SDK retries.
+- Pi-ai pins the SDK option to zero retries and performs one observed wire attempt for a retryable provider response; separate tests make removing either boundary fail.
 - `agent/request-error` carries current failure facts plus immutable prior-retried failure facts; a success clears that history, and alternating transient/context-overflow integration tests prove the two policies consume only their own finite budgets.
 - `dsh-llm-retry` validates every config field at Loader startup, delegates all ineligible paths with `next()`, and makes at most `maxTransientRetries + 1` provider requests when no other policy applies.
 - HMR-during-backoff tests prove disposal unregisters the listener, aborts and awaits its captured callbacks, emits no retry decision after disposal, and leaves no timer or promise alive.
 - Pure unit tests cover transient-code selection, exponential backoff and jitter bounds, valid and over-cap `Retry-After`, exhausted budgets, deterministic timer/random seams, and abort during backoff.
 - Real agent-loop tests cover failure before chunks, partial chunks then failure, thrown and in-band failures, retry to success in a new step, exhaustion to structured `turn/end.reason`, and composition with `dsh-compact-basic` context-overflow recovery.
 - The partial-chunk integration test proves failed chunks remain attributed to the failed step, no assistant message or tool side effect is committed for that step, and the successful retry has distinct provenance.
-- The plugin-owned `llm/retry` event is non-surface, survives JSONL and SQLite round trips, is ignored by message derivation, and has a production UI consumer with keyless ACP or TUI snapshot coverage for scheduled retry, cancellation during delay, and eventual success or exhaustion.
+- The plugin-owned `llm/retry` event is non-surface, survives JSONL and SQLite round trips, is ignored by message derivation, and drives TUI retraction plus durable discarded-attempt markers in append-only ACP and stdio streams. Keyless snapshots cover scheduling, cancellation, success, and exhaustion.
 - Idle-watchdog tests prove the stable signal is rearmed only while `next()` is outstanding, disarmed during consumer think time and in `finally`, and classified separately from a total-call deadline and an earlier caller abort; adapter tests prove the signal stops the underlying request rather than merely detaching it.
 - Direct `ctx.llm.stream()` callers remain single-attempt and receive the same structured failure facts.
-- The architecture LLM section, the implemented request-recovery and timeout notes, agent-loop and adapter READMEs, package catalogs, example configuration, persistence catalog, and testing documentation are updated in the implementation change; all generated outputs and bilingual counterparts required by those files are refreshed together.
 
-## Risks
+## Consequences
 
-- A retry can duplicate provider billing even when no chunk arrived; the finite attempt budget limits but cannot remove that risk.
-- Provider SDKs may hide status or retry headers. Those adapters must use `UNKNOWN` or a stable coarse code rather than infer policy from fragile text.
+- Every transient recovery attempt is visible as a closed step plus `llm/retry`, and the bounded policy prevents hidden SDK retries from multiplying cost. A retry can still duplicate provider billing even when no chunk arrived; the finite attempt budget limits but cannot remove that risk.
+- Provider SDKs may hide status or retry headers. Those adapters retain the stable facts they expose and otherwise use a coarse code rather than letting recovery policy parse fragile text.
 - Durable retry events expand the session protocol and UI state machine. Shipping the event and its consumer together prevents an unused telemetry vocabulary, but later schema changes still require persistence and replay work.
-- Clearing a failed step's live chunks can visibly retract output. That is preferable to presenting discarded text or partial tool JSON as committed history, and snapshots must make the transition explicit.
-- Adapter-local timeout enforcement can drift across transport libraries. Contract tests at the termination boundary are required for both implementations.
-- Multiple recovery plugins add their finite budgets. Their classifiers should remain disjoint; an overlapping classifier is registration-order policy and must be documented and tested by the plugins that introduce it.
+- Clearing a failed step's live chunks can visibly retract output. That is preferable to presenting discarded text or partial tool JSON as committed history, and snapshots pin the transition.
+- Adapter-local idle enforcement stops stalled transports without counting consumer think time. Contract tests at each transport boundary guard against SDK drift.
+- Multiple recovery plugins add their finite budgets. Their classifiers remain disjoint here; an overlapping classifier would be registration-order policy and must be documented and tested by the plugins that introduce it.
 
 ## Related
 
