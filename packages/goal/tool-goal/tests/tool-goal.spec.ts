@@ -384,6 +384,13 @@ describe('goal tool state transitions', () => {
       objective: 'not valid for pause',
     }, root.agent)
     expect(replacement.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    const terminalUpdate = await execute(ctx, 'update_goal', {
+      goal_id: created.id,
+      revision: created.revision,
+      action: 'complete',
+      max_goal_rounds: 2,
+    }, root.agent)
+    expect(terminalUpdate.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
     const malformedRef = await execute(ctx, 'update_goal', {
       goal_id: '', revision: 0, action: 'edit', objective: 'x',
     }, root.agent)
