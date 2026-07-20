@@ -25,7 +25,10 @@ export interface AgentOptions {
   model?: string
 }
 
-/** Message options; an omitted source resolves to `{ kind: 'user' }`, so plugins must label their own content. */
+/**
+ * Message options. An omitted source attests direct human input as `{ kind: 'user' }`
+ * and may authorize policy consumers, so non-human producers must label their content.
+ */
 export interface SendOptions {
   source?: MessageSource
 }

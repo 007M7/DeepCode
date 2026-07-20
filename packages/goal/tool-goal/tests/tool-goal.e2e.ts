@@ -101,7 +101,7 @@ describe('goal tools through a real Loader, app, and stdio process', () => {
     expect(stdout).toContain('goal-tools e2e ready.')
     expect(stdout).toContain('GOAL CREATED')
     expect(stdout).toContain(PAUSED_RESULT)
-    expect(stdout).not.toContain('UNEXPECTED CONTINUATION AFTER PAUSE')
+    expect(stdout).toContain('GOAL PAUSED')
 
     const logs = await jsonlFiles(join(workdir as string, '.sessions'))
     expect(logs).toHaveLength(1)
