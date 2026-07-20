@@ -7,7 +7,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 
 | Event | Mode | Declared in | Dispatchers | Listeners |
 | --- | --- | --- | --- | --- |
-| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:362`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | [`stdio`](../packages/ui/stdio), [`tui`](../packages/ui/tui) |
+| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:353`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | [`stdio`](../packages/ui/stdio), [`tui`](../packages/ui/tui) |
 | `agent/created` | `emit` | [`packages/core/agent/src/types.ts:150`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`stdio`](../packages/ui/stdio), [`tui`](../packages/ui/tui) |
 | `agent/disposed` | `emit` | [`packages/core/agent/src/types.ts:159`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`agent-loop`](../packages/core/agent-loop), [`stdio`](../packages/ui/stdio), [`tui`](../packages/ui/tui) |
 | `agent/error` | `emit` | [`packages/core/agent/src/types.ts:314`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`tui`](../packages/ui/tui) |
