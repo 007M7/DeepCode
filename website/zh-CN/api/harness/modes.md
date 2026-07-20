@@ -4,9 +4,9 @@
 
 `ModesService` — provided by `@deepseek-ai/dsh-mode`.
 
-`ctx.modes`: the session-mode service. Owns the `mode/set` vocabulary, the pending-intent flush, the boundary narration, and both policy layers (the assemble filter + `mode:policy` section, and the `tools/pre-execute` gate). UIs read mode flips off `session/event`; there is no live mirror.
+`ctx.modes`: the session-mode service. Owns the `mode/set` vocabulary, the pending-intent flush, the boundary narration, the `mode:policy` section, and the exit tool's visibility rule. UIs read mode flips off `session/event`; there is no live mirror.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/mode/mode/src/index.ts#L256)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/mode/mode/src/index.ts#L216)
 
 ### ctx.modes.resolved
 
@@ -16,7 +16,7 @@ readonly resolved: ResolvedModes
 
 Validated definitions (built-in `plan` merged unless overridden).
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/mode/mode/src/index.ts#L260)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/mode/mode/src/index.ts#L220)
 
 ### ctx.modes.list()
 
@@ -28,7 +28,7 @@ The selectable mode vocabulary: DEFAULT_MODE first, then the configured definiti
 
 **Returns** Mode names, `default` first.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/mode/mode/src/index.ts#L485)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/mode/mode/src/index.ts#L380)
 
 ### ctx.modes.get(agent)
 
@@ -42,7 +42,7 @@ The agent's mode state: the folded mode in force (a folded name the config no lo
 
 **Returns** The current (effective) mode and the pending intent, if any.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/mode/mode/src/index.ts#L497)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/mode/mode/src/index.ts#L392)
 
 ### ctx.modes.set(agent, mode)
 
@@ -55,4 +55,4 @@ Select the agent's mode. Validates the name against list (loud on unknown; `defa
 - `agent` — The agent to switch.
 - `mode` — The target mode name.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/mode/mode/src/index.ts#L512)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/mode/mode/src/index.ts#L407)

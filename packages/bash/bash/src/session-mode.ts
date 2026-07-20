@@ -1,11 +1,9 @@
 /**
  * Per-session sandbox-mode override stored as log-only events. Folding the log
- * isolates sessions and survives replay; execution reads it through
- * `BashExecutor.resolveMode` (`override ?? default`, dispatched through the
- * `bash/resolve-mode` waterfall so policy plugins narrow it per call), and the
- * tool stamps the resolution onto each call unless an approved one-shot
- * escalation outranks it. The model receives neither the event nor a
- * standing-mode notice; denial results name the effective mode.
+ * isolates sessions and survives replay; the tool stamps the override onto
+ * each call unless an approved one-shot escalation outranks it, and the
+ * executor default applies when neither exists. The model receives neither the
+ * event nor a standing-mode notice; denial results name the effective mode.
  * @module dsh-bash/session-mode
  */
 
@@ -23,12 +21,7 @@ declare module '@deepseek-ai/dsh-session' {
   }
 }
 
-/**
- * Every {@link SandboxMode}, for option advertisement and runtime validation
- * of untrusted mode strings. Ordered narrowest → widest — the ladder is part
- * of the contract; consumers (the escalation widening check, a mode's access
- * clamp) compare by index.
- */
+/** Every {@link SandboxMode}, for option advertisement and runtime validation of untrusted mode strings. */
 export const SANDBOX_MODES: readonly SandboxMode[] = ['read-only', 'workspace-write', 'danger-full-access']
 
 /**

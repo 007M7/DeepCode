@@ -3,13 +3,6 @@
  * register process handles with `ctx.tasks`; their work uses task cancellation
  * rather than the tool-call signal after an id is returned.
  *
- * Each call is stamped `escalation grant > ctx.bash.resolveMode()` — the
- * seam's resolution (session override ?? executor default) run through the
- * `bash/resolve-mode` waterfall, where policy plugins (e.g. a session mode's
- * `access` cap) narrow it per call. The prompt deliberately does not state
- * the mode and no switch is narrated: the model learns the boundary from the
- * denial marker exactly when it matters.
- *
  * TODO(permissions): deployment policy belongs in `tools/pre-execute` and
  * sandboxing executors; see docs/architecture.md § Extending The Harness.
  * @module @deepseek-ai/dsh-tool-bash
@@ -27,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
+import { DSH_ENV_PREFIX, effectiveSandboxMode } from '@deepseek-ai/dsh-bash'
 import type { DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
 import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-home'
 import { processOutcome } from './background.ts'
@@ -350,14 +343,14 @@ export function apply(ctx: Context, config: Config = {}): void {
   const defaultMode = ctx.bash.sandboxMode
   const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
 
+  const sessionOverride = (exec: ToolExecution): SandboxMode | undefined =>
+    defaultMode === undefined || exec.agent === undefined ? undefined : effectiveSandboxMode(exec.agent.session.events)
+
   const approveEscalation = async (mode: string, justification: string, exec: ToolExecution): Promise<SandboxMode> => {
     if (escalationModes.length === 0) {
       throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
     }
-    // Strict widening runs against the seam's resolution — the same value
-    // ordinary calls are stamped with. The cast is exact: escalationModes
-    // non-empty proved the executor confines, resolveMode's only undefined path.
-    const effectiveMode = (await ctx.bash.resolveMode(exec.agent?.session)) as SandboxMode
+    const effectiveMode = (sessionOverride(exec) ?? defaultMode) as SandboxMode
     if (!(WIDER_MODES[effectiveMode] ?? []).includes(mode as SandboxMode)) {
       throw new Error(`sandbox escalation to "${mode}" is not strictly wider than this call's current "${effectiveMode}" mode`)
     }
@@ -425,7 +418,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       // Description is display metadata; workdir defaults to the caller's session.
       const sandboxMode = args.sandbox_permissions !== undefined && args.justification !== undefined
         ? await approveEscalation(args.sandbox_permissions, args.justification, exec)
-        : await ctx.bash.resolveMode(exec.agent?.session)
+        : sessionOverride(exec)
       const workdir = resolveWorkdir(args.workdir, exec)
       const dshEnv = bashEnv.collect(exec)
       const request = {

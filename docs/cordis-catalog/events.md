@@ -183,20 +183,6 @@ Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalReques
 
 Source: [`packages/ui/user-approval/src/index.ts:31`](../../packages/ui/user-approval/src/index.ts)
 
-## `bash/*`
-
-### `bash/resolve-mode` — waterfall
-
-Waterfall around BashExecutor.resolveMode's base — the session's standing override falling back to the executor's configured default. A policy plugin narrows the resolution per call by clamping `await next()` (a session mode's `access` cap is the shipped example); returning without `next()` replaces the resolution outright. Dispatched only for a confining executor — a never-confining one resolves `undefined` without consulting listeners, so a listener always receives a real base mode from `next()`.
-
-```ts cordis-catalog
-'bash/resolve-mode'(this: BashExecutor, session: Session | undefined, next: () => Promise<SandboxMode>): Promise<SandboxMode>
-```
-
-Types: [SandboxMode](../core-data-structures/sandbox.md)
-
-Source: [`packages/bash/bash/src/index.ts:49`](../../packages/bash/bash/src/index.ts)
-
 ## `fs/*`
 
 ### `fs/edit-intent` — waterfall

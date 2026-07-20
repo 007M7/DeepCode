@@ -37,6 +37,6 @@ The default `cordis.yml` composes [`@deepseek-ai/dsh-sandbox-local`](../packages
 
 ## plan-acp-agent
 
-The ACP server with **session modes** composed ([`@deepseek-ai/dsh-mode`](../packages/mode/mode)) — the editor's mode picker switches the session into plan mode, the model works under the plan guidance section with bash clamped to a read-only sandbox by plan mode's `access` cap, and it leaves through the user-reviewed `exit_plan_mode` tool (the review arrives as an elicitation form).
+The ACP server with **session modes** composed ([`@deepseek-ai/dsh-mode`](../packages/mode/mode)) — the editor's mode picker switches the session into plan mode, the model works under the plan guidance section, and it leaves through the user-reviewed `exit_plan_mode` tool (the review arrives as an elicitation form). The mode picker and the sandbox/approval selects are independent axes on the same session — switching one never disturbs the other.
 
 Run with: `pnpm run demo:plan-acp` (needs `DEEPSEEK_API_KEY`). See [plan-acp-agent/README.md](plan-acp-agent/README.md).

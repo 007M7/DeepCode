@@ -12,7 +12,7 @@
     },
     {
       "op": "prompt",
-      "text": "The typo is on line 2 of notes.txt itself; the workspace contains no other file. Inspect it with the bash tool: run exactly `cat notes.txt` (relative path, no other command; plan mode keeps the sandbox read-only, and a plain cat succeeds). Then present a one-step plan titled '# Fix the greeting typo' via exit_plan_mode: the single step is editing line 2 of notes.txt to say hello world. Do not edit anything before the review approves. After it approves, apply exactly that one edit to notes.txt with the edit tool and stop — no other commands, do not look for any other file."
+      "text": "The typo is on line 2 of notes.txt itself; the workspace contains no other file. Inspect it with the bash tool: run exactly `cat notes.txt` (relative path, no other command). Then present a one-step plan titled '# Fix the greeting typo' via exit_plan_mode: the single step is editing line 2 of notes.txt to say hello world. Do not edit anything before the review approves. After it approves, apply exactly that one edit to notes.txt with the edit tool and stop — no other commands, do not look for any other file."
     },
     {
       "op": "prompt",

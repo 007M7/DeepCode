@@ -1,20 +1,18 @@
 # @deepseek-ai/dsh-mode
 
-Session modes: named, logged, per-agent policy states. **Plan mode** is the first shipped definition — the agent explores and designs under a read-only stance, produces a reviewable plan, and crosses back into full authority through an explicit review.
+Session modes: named, logged, per-agent COLLABORATION states. **Plan mode** is the first shipped definition — the agent explores and designs under a planning stance, produces a reviewable plan, and crosses back through an explicit review. Modes are one axis; enforcement knobs (the sandbox mode, the approval policy) are others — they never read or write each other, matching how Codex keeps its Plan/Default collaboration presets separate from its sandbox and approval settings.
 
 ## The mode state is a session event
 
 `mode/set` (`{ mode: string }`) is a log-only, non-surface `SessionEventMap` member with whole-value-replace semantics; the pure `foldMode(events)` returns the mode in force (the last `mode/set`, else `default`). Because the log is the fact channel, resume, fork, and compaction restore the mode with no extra machinery, and UIs read flips off `session/event` — there is no live mirror.
 
-The `default` mode is the absence of policy: no section, no cap. An agent that never sees a `mode/set` behaves byte-identically to a deployment that never loads this plugin.
+The `default` mode is the absence of policy: no section, no extra tool. An agent that never sees a `mode/set` behaves byte-identically to a deployment that never loads this plugin.
 
-## What a mode enforces
+## What a mode carries
 
 **The guidance section.** A `system-prompt/assemble` listener renders the mode's `section` text as the `mode:policy` section (order 50) while the mode is in force, and shows the `exit_plan_mode` tool IFF the folded mode is `plan` — on the wire and, under the registry's Code Mode, in the `tools:sdk` section alike. Every transition therefore surfaces as an attributable `request/header` event on the next step (entering plan adds the exit tool, a front-of-list insertion with no delta form → the full fallback snapshot; the approved exit removes exactly that tool and the section, a pure removal → one `request/header-delta`).
 
-**The `access` cap.** A definition may declare `access` — the widest sandbox access shell commands run under while the mode is in force, on the `SANDBOX_MODES` ladder from [`@deepseek-ai/dsh-bash`](../../bash/bash/) (`read-only` | `workspace-write` | `danger-full-access`). The built-in `plan` ships `access: 'read-only'`: exploration commands run for real, and a write is denied by the sandbox itself. The cap is a **clamp, not a switch**: a `bash/resolve-mode` waterfall listener returns `min(resolved, access)` on the ladder. The session's own sandbox-mode knob (`bash/sandbox-mode` events) is never written — the two folds compose at read time, so the knob and the mode switch in any order without disturbing each other, and a knob flipped during plan re-emerges intact on exit. Two guards ride with a declared cap: the bash trio (`bash`/`bash_output`/`bash_kill`) is hidden and denied while no confining executor is mounted (`ctx.bash.sandboxMode` unset — an unconfinable shell cannot honor the cap), and a `bash` call carrying `sandbox_permissions` is denied outright (the cap would otherwise be pierceable mid-mode by one approval prompt). A mode without `access` gets neither guard.
-
-**Deliberately absent: a tool allow/deny list.** Which tools a mode admits is an effects question — a per-tool read-only/mutating classification the harness does not yet have. Until tool definitions declare their effects (the plan-mode RFC's deferred item), a mode's non-shell restraint is the section's guidance and its shell restraint is the sandbox; the config vocabulary is exactly `{ section, access? }`, and an unknown key (a `tools` list included) fails loud at load.
+**Deliberately absent: enforcement.** A mode never gates execution, filters the toolset, or touches the sandbox/approval knobs — those are independent axes the user switches separately (a deployment that wants a hard read-only floor while planning flips the sandbox-mode option beside the mode picker, in either order; neither disturbs the other). A per-mode tool allow/deny list is likewise out: which tools a mode admits is an effects question — a per-tool read-only/mutating classification the harness does not yet have — parked until tool definitions declare their effects (the plan-mode RFC's deferred item). The config vocabulary is exactly `{ section }`, and an unknown key (a `tools` list or an `access` cap included) fails loud at load.
 
 ## `ctx.modes`
 
@@ -24,7 +22,7 @@ The `default` mode is the absence of policy: no section, no cap. An agent that n
 
 ## `exit_plan_mode`
 
-The model-facing exit tool. Its single required argument is the plan text — a durable, replayable log artifact riding the ordinary `tool/call` event. `execute` re-checks the folded mode, then conducts the review over the user-interaction seam (`ctx.get('userInteraction')`, opportunistic): one single-select question — Approve, or Keep planning — with the free-text channel open. Approve records the switch back to `default` as a silent boundary-applied pending intent (flushed at this step's end — the plan policy, the sandbox clamp included, keeps holding for any remaining call of the same assistant response) and the next step runs unclamped; every other outcome (keep-planning with the user's feedback verbatim, an aborted question, no provider) returns the corrective `isError` and the mode stays `plan`. `presentCall` renders a `generic` card titled by the plan's first heading with the plan markdown as content; over ACP the review rides the same elicitation flow as `ask_user_question`, in the terminal the stdio provider's prompt queue.
+The model-facing exit tool. Its single required argument is the plan text — a durable, replayable log artifact riding the ordinary `tool/call` event. `execute` re-checks the folded mode, then conducts the review over the user-interaction seam (`ctx.get('userInteraction')`, opportunistic): one single-select question — Approve, or Keep planning — with the free-text channel open. Approve records the switch back to `default` as a silent boundary-applied pending intent (flushed at this step's end — the plan surface keeps holding for any remaining call of the same assistant response) and the next step reflects the exit; every other outcome (keep-planning with the user's feedback verbatim, an aborted question, no provider) returns the corrective `isError` and the mode stays `plan`. `presentCall` renders a `generic` card titled by the plan's first heading with the plan markdown as content; over ACP the review rides the same elicitation flow as `ask_user_question`, in the terminal the stdio provider's prompt queue.
 
 ## Config
 
@@ -36,23 +34,22 @@ The model-facing exit tool. Its single required argument is the plan text — a 
       plan:
         section: |
           You are in plan mode: ...
-        access: read-only
 ```
 
-Definitions are validated at load (`resolveConfig`): the built-in `plan` (the shipped guidance section plus `access: read-only`) merges unless overridden, `default` is rejected as a key, an `access` outside the `SANDBOX_MODES` ladder throws, and any other key — a `tools` list included — fails loud. An unknown mode name fails loudly at `set()` time.
+Definitions are validated at load (`resolveConfig`): the built-in `plan` (the shipped guidance section) merges unless overridden, `default` is rejected as a key, and any other key — a `tools` list or an `access` cap included — fails loud. An unknown mode name fails loudly at `set()` time.
 
 ## Model Experience
 
 ### System prompt
 
-**What the model sees**: In the default mode, nothing — assemblies are byte-identical to a deployment without this plugin (the always-registered `exit_plan_mode` tool is filtered from the wire and the Code Mode SDK). In a non-default mode, the mode's `section` renders as the `mode:policy` section (order 50) and, in plan mode, the `exit_plan_mode` tool joins the toolset; under an unhonorable `access` cap the `bash` tool disappears. A mode flip mid-session appends one coalesced `context/message` notice when the last header disagrees.
+**What the model sees**: In the default mode, nothing — assemblies are byte-identical to a deployment without this plugin (the always-registered `exit_plan_mode` tool is filtered from the wire and the Code Mode SDK). In a non-default mode, the mode's `section` renders as the `mode:policy` section (order 50) and, in plan mode, the `exit_plan_mode` tool joins the toolset — nothing else changes. A mode flip mid-session appends one coalesced `context/message` notice when the last header disagrees.
 
 **Token effect**: Zero in the default mode. In plan mode, the section text plus one tool schema per request; every mode transition changes the logged header and therefore resets the provider prefix cache.
 
 #### Plan-mode policy section
 
 ```markdown
-You are in plan mode: a read-only planning state. Explore, analyze, and design; do not modify anything yet — edits and other side effects belong in the plan and run after its approval, not in this mode. Where a bash tool is present it runs under a read-only sandbox: commands that only read work normally, while a command that writes is denied by the sandbox — that denial marks the edge of plan mode rather than a bug, and sandbox escalation is not offered here; put the step in the plan for after approval instead. When a decision or a missing detail blocks the plan, ask the user through the ask_user_question tool where it is available. A finished plan is delivered by calling exit_plan_mode — that call is what puts it in front of the user for review, so prefer it over pasting the plan as a plain reply or asking the user to switch modes themselves. If exit_plan_mode is unavailable or its review fails, ask the user to switch the session out of plan mode instead of pressing on.
+You are in plan mode: a planning state. Explore, analyze, and design; reading files and running read-only commands is fine, but hold off on changes — edits and other side effects belong in the plan and run after its approval, not in this mode. When a decision or a missing detail blocks the plan, ask the user through the ask_user_question tool where it is available. A finished plan is delivered by calling exit_plan_mode — that call is what puts it in front of the user for review, so prefer it over pasting the plan as a plain reply or asking the user to switch modes themselves. If exit_plan_mode is unavailable or its review fails, ask the user to switch the session out of plan mode instead of pressing on.
 ```
 
 ### Exit review
@@ -63,8 +60,7 @@ You are in plan mode: a read-only planning state. Explore, analyze, and design; 
 
 ## Known Limitations and Deferred Work
 
-- **Non-shell restraint is guidance-only** — until effects self-declaration lands on tool definitions, a non-default mode restrains tools other than `bash` by its section text alone; the [plan-mode RFC](../../../docs/rfc/implemented/feature/2026-07-07-plan-mode.md) archives the removed interim allowlist and its restart trigger.
-- **The cap guard names `bash` rather than deriving it** — the same effects item generalizes it.
+- **A mode restrains by guidance only** — nothing gates execution while a mode holds; a user who wants a hard floor pairs the mode with the independent sandbox/approval knobs. The [plan-mode RFC](../../../docs/rfc/implemented/feature/2026-07-07-plan-mode.md) archives the two removed enforcement shapes (the interim allowlist, the `access` sandbox cap) and their restart trigger (effects self-declaration on tool definitions).
 - **A pending flip set while idle dies with the process** — the UI re-applies; the idle-record primitive is the escape hatch if this bites.
 - **Subagent mode inheritance is deferred** — a fork child inherits via the seeded prefix; a spawn child starts default unless its creator seeds `AgentOptions.mode`.
 

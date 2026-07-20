@@ -81,7 +81,7 @@ Durable log-only sandbox-mode override; never a surface event or model message. 
 'bash/sandbox-mode': { mode: SandboxMode }
 ```
 
-Source: [`packages/bash/bash/src/session-mode.ts:22`](../packages/bash/bash/src/session-mode.ts)
+Source: [`packages/bash/bash/src/session-mode.ts:20`](../packages/bash/bash/src/session-mode.ts)
 
 ### `compact/*`
 
@@ -163,7 +163,7 @@ The session mode in force from this point on: log-only, non-surface, whole-value
 'mode/set': { mode: string }
 ```
 
-Source: [`packages/mode/mode/src/index.ts:57`](../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:49`](../packages/mode/mode/src/index.ts)
 
 ### `permission/*`
 

@@ -613,25 +613,6 @@ describe('sandbox escalation through the generic task producer', () => {
   })
 })
 
-describe('the bash/resolve-mode waterfall at the tool layer', () => {
-  it('stamps the waterfall result — a listener narrows ordinary calls and the escalation baseline alike', async () => {
-    const { ctx, bash } = await setupSandboxed(true)
-    ctx.on('bash/resolve-mode', async (_session, next) => {
-      await next()
-      return 'read-only'
-    })
-    const agent = sandboxAgent('workspace-write')
-    await call(ctx, 'bash', { command: 'true', description: 'clamped ordinary' }, agent)
-    // Escalating TO workspace-write is strictly wider than the CLAMPED
-    // read-only baseline — without the clamp it would be a non-widening no-op
-    // against the standing override — and the freshly-approved grant outranks
-    // the clamp for exactly that call.
-    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
-    await call(ctx, 'bash', { command: 'true', description: 'd', sandbox_permissions: 'workspace-write', justification: 'wider than the clamped baseline' }, agent)
-    expect(bash.modes).toEqual(['read-only', 'workspace-write'])
-  })
-})
-
 describe('renderProcessRead', () => {
   const base: BashProcessRead = { delta: 'out\n', lossy: false }
 

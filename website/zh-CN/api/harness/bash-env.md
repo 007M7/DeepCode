@@ -6,7 +6,7 @@
 
 Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables. The namespace is rebuilt for every model bash call: ambient `DSH_*` values are discarded by the executor, then the registry's current snapshot is injected. Built-in shell facts remain owned by the registry itself while plugins can register additional, enumerable facts with effect-scoped disposal.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/tool-bash/src/index.ts#L109)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/tool-bash/src/index.ts#L102)
 
 ### ctx.bashEnv.register(contributor)
 
@@ -20,7 +20,7 @@ Register one environment contributor. Names and keys are unique; built-in keys a
 
 **Returns** the disposer that unregisters the contribution.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/tool-bash/src/index.ts#L130)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/tool-bash/src/index.ts#L123)
 
 ### ctx.bashEnv.collect(execution)
 
@@ -34,7 +34,7 @@ Build the trusted `DSH_*` snapshot for one bash tool execution.
 
 **Returns** an immutable environment overlay containing built-ins and current contributions.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/tool-bash/src/index.ts#L172)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/tool-bash/src/index.ts#L165)
 
 ### ctx.bashEnv.list()
 
@@ -46,4 +46,4 @@ Enumerate plugin-contributed variables without executing their resolvers.
 
 **Returns** declarations sorted by environment variable name.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/tool-bash/src/index.ts#L204)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/tool-bash/src/index.ts#L197)

@@ -64,15 +64,14 @@ Implementations must honor these semantics:
 - Disposal kills all running background processes and awaits their exit.
 
 ```ts cordis-catalog
-async resolveMode(session: Session | undefined): Promise<SandboxMode | undefined>
 abstract resolve(request: BashExecRequest): BashExecSpec
 abstract run(spec: BashExecSpec): Promise<BashRunResult>
 abstract start(spec: BashExecSpec): BashProcess
 ```
 
-Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [SandboxMode](../core-data-structures/sandbox.md)
+Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:69`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:49`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.bashEnv` — `BashEnvRegistry`
 
@@ -86,7 +85,7 @@ list(): BashEnvVariableInfo[]
 
 Types: [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/bash/tool-bash/src/index.ts:109`](../../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/tool-bash/src/index.ts:102`](../../packages/bash/tool-bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
@@ -148,7 +147,7 @@ Source: [`packages/llm/llm/src/index.ts:75`](../../packages/llm/llm/src/index.ts
 
 ## `ctx.modes` — `ModesService`
 
-`ctx.modes`: the session-mode service. Owns the `mode/set` vocabulary, the pending-intent flush, the boundary narration, and both policy layers (the assemble filter + `mode:policy` section, and the `tools/pre-execute` gate). UIs read mode flips off `session/event`; there is no live mirror.
+`ctx.modes`: the session-mode service. Owns the `mode/set` vocabulary, the pending-intent flush, the boundary narration, the `mode:policy` section, and the exit tool's visibility rule. UIs read mode flips off `session/event`; there is no live mirror.
 
 ```ts cordis-catalog
 list(): string[]
@@ -158,7 +157,7 @@ set(agent: Agent, mode: string): void
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/mode/mode/src/index.ts:256`](../../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:216`](../../packages/mode/mode/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 

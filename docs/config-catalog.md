@@ -508,28 +508,18 @@ export interface ModeConfig {
 }
 
 /**
- * One mode's deployment-configured policy: the guidance section the model sees
- * and an optional cap on the sandbox access shell commands run under. There
- * is deliberately no tool allow/deny list — which tools a mode admits is an
- * effects question, parked until tool definitions declare their effects.
+ * One mode's deployment-configured policy: the guidance section the model
+ * sees. Deliberately nothing else — enforcement knobs (sandbox mode, approval
+ * policy) are separate axes a mode never touches, and a tool allow/deny list
+ * is an effects question parked until tool definitions declare their effects.
  */
 export interface ModeDefinition {
   /** Guidance text rendered as the `mode:policy` prompt section while the mode is in force. */
   section: string
-  /**
-   * The widest sandbox access shell commands may run under while this mode is
-   * in force — a per-call CAP on the bash seam's resolved mode (a
-   * `bash/resolve-mode` clamp), not a switch: the session's own sandbox knob
-   * keeps its setting and re-emerges intact when the mode ends. Omitted, the
-   * mode leaves the resolution alone. A mode with `access` set exposes the
-   * bash tools only while a confining executor is mounted (an unconfinable
-   * shell cannot honor the cap) and denies sandbox escalation outright.
-   */
-  access?: (typeof SANDBOX_MODES)[number]
 }
 ```
 
-Source: [`packages/mode/mode/src/index.ts:122`](../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:104`](../packages/mode/mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-permission`
 
@@ -980,7 +970,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/tool-bash/src/index.ts:46`](../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/tool-bash/src/index.ts:39`](../packages/bash/tool-bash/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 

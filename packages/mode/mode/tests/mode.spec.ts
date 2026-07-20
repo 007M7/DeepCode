@@ -7,8 +7,6 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
 import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
-import { BashExecutor, setSandboxMode } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import ModesService, { DEFAULT_MODE, EXIT_PLAN_MODE, PLAN_MODE, foldMode, resolveConfig } from '../src/index.ts'
 import type { ModeConfig } from '../src/index.ts'
 
@@ -84,20 +82,20 @@ function execute(ctx: Context, name: string, agent?: Agent) {
 }
 
 describe('resolveConfig', () => {
-  it('merges the built-in plan definition: guidance section + read-only access cap, no tool list', () => {
+  it('merges the built-in plan definition: a guidance section, nothing else', () => {
     const resolved = resolveConfig({})
     const plan = resolved.definitions.get(PLAN_MODE)
-    expect(plan).toEqual({ section: plan?.section, access: 'read-only' })
+    expect(plan).toEqual({ section: plan?.section })
     expect(plan?.section).toContain('plan mode')
   })
 
   it('lets config override plan and add further modes', () => {
     const resolved = resolveConfig({ modes: {
       plan: { section: 'custom plan' },
-      review: { section: 'review', access: 'workspace-write' },
+      review: { section: 'review' },
     } })
     expect(resolved.definitions.get(PLAN_MODE)).toEqual({ section: 'custom plan' })
-    expect(resolved.definitions.get('review')).toEqual({ section: 'review', access: 'workspace-write' })
+    expect(resolved.definitions.get('review')).toEqual({ section: 'review' })
   })
 
   it('rejects the reserved default key loudly', () => {
@@ -108,18 +106,13 @@ describe('resolveConfig', () => {
   it('rejects a malformed definition loudly', () => {
     expect(() => resolveConfig({ modes: { bad: { section: 5 } as unknown as { section: string } } }))
       .toThrow('needs a string `section`')
-    // Unknown keys fail loud — a tool allow/deny list is deliberately not
-    // part of the vocabulary, and a config still carrying one must not be
-    // silently accepted as if it shaped anything.
+    // Unknown keys fail loud — a tool allow/deny list and enforcement knobs
+    // are deliberately not part of the vocabulary, and a config still
+    // carrying one must not be silently accepted as if it shaped anything.
     expect(() => resolveConfig({ modes: { bad: { section: '', tools: ['read'] } as unknown as { section: string } } }))
-      .toThrow('unknown key(s) tools — a definition is { section, access? }')
-  })
-
-  it('validates access against the sandbox-mode ladder', () => {
-    expect(() => resolveConfig({ modes: { locked: { section: 's', access: 'sealed' as never } } }))
-      .toThrow('unknown access "sealed" — one of: read-only, workspace-write, danger-full-access')
-    const resolved = resolveConfig({ modes: { locked: { section: 's', access: 'workspace-write' } } })
-    expect(resolved.definitions.get('locked')).toEqual({ section: 's', access: 'workspace-write' })
+      .toThrow('unknown key(s) tools — a definition is { section }')
+    expect(() => resolveConfig({ modes: { bad: { section: '', access: 'read-only' } as unknown as { section: string } } }))
+      .toThrow('unknown key(s) access — a definition is { section }')
   })
 })
 
@@ -466,7 +459,7 @@ describe('the soft layer', () => {
   })
 })
 
-describe('the hard layer', () => {
+describe('no execution gating', () => {
   it('passes agent-less and default-mode executions through', async () => {
     const ctx = await setup()
     registerNamedTools(ctx, ['write'])
@@ -477,37 +470,24 @@ describe('the hard layer', () => {
     expect(defaulted.isError).toBe(false)
   })
 
-  it('runs non-shell calls in plan mode untouched — restraint outside the shell is the section, not a gate', async () => {
+  it('runs every call in plan mode untouched — modes restrain by guidance, enforcement knobs are separate axes', async () => {
     const ctx = await setup()
-    registerNamedTools(ctx, ['read', 'write'])
+    registerNamedTools(ctx, ['read', 'write', 'bash'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: PLAN_MODE })
-    const reading = await execute(ctx, 'read', agent)
-    expect(reading.isError).toBe(false)
-    const writing = await execute(ctx, 'write', agent)
-    expect(writing.isError).toBe(false)
+    for (const name of ['read', 'write', 'bash']) {
+      const result = await execute(ctx, name, agent)
+      expect(result.isError).toBe(false)
+    }
   })
 
-  it('judges by the logged mode only — a pending plan intent neither gates nor clamps', async () => {
+  it('treats a dropped folded definition as the default mode', async () => {
     const ctx = await setup()
-    await ctx.plugin(FakeSandboxExecutor, { mode: 'workspace-write' })
-    registerNamedTools(ctx, ['write'])
-    const agent = agentWithSession()
-    ctx.modes.set(agent, PLAN_MODE)
-    const result = await execute(ctx, 'write', agent)
-    expect(result.isError).toBe(false)
-    expect(await ctx.bash.resolveMode(agent.session)).toBe('workspace-write')
-  })
-
-  it('treats a dropped folded definition as the default mode (no clamp, no guard)', async () => {
-    const ctx = await setup()
-    await ctx.plugin(FakeSandboxExecutor, { mode: 'workspace-write' })
     registerNamedTools(ctx, ['write'])
     const agent = agentWithSession()
     agent.session.append('mode/set', { mode: 'retired' })
     const result = await execute(ctx, 'write', agent)
     expect(result.isError).toBe(false)
-    expect(await ctx.bash.resolveMode(agent.session)).toBe('workspace-write')
   })
 })
 
@@ -595,17 +575,18 @@ describe('exit_plan_mode', () => {
     expect(asked[0]?.questions[0]?.options?.map(option => option.label)).toEqual(['Approve', 'Keep planning'])
   })
 
-  it('an approved exit keeps the plan clamp until the boundary (same-batch policy holds)', async () => {
+  it('an approved exit keeps the plan surface until the boundary (same-batch fold holds)', async () => {
     const { ctx, agent } = await setupWithReview({ selected: ['Approve'] })
-    await ctx.plugin(FakeSandboxExecutor, { mode: 'workspace-write' })
     const approved = await callExit(ctx, agent)
     expect(approved.isError).toBe(false)
-    // A bash call of the SAME assistant response (no boundary between) was
-    // requested under the plan-shaped header — the read-only clamp must
-    // still hold for it; the boundary flush is what widens the next step.
-    expect(await ctx.bash.resolveMode(agent.session)).toBe('read-only')
+    // Calls of the SAME assistant response (no boundary between) were
+    // requested under the plan-shaped header — the fold stays plan for that
+    // whole batch; the boundary flush is what flips the next step.
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
+    const assembly = await ctx.systemPrompt.assemble({ agent })
+    expect(assembly.tools.some(tool => tool.name === EXIT_PLAN_MODE)).toBe(true)
     await boundary(ctx, agent, 'step/end')
-    expect(await ctx.bash.resolveMode(agent.session)).toBe('workspace-write')
+    expect(foldMode(agent.session.events)).toBe(DEFAULT_MODE)
   })
 
   it('the exit flush narrates nothing — the tool result is the narration', async () => {
@@ -704,190 +685,5 @@ describe('exit_plan_mode', () => {
       title: 'Plan review',
       content,
     })
-  })
-})
-
-/**
- * A minimal confining executor for the access-cap tests: only `sandboxMode`
- * (the capability fact both policy layers and `resolveMode` read) matters;
- * the process API is never exercised here.
- */
-class FakeSandboxExecutor extends BashExecutor {
-  constructor(ctx: Context, private readonly config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access' } = {}) {
-    super(ctx)
-  }
-
-  override get sandboxMode() {
-    return this.config.mode
-  }
-
-  resolve(request: BashExecRequest): BashExecSpec {
-    return {
-      command: request.command,
-      workdir: '/w',
-      timeoutMs: 1000,
-      stdoutMaxBytes: request.stdoutMaxBytes ?? 1000,
-      sandboxMode: request.sandboxMode,
-    }
-  }
-
-  run(_spec: BashExecSpec): Promise<BashRunResult> {
-    return Promise.resolve({
-      exitCode: 0,
-      signal: null,
-      timedOut: false,
-      aborted: false,
-      timeoutMs: 1000,
-      stdout: { text: '', truncated: false },
-      stderr: { text: '', truncated: false },
-    })
-  }
-
-  start(_spec: BashExecSpec): BashProcess { throw new Error('unused in access-cap tests') }
-}
-
-describe('the access cap (bash/resolve-mode clamp)', () => {
-  async function sandboxSetup(mode: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined, config?: ModeConfig): Promise<Context> {
-    const ctx = await setup(config)
-    await ctx.plugin(FakeSandboxExecutor, mode !== undefined ? { mode } : {})
-    return ctx
-  }
-
-  it('clamps the plan-mode resolution to read-only over a wider knob and default', async () => {
-    const ctx = await sandboxSetup('workspace-write')
-    const agent = agentWithSession()
-    agent.session.append('mode/set', { mode: PLAN_MODE })
-    expect(await ctx.bash.resolveMode(agent.session)).toBe('read-only')
-    setSandboxMode(agent.session, 'danger-full-access')
-    expect(await ctx.bash.resolveMode(agent.session)).toBe('read-only')
-  })
-
-  it('leaves the default-mode resolution alone (knob ?? executor default)', async () => {
-    const ctx = await sandboxSetup('workspace-write')
-    const agent = agentWithSession()
-    expect(await ctx.bash.resolveMode(agent.session)).toBe('workspace-write')
-    setSandboxMode(agent.session, 'danger-full-access')
-    expect(await ctx.bash.resolveMode(agent.session)).toBe('danger-full-access')
-  })
-
-  it('is a min, not a replace: a knob narrower than the cap stays', async () => {
-    const ctx = await sandboxSetup('danger-full-access', { modes: { locked: { section: 's', access: 'workspace-write' } } })
-    const agent = agentWithSession()
-    agent.session.append('mode/set', { mode: 'locked' })
-    expect(await ctx.bash.resolveMode(agent.session)).toBe('workspace-write')
-    setSandboxMode(agent.session, 'read-only')
-    expect(await ctx.bash.resolveMode(agent.session)).toBe('read-only')
-  })
-
-  it('a mode without access leaves the resolution alone', async () => {
-    const ctx = await sandboxSetup('read-only', { modes: { review: { section: 's' } } })
-    const agent = agentWithSession()
-    agent.session.append('mode/set', { mode: 'review' })
-    setSandboxMode(agent.session, 'danger-full-access')
-    expect(await ctx.bash.resolveMode(agent.session)).toBe('danger-full-access')
-  })
-
-  it('a sessionless resolution passes through the clamp untouched', async () => {
-    const ctx = await sandboxSetup('workspace-write')
-    expect(await ctx.bash.resolveMode(undefined)).toBe('workspace-write')
-  })
-
-  it('orthogonality: the knob set during plan is capped, then re-emerges intact on exit', async () => {
-    const ctx = await sandboxSetup('workspace-write')
-    const agent = agentWithSession()
-    // Enter plan, then flip the knob mid-mode: the cap holds it down…
-    agent.session.append('mode/set', { mode: PLAN_MODE })
-    setSandboxMode(agent.session, 'danger-full-access')
-    expect(await ctx.bash.resolveMode(agent.session)).toBe('read-only')
-    // …and leaving plan uncovers the standing knob, unwritten by the cap.
-    agent.session.append('mode/set', { mode: DEFAULT_MODE })
-    expect(await ctx.bash.resolveMode(agent.session)).toBe('danger-full-access')
-  })
-})
-
-describe('the bash tool under an access cap', () => {
-  it('exposes and admits bash — and leaves the generic task controls alone — under a confining executor', async () => {
-    const ctx = await setup()
-    await ctx.plugin(FakeSandboxExecutor, { mode: 'workspace-write' })
-    registerNamedTools(ctx, ['read', 'write', 'bash', 'task_output', 'task_kill'])
-    const agent = agentWithSession()
-    agent.session.append('mode/set', { mode: PLAN_MODE })
-    const assembly = await ctx.systemPrompt.assemble({ agent })
-    expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['bash', EXIT_PLAN_MODE, 'read', 'task_kill', 'task_output', 'write'])
-    for (const name of ['bash', 'task_output', 'task_kill']) {
-      const result = await execute(ctx, name, agent)
-      expect(result.isError).toBe(false)
-    }
-  })
-
-  it('hides and denies bash in plan mode without any executor; the kind-generic task controls stay', async () => {
-    const ctx = await setup()
-    registerNamedTools(ctx, ['read', 'bash', 'task_output', 'task_kill'])
-    const agent = agentWithSession()
-    agent.session.append('mode/set', { mode: PLAN_MODE })
-    const assembly = await ctx.systemPrompt.assemble({ agent })
-    // task_output/task_kill span every task kind (subagents included), so the
-    // cap withholds only the starter it can reason about.
-    expect(assembly.tools.map(tool => tool.name).sort()).toEqual([EXIT_PLAN_MODE, 'read', 'task_kill', 'task_output'])
-    const denied = await execute(ctx, 'bash', agent)
-    expect(denied.isError).toBe(true)
-    expect(denied.content).toEqual([{
-      type: 'text',
-      text: 'Error: tool "bash" is not available in plan mode: its read-only sandbox cap needs a sandboxing bash executor, and none is mounted',
-    }])
-  })
-
-  it('hides and denies bash in plan mode under a never-confining executor', async () => {
-    const ctx = await setup()
-    await ctx.plugin(FakeSandboxExecutor, {})
-    registerNamedTools(ctx, ['read', 'bash'])
-    const agent = agentWithSession()
-    agent.session.append('mode/set', { mode: PLAN_MODE })
-    const assembly = await ctx.systemPrompt.assemble({ agent })
-    expect(assembly.tools.map(tool => tool.name).sort()).toEqual([EXIT_PLAN_MODE, 'read'])
-    const denied = await execute(ctx, 'bash', agent)
-    expect(denied.isError).toBe(true)
-    expect(denied.content).toEqual([{
-      type: 'text',
-      text: 'Error: tool "bash" is not available in plan mode: its read-only sandbox cap needs a sandboxing bash executor, and none is mounted',
-    }])
-  })
-
-  it('denies a bash call carrying sandbox_permissions under the cap (no widening mid-mode)', async () => {
-    const ctx = await setup()
-    await ctx.plugin(FakeSandboxExecutor, { mode: 'workspace-write' })
-    registerNamedTools(ctx, ['bash'])
-    const agent = agentWithSession()
-    agent.session.append('mode/set', { mode: PLAN_MODE })
-    const denied = await ctx.tools.execute({
-      callId: CallId(`call-${++callCounter}`),
-      name: 'bash',
-      arguments: { command: 'rm -rf x', description: 'd', sandbox_permissions: 'workspace-write', justification: 'j' },
-      agent,
-    })
-    expect(denied.isError).toBe(true)
-    expect(denied.content).toEqual([{
-      type: 'text',
-      text: 'Error: sandbox escalation is not available in plan mode — the sandbox stays read-only while it is in force; put the wider-access step in the plan for after approval',
-    }])
-    // The same command WITHOUT the escalation fields passes the gate.
-    const plain = await ctx.tools.execute({
-      callId: CallId(`call-${++callCounter}`),
-      name: 'bash',
-      arguments: { command: 'ls', description: 'd' },
-      agent,
-    })
-    expect(plain.isError).toBe(false)
-  })
-
-  it('a mode without access exposes bash regardless of the executor (explicit deployment choice)', async () => {
-    const ctx = await setup({ modes: { shell: { section: 's' } } })
-    registerNamedTools(ctx, ['bash'])
-    const agent = agentWithSession()
-    agent.session.append('mode/set', { mode: 'shell' })
-    const assembly = await ctx.systemPrompt.assemble({ agent })
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['bash'])
-    const result = await execute(ctx, 'bash', agent)
-    expect(result.isError).toBe(false)
   })
 })

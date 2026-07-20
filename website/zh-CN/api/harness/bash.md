@@ -11,7 +11,7 @@ Implementations must honor these semantics:
 - BashProcess.readOutput is incremental: consecutive reads never repeat output. Lossy reads report truncation and available spill files.
 - Disposal kills all running background processes and awaits their exit.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L69)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L49)
 
 ### ctx.bash.sandboxMode
 
@@ -21,21 +21,7 @@ get sandboxMode(): SandboxMode | undefined
 
 The sandbox mode this executor applies by default, or `undefined` when it does not sandbox commands.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L79)
-
-### ctx.bash.resolveMode(session)
-
-```ts website-api
-async resolveMode(session: Session | undefined): Promise<SandboxMode | undefined>
-```
-
-Resolve the sandbox mode a call for `session` runs under: the session's standing override (the `bash/sandbox-mode` fold) falling back to this executor's configured default, dispatched through the `bash/resolve-mode` waterfall so policy plugins can narrow the base per call — read-time composition over independent folds, nothing written back to any store. Returns `undefined` — without consulting the waterfall — when this executor never confines (sandboxMode `undefined`): there is no mode to resolve and nothing would honor one. An escalation grant is not this method's business: the tool layer resolves grants separately and stamps them with higher precedence.
-
-- `session` — the session whose override fold applies; `undefined` for a sessionless caller (the executor default alone seeds the waterfall).
-
-**Returns** the effective mode for a confining executor; `undefined` for one that never confines.
-
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L100)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L59)
 
 ### ctx.bash.resolve(request)
 
@@ -49,7 +35,7 @@ Apply implementation-owned defaults and caps to a request before execution.
 
 **Returns** the fully-specified spec to hand to `run`/`start`.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L113)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L69)
 
 ### ctx.bash.run(spec)
 
@@ -63,7 +49,7 @@ Run a command in the foreground; resolves when it finishes.
 
 **Returns** the outcome; nonzero exits, timeout kills, and abort kills resolve with a descriptive result rather than reject.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L121)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L77)
 
 ### ctx.bash.start(spec)
 
@@ -77,4 +63,4 @@ Start a background process and return its handle immediately.
 
 **Returns** the live process handle (reads, kill, quiescence promise).
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L128)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/bash/bash/src/index.ts#L84)
