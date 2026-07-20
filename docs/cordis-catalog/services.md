@@ -340,6 +340,47 @@ Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResu
 
 Source: [`packages/code-runtime/code-runtime/src/index.ts:30`](../../packages/code-runtime/code-runtime/src/index.ts)
 
+## `ctx.commands` — `CommandService`
+
+Human-command registry. Plain-context definitions are global; definitions registered through a command-injected child of an agent context shadow globals for that agent.
+
+```ts cordis-catalog
+/**
+ * Register a global or calling-agent-scoped command.
+ * @param definition - discovery metadata and direct UI handler.
+ * @returns the exact effect disposer that unregisters this definition.
+ */
+register(definition: CommandDefinition): () => void
+
+/**
+ * List the effective immutable command descriptors for one agent.
+ * @param agent - exact receiving agent and scoped-layer key.
+ * @returns name-sorted descriptors after scoped shadowing.
+ */
+list(agent: Agent): readonly CommandDescriptor[]
+
+/**
+ * Resolve one effective command definition.
+ * @param agent - exact receiving agent and scoped-layer key.
+ * @param name - command name without a slash.
+ * @returns the scoped shadow or global definition.
+ */
+find(agent: Agent, name: string): CommandDefinition | undefined
+
+/**
+ * Parse and execute a known command without sending it to the model.
+ * @param agent - exact receiving agent.
+ * @param line - complete slash-command line.
+ * @param signal - cancellation signal owned by the UI request.
+ * @returns a detached result, or `undefined` when syntax or name does not resolve.
+ */
+async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>
+```
+
+Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md) · [CommandResult](../core-data-structures/commands.md)
+
+Source: [`packages/ui/commands/src/index.ts:207`](../../packages/ui/commands/src/index.ts)
+
 ## `ctx.compact` — `CompactService` (abstract seam)
 
 Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.

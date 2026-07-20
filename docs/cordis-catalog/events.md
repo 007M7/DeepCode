@@ -411,6 +411,24 @@ Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalReques
 
 Source: [`packages/ui/user-approval/src/index.ts:31`](../../packages/ui/user-approval/src/index.ts)
 
+## `commands/*`
+
+### `commands/change` — emit
+
+A command was registered or unregistered. This is an unfiltered registry notification because a global or scoped change may affect any UI view. Observer failures are contained and cannot veto the registry mutation.
+
+```ts cordis-catalog
+/**
+ * A command was registered or unregistered. This is an unfiltered registry
+ * notification because a global or scoped change may affect any UI view.
+ * Observer failures are contained and cannot veto the registry mutation.
+ * @mode emit
+ */
+'commands/change'(): void
+```
+
+Source: [`packages/ui/commands/src/index.ts:83`](../../packages/ui/commands/src/index.ts)
+
 ## `fs/*`
 
 ### `fs/edit-intent` — waterfall

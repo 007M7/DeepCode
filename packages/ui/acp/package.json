@@ -29,6 +29,7 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-bash": "^0.0.1",
+    "@deepseek-ai/dsh-commands": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
     "@deepseek-ai/dsh-llm-retry": "^0.0.1",
     "@deepseek-ai/dsh-permission": "^0.0.1",
@@ -47,6 +48,7 @@
     "@deepseek-ai/dsh-agent-loop-testkit": "workspace:^",
     "@deepseek-ai/dsh-bash": "workspace:^",
     "@deepseek-ai/dsh-bash-local": "workspace:^",
+    "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-fs-local": "workspace:^",
     "@deepseek-ai/dsh-fs-policy": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",

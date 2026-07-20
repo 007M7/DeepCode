@@ -199,6 +199,28 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'commands',
+    summary: 'Human-command registry.',
+    methods: [
+      {
+        signature: 'register(definition: CommandDefinition): () => void',
+        jsDoc: '/**\n * Register a global or calling-agent-scoped command.\n * @param definition - discovery metadata and direct UI handler.\n * @returns the exact effect disposer that unregisters this definition.\n */',
+      },
+      {
+        signature: 'list(agent: Agent): readonly CommandDescriptor[]',
+        jsDoc: '/**\n * List the effective immutable command descriptors for one agent.\n * @param agent - exact receiving agent and scoped-layer key.\n * @returns name-sorted descriptors after scoped shadowing.\n */',
+      },
+      {
+        signature: 'find(agent: Agent, name: string): CommandDefinition | undefined',
+        jsDoc: '/**\n * Resolve one effective command definition.\n * @param agent - exact receiving agent and scoped-layer key.\n * @param name - command name without a slash.\n * @returns the scoped shadow or global definition.\n */',
+      },
+      {
+        signature: 'async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>',
+        jsDoc: '/**\n * Parse and execute a known command without sending it to the model.\n * @param agent - exact receiving agent.\n * @param line - complete slash-command line.\n * @param signal - cancellation signal owned by the UI request.\n * @returns a detached result, or `undefined` when syntax or name does not resolve.\n */',
+      },
+    ],
+  },
+  {
     key: 'compact',
     summary: 'Abstract compaction service.',
     methods: [
@@ -798,6 +820,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Ask composed answerers for one decision.',
   },
   {
+    name: 'commands/change',
+    mode: 'emit',
+    signature: '\'commands/change\'(): void',
+    jsDoc: '/**\n * A command was registered or unregistered. This is an unfiltered registry\n * notification because a global or scoped change may affect any UI view.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
+    summary: 'A command was registered or unregistered.',
+  },
+  {
     name: 'fs/edit-intent',
     mode: 'waterfall',
     signature: '\'fs/edit-intent\'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>',
@@ -1118,6 +1147,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CollectedOutput',
     declaration: 'export interface CollectedOutput {\n    text: string;\n    truncated: boolean;\n    spillPath?: string;\n}',
+  },
+  {
+    name: 'CommandDefinition',
+    declaration: 'export interface CommandDefinition {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n    readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>;\n}',
+  },
+  {
+    name: 'CommandDescriptor',
+    declaration: 'export interface CommandDescriptor {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n}',
+  },
+  {
+    name: 'CommandInputDescriptor',
+    declaration: 'export interface CommandInputDescriptor {\n    readonly hint: string;\n}',
+  },
+  {
+    name: 'CommandInvocation',
+    declaration: 'export interface CommandInvocation {\n    readonly agent: Agent;\n    readonly rawInput: string;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'CommandResult',
+    declaration: 'export type CommandResult = {\n    readonly kind: \'success\';\n    readonly text?: string;\n} | {\n    readonly kind: \'error\';\n    readonly text: string;\n};',
   },
   {
     name: 'CompactAgentContext',

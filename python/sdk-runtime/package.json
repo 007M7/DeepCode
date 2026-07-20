@@ -18,6 +18,7 @@
     "@deepseek-ai/dsh-brand": "workspace:^",
     "@deepseek-ai/dsh-code-runtime": "workspace:^",
     "@deepseek-ai/dsh-code-runtime-worker": "workspace:^",
+    "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-compact": "workspace:^",
     "@deepseek-ai/dsh-compact-basic": "workspace:^",
     "@deepseek-ai/dsh-fs": "workspace:^",

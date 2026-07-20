@@ -24,6 +24,9 @@
       "path": "../../ui/acp"
     },
     {
+      "path": "../../ui/commands"
+    },
+    {
       "path": "../../core/agent"
     },
     {
