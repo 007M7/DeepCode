@@ -88,6 +88,7 @@ declare module 'cordis' {
     /**
      * A command was registered or unregistered. This is an unfiltered registry
      * notification because a global or scoped change may affect any UI view.
+     * Observer failures are contained and cannot veto the registry mutation.
      * @mode emit
      */
     'commands/change'(): void
@@ -115,6 +116,15 @@ function abortError(signal: AbortSignal): Error {
   return new Error(typeof signal.reason === 'string' ? signal.reason : 'command aborted')
 }
 
+/** Render arbitrary thrown values without trusting their string coercion. */
+function renderThrown(value: unknown): string {
+  try {
+    return String(value)
+  } catch {
+    return '<unrenderable thrown value>'
+  }
+}
+
 /** Stop awaiting an uncooperative handler once its owning UI request aborts. */
 function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(abortError(signal))
@@ -133,7 +143,7 @@ function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
         signal.removeEventListener('abort', onAbort)
         reject(error instanceof Error
           ? error
-          : new Error('command handler rejected with a non-Error value'))
+          : new Error(`command handler rejected with a non-Error value: ${renderThrown(error)}`, { cause: error }))
       },
     )
   })
@@ -144,17 +154,26 @@ function normalizeDefinition(definition: CommandDefinition): RegisteredCommand {
   if (!COMMAND_NAME.test(definition.name)) {
     throw new TypeError(`command name "${definition.name}" must match ${String(COMMAND_NAME)}`)
   }
+  if (typeof definition.description !== 'string') {
+    throw new TypeError(`command "${definition.name}" description must be a string`)
+  }
   if (definition.description.trim().length === 0) {
     throw new TypeError(`command "${definition.name}" description must not be empty`)
   }
   if (typeof definition.handler !== 'function') {
     throw new TypeError(`command "${definition.name}" handler must be a function`)
   }
-  const input = definition.input === undefined
-    ? undefined
-    : Object.freeze({ hint: definition.input.hint })
-  if (input !== undefined && input.hint.trim().length === 0) {
-    throw new TypeError(`command "${definition.name}" input hint must not be empty`)
+  const rawInput: unknown = definition.input
+  let input: CommandInputDescriptor | undefined
+  if (rawInput !== undefined) {
+    if (typeof rawInput !== 'object' || rawInput === null || !('hint' in rawInput)
+      || typeof rawInput.hint !== 'string') {
+      throw new TypeError(`command "${definition.name}" input hint must be a string`)
+    }
+    if (rawInput.hint.trim().length === 0) {
+      throw new TypeError(`command "${definition.name}" input hint must not be empty`)
+    }
+    input = Object.freeze({ hint: rawInput.hint })
   }
   const surfaces = [...(definition.surfaces ?? DEFAULT_SURFACES)]
   if (surfaces.length === 0) {
@@ -240,9 +259,9 @@ export class CommandService extends Service {
       yield () => {
         layer.delete(registered.definition.name)
         if (scope !== undefined && layer.size === 0) this.scoped.delete(scope)
-        this.ctx.emit('commands/change')
+        this.notifyChange()
       }
-      this.ctx.emit('commands/change')
+      this.notifyChange()
     }.bind(this), 'commands.register()')
     // eslint-disable-next-line @typescript-eslint/no-misused-promises -- exact synchronous disposer preserves composite teardown order
     return dispose
@@ -313,6 +332,23 @@ export class CommandService extends Service {
       this.scoped.set(scope, layer)
     }
     return layer
+  }
+
+  /** Notify every registry observer without making UI refresh load-bearing. */
+  private notifyChange(): void {
+    // Cordis emit uses Array.map: one synchronous throw starves later listeners,
+    // and returned promises are discarded. Registry notifications are
+    // non-vetoing, so contain each callback independently.
+    for (const callback of this.ctx.events.dispatch('emit', ['commands/change'])) {
+      try {
+        const returned: unknown = callback()
+        void Promise.resolve(returned).catch((error: unknown) => {
+          this.ctx.logger.warn(`commands/change listener rejected: ${renderThrown(error)}`)
+        })
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`commands/change listener threw: ${renderThrown(error)}`)
+      }
+    }
   }
 }
 

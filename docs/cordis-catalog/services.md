@@ -382,7 +382,7 @@ async execute( agent: Agent, surface: CommandSurface, line: string, signal: Abor
 
 Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md) · [CommandResult](../core-data-structures/commands.md) · [CommandSurface](../core-data-structures/commands.md)
 
-Source: [`packages/ui/commands/src/index.ts:216`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:235`](../../packages/ui/commands/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 

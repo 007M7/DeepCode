@@ -107,7 +107,7 @@ describe('CommandService', () => {
     expect(() => scope.ctx.commands.register(command('same'))).toThrow(/already registered in this scope/)
   })
 
-  it('emits on registration and disposal and rolls back when notification fails', async () => {
+  it('notifies on registration and disposal while containing broken observers', async () => {
     const ctx = await mount()
     const changed = vi.fn()
     ctx.on('commands/change', changed)
@@ -116,11 +116,39 @@ describe('CommandService', () => {
     dispose()
     expect(changed).toHaveBeenCalledTimes(2)
 
-    const explode = ctx.on('commands/change', () => { throw new Error('observer failed') })
-    expect(() => ctx.commands.register(command('rollback'))).toThrow('observer failed')
-    explode()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    ctx.on('commands/change', () => { throw new Error('observer threw') })
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- exercises rejected-listener containment
+    ctx.on('commands/change', () => Promise.reject(new Error('observer rejected')))
+    const afterFailures = vi.fn()
+    ctx.on('commands/change', afterFailures)
+    const removeContained = ctx.commands.register(command('contained'))
     const { agent } = await mintAgentScope(ctx, 'a')
-    expect(ctx.commands.find(agent, 'tui', 'rollback')).toBeUndefined()
+    expect(ctx.commands.find(agent, 'tui', 'contained')).toBeDefined()
+    expect(afterFailures).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith('commands/change listener threw: Error: observer threw')
+      expect(warn).toHaveBeenCalledWith('commands/change listener rejected: Error: observer rejected')
+    })
+    removeContained()
+    expect(ctx.commands.find(agent, 'tui', 'contained')).toBeUndefined()
+    expect(afterFailures).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects non-string descriptions and input hints with boundary diagnostics', async () => {
+    const ctx = await mount()
+    expect(() => ctx.commands.register({
+      ...command('description-type'),
+      description: undefined,
+    } as unknown as CommandDefinition)).toThrow('command "description-type" description must be a string')
+    expect(() => ctx.commands.register({
+      ...command('hint-type'),
+      input: { hint: 42 },
+    } as unknown as CommandDefinition)).toThrow('command "hint-type" input hint must be a string')
+    expect(() => ctx.commands.register({
+      ...command('input-type'),
+      input: null,
+    } as unknown as CommandDefinition)).toThrow('command "input-type" input hint must be a string')
   })
 
   it('passes exact invocation context and detaches valid handler results', async () => {
@@ -187,7 +215,20 @@ describe('CommandService', () => {
       handler: () => Promise.reject('not an Error'),
     })
     await expect(ctx.commands.execute(agent, 'tui', '/reject-value', new AbortController().signal))
-      .rejects.toThrow('command handler rejected with a non-Error value')
+      .rejects.toThrow('command handler rejected with a non-Error value: not an Error')
+
+    const hostile = { toString(): string { throw new Error('cannot render') } }
+    ctx.commands.register({
+      name: 'reject-hostile',
+      description: 'Reject an unrenderable value',
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- exercise hostile plugin normalization
+      handler: () => Promise.reject(hostile),
+    })
+    await expect(ctx.commands.execute(agent, 'tui', '/reject-hostile', new AbortController().signal))
+      .rejects.toMatchObject({
+        message: 'command handler rejected with a non-Error value: <unrenderable thrown value>',
+        cause: hostile,
+      })
   })
 
   it('observes an abort triggered synchronously inside the handler', async () => {
