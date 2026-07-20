@@ -370,7 +370,7 @@ describe('deriveMessages with surface', () => {
     const messages = s.deriveMessages()
     expect(messages).toHaveLength(2)
     expect(messages[0]!.content[0]).toMatchObject({ type: 'text', text: '<context source="plugin">' })
-    expect(messages[1]!.content[0]).toMatchObject({ type: 'text', text: '<steering source="user">' })
+    expect(messages[1]!.content).toEqual([{ type: 'text', text: 'focus' }])
   })
 })
 

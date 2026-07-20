@@ -85,13 +85,11 @@ declare module 'cordis' {
  * canonical session vocabulary provider-neutral. Adapter-specific exceptions
  * belong in the adapter.
  */
-function renderTagged(tag: string, content: ContentBlock[], source: MessageSource): ContentBlock[] {
-  const open = `<${tag} source=${JSON.stringify(source.kind)}>`
-  const close = `</${tag}>`
+function renderContextEnvelope(content: ContentBlock[], source: MessageSource): ContentBlock[] {
   return [
-    { type: 'text', text: open },
+    { type: 'text', text: `<context source=${JSON.stringify(source.kind)}>` },
     ...content,
-    { type: 'text', text: close },
+    { type: 'text', text: '</context>' },
   ]
 }
 
@@ -241,7 +239,7 @@ export function renderContextContent(
   envelope: ContextEnvelope = 'context',
 ): ContentBlock[] {
   const cloned = structuredClone(content)
-  return envelope === 'raw' ? cloned : renderTagged('context', cloned, source)
+  return envelope === 'raw' ? cloned : renderContextEnvelope(cloned, source)
 }
 
 /**
@@ -531,8 +529,7 @@ export class Session {
         return { role: 'user', content: renderContextContent(content, source, envelope) }
       }
       case 'steering/message': {
-        const { content, source } = event.data
-        return { role: 'user', content: renderTagged('steering', content, source) }
+        return { role: 'user', content: event.data.content }
       }
       default:
         // A non-surface event (boundary, chunk, log-only record) projects to

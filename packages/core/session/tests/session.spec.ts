@@ -48,7 +48,7 @@ describe('Session', () => {
     expect(structuredClone(turnEnd.data.reason)).toEqual({ kind: 'max-tokens' })
   })
 
-  it('renders context and steering messages as tagged synthetic user content', () => {
+  it('renders context messages tagged and steering messages as plain user content', () => {
     const session = new Session(SessionId('s2'))
     session.append('context/message', {
       content: [{ type: 'text', text: 'file changed: a.ts' }],
@@ -64,7 +64,8 @@ describe('Session', () => {
     expect(contextMessage!.role).toBe('user')
     expect(contextMessage!.content[0]).toMatchObject({ type: 'text', text: '<context source="plugin">' })
     expect(contextMessage!.content.at(-1)).toMatchObject({ type: 'text', text: '</context>' })
-    expect(steeringMessage!.content[0]).toMatchObject({ type: 'text', text: '<steering source="user">' })
+    expect(steeringMessage!.role).toBe('user')
+    expect(steeringMessage!.content).toEqual([{ type: 'text', text: 'focus on tests' }])
   })
 
   it('renders raw context without a generic envelope while preserving structured metadata', () => {

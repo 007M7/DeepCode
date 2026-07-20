@@ -433,7 +433,7 @@ declare class Session {
 - `assistant/message` → an assistant message with the event's provider/model provenance and optional adapter-private replay state. Raw `assistant/chunk` events are replay/UI data and are **skipped** in derivation (the assembled message is authoritative). An **empty-content** `assistant/message` is also skipped — a max-tokens step cut off with no content still records an `assistant/message` to host its usage/provenance, but a content-less assistant turn must not enter the provider transcript.
 - `tool/result` → a user message carrying a `tool-result` block.
 - `context/message` → a user-role message at its chronological position. The default `envelope` is `context`, which wraps content as `<context source="…">…</context>`; `envelope: 'raw'` uses caller-owned framing verbatim. Optional JSON `meta` remains in the event log and is never rendered.
-- `steering/message` → a user-role message wrapped in `<steering source="…">…</steering>` at its chronological position.
+- `steering/message` → a user-role message carrying its content verbatim at its chronological position.
 
 Everything else (`turn/*`, `step/*`) is structural and does not project into a message. Token usage is observed on `assistant/message.usage` (the step that produced it); an operational error's step number is on `turn/end.reason` for `kind: 'error'`. Because this unreleased format intentionally has no compatibility promise, seed/load validation rejects request headers without provider+model and assistant messages without provider/model provenance instead of guessing a route for historical data.
 

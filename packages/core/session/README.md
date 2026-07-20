@@ -87,7 +87,7 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 
 #### What the model sees
 
-The model receives projections of `user/message`, `assistant/message`, and `tool/result` surface entries verbatim. A `context/message` is a user-role message containing exactly `<context source="<source-kind>">`, its content blocks, and `</context>`; `steering/message` uses the identical `<steering source="<source-kind>">` / `</steering>` wrapper. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
+The model receives projections of `user/message`, `assistant/message`, `tool/result`, and `steering/message` surface entries verbatim. A `context/message` is a user-role message containing exactly `<context source="<source-kind>">`, its content blocks, and `</context>`. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
 
 #### Token effect
 
