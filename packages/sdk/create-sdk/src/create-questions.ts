@@ -169,10 +169,10 @@ const PROJECT_QUESTION_STEPS: readonly WizardStep<ProjectAnswerState>[] = [
       message: 'Run interface',
       options: [
         { value: 'acp', label: 'ACP server' },
-        { value: 'stdio', label: 'Terminal REPL' },
+        { value: 'tui', label: 'Terminal TUI' },
         { value: 'embed', label: 'Embedded context' },
       ],
-      initialValue: 'stdio',
+      initialValue: 'tui',
     }),
     prefilled: state => state.args.runInterface,
     apply: (state, value) => { state.runInterface = value },

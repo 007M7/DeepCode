@@ -12,8 +12,8 @@ import * as acpAgent from '../src/index.ts'
 /**
  * In-process unit coverage for the @deepseek-ai/dsh-acp-demo composition:
  * mounting it brings up the agent-spine-demo spine + JSONL persistence + the ACP
- * bridge in one `ctx.plugin`. Unlike the stdio app, this one loads NO
- * Loader-only plugin (no hmr), so it mounts in a plain Context.
+ * bridge in one `ctx.plugin`. It loads no Loader-only plugin (no hmr), so it
+ * mounts in a plain Context.
  *
  * The REAL Loader-path guard (export shape via `unwrapExports`, the headline
  * ACP operations end-to-end) is the keyless bin smoke in `load-path.e2e.ts`;

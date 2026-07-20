@@ -21,9 +21,6 @@
       "path": "../../ui/app-boot"
     },
     {
-      "path": "../../../vendor/logger-console"
-    },
-    {
       "path": "../../core/agent"
     },
     {
@@ -37,9 +34,6 @@
     },
     {
       "path": "../../ui/user-interaction"
-    },
-    {
-      "path": "../../ui/stdio"
     },
     {
       "path": "../../ui/tui"

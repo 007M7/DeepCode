@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsdown'
 
 /**
- * stdio-agent ships TWO entries: the plugin (`index`) and the CLI `bin`
+ * tui-demo ships two entries: the plugin (`index`) and the CLI `bin`
  * (`bin`), the latter referenced by package.json `bin`/`exports["./bin"]`.
  * The root tsdown builds only `lib/types/index.js`, so this override adds
  * `lib/types/bin.js`. Declarations come from `tsc -b` (dts: false),

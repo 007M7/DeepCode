@@ -1,19 +1,19 @@
 /**
- * Generated invariant ownership companion for `@deepseek-ai/dsh-stdio-demo`.
+ * Generated invariant ownership companion for `@deepseek-ai/dsh-tui-demo`.
  * Replace this file with package-owned checks while preserving its registration.
  *
  * @generated scripts/gen-package-invariants.ts
- * @module @deepseek-ai/dsh-stdio-demo/invariant
+ * @module @deepseek-ai/dsh-tui-demo/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-stdio-demo'
+const PACKAGE_NAME = '@deepseek-ai/dsh-tui-demo'
 
 /** Cordis companion plugin name. */
-export const name = 'stdio-demo-invariant'
+export const name = 'tui-demo-invariant'
 /** Services required before the companion can register. */
 export const inject = ['invariants']
 

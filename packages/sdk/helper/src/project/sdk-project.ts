@@ -42,7 +42,7 @@ const OPTIONAL_DOCUMENTS = [
 
 function runInterface(entries: readonly CordisConfigEntry[]): RunInterface {
   if (entries.some(entry => entry.name === '@deepseek-ai/dsh-acp')) return 'acp'
-  if (entries.some(entry => entry.name === '@deepseek-ai/dsh-stdio')) return 'stdio'
+  if (entries.some(entry => entry.name === '@deepseek-ai/dsh-tui')) return 'tui'
   return 'embed'
 }
 
@@ -146,7 +146,7 @@ export class SdkProject {
   static create(root: string, request: ProjectCreationRequest): SdkProject {
     const app = request.features.find(selection => selection.id === 'app')
     const selectedInterface = app?.options[0]
-    if (selectedInterface !== 'acp' && selectedInterface !== 'stdio' && selectedInterface !== 'embed') {
+    if (selectedInterface !== 'acp' && selectedInterface !== 'tui' && selectedInterface !== 'embed') {
       throw new Error('project creation requires one app feature option')
     }
     const profile: ProjectProfile = {
