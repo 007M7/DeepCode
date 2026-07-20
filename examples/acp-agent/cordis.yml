@@ -53,6 +53,7 @@
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
   config:
+    # FIXME: Resolve compaction config per model; these values assume a 256k context window.
     contextWindow: 256000
     thresholdRatio: 0.8
     retainTokens: 20480
