@@ -101,7 +101,7 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
-  /** Persisted same-session goals; owner defaults enable them, or false disables the stack and command. */
+  /** Persisted same-session goals; owner defaults enable them, or false disables the stack and TUI command. */
   goals?: agentCore.GoalConfig | false
   /**
    * If set, the pre-created agent RESUMES this persisted session id instead of
@@ -152,7 +152,7 @@ export function composeTerminalApp(ctx: Context, config: Config, isTTY: boolean)
   const goals = config.goals ?? {}
   if (mode === 'readline') ctx.plugin(ConsoleExporter)
   ctx.plugin(CommandService)
-  if (goals !== false) ctx.plugin(commandGoal)
+  if (mode === 'tui' && goals !== false) ctx.plugin(commandGoal)
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT })
   ctx.plugin(UserInteractionService)
   if (mode === 'tui') {

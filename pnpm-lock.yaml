@@ -2656,6 +2656,9 @@ importers:
       '@deepseek-ai/dsh-code-runtime-worker':
         specifier: workspace:^
         version: link:../../packages/code-runtime/code-runtime-worker
+      '@deepseek-ai/dsh-command-goal':
+        specifier: workspace:^
+        version: link:../../packages/goal/command-goal
       '@deepseek-ai/dsh-commands':
         specifier: workspace:^
         version: link:../../packages/ui/commands

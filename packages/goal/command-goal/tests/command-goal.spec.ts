@@ -197,8 +197,10 @@ describe('/goal human command', () => {
     const test = await harness()
     await run(test, ' work')
     const redundantResume = await run(test, ' RESUME')
-    expect(redundantResume.kind).toBe('error')
-    expect(redundantResume.text).toContain('already active and armed')
+    expect(redundantResume).toEqual({
+      kind: 'error',
+      text: 'The goal command is not valid for the current state. Run /goal to view available commands.',
+    })
     const paused = await run(test, ' PAUSE')
     expect(paused.kind).toBe('success')
     expect(paused.text).toContain('Goal paused')
@@ -238,7 +240,7 @@ describe('/goal human command', () => {
     goal = test.ctx.goals.markBudgetLimited(test.agent, ref(goal))
     const limited = await run(test)
     expect(limited.text).toContain('Status: limited by round budget')
-    expect(limited.text).not.toContain('/goal resume')
+    expect(limited.text).toContain('after the agent raises the round cap, /goal resume')
 
     goal = test.ctx.goals.complete(test.agent, ref(goal))
     const complete = await run(test)

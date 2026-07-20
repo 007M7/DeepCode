@@ -69,7 +69,7 @@ function commandHint(goal: GoalView): string {
     case 'usage-limited':
       return '/goal edit <objective>, /goal resume, /goal clear'
     case 'budget-limited':
-      return '/goal edit <objective>, /goal clear'
+      return '/goal edit <objective>, /goal clear; after the agent raises the round cap, /goal resume'
     case 'complete':
       return '/goal <objective>, /goal clear'
     /* v8 ignore next 2 -- the active branch and every non-active phase are handled above */
@@ -149,7 +149,12 @@ function executeGoalCommand(ctx: Context, invocation: CommandInvocation): Comman
       default: return assertNever(command, 'goal command')
     }
   } catch (error: unknown) {
-    if (error instanceof GoalError) return { kind: 'error', text: error.message }
+    if (error instanceof GoalError) {
+      return {
+        kind: 'error',
+        text: 'The goal command is not valid for the current state. Run /goal to view available commands.',
+      }
+    }
     throw error
   }
 }
