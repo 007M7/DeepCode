@@ -27,11 +27,12 @@ A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | singleton replay-aware request/surface pressure |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
+| `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | shared sandbox policy home |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
 | `ctx.fs` | [`fs/`](../packages/fs/README.md) | filesystem provider primitives and policy events |
 | `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry and progressive disclosure |
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
-| `ctx.compact` | [`compact/`](../packages/compact/README.md) | session-log compaction |
+| `ctx.compact`, `ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | summary compaction; optional model-free result pruning |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry + generic `task_*` control tools |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
@@ -54,11 +55,11 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 
 ## Default Loop Lifecycle
 
-The shipped loop drains work from prompt through checkpoint. Every pause is a service call or event available to plugins.
+The shipped loop drains prompt-to-checkpoint work through plugin-visible services and events.
 
-A **session** is an append-only event log. A **turn** drains queued input until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension points.
+A **session** is an append-only log. Each ordinary **turn** claims one queued `send()` item; injection claims none. A claimed `send()` successor awaits the preceding claimed ordinary turn's checkpoint but may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)). A turn ends when model and plugins stop it. A **step** is one model request plus tools. Below ([sequence companion](agent-lifecycle.md)), quotes mark durable events; other names are extension points.
 
-Startup resolves identity. No id mints `<config-id>-session-<uuid>`; `sessionId` resumes or creates; `resumeSessionId` requires history. Active failures emit `agent-loop/config-start-failed(sessionId, error)`, so front doors reject work; teardown stays silent.
+No id mints `<config-id>-session-<uuid>`; `sessionId` resumes/creates; `resumeSessionId` needs history. Resume restores lineage, seeds, and delegation depth pre-publication. Failures emit `agent-loop/config-start-failed(sessionId, error)`; front doors reject; teardown stays silent.
 
 ### Turn Flow
 
@@ -68,13 +69,13 @@ choose declarative identity and fresh/resume path
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
-  wait for queued messages
+  wait for a queued message
   emit agent/status(running)
   TURN:
     'turn/start'
-    each queued message -> agent/prompt-submit
+    claimed message -> agent/prompt-submit
       allowed prompt -> 'user/message' plus injected context
-    every prompt blocked -> 'turn/end'(rejected)
+      blocked prompt -> 'prompt/blocked' -> 'turn/end'(rejected)
     STEP loop:
       drain steering
       assemble system prompt and tool schemas
@@ -110,7 +111,7 @@ Each step assembles ordered prompt sections, tool schemas, and `{{name}}` variab
 
 Tool-time context—including async `agent.inject()` notices and post-tool `additionalContexts`—settles, then follows recorded results. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering before signal closure. Leftovers become queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through turn close and flush, and discards later steering but preserves queued prompts.
 
-`dsh-compact-basic` handles pressure and canonical overflow at checkpoints; retry requires a balanced surface replacement ([decision](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)).
+Optional pruning precedes summaries; retry requires durable surface progress; cancellation wins ([decision](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)).
 
 ### Failure Boundaries
 

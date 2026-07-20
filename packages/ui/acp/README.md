@@ -114,7 +114,7 @@ When optional consumers are loaded, ACP form answers become the exact JSON shape
 
 #### Token effect
 
-Answer, error, and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens.
+Answer, error, and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens. A replacement `tool/result` still changes the model-facing session surface, but live and replayed ACP feeds ignore it as an execution update so the original terminal or diff completion is not overwritten.
 
 #### KV Cache effect
 

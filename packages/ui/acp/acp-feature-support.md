@@ -82,7 +82,7 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | `agent_thought_chunk` | S | ✅ | ✅ | ✅ | From `assistant/chunk` reasoning-delta. |
 | `user_message_chunk` | S | ✅ | ✅ | ✅ | Emitted during `session/load` replay to reconstruct the user side. |
 | `tool_call` | S | ✅ | ✅ | ✅ | Tool-owned presentation (`presentCall`); see [§5](#5-tool-call-rendering). |
-| `tool_call_update` | S | ✅ | ✅ | ✅ | From `tool/result` via `presentResult`. |
+| `tool_call_update` | S | ✅ | ✅ | ✅ | From appended `tool/result` via `presentResult`; replacement results rewrite model context and do not duplicate or overwrite execution presentation. |
 | `plan` | S | ❌ | ✅ | ✅ | No agent plan emitted. Both adapters emit real plan entries (Codex's `CodexEventHandler.updatePlan` maps `turn/plan/updated` → `{ sessionUpdate: 'plan', entries }`). |
 | `available_commands_update` | S | ❌ | ✅ | ✅ | No slash commands advertised. |
 | `current_mode_update` | S | ❌ | ✅ | ✅ | No session modes. |

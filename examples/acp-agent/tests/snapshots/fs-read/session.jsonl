@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"a57f852d-d476-4716-a380-8a1116e4d905","createdAt":1783352072464,"cwd":"/tmp/acp-snap-cwd-PEETkS"}
+{"type":"session","version":0,"id":"a57f852d-d476-4716-a380-8a1116e4d905","createdAt":1783352072464,"cwd":"/tmp/acp-snap-cwd-PEETkS","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783352072468,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783352072469,"data":{"content":[{"type":"text","text":"Use the read tool (NOT bash) to read the file greeting.txt in the current directory, then reply with exactly the single word DONE."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1783352072470,"data":{"turn":1,"step":1}}

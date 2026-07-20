@@ -32,12 +32,13 @@ Because the package wires no logger entry, an ACP leaf has **nothing to get wron
 | `toolOrder` | — | explicit model-facing tool order (a name list with one `'<unlisted-tools>'` rest entry; absent — lexicographic; an unregistered name fails each turn at prompt assembly), routed to `dsh-system-prompt` |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness home exposed to model bash and used by local skill discovery |
 | `tools` | `{ mode: 'native' }` | tool-registry presentation config (`native` / `code` / `both`), routed through `dsh-agent-spine-demo` |
+| `workspaceContext` | (required) | workspace-instruction byte budget/config, or `false`; routed to the providerless-safe `dsh-workspace-context` plugin |
 | `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-spine-demo` |
 | `toolBash` | owner defaults | model-facing bash config routed through `dsh-agent-spine-demo`, including bash's producer-local `enableRunInBackground` |
 | `toolTasks` | owner defaults | generic `task_output` wait bounds routed through `dsh-agent-spine-demo` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 
-The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the real model, `llm-replay` for keyless snapshot replay) and a bash executor.
+The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the real model, `llm-replay` for keyless snapshot replay), a bash executor, and optionally a `ctx.fs` provider. Workspace context becomes a no-op without `ctx.fs`; the shipped [`examples/acp-agent/cordis.yml`](../../../examples/acp-agent/cordis.yml) selects `dsh-sandbox-policy`, `dsh-fs-sandbox`, `dsh-fs-policy`, and `dsh-tool-fs` so baseline instructions and model-facing `read`/`write`/`edit` share one provider, sandbox mode, workspace root, and observed-version policy.
 
 ## The bin
 
