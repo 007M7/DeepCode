@@ -1302,7 +1302,7 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:101`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:102`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 
