@@ -8,8 +8,8 @@ Harness uses `cordis.yml` to describe which plugins an agent loads and the confi
 
 The repository examples are runnable configurations and the most reliable starting points for a new project:
 
-- [echo-agent](../../../examples/echo-agent/cordis.yml) uses a local mock model and needs no API key.
-- [repl-agent](../../../examples/repl-agent/cordis.yml) combines the DeepSeek model, Bash, filesystem, compaction, subagents, and workflows.
+- [tui-agent](../../../examples/tui-agent/cordis.yml) combines the DeepSeek model, Bash, filesystem, compaction, subagents, workflows, and the interactive TUI.
+- [headless-agent](../../../examples/headless-agent/cordis.yml) exposes the coding composition as a one-shot task.
 - [acp-agent](../../../examples/acp-agent/cordis.yml) connects to editor clients over ACP.
 
 A minimal configuration is a list of plugin entries:
@@ -22,10 +22,15 @@ A minimal configuration is a list of plugin entries:
     models:
       - deepseek-v4-flash
 
-- id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-demo'
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+
+- id: tui-agent
+  name: '@deepseek-ai/dsh-tui-demo'
   config:
+    provider: deepseek
     model: deepseek-v4-flash
+    workspaceContext: false
 ```
 
 ## Plugin entries

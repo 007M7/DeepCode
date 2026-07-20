@@ -15,7 +15,7 @@ import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 
 /**
- * Shared harness for the repl-agent e2e suites: the full plugin stack
+ * Shared harness for the headless-agent e2e suites: the full plugin stack
  * with the real DeepSeek adapter and the real bash + todo_write tools. Lives
  * outside the *.e2e.ts pattern so importing it never re-registers another
  * file's tests.
