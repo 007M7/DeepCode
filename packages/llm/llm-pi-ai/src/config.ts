@@ -7,6 +7,10 @@
 import { getProviders } from '@earendil-works/pi-ai'
 import type { CacheRetention, ThinkingBudgets, ThinkingLevel, Transport } from '@earendil-works/pi-ai'
 import z from 'schemastery'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+
+/** Default maximum idle interval while an adapter stream read is outstanding. */
+export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 
 /** Configuration for one pi-ai provider route. */
 export interface PiAiProviderProfile {
@@ -30,10 +34,14 @@ export interface PiAiProviderProfile {
   timeoutMs?: number
   /** WebSocket connection timeout in milliseconds. */
   websocketConnectTimeoutMs?: number
-  /** Provider SDK retry count. */
-  maxRetries?: number
-  /** Maximum provider-requested retry delay in milliseconds. */
-  maxRetryDelayMs?: number
+  /** Maximum provider idle time while one stream read is outstanding. */
+  streamIdleTimeoutMs?: number
+}
+
+/** Validated profile with every adapter-owned default resolved. */
+export interface ResolvedPiAiProviderProfile extends PiAiProviderProfile {
+  /** Positive finite provider-idle interval after defaulting. */
+  streamIdleTimeoutMs: number
 }
 
 /** Plugin configuration: the non-empty provider profiles this instance owns. */
@@ -60,8 +68,7 @@ const profile = z.object({
   transport: z.union(['sse', 'websocket', 'websocket-cached', 'auto']),
   timeoutMs: z.natural(),
   websocketConnectTimeoutMs: z.natural(),
-  maxRetries: z.natural(),
-  maxRetryDelayMs: z.natural(),
+  streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
 })
 
 /** Runtime schema for {@link Config}. */
@@ -75,11 +82,18 @@ export const Config: z<Config> = z.object({
  * @param profiles - configured provider profiles.
  * @returns validated profiles in configuration order.
  */
-export function resolveProfiles(profiles: readonly PiAiProviderProfile[]): PiAiProviderProfile[] {
+export function resolveProfiles(profiles: readonly PiAiProviderProfile[]): ResolvedPiAiProviderProfile[] {
   if (profiles.length === 0) throw new Error('llm-pi-ai: providers must contain at least one profile')
   const supported = new Set<string>(getProviders())
   const seen = new Set<string>()
   return profiles.map((source) => {
+    const legacy = source as PiAiProviderProfile & {
+      maxRetries?: unknown
+      maxRetryDelayMs?: unknown
+    }
+    if ('maxRetries' in legacy || 'maxRetryDelayMs' in legacy) {
+      throw new Error('llm-pi-ai: maxRetries and maxRetryDelayMs were removed; compose agent recovery with dsh-llm-retry')
+    }
     if (source.provider.length === 0) throw new Error('llm-pi-ai: provider names must be non-empty')
     if (!supported.has(source.provider)) throw new Error(`llm-pi-ai: unknown pi-ai provider "${source.provider}"`)
     if (seen.has(source.provider)) throw new Error(`llm-pi-ai: duplicate provider profile "${source.provider}"`)
@@ -89,9 +103,18 @@ export function resolveProfiles(profiles: readonly PiAiProviderProfile[]): PiAiP
     if (source.baseURL !== undefined && source.baseURL.length === 0) {
       throw new Error(`llm-pi-ai: provider "${source.provider}" has an empty baseURL`)
     }
+    const streamIdleTimeoutMs = source.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
+    if (!Number.isFinite(streamIdleTimeoutMs)
+      || streamIdleTimeoutMs <= 0
+      || streamIdleTimeoutMs > MAX_TIMER_DELAY_MS) {
+      throw new Error(
+        `llm-pi-ai: provider "${source.provider}" streamIdleTimeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`,
+      )
+    }
     seen.add(source.provider)
     return {
       ...source,
+      streamIdleTimeoutMs,
       ...source.headers === undefined ? {} : { headers: { ...source.headers } },
       ...source.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...source.thinkingBudgets } },
     }

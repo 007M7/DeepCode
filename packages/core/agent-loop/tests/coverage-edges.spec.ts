@@ -187,7 +187,9 @@ describe('toError normalization', () => {
     // String() of { code: 500 } is '[object Object]'
     expect(errors[0]!.message).toBe('[object Object]')
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error' && turnEnd.data.reason.code).toBe('UNKNOWN')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error'
+      && ('failure' in turnEnd.data.reason ? turnEnd.data.reason.failure.code : turnEnd.data.reason.code))
+      .toBe('UNKNOWN')
   })
 })
 
@@ -218,7 +220,8 @@ describe('coded error data emission', () => {
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd).toBeDefined()
     if (turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error') {
-      expect(turnEnd.data.reason.code).toBe('RATE_LIMIT')
+      expect('failure' in turnEnd.data.reason ? turnEnd.data.reason.failure.code : turnEnd.data.reason.code)
+        .toBe('RATE_LIMIT')
     }
   })
 })

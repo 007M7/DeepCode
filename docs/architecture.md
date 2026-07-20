@@ -86,7 +86,7 @@ forever:
       agent/request (config only) -> log request/header -> llm/stream (frozen)
       on final adapter-path or terminal in-band failure:
         'step/end'
-        agent/request-error(original error, consecutive retry attempt, signal)
+        agent/request-error(original error, failure facts, immutable prior failures, signal)
         retry in the next numbered step or preserve the original error
       otherwise:
         'assistant/chunk'
@@ -111,13 +111,13 @@ Each step assembles ordered prompt sections, tool schemas, and `{{name}}` variab
 
 Tool-time context—including async `agent.inject()` notices and post-tool `additionalContexts`—settles, then follows recorded results. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering before signal closure. Leftovers become queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through turn close and flush, and discards later steering but preserves queued prompts.
 
-Optional pruning precedes summaries; retry requires durable surface progress; cancellation wins ([decision](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)).
+Pruning precedes summaries; overflow retries require durable progress. Bounded transient retries compose on `agent/request-error`; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
 
 ### Failure Boundaries
 
-The turn is the containment boundary. Final adapter-path and terminal in-band failures close the step before `agent/request-error`; retry opens a numbered step; otherwise, the provider error survives. Attempts reset on success.
+The turn contains failures. Adapter failures close the step before `agent/request-error`, which receives exact `Error`, `LlmFailure`, and history. Retry opens another step; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit no message/tool.
 
-Other failures use `agent/error`. Cancellation/disposal beat recovery; undispatched calls receive synthetic pairs before `turn/end`. One explicit `AbortSignal` spans each turn. `cancel()` validates a `user | parent` cause and aborts work; the durable outcome remains `aborted`. Disposal awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
+Others use `agent/error`. Cancellation/disposal beat recovery; undispatched calls get synthetic `tool/call` plus `ABORTED_BEFORE_DISPATCH` results before `turn/end`. One turn-wide `AbortSignal` covers stages. `cancel()` validates `user | parent`, clears queues, and aborts it; durability records `aborted`. Disposal quiesces before unregistering ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
 Every session event is turn-enclosed. Reloading preserves an interrupted tail and closes it with a synthetic `interrupted` turn end. Failures after durable turn close report only through `agent/error` because no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
 
@@ -143,7 +143,7 @@ Durability is a plugin concern. Backends buffer synchronous `session/event` noti
 
 Messages contain typed blocks (`text`, `reasoning`, `tool-call`, `tool-result`) derived from merge-extensible `ContentBlockMap`; the same pattern types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New block types coordinate adapters, UI bridges, compaction pricing, token metering, and persistence as one repo-wide contract; replay measurement types live in [token-meter.md](core-data-structures/token-meter.md).
 
-Streaming uses raw chunks (`block-start` through `finish`) and `BlockAssembler`. The loop logs and assembles chunks, storing provider/model provenance plus replay state. An `LlmAdapter` implements `stream()`, registers provider routes, and may expose selector metadata; it resolves and validates model ids. Replay state reaches targets only when both routes map to one adapter instance, which owns validation and conversion. The contract lives in [llm-streaming.md](core-data-structures/llm-streaming.md).
+Streaming uses raw chunks and `BlockAssembler`. One `LlmAdapter.stream()` is one provider attempt; adapters report facts, while recovery policy lives on `agent/request-error`. The loop logs chunks and successful provenance/replay state. Remote adapters stop stalled transport with per-read idle watchdogs. Replay state reaches targets only when routes share an adapter instance ([contract](core-data-structures/llm-streaming.md)).
 
 ## Extension And Composition
 

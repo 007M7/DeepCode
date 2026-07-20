@@ -7,7 +7,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -20,6 +20,8 @@ import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { processOutcome } from '../src/background.ts'
 import { renderProcessRead, renderResult } from '../src/render.ts'
+
+const testToolSignal = new AbortController().signal
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-tool-bash-spec-'))
 
@@ -67,7 +69,7 @@ function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: un
 }
 let callCounter = 0
 function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
-  return ctx.tools.execute({ callId: CallId(`call-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
+  return ctx.tools.execute({ signal: testToolSignal, callId: CallId(`call-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
 }
 
 function text(result: { content: { type: string; text?: string }[] }): string {
@@ -179,7 +181,11 @@ async function setupSandboxed(withApproval = false) {
   return { ctx, bash: ctx.bash as RecordingSandboxExecutor }
 }
 
-function sandboxAgent(mode?: 'read-only' | 'workspace-write' | 'danger-full-access', ctx?: Context): Agent {
+function sandboxAgent(
+  mode?: 'read-only' | 'workspace-write' | 'danger-full-access',
+  ctx?: Context,
+  onAppend?: (type: string) => void,
+): Agent {
   const events: Array<{ type: string; data?: Record<string, unknown> }> = [{ type: 'turn/start' }]
   if (mode !== undefined) events.push({ type: 'sandbox/mode', data: { mode } })
   const id = SessionId('sandbox-session')
@@ -193,6 +199,7 @@ function sandboxAgent(mode?: 'read-only' | 'workspace-write' | 'danger-full-acce
       append: (type: string, data: Record<string, unknown>) => {
         const event = { type, data }
         events.push(event)
+        onAppend?.(type)
         return event
       },
     },
@@ -451,7 +458,7 @@ describe('background execution through the task runtime', () => {
     expect(text(result)).toContain('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
   })
 
-  it('a pre-aborted call refuses to start: isError, no process spawned', async () => {
+  it('a pre-aborted call is skipped before the process starts', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -470,7 +477,8 @@ describe('background execution through the task runtime', () => {
       signal: controller.signal,
     })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('command aborted')
+    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(text(result)).toBe('Error: tool call aborted before dispatch')
     expect((ctx.bash as CountingStartExecutor).starts).toBe(0)
   })
 
@@ -595,6 +603,29 @@ describe('sandbox escalation through the generic task producer', () => {
     const background = await call(ctx, 'bash', { ...escalate, run_in_background: true }, agent)
     expect(text(background)).toBe('started background task bash-1')
     expect(bash.modes).toEqual(['workspace-write', 'workspace-write'])
+  })
+
+  it('does not publish detached work when cancellation follows the escalation grant', async () => {
+    const { ctx, bash } = await setupSandboxed(true)
+    const controller = new AbortController()
+    const agent = sandboxAgent(undefined, ctx, (type) => {
+      if (type === 'approval/decided') controller.abort()
+    })
+    ctx.agents.register(agent)
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    const start = vi.spyOn(bash, 'start')
+
+    const result = await ctx.tools.execute({
+      callId: CallId('cancelled-escalation-background'),
+      name: 'bash',
+      arguments: { ...escalate, run_in_background: true },
+      agent,
+      signal: controller.signal,
+    })
+
+    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED })
+    expect(text(result)).toBe('Error: tool call aborted')
+    expect(start).not.toHaveBeenCalled()
   })
 
   it('uses the session override for ordinary calls and evaluates widening against it', async () => {
@@ -730,7 +761,7 @@ describe('session-cwd routing (per-session workdir)', () => {
   it('falls back to the executor default when the agent has no session cwd', async () => {
     const ctx = await setup()
     // No exec.agent at all → executor uses its config/process.cwd() default.
-    const result = await ctx.tools.execute({ callId: CallId('cwd-noagent'), name: 'bash', arguments: { command: 'pwd', description: 'pwd' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('cwd-noagent'), name: 'bash', arguments: { command: 'pwd', description: 'pwd' } })
     expect(result.isError).toBe(false)
     expect(text(result).trim().length).toBeGreaterThan(0)
   })
@@ -1012,6 +1043,7 @@ describe('the model-facing bash tool builds its request from named args only (no
     const path = ctx.sessionPersistence.locate(agent.session.header)?.path
 
     await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('session-env-fg'),
       name: 'bash',
       arguments: { command: 'true', description: 'run command' },
@@ -1032,6 +1064,7 @@ describe('the model-facing bash tool builds its request from named args only (no
     const path = ctx.sessionPersistence.locate(agent.session.header)?.path
 
     await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('session-env-bg'),
       name: 'bash',
       arguments: {
@@ -1058,6 +1091,7 @@ describe('the model-facing bash tool builds its request from named args only (no
     const ambient = process.env.DSH_SESSION_ID
 
     await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('session-env-id-only'),
       name: 'bash',
       arguments: { command: 'true', description: 'run command' },
@@ -1079,6 +1113,7 @@ describe('the model-facing bash tool builds its request from named args only (no
 
     for (const [callId, agent] of [['parent', parent], ['child', child]] as const) {
       await ctx.tools.execute({
+        signal: testToolSignal,
         callId: CallId(`session-env-${callId}`),
         name: 'bash',
         arguments: { command: 'true', description: 'run command' },
@@ -1109,6 +1144,7 @@ describe('the model-facing bash tool builds its request from named args only (no
     // This preserves the request shape; it is not a security boundary because shell syntax can
     // already set environment variables or feed stdin.
     await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('no-forward-1'),
       name: 'bash',
       arguments: {
@@ -1130,6 +1166,7 @@ describe('the model-facing bash tool builds its request from named args only (no
   it('a background bash call likewise carries no trusted-only fields', async () => {
     const { ctx, bash } = await setupRecording()
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('no-forward-2'),
       name: 'bash',
       arguments: {

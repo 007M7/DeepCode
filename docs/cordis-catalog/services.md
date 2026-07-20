@@ -531,7 +531,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:97`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:137`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -1223,7 +1223,11 @@ executionMode(exec: ToolExecutionInput): ToolExecutionMode
  * Execute through pre-policy, guards, around-dispatch, post-policy, and final
  * notification. Tool and listener failures resolve as materialized error
  * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
- * the same lossless, frozen snapshot final observers receive.
+ * the same lossless, frozen snapshot final observers receive. Cancellation
+ * arriving after entry and before final result materialization skips a
+ * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a
+ * successful started outcome with `ABORTED`; already-started work is still
+ * drained and may retain a tool-owned structured error.
  * @param exec - the typed same-process call input. The registry assigns its
  *   correlation token before policy begins.
  * @returns the materialized final result.
@@ -1233,7 +1237,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:438`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:493`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

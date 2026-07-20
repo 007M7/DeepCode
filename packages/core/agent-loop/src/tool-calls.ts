@@ -13,7 +13,7 @@ import type { Context } from 'cordis'
 import { assertNever, type ToolCallBlock } from '@deepseek-ai/dsh-llm'
 import type { HookContext } from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { TOOL_REGISTRY_SCHEDULER, type ToolExecutionInput, type ToolExecutionMode, type ToolExecutionResult, type ToolRunContext } from '@deepseek-ai/dsh-tools'
+import { TOOL_ABORTED_BEFORE_DISPATCH, TOOL_REGISTRY_SCHEDULER, type ToolExecutionInput, type ToolExecutionMode, type ToolExecutionResult, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 
 /** One tool call after argument parsing, ready to schedule. */
 interface PlannedCall {
@@ -217,9 +217,9 @@ async function runGroup(
 function appendSkippedToolCall(session: Session, turn: number, step: number, block: ToolCallBlock): void {
   const callSeq = appendToolCall(session, turn, step, block)
   appendToolResult(session, turn, step, block, {
-    content: [{ type: 'text', text: 'Error: tool call skipped because the step was aborted before execution' }],
+    content: [{ type: 'text', text: 'Error: tool call aborted before dispatch' }],
     isError: true,
-    error: { name: 'AbortError', code: 'ABORTED' },
+    error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
   }, callSeq)
 }
 

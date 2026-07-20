@@ -160,9 +160,8 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       // (its executor kills on this signal) instead of orphaned, and
       // queued-unstarted dispatches are abandoned.
       const runController = new AbortController()
-      const onOuterAbort = (): void => { runController.abort(exec.signal?.reason) }
-      if (exec.signal?.aborted) onOuterAbort()
-      exec.signal?.addEventListener('abort', onOuterAbort, { once: true })
+      const onOuterAbort = (): void => { runController.abort(exec.signal.reason) }
+      exec.signal.addEventListener('abort', onOuterAbort, { once: true })
 
       let dispatches = 0
       // The per-run serialization queue: every binding call chains onto the tail, so even
@@ -273,7 +272,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
           meta,
         }
       } finally {
-        exec.signal?.removeEventListener('abort', onOuterAbort)
+        exec.signal.removeEventListener('abort', onOuterAbort)
       }
     },
     // ACP execute cards use the program as their visible title.

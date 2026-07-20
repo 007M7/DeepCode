@@ -120,10 +120,11 @@ export function appendAssistant(
   session: Session,
   content: ContentBlock[],
   usage?: { inputTokens: number; outputTokens: number },
+  position: { turn: number; step: number } = { turn: 1, step: 0 },
 ): void {
   session.append('assistant/message', {
-    turn: 1,
-    step: 0,
+    turn: position.turn,
+    step: position.step,
     provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
     content,
     ...usage === undefined ? {} : { usage },

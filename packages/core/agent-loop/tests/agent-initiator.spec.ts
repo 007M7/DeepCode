@@ -9,6 +9,8 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
+const testToolSignal = new AbortController().signal
+
 interface Harness {
   ctx: Context
   agentsFiber: Fiber
@@ -313,6 +315,7 @@ describe('AgentLoop initiator scope', () => {
     }))
 
     const direct = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('direct'),
       name: 'agentless-probe',
       arguments: {},

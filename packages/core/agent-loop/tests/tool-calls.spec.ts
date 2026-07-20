@@ -9,7 +9,7 @@ import { CallId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmService from '@deepseek-ai/dsh-llm'
-import ToolRegistry, { defineTool, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool, TOOL_ABORTED_BEFORE_DISPATCH, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
@@ -476,12 +476,12 @@ describe('tool-call scheduler: abort handling', () => {
       isError: e.data.isError,
       error: e.data.error,
     }))).toEqual([
-      { callId: CallId('c1'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } },
-      { callId: CallId('c2'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } },
+      { callId: CallId('c1'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } },
+      { callId: CallId('c2'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } },
     ])
   })
 
-  it('stops starting siblings when abort fires during ordered pre-execute', async () => {
+  it('skips dispatch and stops starting siblings when abort fires during ordered pre-execute', async () => {
     const adapter = new MockAdapter([
       multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }, { id: 'c2', name: 'p', args: { id: '2' } }]),
       textResponse('should never be requested'),
@@ -498,18 +498,19 @@ describe('tool-call scheduler: abort handling', () => {
     })
 
     agent.send([{ type: 'text', text: 'go' }])
-    await until(() => gated.started.length === 1)
-    await new Promise(r => setTimeout(r, 5))
-    expect(gated.started).toEqual(['1'])
-    gated.release('1')
     await waitForIdle(ctx, agent)
 
+    expect(gated.started).toEqual([])
     expect(events(agent).filter(e => e.type === 'tool/call').map(e => e.data.callId))
       .toEqual([CallId('c1'), CallId('c2')])
-    expect(events(agent).filter(e => e.type === 'tool/result').map(e => e.data.callId))
-      .toEqual([CallId('c1'), CallId('c2')])
-    expect(events(agent).filter(e => e.type === 'tool/result').at(-1)?.data)
-      .toMatchObject({ callId: CallId('c2'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } })
+    expect(events(agent).filter(e => e.type === 'tool/result').map(e => ({
+      callId: e.data.callId,
+      isError: e.data.isError,
+      error: e.data.error,
+    }))).toEqual([
+      { callId: CallId('c1'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } },
+      { callId: CallId('c2'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } },
+    ])
   })
 
   it('stops replenishing after abort, commits started results, and drains accepted additional contexts', async () => {
@@ -540,8 +541,8 @@ describe('tool-call scheduler: abort handling', () => {
       .toEqual([CallId('c1'), CallId('c2'), CallId('c3'), CallId('c4')])
     expect(events(agent).filter(e => e.type === 'tool/result').slice(-2).map(e => e.data))
       .toEqual([
-        expect.objectContaining({ callId: CallId('c3'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } }),
-        expect.objectContaining({ callId: CallId('c4'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } }),
+        expect.objectContaining({ callId: CallId('c3'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } }),
+        expect.objectContaining({ callId: CallId('c4'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } }),
       ])
     const settled = events(agent).filter(e => e.type === 'tool/result' || e.type === 'context/message')
     expect(settled.map(e => e.type))
@@ -583,6 +584,6 @@ describe('tool-call scheduler: abort handling', () => {
     expect(events(agent).filter(e => e.type === 'tool/call').map(e => e.data.callId))
       .toEqual([CallId('c1'), CallId('c2'), CallId('c3')])
     expect(events(agent).filter(e => e.type === 'tool/result').at(-1)?.data)
-      .toMatchObject({ callId: CallId('c3'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } })
+      .toMatchObject({ callId: CallId('c3'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } })
   })
 })

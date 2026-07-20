@@ -70,7 +70,7 @@ function textOf(result: AssembledResult): string {
 
 function expectFinish(result: AssembledResult, expected: 'stop' | 'tool-calls'): void {
   if (result.finish.kind === 'error') {
-    throw new Error(`provider request failed (${result.finish.code ?? 'unknown'}): ${result.finish.message}`)
+    throw new Error(`provider request failed (${result.finish.failure.code}): ${result.finish.failure.message}`)
   }
   expect(result.finish.kind).toBe(expected)
 }

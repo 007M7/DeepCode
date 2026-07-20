@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { WorkflowRunId, WorkflowService } from '@deepseek-ai/dsh-workflow'
@@ -12,6 +12,8 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
 import * as toolWorkflow from '../src/index.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
+
+const testToolSignal = new AbortController().signal
 
 /** A controllable engine standing in behind ctx.workflows (the tool's only seam). */
 class StubEngine extends WorkflowService {
@@ -60,6 +62,7 @@ const META = { name: 'audit', description: 'd' }
 
 function execute(ctx: Context, args: unknown, extra?: { agent?: Agent; signal?: AbortSignal }): Promise<ToolExecutionResult> {
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId('call-1'),
     name: 'workflow',
     arguments: args,
@@ -154,14 +157,16 @@ describe('dsh-tool-workflow', () => {
     expect(result.error?.code).toBe('INVALID_ARGS')
   })
 
-  it('cancels the run when exec.signal is ALREADY aborted at call time', async () => {
+  it('skips workflow startup when exec.signal is already aborted', async () => {
     const { ctx, engine, parent } = await setup()
     const controller = new AbortController()
     controller.abort()
     const result = await execute(ctx, { script: SCRIPT, meta: META }, { agent: parent, signal: controller.signal })
     expect(result.isError).toBe(true)
-    expect(engine.cancels).toContain('parent step aborted')
-    expect(engine.disposed).toBe(1)
+    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(engine.requests).toHaveLength(0)
+    expect(engine.cancels).toHaveLength(0)
+    expect(engine.disposed).toBe(0)
   })
 
   it('truncates an oversized rendered value with a notice (maxResultChars)', async () => {

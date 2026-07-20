@@ -5,7 +5,21 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { CallId } from './brand.ts'
+import type { CallId, ProviderRequestId } from './brand.ts'
+
+/** Serializable provider-boundary facts; policy decides whether they are retryable. */
+export interface LlmFailure {
+  /** Human-readable provider or transport failure. */
+  readonly message: string
+  /** Stable provider-neutral machine-routing code. */
+  readonly code: string
+  /** HTTP status observed at the provider boundary, when available. */
+  readonly status?: number
+  /** Provider-requested delay in milliseconds, when valid and available. */
+  readonly providerRetryAfterMs?: number
+  /** Opaque provider-issued request identifier for diagnostics. */
+  readonly requestId?: ProviderRequestId
+}
 
 /** Plain text visible to the end user. */
 export interface TextBlock {
@@ -98,8 +112,8 @@ export interface FinishReasonMap {
   'stop': { kind: 'stop' }
   'tool-calls': { kind: 'tool-calls' }
   'max-tokens': { kind: 'max-tokens' }
-  'aborted': { kind: 'aborted' }
-  'error': { kind: 'error'; message: string; code?: string }
+  'aborted': { kind: 'aborted'; failure: LlmFailure }
+  'error': { kind: 'error'; failure: LlmFailure }
 }
 
 /** Any known finish reason, derived from {@link FinishReasonMap}; switch on `kind` and fall through unknowns (merge-extensible). */
