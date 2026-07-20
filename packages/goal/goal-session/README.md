@@ -30,7 +30,8 @@ The retained prompt names the JSON-quoted objective and `round/maxGoalRounds`, t
 | Durable turn outcome | Goal action | Automatic retry |
 |---|---|---|
 | `completed` with goal still active and armed | admit the next round, or mark `budget-limited` at the cap | yes |
-| broad cancellation / `aborted` | `paused` | no |
+| cancellation of a reserved/admitted goal round, or its `aborted` outcome | `paused` | no |
+| cancellation with no goal-round attempt | keep durable phase; disarm activation | no |
 | `error` with `RATE_LIMIT` | `usage-limited` | no |
 | other `error`, `max-tokens`, or a non-stale prompt rejection | `blocked` | no |
 | durability failure, disposal, interruption, or unknown future outcome | disarm or block for inspection | no |
@@ -39,11 +40,11 @@ A goal mutation made during its round supersedes settlement of the older revisio
 
 ## Lifecycle and durability
 
-`goal/changed` creates a durability obligation. Before queuing work, the driver awaits `ctx.sessions.flush()` and rechecks both the goal revision and competing input after the await. A closing flush failure arrives through `agent/error`; the driver disarms before another round can start.
+`goal/changed` creates a durability obligation. Before queuing work, the driver awaits `ctx.sessions.flush()` and rechecks both the goal revision and competing input after the await. A closing flush failure arrives through `agent/error`; the driver associates it with the exact closed turn even if a later one-shot injection has appended another turn, then disarms before another round can start.
 
 Activation is never inherited when this plugin loads over an existing agent. `GoalService.disarm()` removes process-local authority without changing durable phase, revision, or history; explicit human-authorized resume records the later reactivation. The same rule applies after session resume and fork through the goal domain's `agent/session-start` handling.
 
-Cancellation is observe-before-act: the concrete loop emits `agent/cancel-requested` before clearing queues or aborting a step, allowing this plugin to pause and disarm the exact active goal. Plugin teardown closes admission, disarms every live goal, cancels an admitted round, and awaits the driver plus agent quiescence while its event fence remains installed.
+Cancellation is observe-before-act: the concrete loop emits `agent/cancel-requested` before clearing queues or aborting a step. The plugin durably pauses an active goal only when the cancellation owns a reserved or admitted goal attempt; cancellation of unrelated human work merely disarms process-local continuation. If the pause mutation fails, the driver falls back to disarming. Plugin teardown closes admission, disarms every live goal, cancels an admitted round, and awaits the driver plus agent quiescence while its event fence remains installed.
 
 ## Model Experience
 
