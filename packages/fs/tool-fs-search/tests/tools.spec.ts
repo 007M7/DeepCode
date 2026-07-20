@@ -2,12 +2,12 @@
  * Consumer-surface tests for the search tools over a FAKE bash executor and a
  * FAKE spill backend, exercised through `ctx.tools.execute()` so nothing
  * bypasses the tool registry. The fake executor makes every seam outcome
- * scriptable — truncated stdout with/without a raw spill path, abort/timeout,
- * signal kills, ripgrep exit codes — so these tests verify schemas, argument
- * validation, shell-safe command construction, workdir derivation, signal
- * forwarding, `SEARCH_*` error classification, retention, formatted-result
- * spill handoff, and the no-background-task invariant. Real-`rg` behavior is
- * pinned separately in integration.spec.ts.
+ * scriptable — registration-time `rg` probing, truncated stdout with/without a
+ * raw spill path, abort/timeout, signal kills, ripgrep exit codes — so these
+ * tests verify schemas, argument validation, shell-safe command construction,
+ * workdir derivation, signal forwarding, `SEARCH_*` error classification,
+ * retention, formatted-result spill handoff, and the no-background-task
+ * invariant. Real-`rg` behavior is pinned separately in integration.spec.ts.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -31,6 +31,8 @@ import {
   toWorkdirRelative,
 } from '@deepseek-ai/dsh-tool-fs-search'
 
+const RG_PROBE_COMMAND = 'command -v rg >/dev/null 2>&1'
+
 /** A successful run result over the given stdout; overrides script the failure shapes. */
 function runResult(stdout: string, overrides?: Partial<BashRunResult>): BashRunResult {
   return {
@@ -52,13 +54,18 @@ function runResult(stdout: string, overrides?: Partial<BashRunResult>): BashRunR
  * create a background task.
  */
 class FakeBash extends BashExecutor {
+  probeRequests: BashExecRequest[] = []
+  probeSpecs: BashExecSpec[] = []
   requests: BashExecRequest[] = []
   specs: BashExecSpec[] = []
   startCalls = 0
+  probeResult: BashRunResult = runResult('')
+  probeError?: Error
   handler: (spec: BashExecSpec) => BashRunResult = () => runResult('')
 
   override resolve(request: BashExecRequest): BashExecSpec {
-    this.requests.push(request)
+    if (request.command === RG_PROBE_COMMAND) this.probeRequests.push(request)
+    else this.requests.push(request)
     return {
       command: request.command,
       workdir: request.workdir ?? '/work',
@@ -68,9 +75,14 @@ class FakeBash extends BashExecutor {
       sandboxMode: request.sandboxMode,
     }
   }
-  override run(spec: BashExecSpec): Promise<BashRunResult> {
+  override async run(spec: BashExecSpec): Promise<BashRunResult> {
+    if (spec.command === RG_PROBE_COMMAND) {
+      this.probeSpecs.push(spec)
+      if (this.probeError) throw this.probeError
+      return this.probeResult
+    }
     this.specs.push(spec)
-    return Promise.resolve(this.handler(spec))
+    return this.handler(spec)
   }
   override start(): BashProcess {
     this.startCalls++
@@ -97,18 +109,36 @@ class FakeSpill extends SpillStore {
 interface SetupOptions {
   config?: ToolFsSearch.Config
   spill?: boolean
+  probeError?: Error
+  probeResult?: BashRunResult
 }
 
 async function setup(options: SetupOptions = {}) {
   const ctx = new Context()
+  const warnings: string[] = []
+  ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(FakeBash)
+  const bash = ctx.bash as FakeBash
+  if (options.probeResult) bash.probeResult = options.probeResult
+  if (options.probeError) bash.probeError = options.probeError
   if (options.spill === true) await ctx.plugin(FakeSpill)
   const fiber = await ctx.plugin(ToolFsSearch, options.config)
-  const bash = ctx.bash as FakeBash
   const spill = options.spill === true ? ctx.get('spillStore') as FakeSpill : undefined
-  return { ctx, bash, spill, fiber }
+  return { ctx, bash, spill, fiber, warnings }
+}
+
+/** Assert plugin setup rejects without letting Vitest pretty-print a live Context on failure. */
+async function expectSetupRejects(options: SetupOptions, message: RegExp): Promise<void> {
+  let thrown: string | undefined
+  try {
+    const loaded = await setup(options)
+    await loaded.fiber.dispose()
+  } catch (error: unknown) {
+    thrown = error instanceof Error ? error.message : String(error)
+  }
+  expect(thrown).toMatch(message)
 }
 
 /** A stand-in agent whose session header carries the given cwd (and a stable id). */
@@ -136,11 +166,35 @@ function matchLine(path: string, lineNumber: number, lineText: string): string {
 
 describe('registration', () => {
   it('registers glob and grep with their prompt sections', async () => {
-    const { ctx } = await setup()
+    const { ctx, bash } = await setup()
+    expect(bash.probeRequests).toHaveLength(1)
+    expect(bash.probeRequests[0]?.command).toBe(RG_PROBE_COMMAND)
+    expect(bash.probeRequests[0]).not.toHaveProperty('workdir')
     expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['glob', 'grep'])
     const prompt = renderPrompt(await ctx.systemPrompt.assemble())
     expect(prompt).toContain('Use the glob tool')
     expect(prompt).toContain('Use the grep tool')
+  })
+
+  it('does not register glob or grep when the bash executor cannot find rg', async () => {
+    const { ctx, warnings } = await setup({ probeResult: runResult('', { exitCode: 1 }) })
+    expect(ctx.tools.schemas()).toHaveLength(0)
+    const sections = (await ctx.systemPrompt.assemble()).sections.map(s => s.name)
+    expect(sections).not.toContain('tool:glob')
+    expect(sections).not.toContain('tool:grep')
+    expect(warnings).toEqual([
+      'tool-fs-search: ripgrep (rg) not found on the bash executor PATH; glob/grep tools not registered',
+    ])
+  })
+
+  it('rejects plugin load when the rg availability probe cannot run', async () => {
+    await expectSetupRejects({ probeError: new Error('spawn bash ENOENT') }, /spawn bash ENOENT/)
+  })
+
+  it('rejects plugin load when the rg availability probe is aborted or killed', async () => {
+    await expectSetupRejects({
+      probeResult: runResult('', { aborted: true, exitCode: null, signal: 'SIGTERM' }),
+    }, /tool-fs-search: ripgrep availability probe did not complete/)
   })
 
   it('stays pending until ctx.bash exists (inject)', async () => {
