@@ -241,6 +241,7 @@ type FsErrorCode =
   | 'FS_NOT_TEXT'
   | 'FS_NOT_REGULAR_FILE'
   | 'FS_PERMISSION_DENIED'
+  | 'FS_SANDBOX_DENIED'
   | 'FS_IO_ERROR'
   | 'FS_STALE_VERSION'
   | 'FS_NOT_OBSERVED'
@@ -249,7 +250,7 @@ type FsErrorCode =
   | 'FS_ABORTED'
 ```
 
-`FS_NOT_DIRECTORY`, `FS_PERMISSION_DENIED`, and `FS_IO_ERROR` are used by directory listing to distinguish an existing non-directory target, a denied listing, and an unexpected backend I/O failure. `FS_NOT_OBSERVED` means the policy plugin has no prior-observation record for this owner (or a `createIfAbsent` hit an existing file). `FS_STALE_VERSION` means the backend version no longer matches the observed one (or an edit hit a missing target). Freshness authorization has no partial/full distinction, so there is no `FS_PARTIAL_OBSERVATION`.
+`FS_NOT_DIRECTORY`, `FS_PERMISSION_DENIED`, and `FS_IO_ERROR` are used by directory listing to distinguish an existing non-directory target, a denied listing, and an unexpected backend I/O failure. `FS_SANDBOX_DENIED` is a POLICY refusal from a sandbox-enforcing backend (`dsh-fs-sandbox`) — the mode fence denied a write/edit — distinct from `FS_PERMISSION_DENIED` (the host kernel refusing). `FS_NOT_OBSERVED` means the policy plugin has no prior-observation record for this owner (or a `createIfAbsent` hit an existing file). `FS_STALE_VERSION` means the backend version no longer matches the observed one (or an edit hit a missing target). Freshness authorization has no partial/full distinction, so there is no `FS_PARTIAL_OBSERVATION`.
 
 ## The service and the plugin
 

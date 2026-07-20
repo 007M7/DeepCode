@@ -12,7 +12,10 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-bash'
+import { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+// Side-effect type import: declaration-merges `ctx.bash` (the capability fact
+// `sandboxMode` this service reads), without a value dependency on the seam.
+import type {} from '@deepseek-ai/dsh-bash'
 import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import { APPROVAL_POLICIES, effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 
@@ -36,7 +39,7 @@ declare module '@deepseek-ai/dsh-session' {
 
 /** One preset's sandbox/approval bundle and optional client presentation. */
 export interface PresetSpec {
-  /** The `bash/sandbox-mode` value the preset writes through. */
+  /** The `sandbox/mode` value the preset writes through. */
   sandbox: SandboxMode
   /** The `approval/policy` value the preset writes through. */
   approval: ApprovalPolicy

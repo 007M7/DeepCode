@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"5138ed0d-e86e-4a7d-b75b-803307e92b17","createdAt":1783352119267,"cwd":"/tmp/acp-snap-cwd-rbeWyt"}
+{"type":"session","version":0,"id":"5138ed0d-e86e-4a7d-b75b-803307e92b17","createdAt":1783352119267,"cwd":"/tmp/acp-snap-cwd-rbeWyt","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783352119273,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783352119274,"data":{"content":[{"type":"text","text":"Use the subagent tool exactly once to delegate this subtask to a child agent: 'Reply with exactly the word CHILD_OK and nothing else.' After the subagent returns, reply with the single word PARENT_DONE and stop. Do not use the bash tool."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1783352119275,"data":{"turn":1,"step":1}}

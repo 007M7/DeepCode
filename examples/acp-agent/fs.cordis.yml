@@ -1,20 +1,12 @@
-# Filesystem snapshots need the in-process local provider, policy gate, and
-# model-facing tools. This explicit overlay is always full-access: the session
-# permission preset controls bash only and cannot confine or unmount these plugins.
+# Filesystem-scenario overlay: the sandboxed filesystem stack already lives in
+# the base cordis.yml, so this overlay adds only the local tool-result spill
+# storage those scenarios exercise.
 - id: base
   name: '@cordisjs/plugin-include'
   config:
     path: ./cordis.yml
     patches:
       - insert:
-          - id: fs-local
-            name: '@deepseek-ai/dsh-fs-local'
-            config:
-              cwd: !!js process.cwd()
-          - id: fs-policy
-            name: '@deepseek-ai/dsh-fs-policy'
-          - id: tool-fs
-            name: '@deepseek-ai/dsh-tool-fs'
           - id: spill-local
             name: '@deepseek-ai/dsh-spill-local'
             config:

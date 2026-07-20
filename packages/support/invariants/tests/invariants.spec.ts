@@ -189,6 +189,19 @@ describe('session-log invariants', () => {
       .toThrow(/no prior tool\/call/)
   })
 
+  it('keeps fresh tool-result appends open-step and pending-call checked', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    expect(() => session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      callId: CallId('closed'),
+      content: [],
+      isError: false,
+    }, { surfaceOp: 'append' })).toThrow(/open is turn 1\/step null/)
+  })
+
   it('allows a synthetic interrupted tool/result from crash repair without a prior tool/call event', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
@@ -465,6 +478,41 @@ describe('HMR safety', () => {
 })
 
 describe('surface contract under the invariants composition', () => {
+  async function toolResultRewriteFixture(openRewriteTurn = true) {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const unrelated = session.append('user/message', {
+      content: [{ type: 'text', text: 'request' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('tool/call', {
+      turn: 1,
+      step: 1,
+      callId: CallId('rewrite'),
+      name: 'echo',
+      arguments: '{}',
+    })
+    const originalData = {
+      turn: 1,
+      step: 1,
+      callId: CallId('rewrite'),
+      content: [{ type: 'text' as const, text: 'original' }],
+      isError: true,
+      error: { name: 'ExitError', code: 'EXIT_1' },
+      meta: { presentation: { kind: 'terminal', output: 'full output' } },
+      futureField: { nested: ['preserve', 1] },
+    }
+    const original = session.append('tool/result', originalData, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    if (openRewriteTurn) {
+      session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    }
+    return { session, unrelated, original }
+  }
+
   it('accepts well-formed surface metadata', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
@@ -485,6 +533,71 @@ describe('surface contract under the invariants composition', () => {
     session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] })
     // no throw — well-formed replace op
+  })
+
+  it('treats a provenance-backed tool-result replacement as a turn-enclosed rewrite', async () => {
+    const { session, original } = await toolResultRewriteFixture()
+
+    expect(() => session.append('tool/result', {
+      ...original.data,
+      content: [{ type: 'text', text: 'pruned' }],
+    }, {
+      surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
+      sourceEventSeqs: [original.seq],
+    })).not.toThrow()
+  })
+
+  it('rejects a tool-result replacement outside a turn', async () => {
+    const { session, original } = await toolResultRewriteFixture(false)
+
+    expect(() => session.append('tool/result', {
+      ...original.data,
+      content: [{ type: 'text', text: 'pruned' }],
+    }, {
+      surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
+      sourceEventSeqs: [original.seq],
+    })).toThrow(/outside any open turn/)
+  })
+
+  it('rejects a tool-result replacement targeting an unrelated current node', async () => {
+    const { session, unrelated, original } = await toolResultRewriteFixture()
+    expect(() => session.append('tool/result', {
+      ...original.data,
+      content: [{ type: 'text', text: 'forged' }],
+    }, {
+      surfaceOp: { op: 'replace', start: unrelated.seq, end: unrelated.seq },
+      sourceEventSeqs: [unrelated.seq],
+    })).toThrow(/must target a current tool\/result/)
+  })
+
+  it('rejects a multi-node tool-result replacement even with complete provenance', async () => {
+    const { session, unrelated, original } = await toolResultRewriteFixture()
+    expect(() => session.append('tool/result', {
+      ...original.data,
+      content: [{ type: 'text', text: 'forged' }],
+    }, {
+      surfaceOp: { op: 'replace', start: unrelated.seq, end: original.seq },
+      sourceEventSeqs: [unrelated.seq, original.seq],
+    })).toThrow(/must rewrite exactly one current node/)
+  })
+
+  it.each([
+    ['callId', { callId: CallId('forged') }],
+    ['turn', { turn: 2 }],
+    ['step', { step: 2 }],
+    ['error', { error: { name: 'ExitError', code: 'DIFFERENT' } }],
+    ['meta', { meta: { presentation: { kind: 'generic' } } }],
+    ['future data', { futureField: { nested: ['changed'] } }],
+  ])('rejects a content rewrite with altered %s', async (_label, altered) => {
+    const { session, original } = await toolResultRewriteFixture()
+    expect(() => session.append('tool/result', {
+      ...original.data,
+      ...altered,
+      content: [{ type: 'text', text: 'pruned' }],
+    }, {
+      surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
+      sourceEventSeqs: [original.seq],
+    })).toThrow(/may change only content/)
   })
 
   it('accepts known-empty assistant provenance and rejects empty provenance elsewhere', async () => {
