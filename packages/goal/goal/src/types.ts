@@ -22,9 +22,15 @@ export type GoalPhase =
   | 'active'
   | 'paused'
   | 'blocked'
-  | 'usage-limited'
-  | 'budget-limited'
   | 'complete'
+
+/** Machine-routable and human-readable explanation for a blocked goal. */
+export interface GoalBlockReason {
+  /** Stable lower-kebab-case classification chosen by the blocking policy. */
+  readonly code: string
+  /** Non-empty explanation shown to humans and models. */
+  readonly message: string
+}
 
 /** Full durable state written by every non-clear goal mutation. */
 export interface GoalSnapshot extends GoalRef {
@@ -32,6 +38,8 @@ export interface GoalSnapshot extends GoalRef {
   readonly objective: string
   /** Durable lifecycle phase. */
   readonly phase: GoalPhase
+  /** Present exactly while `phase` is `blocked`. */
+  readonly blockedReason?: GoalBlockReason
   /** Total admitted goal-round cap. */
   readonly maxGoalRounds: number
 }
@@ -59,8 +67,6 @@ export type GoalOperation =
   | 'resume'
   | 'complete'
   | 'block'
-  | 'mark-usage-limited'
-  | 'mark-budget-limited'
   | 'clear'
 
 /** Full-snapshot goal mutation retained in a model-visible context event. */
@@ -121,12 +127,6 @@ export interface CreateGoalRequest {
   readonly maxGoalRounds?: number
 }
 
-/** Validated create input with every deployment default materialized. */
-export interface CreateGoalSpec {
-  readonly objective: string
-  readonly maxGoalRounds: number
-}
-
 /** Fields changed by an edit; at least one must be present. */
 export interface EditGoalRequest {
   readonly objective?: string
@@ -149,6 +149,7 @@ export type GoalErrorCode =
   | 'GOAL_STALE_REVISION'
   | 'GOAL_INVALID_OBJECTIVE'
   | 'GOAL_INVALID_MAX_ROUNDS'
+  | 'GOAL_INVALID_BLOCK_REASON'
   | 'GOAL_INVALID_EDIT'
   | 'GOAL_INVALID_TRANSITION'
 

@@ -277,10 +277,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Goal service (`ctx.goals`) backed exclusively by the owning session log.',
     methods: [
       {
-        signature: 'resolveCreate(request: CreateGoalRequest): CreateGoalSpec',
-        jsDoc: '/**\n * Materialize deployment defaults and validate one create request.\n * @param request - objective plus optional caller-selected round cap.\n * @returns detached, fully resolved create specification.\n */',
-      },
-      {
         signature: 'get(agent: Agent): GoalView | undefined',
         jsDoc: '/**\n * Read the current goal for one exact live agent.\n * @param agent - owning live agent.\n * @returns a fresh view or `undefined` when no goal is current.\n * @throws {@link GoalError} when the agent is not the registry\'s live instance.\n */',
       },
@@ -309,16 +305,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Mark a current non-complete goal complete and disarm it.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the completed view.\n */',
       },
       {
-        signature: 'block(agent: Agent, ref: GoalRef): GoalView',
-        jsDoc: '/**\n * Mark an active goal blocked and disarm it.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the blocked view.\n */',
-      },
-      {
-        signature: 'markUsageLimited(agent: Agent, ref: GoalRef): GoalView',
-        jsDoc: '/**\n * Mark an active goal stopped by an external usage limit.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the usage-limited view.\n */',
-      },
-      {
-        signature: 'markBudgetLimited(agent: Agent, ref: GoalRef): GoalView',
-        jsDoc: '/**\n * Mark an active goal stopped at its configured round cap.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the budget-limited view.\n */',
+        signature: 'block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView',
+        jsDoc: '/**\n * Mark an active goal blocked and disarm it.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @param reason - policy-owned stable code and human-readable explanation.\n * @returns the blocked view with its durable reason.\n */',
       },
       {
         signature: 'clear(agent: Agent, ref: GoalRef): GoalRef',
@@ -1202,10 +1190,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CreateGoalRequest {\n    readonly objective: string;\n    readonly maxGoalRounds?: number;\n}',
   },
   {
-    name: 'CreateGoalSpec',
-    declaration: 'export interface CreateGoalSpec {\n    readonly objective: string;\n    readonly maxGoalRounds: number;\n}',
-  },
-  {
     name: 'CreateSessionOptions',
     declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n    };\n}',
   },
@@ -1306,12 +1290,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type GoalActivation = \'armed\' | \'disarmed\';',
   },
   {
+    name: 'GoalBlockReason',
+    declaration: 'export interface GoalBlockReason {\n    readonly code: string;\n    readonly message: string;\n}',
+  },
+  {
     name: 'GoalId',
     declaration: 'export type GoalId = Branded<\'GoalId\'>;',
   },
   {
     name: 'GoalPhase',
-    declaration: 'export type GoalPhase = \'active\' | \'paused\' | \'blocked\' | \'usage-limited\' | \'budget-limited\' | \'complete\';',
+    declaration: 'export type GoalPhase = \'active\' | \'paused\' | \'blocked\' | \'complete\';',
   },
   {
     name: 'GoalRef',
@@ -1319,7 +1307,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GoalSnapshot',
-    declaration: 'export interface GoalSnapshot extends GoalRef {\n    readonly objective: string;\n    readonly phase: GoalPhase;\n    readonly maxGoalRounds: number;\n}',
+    declaration: 'export interface GoalSnapshot extends GoalRef {\n    readonly objective: string;\n    readonly phase: GoalPhase;\n    readonly blockedReason?: GoalBlockReason;\n    readonly maxGoalRounds: number;\n}',
   },
   {
     name: 'GoalView',
