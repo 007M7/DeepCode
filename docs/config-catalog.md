@@ -1183,9 +1183,8 @@ export interface Config {
    * Maximum child depth: a non-negative safe integer (default `3`; `0` forbids
    * delegation entirely), or `'provider-managed'` to send no cap. A numeric cap
    * requires the provider's `depthLimit` capability (mount fails loud
-   * otherwise), and a child AT the cap additionally loses this tool from its
-   * schema when the provider supports `toolFilter` — the prompt face of the
-   * budget; the service keeps rejecting on the execution face.
+   * otherwise). The provider checks the calling agent's current depth at every
+   * start; the tool remains model-visible so runtime policy owns rejection.
    * `'provider-managed'` is for an out-of-process provider (ACP) whose
    * recursion budget belongs to the child harness's own deployment.
    */

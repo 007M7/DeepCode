@@ -53,7 +53,7 @@ The effective parent depth is the greater of durable `SessionHeader.delegationDe
 
 Every public entry validates the domain rather than relying on one model-facing configuration path. Negative values, fractions, negative zero, non-finite values, unsafe integers, malformed stored parent depth, and derived overflow all reject. A direct `SubagentStartRequest` may omit the cap to leave depth unbounded; loader-resolved `dsh-tool-subagent` configuration instead defaults to `3`, accepts a numeric override, and uses explicit `'provider-managed'` to omit the cap for an out-of-process provider whose deployment owns its recursion budget. A numeric tool cap fails at provider mount when the provider lacks `depthLimit`.
 
-A deployment can combine depth and filtering. When a numeric tool cap and `toolFilter` are supported, `dsh-tool-subagent` denies its configured tool name in a child whose derived depth is at the cap; the provider's independent depth check still rejects direct or alternate starts beyond it. A deployment may also deny delegation tools entirely in children. Neither choice changes the provider's conversation-history behavior.
+A deployment can combine depth and filtering, but the numeric cap does not synthesize a filter. The delegation tool stays visible at the cap because authorization may depend on runtime state; every attempted start checks the calling agent's current durable and runtime depth, and a rejected start returns an errored tool result without publishing a child. A deployment may separately deny delegation tools in children when its visibility policy is static. Neither choice changes the provider's conversation-history behavior.
 
 ### Capability gating keeps providers honest
 
@@ -85,10 +85,10 @@ A security design would need a separate authority representation, propagation ru
 
 **Hide only tool schemas.** Presentation-only filtering lets the model execute a tool that the prompt says does not exist through Code Mode or a forged call. One resolver governs both presentation and execution instead.
 
-**Use only tool filtering to stop recursion.** Removing the delegation tool is useful but provider-specific and does not protect direct service callers or alternate delegation tools. Absolute depth is an independent structural bound.
+**Encode the depth cap as an automatic tool filter.** A creation-time filter snapshots a decision that may depend on runtime state, affects only one configured tool name, and does not protect direct service callers or alternate delegation tools. The provider instead enforces the absolute cap at every start.
 
 ## Consequences
 
 Contributors can configure child role, visible global tools, and recursion without defining new providers. Capability checks fail before ownership starts, unpublished setup makes the first request consistent, and one tool resolver prevents presentation/execution drift.
 
-The cost is that deployments must understand live allow/deny behavior and the distinction between visibility and authority. Provider authors must advertise each supported control accurately, and in-process providers must install every requested contribution before publication. The controls deliberately do not solve security confinement or parent-to-child non-escalation.
+The cost is that deployments must understand live allow/deny behavior and the distinction between visibility and authority. A model may call a visible delegation tool after the current depth policy forbids another child and receive an error. Provider authors must advertise each supported control accurately, and in-process providers must install every requested contribution before publication. The controls deliberately do not solve security confinement or parent-to-child non-escalation.

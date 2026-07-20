@@ -12,7 +12,7 @@ import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { assertSubagentMaxDepth, delegationDepthOf } from '@deepseek-ai/dsh-subagent'
+import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { TaskOutcome } from '@deepseek-ai/dsh-tasks'
 
@@ -57,9 +57,8 @@ export interface Config {
    * Maximum child depth: a non-negative safe integer (default `3`; `0` forbids
    * delegation entirely), or `'provider-managed'` to send no cap. A numeric cap
    * requires the provider's `depthLimit` capability (mount fails loud
-   * otherwise), and a child AT the cap additionally loses this tool from its
-   * schema when the provider supports `toolFilter` — the prompt face of the
-   * budget; the service keeps rejecting on the execution face.
+   * otherwise). The provider checks the calling agent's current depth at every
+   * start; the tool remains model-visible so runtime policy owns rejection.
    * `'provider-managed'` is for an out-of-process provider (ACP) whose
    * recursion budget belongs to the child harness's own deployment.
    */
@@ -199,28 +198,15 @@ function providerWording(inheritsConversation: boolean): { description: string; 
   }
 }
 
-function startRequest(
-  config: Config,
-  prompt: string,
-  parent: Agent,
-  signal: AbortSignal,
-  hideAtCapToolName: string | undefined,
-): SubagentStartRequest {
+function startRequest(config: Config, prompt: string, parent: Agent, signal: AbortSignal): SubagentStartRequest {
   const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined
-  // A child AT the cap cannot delegate further: deny it this tool so its
-  // schema hides what the service would reject anyway (prompt face; the
-  // depth check at start remains the execution face).
-  const childAtCap = maxDepth !== undefined && delegationDepthOf(parent) + 1 >= maxDepth
-  const toolFilter = childAtCap && hideAtCapToolName !== undefined
-    ? { ...config.toolFilter, deny: [...config.toolFilter?.deny ?? [], hideAtCapToolName] }
-    : config.toolFilter
   return {
     prompt: [{ type: 'text', text: prompt }],
     parent,
     signal,
     ...config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},
     ...config.persona !== undefined ? { persona: config.persona } : {},
-    ...toolFilter !== undefined ? { toolFilter } : {},
+    ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
     ...maxDepth !== undefined ? { maxDepth } : {},
   }
 }
@@ -257,9 +243,6 @@ export function apply(ctx: Context, config: Config): void {
         + 'set maxDepth: \'provider-managed\' to leave the recursion budget to the provider',
       )
     }
-    // Schema hiding rides the child toolFilter, so it needs that capability;
-    // without it the depth check at start remains the only fence.
-    const hideAtCapToolName = provider.capabilities.toolFilter ? config.toolName ?? 'subagent' : undefined
     const wording = providerWording(provider.inheritsParentContext)
     const backgroundEnabled = config.enableRunInBackground !== false
     disposeTool = ctx.tools.register(defineTool({
@@ -314,7 +297,7 @@ export function apply(ctx: Context, config: Config): void {
               const controller = new AbortController()
               const start = ctx.subagents.start(
                 config.provider,
-                startRequest(config, args.prompt, parent, controller.signal, hideAtCapToolName),
+                startRequest(config, args.prompt, parent, controller.signal),
               )
               return {
                 cancel: (reason?: string) => {
@@ -333,7 +316,6 @@ export function apply(ctx: Context, config: Config): void {
           args.prompt,
           parent,
           exec.signal ?? new AbortController().signal,
-          hideAtCapToolName,
         )
 
         const run: SubagentRun = await ctx.subagents.start(config.provider, request)

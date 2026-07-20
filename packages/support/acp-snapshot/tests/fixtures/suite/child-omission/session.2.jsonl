@@ -1,2 +1,0 @@
-{"type":"session","id":"ffffffff-2222-4333-8444-555555555555","createdAt":13,"cwd":"/rec/plain-cwd","parentSession":"56565656-7878-4989-8a9a-9b9b9b9b9b9b"}
-{"type":"request/header","seq":0,"time":12,"data":{"header":{"config":{"model":"fake"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}

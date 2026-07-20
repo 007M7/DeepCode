@@ -100,18 +100,6 @@ export interface Scenario {
    * {@link headerClass}.
    */
   configPath?: string
-  /**
-   * Global tool names allowed to be ABSENT from a non-primary (child) session's
-   * request/header relative to the class pin — the delegation tool a child at
-   * its depth cap loses to tool-subagent's schema hiding. Each child header is
-   * compared against the pin minus exactly the declared names it actually
-   * omitted, so any other divergence (or an undeclared omission) still fails.
-   * A child that omitted a declared tool also skips the text-level initial
-   * system prompt pin: the prompt embeds the toolset (Code Mode SDK sections),
-   * so a reduced child cannot equal the full-composition expected output — the
-   * structural header assertion remains its pin. Meaningless on the primary log.
-   */
-  childToolOmissions?: string[]
 }
 
 /** One suite's inputs: the agent to boot, where its fixtures live, and its scenario table. */
@@ -292,36 +280,6 @@ export function restorePinnedToolSchemas(header: unknown, schemas: readonly unkn
     throw new Error(`acp-snapshot: pinned request header tools must equal ${TOOLS_TOKEN}`)
   }
   return { ...header, tools: schemas }
-}
-
-/**
- * The pinned header with exactly the DECLARED omissions a child actually made
- * removed from its tool list. A child at its depth cap legitimately lacks the
- * delegation tool that spawned it (tool-subagent schema hiding); removing only
- * declared-AND-actually-absent names keeps every other divergence — including
- * an undeclared omission — a loud mismatch.
- * @param pinned The class-pinned full header (tool schemas restored).
- * @param actual The child session's normalized header under comparison.
- * @param allowed The scenario's declared {@link Scenario.childToolOmissions}.
- * @returns The expected header for this child log.
- */
-export function applyChildToolOmissions(pinned: unknown, actual: unknown, allowed: readonly string[]): unknown {
-  if (pinned === null || typeof pinned !== 'object' || Array.isArray(pinned)) {
-    throw new Error('acp-snapshot: pinned request header must be an object')
-  }
-  const toolNames = (header: unknown): Set<string> => {
-    const tools = (header as { tools?: unknown }).tools
-    return new Set(Array.isArray(tools)
-      ? tools.map(tool => (tool as { name?: unknown }).name).filter((name): name is string => typeof name === 'string')
-      : [])
-  }
-  const actualNames = toolNames(actual)
-  const pinnedTools = (pinned as { tools?: unknown[] }).tools ?? []
-  const tools = pinnedTools.filter((tool) => {
-    const name = (tool as { name?: unknown }).name
-    return !(typeof name === 'string' && allowed.includes(name) && !actualNames.has(name))
-  })
-  return { ...pinned, tools }
 }
 
 /**
@@ -667,20 +625,9 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             .toBe(headers.length)
           for (const [k, header] of headers.entries()) {
             const expected = expectedChanges > 0 ? pinnedHeaders[k] : pinnedHeaders[0]
-            // A child (non-primary) log may omit declared delegation tools —
-            // schema hiding at the depth cap; see Scenario.childToolOmissions.
-            const childOmissions = logIndex === 0 ? [] : scenario.childToolOmissions ?? []
-            const target = childOmissions.length === 0
-              ? expected
-              : applyChildToolOmissions(expected, header, childOmissions)
             expect(header, `session ${log.id}: request/header #${k + 1} diverged from the pinned (${pinningScenario.name}) header`)
-              .toEqual(target)
-            // A child that omitted a declared tool cannot equal the text-level
-            // prompt pin (the prompt embeds the toolset); its header assertion
-            // above remains the structural pin.
-            const omittedDeclaredTool = target !== expected
-              && (target as { tools?: unknown[] }).tools?.length !== (expected as { tools?: unknown[] }).tools?.length
-            if (expectedChanges === 0 && !omittedDeclaredTool) {
+              .toEqual(expected)
+            if (expectedChanges === 0) {
               expect(formatSystemPromptSnapshot(prompts[k] as string), `session ${log.id}: initial system prompt #${k + 1} diverged from ${pinningScenario.name}/${SYSTEM_PROMPT_SNAPSHOT}`)
                 .toEqual(initialPromptSnapshot)
             }

@@ -69,9 +69,8 @@ describe('startInProcessRun', () => {
   })
 
   it('counts a RESUMED child by its persisted header depth, not the absent runtime depth', async () => {
-    // The review-reproduced failure chain: a depth-1 child comes back from
-    // persistence with a fresh AgentOptions (no subagentDepth). Its header must
-    // stay authoritative, or maxDepth: 1 would let it delegate as top-level.
+    // Resume rebuilds runtime options, so the durable header must keep this
+    // depth-1 child from delegating as though it were top-level.
     const { ctx } = await setup([textResponse('unused')])
     const resumed = (await ctx.agents.create({
       sessionId: SessionId('resumed-child'),

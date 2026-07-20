@@ -23,13 +23,9 @@ import { SessionId } from '@deepseek-ai/dsh-session'
  * shipping code path.
  */
 
-/** A minimal parent Agent: the tool reads `agent.id` plus the delegation depth off its header/options. */
-function fakeAgent(id = 'parent-1', delegationDepth?: number): Agent {
-  return {
-    id: SessionId(id),
-    options: {},
-    session: { header: { ...delegationDepth === undefined ? {} : { delegationDepth } } },
-  } as unknown as Agent
+/** A minimal parent Agent passed through to the provider request. */
+function fakeAgent(id = 'parent-1'): Agent {
+  return { id: SessionId(id) } as unknown as Agent
 }
 
 async function setup(toolConfig: tool.Config, mockConfig: Partial<mock.Config> = {}) {
@@ -886,7 +882,7 @@ describe('background preflight failure (no orphaned child, by construction)', ()
   })
 })
 
-describe('depth budget defaults and schema hiding', () => {
+describe('depth budget configuration', () => {
   /** Mount the tool over a request-capturing provider with full capabilities. */
   async function captureSetup(config: Omit<tool.Config, 'provider'> = {}) {
     const requests: SubagentStartRequest[] = []
@@ -916,37 +912,14 @@ describe('depth budget defaults and schema hiding', () => {
     const { ctx, requests } = await captureSetup()
     await callSubagent(ctx, { description: 'd', prompt: 'p' })
     expect(requests[0]?.maxDepth).toBe(3)
-    expect(requests[0]?.toolFilter?.deny ?? []).not.toContain('subagent')
+    expect(requests[0]?.toolFilter).toBeUndefined()
   })
 
-  it('denies its own toolName to a child at the depth cap', async () => {
-    // The child of a depth-0 parent under maxDepth 1 sits AT the cap: any
-    // delegation it attempted would be rejected, so the tool must not appear in
-    // its schema at all (prompt-face hiding; the service still rejects).
-    const { ctx, requests } = await captureSetup({ maxDepth: 1 })
+  it('forwards an explicit tool filter unchanged instead of encoding the depth policy into it', async () => {
+    const { ctx, requests } = await captureSetup({ toolFilter: { deny: ['dangerous'] }, maxDepth: 0 })
     await callSubagent(ctx, { description: 'd', prompt: 'p' })
-    expect(requests[0]?.toolFilter?.deny).toContain('subagent')
-  })
-
-  it('merges the cap denial into a configured tool filter', async () => {
-    const { ctx, requests } = await captureSetup({ toolFilter: { deny: ['dangerous'] }, maxDepth: 1 })
-    await callSubagent(ctx, { description: 'd', prompt: 'p' })
-    expect(requests[0]?.toolFilter?.deny).toEqual(expect.arrayContaining(['dangerous', 'subagent']))
-  })
-
-  it('keeps the tool visible for a child below the cap', async () => {
-    const { ctx, requests } = await captureSetup({ maxDepth: 2 })
-    await callSubagent(ctx, { description: 'd', prompt: 'p' })
-    expect(requests[0]?.maxDepth).toBe(2)
-    expect(requests[0]?.toolFilter?.deny ?? []).not.toContain('subagent')
-  })
-
-  it('counts the parent by its persisted header depth when hiding', async () => {
-    // A resumed depth-1 parent under maxDepth 2: its child is AT the cap and
-    // must lose the tool even though the parent's runtime options carry no depth.
-    const { ctx, requests } = await captureSetup({ maxDepth: 2 })
-    await callSubagent(ctx, { description: 'd', prompt: 'p' }, { agent: fakeAgent('resumed-parent', 1) })
-    expect(requests[0]?.toolFilter?.deny).toContain('subagent')
+    expect(requests[0]?.maxDepth).toBe(0)
+    expect(requests[0]?.toolFilter).toEqual({ deny: ['dangerous'] })
   })
 
   it('rejects a numeric maxDepth on a provider without the depthLimit capability at mount', async () => {
