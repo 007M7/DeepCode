@@ -1,5 +1,6 @@
-# Keyless filesystem snapshots add low spill thresholds and the replay adapter
-# directly because include patches cannot target entries behind a nested include.
+# Keyless filesystem snapshots apply the spill and replay overlays directly
+# because include patches cannot target entries behind a nested include. The
+# sandboxed filesystem stack already lives in the base cordis.yml.
 - id: base
   name: '@cordisjs/plugin-include'
   config:

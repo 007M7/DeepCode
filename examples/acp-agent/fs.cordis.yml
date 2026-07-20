@@ -1,4 +1,6 @@
-# Filesystem snapshots add low spill thresholds to the default filesystem suite.
+# Filesystem-scenario overlay: the sandboxed filesystem stack already lives in
+# the base cordis.yml, so this overlay adds only the local tool-result spill
+# storage those scenarios exercise.
 - id: base
   name: '@cordisjs/plugin-include'
   config:
