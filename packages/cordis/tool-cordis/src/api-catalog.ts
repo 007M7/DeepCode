@@ -812,7 +812,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'commands/change',
     mode: 'emit',
     signature: '\'commands/change\'(): void',
-    jsDoc: '/**\n * A command was registered or unregistered. This is an unfiltered registry\n * notification because a global or scoped change may affect any UI view.\n * @mode emit\n */',
+    jsDoc: '/**\n * A command was registered or unregistered. This is an unfiltered registry\n * notification because a global or scoped change may affect any UI view.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
     summary: 'A command was registered or unregistered.',
   },
   {

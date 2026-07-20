@@ -41,13 +41,15 @@ describe('ACP plugin commands', () => {
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
 
-    expect(commandUpdates(harness, sessionId).at(-1)?.update).toEqual({
-      sessionUpdate: 'available_commands_update',
-      availableCommands: [{
-        name: 'inspect',
-        description: 'Inspect the session',
-        input: { hint: '<target>' },
-      }],
+    await vi.waitFor(() => {
+      expect(commandUpdates(harness!, sessionId).at(-1)?.update).toEqual({
+        sessionUpdate: 'available_commands_update',
+        availableCommands: [{
+          name: 'inspect',
+          description: 'Inspect the session',
+          input: { hint: '<target>' },
+        }],
+      })
     })
 
     const dispose = harness.ctx.commands.register({
@@ -85,6 +87,23 @@ describe('ACP plugin commands', () => {
 
     expect(commandUpdates(harness, sessionId).at(-1)?.update).toMatchObject({
       availableCommands: [{ name: 'loaded', description: 'Loaded command' }],
+    })
+  })
+
+  it('coalesces registry changes before a new session command snapshot is announced', async () => {
+    harness = await makeBridgeHarness({ storageDir })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+
+    harness.ctx.commands.register({
+      name: 'raced', description: 'Registered after the response', handler: () => ({ kind: 'success' }),
+    })
+
+    await vi.waitFor(() => {
+      expect(commandUpdates(harness!, sessionId)).toHaveLength(1)
+      expect(commandUpdates(harness!, sessionId)[0]?.update).toMatchObject({
+        availableCommands: [{ name: 'raced' }],
+      })
     })
   })
 

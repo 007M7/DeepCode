@@ -17,6 +17,7 @@ import {
   PROTOCOL_VERSION,
   RequestError,
   type Agent as AcpAgent,
+  type AnyMessage,
   type AuthenticateRequest,
   type AvailableCommand,
   type CancelNotification,
@@ -91,6 +92,34 @@ function renderThrown(value: unknown): string {
     return String(value)
   } catch {
     return '<unrenderable thrown value>'
+  }
+}
+
+/** Return a server-created session id carried by an outbound success response. */
+function responseSessionId(message: AnyMessage): SessionId | undefined {
+  if (!('result' in message) || typeof message.result !== 'object' || message.result === null
+    || !('sessionId' in message.result) || typeof message.result.sessionId !== 'string') {
+    return undefined
+  }
+  return SessionId(message.result.sessionId)
+}
+
+/** Observe messages only after the wrapped ACP transport has written them. */
+function observeOutbound(stream: Stream, onWritten: (message: AnyMessage) => void): Stream {
+  const writer = stream.writable.getWriter()
+  return {
+    readable: stream.readable,
+    writable: new WritableStream<AnyMessage>({
+      async write(message) {
+        await writer.write(message)
+        onWritten(message)
+      },
+      /* v8 ignore start -- the ACP SDK never closes or aborts its outbound stream;
+         preserve the wrapped Stream contract for other consumers nonetheless */
+      close: () => writer.close(),
+      abort: (reason: unknown) => writer.abort(reason),
+      /* v8 ignore stop */
+    }),
   }
 }
 
@@ -393,6 +422,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
   const sessions = new Map<SessionId, SessionRecord>()
   // Reserve an id before resume so pipelined load/new requests cannot duplicate it.
   const loadingIds = new Set<SessionId>()
+  // A new-session response introduces its server-generated id to the client;
+  // keep its initial command snapshot pending until that response is written.
+  const pendingCommandSnapshots = new Map<SessionId, SessionRecord>()
   // Async creation checks this after awaits to avoid publishing after teardown.
   let closed = false
   // Each new or loaded session snapshots the latest connection capability.
@@ -499,10 +531,23 @@ export function apply(ctx: Context, config: AcpConfig): void {
     })
   }
 
+  /** Enqueue a new session's first command snapshot behind its written RPC response. */
+  const announceInitialCommands = (message: AnyMessage): void => {
+    const sessionId = responseSessionId(message)
+    if (sessionId === undefined) return
+    const rec = pendingCommandSnapshots.get(sessionId)
+    if (rec === undefined) return
+    pendingCommandSnapshots.delete(sessionId)
+    notifyCommands(rec)
+  }
+
   // Registration and HMR removal can affect global or one scoped view; refresh
-  // every bridge-owned session and let the registry resolve each exact agent.
+  // every announced bridge-owned session and let the registry resolve each
+  // exact agent. A pending new-session snapshot will read the latest registry.
   ctx.on('commands/change', () => {
-    for (const rec of sessions.values()) notifyCommands(rec)
+    for (const rec of sessions.values()) {
+      if (!pendingCommandSnapshots.has(rec.agent.session.id)) notifyCommands(rec)
+    }
   })
 
   /** Settle the in-flight prompt with a stop reason, exactly once (no-op if none pending). */
@@ -711,7 +756,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           await handle.dispose()
           throw internalError('connection closed during session/new')
         }
-        sessions.set(sessionId, {
+        const record: SessionRecord = {
           agent: handle.agent,
           dispose: () => handle.dispose(),
           presenter: makePresenter(handle.agent),
@@ -720,8 +765,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
           inflight: undefined,
           commandAbort: undefined,
           pendingSwitches: {},
-        })
-        notifyCommands(requireSession(sessionId))
+        }
+        sessions.set(sessionId, record)
+        pendingCommandSnapshots.set(sessionId, record)
         const configOptions = configOptionsFor(handle.agent, directory)
         return { sessionId, ...configOptions.length > 0 ? { configOptions } : {} }
       },
@@ -998,7 +1044,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     Writable.toWeb(process.stdout) as WritableStream<Uint8Array>,
     Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
   )
-  conn = new AgentSideConnection(makeAgent, stream)
+  conn = new AgentSideConnection(makeAgent, observeOutbound(stream, announceInitialCommands))
 
   /**
    * Tear ALL live sessions down to quiescence (docs/defensive-patterns.md "dispose must reach
@@ -1036,6 +1082,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     // installed yet) must observe this after its await and refuse to install a
     // post-teardown record. Set even when there are no live sessions.
     closed = true
+    pendingCommandSnapshots.clear()
     const recs = [...sessions.values()]
     sessions.clear()
     if (recs.length === 0) return Promise.resolve()

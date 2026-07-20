@@ -1229,6 +1229,7 @@ export function createTuiChat(
     commandControllers.add(controller)
     void ctx.commands.execute(agent, 'tui', text, controller.signal).then(
       (result) => {
+        if (disposed) return
         if (result === undefined) {
           appendNotice(`Unknown command: ${text}`, 'warning')
         } else if (result.text !== undefined && result.text !== '') {
@@ -1342,7 +1343,12 @@ export function createTuiChat(
   } catch (error: unknown) {
     disposed = true
     detachListeners()
-    void commandFiber.dispose()
+    void commandFiber.dispose().catch(
+      /* v8 ignore next 2 -- command registration cleanup is non-throwing; this guards a future disposer regression */
+      (cleanupError: unknown) => {
+        ctx.logger.warn(`ui-tui: command cleanup after startup failure failed: ${renderThrown(cleanupError)}`)
+      },
+    )
     clearStatus()
     disposeUserInteraction()
     ui.stop()
