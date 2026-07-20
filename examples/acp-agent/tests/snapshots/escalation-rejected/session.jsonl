@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"d692fe7f-7079-4ee4-8b06-f44fd026d4ea","createdAt":1783860679475,"cwd":"/var/folders/2g/b32ct0qn1d728l_v6tdkjytr0000gn/T/acp-snap-cwd-Hn29Od"}
+{"type":"session","version":0,"id":"d692fe7f-7079-4ee4-8b06-f44fd026d4ea","createdAt":1783860679475,"cwd":"/var/folders/2g/b32ct0qn1d728l_v6tdkjytr0000gn/T/acp-snap-cwd-Hn29Od","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783860679476,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"permission/preset","seq":1,"time":1783962246267,"data":{"preset":"workspace-write"}}
 {"type":"sandbox/mode","seq":2,"time":1784518117237,"data":{"mode":"workspace-write"}}

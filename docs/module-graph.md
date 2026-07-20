@@ -108,7 +108,6 @@ flowchart TD
     pkg_app_boot["app-boot"]
     pkg_jsonrpc["jsonrpc"]
     pkg_permission["permission"]
-    pkg_stdio["stdio"]
     pkg_tool_ask_user["tool-ask-user"]
     pkg_tui["tui"]
     pkg_user_approval["user-approval"]
@@ -127,7 +126,7 @@ flowchart TD
     pkg_agent_spine_demo["agent-spine-demo"]
     pkg_cli_demo["cli-demo"]
     pkg_jsonrpc_demo["jsonrpc-demo"]
-    pkg_stdio_demo["stdio-demo"]
+    pkg_tui_demo["tui-demo"]
   end
   subgraph group_guard["packages/guard"]
     pkg_repeat_tool_guard["repeat-tool-guard"]
@@ -395,11 +394,6 @@ flowchart TD
   pkg_jsonrpc --> pkg_scope
   pkg_jsonrpc --> pkg_session
   pkg_jsonrpc --> pkg_subagent
-  pkg_stdio --> pkg_agent
-  pkg_stdio --> pkg_agent_loop
-  pkg_stdio --> pkg_llm
-  pkg_stdio --> pkg_session
-  pkg_stdio --> pkg_user_interaction
   pkg_tui --> pkg_agent
   pkg_tui --> pkg_agent_loop
   pkg_tui --> pkg_llm
@@ -449,19 +443,18 @@ flowchart TD
   pkg_cli_demo --> pkg_session_persistence_jsonl
   pkg_cli_demo --> pkg_tools
   pkg_cli_demo --> pkg_workspace_context
-  pkg_stdio_demo --> pkg_agent
-  pkg_stdio_demo --> pkg_agent_loop
-  pkg_stdio_demo --> pkg_agent_spine_demo
-  pkg_stdio_demo --> pkg_app_boot
-  pkg_stdio_demo --> pkg_llm
-  pkg_stdio_demo --> pkg_session
-  pkg_stdio_demo --> pkg_session_persistence_jsonl
-  pkg_stdio_demo --> pkg_stdio
-  pkg_stdio_demo --> pkg_tool_ask_user
-  pkg_stdio_demo --> pkg_tools
-  pkg_stdio_demo --> pkg_tui
-  pkg_stdio_demo --> pkg_user_interaction
-  pkg_stdio_demo --> pkg_workspace_context
+  pkg_tui_demo --> pkg_agent
+  pkg_tui_demo --> pkg_agent_loop
+  pkg_tui_demo --> pkg_agent_spine_demo
+  pkg_tui_demo --> pkg_app_boot
+  pkg_tui_demo --> pkg_llm
+  pkg_tui_demo --> pkg_session
+  pkg_tui_demo --> pkg_session_persistence_jsonl
+  pkg_tui_demo --> pkg_tool_ask_user
+  pkg_tui_demo --> pkg_tools
+  pkg_tui_demo --> pkg_tui
+  pkg_tui_demo --> pkg_user_interaction
+  pkg_tui_demo --> pkg_workspace_context
 ```
 
 | Package | Group | Depends on |
@@ -550,7 +543,6 @@ flowchart TD
 | [`tool-subagent`](../packages/subagent/tool-subagent) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`tasks`](../packages/tasks/tasks), [`tools`](../packages/core/tools) |
 | [`hooks-claude`](../packages/hooks/hooks-claude) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
 | [`jsonrpc`](../packages/ui/jsonrpc) | `ui` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`llm-deepseek`](../packages/llm/llm-deepseek), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
-| [`stdio`](../packages/ui/stdio) | `ui` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`user-interaction`](../packages/ui/user-interaction) |
 | [`tui`](../packages/ui/tui) | `ui` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
 | [`agent-spine-demo`](../packages/examples/agent-spine-demo) | `examples` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`home`](../packages/util/home), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`skill`](../packages/skill/skill), [`skill-local`](../packages/skill/skill-local), [`system-prompt`](../packages/core/system-prompt), [`tasks`](../packages/tasks/tasks), [`tool-bash`](../packages/bash/tool-bash), [`tool-skill`](../packages/skill/tool-skill), [`tool-tasks`](../packages/tasks/tool-tasks), [`tools`](../packages/core/tools), [`workspace-context`](../packages/context/workspace-context) |
 | [`workflow-workerthread`](../packages/workflow/workflow-workerthread) | `workflow` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
@@ -558,4 +550,4 @@ flowchart TD
 | [`subagent-spawn`](../packages/subagent/subagent-spawn) | `subagent` | [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
 | [`acp-demo`](../packages/examples/acp-demo) | `examples` | [`acp`](../packages/ui/acp), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction), [`workspace-context`](../packages/context/workspace-context) |
 | [`cli-demo`](../packages/examples/cli-demo) | `examples` | [`agent`](../packages/core/agent), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tools`](../packages/core/tools), [`workspace-context`](../packages/context/workspace-context) |
-| [`stdio-demo`](../packages/examples/stdio-demo) | `examples` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`stdio`](../packages/ui/stdio), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tools`](../packages/core/tools), [`tui`](../packages/ui/tui), [`user-interaction`](../packages/ui/user-interaction), [`workspace-context`](../packages/context/workspace-context) |
+| [`tui-demo`](../packages/examples/tui-demo) | `examples` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tools`](../packages/core/tools), [`tui`](../packages/ui/tui), [`user-interaction`](../packages/ui/user-interaction), [`workspace-context`](../packages/context/workspace-context) |

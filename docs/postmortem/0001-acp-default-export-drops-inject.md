@@ -24,7 +24,7 @@ The ACP server could not create or load a single session — the two RPCs an edi
 
 ## Root cause #1 — `export default apply` drops the plugin's `inject` (broke `session/new`)
 
-`packages/ui/acp/src/index.ts` is a *namespace plugin*: it exports `name`, `inject`, `Config`, and `apply` as separate named exports — the same shape as every other plugin in the repo (`invariants`, `llm-deepseek`, `tool-bash`, `stdio-chat`, …). But it *also* ended with one extra line no other plugin had:
+`packages/ui/acp/src/index.ts` is a *namespace plugin*: it exports `name`, `inject`, `Config`, and `apply` as separate named exports — the same shape as every other plugin in the repo (`invariants`, `llm-deepseek`, `tool-bash`, `tui`, …). But it *also* ended with one extra line no other plugin had:
 
 ```ts ignore-check
 export const name = 'acp'

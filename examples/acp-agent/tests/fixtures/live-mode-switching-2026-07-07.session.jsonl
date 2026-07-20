@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"ed16a7e7-a76f-459f-b889-d4c424d66ef6","createdAt":1783421406247,"cwd":"/Users/wwl/workspace/deepseek-harness"}
+{"type":"session","version":0,"id":"ed16a7e7-a76f-459f-b889-d4c424d66ef6","createdAt":1783421406247,"cwd":"/Users/wwl/workspace/deepseek-harness","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783421410388,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783421410388,"data":{"content":[{"type":"text","text":"你好"}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1783421410389,"data":{"turn":1,"step":1}}

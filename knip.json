@@ -9,8 +9,9 @@
     },
     "examples": {
       "entry": [
-        "echo-agent/src/*.ts",
         "headless-agent/tests/fixtures/cli-mock-llm.ts",
+        "headless-agent/tests/fixtures/time-context-driver.ts",
+        "headless-agent/tests/fixtures/time-context-mock-llm.ts",
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "*/tests/**/*.e2e.ts",
         "*/tests/**/*.snapshot.ts"
@@ -121,16 +122,12 @@
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
-    "packages/examples/stdio-demo": {
-      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+    "packages/examples/tui-demo": {
+      "entry": ["tests/**/*.spec.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/examples/cli-demo": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"]
-    },
-    "packages/ui/stdio": {
-      "entry": ["tests/**/*.spec.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/ui/tui": {
