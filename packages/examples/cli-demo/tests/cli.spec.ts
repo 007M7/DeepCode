@@ -303,7 +303,7 @@ describe('runOneShot and executeCli', () => {
     expect(output).toEqual({ code: 0, stdout: 'final answer\n', stderr: '' })
     expect(agent.status).toBe('disposed')
     const files = await readdir(persistenceRoot, { recursive: true })
-    expect(files.some(file => file.endsWith('.jsonl'))).toBe(true)
+    expect(files.some(file => file.endsWith('.jsonl.zstd'))).toBe(true)
   })
 
   it('sums usage across tool steps and selects the last text-bearing assistant message', async () => {
