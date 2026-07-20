@@ -47,7 +47,9 @@ import type {
   ContentBlock,
   LlmModelInfo,
   StreamChunk,
+  TokenUsage,
 } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-llm-retry'
 import { SessionId, type Session, type SessionEvent, type TodoItem } from '@deepseek-ai/dsh-session'
 import type {
   FileDiff,
@@ -692,15 +694,38 @@ function formatCwd(cwd: string | undefined): string {
   return displayText(cwd)
 }
 
-function sessionTokens(session: Session): { input: number; output: number } {
-  let input = 0
-  let output = 0
-  for (const event of session.events) {
-    if (event.type !== 'assistant/message' || event.data.usage === undefined) continue
-    input += event.data.usage.inputTokens
-    output += event.data.usage.outputTokens
+interface SessionTokenTotals {
+  input: number
+  output: number
+  readonly byStep: Map<string, TokenUsage>
+}
+
+function recordTokenUsage(totals: SessionTokenTotals, turn: number, step: number, usage: TokenUsage): void {
+  const key = `${turn}:${step}`
+  const previous = totals.byStep.get(key)
+  if (previous !== undefined) {
+    totals.input -= previous.inputTokens
+    totals.output -= previous.outputTokens
   }
-  return { input, output }
+  totals.byStep.set(key, usage)
+  totals.input += usage.inputTokens
+  totals.output += usage.outputTokens
+}
+
+function recordEventUsage(totals: SessionTokenTotals, event: SessionEvent): void {
+  if (event.type === 'assistant/chunk' && event.data.chunk.type === 'usage') {
+    recordTokenUsage(totals, event.data.turn, event.data.step, event.data.chunk.usage)
+  } else if (event.type === 'assistant/message' && event.data.usage !== undefined) {
+    recordTokenUsage(totals, event.data.turn, event.data.step, event.data.usage)
+  }
+}
+
+function sessionTokens(session: Session): SessionTokenTotals {
+  const totals: SessionTokenTotals = { input: 0, output: 0, byStep: new Map() }
+  for (const event of session.events) {
+    recordEventUsage(totals, event)
+  }
+  return totals
 }
 
 class FooterComponent implements Component {
@@ -1189,6 +1214,14 @@ export function createTuiChat(
     return card
   }
 
+  const clearStreaming = (): void => {
+    if (streaming === undefined) return
+    const index = chat.children.indexOf(streaming)
+    /* v8 ignore next -- streaming is assigned only after the same component is added, and every removal clears it. */
+    if (index >= 0) chat.children.splice(index, 1)
+    streaming = undefined
+  }
+
   const renderEvent = (event: SessionEvent, options: { addHistory: boolean; renderChunks: boolean }): void => {
     switch (event.type) {
       case 'user/message': {
@@ -1231,13 +1264,17 @@ export function createTuiChat(
         }
         break
       case 'assistant/message': {
-        if (streaming !== undefined) {
-          const index = chat.children.indexOf(streaming)
-          if (index >= 0) chat.children.splice(index, 1)
-          streaming = undefined
-        }
+        clearStreaming()
         const component = new AssistantMessageComponent(event.data.content, showReasoning, palette, mdTheme)
         if (component.children.length > 0) chat.addChild(component)
+        break
+      }
+      case 'llm/retry': {
+        clearStreaming()
+        appendNotice(
+          `Retrying model request (${event.data.retry}/${event.data.maxRetries}) in ${event.data.delayMs}ms: ${event.data.failure.message}`,
+          'warning',
+        )
         break
       }
       case 'tool/call':
@@ -1260,9 +1297,13 @@ export function createTuiChat(
         todo.update(event.data.todos)
         break
       case 'turn/end':
+        clearStreaming()
         if (event.data.reason.kind === 'error') {
           const key = `${event.data.turn}:${event.data.reason.step}`
-          if (!liveErrors.delete(key)) appendNotice(event.data.reason.message, 'error')
+          const message = 'failure' in event.data.reason
+            ? event.data.reason.failure.message
+            : event.data.reason.message
+          if (!liveErrors.delete(key)) appendNotice(message, 'error')
         } else if (event.data.reason.kind === 'aborted') {
           appendNotice(event.data.reason.reason ?? 'Turn cancelled.', 'warning')
         } else if (event.data.reason.kind === 'max-tokens') {
@@ -1545,10 +1586,7 @@ export function createTuiChat(
 
   const disposeSessionEvents = ctx.on('session/event', (session, event) => {
     if (session !== agent.session) return
-    if (event.type === 'assistant/message' && event.data.usage !== undefined) {
-      tokens.input += event.data.usage.inputTokens
-      tokens.output += event.data.usage.outputTokens
-    }
+    recordEventUsage(tokens, event)
     if ('surfaceOp' in event && typeof event.surfaceOp === 'object') {
       rebuildTranscript(false)
       return

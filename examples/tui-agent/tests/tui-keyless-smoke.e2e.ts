@@ -8,8 +8,7 @@ const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const scriptedConfigPath = fileURLToPath(new URL('./fixtures/tui-scripted.cordis.yml', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
-// The Python PTY driver imports the POSIX-only pty and termios modules.
-describe.skipIf(process.platform === 'win32')('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
+describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
   it('boots pi-tui, renders the configured banner, accepts /exit, and restores the terminal', async () => {
     const output = await runTuiPtySmoke({
       label: 'tui-agent boot',
