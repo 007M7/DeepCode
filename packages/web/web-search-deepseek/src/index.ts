@@ -25,8 +25,6 @@ export {
   DEEPSEEK_DEFAULT_MAX_USES,
   DEEPSEEK_DEFAULT_MODEL,
   DEEPSEEK_PROVIDER_ID,
-  citationSnippets,
-  mapAnthropicResponse,
 } from './provider.ts'
 export type { DeepSeekSearchProviderOptions } from './provider.ts'
 

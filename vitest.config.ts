@@ -7,7 +7,7 @@ export default defineConfig({
   // to source; native resolution would fall through to absent `lib/` outputs.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
   test: {
-    include: ['packages/*/*/tests/**/*.spec.ts', 'examples/*/tests/**/*.spec.ts'],
+    include: ['packages/*/*/tests/**/*.spec.ts', 'examples/*/tests/**/*.spec.ts', 'scripts/**/*.spec.ts'],
     coverage: {
       provider: 'v8',
       // Coverage measures OUR runtime source. Types-only files carry no
@@ -19,8 +19,8 @@ export default defineConfig({
       exclude: ['packages/*/*/src/types.ts', 'packages/*/*/src/bin.ts', 'packages/*/*/src/worker.ts'],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
       // Per-file so a well-covered big file can't subsidize a bare one.
-      // Every v8 ignore comment must carry a reason — see the quality-gates RFC
-      // (docs/rfc/implemented/process/2026-06-11-quality-gates.md).
+      // Every v8 ignore comment must carry a reason — see the quality-gates Agent Note
+      // (.agents/notes/implemented/process/2026-06-11-quality-gates.md).
       thresholds: {
         perFile: true,
         statements: 100,

@@ -4,6 +4,22 @@
  * child before returning its run, so fulfillment is the single publication and
  * ownership-transfer boundary.
  *
+ * Unlike the bash seam (one executor per context, second load throws), MULTIPLE
+ * providers coexist here: each registers under a unique name and a caller picks
+ * one by name. The shape mirrors the LLM adapter registry
+ * (`LlmService.registerAdapter`), not the single-service bash executor.
+ *
+ * This package is the INTERFACE third of the capability seam. Implementations
+ * (`@deepseek-ai/dsh-subagent-spawn`, `-fork`, `-acp`) and the model-facing
+ * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
+ *
+ * Scope: the seam stays collection-agnostic — a run is started and its
+ * `result` awaited, whether the consumer blocks on it (foreground) or
+ * registers it as a `ctx.tasks` background task (the generic runtime owns
+ * ids/polling/stop; this seam gains nothing task-shaped). Steering
+ * ({@link SubagentRun.sendMessage}) is part of the contract but intentionally
+ * unused.
+ *
  * Same-process providers are trusted typed collaborators. Requests, provider
  * descriptors, results, and lifecycle payloads are borrowed immutable values;
  * serialization and hostile-input validation belong at real process, worker,
@@ -12,13 +28,15 @@
  * @module @deepseek-ai/dsh-subagent
  */
 
+import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertSupportedOutputSchema } from '@deepseek-ai/dsh-tools'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {
   SubagentCapabilities,
   SubagentProvider,
@@ -26,7 +44,9 @@ import type {
   SubagentRun,
   SubagentStartRequest,
 } from './types.ts'
+import { SubagentRunId } from './types.ts'
 
+export { SubagentRunId } from './types.ts'
 export type {
   SubagentCapabilities,
   SubagentProvider,
@@ -95,18 +115,26 @@ declare module 'cordis' {
 
 /** Observe-only identifying detail for a ready subagent run. */
 export interface SubagentRunInfo {
+  /** Unique identity shared with the paired terminal event. */
+  readonly runId: SubagentRunId
   /** The provider that established the run. */
   readonly provider: string
   /** The child agent's id. */
-  readonly id: AgentId
+  readonly id: SessionId
+  /** Snapshot of whether `SubagentRun.localAgent` was present when start fulfilled. */
+  readonly local: boolean
 }
 
 /** Observe-only outcome detail for a settled subagent run. */
 export interface SubagentRunEndInfo {
+  /** Unique identity shared with the paired start event. */
+  readonly runId: SubagentRunId
   /** The provider that ran it. */
   readonly provider: string
   /** The child agent's id. */
-  readonly id: AgentId
+  readonly id: SessionId
+  /** Snapshot of whether `SubagentRun.localAgent` was present when start fulfilled. */
+  readonly local: boolean
   /** The terminal stop reason. */
   readonly stopReason: SubagentResult['stopReason']
   /** The child's final assistant output, absent on infrastructure rejection. */
@@ -191,22 +219,28 @@ export class SubagentService extends Service {
 
     const parent = request.parent
     const run = await provider.start(request)
+    const runId = SubagentRunId(randomUUID())
+    const lifecycleIdentity = {
+      runId,
+      provider: name,
+      id: run.id,
+      local: run.localAgent !== undefined,
+    }
     // Attach the terminal observer before dispatching start. Promise reactions
     // still run after this synchronous start emission, preserving start → end.
     void run.result.then(
       (result) => {
         this.emitLifecycle('subagent/end', {
-          provider: name,
-          id: run.id,
+          ...lifecycleIdentity,
           stopReason: result.stopReason,
           lastAssistantMessage: result.output,
         }, parent)
       },
       () => {
-        this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: 'error' }, parent)
+        this.emitLifecycle('subagent/end', { ...lifecycleIdentity, stopReason: 'error' }, parent)
       },
     )
-    this.emitLifecycle('subagent/start', { provider: name, id: run.id }, parent)
+    this.emitLifecycle('subagent/start', lifecycleIdentity, parent)
     return run
   }
 

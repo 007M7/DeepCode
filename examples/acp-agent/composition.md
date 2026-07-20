@@ -18,15 +18,19 @@ flowchart LR
   cfg --> plugin_acp_approval
   plugin_acp_permission["permission<br/>@deepseek-ai/dsh-permission"]
   cfg --> plugin_acp_permission
-  plugin_acp_acp_agent["acp-agent<br/>@deepseek-ai/dsh-acp-agent"]
+  plugin_acp_acp_agent["acp-agent<br/>@deepseek-ai/dsh-acp-demo"]
   cfg --> plugin_acp_acp_agent
-  plugin_acp_acp_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-core"]
+  plugin_acp_acp_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
   plugin_acp_acp_agent --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
   plugin_acp_acp_agent --> frontdoor_acp["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]
   bundle_agent_core --> spine_llm["ctx.llm"]
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]
   bundle_agent_core --> spine_loop["ctx.agents + ctx.agentLoop"]
+  plugin_acp_token_meter["token-meter<br/>@deepseek-ai/dsh-token-meter"]
+  cfg --> plugin_acp_token_meter
+  plugin_acp_compact_basic["compact-basic<br/>@deepseek-ai/dsh-compact-basic"]
+  cfg --> plugin_acp_compact_basic
   plugin_acp_subagent["subagent<br/>@deepseek-ai/dsh-subagent"]
   cfg --> plugin_acp_subagent
   plugin_acp_subagent_spawn["subagent-spawn<br/>@deepseek-ai/dsh-subagent-spawn"]
@@ -58,7 +62,9 @@ flowchart LR
 | `bash` | `@deepseek-ai/dsh-bash-sandbox` |
 | `approval` | `@deepseek-ai/dsh-user-approval` |
 | `permission` | `@deepseek-ai/dsh-permission` |
-| `acp-agent` | `@deepseek-ai/dsh-acp-agent` |
+| `acp-agent` | `@deepseek-ai/dsh-acp-demo` |
+| `token-meter` | `@deepseek-ai/dsh-token-meter` |
+| `compact-basic` | `@deepseek-ai/dsh-compact-basic` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
 | `subagent-fork` | `@deepseek-ai/dsh-subagent-fork` |

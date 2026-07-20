@@ -20,37 +20,69 @@ The tool requires the workspace root from the session `header.cwd`, with no fall
 
 ## Model Experience
 
-### Prompt guidance
+### System prompt
 
-**What the model sees**: One system-prompt section (order 112) positioning LSP as a precision aid, plus the tool schema below.
+#### What the model sees
 
-**Token effect**: Fixed — the verbatim prose below is contributed once per request while the tool is enabled.
+One system-prompt section (order 112) positions LSP as a precision aid with the following text:
 
-#### Verbatim text for this context surface
+##### Verbatim guidance
 
 ```markdown
 Use search/read for ordinary navigation. Use lsp when textual matches are ambiguous or before a change requires precise definitions, implementations, or references. Positions are one-based line and character (UTF-16) at the cursor; an off-symbol position may return no results. references always includes the declaration.
 ```
 
+#### Token effect
+
+Fixed guidance cost on every request while the plugin is active.
+
+#### KV Cache effect
+
+Prefix-stable while the plugin scope and guidance text are unchanged; activation or disposal may invalidate reuse from this section.
+
 ### Tool schema
 
-**What the model sees**: The model sees the generated [`lsp` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-lsp).
+#### What the model sees
 
-**Token effect**: Fixed per request while enabled; the `timeoutMs` budget is never sent to the model.
+The model sees the generated [`lsp` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-lsp).
+
+#### Token effect
+
+Fixed schema cost on every request while enabled; the `timeoutMs` budget is never sent to the model.
+
+#### KV Cache effect
+
+Prefix-stable while the visible tool definition and order are unchanged; registration lifecycle or scoped restrictions may invalidate reuse from the first changed schema token.
 
 ### Results
 
-**What the model sees**: File-grouped `path:line:character` location lines, or normalized hover text; capped by `maxLocations` / `maxHoverChars` with an omission marker when truncated, and distinct `No results.` / `No hover information.` lines for empty results.
+#### What the model sees
 
-**Token effect**: Capped by the two limits above.
+File-grouped `path:line:character` location lines or normalized hover text, capped by `maxLocations` / `maxHoverChars` with an omission marker when truncated, and distinct `No results.` / `No hover information.` lines for empty results.
+
+#### Token effect
+
+Capped per tool result by the two limits above.
+
+#### KV Cache effect
+
+Tool results append after the cached request prefix and do not directly invalidate it.
 
 ### ACP presentation
 
-**What the model sees**: A generic search card — `{ card: 'generic', kind: 'search', title, locations: [{ path, line }] }` — whose args-derived title carries the operation and one-based cursor; follow-along focuses the queried line while the title preserves the column. Rendered by the client, not sent to the model.
+#### What the model sees
 
-**Token effect**: Zero direct token effect (client-side rendering only).
+Nothing. The client renders a generic search card — `{ card: 'generic', kind: 'search', title, locations: [{ path, line }] }` — whose args-derived title carries the operation and one-based cursor; follow-along focuses the queried line while the title preserves the column.
+
+#### Token effect
+
+Zero direct token effect because rendering is client-side only.
+
+#### KV Cache effect
+
+None; ACP presentation is outside the model request.
 
 ## Known Limitations and Deferred Work
 
-- **UTF-16 cursor coordinates** — columns are exact for the protocol but hard for a model to count around non-BMP characters; an off-symbol position may return empty results, so the prompt explains the convention without encouraging broad LSP use ([seam RFC](../../../docs/rfc/implemented/architecture/2026-07-15-lsp-capability-seam.md)).
+- **UTF-16 cursor coordinates** — columns are exact for the protocol but hard for a model to count around non-BMP characters; an off-symbol position may return empty results, so the prompt explains the convention without encouraging broad LSP use ([seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)).
 - **No cross-server completeness promise** — supported servers may return empty or partial results depending on indexing readiness; the tool promises no completeness across languages or servers.

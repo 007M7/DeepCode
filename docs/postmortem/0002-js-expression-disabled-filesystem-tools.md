@@ -4,7 +4,7 @@ Status: resolved
 
 ## Executive summary
 
-The ACP example attempted to enable filesystem plugins conditionally with `disabled: !!js ...`, but Cordis evaluates JavaScript expressions only inside plugin `config`. The raw expression object was truthy, so the filesystem stack was always disabled. Snapshot refresh then accepted `UNKNOWN_TOOL` results as new goldens. The fix uses an explicit filesystem overlay and adds static-config and snapshot-result guards.
+The ACP example attempted to enable filesystem plugins conditionally with `disabled: !!js ...`, but Cordis evaluates JavaScript expressions only inside plugin `config`. The raw expression object was truthy, so the filesystem stack was always disabled. Snapshot refresh then accepted `UNKNOWN_TOOL` results as new expected outputs. The fix uses an explicit filesystem overlay and adds static-config and snapshot-result guards.
 
 ## Summary
 
@@ -22,7 +22,7 @@ The live confined default did not gain unintended filesystem access. A naive int
 
 - PR #261 consolidated ACP compositions and refreshed the filesystem snapshots while introducing conditional filesystem entries.
 - All unit, coverage, snapshot, documentation, build, and hygiene checks passed.
-- Review of the refreshed filesystem goldens found generic failed cards and structured `UNKNOWN_TOOL` results.
+- Review of the refreshed filesystem expected outputs found generic failed cards and structured `UNKNOWN_TOOL` results.
 - A real Loader boot confirmed that every `disabled` value remained an expression object and every filesystem fiber was absent.
 
 ## Root cause
@@ -36,10 +36,10 @@ The snapshot framework treated any deterministic transcript as valid behavior. H
 - Filesystem scenarios boot `fs.cordis.yml`, an explicit fixed full-access overlay with a paired replay config and its own request-header class.
 - [`AGENTS.md`](../../AGENTS.md) and the [Cordis primer](../cordis-primer.md#loader-configuration) state that `!!js` is valid only under plugin `config` and conditional composition uses overlays.
 - `verify-cordis-config` parses repository Cordis YAML and rejects expression nodes in Loader entry metadata, including include patches and inserted entries.
-- `dsh-acp-snapshot` rejects structured `UNKNOWN_TOOL` results in fresh runs and committed session fixtures before they can become accepted goldens.
+- `dsh-acp-snapshot` rejects structured `UNKNOWN_TOOL` results in fresh runs and committed session fixtures before they can be committed as expected outputs.
 
 ## Lessons
 
 - A syntactically accepted configuration value is not necessarily evaluated at that location; document and verify interpolation boundaries.
-- A snapshot refresh is fixture production, not correctness review. Semantic impossibilities such as a missing registered tool need assertions independent of the golden.
+- A snapshot refresh is fixture production, not correctness review. Semantic impossibilities such as a missing registered tool need assertions independent of the expected output.
 - Permission controls must describe only the capabilities they actually govern. Composition-time filesystem access cannot follow a runtime bash-only preset safely.

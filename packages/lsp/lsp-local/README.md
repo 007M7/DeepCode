@@ -44,8 +44,12 @@ The provider trusts its configured server and claims no sandbox confinement. It 
 
 Indirectly, through `dsh-tool-lsp`, which surfaces this provider's normalized results; this host contributes no prompt or schema itself.
 
+#### KV Cache effect
+
+No direct invalidation; `dsh-tool-lsp` owns request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
-- **Trusted host-local only** — no sandbox confinement, no private cache/temp write contract; supporting untrusted binaries or restricted/remote/virtual workspaces requires a later process/filesystem contract and a different provider ([seam RFC](../../../docs/rfc/implemented/architecture/2026-07-15-lsp-capability-seam.md)). Containment resolves `realpath`, then opens the source through one handle with `O_NOFOLLOW` (final-component symlink guard) and a bounded read; a concurrent mutator that swaps an *ancestor* directory for a symlink between the resolve and the open is an accepted residual TOCTOU under this trusted-deployment model, not closed with non-portable `openat` segment walks.
+- **Trusted host-local only** — no sandbox confinement, no private cache/temp write contract; supporting untrusted binaries or restricted/remote/virtual workspaces requires a later process/filesystem contract and a different provider ([seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)). Containment resolves `realpath`, then opens the source through one handle with `O_NOFOLLOW` (final-component symlink guard) and a bounded read; a concurrent mutator that swaps an *ancestor* directory for a symlink between the resolve and the open is an accepted residual TOCTOU under this trusted-deployment model, not closed with non-portable `openat` segment walks.
 - **Transient-open compatibility floor** — servers whose synchronization omits open/close (or advertise `None`) are unsupported even if closed-document queries would work; the pinned TypeScript e2e establishes one compatibility floor, not a cross-language claim.
 - **Per-server/workspace serialization latency** — parallel agents sharing one server and workspace queue behind one process; long-lived workspace processes consume memory until disposal.

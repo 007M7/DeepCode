@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**DeepSeek Harness SDK** 是用于构建 agent harness 的 SDK，采取基于插件的设计。
+**DeepSeek Harness SDK** 是用于构建 agent harness（智能体框架）的 SDK，采取基于插件的设计。
 
 ## 开发
 
@@ -11,7 +11,11 @@
 ```sh
 pnpm install
 pnpm run test          # vitest
-pnpm run demo:repl     # REPL agent demo (needs DEEPSEEK_API_KEY)
+pnpm run demo:echo     # keyless mock-model REPL
+pnpm run demo:repl     # readline coding agent (needs DEEPSEEK_API_KEY)
+pnpm run demo:tui      # full-screen TUI coding agent (needs DEEPSEEK_API_KEY)
+pnpm run demo:headless -- "task" # one-shot coding agent (needs DEEPSEEK_API_KEY)
+pnpm run demo:cordis   # self-referential agent demo (needs DEEPSEEK_API_KEY)
 pnpm run demo:acp      # ACP server agent demo (needs DEEPSEEK_API_KEY)
 ```
 

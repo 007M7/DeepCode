@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-以子进程方式驱动 DeepSeek Harness 的 Python 包：客户端 SDK spawn `dsh-jsonrpc-agent` 二进制，并通过 stdio 上按行分隔的 JSON-RPC 与之通信。运行时载体是本仓库产出的单文件可执行文件；设计、构建与验收细节见 [docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md](../docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md)。
+以子进程方式驱动 DeepSeek Harness 的 Python 包：客户端 SDK spawn `dsh-jsonrpc-agent` 二进制，并通过 stdio 上按行分隔的 JSON-RPC 与之通信。运行时载体是本仓库产出的单文件可执行文件；设计、构建与验收细节见 [.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md](../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md)。
 
 ## 包
 
@@ -45,8 +45,8 @@ with DeepSeekHarness() as harness:
 
 两种方式，均面向仓库成员：
 
-- **已构建的 `node` 载体**——设置 `DSH_RUNTIME_MODE=node`，SDK 会用系统 Node（>= 22.19）运行 `runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-agent/lib/bin.js`。这棵树每次运行构建脚本都会刷新，与 exe 打入 pkg 虚拟文件系统（VFS）的是同一份依赖闭包，因此插件语义一致。它不会被自动选中，也不进入分发物。
-- **未构建的源码（tsx）**——把客户端直接指向 `bin` 的 TypeScript 源码，用于编辑、运行和调试：`launch_args_override=("./node_modules/.bin/tsx", "packages/ui/jsonrpc-agent/src/bin.ts")`，`cwd` 设为仓库根，再通过 `cordis=...` 传入配置（或使用默认配置注入）。[sdk/tests/manual_sdk_agent_smoke.py](sdk/tests/manual_sdk_agent_smoke.py) 是现成范例。
+- **已构建的 `node` 载体**——设置 `DSH_RUNTIME_MODE=node`，SDK 会用系统 Node（>= 22.19）运行 `runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-demo/lib/bin.js`。这棵树每次运行构建脚本都会刷新，与 exe 打入 pkg 虚拟文件系统（VFS）的是同一份依赖闭包，因此插件语义一致。它不会被自动选中，也不进入分发物。
+- **未构建的源码（tsx）**——把客户端直接指向 `bin` 的 TypeScript 源码，用于编辑、运行和调试：`launch_args_override=("./node_modules/.bin/tsx", "packages/examples/jsonrpc-demo/src/bin.ts")`，`cwd` 设为仓库根，再通过 `cordis=...` 传入配置（或使用默认配置注入）。[sdk/tests/manual_sdk_agent_smoke.py](sdk/tests/manual_sdk_agent_smoke.py) 是现成范例。
 
 ## 分发 Python 包
 

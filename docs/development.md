@@ -2,11 +2,11 @@
 
 English | [中文](development.zh.md)
 
-This onboarding guide helps project contributors get started with the local environment, daily workflow, and CI flow; see the RFCs for design rationale and technical trade-offs.
+This onboarding guide helps project contributors get started with the local environment, daily workflow, and CI flow; see the Agent Notes for design rationale and technical trade-offs.
 
 ## Prerequisites
 
-- Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor RFC](rfc/implemented/process/2026-07-06-node-engine-floor.md).
+- Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md).
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git.
 - Optional: a DeepSeek API key for the REPL/ACP agent demos and real-API e2e tests.
@@ -19,7 +19,7 @@ Install dependencies from the repo root:
 pnpm install
 ```
 
-The install also runs the root `postinstall` script, which installs lefthook from the repo dev dependency through `scripts/install-lefthook.mjs`; the wrapper uses lefthook's reviewed `--force` mode so linked worktrees with an existing `core.hooksPath` do not fail normal `pnpm run …` commands.
+The install also runs the root `postinstall` script, which installs lefthook from the repo dev dependency through `scripts/install-lefthook.mjs`; the wrapper script uses lefthook's reviewed `--force` mode so linked worktrees with an existing `core.hooksPath` do not fail normal `pnpm run …` commands.
 
 If hooks are missing because dependencies were restored from cache or `postinstall` was skipped, install them manually:
 
@@ -59,7 +59,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 lefthook is configured in `lefthook.yml` as an early local checkpoint before review:
 
 - `pre-commit` runs staged-file ESLint fixes, `pnpm run typecheck`, and the vendor manifest guard.
-- `pre-push` runs `pnpm run check:pre-push`, whose scheduler runs unit tests, snapshot tests, build, module-graph freshness, and the member gates of `pnpm run hygiene` and `pnpm run doc-sync` concurrently.
+- `pre-push` runs `pnpm run check:pre-push`, whose scheduler runs runtime-closure verification, unit tests, duplication detection, snapshot tests, build, module-graph freshness, and the member gates of `pnpm run hygiene` and `pnpm run doc-sync` concurrently.
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
@@ -86,7 +86,6 @@ pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
 pnpm run verify-export-jsdoc    # fail if a module-level package export lacks complete JSDoc
 pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
 pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
-pnpm run gen-rfc-index          # regenerate the docs/rfc/README.md index tables from the RFC tree
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
 pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
@@ -109,10 +108,22 @@ The echo demo does not need API credentials:
 pnpm run demo:echo
 ```
 
-The REPL agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
+The repl-agent demo uses the line-oriented readline front door and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
 pnpm run demo:repl
+```
+
+The full-screen TUI reuses the repl-agent composition through the pi-tui front door and needs the same credentials:
+
+```sh
+pnpm run demo:tui
+```
+
+The self-referential cordis-agent demo can inspect and modify its live plugin runtime and needs the same credentials:
+
+```sh
+pnpm run demo:cordis
 ```
 
 The ACP server agent demo exposes the agent over JSON-RPC stdio and also needs `DEEPSEEK_API_KEY`:
@@ -133,13 +144,13 @@ Pick the tag that matches the urgency so anyone scanning the code can tell a rel
 
 ## Documenting types verbatim (`ts type-equiv`)
 
-The [core data structures](core-data-structures/core.md) docs paste real type definitions so a reader sees the exact shape. To keep a paste from drifting when source changes, fence it as ` ```ts type-equiv ` (instead of ` ```ts `) and register it in `scripts/type-equiv.manifest.json` with the source file and symbol it mirrors:
+The [core data structures](core-data-structures/core.md) docs paste source-equivalent declarations together with their original JSDoc so a reader sees the exact shape and source contract. To keep a paste from drifting when source changes, fence it as ` ```ts type-equiv ` (instead of ` ```ts `) and register it in `scripts/type-equiv.manifest.json` with the source file and symbol it mirrors:
 
 ```json
 { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" }
 ```
 
-`pnpm run verify-type-equiv` (part of `doc-sync`) then extracts that symbol's declaration from source via the TypeScript parser and asserts the block matches it (whitespace- and comment-insensitive, so a doc block may show a clean definition and the prose can carry the semantics). It also enforces a 1:1 correspondence: every `ts type-equiv` block has exactly one manifest entry and vice-versa, so a block can't go silently unchecked and a stale entry can't linger. `doc-typecheck` skips `ts type-equiv` blocks (they aren't standalone-compilable) and excludes them from its opt-out ratio. When you change a documented type, the gate fails until you update the paste; when you add or remove a block, update the manifest in the same change.
+`pnpm run verify-type-equiv` (part of `doc-sync`) then extracts that symbol's declaration and attached JSDoc from source via the TypeScript parser and asserts the block matches both. For a class whose implementation bodies do not belong in the catalog, use ` ```ts public-api ` and set `"projection": "public-api"`; the checked projection retains the public fields, constructor, accessors, methods, and original class/member JSDoc while omitting bodies and private or protected members. Comparison ignores whitespace and non-JSDoc comments but requires every original JSDoc comment, including member documentation, so readers see the source contract beside the exact shape. The gate also enforces a 1:1 correspondence by document, symbol, and projection, so a block can't go silently unchecked and a stale entry can't linger. `doc-typecheck` skips both fence kinds (they aren't standalone-compilable) and excludes them from its opt-out ratio. When you change a documented declaration or its JSDoc, the gate fails until you update the paste; when you add or remove a block, update the manifest in the same change.
 
 ## Architecture context
 

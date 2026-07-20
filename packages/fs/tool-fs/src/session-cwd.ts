@@ -18,3 +18,16 @@ import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 export function sessionCwd(exec: ToolExecution): string | undefined {
   return exec.agent?.session.header.cwd
 }
+
+/**
+ * Resolution options shared by all model-facing filesystem tools.
+ * @param exec - the tool-execution context supplying session cwd and cancellation.
+ * @returns provider resolution options for the current tool call.
+ */
+export function sessionResolveOptions(exec: ToolExecution): { cwd?: string; signal?: AbortSignal } {
+  const cwd = sessionCwd(exec)
+  return {
+    ...cwd !== undefined ? { cwd } : {},
+    ...exec.signal !== undefined ? { signal: exec.signal } : {},
+  }
+}

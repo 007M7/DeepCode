@@ -14,6 +14,16 @@ const MESSAGE_PREFIX = '{{messagePrefix}}'
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+const LOCAL_SPILL_PATH_RE = new RegExp(
+  String.raw`\{\{cwd\}\}/\.spill/session-[0-9a-f]{12}/[0-9a-f]{12}-([A-Za-z0-9._~-]+?)`
+  + String.raw`(?=\. Use read with offset/limit|[\s)]|$)`,
+  'g',
+)
+const SNAPSHOT_SPILL_PATH_RE = new RegExp(
+  String.raw`/tmp/dsh-acp-snapshot-spill/session-[0-9a-f]{12}/[0-9a-f]{12}-([A-Za-z0-9._~-]+?)`
+  + String.raw`(?=\. Use read with offset/limit|[\s)]|$)`,
+  'g',
+)
 
 /** Inputs the normalizers need to recognize a run's volatile values. */
 export interface NormalizeContext {
@@ -29,6 +39,9 @@ function scrubString(value: string, ctx: NormalizeContext): string {
   // cwd first (longest, most specific), then explicit session ids, then any
   // residual UUID (covers ids that appear in places we didn't enumerate).
   out = out.split(ctx.cwd).join(CWD)
+  out = out.split(`/private${CWD}`).join(CWD)
+  out = out.replace(LOCAL_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
+  out = out.replace(SNAPSHOT_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
   for (const id of ctx.sessionIds) out = out.split(id).join(SESSION_ID)
   out = out.replace(UUID_RE, SESSION_ID)
   return out
@@ -47,7 +60,7 @@ function scrubValue(value: unknown, ctx: NormalizeContext): unknown {
 }
 
 /**
- * Normalize a raw stdout transcript (newline-delimited JSON-RPC frames) into a stable golden
+ * Normalize a raw stdout transcript (newline-delimited JSON-RPC frames) into a stable expected output
  * in the same shape as the wire: one compact JSON frame per line (NDJSON), with the JSON-RPC
  * `id` rewritten to a per-transcript sequence (1, 2, 3, …) and all volatile strings scrubbed.
  * Invalid JSON throws, doubling as a protocol-stdout purity check.
@@ -59,7 +72,7 @@ function scrubValue(value: unknown, ctx: NormalizeContext): unknown {
 export function normalizeStdout(rawStdout: string, ctx: NormalizeContext): string {
   const lines = rawStdout.split('\n').filter(line => line.trim().length > 0)
   // Map each distinct JSON-RPC id (request/response correlate by id) to a stable
-  // sequence number, in first-seen order, so id churn doesn't perturb the golden.
+  // sequence number, in first-seen order, so id churn doesn't perturb the expected output.
   const idSeq = new Map<string, number>()
   const stableId = (id: unknown): number => {
     const key = JSON.stringify(id)
@@ -78,7 +91,7 @@ export function normalizeStdout(rawStdout: string, ctx: NormalizeContext): strin
 }
 
 /**
- * Normalize a session JSONL log into a stable golden: the header line's
+ * Normalize a session JSONL log into a stable expected output: the header line's
  * volatile fields (`createdAt`, `id`, `cwd`) and every event's `time` are
  * zeroed/scrubbed, all volatile strings scrubbed, and `seq` is LEFT INTACT
  * (deterministic by contract). Output is JSONL in the same shape as the input —
@@ -99,7 +112,7 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
       // Event line: zero the epoch-ms timestamp; keep seq (deterministic).
       record.time = 0
       // A hook/result carries the hook's wall-clock runtime (`data.durationMs`),
-      // which is run-to-run noise like `time` — zero it so the golden reflects
+      // which is run-to-run noise like `time` — zero it so the expected output reflects
       // the hook's decision/exit, not how long the shell took.
       if (record.type === 'hook/result' && record.data !== null && typeof record.data === 'object') {
         const data = record.data as Record<string, unknown>
@@ -112,8 +125,8 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
 }
 
 /**
- * Replace system-prompt content in request headers and header deltas with
- * `{{system}}` tokens while retaining field presence and delta structure.
+ * Replace system-prompt content in request headers with `{{system}}` tokens
+ * while retaining field presence.
  * Other header content stays verbatim, so a header-pinning fixture can keep
  * its complete tool schemas while every JSONL fixture omits the prompt text.
  * Lines without a system payload pass through byte-for-byte; the transform is
@@ -127,11 +140,11 @@ export function scrubSystemPrompts(rawLog: string): string {
 }
 
 /**
- * Replace tool schemas in request headers and header deltas with `{{tools}}`
- * tokens while retaining field presence, tool names, and delta structure.
- * System prompts and session-prefix messages stay verbatim so pinning fixtures
- * can move only schema bulk into their dedicated JSON sidecar. Lines without a
- * tool payload pass through byte-for-byte; the transform is idempotent.
+ * Replace tool schemas in full request-header snapshots with `{{tools}}`
+ * tokens while retaining field presence. System prompts and session-prefix
+ * messages stay verbatim so pinning fixtures can move only schema bulk into
+ * their dedicated JSON sidecar. Lines without a tool payload pass through
+ * byte-for-byte; the transform is idempotent.
  *
  * @param rawLog The raw session `.jsonl` content.
  * @returns The JSONL with tool-schema content tokenized.
@@ -144,9 +157,9 @@ export function scrubToolSchemas(rawLog: string): string {
  * Replace all bulky request-header content in a session JSONL with stable
  * tokens. This includes the system-prompt fields handled by
  * {@link scrubSystemPrompts}, tool schemas, and session-prefix messages. It
- * keeps system-delta line positions and arity, tool-delta names, prefix
- * message counts, field presence, config, and reason. Lines without content
- * to scrub pass through byte-for-byte, and the transform is idempotent.
+ * keeps prefix message counts, field presence, config, and reason. Lines
+ * without content to scrub pass through byte-for-byte, and the transform is
+ * idempotent.
  *
  * @param rawLog The raw session `.jsonl` content.
  * @returns The JSONL with all header bulk tokenized, other lines byte-identical.
@@ -182,33 +195,7 @@ function scrubHeaderContent(rawLog: string, options: HeaderScrubOptions): string
       }
       return touched ? JSON.stringify(record) : line
     }
-    if (record.type === 'request/header-delta') {
-      let touched = false
-      const system = data.system as Record<string, unknown> | null | undefined
-      if (options.system === true && system !== null && typeof system === 'object' && Array.isArray(system.insert)) {
-        system.insert = system.insert.map(() => SYSTEM)
-        touched = true
-      }
-      const tools = data.tools as Record<string, unknown> | null | undefined
-      if (options.tools === true && tools !== null && typeof tools === 'object') {
-        if (Array.isArray(tools.added)) { tools.added = tools.added.map(scrubToolSchema); touched = true }
-        if (Array.isArray(tools.changed)) { tools.changed = tools.changed.map(scrubToolSchema); touched = true }
-      }
-      if (options.prefix === true && Array.isArray(data.messagePrefix)) {
-        data.messagePrefix = data.messagePrefix.map(() => MESSAGE_PREFIX)
-        touched = true
-      }
-      return touched ? JSON.stringify(record) : line
-    }
     return line
   })
   return out.join('\n')
-}
-
-/** Tokenize one tool schema's bulk (description, parameters, anything else), keeping its identifying `name`. */
-function scrubToolSchema(tool: unknown): unknown {
-  if (tool === null || typeof tool !== 'object' || Array.isArray(tool)) return tool
-  const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(tool)) out[k] = k === 'name' ? v : TOOLS
-  return out
 }

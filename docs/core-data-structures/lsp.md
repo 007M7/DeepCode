@@ -1,6 +1,6 @@
 # LSP navigation
 
-The LSP seam — a [capability seam](../rfc/implemented/architecture/2026-07-15-lsp-capability-seam.md) exposing semantic code navigation on one `ctx.lsp` service, split across packages: interface ([dsh-lsp](../../packages/lsp/lsp), `ctx.lsp` + the provider registry), a generic implementation ([dsh-lsp-local](../../packages/lsp/lsp-local), a configured stdio language-server host), and consumer ([dsh-tool-lsp](../../packages/lsp/tool-lsp), the `lsp` tool schema). LSP is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A provider swap does not change how the model asks for navigation.
+The LSP seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md) exposing semantic code navigation on one `ctx.lsp` service, split across packages: interface ([dsh-lsp](../../packages/lsp/lsp), `ctx.lsp` + the provider registry), a generic implementation ([dsh-lsp-local](../../packages/lsp/lsp-local), a configured stdio language-server host), and consumer ([dsh-tool-lsp](../../packages/lsp/tool-lsp), the `lsp` tool schema). LSP is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A provider swap does not change how the model asks for navigation.
 
 Source: [`packages/lsp/lsp/src/types.ts`](../../packages/lsp/lsp/src/types.ts)
 
@@ -9,10 +9,16 @@ Source: [`packages/lsp/lsp/src/types.ts`](../../packages/lsp/lsp/src/types.ts)
 The seam and model expose exactly four semantic queries; the union is closed, so adding one is a compile-enforced change across the seam, providers, and the tool. Positions and ranges are zero-based UTF-16, matching the protocol; the model-facing tool owns the one-based cursor convention and converts on the way in and out.
 
 ```ts type-equiv
+/**
+ * The four semantic queries the seam and model expose. A closed union: adding an operation is a
+ * compile-enforced change across the seam, providers, and the tool. Symbols and call hierarchy are
+ * deliberately deferred (they need different schemas).
+ */
 type LspOperation = 'definition' | 'references' | 'implementation' | 'hover'
 ```
 
 ```ts type-equiv
+/** A zero-based UTF-16 cursor coordinate, matching the LSP wire convention. */
 interface LspPosition {
   /** Zero-based line. */
   readonly line: number
@@ -22,6 +28,7 @@ interface LspPosition {
 ```
 
 ```ts type-equiv
+/** A zero-based UTF-16 half-open range `[start, end)`. */
 interface LspRange {
   readonly start: LspPosition
   readonly end: LspPosition
@@ -33,6 +40,11 @@ interface LspRange {
 Every field is required: `workspaceRoot` is caller-supplied, `languageId` comes from the provider's registration (not the request), and consumers own timeouts and result limits — so no field needs implementation defaulting and there is no `resolve()` step. The provider receives the caller's request plus the derived `languageId`, which only synchronizes the transient document and never participates in selection.
 
 ```ts type-equiv
+/**
+ * A caller's normalized query. Every field is required: `workspaceRoot` is caller-supplied,
+ * `languageId` comes from the provider registration (not here), and consumers own timeouts and
+ * result limits — so no field needs implementation defaulting and there is no `resolve()` step.
+ */
 interface LspQueryRequest {
   /** Which semantic query to run. */
   readonly operation: LspOperation
@@ -46,6 +58,11 @@ interface LspQueryRequest {
 ```
 
 ```ts type-equiv
+/**
+ * A request as a provider receives it: the caller's {@link LspQueryRequest} plus the `languageId`
+ * the seam derived from the provider's extension mapping. The language id only synchronizes the
+ * transient document; it does not participate in selection.
+ */
 interface LspProviderQuery extends LspQueryRequest {
   /** The LSP language id for `filePath`, from this provider's extension mapping. */
   readonly languageId: string
@@ -57,6 +74,7 @@ interface LspProviderQuery extends LspQueryRequest {
 A CLOSED discriminated union: navigation operations normalize to `locations`, `hover` to content or `null`. Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled. `references` always includes declarations — the provider enforces this internally, so callers get no flag. The `locations` variant carries `resolvedWorkspaceRoot`: the provider's canonical form of the request's `workspaceRoot` and the root its `file:` URIs are relative to, so a caller relativizing display paths uses it rather than the possibly-symlinked request root.
 
 ```ts type-equiv
+/** One resolved location: a document URI and the range within it. */
 interface LspLocation {
   /** The target document URI (`file:` or otherwise), verbatim from the server. */
   readonly uri: string
@@ -66,6 +84,7 @@ interface LspLocation {
 ```
 
 ```ts type-equiv
+/** Normalized hover content, or `null` for no hover at the position. */
 interface LspHover {
   /** The normalized hover text (markdown or plaintext, provider-joined). */
   readonly contents: string
@@ -75,6 +94,16 @@ interface LspHover {
 ```
 
 ```ts type-equiv
+/**
+ * The closed result union. Navigation operations (`definition`, `references`, `implementation`)
+ * normalize to `locations`; `hover` normalizes to content or `null`. Consumers `switch` on `kind`
+ * to exhaustiveness so a new arm breaks compilation until handled.
+ *
+ * The `locations` variant carries `resolvedWorkspaceRoot`: the provider's canonical form of the
+ * request's `workspaceRoot`, and the root its `file:` location URIs are relative to. A caller that
+ * relativizes display paths MUST use this, not the request's (possibly symlinked) `workspaceRoot`;
+ * otherwise a symlinked workspace misclassifies in-workspace results as external.
+ */
 type LspQueryResult =
   | { readonly kind: 'locations'; readonly locations: readonly LspLocation[]; readonly resolvedWorkspaceRoot: string }
   | { readonly kind: 'hover'; readonly hover: LspHover | null }
@@ -85,6 +114,11 @@ type LspQueryResult =
 A provider owns a stable branded `id` and an exclusive lowercase leading-dot extension map. `registerProvider` reserves the id and every extension atomically — an invalid or conflicting registration publishes nothing — and its disposer releases all reservations. Selection is per query and order-independent; no match throws `LspError` `LSP_UNAVAILABLE`. The seam exposes no protocol types, process/document controls, or generic JSON-RPC escape hatch.
 
 ```ts type-equiv
+/**
+ * A language-server backend registered on `ctx.lsp`. Each provider owns a stable {@link
+ * LspProviderId} and an extension-to-language-id map (lowercase, leading-dot keys). `references`
+ * always includes declarations — the provider enforces this internally; callers get no flag.
+ */
 interface LspProvider {
   /** Stable provider identity, reserved atomically with the extension mappings. */
   readonly id: LspProviderId
@@ -101,6 +135,10 @@ interface LspProvider {
 ```
 
 ```ts type-equiv
+/**
+ * The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query
+ * execution; exposes exactly the four operations and no protocol escape hatch.
+ */
 interface LspService {
   /**
    * Register a provider, atomically reserving its id and every normalized extension. Any conflict
