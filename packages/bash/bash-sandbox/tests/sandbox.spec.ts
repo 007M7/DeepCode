@@ -12,7 +12,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
 import { SANDBOX_UNAVAILABLE, SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
-import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import type { ConfinedArgv, SandboxMode, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 import { classifyDenial, classifyRunnerFailure, shellQuote } from '../src/helpers.ts'
 import type { Config } from '@deepseek-ai/dsh-bash-sandbox'
@@ -39,7 +40,11 @@ const passthrough = (argv: readonly string[]): ConfinedArgv =>
  * Boot a context with a recording fake `ctx.sandbox` (behavior injectable
  * per test) and the executor under test on top of it.
  */
-async function setup(config: Config = {}, behavior: (argv: readonly string[], policy: SandboxPolicy) => ConfinedArgv = passthrough) {
+async function setup(
+  config: { mode?: SandboxMode; workspaceRoot?: string } & Config = {},
+  behavior: (argv: readonly string[], policy: SandboxPolicy) => ConfinedArgv = passthrough,
+) {
+  const { mode, workspaceRoot, ...execConfig } = config
   const calls: ConfineCall[] = []
   class FakeSandboxProvider extends SandboxProvider {
     confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
@@ -49,7 +54,11 @@ async function setup(config: Config = {}, behavior: (argv: readonly string[], po
   }
   const ctx = new Context()
   await ctx.plugin(FakeSandboxProvider)
-  await ctx.plugin(SandboxBashExecutor, { graceMs: 200, ...config })
+  await ctx.plugin(SandboxPolicyService, {
+    ...mode !== undefined ? { mode } : {},
+    ...workspaceRoot !== undefined ? { workspaceRoot } : {},
+  })
+  await ctx.plugin(SandboxBashExecutor, { graceMs: 200, ...execConfig })
   const bash = ctx.bash as SandboxBashExecutor
   bash.internals = { spillDir }
   return { ctx, bash, calls }
@@ -84,14 +93,14 @@ describe('the provider hand-off', () => {
     expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
   })
 
-  it('workspace-write rides the policy, workspaceRoot falling back to cwd when not configured', async () => {
-    const { bash, calls } = await setup({ mode: 'workspace-write', cwd: tmpdir() })
+  it('workspace-write rides the policy, workspaceRoot falling back to process.cwd() when not configured', async () => {
+    const { bash, calls } = await setup({ mode: 'workspace-write' })
     const result = await bash.run(bash.resolve({ command: 'true' }))
     expect(result.sandbox).toEqual({ mode: 'workspace-write', denied: false, enforcement: 'full' })
-    expect(calls[0]?.policy).toEqual({ mode: 'workspace-write', workspaceRoot: resolve(tmpdir()) })
+    expect(calls[0]?.policy).toEqual({ mode: 'workspace-write', workspaceRoot: resolve(process.cwd()) })
   })
 
-  it('an explicit workspaceRoot wins over cwd', async () => {
+  it('an explicit workspaceRoot on the policy wins', async () => {
     const { calls, bash } = await setup({ mode: 'workspace-write', workspaceRoot: '/ws', cwd: tmpdir() })
     await bash.run(bash.resolve({ command: 'true' }))
     expect(calls[0]?.policy.workspaceRoot).toBe(resolve('/ws'))
