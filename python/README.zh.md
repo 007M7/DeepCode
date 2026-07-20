@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-以子进程方式驱动 DeepSeek Harness 的 Python 包：客户端 SDK spawn `dsh-jsonrpc-agent` 二进制，并通过 stdio 上按行分隔的 JSON-RPC 与之通信。运行时载体是本仓库产出的单文件可执行文件；设计、构建与验收细节见 [docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md](../docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md)。
+以子进程方式驱动 DeepSeek Harness 的 Python 包：客户端 SDK spawn `dsh-jsonrpc-agent` 二进制，并通过 stdio 上按行分隔的 JSON-RPC 与之通信。运行时载体是本仓库产出的单文件可执行文件；设计、构建与验收细节见 [.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md](../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md)。
 
 ## 包
 

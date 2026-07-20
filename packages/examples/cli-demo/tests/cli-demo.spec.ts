@@ -146,6 +146,21 @@ describe('dsh-cli-demo app composition', () => {
     expect(wait).toHaveBeenCalledWith(id, 7, undefined, undefined)
   })
 
+  it('accepts false to keep task services without model-facing task controls', async () => {
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      skills: { enabled: false },
+      toolTasks: false,
+      workspaceContext: false,
+    })
+
+    expect(ctx.get('tasks')).toBeDefined()
+    expect(ctx.get('tools')?.get('task_output')).toBeUndefined()
+    expect(ctx.get('tools')?.get('task_list')).toBeUndefined()
+    expect(ctx.get('tools')?.get('task_kill')).toBeUndefined()
+  })
+
   it('exposes the Loader-safe namespace plugin shape and schema', () => {
     expect(cliDemo.name).toBe('cli-demo')
     expect(cliDemo.Config).toBeDefined()

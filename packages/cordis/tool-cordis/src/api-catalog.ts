@@ -750,7 +750,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'llm/stream',
     mode: 'waterfall',
     signature: '\'llm/stream\'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>',
-    jsDoc: '/**\n * Waterfall around every streaming model call (retry, replay, routing).\n * Bound to the {@link LlmService}; call `next()` to reach the resolved\n * adapter\'s stream, or yield your own chunks to short-circuit.\n * @param options - the full request. A LOOP-built request arrives\n *   deep-frozen (mutation throws): its content is a pure function of the\n *   session log (the reconstructability RFC), so listeners read it, never\n *   rewrite it. A hand-built one-shot (compaction summarize) is the\n *   caller\'s own object and stays mutable here.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Waterfall around every streaming model call (retry, replay, routing).\n * Bound to the {@link LlmService}; call `next()` to reach the resolved\n * adapter\'s stream, or yield your own chunks to short-circuit.\n * @param options - the full request. A LOOP-built request arrives\n *   deep-frozen (mutation throws): its content is a pure function of the\n *   session log (the reconstructability Agent Note), so listeners read it, never\n *   rewrite it. A hand-built one-shot (compaction summarize) is the\n *   caller\'s own object and stays mutable here.\n * @mode waterfall\n */',
     summary: 'Waterfall around every streaming model call (retry, replay, routing).',
   },
   {

@@ -2,7 +2,7 @@
 
 The subagent seam — an agent delegating work to a child agent. Like [bash](bash.md) it is **one optional capability**, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md). But it differs from every other seam on one axis: **multiple provider implementations coexist** in one context, registered by name (`ctx.subagents`), where bash allows only one executor. The registry shape mirrors the [LLM adapter registry](llm-streaming.md), not the single-service bash executor.
 
-Interface: [dsh-subagent](../../packages/subagent/subagent) (`ctx.subagents` + the vocabulary below). Implementations are sibling packages (`dsh-subagent-spawn`, `-fork`, `-acp`); the model-facing consumer is [dsh-tool-subagent](../../packages/subagent/tool-subagent). The proposal and rationale: [the subagent RFC](../rfc/implemented/feature/2026-06-21-subagent-capability-seam.md).
+Interface: [dsh-subagent](../../packages/subagent/subagent) (`ctx.subagents` + the vocabulary below). Implementations are sibling packages (`dsh-subagent-spawn`, `-fork`, `-acp`); the model-facing consumer is [dsh-tool-subagent](../../packages/subagent/tool-subagent). The proposal and rationale: [the subagent Agent Note](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md).
 
 Source: [`packages/subagent/subagent/src/types.ts`](../../packages/subagent/subagent/src/types.ts)
 
@@ -94,7 +94,7 @@ interface SubagentStartRequest {
 }
 ```
 
-`signal` is the single cancellation channel before and after readiness. The [subagent composition-controls RFC](../rfc/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md) owns the persona, live global-tool filter, absolute-depth, and visibility-not-authority rationale.
+`signal` is the single cancellation channel before and after readiness. The [subagent composition-controls Agent Note](../../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md) owns the persona, live global-tool filter, absolute-depth, and visibility-not-authority rationale.
 
 ## The terminal result: `SubagentResult`
 
