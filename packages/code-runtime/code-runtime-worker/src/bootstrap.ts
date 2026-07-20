@@ -6,8 +6,8 @@
  */
 
 import { inspect } from 'node:util'
-import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
+import { snapshotCodeJsonValue } from './worker-json.ts'
 
 /** The port surface the bootstrap needs — satisfied by `parentPort` and by the tests' fake. */
 export interface BootstrapPort {
@@ -157,7 +157,7 @@ export function prepareCompletion(value: unknown, maxOutputBytes: number): Omit<
   if (value === undefined) return {}
   let snapshot: unknown
   try {
-    snapshot = snapshotJsonValue(value)
+    snapshot = snapshotCodeJsonValue(value)
   } catch {
     snapshot = undefined
   }
