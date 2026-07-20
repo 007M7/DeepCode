@@ -279,8 +279,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Subagent provider registry',
     mode: 'seam',
     implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp'],
-    consumers: ['tool-subagent'],
-    note: 'Providers implement transports; tool-subagent exposes one configured provider as a model-facing tool name.',
+    consumers: ['tool-subagent', 'tool-ralph'],
+    note: 'Providers implement transports; tool-subagent exposes configured delegation while tool-ralph requires one fresh structured-output route.',
   },
   {
     key: 'tasks',
@@ -314,8 +314,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Workflow script engine',
     mode: 'seam',
     implementations: ['workflow-workerthread'],
-    consumers: ['tool-workflow'],
-    note: 'One engine per context (bash shape, no named-provider registry); the worker-thread engine fans agent() calls out through ctx.subagents.',
+    consumers: ['tool-workflow', 'tool-ralph'],
+    note: 'One engine per context (bash shape, no named-provider registry); the general workflow and fixed Ralph consumers start runs whose agent() calls fan out through ctx.subagents.',
   },
 ]
 

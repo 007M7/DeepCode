@@ -1139,6 +1139,26 @@ export interface Config {
 
 Source: [`packages/goal/tool-goal/src/index.ts:27`](../packages/goal/tool-goal/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-ralph`
+
+Requires: `tools` · `workflows` · `subagents` · `systemPrompt`
+
+```ts config-catalog
+/** Deployment policy for the fixed Ralph workflow. */
+export interface Config {
+  /** Fresh structured-output provider used for every round (default `spawn`). */
+  subagentProvider?: string
+  /** Default and deployment ceiling for one call's round count (default 256). */
+  maxRounds?: number
+  /** Maximum serialized characters in one structured handoff (default 16384). */
+  maxHandoffChars?: number
+  /** Maximum characters in a successful parent-facing terminal text (default 16384). */
+  maxResultChars?: number
+}
+```
+
+Source: [`packages/workflow/tool-ralph/src/index.ts:22`](../packages/workflow/tool-ralph/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-skill`
 
 Requires: `tools` · `skills`

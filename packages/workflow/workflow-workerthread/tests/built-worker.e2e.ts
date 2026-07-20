@@ -27,16 +27,30 @@ import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
 
 const ctx = new Context()
 await ctx.plugin(SubagentService)
-await ctx.plugin(WorkerWorkflowEngine, {})
+let selectedStarts = 0
+ctx.subagents.registerProvider({
+  name: 'built-selected',
+  capabilities: { outputSchema: true, depthLimit: false, toolFilter: false, persona: false },
+  inheritsParentContext: false,
+  async start() {
+    selectedStarts += 1
+    return {
+      id: 'built-child',
+      result: Promise.resolve({ output: [], structured: { answer: 42 }, stopReason: 'completed' }),
+      dispose: () => Promise.resolve(),
+    }
+  },
+})
+await ctx.plugin(WorkerWorkflowEngine, { provider: 'must-not-be-used' })
 const run = ctx.workflows.start({
-  script: 'return 6 * 7',
+  script: "const value = await agent('answer', { schema: { type: 'object', properties: { answer: { type: 'number' } }, required: ['answer'] } }); return value.answer",
   meta: { name: 'built-smoke', description: 'built worker smoke' },
-  // A zero-agent script never touches the provider.
+  subagentProvider: 'built-selected',
   parent: { id: 'built-smoke-parent', options: {} },
 })
 const result = await run.result
 await run.dispose()
-if (result.stopReason !== 'completed' || result.value !== 42) {
+if (result.stopReason !== 'completed' || result.value !== 42 || selectedStarts !== 1) {
   console.error('unexpected result: ' + JSON.stringify(result))
   process.exit(1)
 }

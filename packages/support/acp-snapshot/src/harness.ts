@@ -18,8 +18,9 @@
 
 import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
-import { join, delimiter } from 'node:path'
+import { basename, dirname, join, delimiter } from 'node:path'
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
@@ -152,6 +153,13 @@ export interface RunOptions {
   configPath?: string
 }
 
+/** Derive one stable, fixed-length spill root owned by this scenario. */
+function scenarioSpillRoot(fixtureFile: string): string {
+  const scenario = basename(dirname(fixtureFile))
+  const key = createHash('sha256').update(scenario).digest('hex').slice(0, 9)
+  return `/tmp/dsh-acp-snap-${key}`
+}
+
 /**
  * Run a scenario end-to-end against a freshly-spawned subprocess. Owns the
  * child and its temp dirs; always tears them down. Returns the captured stdout
@@ -166,7 +174,9 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
   // Fixed path length: spill-policy budgets the preview against the REAL path
   // before stdout normalization, so tmpdir() length differences churn expected outputs.
-  const spillRoot = '/tmp/dsh-acp-snapshot-spill'
+  // Scenario ownership also matters: replay runs concurrently, and one teardown
+  // must never delete another scenario's in-flight full-output recovery file.
+  const spillRoot = scenarioSpillRoot(opts.fixtureFile)
   // Everything past the temp-dir creation is followed by failure-safe cleanup,
   // so a failure in workspace seeding, spawn, or any step never leaks resources.
   let launched: LaunchedAcpTestAgent | undefined
