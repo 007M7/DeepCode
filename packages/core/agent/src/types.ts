@@ -207,10 +207,10 @@ declare module 'cordis' {
      */
     'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
     /**
-     * Allow, rewrite, or block one drained prompt before it becomes a user
+     * Allow, rewrite, or block one claimed prompt before it becomes a user
      * message. Call `next()` for the unchanged default.
-     * @param agent - the agent draining its inbox.
-     * @param content - the drained message's blocks, as queued.
+     * @param agent - the agent whose turn claimed the message.
+     * @param content - the claimed message's blocks, as queued.
      * @param source - the message's resolved source.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall

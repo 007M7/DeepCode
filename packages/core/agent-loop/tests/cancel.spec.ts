@@ -140,6 +140,60 @@ describe('Agent.cancel()', () => {
     expect(agent.status).toBe('idle')
   })
 
+  it('cancel() between consecutive turns restores idle and leaves idle steer usable', async () => {
+    const adapter = new MockAdapter([textResponse('first reply'), textResponse('steer reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('between-turn-cancel'), { provider: 'mock', model: 'mock' })
+
+    let rejectFirstFlush = true
+    ctx.on('session/flush', (session) => {
+      if (session !== agent.session || !rejectFirstFlush) return
+      rejectFirstFlush = false
+      throw new Error('first flush failed')
+    })
+
+    const cancelled = Promise.withResolvers<undefined>()
+    ctx.on('agent/error', (subject, _turn, _step, error) => {
+      if (subject !== agent || error.message !== 'first flush failed') return
+      // The first hop runs before runLoop resumes from runTurn; the second lands
+      // before its resolved waitForQueued continuation checks cancellation.
+      queueMicrotask(() => {
+        queueMicrotask(() => {
+          agent.cancel('between turns')
+          cancelled.resolve(undefined)
+        })
+      })
+    })
+
+    const statuses: string[] = []
+    ctx.on('agent/status', (subject, status) => {
+      if (subject === agent) statuses.push(status)
+    })
+
+    send(agent, 'first')
+    send(agent, 'queued tail')
+    await cancelled.promise
+
+    expect(agent.status).toBe('idle')
+    expect(statuses).toEqual(['running', 'idle'])
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    expect(userTexts(agent)).toEqual(['first'])
+
+    let idleResolved = false
+    void agent.whenIdle().then(() => { idleResolved = true })
+    await Promise.resolve()
+    expect(idleResolved).toBe(true)
+
+    const idle = waitForIdle(ctx, agent)
+    agent.steer([{ type: 'text', text: 'idle steer' }])
+    await idle
+
+    expect(statuses).toEqual(['running', 'idle', 'running', 'idle'])
+    expect(adapter.requests).toHaveLength(2)
+    expect(userTexts(agent)).toEqual(['first', 'idle steer'])
+  })
+
   it('cancel() mid-step aborts the active turn and drops every queued tail item', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)

@@ -498,7 +498,7 @@ Source: [`packages/core/session/src/types.ts:187`](../packages/core/session/src/
 #### `user/message` — surface
 
 ```ts persistence-catalog
-/** A user-visible prompt (queued message drained at turn start). */
+/** A user-visible prompt (the queued message claimed for this turn). */
 'user/message': { content: ContentBlock[]; source: MessageSource }
 ```
 

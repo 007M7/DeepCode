@@ -830,7 +830,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // not-yet-started prompt never runs, while a prompt accepted afterward
         // remains a separate queued turn. Scoped to THIS session's
         // agent — a cancel in one session never touches another's stream or
-        // pending prompt (RFC 011 isolation). We ALSO settle the in-flight prompt
+        // pending prompt (multi-session isolation).
+        // We ALSO settle the in-flight prompt
         // as cancelled directly here: do NOT rely on the resulting turn/end to
         // settle it, because cancel() may drop the turn before any turn/end is
         // emitted, and removing this direct settle would move the RPC's

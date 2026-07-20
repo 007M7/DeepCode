@@ -91,7 +91,7 @@ export interface LoopHandle {
   cancelReason(): string
   /** Clear the cancel marker (called once per iteration after the turn returns). */
   clearCancel(): void
-  /** Settle idle waiters when pre-running cancellation skips a turn, without emitting `agent/status`. */
+  /** Settle idle waiters when pre-running cancellation finds the status already idle. */
   settleIdle(): void
   /** Run an active tool-call batch, accepting post-tool context into the FIFO drained before settlement. */
   readonly withToolBatch: <T>(run: (acceptContext: (context: HookContext) => void) => Promise<T>) => Promise<T>
@@ -126,6 +126,9 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
     if (handle.isCancelled()) {
       handle.clearCancel()
       if (!handle.inbox.hasQueued) {
+        // setStatus settles running→idle; the explicit settle covers the
+        // already-idle pre-start path where that transition is deduplicated.
+        handle.setStatus('idle')
         handle.settleIdle()
         continue
       }

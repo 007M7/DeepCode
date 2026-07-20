@@ -141,10 +141,10 @@ Awaited serial checkpoint before `step/start`; appends land outside the pending 
 
 ```ts website-api
 /**
- * Allow, rewrite, or block one drained prompt before it becomes a user
+ * Allow, rewrite, or block one claimed prompt before it becomes a user
  * message. Call `next()` for the unchanged default.
- * @param agent - the agent draining its inbox.
- * @param content - the drained message's blocks, as queued.
+ * @param agent - the agent whose turn claimed the message.
+ * @param content - the claimed message's blocks, as queued.
  * @param source - the message's resolved source.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
@@ -152,10 +152,10 @@ Awaited serial checkpoint before `step/start`; appends land outside the pending 
 'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>
 ```
 
-Allow, rewrite, or block one drained prompt before it becomes a user message. Call `next()` for the unchanged default.
+Allow, rewrite, or block one claimed prompt before it becomes a user message. Call `next()` for the unchanged default.
 
-- `agent` — the agent draining its inbox.
-- `content` — the drained message's blocks, as queued.
+- `agent` — the agent whose turn claimed the message.
+- `content` — the claimed message's blocks, as queued.
 - `source` — the message's resolved source. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L218)

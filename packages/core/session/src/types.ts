@@ -196,7 +196,7 @@ export interface SessionEventMap {
   'step/start': { turn: number; step: number }
   /** Closes step `step` of turn `turn`. */
   'step/end': { turn: number; step: number }
-  /** A user-visible prompt (queued message drained at turn start). */
+  /** A user-visible prompt (the queued message claimed for this turn). */
   'user/message': { content: ContentBlock[]; source: MessageSource }
   /**
    * Durable record of a prompt veto and its reason. It is log-only: the blocked

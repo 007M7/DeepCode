@@ -398,7 +398,7 @@ export class ReactLoopAgent implements Agent {
       cancelReason: () => this.cancelReason,
       clearCancel: () => { this.cancelRequested = false },
       withToolBatch: run => this.withToolBatch(run),
-      // Pre-step cancellation re-parks without emitting a status transition.
+      // Already-idle pre-start cancellation still must settle queued-work waiters.
       settleIdle: () => { this.settleIdleWaiters() },
     }))
   }

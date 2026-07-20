@@ -125,14 +125,14 @@ Source: [`packages/core/agent/src/types.ts:208`](../../packages/core/agent/src/t
 
 ### `agent/prompt-submit` — waterfall
 
-Allow, rewrite, or block one drained prompt before it becomes a user message. Call `next()` for the unchanged default.
+Allow, rewrite, or block one claimed prompt before it becomes a user message. Call `next()` for the unchanged default.
 
 ```ts cordis-catalog
 /**
- * Allow, rewrite, or block one drained prompt before it becomes a user
+ * Allow, rewrite, or block one claimed prompt before it becomes a user
  * message. Call `next()` for the unchanged default.
- * @param agent - the agent draining its inbox.
- * @param content - the drained message's blocks, as queued.
+ * @param agent - the agent whose turn claimed the message.
+ * @param content - the claimed message's blocks, as queued.
  * @param source - the message's resolved source.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
