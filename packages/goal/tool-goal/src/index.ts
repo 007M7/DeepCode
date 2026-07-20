@@ -50,8 +50,8 @@ const CREATE_DESCRIPTION =
   + 'trivial single-turn work. Execution rejects non-human and subagent authority.'
 
 const GET_DESCRIPTION =
-  'Read the current same-session goal, including its exact id/revision, durable phase, admitted '
-  + 'round count, cap, and live process-local activation. Call this before updating a goal.'
+  'Read the current same-session goal, including its exact id/revision, objective, phase, completed '
+  + 'continuation rounds, round limit, and whether another continuation is armed. Call this before updating a goal.'
 
 /** Render policy guidance with its deployment-selected blocked threshold. */
 function guidance(blockedAfter: number): string {
@@ -107,13 +107,14 @@ function present(title: string, kind: 'read' | 'other', rawInput?: unknown): Gen
   return { card: 'generic', title, kind, ...rawInput === undefined ? {} : { rawInput } }
 }
 
-/** Remember whether one successful mutation makes this turn terminal. */
+/** Remember whether one autonomous terminal report should stop this turn. */
 function observeMutation(
   terminalTurns: WeakMap<Agent, number>,
   execution: GoalToolExecution,
   goal: GoalView,
+  autonomousTerminal: boolean,
 ): void {
-  if (goal.phase === 'active' && goal.activation === 'armed') {
+  if (!autonomousTerminal || (goal.phase === 'active' && goal.activation === 'armed')) {
     terminalTurns.delete(execution.agent)
     return
   }
@@ -123,6 +124,8 @@ function observeMutation(
 /** Register the three Codex-shaped goal tools and their shared policy section. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
+  // A stale entry cannot match a later loop turn because turn numbers increase
+  // monotonically within the agent's fixed session.
   const terminalTurns = new WeakMap<Agent, number>()
   ctx.on('agent/turn-stop', (agent, turn) => {
     if (terminalTurns.get(agent) !== turn) return undefined
@@ -160,7 +163,7 @@ export function apply(ctx: Context, config: Config): void {
       },
       max_goal_rounds: {
         type: 'number',
-        description: 'Optional positive safe-integer cap; omission uses the goal-domain deployment default.',
+        description: 'Optional positive safe-integer limit on automatic continuation rounds.',
       },
     },
     execute(args, exec) {
@@ -170,7 +173,7 @@ export function apply(ctx: Context, config: Config): void {
         objective: args.objective,
         ...args.max_goal_rounds === undefined ? {} : { maxGoalRounds: args.max_goal_rounds },
       })
-      observeMutation(terminalTurns, execution, goal)
+      observeMutation(terminalTurns, execution, goal, false)
       return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
     },
     presentCall: args => present('Create goal', 'other', args.objective),
@@ -179,8 +182,8 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'update_goal',
     description: 'Update the exact current goal revision. edit, pause, and resume require a direct '
-      + 'top-level human turn. complete and blocked additionally accept the exact admitted goal '
-      + 'round. blocked is rejected before the configured minimum round count; the model remains '
+      + 'top-level human request. During an automatic continuation of the current goal, complete '
+      + 'and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains '
       + 'responsible for judging that the same condition persisted across those rounds.',
     parameters: {
       goal_id: { type: 'string', required: true, description: 'Exact id returned by get_goal.' },
@@ -204,27 +207,33 @@ export function apply(ctx: Context, config: Config): void {
       if (args.action === 'edit') {
         requireDirectHuman(ctx, execution)
         const goal = ctx.goals.edit(execution.agent, ref, replacements)
-        observeMutation(terminalTurns, execution, goal)
+        observeMutation(terminalTurns, execution, goal, false)
         return Promise.resolve([{
           type: 'text',
           text: renderGoal(goal),
         }])
       }
+      if (args.action === 'pause' || args.action === 'resume') {
+        requireDirectHuman(ctx, execution)
+        if (args.objective !== undefined || args.max_goal_rounds !== undefined) {
+          throw new HarnessError(
+            'objective and max_goal_rounds are valid only with action edit',
+            'GOAL_TOOL_INVALID_UPDATE',
+          )
+        }
+        const goal = args.action === 'pause'
+          ? ctx.goals.pause(execution.agent, ref)
+          : ctx.goals.resume(execution.agent, ref)
+        observeMutation(terminalTurns, execution, goal, false)
+        return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
+      }
+      const authority = completionAuthority(ctx, execution)
       if (args.objective !== undefined || args.max_goal_rounds !== undefined) {
         throw new HarnessError(
           'objective and max_goal_rounds are valid only with action edit',
           'GOAL_TOOL_INVALID_UPDATE',
         )
       }
-      if (args.action === 'pause' || args.action === 'resume') {
-        requireDirectHuman(ctx, execution)
-        const goal = args.action === 'pause'
-          ? ctx.goals.pause(execution.agent, ref)
-          : ctx.goals.resume(execution.agent, ref)
-        observeMutation(terminalTurns, execution, goal)
-        return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
-      }
-      const authority = completionAuthority(ctx, execution)
       if (args.action === 'blocked' && authority.kind === 'goal-round'
         && authority.goal.roundsStarted < resolved.blockedAfterConsecutiveRounds) {
         throw new HarnessError(
@@ -236,7 +245,7 @@ export function apply(ctx: Context, config: Config): void {
       const goal = args.action === 'complete'
         ? ctx.goals.complete(execution.agent, ref)
         : ctx.goals.block(execution.agent, ref)
-      observeMutation(terminalTurns, execution, goal)
+      observeMutation(terminalTurns, execution, goal, authority.kind === 'goal-round')
       return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
     },
     presentCall: args => present(
