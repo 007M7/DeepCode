@@ -9,6 +9,7 @@ import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { TokenMeterConfig } from '@deepseek-ai/dsh-token-meter'
+import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
@@ -63,6 +64,7 @@ export async function codingHarness(workdir: string, options: CodingHarnessOptio
   // backend, with a lower context window so a short real session crosses the threshold.
   if (options.compact !== undefined) {
     await ctx.plugin(TokenMeterService, options.tokenMeter)
+    await ctx.plugin(ToolResultPruneService)
     await ctx.plugin(BasicCompactService, options.compact)
   }
   // Durable JSONL persistence is opt-in: only the resume e2e needs it, and the

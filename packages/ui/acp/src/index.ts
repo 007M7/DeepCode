@@ -1039,7 +1039,8 @@ function validateMcpServers(params: { mcpServers?: unknown[] }): void {
  *   loaded transcript reconstructs the USER side of each turn without echoing
  *   a live `session/prompt` back to the client
  * - `tool/call`   → `tool_call` (pending)
- * - `tool/result` → `tool_call_update` (completed/failed)
+ * - appended `tool/result` → `tool_call_update` (completed/failed)
+ * - replacement `tool/result` → no update (context rewrite, not execution)
  *
  * Tool-call presentation (title/kind/rawInput, and the completed-state content)
  * is owned by each TOOL via `presentCall`/`presentResult` — the bridge never
@@ -1100,6 +1101,10 @@ export function streamSessionEventUpdate(
       return
     }
     case 'tool/result': {
+      // Replacements (for example model-free pruning) are transcript rewrites,
+      // not repeated tool executions. Re-presenting one would consume no
+      // pending call and could clobber the original terminal/diff completion.
+      if (event.surfaceOp !== undefined && event.surfaceOp !== 'append') return
       const view = presenter.result(event.data.callId, event.data.content, event.data.isError, event.data.meta)
       notify({ sessionId, update: toolResultUpdate(event.data.callId, view, event.data.isError, terminal) })
       return
