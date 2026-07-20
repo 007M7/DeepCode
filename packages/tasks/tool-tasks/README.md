@@ -10,6 +10,8 @@ The model-facing control surface for `ctx.tasks`: three kind-independent tools, 
 
 All three use generic ACP cards: `read` for output and list, `execute` for kill.
 
+Their canonical values are `{ text, task }`, `PublicTaskSnapshot[]`, and `{ outcome: 'cancellation-requested' | 'already-finished', task }`. A public snapshot carries id, kind, label, status/detail, and start/finish times; it deliberately omits `ownerSession` and the internal `reported` notice bit. Native renderers preserve the status and acknowledgement text above.
+
 ## Completion notices
 
 An unreported completion injects `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` into the exact owner's session. Injection is durable context for the next request, not a wake-up. A kill or terminal read/wait marks delivery reported and suppresses the redundant notice; owner-disposal races are contained.

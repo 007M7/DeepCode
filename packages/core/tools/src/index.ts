@@ -12,12 +12,15 @@ import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertNever, deepFreeze, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-session'
 import type { ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
 import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 // Type-only: makes `ctx.get('approval')` resolve to the ApprovalService
 // augmentation. The seam stays optional at runtime — see `serviceAsk`.
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
+import { assertSupportedJsonSchema, validateJsonSchemaValue } from './json-schema.ts'
+import type { JsonSchemaNode } from './json-schema.ts'
 import { createRunCodeTool, RUN_CODE_NAME, SDK_SECTION_ORDER } from './code-mode.ts'
 import { renderToolsSdk } from './ts-types.ts'
 
@@ -61,6 +64,7 @@ export type { JsonValue } from '@deepseek-ai/dsh-session'
 
 export { CodeRunFailedError, RUN_CODE_NAME } from './code-mode.ts'
 export { jsonSchemaToTs, renderToolsSdk } from './ts-types.ts'
+export { defineContentToolFixture, type ContentToolFixtureOptions } from './testing.ts'
 
 // The render-intent vocabulary a tool declares via `presentCall`/`presentResult`
 // lives in its own UI-facing module; re-export it so `@deepseek-ai/dsh-tools`
@@ -132,12 +136,22 @@ declare module 'cordis' {
   }
 }
 
-/** Tool output, optionally with lossless-JSON presentation metadata persisted for replay. */
-export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta?: unknown }
+/** Tool-owned canonical output contract used after the body returns a JSON value. */
+export interface ToolOutputDefinition {
+  /** Raw supported JSON Schema enforced against every successful canonical value. */
+  readonly schema: JsonSchemaNode
+  /** Pure projection from validated arguments and value to Native/model content. */
+  render(args: unknown, value: JsonValue): ContentBlock[]
+  /** Pure replayable presentation projection, computed only for surface calls. */
+  presentationMeta?(args: unknown, value: JsonValue): JsonValue
+}
 
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
-  execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>
+  /** Mandatory canonical output declaration. */
+  readonly output: ToolOutputDefinition
+  /** Execute the tool and return only its canonical lossless-JSON value. */
+  execute(args: unknown, exec: ToolRunContext): Promise<unknown>
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
    * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
@@ -172,7 +186,7 @@ export interface ToolDefinition extends ToolSchema {
   presentCall?(args: unknown): ToolCallView | undefined
   /**
    * Optional: how to present the COMPLETED state, given the same `args` and the
-   * `result` (`execute`'s content + whether it errored). Returns a
+   * durable result projection (`content`, failure state, and optional `meta`). Returns a
    * {@link ToolResultView}, or `undefined` (or omit the method) to keep the
    * pending title and render the raw result content. Pure and side-effect-free
    * for the same replay reason.
@@ -182,17 +196,16 @@ export interface ToolDefinition extends ToolSchema {
 
 /** The completed outcome handed to {@link ToolDefinition.presentResult}. */
 export interface ToolResult {
-  /** The model-facing content `execute` returned (or the error text on failure). */
+  /** The final model-facing content (or the rendered error text on failure). */
   content: ContentBlock[]
   /** Whether the call failed. */
   isError: boolean
   /**
-   * The tool-private presentation payload the tool attached from `execute` (via
-   * the object return form), threaded verbatim from the `tool/result` event.
-   * Opaque (`unknown`); the tool narrows it back to its own shape. Absent when
-   * the tool attached none.
+   * The tool-private presentation payload projected by its output declaration
+   * and threaded verbatim from the `tool/result` event. Absent when the tool
+   * declared no projector or the call was nested under a composite transport.
    */
-  meta?: unknown
+  meta?: JsonValue
 }
 
 declare const toolExecutionTokenBrand: unique symbol
@@ -303,6 +316,14 @@ export interface ToolErrorInfo {
   code: string
 }
 
+/** Canonical failure detail; internal routing information remains optional. */
+export interface ToolFailure {
+  /** Human-readable failure message without the Native `Error: ` envelope. */
+  message: string
+  /** Internal error class/code used by policy and durable diagnostics. */
+  info?: ToolErrorInfo
+}
+
 /**
  * Thrown (internally) when the model requests a tool that isn't registered.
  * Extends {@link HarnessError} (`code: 'UNKNOWN_TOOL'`) so an unknown-tool
@@ -316,29 +337,41 @@ export class ToolNotFoundError extends HarnessError {
   }
 }
 
-/** The outcome of one tool call. */
-export interface ToolExecutionResult {
-  content: ContentBlock[]
-  isError: boolean
-  /**
-   * Set when the call failed with a {@link HarnessError}: machine-routable
-   * `{ name, code }` for retry/sandbox plugins and replay. The model-facing
-   * text in `content` is always present; this is extra structure for code.
-   */
-  error?: ToolErrorInfo
-  /**
-   * Model-facing context for the next request, separate from this tool result. The loop
-   * accepts it into the active-batch FIFO, then appends after recorded results even if interrupted.
-   */
-  additionalContexts?: HookContext[]
-  /**
-   * The tool-private presentation payload from a successful `execute` (the object
-   * return form). Threaded onto the `tool/result` session event and back into
-   * {@link ToolResult} for `presentResult`. Opaque (`unknown`); absent when the
-   * tool attached none or the call failed.
-   */
-  meta?: unknown
+/** Thrown when a tool body or post-policy value violates its declared output. */
+export class ToolOutputError extends HarnessError {
+  /** Schema/value violations in validation order. */
+  readonly violations: string[]
+
+  constructor(toolName: string, violations: string[]) {
+    super(`tool "${toolName}" returned invalid output: ${violations.join('; ')}`, 'INVALID_TOOL_OUTPUT')
+    this.name = 'ToolOutputError'
+    this.violations = violations
+  }
 }
+
+/** Successful canonical tool execution, including its Native/model projection. */
+export interface ToolExecutionSuccess {
+  readonly isError: false
+  /** Execution-local canonical value; deliberately omitted from durable events. */
+  readonly value: JsonValue
+  readonly content: ContentBlock[]
+  readonly error?: never
+  readonly meta?: JsonValue
+  readonly additionalContexts?: HookContext[]
+}
+
+/** Failed canonical tool execution; failures never carry a successful value. */
+export interface ToolExecutionFailure {
+  readonly isError: true
+  readonly error: ToolFailure
+  readonly value?: never
+  readonly content: ContentBlock[]
+  readonly meta?: JsonValue
+  readonly additionalContexts?: HookContext[]
+}
+
+/** The discriminated, execution-local outcome of one tool call. */
+export type ToolExecutionResult = ToolExecutionSuccess | ToolExecutionFailure
 
 /**
  * Pre-dispatch decision. `allow` runs the call; `deny` materializes an error;
@@ -352,11 +385,12 @@ export type PreToolDecision =
   | { kind: 'ask'; reason?: string }
 
 /**
- * Post-dispatch decision: accept or replace content, attach context for the next
- * request, or block by turning corrective feedback into an error result.
+ * Post-dispatch decision: accept, replace one projection, attach context for the
+ * next request, or block by turning corrective feedback into an error result.
  */
 export type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: HookContext[] }
+  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: HookContext[] }
   | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: HookContext[] }
 
 /**
@@ -379,6 +413,23 @@ function errorMessage(error: unknown): string {
     // fallback must itself be total.
     return '<unprintable thrown value>'
   }
+}
+
+/** Derive one failure message from policy feedback without changing its rendered blocks. */
+function failureMessageFromContent(content: ContentBlock[]): string {
+  const text = content
+    .map(block => block.type === 'text' ? block.text : `[${block.type} content]`)
+    .join('\n')
+  return text.length > 0 ? text : 'tool result blocked by post-execute policy'
+}
+
+/** Snapshot and freeze one durable tool-result projection or reject lossy data. */
+function materializePresentation<T>(candidate: T): T {
+  const detached = snapshotJsonValue(candidate)
+  if (detached === undefined) {
+    throw new TypeError('tool result must be losslessly JSON-serializable')
+  }
+  return deepFreeze(detached)
 }
 
 /** Structured `{ name, code }` for a thrown HarnessError, else undefined. */
@@ -553,6 +604,13 @@ export class ToolRegistry extends Service {
   register(definition: ToolDefinition): () => void {
     const scope = scopeOf(this.ctx)
     const name = definition.name
+    const output = (definition as Partial<ToolDefinition>).output
+    if (output === undefined || typeof output !== 'object'
+      || typeof output.render !== 'function'
+      || (output.presentationMeta !== undefined && typeof output.presentationMeta !== 'function')) {
+      throw new TypeError(`tool "${name}" must declare output { schema, render, presentationMeta? }`)
+    }
+    assertSupportedJsonSchema(output.schema)
     const timeoutMs = definition.timeoutMs
     if (timeoutMs !== undefined
       && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
@@ -880,10 +938,11 @@ export class ToolRegistry extends Service {
         return await next({
           kind: 'post-result',
           exec,
-          result: {
+          result: this.materializeFinalResult({
             content: [{ type: 'text', text: `Error: ${denialReason}` }],
             isError: true,
-          },
+            error: { message: denialReason },
+          }),
         })
       }
       return await next({ kind: 'dispatch', exec })
@@ -909,27 +968,26 @@ export class ToolRegistry extends Service {
             const tool = this.get(exec.name, exec.agent)
             if (!tool) throw new ToolNotFoundError(exec.name)
             const returned = await tool.execute(exec.arguments, exec)
-            const content = Array.isArray(returned) ? returned : returned.content
-            const meta = Array.isArray(returned) ? undefined : returned.meta
-            return { content, isError: false, ...meta !== undefined ? { meta } : {} }
+            return this.createSuccessResult(exec, tool, returned)
           } catch (error: unknown) {
-            return toolErrorResult(error)
+            return this.materializeFinalResult(toolErrorResult(error))
           }
         },
       )
+      const normalized = this.normalizeDispatchResult(exec, result)
       const deferredContexts = this.deferredContexts.get(exec)
       /* v8 ignore next -- dispatch only receives executions minted by this registry's prepare stage */
       if (deferredContexts === undefined) throw new Error('tool registry scheduler invariant violated: unprepared execution')
       const resultWithDeferredContexts: ToolExecutionResult = deferredContexts.length === 0
-        ? result
-        : {
-          ...result,
+        ? normalized
+        : this.markCanonical({
+          ...normalized,
           additionalContexts: [
             ...deferredContexts,
-            ...result.additionalContexts ?? [],
+            ...normalized.additionalContexts ?? [],
           ],
-        }
-      return { kind: 'post-result', result: resultWithDeferredContexts }
+        })
+      return { kind: 'post-result', result: this.materializeFinalResult(resultWithDeferredContexts) }
     } catch (error: unknown) {
       return { kind: 'final-result', result: toolErrorResult(error) }
     }
@@ -1046,32 +1104,103 @@ export class ToolRegistry extends Service {
     )
     const decisionContexts = decision.additionalContexts ?? []
     if (decision.kind === 'block') {
-      return {
+      const message = failureMessageFromContent(decision.feedback)
+      return this.markCanonical({
         content: decision.feedback,
         isError: true,
+        error: { message },
         ...decisionContexts.length > 0 ? { additionalContexts: decisionContexts } : {},
-      }
+      })
     }
-    // Accept: replace content if supplied, preserve the dispatched outcome, and
-    // append decision contexts after contexts deferred by the tool body.
+    if (Object.hasOwn(decision, 'content') && Object.hasOwn(decision, 'value')) {
+      throw new TypeError('tools/post-execute accept decision cannot replace both value and content')
+    }
     const additionalContexts = [
       ...result.additionalContexts ?? [],
       ...decisionContexts,
     ]
-    return {
-      ...result,
-      ...decision.content ? { content: decision.content } : {},
-      ...additionalContexts.length > 0 ? { additionalContexts } : {},
+    if (Object.hasOwn(decision, 'value')) {
+      if (result.isError) {
+        throw new TypeError('tools/post-execute cannot replace the value of a failed result')
+      }
+      const tool = this.get(exec.name, exec.agent)
+      if (tool === undefined) throw new ToolNotFoundError(exec.name)
+      const replaced = this.createSuccessResult(exec, tool, decision.value)
+      return this.markCanonical({
+        ...replaced,
+        ...additionalContexts.length > 0 ? { additionalContexts } : {},
+      })
     }
+    return this.markCanonical({
+      ...result,
+      ...decision.content !== undefined ? { content: decision.content } : {},
+      ...additionalContexts.length > 0 ? { additionalContexts } : {},
+    })
+  }
+
+  /** Results created by the registry already own a validated, frozen canonical value. */
+  private readonly canonicalResults = new WeakSet<object>()
+
+  /** Mark a registry-normalized result without freezing presentation fields prematurely. */
+  private markCanonical<T extends ToolExecutionResult>(result: T): T {
+    this.canonicalResults.add(result)
+    return result
+  }
+
+  /** Snapshot, validate, render, and optionally project one successful body value. */
+  private createSuccessResult(exec: ToolExecution, tool: ToolDefinition, candidate: unknown): ToolExecutionSuccess {
+    const detached = snapshotJsonValue(candidate)
+    if (detached === undefined) {
+      throw new ToolOutputError(tool.name, ['value is not lossless JSON'])
+    }
+    const violations = validateJsonSchemaValue(tool.output.schema, detached, 'value')
+    if (violations.length > 0) throw new ToolOutputError(tool.name, violations)
+    const value = deepFreeze(detached as JsonValue)
+    const content = tool.output.render(exec.arguments, value)
+    const meta = exec.parent === undefined && tool.output.presentationMeta !== undefined
+      ? tool.output.presentationMeta(exec.arguments, value)
+      : undefined
+    return this.markCanonical(this.materializeFinalResult({
+      isError: false,
+      value,
+      content,
+      ...meta !== undefined ? { meta } : {},
+    }) as ToolExecutionSuccess)
+  }
+
+  /** Normalize an around-dispatch wrapper's authored result through the owning output contract. */
+  private normalizeDispatchResult(exec: ToolExecution, result: ToolExecutionResult): ToolExecutionResult {
+    if (this.canonicalResults.has(result)) return result
+    if (result.isError) {
+      return this.markCanonical({
+        isError: true,
+        error: result.error,
+        content: result.content,
+        ...result.meta !== undefined ? { meta: result.meta } : {},
+        ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
+      })
+    }
+    const tool = this.get(exec.name, exec.agent)
+    if (tool === undefined) throw new ToolNotFoundError(exec.name)
+    const normalized = this.createSuccessResult(exec, tool, result.value)
+    return this.markCanonical({
+      ...normalized,
+      ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
+    })
   }
 
   /** Materialize the authoritative commit outcome once, immediately before `tools/result`. */
   private materializeFinalResult(result: ToolExecutionResult): ToolExecutionResult {
-    const detached = snapshotJsonValue(result)
-    if (detached === undefined) {
-      throw new TypeError('tool result must be losslessly JSON-serializable')
+    const presentation = {
+      content: result.content,
+      ...result.meta !== undefined ? { meta: result.meta } : {},
+      ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
     }
-    return deepFreeze(detached)
+    if (result.isError) {
+      return materializePresentation({ isError: true as const, error: result.error, ...presentation })
+    }
+    const detached = materializePresentation({ isError: false as const, ...presentation })
+    return deepFreeze({ ...detached, value: result.value })
   }
 }
 
@@ -1082,10 +1211,11 @@ function createExecutionToken(): ToolExecutionToken {
 
 function toolErrorResult(error: unknown): ToolExecutionResult {
   const info = errorInfo(error)
+  const message = errorMessage(error)
   return {
-    content: [{ type: 'text', text: `Error: ${errorMessage(error)}` }],
+    content: [{ type: 'text', text: `Error: ${message}` }],
     isError: true,
-    ...info ? { error: info } : {},
+    error: { message, ...info ? { info } : {} },
   }
 }
 

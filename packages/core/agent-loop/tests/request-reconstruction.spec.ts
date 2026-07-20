@@ -11,7 +11,7 @@ import LlmService from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -53,7 +53,7 @@ function expectPrefixExtension(previous: GenerateOptions, current: GenerateOptio
 }
 
 function registerEcho(ctx: Context) {
-  ctx.tools.register(defineTool({
+  ctx.tools.register(defineContentToolFixture({
     name: 'echo',
     description: 'echo back',
     parameters: { text: { type: 'string' } },

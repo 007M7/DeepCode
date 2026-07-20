@@ -8,7 +8,7 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { Config as ToolConfig, ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
-import { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture, RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { startInProcessRun } from '../src/index.ts'
 import {
@@ -85,10 +85,15 @@ describe('in-process structured output', () => {
     const { ctx, parent } = await setup([
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 42, note: 'done' }),
     ])
+    let acknowledgement: unknown
+    ctx.on('tools/result', (exec, toolResult) => {
+      if (exec.name === STRUCTURED_OUTPUT_TOOL && !toolResult.isError) acknowledgement = toolResult.value
+    })
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(result.structured).toEqual({ answer: 42, note: 'done' })
+    expect(acknowledgement).toEqual({ recorded: true })
     await run.dispose()
   })
 
@@ -119,15 +124,15 @@ describe('in-process structured output', () => {
     ] as Script[number]
     const { ctx, parent } = await setup([response])
     let sideEffectRan = false
-    ctx.tools.register({
+    ctx.tools.register(defineContentToolFixture({
       name: 'side_effect',
       description: 'probe',
-      parameters: { type: 'object', properties: {} },
+      parameters: {},
       execute(): Promise<ContentBlock[]> {
         sideEffectRan = true
         return Promise.resolve([{ type: 'text', text: 'ran' }])
       },
-    })
+    }))
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     expect(result.stopReason).toBe('completed')
@@ -147,15 +152,15 @@ describe('in-process structured output', () => {
     ] as Script[number]
     const { ctx, parent } = await setup([response])
     let sideEffectRan = false
-    ctx.tools.register({
+    ctx.tools.register(defineContentToolFixture({
       name: 'side_effect',
       description: 'probe',
-      parameters: { type: 'object', properties: {} },
+      parameters: {},
       execute(): Promise<ContentBlock[]> {
         sideEffectRan = true
         return Promise.resolve([{ type: 'text', text: 'ran' }])
       },
-    })
+    }))
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     // Registered after the child and prepended: this listener returns allow
     // after every downstream pre-execute decision. The service-owned guard
@@ -184,15 +189,15 @@ describe('in-process structured output', () => {
     ] as Script[number]
     const { ctx, parent } = await setup([response])
     let sideEffectRan = false
-    ctx.tools.register({
+    ctx.tools.register(defineContentToolFixture({
       name: 'side_effect',
       description: 'probe',
-      parameters: { type: 'object', properties: {} },
+      parameters: {},
       execute(): Promise<ContentBlock[]> {
         sideEffectRan = true
         return Promise.resolve([{ type: 'text', text: 'ran' }])
       },
-    })
+    }))
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     // The call ran BEFORE captured was set: the deny gate only guards the
@@ -589,12 +594,12 @@ describe('in-process structured output', () => {
       ])
       // A global tool sorts lexicographically after structured_output, while a
       // global section above the 190 band follows the capture instruction.
-      ctx.tools.register({
+      ctx.tools.register(defineContentToolFixture({
         name: 'zz_probe',
         description: 'probe',
-        parameters: { type: 'object', properties: {} },
+        parameters: {},
         execute: () => Promise.resolve([{ type: 'text', text: 'x' }]),
-      })
+      }))
       ctx.systemPrompt.section({ name: 'after-band', order: 200, text: 'AFTER-BAND' })
       const run = await ctx.subagents.start('spawn', structuredRequest(parent))
       await run.result
@@ -646,7 +651,7 @@ describe('in-process structured output', () => {
       agent: parent,
     })
     expect(result.isError).toBe(true)
-    expect(result.error?.code).toBe('UNKNOWN_TOOL')
+    expect(result.error?.info?.code).toBe('UNKNOWN_TOOL')
   })
 
   it('a structured_output call with NO calling agent at all is UNKNOWN_TOOL', async () => {
@@ -657,7 +662,7 @@ describe('in-process structured output', () => {
       arguments: { answer: 1 },
     })
     expect(result.isError).toBe(true)
-    expect(result.error?.code).toBe('UNKNOWN_TOOL')
+    expect(result.error?.info?.code).toBe('UNKNOWN_TOOL')
   })
 
   it('a failed execution stage is discarded and never promoted by a later call', async () => {

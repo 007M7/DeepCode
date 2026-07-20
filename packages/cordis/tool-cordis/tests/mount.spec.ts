@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isJsonValue } from '@deepseek-ai/dsh-session'
+import { sandboxDefineTool } from '../src/guard.ts'
 import { syntaxErrorContext } from '../src/sandbox.ts'
-import { call, dummyTool, LISTENER_CODE, REVERSE_TOOL_CODE, setup, text } from './helpers.ts'
+import { call, CONTENT_OUTPUT_CODE, dummyTool, LISTENER_CODE, REVERSE_TOOL_CODE, setup, text } from './helpers.ts'
 
 /**
  * The `cordis_mount` success/failure family: real plugins land on a genuine
@@ -14,12 +15,48 @@ afterEach(() => {
 })
 
 describe('cordis_mount', () => {
+  it.each([
+    [42, 'options must be an object'],
+    [{ parameters: {} }, 'output must declare { schema, render, presentationMeta? }'],
+    [{ parameters: {}, output: { schema: { type: 'json' } }, execute: async (): Promise<null> => null }, 'output.render must be a function'],
+    [{ parameters: {}, output: { schema: { type: 'json' }, render: () => [] }, execute: true }, 'execute must be a function'],
+    [{
+      parameters: {},
+      output: { schema: { type: 'json' }, render: () => [], presentationMeta: true },
+      execute: async (): Promise<null> => null,
+    }, 'output.presentationMeta must be a function'],
+  ])('rejects an invalid dynamic tool declaration before registration: %j', (definition, message) => {
+    expect(() => sandboxDefineTool(definition)).toThrow(message)
+  })
+
+  it('bounds the preview of an invalid dynamic renderer return', () => {
+    const definition = sandboxDefineTool({
+      name: 'invalid-renderer',
+      description: 'invalid renderer',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: () => ['x'.repeat(500)],
+      },
+      execute: async () => 'ok',
+    })
+    expect(() => definition.output.render({}, 'ok')).toThrow(/output\.render returned \["x+…/)
+  })
+
   it('mounts a listener plugin that observes real events, tagged-logging through to the host console', async () => {
     const ctx = await setup()
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     const result = await call(ctx, 'cordis_mount', { code: LISTENER_CODE })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected cordis_mount success')
+    expect(result.value).toEqual({
+      id: 'dyn-1',
+      pluginName: 'change-logger',
+      state: 'active',
+      provides: [],
+      waitingFor: [],
+    })
     expect(text(result)).toContain('mounted dyn-1 (plugin "change-logger", state: active)')
 
     // Fire a REAL tools/change by registering a tool; the mounted listener logs.
@@ -44,6 +81,8 @@ describe('cordis_mount', () => {
     expect(ctx.tools.schemas().map(schema => schema.name)).toContain('reverse_text')
     const reversed = await call(ctx, 'reverse_text', { text: 'harness' })
     expect(reversed.isError).toBe(false)
+    if (reversed.isError) throw new Error('expected dynamic tool success')
+    expect(reversed.value).toBe('ssenrah')
     expect(text(reversed)).toBe('ssenrah')
   })
 
@@ -55,7 +94,7 @@ describe('cordis_mount', () => {
     expect(isJsonValue({ content: reversed.content, isError: reversed.isError })).toBe(true)
   })
 
-  it('threads the { content, meta } object return form through to the registry result', async () => {
+  it('projects presentation metadata from a dynamic canonical value', async () => {
     const ctx = await setup()
     await call(ctx, 'cordis_mount', {
       code: `
@@ -67,8 +106,13 @@ describe('cordis_mount', () => {
               name: 'meta_tool',
               description: 'attaches a private presentation payload',
               parameters: {},
+              output: {
+                schema: { type: 'string' },
+                render(_args, value) { return [{ type: 'text', text: value }] },
+                presentationMeta() { return { kind: 'demo' } },
+              },
               async execute() {
-                return { content: [{ type: 'text', text: 'ok' }], meta: { kind: 'demo' } }
+                return 'ok'
               },
             }))
           },
@@ -77,20 +121,20 @@ describe('cordis_mount', () => {
     })
     const result = await call(ctx, 'meta_tool', {})
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected dynamic tool success')
+    expect(result.value).toBe('ok')
     expect(text(result)).toBe('ok')
     expect(result.meta).toEqual({ kind: 'demo' })
   })
 
   it.each([
-    ['a bare string', 'return \'ok\'', '"ok"'],
-    ['an object whose content is a string', 'return { content: \'ok\' }', '{"content":"ok"}'],
-    ['an array of non-objects', 'return [\'ok\']', '["ok"]'],
-    ['blocks missing the type tag', 'return [{ text: \'hi\' }]', '[{"text":"hi"}]'],
-    ['object-form blocks missing the type tag', 'return { content: [{ text: \'hi\' }] }', '{"content":[{"text":"hi"}]}'],
-    ['undefined — a forgotten return', 'return undefined', 'undefined'],
-  ])('rejects an execute return of %s as that one call\'s teaching error', async (_label, returnStatement, preview) => {
-    // The registry spreads result.content, so { content: 'ok' } would become ['o','k']; reject
-    // it as this call's error before it corrupts the next request.
+    ['a bare string', 'return \'ok\'', 'returned invalid output: "value" must be an array'],
+    ['an object whose content is a string', 'return { content: \'ok\' }', 'returned invalid output: "value" must be an array'],
+    ['an array of non-objects', 'return [\'ok\']', 'output.render returned ["ok"]'],
+    ['blocks missing the type tag', 'return [{ text: \'hi\' }]', 'output.render returned [{"text":"hi"}]'],
+    ['object-form blocks missing the type tag', 'return { content: [{ text: \'hi\' }] }', 'returned invalid output: "value" must be an array'],
+    ['undefined — a forgotten return', 'return undefined', 'execute result must be lossless JSON data'],
+  ])('rejects an execute return of %s against its declared output', async (_label, returnStatement, diagnostic) => {
     const ctx = await setup()
     await call(ctx, 'cordis_mount', {
       code: `
@@ -102,6 +146,7 @@ describe('cordis_mount', () => {
               name: 'bad_return_tool',
               description: 'returns a wrong shape',
               parameters: {},
+              ${CONTENT_OUTPUT_CODE}
               async execute() { ${returnStatement} },
             }))
           },
@@ -112,12 +157,10 @@ describe('cordis_mount', () => {
     expect(result.isError).toBe(true)
     expect(result.content).toHaveLength(1)
     expect(result.content[0]!.type).toBe('text')
-    expect(text(result)).toContain(`execute returned ${preview}`)
-    expect(text(result)).toContain('must return an ARRAY of content blocks')
-    expect(text(result)).toContain('✓ return { content: [{ type: \'text\', text: someString }], meta: anyJsonValue }')
+    expect(text(result)).toContain(diagnostic)
   })
 
-  it('truncates a huge invalid execute return in the teaching error', async () => {
+  it('does not echo a huge schema-invalid canonical value in the diagnostic', async () => {
     const ctx = await setup()
     await call(ctx, 'cordis_mount', {
       code: `
@@ -129,6 +172,7 @@ describe('cordis_mount', () => {
               name: 'huge_return_tool',
               description: 'returns a huge wrong shape',
               parameters: {},
+              ${CONTENT_OUTPUT_CODE}
               async execute() { return 'x'.repeat(500) },
             }))
           },
@@ -137,7 +181,7 @@ describe('cordis_mount', () => {
     })
     const result = await call(ctx, 'huge_return_tool', {})
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('…')
+    expect(text(result)).toContain('returned invalid output')
     expect(text(result)).not.toContain('x'.repeat(200))
   })
 
@@ -167,6 +211,7 @@ describe('cordis_mount', () => {
                 },
                 required: ['text'],
               },
+              ${CONTENT_OUTPUT_CODE}
               async execute(args) { return [{ type: 'text', text: args.text + ':' + (args.count ?? 0) }] },
             }))
           },
@@ -215,6 +260,7 @@ describe('cordis_mount', () => {
                   cfg: { type: 'object', properties: { label: { type: 'string' } }, required: ['label'] },
                 },
               },
+              ${CONTENT_OUTPUT_CODE}
               async execute(args) { return [{ type: 'text', text: args.cfg.label }] },
             }))
           },
@@ -254,6 +300,7 @@ describe('cordis_mount', () => {
                 closed: { type: 'object', additionalProperties: false },
                 count: { type: 'number', enum: [1, 2], const: 1 },
               },
+              ${CONTENT_OUTPUT_CODE}
               async execute(args) { return [{ type: 'text', text: String(args.choice) }] },
             }))
           },
@@ -299,6 +346,7 @@ describe('cordis_mount', () => {
                   choice: { oneOf: [{ type: 'boolean' }, { type: 'null' }] },
                 },
               },
+              ${CONTENT_OUTPUT_CODE}
               async execute() { return [] },
             }))
           },
@@ -356,6 +404,7 @@ describe('cordis_mount', () => {
               name: 'bad_schema_tool',
               description: 'bad',
               ${parameters},
+              ${CONTENT_OUTPUT_CODE}
               async execute() { return [] },
             }))
           },
@@ -381,6 +430,7 @@ describe('cordis_mount', () => {
                 item: { type: 'object', additionalProperties: true, required: true, properties: { label: { type: 'string', required: true } } },
                 tags: { type: 'array', items: { type: 'string' } },
               },
+              ${CONTENT_OUTPUT_CODE}
               async execute(args) { return [{ type: 'text', text: args.item.label }] },
             }))
           },
@@ -404,6 +454,7 @@ describe('cordis_mount', () => {
               name: 'raw_dynamic_tool',
               description: 'raw',
               parameters: { type: 'object', properties: {} },
+              ${CONTENT_OUTPUT_CODE}
               async execute() { return [] },
             })
           },
@@ -457,6 +508,14 @@ describe('cordis_mount', () => {
       code: 'return { name: \'waiter\', inject: [\'no-such-service\'], apply(ctx) {} }',
     })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected pending cordis_mount success')
+    expect(result.value).toEqual({
+      id: 'dyn-1',
+      pluginName: 'waiter',
+      state: 'pending',
+      provides: [],
+      waitingFor: ['no-such-service'],
+    })
     expect(text(result)).toContain('state: pending')
     expect(text(result)).toContain('waiting for service(s): no-such-service')
     // Unmounting a pending mount works like any other.
@@ -517,6 +576,7 @@ describe('cordis_mount', () => {
               name: 'cordis_mount',
               description: 'dup',
               parameters: {},
+              ${CONTENT_OUTPUT_CODE}
               async execute() { return [] },
             }))
           },
@@ -663,6 +723,7 @@ describe('cordis_mount', () => {
               name: 'probe_instanceof',
               description: 'report instanceof checks across realms',
               parameters: { items: { type: 'array', required: true, items: { type: 'string' } } },
+              ${CONTENT_OUTPUT_CODE}
               async execute(args) {
                 const checks = {
                   hostArray: args.items instanceof Array,

@@ -58,6 +58,8 @@ Durable values need one accepted representation, not a check followed by a secon
 
 `context/message` renders its `content` verbatim as a user-role message, and may attach JSON `meta` for replayable plugin state; metadata remains durable but is excluded from `deriveMessages()`.
 
+`tool/result` persists the model-facing content, canonical failure detail, and optional presentation metadata. A tool's successful canonical `value` is deliberately execution-local and never enters the session event, so replay reconstructs the Native/model presentation but cannot recover intermediate programmatic values. This does not change `SESSION_FORMAT_VERSION`: the persisted projection remains authoritative.
+
 ### Session event vocabulary (`types.ts`)
 
 The append-only log's event types, enumerated member by member — payloads, surface badges, provenance — in the generated [persistence log event catalog](../../../docs/persistence-catalog.md). Token accounting reads per-step `assistant/chunk { type: 'usage' }` records and treats `assistant/message.usage` as the committed-step fallback when no usage chunk exists; failed model-request attempts have no assistant message. Provider/model/replay provenance rides on `assistant/message`; an operational error's step is on `turn/end.reason` for `kind: 'error'`, with structured provider facts for a final model-request failure.

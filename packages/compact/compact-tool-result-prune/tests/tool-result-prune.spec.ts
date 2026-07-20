@@ -151,7 +151,7 @@ describe('ToolResultPruneService session transaction', () => {
       text: 'x'.repeat(100),
     }], {
       isError: true,
-      error: { name: 'ExitError', code: 'EXIT_1' },
+      error: { message: 'exit 1', info: { name: 'ExitError', code: 'EXIT_1' } },
       meta: { diff: ['a', 'b'] },
       futureField: { nested: true },
     })
@@ -180,7 +180,7 @@ describe('ToolResultPruneService session transaction', () => {
         step: 1,
         callId: CallId('one'),
         isError: true,
-        error: { name: 'ExitError', code: 'EXIT_1' },
+        error: { message: 'exit 1', info: { name: 'ExitError', code: 'EXIT_1' } },
         meta: { diff: ['a', 'b'] },
         futureField: { nested: true },
       },

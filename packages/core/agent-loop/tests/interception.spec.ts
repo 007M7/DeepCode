@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import LlmService, { CallId, type Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent, type ContinuationDecision, type PromptDecision, type SessionStartSource } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -347,7 +347,7 @@ describe('agent/session-prefix', () => {
       textResponse('again'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
@@ -469,7 +469,7 @@ describe('agent/session-prefix', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
@@ -522,7 +522,7 @@ describe('agent/turn-continuation (ContinuationDecision)', () => {
   it('a stop decision ends the turn even when the step had tool calls', async () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', { text: 'hi' })])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
@@ -552,7 +552,7 @@ describe('tool additionalContexts buffering across a step', () => {
     ]
     const adapter = new MockAdapter([twoCalls, textResponse('done')])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
@@ -594,7 +594,7 @@ describe('tool additionalContexts buffering across a step', () => {
   it('appends multiple contexts deferred by one composite tool after its outer result', async () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'composite', {}), textResponse('done')])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'composite', description: 'composite', parameters: {},
       async execute(_args, exec) {
         exec.deferContext({ content: [{ type: 'text', text: 'nested-a' }], source: { kind: 'plugin', plugin: 'a' }, meta: { order: 1 } })
@@ -625,7 +625,7 @@ describe('tools/pre-execute gate (native-plugin permission pattern, end-to-end t
     const adapter = new MockAdapter([toolCallResponse('c1', 'danger', {}), textResponse('ok')])
     const ctx = await harness(adapter)
     let ran = false
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'danger', description: 'danger', parameters: {},
       async execute() { ran = true; return [{ type: 'text', text: 'should not run' }] },
     }))
@@ -687,7 +687,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', { text: 'hi' }), textResponse('done')])
     const ctx = await harness(adapter)
     await ctx.plugin(NativeGuard)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))

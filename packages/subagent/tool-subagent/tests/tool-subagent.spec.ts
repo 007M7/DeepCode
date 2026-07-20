@@ -62,6 +62,12 @@ describe('dsh-tool-subagent', () => {
     const ctx = await setup({ provider: 'mock' }, { reply: 'child says hi' })
     const result = await callSubagent(ctx, { description: 'do a thing', prompt: 'go research X' })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected subagent success')
+    expect(result.value).toEqual({
+      kind: 'foreground',
+      runId: 'scripted-subagent:mock:parent-1',
+      output: [{ type: 'text', text: 'child says hi' }],
+    })
     expect(text(result)).toBe('child says hi')
   })
 
@@ -637,6 +643,8 @@ describe('dsh-tool-subagent background mode', () => {
 
     const start = await callSubagent(ctx, { description: 'deep research', prompt: 'dig in', run_in_background: true }, { agent: parent })
     expect(start.isError).toBe(false)
+    if (start.isError) throw new Error('expected background subagent success')
+    expect(start.value).toEqual({ kind: 'background', taskId: 'subagent-1' })
     expect(text(start)).toBe('started background subagent task subagent-1')
 
     const collected = await ctx.tools.execute({

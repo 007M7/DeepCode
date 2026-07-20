@@ -165,7 +165,7 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
       // A result needs a prior matching call in the same step. (The converse
       // does NOT hold: a call may have no result — a throwing tool-execution
       // pipeline step ends the turn with no tool/result, which is legal.)
-      const syntheticInterrupted = event.data.isError && event.data.error?.code === 'interrupted'
+      const syntheticInterrupted = event.data.isError && event.data.error?.info?.code === 'interrupted'
       if (!trace.pendingCalls.has(event.data.callId) && !syntheticInterrupted) {
         throw new InvariantError(`tool/result for ${event.data.callId} with no prior tool/call in this step`)
       }

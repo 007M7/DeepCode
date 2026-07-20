@@ -219,7 +219,10 @@ function appendSkippedToolCall(session: Session, turn: number, step: number, blo
   appendToolResult(session, turn, step, block, {
     content: [{ type: 'text', text: 'Error: tool call skipped because the step was aborted before execution' }],
     isError: true,
-    error: { name: 'AbortError', code: 'ABORTED' },
+    error: {
+      message: 'tool call skipped because the step was aborted before execution',
+      info: { name: 'AbortError', code: 'ABORTED' },
+    },
   }, callSeq)
 }
 

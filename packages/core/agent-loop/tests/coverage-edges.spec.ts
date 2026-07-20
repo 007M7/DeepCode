@@ -4,7 +4,7 @@ import LlmService, { CallId, LlmError, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -77,7 +77,7 @@ describe('tool JSON parse', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: 'echo tool',
       parameters: { input: { type: 'string' } },
@@ -110,7 +110,7 @@ describe('tool JSON parse', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'noarg',
       description: 'no-arg tool',
       parameters: {},
@@ -259,7 +259,7 @@ describe('structured tool error propagation (the runtime-validation Agent Note, 
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'boom',
       description: 'always fails',
       parameters: {},
@@ -274,6 +274,6 @@ describe('structured tool error propagation (the runtime-validation Agent Note, 
     const toolResult = agent.session.events.find(e => e.type === 'tool/result')
     expect(toolResult?.type === 'tool/result' && toolResult.data.isError).toBe(true)
     expect(toolResult?.type === 'tool/result' && toolResult.data.error)
-      .toEqual({ name: 'HarnessError', code: 'BOOM' })
+      .toEqual({ message: 'exploded', info: { name: 'HarnessError', code: 'BOOM' } })
   })
 })

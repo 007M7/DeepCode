@@ -10,7 +10,7 @@ import { inspect } from 'node:util'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { CodeBindingFunction, CodeRunResult, CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
-import type {} from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool } from './schema.ts'
 import type { ToolDefinition, ToolRegistry } from './index.ts'
 
@@ -111,9 +111,8 @@ function jsonNormalizeArgs(value: unknown): { dispatched: unknown; logged: unkno
   return { dispatched: JSON.parse(text) as unknown, logged: JSON.parse(text) as unknown }
 }
 
-/** Render the program's completion value for the model-facing result text (`''` when the program returned nothing). */
-function renderValue(value: unknown): string {
-  if (value === undefined) return ''
+/** Render one present program completion value for the model-facing result text. */
+function renderValue(value: JsonValue): string {
   return typeof value === 'string' ? value : inspect(value, INSPECT_OPTIONS)
 }
 
@@ -121,6 +120,9 @@ function renderValue(value: unknown): string {
 interface RunCodeMeta {
   logs: CodeRunResult['logs']
 }
+
+/** Canonical value returned by the outer Code Mode transport. */
+type RunCodeOutput = { logs: string[]; result?: JsonValue }
 
 /** Soft-narrow a result `meta` back to {@link RunCodeMeta} (replay may carry older shapes; presentation must not throw). */
 function asRunCodeMeta(meta: unknown): RunCodeMeta | undefined {
@@ -152,7 +154,23 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
     parameters: {
       code: { type: 'string', required: true, description: 'The program: the body of an async TypeScript function.' },
     },
-    async execute(args, exec) {
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          logs: { type: 'array', required: true, items: { type: 'string' } },
+          result: { type: 'json' },
+        },
+      },
+      render: (_args, value) => {
+        const rendered = value.result === undefined ? '' : renderValue(value.result)
+        const parts = [value.logs.join('\n'), rendered].filter(part => part.length > 0)
+        return [{ type: 'text', text: parts.length > 0 ? parts.join('\n') : '(run_code completed with no output)' }]
+      },
+      presentationMeta: (_args, value) => ({ logs: value.logs }),
+    },
+    async execute(args, exec): Promise<RunCodeOutput> {
       const runtime = requireRuntime()
 
       // The run-scoped abort: follows the outer signal in, and fires when the
@@ -265,12 +283,12 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
           const logsText = result.logs.length > 0 ? `\nCaptured output:\n${result.logs.join('\n')}` : ''
           throw new CodeRunFailedError(`code run failed (${result.error.kind}): ${result.error.message}${logsText}`)
         }
-        const rendered = renderValue(result.value)
-        const parts = [result.logs.join('\n'), rendered].filter(part => part.length > 0)
-        const meta: RunCodeMeta = { logs: result.logs }
+        // The runtime seam is wider than JSON until PR 3 makes this boundary
+        // lossless. The registry immediately snapshots and rejects any value
+        // that does not satisfy the declared JSON output.
         return {
-          content: [{ type: 'text', text: parts.length > 0 ? parts.join('\n') : '(run_code completed with no output)' }],
-          meta,
+          logs: result.logs,
+          ...result.value !== undefined ? { result: result.value as JsonValue } : {},
         }
       } finally {
         exec.signal?.removeEventListener('abort', onOuterAbort)

@@ -12,7 +12,7 @@
 
 import type { Context } from 'cordis'
 import type { ContinuationStop } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { ToolArgsError, validateJsonSchemaValue, type ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 
@@ -74,7 +74,16 @@ export function attachStructuredRuntime(childCtx: Context, schema: ObjectJsonSch
 
   childCtx.tools.register({
     ...schemaEntry,
-    execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]> {
+    output: {
+      schema: {
+        type: 'object',
+        properties: { recorded: { type: 'boolean', const: true } },
+        required: ['recorded'],
+        additionalProperties: false,
+      },
+      render: () => [{ type: 'text', text: 'Structured output recorded.' }],
+    },
+    execute(args: unknown, exec: ToolExecution): Promise<{ recorded: true }> {
       const violations = validateJsonSchemaValue(schema, args)
       // ToolArgsError → isError result with INVALID_ARGS: the model retries
       // within the same turn, exactly like a schema-validated defineTool call.
@@ -83,7 +92,7 @@ export function attachStructuredRuntime(childCtx: Context, schema: ObjectJsonSch
       // waterfalls may still turn the success into an error. ToolRegistry has
       // already frozen model-bound arguments at the actual input boundary.
       staged.set(exec, { value: args })
-      return Promise.resolve([{ type: 'text', text: 'Structured output recorded.' }])
+      return Promise.resolve({ recorded: true })
     },
   })
 

@@ -159,6 +159,14 @@ describe('ask_user_question tool', () => {
       },
     })
 
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected ask_user_question success')
+    expect(result.value).toEqual({
+      answers: [
+        { id: 'targets', selected: ['tests', 'docs'] },
+        { id: 'notes', selected: [], custom: 'ship today' },
+      ],
+    })
     expect(result.content).toEqual([{
       type: 'text',
       text: '{"answers":[{"id":"targets","selected":["tests","docs"]},{"id":"notes","selected":[],"custom":"ship today"}]}',
@@ -219,7 +227,7 @@ describe('ask_user_question tool', () => {
 
     expect(result).toMatchObject({
       isError: true,
-      error: { name: 'UserInteractionError', code: 'NO_PROVIDER' },
+      error: { info: { name: 'UserInteractionError', code: 'NO_PROVIDER' } },
     })
   })
 
@@ -234,7 +242,7 @@ describe('ask_user_question tool', () => {
 
     expect(result).toMatchObject({
       isError: true,
-      error: { name: 'UserInteractionError', code: 'EMPTY_QUESTIONS' },
+      error: { info: { name: 'UserInteractionError', code: 'EMPTY_QUESTIONS' } },
     })
   })
 

@@ -1,8 +1,9 @@
 /** Unified JSON-value schema DSL, inference, compilation, and typed tool helper. @module dsh-tools/schema */
 
 import { HarnessError } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
-import type { ToolDefinition, ToolExecuteReturn, ToolRunContext, ToolResult } from './index.ts'
+import type { ToolDefinition, ToolRunContext, ToolResult } from './index.ts'
 import { assertSupportedJsonSchema, isPlainJsonRecord, JsonSchemaError, validateJsonSchemaValue } from './json-schema.ts'
 import type { JsonSchemaNode, JsonSchemaScalar, ObjectJsonSchema } from './json-schema.ts'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
@@ -114,21 +115,25 @@ type RequiredKeys<S extends ParameterSchemaSpec> = {
   [K in keyof S]: S[K] extends { required: true } ? K : never
 }[keyof S]
 
+/** Advance the bounded inference walk through one nested schema node. */
+type NextDepth<D extends readonly unknown[]> = readonly [...D, unknown]
+
 /** Infer the declared value of one parameter property without key optionality. */
-type InferProperty<P extends ParameterPropertySpec> = P extends ValueSchemaSpec ? InferValue<P> : never
+type InferProperty<P extends ParameterPropertySpec, D extends readonly unknown[]> =
+  P extends ValueSchemaSpec ? InferValue<P, D> : never
 
 /** Infer an implicit property map into required and optional object keys. */
-type InferProperties<S extends ParameterSchemaSpec> = Simplify<
-  & { [K in RequiredKeys<S>]: InferProperty<S[K]> }
-  & { [K in Exclude<keyof S, RequiredKeys<S>>]?: InferProperty<S[K]> }
+type InferProperties<S extends ParameterSchemaSpec, D extends readonly unknown[]> = Simplify<
+  & { [K in RequiredKeys<S>]: InferProperty<S[K], D> }
+  & { [K in Exclude<keyof S, RequiredKeys<S>>]?: InferProperty<S[K], D> }
 >
 
 /** Infer an explicit object node, including its declared openness. */
-type InferObject<S extends ObjectValueSchemaSpec> =
+type InferObject<S extends ObjectValueSchemaSpec, D extends readonly unknown[]> =
   S extends { properties: infer P extends ParameterSchemaSpec }
     ? S['additionalProperties'] extends true
-      ? InferProperties<P> & Record<string, JsonValue>
-      : InferProperties<P>
+      ? InferProperties<P, D> & Record<string, JsonValue>
+      : InferProperties<P, D>
     : S['additionalProperties'] extends true
       ? Record<string, JsonValue>
       : Record<string, never>
@@ -143,20 +148,21 @@ type InferScalar<S, Fallback> =
  * Infer the TypeScript value accepted by an author-facing value schema.
  * Output schemas may therefore infer object, array, scalar, or null roots.
  */
-export type InferValue<S extends ValueSchemaSpec> =
-  S extends StringValueSchemaSpec ? InferScalar<S, string> :
-    S extends NumberValueSchemaSpec | IntegerValueSchemaSpec ? InferScalar<S, number> :
-      S extends BooleanValueSchemaSpec ? InferScalar<S, boolean> :
-        S extends NullValueSchemaSpec ? null :
-          S extends ArrayValueSchemaSpec
-            ? S extends { items: infer I extends ValueSchemaSpec } ? InferValue<I>[] : JsonValue[]
-            : S extends ObjectValueSchemaSpec ? InferObject<S> :
-              S extends JsonValueSchemaSpec ? JsonValue :
-                S extends OneOfValueSchemaSpec ? InferValue<S['oneOf'][number]> :
-                  never
+export type InferValue<S extends ValueSchemaSpec, D extends readonly unknown[] = readonly []> =
+  D['length'] extends 12 ? JsonValue :
+    S extends StringValueSchemaSpec ? InferScalar<S, string> :
+      S extends NumberValueSchemaSpec | IntegerValueSchemaSpec ? InferScalar<S, number> :
+        S extends BooleanValueSchemaSpec ? InferScalar<S, boolean> :
+          S extends NullValueSchemaSpec ? null :
+            S extends ArrayValueSchemaSpec
+              ? S extends { items: infer I extends ValueSchemaSpec } ? InferValue<I, NextDepth<D>>[] : JsonValue[]
+              : S extends ObjectValueSchemaSpec ? InferObject<S, NextDepth<D>> :
+                S extends JsonValueSchemaSpec ? JsonValue :
+                  S extends OneOfValueSchemaSpec ? InferValue<S['oneOf'][number], NextDepth<D>> :
+                    never
 
 /** Infer the TypeScript argument object for an implicit parameter schema. */
-export type InferArgs<S extends ParameterSchemaSpec> = InferProperties<S>
+export type InferArgs<S extends ParameterSchemaSpec> = InferProperties<S, readonly []>
 
 const ANNOTATION_KEYS = ['description', 'title', 'default', 'examples'] as const
 
@@ -329,13 +335,22 @@ export function validateArgs(spec: ParameterSchemaSpec, args: unknown): string[]
 }
 
 /** Options for {@link defineTool}. */
-export interface DefineToolOptions<S extends ParameterSchemaSpec> {
+export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends ValueSchemaSpec> {
   /** Tool name (must be unique). */
   readonly name: string
   /** Human-readable description sent to the model. */
   readonly description: string
   /** Per-property parameter schema compiled to an implicit open object root. */
   readonly parameters: S
+  /** Canonical output schema plus pure Native and presentation projections. */
+  readonly output: {
+    /** Schema enforced against every successful body or policy-replaced value. */
+    readonly schema: O
+    /** Pure Native/model rendering of one validated canonical value. */
+    render(args: InferArgs<S>, value: InferValue<NoInfer<O>>): ContentBlock[]
+    /** Pure replayable presentation metadata for direct surface calls. */
+    presentationMeta?(args: InferArgs<S>, value: InferValue<NoInfer<O>>): JsonValue
+  }
   /** Optional positive cooperative timeout budget in milliseconds. */
   readonly timeoutMs?: number
   /**
@@ -348,9 +363,9 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec> {
    * Execute the tool after argument validation.
    * @param args - typed validated arguments.
    * @param exec - execution identity, caller, cancellation, and nesting data.
-   * @returns Model-facing content and optional presentation metadata.
+   * @returns The canonical value declared by `output.schema`.
    */
-  execute(args: InferArgs<S>, exec: ToolRunContext): Promise<ToolExecuteReturn>
+  execute(args: InferArgs<S>, exec: ToolRunContext): Promise<InferValue<NoInfer<O>>>
   /**
    * Pure pending-state presenter.
    * @param args - typed validated arguments.
@@ -373,10 +388,16 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec> {
  * @param options - typed definition and optional presenters.
  * @returns A registry-ready definition.
  */
-export function defineTool<S extends ParameterSchemaSpec>(options: DefineToolOptions<S>): ToolDefinition {
+export function defineTool<const S extends ParameterSchemaSpec, const O extends ValueSchemaSpec>(
+  options: DefineToolOptions<S, O>,
+): ToolDefinition {
   // Object-literal methods do not use `this`; retaining references is safe.
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userExecute = options.execute
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const userRender = options.output.render
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const userPresentationMeta = options.output.presentationMeta
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userPresentCall = options.presentCall
   // eslint-disable-next-line @typescript-eslint/unbound-method
@@ -387,16 +408,28 @@ export function defineTool<S extends ParameterSchemaSpec>(options: DefineToolOpt
     throw new Error(`defineTool(${options.name}): timeoutMs must be a positive finite number`)
   }
   const parameters = parameterSchemaSpecToJsonSchema(options.parameters)
+  const outputSchema = valueSchemaSpecToJsonSchema(options.output.schema)
   const validate = (args: unknown): string[] => validateJsonSchemaValue(parameters, args, '')
   const tool: ToolDefinition = {
     name: options.name,
     description: options.description,
     parameters: parameters as unknown as Record<string, unknown>,
+    output: {
+      schema: outputSchema,
+      render(args: unknown, value: JsonValue): ContentBlock[] {
+        return userRender(args as InferArgs<S>, value as unknown as InferValue<NoInfer<O>>)
+      },
+      ...userPresentationMeta !== undefined ? {
+        presentationMeta(args: unknown, value: JsonValue): JsonValue {
+          return userPresentationMeta(args as InferArgs<S>, value as unknown as InferValue<NoInfer<O>>)
+        },
+      } : {},
+    },
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
-    async execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn> {
+    async execute(args: unknown, exec: ToolRunContext): Promise<JsonValue> {
       const violations = validate(args)
       if (violations.length > 0) throw new ToolArgsError(violations)
-      return userExecute(args as InferArgs<S>, exec)
+      return userExecute(args as InferArgs<S>, exec) as Promise<JsonValue>
     },
   }
   if (userPresentCall) {

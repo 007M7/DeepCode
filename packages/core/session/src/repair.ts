@@ -92,7 +92,10 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
         callId,
         content: [{ type: 'text', text: 'Tool call interrupted by a crash; no result was recorded.' }],
         isError: true,
-        error: { name: 'InterruptedError', code: 'interrupted' },
+        error: {
+          message: 'Tool call interrupted by a crash; no result was recorded.',
+          info: { name: 'InterruptedError', code: 'interrupted' },
+        },
       },
       surfaceOp: 'append',
       ...callSeq !== undefined ? { sourceEventSeqs: [callSeq] } : {},

@@ -13,7 +13,6 @@
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { ItemRetainer, TextRetainer } from '@deepseek-ai/dsh-retention'
 import type { RetainedItems } from '@deepseek-ai/dsh-retention'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
@@ -21,6 +20,7 @@ import type {} from '@deepseek-ai/dsh-bash'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { SearchError, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
 import { singleQuote } from './shell-quote.ts'
+import { acceptedSurfaceValue } from './surface.ts'
 
 /**
  * Default cap on flat matches retained inline by one `grep` call (the
@@ -241,6 +241,20 @@ export function formatGrepOutput(retained: RetainedItems<GrepMatch>, spillRef: S
   return `${header}\n\n${body}\n\n(${recovery})`
 }
 
+/** Apply the Native per-line preview budget without changing the canonical matches. */
+function previewGrepMatches(matches: GrepMatch[], maxLineBytes: number): GrepMatch[] {
+  return matches.map(match => ({ ...match, line: previewLine(match.line, maxLineBytes) }))
+}
+
+/** Retain and format one canonical match list for the Native surface. */
+function renderGrepMatches(matches: GrepMatch[], maxMatches: number, maxLineBytes: number, spillRef?: SpillRef): string {
+  if (matches.length === 0) return 'No matches found'
+  const previewed = previewGrepMatches(matches, maxLineBytes)
+  const retainer = new ItemRetainer<GrepMatch>({ kind: 'head', maxItems: maxMatches })
+  for (const match of previewed) retainer.push(match)
+  return formatGrepOutput(retainer.finish(), spillRef)
+}
+
 /**
  * Pending-call presentation: a search card titled by the pattern (and target /
  * include filter).
@@ -268,7 +282,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
     text: 'Use the grep tool — not shell grep or rg — to search file contents. Use read on a matched file when you need surrounding context.',
   })
 
-  ctx.tools.register(defineTool({
+  const tool = defineTool({
     name: 'grep',
     description: 'Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. '
       + `Returns the first ${caps.maxMatches} matches inline; a capped result reports where the complete match list was saved. `
@@ -279,37 +293,70 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
       include: { type: 'string', description: 'One glob filter for which files to search (e.g. "*.ts", "*.{js,jsx}"). Not a list; negation is not supported.' },
     },
     timeoutMs: caps.timeoutMs,
-    async execute(args, exec): Promise<ContentBlock[]> {
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          matches: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                path: { type: 'string', required: true },
+                lineNumber: { type: 'integer', required: true },
+                line: { type: 'string', required: true },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: renderGrepMatches(value.matches, caps.maxMatches, caps.maxLineBytes),
+      }],
+    },
+    async execute(args, exec) {
       const input = parseGrepArgs(args)
       const run = await runRipgrep(ctx, exec, 'grep', buildGrepCommand(input), caps.rawOutputMaxBytes)
-      if (run.noMatches) return [{ type: 'text', text: 'No matches found' }]
+      if (run.noMatches) return { matches: [] }
 
-      const retainer = new ItemRetainer<GrepMatch>({ kind: 'head', maxItems: caps.maxMatches })
       const all: GrepMatch[] = []
       for (const raw of parseGrepMatches(run.stdout)) {
         const match: GrepMatch = {
           path: toWorkdirRelative(raw.path, run.workdir),
           lineNumber: raw.lineNumber,
-          line: previewLine(raw.line, caps.maxLineBytes),
+          line: raw.line,
         }
         all.push(match)
-        retainer.push(match)
       }
-      const retained = retainer.finish()
-
-      // The spill file stores the FULL formatted match list (same grouped,
-      // per-line-previewed shape the model saw), so read offset/limit pages the
-      // same logical result; save only when the inline page omitted matches.
-      const spillRef = retained.truncated
-        ? await trySaveFormattedResult(
-          ctx,
-          exec,
-          'grep-results.txt',
-          `Found ${all.length} ${matchNoun(all.length)}\n\n${formatGrepMatches(all)}`,
-        )
-        : undefined
-      return [{ type: 'text', text: formatGrepOutput(retained, spillRef) }]
+      return { matches: all }
     },
     presentCall: presentGrepCall,
-  }))
+  })
+  ctx.tools.register(tool)
+
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const decision = await next()
+    const value = acceptedSurfaceValue(ctx, tool, exec, result, decision) as { matches: GrepMatch[] } | undefined
+    if (value === undefined) return decision
+    const matches = value.matches
+    if (matches.length <= caps.maxMatches) return decision
+    const spillRef = await trySaveFormattedResult(
+      ctx,
+      exec,
+      'grep-results.txt',
+      `Found ${matches.length} ${matchNoun(matches.length)}\n\n${formatGrepMatches(previewGrepMatches(matches, caps.maxLineBytes))}`,
+    )
+    return {
+      kind: 'accept',
+      content: [{
+        type: 'text',
+        text: renderGrepMatches(matches, caps.maxMatches, caps.maxLineBytes, spillRef),
+      }],
+      ...decision.additionalContexts !== undefined ? { additionalContexts: decision.additionalContexts } : {},
+    }
+  })
 }

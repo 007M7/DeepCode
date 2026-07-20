@@ -6,8 +6,8 @@
  * return values with. The façade is a whitelist of lifecycle-safe verbs and declared services;
  * framework internals and context-valued service returns are denied.
  *
- * VM-realm schemas are rebuilt as host objects, and tool results are JSON-round-tripped and
- * shape-checked before session logging. Common JSON-Schema spellings are normalized when they
+ * VM-realm schemas and canonical values are rebuilt as host objects, while rendered content and
+ * presentation metadata are shape-checked before entering the registry. Common JSON-Schema spellings are normalized when they
  * have one meaning; invalid vocabulary fails during registration with a teaching error.
  * @module @deepseek-ai/dsh-tool-cordis/guard
  */
@@ -16,7 +16,9 @@ import { Context } from 'cordis'
 import type { Plugin } from 'cordis'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { assertSupportedJsonSchema, defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolDefinition, ToolExecuteReturn } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from '@deepseek-ai/dsh-session'
 
 const DYNAMIC_TOOL = Symbol('tool-cordis.dynamic-tool')
 const SCHEMA_TYPES = new Set<unknown>(['string', 'number', 'integer', 'boolean', 'null', 'object', 'array', 'json'])
@@ -254,34 +256,23 @@ const RETURN_PREVIEW_LIMIT = 120
  * (`String(…)` for the un-stringifiable undefined case), truncated to
  * {@link RETURN_PREVIEW_LIMIT}.
  */
-function describeReturn(value: unknown): string {
-  // JSON.stringify is TYPED as always returning string, but it yields
-  // undefined for an undefined input (the routed forgot-return case) — the
-  // assertion widens the type back to the runtime truth.
-  const json = JSON.stringify(value) as string | undefined
-  if (json === undefined) return String(value)
+function describeReturn(value: JsonValue): string {
+  // The caller has already crossed cloneJson, so this value is lossless JSON
+  // and serialization cannot produce undefined.
+  const json = JSON.stringify(value)
   return json.length > RETURN_PREVIEW_LIMIT ? `${json.slice(0, RETURN_PREVIEW_LIMIT)}…` : json
 }
 
 /**
- * Validate a round-tripped `execute` return against the two shapes
- * {@link ToolExecuteReturn} allows: an ARRAY of content blocks, or
- * `{ content: blocks, meta? }`. The registry trusts the shape blindly — it
- * spreads `result.content`, so an unvalidated `{ content: 'ok' }` would enter
- * the session log as `['o','k']` and silently corrupt the next model request —
- * so a wrong shape fails THIS call with a teaching error instead.
+ * Validate and host-materialize a sandbox renderer's content blocks.
  */
-function assertExecuteReturn(value: unknown): ToolExecuteReturn {
+function assertRenderedContent(value: JsonValue): ContentBlock[] {
   if (Array.isArray(value) && value.every(isContentBlockShape)) {
-    return value as ToolExecuteReturn
-  }
-  if (isPlainRecord(value) && Array.isArray(value.content) && value.content.every(isContentBlockShape)) {
-    return value as ToolExecuteReturn
+    return value as unknown as ContentBlock[]
   }
   throw new Error(
-    `execute returned ${describeReturn(value)} — a tool's execute must return an ARRAY of content blocks, never a bare string:\n`
-    + '  ✓ return [{ type: \'text\', text: someString }]\n'
-    + '  ✓ return { content: [{ type: \'text\', text: someString }], meta: anyJsonValue }',
+    `output.render returned ${describeReturn(value)} — it must return an ARRAY of content blocks:\n`
+    + '  ✓ return [{ type: \'text\', text: String(value) }]',
   )
 }
 
@@ -294,23 +285,46 @@ function assertExecuteReturn(value: unknown): ToolExecuteReturn {
  * @param options - the standard `defineTool` options; `parameters` may be the ParameterSchemaSpec DSL or a JSON-Schema-style wrapper.
  * @returns the marker-tagged definition `harness.registerTool` (and the guarded `ctx.tools.register`) accepts.
  */
-export function sandboxDefineTool(options: Parameters<typeof defineTool>[0]): ToolDefinition {
-  const normalized = normalizeParameterSchemaSpec((options as { parameters?: unknown }).parameters)
-  const tool = defineTool({ ...options, parameters: normalized.spec } as Parameters<typeof defineTool>[0])
+export function sandboxDefineTool(options: unknown): ToolDefinition {
+  if (!isPlainRecord(options)) throw new Error('harness.defineTool options must be an object')
+  const normalized = normalizeParameterSchemaSpec(options.parameters)
+  if (!isPlainRecord(options.output)) {
+    throw new Error('harness.defineTool output must declare { schema, render, presentationMeta? }')
+  }
+  const output = options.output
+  if (typeof output.render !== 'function') throw new Error('harness.defineTool output.render must be a function')
+  if (output.presentationMeta !== undefined && typeof output.presentationMeta !== 'function') {
+    throw new Error('harness.defineTool output.presentationMeta must be a function when present')
+  }
+  if (typeof options.execute !== 'function') throw new Error('harness.defineTool execute must be a function')
+  const schema = normalizeValueSchema(output.schema, 'output.schema')
+  const rawExecute = options.execute as (args: unknown, exec: unknown) => Promise<unknown>
+  const rawRender = output.render as (args: unknown, value: unknown) => unknown
+  const rawPresentationMeta = output.presentationMeta as ((args: unknown, value: unknown) => unknown) | undefined
+  const erasedDefineTool = defineTool as unknown as (definition: unknown) => ToolDefinition
+  const tool = erasedDefineTool({
+    ...options,
+    parameters: normalized.spec,
+    output: {
+      schema,
+      render(args: unknown, value: unknown): ContentBlock[] {
+        return assertRenderedContent(cloneJson(rawRender(args, value), 'output.render result') as JsonValue)
+      },
+      ...rawPresentationMeta !== undefined ? {
+        presentationMeta(args: unknown, value: unknown): JsonValue {
+          return cloneJson(rawPresentationMeta(args, value), 'output.presentationMeta result') as JsonValue
+        },
+      } : {},
+    },
+    async execute(args: unknown, exec: unknown): Promise<JsonValue> {
+      return cloneJson(await rawExecute(args, exec), 'execute result') as JsonValue
+    },
+  })
   const parameters = { ...tool.parameters, ...normalized.rootAnnotations }
   assertSupportedJsonSchema(parameters)
-  const execute = tool.execute.bind(tool)
   return markDynamicTool({
     ...tool,
     parameters,
-    async execute(args, exec) {
-      // JSON.stringify yields NO JSON for an undefined (or function/symbol)
-      // return despite its string-typed signature — route that into
-      // assertExecuteReturn's teaching error rather than letting JSON.parse
-      // throw its cryptic '"undefined" is not valid JSON'.
-      const json = JSON.stringify(await execute(args, exec)) as string | undefined
-      return assertExecuteReturn(json === undefined ? undefined : JSON.parse(json) as unknown)
-    },
   })
 }
 

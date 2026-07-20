@@ -203,7 +203,8 @@ describe('dsh-acp-demo composition', () => {
         name,
         description: name,
         parameters: {},
-        execute: async () => [],
+        output: { schema: { type: 'null' }, render: () => [] },
+        execute: async () => null,
       })
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()

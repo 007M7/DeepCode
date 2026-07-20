@@ -5,9 +5,9 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import ToolRegistry, {
-  defineTool, JsonSchemaError, parameterSchemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
+  defineContentToolFixture, defineTool, JsonSchemaError, parameterSchemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
   type InferArgs, type JsonValue, type ParameterSchemaSpec, type PreToolDecision, type PostToolDecision,
-  type ToolExecution, type ToolExecutionResult,
+  type ToolDefinition, type ToolExecution, type ToolExecutionResult, type ToolExecutionToken,
 } from '@deepseek-ai/dsh-tools'
 
 async function setup() {
@@ -21,8 +21,12 @@ const echoTool = defineTool({
   name: 'echo',
   description: 'echo arguments back',
   parameters: { text: { type: 'string' } },
+  output: {
+    schema: { type: 'string' },
+    render: (_args, value) => [{ type: 'text', text: value }],
+  },
   async execute(args) {
-    return [{ type: 'text' as const, text: args.text ?? '' }]
+    return args.text ?? ''
   },
 })
 
@@ -50,7 +54,7 @@ describe('ToolRegistry', () => {
     // the system-prompt assembly → the model request, so those callbacks (and
     // `execute`) must be stripped: a function in the JSON tool schema would
     // corrupt the request. schemas() is an explicit allowlist, so it can't leak.
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'present',
       description: 'has presenters',
       parameters: { x: { type: 'string', required: true } },
@@ -67,7 +71,7 @@ describe('ToolRegistry', () => {
 
   it('schemas() excludes timeoutMs — the budget must never reach the model', async () => {
     const ctx = await setup()
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'budgeted', description: 'has a budget', parameters: {}, timeoutMs: 5_000,
       async execute() { return [{ type: 'text' as const, text: 'ok' }] },
     }))
@@ -79,17 +83,24 @@ describe('ToolRegistry', () => {
   it('executes a tool and returns its content', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
+    let observed: ToolExecutionResult | undefined
+    ctx.on('tools/result', (_exec, result) => { observed = result })
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
-    expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false, value: 'hi' })
+    expect(observed).toEqual(result)
   })
 
-  it('threads a tool-attached meta (object return form) onto the result', async () => {
+  it('projects presentation metadata from the canonical value', async () => {
     const ctx = await setup()
     ctx.tools.register({
       ...echoTool,
       name: 'meta-tool',
+      output: {
+        ...echoTool.output,
+        presentationMeta: () => ({ diffs: [{ path: 'a', oldText: null, newText: 'x' }] }),
+      },
       async execute() {
-        return { content: [{ type: 'text', text: 'ok' }], meta: { diffs: [{ path: 'a', oldText: null, newText: 'x' }] } }
+        return 'ok'
       },
     })
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'meta-tool', arguments: {} })
@@ -97,20 +108,21 @@ describe('ToolRegistry', () => {
       content: [{ type: 'text', text: 'ok' }],
       isError: false,
       meta: { diffs: [{ path: 'a', oldText: null, newText: 'x' }] },
+      value: 'ok',
     })
   })
 
-  it('omits meta when the object return form supplies none', async () => {
+  it('omits meta when no presentation projector is declared', async () => {
     const ctx = await setup()
     ctx.tools.register({
       ...echoTool,
       name: 'no-meta-tool',
       async execute() {
-        return { content: [{ type: 'text', text: 'ok' }] }
+        return 'ok'
       },
     })
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'no-meta-tool', arguments: {} })
-    expect(result).toEqual({ content: [{ type: 'text', text: 'ok' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'ok' }], isError: false, value: 'ok' })
     expect('meta' in result).toBe(false)
   })
 
@@ -121,8 +133,12 @@ describe('ToolRegistry', () => {
     ctx.tools.register({
       ...echoTool,
       name: 'bad-meta',
+      output: {
+        ...echoTool.output,
+        presentationMeta: () => (() => undefined) as unknown as JsonValue,
+      },
       async execute() {
-        return { content: [], meta: () => undefined }
+        return 'ok'
       },
     })
 
@@ -132,6 +148,284 @@ describe('ToolRegistry', () => {
     expect(result.isError).toBe(true)
     expect(result.content[0]?.type === 'text' && result.content[0].text).toContain('Error:')
     expect(observedError).toBe(true)
+  })
+
+  it('requires every raw registration to declare its canonical output', async () => {
+    const ctx = await setup()
+    const missingOutput = {
+      name: 'legacy-content-tool',
+      description: 'missing output',
+      parameters: {},
+      execute: async () => [{ type: 'text', text: 'legacy' }],
+    } as unknown as ToolDefinition
+
+    expect(() => ctx.tools.register(missingOutput))
+      .toThrow('must declare output { schema, render, presentationMeta? }')
+  })
+
+  it('rejects lossy and schema-mismatched body values before post-execute', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'lossy-output',
+      description: 'lossy',
+      parameters: {},
+      output: { schema: { type: 'json' }, render: () => [] },
+      execute: async () => (() => undefined) as unknown as JsonValue,
+    }))
+    ctx.tools.register(defineTool({
+      name: 'wrong-output',
+      description: 'wrong schema',
+      parameters: {},
+      output: { schema: { type: 'string' }, render: () => [] },
+      execute: async () => 42 as unknown as string,
+    }))
+
+    const lossy = await ctx.tools.execute({ callId: CallId('lossy'), name: 'lossy-output', arguments: {} })
+    const mismatch = await ctx.tools.execute({ callId: CallId('mismatch'), name: 'wrong-output', arguments: {} })
+    expect(lossy.error).toMatchObject({ info: { name: 'ToolOutputError', code: 'INVALID_TOOL_OUTPUT' } })
+    expect(lossy.content[0]?.type === 'text' ? lossy.content[0].text : '').toContain('not lossless JSON')
+    expect(mismatch.error).toMatchObject({ info: { name: 'ToolOutputError', code: 'INVALID_TOOL_OUTPUT' } })
+    expect(mismatch.content[0]?.type === 'text' ? mismatch.content[0].text : '').toContain('"value" must be a string')
+  })
+
+  it.each(['render', 'presentationMeta'] as const)('contains a throwing output.%s projector as one failed call', async (projector) => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: `throwing-${projector}`,
+      description: projector,
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: () => {
+          if (projector === 'render') throw new Error('renderer exploded')
+          return [{ type: 'text', text: 'ok' }]
+        },
+        presentationMeta: () => {
+          if (projector === 'presentationMeta') throw new Error('metadata exploded')
+          return null
+        },
+      },
+      execute: async () => 'ok',
+    }))
+
+    const result = await ctx.tools.execute({ callId: CallId(projector), name: `throwing-${projector}`, arguments: {} })
+    expect(result).toMatchObject({
+      isError: true,
+      error: { message: projector === 'render' ? 'renderer exploded' : 'metadata exploded' },
+    })
+    expect('value' in result).toBe(false)
+  })
+
+  it('keeps value/meta through content replacement and recomputes both projections after value replacement', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'projected',
+      description: 'projected',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { text: { type: 'string', required: true } },
+        },
+        render: (_args, value) => [{ type: 'text', text: `render:${value.text}` }],
+        presentationMeta: (_args, value) => ({ projected: value.text }),
+      },
+      execute: async () => ({ text: 'body' }),
+    }))
+    let replacement: 'content' | 'value' = 'content'
+    ctx.on('tools/post-execute', async () => {
+      if (replacement === 'content') {
+        return { kind: 'accept', content: [{ type: 'text', text: 'policy content' }] }
+      }
+      return {
+        kind: 'accept',
+        value: { text: 'policy value' },
+        additionalContexts: [{ content: [{ type: 'text', text: 'value context' }], source: { kind: 'plugin', plugin: 'test' } }],
+      }
+    })
+
+    const content = await ctx.tools.execute({ callId: CallId('content'), name: 'projected', arguments: {} })
+    replacement = 'value'
+    const value = await ctx.tools.execute({ callId: CallId('value'), name: 'projected', arguments: {} })
+
+    expect(content).toEqual({
+      isError: false,
+      value: { text: 'body' },
+      content: [{ type: 'text', text: 'policy content' }],
+      meta: { projected: 'body' },
+    })
+    expect(value).toEqual({
+      isError: false,
+      value: { text: 'policy value' },
+      content: [{ type: 'text', text: 'render:policy value' }],
+      meta: { projected: 'policy value' },
+      additionalContexts: [{ content: [{ type: 'text', text: 'value context' }], source: { kind: 'plugin', plugin: 'test' } }],
+    })
+  })
+
+  it('fails a post-execute decision that replaces both projections or supplies an invalid value', async () => {
+    const both = await setup()
+    both.tools.register(echoTool)
+    both.on('tools/post-execute', async () => ({
+      kind: 'accept',
+      value: 'replacement',
+      content: [{ type: 'text', text: 'also replacement' }],
+    } as unknown as PostToolDecision))
+    const bothResult = await both.tools.execute({ callId: CallId('both'), name: 'echo', arguments: {} })
+    expect(bothResult).toMatchObject({
+      isError: true,
+      error: { message: 'tools/post-execute accept decision cannot replace both value and content' },
+    })
+
+    const invalid = await setup()
+    invalid.tools.register(echoTool)
+    invalid.on('tools/post-execute', async () => ({ kind: 'accept', value: 1 }))
+    const invalidResult = await invalid.tools.execute({ callId: CallId('invalid'), name: 'echo', arguments: {} })
+    expect(invalidResult.error).toMatchObject({ info: { code: 'INVALID_TOOL_OUTPUT' } })
+    expect('value' in invalidResult).toBe(false)
+  })
+
+  it('turns a post-execute block into a valueless failure', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/post-execute', async () => ({
+      kind: 'block',
+      feedback: [{ type: 'text', text: 'blocked by policy' }],
+    }))
+
+    const result = await ctx.tools.execute({ callId: CallId('block'), name: 'echo', arguments: { text: 'secret' } })
+    expect(result).toEqual({
+      isError: true,
+      error: { message: 'blocked by policy' },
+      content: [{ type: 'text', text: 'blocked by policy' }],
+    })
+    expect('value' in result).toBe(false)
+  })
+
+  it('replaces a canonical value without manufacturing additional context', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/post-execute', async () => ({ kind: 'accept', value: 'replacement' }))
+
+    const result = await ctx.tools.execute({ callId: CallId('replace-value'), name: 'echo', arguments: {} })
+    expect(result).toEqual({
+      isError: false,
+      value: 'replacement',
+      content: [{ type: 'text', text: 'replacement' }],
+    })
+  })
+
+  it.each([
+    [[], 'tool result blocked by post-execute policy'],
+    [[{ type: 'reasoning', text: 'private rationale' }], '[reasoning content]'],
+  ] as const)('derives a stable failure message from non-text or empty block feedback', async (feedback, message) => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/post-execute', async () => ({ kind: 'block', feedback: [...feedback] }))
+
+    const result = await ctx.tools.execute({ callId: CallId('block-message'), name: 'echo', arguments: {} })
+    expect(result.error?.message).toBe(message)
+  })
+
+  it('contains a non-JSON post-execute failure projection as a safe final error', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/post-execute', async () => ({
+      kind: 'block',
+      feedback: [{ type: 'text', text: 'blocked', invalid: () => undefined } as never],
+    }))
+
+    const result = await ctx.tools.execute({ callId: CallId('invalid-block'), name: 'echo', arguments: {} })
+    expect(result).toMatchObject({
+      isError: true,
+      error: { message: 'tool result must be losslessly JSON-serializable' },
+    })
+  })
+
+  it('rejects value replacement on a failed dispatch', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'throw-before-replace',
+      async execute() { throw new Error('body failed') },
+    })
+    ctx.on('tools/post-execute', async () => ({ kind: 'accept', value: 'replacement' }))
+
+    const result = await ctx.tools.execute({
+      callId: CallId('failed-replace'), name: 'throw-before-replace', arguments: {},
+    })
+    expect(result.error?.message).toBe('tools/post-execute cannot replace the value of a failed result')
+  })
+
+  it('fails value replacement when the owning tool disappears before post-policy resolves', async () => {
+    const ctx = await setup()
+    const dispose = ctx.tools.register(echoTool)
+    ctx.on('tools/post-execute', async () => {
+      dispose()
+      return { kind: 'accept', value: 'replacement' }
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('post-disposed'), name: 'echo', arguments: {} })
+    expect(result.error).toEqual({
+      message: 'unknown tool "echo"',
+      info: { name: 'ToolNotFoundError', code: 'UNKNOWN_TOOL' },
+    })
+  })
+
+  it('normalizes wrapper-authored failure metadata and contexts', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/execute', async () => ({
+      isError: true,
+      error: { message: 'wrapped failure' },
+      content: [{ type: 'text', text: 'wrapper content' }],
+      meta: { wrapped: true },
+      additionalContexts: [{ content: [{ type: 'text', text: 'wrapper context' }], source: { kind: 'plugin', plugin: 'test' } }],
+    }))
+
+    const result = await ctx.tools.execute({ callId: CallId('wrapper-failure'), name: 'echo', arguments: {} })
+    expect(result).toEqual({
+      isError: true,
+      error: { message: 'wrapped failure' },
+      content: [{ type: 'text', text: 'wrapper content' }],
+      meta: { wrapped: true },
+      additionalContexts: [{ content: [{ type: 'text', text: 'wrapper context' }], source: { kind: 'plugin', plugin: 'test' } }],
+    })
+  })
+
+  it('fails wrapper-authored success normalization when the owning tool disappears', async () => {
+    const ctx = await setup()
+    const dispose = ctx.tools.register(echoTool)
+    ctx.on('tools/execute', async () => {
+      dispose()
+      return { isError: false, value: 'replacement', content: [] }
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('wrapper-disposed'), name: 'echo', arguments: {} })
+    expect(result.error).toEqual({
+      message: 'unknown tool "echo"',
+      info: { name: 'ToolNotFoundError', code: 'UNKNOWN_TOOL' },
+    })
+  })
+
+  it('suppresses presentation metadata only for nested composite dispatches', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'meta-suppression',
+      output: { ...echoTool.output, presentationMeta: () => ({ card: true }) },
+    })
+    const direct = await ctx.tools.execute({ callId: CallId('direct'), name: 'meta-suppression', arguments: {} })
+    const nested = await ctx.tools.execute({
+      callId: CallId('nested'),
+      name: 'meta-suppression',
+      arguments: {},
+      parent: Symbol('outer') as ToolExecutionToken,
+    })
+    expect(direct.meta).toEqual({ card: true })
+    expect(nested.meta).toBeUndefined()
+    expect(nested.isError ? undefined : nested.value).toBe('')
   })
 
   it('returns isError results for unknown tools and throwing tools', async () => {
@@ -148,7 +442,10 @@ describe('ToolRegistry', () => {
     expect(unknown.isError).toBe(true)
     expect(unknown.content[0]).toMatchObject({ text: 'Error: unknown tool "nope"' })
     // An unknown tool is a routable failure class, same as a tool-thrown one.
-    expect(unknown.error).toEqual({ name: 'ToolNotFoundError', code: 'UNKNOWN_TOOL' })
+    expect(unknown.error).toEqual({
+      message: 'unknown tool "nope"',
+      info: { name: 'ToolNotFoundError', code: 'UNKNOWN_TOOL' },
+    })
 
     const thrown = await ctx.tools.execute({ callId: CallId('c2'), name: 'boom', arguments: {} })
     expect(thrown.isError).toBe(true)
@@ -189,15 +486,22 @@ describe('ToolRegistry', () => {
   it('lets a tools/pre-execute listener deny a call (permission pattern)', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
+    let postSawFrozen = false
 
     ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
       if (exec.name === 'echo') return { kind: 'deny', reason: 'denied by policy' }
+      return next()
+    })
+    ctx.on('tools/post-execute', async (_exec, result, next) => {
+      postSawFrozen = Object.isFrozen(result)
+      expect(Reflect.set(result, 'content', [])).toBe(false)
       return next()
     })
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: denied by policy' })
+    expect(postSawFrozen).toBe(true)
   })
 
   it('an ask decision degrades to deny when no approval seam is mounted', async () => {
@@ -378,7 +682,7 @@ describe('ToolRegistry', () => {
 
   it('preserves tool-deferred, execute-wrapper, and post-execute contexts in order', async () => {
     const ctx = await setup()
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'composite',
       description: 'composite',
       parameters: {},
@@ -422,7 +726,7 @@ describe('ToolRegistry', () => {
 
   it('keeps deferred contexts when a composite tool throws, but drops them when the outer call is blocked', async () => {
     const ctx = await setup()
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'failing-composite',
       description: 'failing composite',
       parameters: {},
@@ -473,7 +777,7 @@ describe('ToolRegistry', () => {
   it('runs tools/execute after an allowed pre-execute, around dispatch, and before post-execute', async () => {
     const ctx = await setup()
     const order: string[] = []
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'traced',
       description: 'echo',
       parameters: { text: { type: 'string' } },
@@ -493,7 +797,7 @@ describe('ToolRegistry', () => {
     ctx.on('tools/post-execute', async (_exec, _result, next) => { order.push('post'); return next() })
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'traced', arguments: { text: 'hi' } })
-    expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false, value: [{ type: 'text', text: 'hi' }] })
     // The around seam wraps dispatch; pre gates before it, post runs over its result.
     expect(order).toEqual(['pre', 'execute:before', 'dispatch', 'execute:after', 'post'])
   })
@@ -533,9 +837,33 @@ describe('ToolRegistry', () => {
     })
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'boom', arguments: {} })
-    expect(seen).toEqual({ isError: true, error: { name: 'HarnessError', code: 'BOOM' } })
+    expect(seen).toEqual({
+      isError: true,
+      error: { message: 'kaboom', info: { name: 'HarnessError', code: 'BOOM' } },
+    })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: kaboom' })
+  })
+
+  it('freezes core dispatch outcomes before around and post listeners can observe them', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    const mutationAttempts: boolean[] = []
+    ctx.on('tools/execute', async (_exec, next) => {
+      const result = await next()
+      mutationAttempts.push(Reflect.set(result, 'value', 'around mutation'))
+      return result
+    })
+    ctx.on('tools/post-execute', async (_exec, result, next) => {
+      mutationAttempts.push(Reflect.set(result, 'value', 'post mutation'))
+      return next()
+    })
+
+    const result = await ctx.tools.execute({
+      callId: CallId('frozen-canonical'), name: 'echo', arguments: { text: 'original' },
+    })
+    expect(mutationAttempts).toEqual([false, false])
+    expect(result.isError ? undefined : result.value).toBe('original')
   })
 
   it('a thrown tool normalized inside tools/execute still reaches post-execute', async () => {
@@ -567,7 +895,7 @@ describe('ToolRegistry', () => {
       name: 'signal-probe',
       async execute(_args, exec) {
         seenSignal = exec.signal
-        return [{ type: 'text' as const, text: 'ok' }]
+        return 'ok'
       },
     })
 
@@ -591,11 +919,11 @@ describe('ToolRegistry', () => {
     ctx.tools.register({
       ...echoTool,
       name: 'never-runs',
-      async execute() { dispatched = true; return [] },
+      async execute() { dispatched = true; return 'unreachable' },
     })
 
     ctx.on('tools/execute', async (_exec: ToolExecution, _next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> =>
-      ({ content: [{ type: 'text', text: 'short-circuited' }], isError: false }))
+      ({ content: [{ type: 'text', text: 'ignored authored content' }], isError: false, value: 'short-circuited' }))
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'never-runs', arguments: {} })
     expect(dispatched).toBe(false) // returning without next() skips core dispatch
@@ -608,6 +936,7 @@ describe('ToolRegistry', () => {
     ctx.on('tools/execute', async () => ({
       content: [{ type: 'text', text: 'short-circuited with context' }],
       isError: false,
+      value: 'short-circuited with context',
       additionalContexts: [{
         content: [{ type: 'text', text: 'from around dispatch' }],
         source: { kind: 'plugin', plugin: 'test' },
@@ -631,6 +960,7 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result).toEqual({
       content: [{ type: 'text', text: 'Error: wrapper broke' }],
+      error: { message: 'wrapper broke' },
       isError: true,
     })
   })
@@ -646,6 +976,7 @@ describe('ToolRegistry', () => {
 
     expect(result).toEqual({
       content: [{ type: 'text', text: 'Error: permission hook broke' }],
+      error: { message: 'permission hook broke' },
       isError: true,
     })
   })
@@ -661,6 +992,7 @@ describe('ToolRegistry', () => {
 
     expect(result).toEqual({
       content: [{ type: 'text', text: 'Error: post hook broke' }],
+      error: { message: 'post hook broke' },
       isError: true,
     })
   })
@@ -676,7 +1008,7 @@ describe('ToolRegistry', () => {
 
     expect(result).toMatchObject({
       isError: true,
-      error: { name: 'HarnessError', code: 'DENIED' },
+      error: { message: 'denied', info: { name: 'HarnessError', code: 'DENIED' } },
     })
   })
 
@@ -839,10 +1171,14 @@ describe('defineTool / schema DSL', () => {
         text: { type: 'string', required: true },
         uppercase: { type: 'boolean' },
       },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
       async execute(args) {
         // args is typed: { text: string; uppercase?: boolean }
         const result = args.uppercase ? args.text.toUpperCase() : args.text
-        return [{ type: 'text', text: result }]
+        return result
       },
     })
 
@@ -866,6 +1202,7 @@ describe('defineTool / schema DSL', () => {
       arguments: { text: 'hello', uppercase: true },
     })
     expect(result.isError).toBe(false)
+    expect(result.isError ? undefined : result.value).toBe('HELLO')
     expect(result.content).toEqual([{ type: 'text', text: 'HELLO' }])
   })
 
@@ -876,12 +1213,13 @@ describe('defineTool / schema DSL', () => {
       name: 'type-check',
       description: '',
       parameters: { a: { type: 'string' as const, required: true as const }, b: { type: 'number' as const } },
+      output: { schema: { type: 'string' }, render: () => [] },
       async execute(args) {
         // Verify types at runtime via typeof
         expect(typeof args.a).toBe('string')
         // args.b should be undefined when not provided
         void args
-        return [{ type: 'text', text: args.a }]
+        return args.a
       },
     })
     void tool
@@ -896,8 +1234,12 @@ describe('defineTool / schema DSL', () => {
         req: { type: 'string', required: true },
         opt: { type: 'number', description: 'Optional number' },
       },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
       async execute(args) {
-        return [{ type: 'text', text: `${args.req}:${args.opt ?? 'none'}` }]
+        return `${args.req}:${args.opt ?? 'none'}`
       },
     }))
 
@@ -933,9 +1275,13 @@ describe('defineTool / schema DSL', () => {
         properties: { path: { type: 'string' } },
         required: ['path'],
       },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value as string }],
+      },
       async execute(args: unknown) {
         const p = args as { path: string }
-        return [{ type: 'text', text: p.path }]
+        return p.path
       },
     })
 
@@ -1284,7 +1630,7 @@ describe('validateArgs (the runtime-validation Agent Note, part 1)', () => {
 describe('defineTool validation (the runtime-validation Agent Note, part 1)', () => {
   it('returns an isError result with the violations when the model sends bad args', async () => {
     const ctx = await setup()
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'reader',
       description: 'reads a path',
       parameters: { path: { type: 'string', required: true } },
@@ -1302,7 +1648,7 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
 
   it('runs execute normally when args are valid', async () => {
     const ctx = await setup()
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'reader',
       description: 'reads a path',
       parameters: { path: { type: 'string', required: true } },
@@ -1311,7 +1657,11 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
       },
     }))
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'reader', arguments: { path: '/x' } })
-    expect(result).toEqual({ content: [{ type: 'text', text: 'read /x' }], isError: false })
+    expect(result).toEqual({
+      content: [{ type: 'text', text: 'read /x' }],
+      isError: false,
+      value: [{ type: 'text', text: 'read /x' }],
+    })
   })
 
   it('ToolArgsError carries a stable code and the violation list', () => {
@@ -1325,7 +1675,7 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
 
   it('a schema-invalid call surfaces the structured error on the result', async () => {
     const ctx = await setup()
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'reader',
       description: 'reads a path',
       parameters: { path: { type: 'string', required: true } },
@@ -1335,7 +1685,10 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
     }))
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'reader', arguments: {} })
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'ToolArgsError', code: 'INVALID_ARGS' })
+    expect(result.error).toEqual({
+      message: 'invalid arguments: missing required property "path"',
+      info: { name: 'ToolArgsError', code: 'INVALID_ARGS' },
+    })
   })
 
   it('a tool throwing a HarnessError surfaces its name and code', async () => {
@@ -1350,11 +1703,11 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
     })
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'coded', arguments: {} })
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'HarnessError', code: 'ENOSPC' })
+    expect(result.error).toEqual({ message: 'disk full', info: { name: 'HarnessError', code: 'ENOSPC' } })
     expect(result.content[0]).toMatchObject({ text: 'Error: disk full' })
   })
 
-  it('a non-HarnessError throw has no structured error (only the text)', async () => {
+  it('a non-HarnessError throw retains only its message', async () => {
     const ctx = await setup()
     ctx.tools.register({
       ...echoTool,
@@ -1365,7 +1718,7 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
     })
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'plain', arguments: {} })
     expect(result.isError).toBe(true)
-    expect(result.error).toBeUndefined()
+    expect(result.error).toEqual({ message: 'just a message' })
     expect(result.content[0]).toMatchObject({ text: 'Error: just a message' })
   })
 
@@ -1376,8 +1729,12 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
       name: 'raw',
       description: 'raw tool',
       parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value as string }],
+      },
       async execute(args: unknown) {
-        return [{ type: 'text', text: typeof args }]
+        return typeof args
       },
     })
     // Missing the "required" path — but raw tools validate their own input, so
@@ -1387,7 +1744,7 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
   })
 
   it('attaches a positive-finite timeoutMs to the definition', () => {
-    const tool = defineTool({
+    const tool = defineContentToolFixture({
       name: 'x', description: 'd', parameters: {}, timeoutMs: 30_000,
       async execute() { return [{ type: 'text' as const, text: 'ok' }] },
     })
@@ -1395,7 +1752,7 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
   })
 
   it('omits timeoutMs when not declared', () => {
-    const tool = defineTool({
+    const tool = defineContentToolFixture({
       name: 'x', description: 'd', parameters: {},
       async execute() { return [{ type: 'text' as const, text: 'ok' }] },
     })
@@ -1403,7 +1760,7 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
   })
 
   it('throws when timeoutMs is zero or negative', () => {
-    const make = (ms: number) => defineTool({
+    const make = (ms: number) => defineContentToolFixture({
       name: 'x', description: 'd', parameters: {}, timeoutMs: ms,
       async execute() { return [{ type: 'text' as const, text: 'ok' }] },
     })
@@ -1412,7 +1769,7 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
   })
 
   it('throws when timeoutMs is non-finite', () => {
-    expect(() => defineTool({
+    expect(() => defineContentToolFixture({
       name: 'x', description: 'd', parameters: {}, timeoutMs: Infinity,
       async execute() { return [{ type: 'text' as const, text: 'ok' }] },
     })).toThrow('positive finite number')
@@ -1421,7 +1778,7 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
 
 describe('defineTool presentation (presentCall / presentResult)', () => {
   it('threads presentCall/presentResult onto the ToolDefinition with typed args', () => {
-    const tool = defineTool({
+    const tool = defineContentToolFixture({
       name: 'demo',
       description: 'demo',
       parameters: { path: { type: 'string', required: true }, n: { type: 'number' } },
@@ -1441,7 +1798,7 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
   })
 
   it('a tool without presentCall/presentResult leaves them undefined (UI falls back generically)', () => {
-    const tool = defineTool({
+    const tool = defineContentToolFixture({
       name: 'plain',
       description: 'plain',
       parameters: { x: { type: 'string', required: true } },
@@ -1452,7 +1809,7 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
   })
 
   it('presentCall/presentResult validate softly: malformed args return undefined, never throw (display runs on replay)', () => {
-    const tool = defineTool({
+    const tool = defineContentToolFixture({
       name: 'demo',
       description: 'demo',
       parameters: { path: { type: 'string', required: true } },

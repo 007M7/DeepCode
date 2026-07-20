@@ -15,8 +15,8 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import type { ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
@@ -39,7 +39,7 @@ class StubStore extends SpillStore {
 
 /** A tool returning `text` verbatim (name configurable so we can register `read`). */
 function textTool(name: string, text: string) {
-  return defineTool({
+  return defineContentToolFixture({
     name,
     description: name,
     parameters: {},
@@ -159,7 +159,7 @@ describe('oversized plain-text replacement', () => {
 
   it('leaves a result with a non-text block unchanged', async () => {
     const { ctx, spill } = await setup({ maxInlineBytes: 5 })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'mixed',
       description: 'mixed',
       parameters: {},
@@ -179,6 +179,21 @@ describe('read skip', () => {
     ctx.tools.register(textTool('read', 'x'.repeat(1000)))
     const result = await ctx.tools.execute(exec('read'))
     expect(textOf(result.content)).toBe('x'.repeat(1000))
+    expect(spill?.saves).toHaveLength(0)
+  })
+})
+
+describe('nested-call skip', () => {
+  it('leaves nested composite results complete and spillable only through their outer call', async () => {
+    const { ctx, spill } = await setup({ maxInlineBytes: 10 })
+    const body = 'x'.repeat(1000)
+    ctx.tools.register(textTool('nested', body))
+    const nested = {
+      ...exec('nested'),
+      parent: Symbol('outer') as ToolExecutionToken,
+    }
+    const result = await ctx.tools.execute(nested)
+    expect(textOf(result.content)).toBe(body)
     expect(spill?.saves).toHaveLength(0)
   })
 })
@@ -237,6 +252,21 @@ describe('composition', () => {
     const result = await ctx.tools.execute(exec('big'))
     expect(textOf(result.content)).toContain('Full formatted result stored at')
     expect(result.additionalContexts).toEqual([context])
+  })
+
+  it('passes a downstream value replacement through for registry rendering', async () => {
+    const { ctx, spill } = await setup({ maxInlineBytes: 10 })
+    const replacement = [{ type: 'text' as const, text: 'z'.repeat(500) }]
+    ctx.on('tools/post-execute', async () => ({ kind: 'accept' as const, value: replacement }))
+    ctx.tools.register(textTool('small', 'tiny'))
+
+    const result = await ctx.tools.execute(exec('small'))
+
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected replacement success')
+    expect(result.value).toEqual(replacement)
+    expect(textOf(result.content)).toBe('z'.repeat(500))
+    expect(spill?.saves).toHaveLength(0)
   })
 })
 

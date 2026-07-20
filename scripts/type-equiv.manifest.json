@@ -90,6 +90,7 @@
     { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventTraceRequest", "source": "packages/session-query/session-query/src/types.ts" },
     { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventTrace", "source": "packages/session-query/session-query/src/types.ts" },
 
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolOutputDefinition", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolDefinition", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ValueSchemaSpec", "source": "packages/core/tools/src/schema.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ParameterPropertySpec", "source": "packages/core/tools/src/schema.ts" },
@@ -103,6 +104,9 @@
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolRunContext", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolGuard", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolRestriction", "source": "packages/core/tools/src/index.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolFailure", "source": "packages/core/tools/src/index.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionSuccess", "source": "packages/core/tools/src/index.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionFailure", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionResult", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "PreToolDecision", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "PostToolDecision", "source": "packages/core/tools/src/index.ts" },

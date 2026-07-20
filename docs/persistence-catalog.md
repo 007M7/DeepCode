@@ -79,7 +79,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:267`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:274`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:283`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:313`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:345`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -356,7 +356,7 @@ Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:272`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -387,7 +387,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/s
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:265`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -420,7 +420,7 @@ Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:258`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:267`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -468,20 +468,29 @@ Source: [`packages/core/tools/src/code-mode.ts:34`](../packages/core/tools/src/c
 
 ```ts persistence-catalog
 /**
- * A completed tool call's model-facing result, plus an optional tool-private
- * `meta` presentation payload. `meta` is opaque to the core (`unknown` — the
- * producing tool owns its shape and reads it back in `presentResult`) but MUST
- * be JSON-serializable: `Session.append` runtime-validates all event data with
- * `isJsonValue`, so a non-serializable `meta` is rejected at the source, and the
- * durable log reproduces the identical card on replay. Absent unless the tool
- * attaches one (e.g. `dsh-tool-fs` carries its result-time contextual diff here).
+ * A completed tool call's model-facing result, canonical failure detail, and
+ * optional tool-private `meta` presentation payload. `meta` is opaque to the
+ * core (the producing tool owns its shape and reads it back in `presentResult`)
+ * but MUST be JSON-serializable: `Session.append` runtime-validates all event
+ * data with `isJsonValue`, so a non-serializable `meta` is rejected at the
+ * source, and the durable log reproduces the identical card on replay. Absent
+ * unless the tool attaches one (e.g. `dsh-tool-fs` carries its result-time
+ * contextual diff here).
  */
-'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string }; meta?: unknown }
+'tool/result': {
+  turn: number
+  step: number
+  callId: CallId
+  content: ContentBlock[]
+  isError: boolean
+  error?: { message: string; info?: { name: string; code: string } }
+  meta?: JsonValue
+}
 ```
 
 Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:254`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:255`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 

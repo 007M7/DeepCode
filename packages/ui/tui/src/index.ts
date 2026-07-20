@@ -39,7 +39,7 @@ import type {} from '@deepseek-ai/dsh-commands'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
-import { SessionId, type Session, type SessionEvent, type TodoItem } from '@deepseek-ai/dsh-session'
+import { SessionId, type JsonValue, type Session, type SessionEvent, type TodoItem } from '@deepseek-ai/dsh-session'
 import type {
   FileDiff,
   TerminalCallView,
@@ -454,7 +454,7 @@ function diffLines(diff: FileDiff, palette: Palette): string[] {
 }
 
 class ToolCardComponent implements Component {
-  private result: { content: ContentBlock[]; isError: boolean; meta?: unknown } | undefined
+  private result: { content: ContentBlock[]; isError: boolean; meta?: JsonValue } | undefined
   private expanded = false
   private callView: ToolCallView
   private resultView: ToolResultView | undefined

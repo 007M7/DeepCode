@@ -6,7 +6,7 @@ import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
-import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { Config, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -68,7 +68,7 @@ async function mintAgentScope(ctx: Context, name = 'scoped'): Promise<{ scope: S
 /** Register a trivial echo tool; returns the calls it received. */
 function registerEcho(ctx: Context, name = 'echo'): unknown[] {
   const calls: unknown[] = []
-  ctx.tools.register(defineTool({
+  ctx.tools.register(defineContentToolFixture({
     name,
     description: `Echo tool ${name}.`,
     parameters: { value: { type: 'string', required: true } },
@@ -217,7 +217,7 @@ describe('mode-aware wire contribution', () => {
   it.each(['code', 'both'] as const)('reserves run_code against scoped shadows and explicit restrictions in mode %s', async (mode) => {
     const { ctx, systemPrompt } = await setup({ mode })
     const { scope, agent } = await mintAgentScope(ctx)
-    const impostor = defineTool({
+    const impostor = defineContentToolFixture({
       name: RUN_CODE_NAME,
       description: 'Scoped impostor.',
       parameters: {},
@@ -229,7 +229,7 @@ describe('mode-aware wire contribution', () => {
     expect(() => scope.ctx.tools.restrict({ allow: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
     expect(() => scope.ctx.tools.restrict({ deny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
     scope.ctx.systemPrompt.section({ name: 'scoped-note', order: 149, text: 'safe note' })
-    scope.ctx.tools.register(defineTool({
+    scope.ctx.tools.register(defineContentToolFixture({
       name: 'scoped_safe',
       description: 'Safe scoped tool.',
       parameters: {},
@@ -332,6 +332,8 @@ describe('the run_code dispatch bridge', () => {
     }
     const result = await runCode(ctx, 'const …: string = …', { agent })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected run_code success')
+    expect(result.value).toEqual({ logs: ['saw echo:one'], result: 'echo:two' })
     expect(result.content).toEqual([{ type: 'text', text: 'saw echo:one\necho:two' }])
     expect(calls).toEqual([{ value: 'one' }, { value: 'two' }])
     const dispatches = events.filter(event => event.type === 'tool/code-dispatch')
@@ -374,7 +376,7 @@ describe('the run_code dispatch bridge', () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const intervals: [string, string][] = []
     let active = 0
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'probe',
       description: 'Records execution overlap.',
       parameters: { id: { type: 'string', required: true } },
@@ -405,7 +407,7 @@ describe('the run_code dispatch bridge', () => {
 
   it('rejects the program-side call when the tool errors, with the tool error text', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'fail',
       description: 'Always fails.',
       parameters: {},
@@ -549,7 +551,7 @@ describe('the run_code dispatch bridge', () => {
     })
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'CodeRunFailedError', code: 'CODE_RUN_FAILED' })
+    expect(result.error).toMatchObject({ info: { name: 'CodeRunFailedError', code: 'CODE_RUN_FAILED' } })
     const text = (result.content[0] as { text: string }).text
     expect(text).toContain('code run failed (timeout)')
     expect(text).toContain('compute budget exhausted')
@@ -566,7 +568,7 @@ describe('the run_code dispatch bridge', () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const seen: string[] = []
     let sawAbort = false
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'slow',
       description: 'Slow tool observing its signal.',
       parameters: { id: { type: 'string', required: true } },
@@ -602,7 +604,7 @@ describe('the run_code dispatch bridge', () => {
     let sawAbort = false
     let started!: () => void
     const inFlight = new Promise<void>((resolve) => { started = resolve })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'slow',
       description: 'Slow tool observing its signal.',
       parameters: { id: { type: 'string', required: true } },
@@ -689,7 +691,7 @@ describe('the run_code dispatch bridge', () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const { agent, events } = fakeAgent()
     const long = 'x'.repeat(300)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'mixed',
       description: 'Returns mixed content.',
       parameters: {},
@@ -714,7 +716,7 @@ describe('the run_code dispatch bridge', () => {
 
   it('normalizes the session workspace root before bounding durable result summaries', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'workspace_path',
       description: 'Return a path beneath the session workspace.',
       parameters: {},
@@ -792,7 +794,7 @@ describe('the run_code dispatch bridge', () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const { agent, events } = fakeAgent()
     let mutationSucceeded: boolean | undefined
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'mutator',
       description: 'Attempts to mutate its args object.',
       parameters: { list: { type: 'array', required: true } },
@@ -814,7 +816,7 @@ describe('the run_code dispatch bridge', () => {
 
   it('exposes a tool named __proto__ as an ordinary own binding', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: '__proto__',
       description: 'A prototype-colliding tool name.',
       parameters: {},

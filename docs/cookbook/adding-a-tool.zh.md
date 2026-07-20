@@ -22,10 +22,14 @@ export function apply(ctx: Context) {
       path: { type: 'string', required: true, description: 'Absolute path' },
       limit: { type: 'number' },                     // optional by default
     },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
     async execute(args, exec) {
       // args is TYPED from the schema: { path: string; limit?: number }
       // exec carries immutable identity + token; signal is the operational field
-      return [{ type: 'text', text: await readFile(args.path, 'utf8') }]
+      return readFile(args.path, 'utf8')
     },
   }))
 }
@@ -38,9 +42,10 @@ export function apply(ctx: Context) {
 - **参数已为你校验。** `defineTool` 在 `execute` 运行前，会根据统一的 `ParameterSchemaSpec` 校验模型生成的 `arguments`（类型、必填键、字面量约束、恰好匹配一个分支的联合以及嵌套值——见[运行时参数校验](../../.agents/notes/implemented/architecture/2026-06-11-runtime-arg-validation.md)），因此 `execute` 内的 args 会匹配 `InferArgs`。显式对象节点必须声明 `additionalProperties: true | false`；隐式参数根对象保持开放。你仍需手动检查 schema DSL 无法表达的约束，例如非空字符串、正数或跨字段规则。直接注册的原始 JSON Schema 工具自行负责输入校验。
 - **注册借用你的只读定义。** 类型化的同进程贡献不是序列化边界；注册后不要修改其 schema 或替换回调。`schemas()` 只物化显式的模型可见投影。如需热替换工具，请 dispose 其所属副作用并注册替代品；回调闭包内的可变状态仍是普通的插件状态。
 - **执行身份受保护。** 注册表在一次递归遍历中将 `arguments` 物化为分离的无损 JSON，在策略开始前冻结该值，并分配一个不透明的 `exec.token`；`callId`、`name`、`arguments`、`agent`、`token` 以及可选的外层传输 `parent` token 在整个分发过程中保持不可变。`parent` 仅用于身份标识，不暴露活跃的外层执行。请将 `args` 视为只读输入。around-dispatch 包装器只能添加、替换或移除 `exec.signal`，以施加取消或截止时间。
-- **抛出异常或返回非 JSON 数据意味着 `isError`。** 注册表捕获异常，并在观察者运行前物化最终结果。格式错误或非 JSON 的结果变为 `{ isError: true }`，防止出现无法记录的活跃成功。基础设施故障请抛异常；当模型需要解读领域失败时，请在结果文本中报告。
+- **声明并返回一个规范 JSON 值。** `output.schema` 使用 `ValueSchemaSpec`，根可以是对象、数组、标量或 null。`execute` 只返回推导出的值；注册表将其快照为无损 JSON，完成校验和冻结后，再传给 `output.render(args, value)`。工具主体不要返回内容块，也不要迫使调用方从自然语言中解析 id 和字段。
+- **抛出异常或返回无效值意味着 `isError`。** 注册表会捕获异常，并在观察者运行前收敛 schema、渲染器、元数据投影器和无损 JSON 失败。基础设施故障请抛异常。成功的领域结果即使表示不理想的状态，也应写入规范值；其 Native 渲染器可以解释该状态，例如进程以非零状态退出。
 - **遵守 `exec.signal`。** 信号触发时取消进行中的工作。
-- **使用 `meta` 附加持久化的卡片数据（可选）。** `execute` 可以返回 `{ content, meta }` 而非裸的 `ContentBlock[]`。`meta` 是 JSON 可序列化的载荷，核心将其视为不透明数据，持久化在 `tool/result` 事件上并回传给你的 `presentResult`（这样需要 `args` 之外信息的卡片——如 `write`/`edit` 的已应用 hunk diff——在会话回放中依然存活）。仅在此处放 UI 数据，绝不放入模型可见的 `content`。
+- **使用 `presentationMeta` 投影持久化的卡片数据（可选）。** `output.presentationMeta(args, value)` 从同一个规范值派生可回放的 JSON。核心将其持久化在 `tool/result` 上并传给 `presentResult`，因此需要结果期事实的卡片——例如 `write`／`edit` 的已应用 hunk——无需持久化规范值也能在回放中重现。嵌套 Code 分发没有卡片，因此会跳过该投影器。
 - **使用 `exec.agent` 发送异步通知。** `agent.inject(content, {source: {kind: 'plugin', plugin: '<name>'}})` 追加持久化上下文，下一次模型请求会看到它——这不是唤醒（空闲的 agent（智能体）保持空闲）。请防范已 dispose 的 agent（try/catch）。
 
 ## 长时间运行的工作
@@ -51,7 +56,7 @@ producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 
 
 ## 执行策略与观测
 
-尽量不要把部署策略内建到工具中。使用 `tools/pre-execute` 实现可扩展的允许/拒绝/询问策略（见[权限门禁示例](extension-cookbook.md#a-hook-plugin-permission-gate-example)）；使用 `ctx.tools.guard()` 设置最终的单调拒绝（后续监听器无法撤销）；使用 `tools/execute` 为核心分发包装截止时间/重试/指标作用域；使用 `tools/post-execute` 转换或附加模型可见的上下文；使用 `tools/result` 观测不可变的归一化结果而不改变它。沙箱实现也可以位于工具执行器的能力 seam 之后；确切契约见 [`dsh-tools` README](../../packages/core/tools/README.md#extension-points)。
+尽量不要把部署策略内建到工具中。使用 `tools/pre-execute` 实现可扩展的允许／拒绝／询问策略（见[权限门禁示例](extension-cookbook.md#a-hook-plugin-permission-gate-example)）；使用 `ctx.tools.guard()` 设置最终的单调拒绝，后续监听器无法撤销；使用 `tools/execute` 为规范分发包装截止时间／重试／指标作用域；使用 `tools/post-execute` 替换展示内容或规范值、阻止调用，或附加模型可见上下文；使用 `tools/result` 观测不可变的归一化结果而不改变它。替换内容不会阻止程序化访问 `value`；保密策略必须阻止调用或替换值。沙箱实现也可以位于工具执行器的能力 seam 之后；确切契约见 [`dsh-tools` README](../../packages/core/tools/README.md#extension-points)。
 
 ## Code Mode 自动触达你的工具
 
@@ -59,7 +64,7 @@ producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 
 
 ## 工具在编辑器中的渲染方式（ACP 展示）
 
-工具的 `execute` 返回模型可见的内容；其**编辑器卡片**是一个独立的、可选的关注点，通过 `defineTool` 选项中的两个纯展示方法声明。请与 `execute` 同步设计，而非事后补充——编辑器（如 Zed，通过 ACP（Agent Client Protocol）桥接）会展示该卡片，没有展示方法的工具回退为一个朴素的通用卡片（标题 = 工具名，原始 args 作为输入）。
+工具的 `output.render` 返回模型可见的内容；其**编辑器卡片**是另一项独立关注点，通过纯展示投影以及可选的 `presentCall`／`presentResult` 方法声明。请将这些内容与规范值一并设计：编辑器（如 Zed，通过 ACP（Agent Client Protocol）桥接）会展示该卡片，没有 UI 展示方法的工具则回退到通用卡片（标题 = 工具名，原始 args 作为输入）。
 
 两个方法都返回一个 **`card` 标签的渲染意图**——选择与你的工具行为匹配的卡片类型：
 
@@ -70,16 +75,16 @@ producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 
 - `presentResult(args, { content, isError, meta? })` 返回完成后的卡片：
   - `generic` 提供可选的标题和内容。
   - `terminal` 提供原始输出和可选的退出元数据；桥接层渲染能力特定或围栏回退视图。
-  - `diff` 提供已应用的 hunk，通常由持久化的 `result.meta` 携带，使回放能重现它们。变更类工具保留 diff 结果，因为 ACP 更新会替换 pending 卡片的内容。
+  - `diff` 提供已应用的 hunk，通常由 `output.presentationMeta` 派生并通过持久化的 `result.meta` 携带，使回放能重现它们。变更类工具保留 diff 结果，因为 ACP 更新会替换 pending 卡片的内容。
 
 硬性规则（违反会出问题）：
 
 - **纯函数。** 这些方法在实时流式输出和会话日志回放时都会运行，因此必须是 `args`（加 result）的纯函数——不做 I/O、不读会话状态、不用时钟/随机数。diff 从 args 派生（`write` 使用 `oldText: null`，因为调用时的展示器没有文件先前内容）；**桥接层**（而非工具）填充会话 cwd 并相对化展示路径标题。如果你发现自己想在 `presentCall` 内获取文件旧内容或工作目录，请停下——那属于桥接层或未来的 result-event 形态，不属于展示器。
-- **UI 格式不进入模型结果。** 围栏 ` ```console ` 块、diff、相对化路径——这些都不得出现在 `execute` 返回给模型的内容中；它们只存在于展示层。（`terminal` 结果视图携带原始 `output`；桥接层添加围栏。）
+- **UI 格式不进入模型结果。** 围栏 ` ```console ` 块、diff、相对化路径均不应仅为服务编辑器而进入规范值或 Native 内容。`output.render` 负责模型可见的自然语言；`presentationMeta` 和卡片展示器负责可回放的 UI 状态。`terminal` 结果视图携带原始输出，由桥接层添加围栏。
 - **`defineTool` 对展示路径做软校验。** 格式错误或旧版日志中的 arg 形态会使包装器返回 `undefined`（通用回退）而非抛异常——展示绝不能导致回放崩溃。
 
 中性词汇定义在 `dsh-tools` 中（绝不在工具中导入 ACP 类型）；ACP 桥接层将每个 `card` 映射到协议格式（wire format）。设计与原因见[渲染意图联合体 Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)；`dsh-tool-fs`（generic/diff）和 `dsh-tool-bash`（terminal）是参考实现。
 
 ## 每个工具必须的测试
 
-覆盖参数拒绝、每种结果形态和 HMR dispose。对于有副作用的工具，使用脚本化的 `MockAdapter` 驱动真实工具通过 agent loop（智能体循环），并断言其 `tool/call` 和 `tool/result` 会话事件。对于编辑器卡片，断言 `presentCall` 和 `presentResult` 的精确视图，并通过真实桥接层添加一个 [ACP 快照](../../.agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md)；终端卡片的场景设置 `terminalOutput: true` 以覆盖 capable-client 路径。
+覆盖参数拒绝、每种规范值和 Native 渲染形态、输出 schema 拒绝以及 HMR dispose。对于有副作用的工具，使用脚本化的 `MockAdapter` 驱动真实工具通过 agent loop（智能体循环），并断言其 `tool/call` 和投影后的 `tool/result` 会话事件；同时证明规范值本身未被持久化。对于编辑器卡片，断言 `presentCall` 和 `presentResult` 的精确视图，并通过真实桥接层添加一个 [ACP 快照](../../.agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md)；终端卡片的场景设置 `terminalOutput: true` 以覆盖 capable-client 路径。

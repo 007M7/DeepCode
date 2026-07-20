@@ -55,6 +55,28 @@ export function apply(ctx: Context): void {
         },
       },
     },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          answers: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                id: { type: 'string', required: true },
+                selected: { type: 'array', required: true, items: { type: 'string' } },
+                custom: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
     async execute(args, exec) {
       const result = await ctx.userInteraction.ask({
         questions: args.questions.map(question => ({
@@ -67,7 +89,13 @@ export function apply(ctx: Context): void {
         ...exec.agent !== undefined ? { agent: exec.agent } : {},
         ...exec.signal !== undefined ? { signal: exec.signal } : {},
       })
-      return [{ type: 'text', text: JSON.stringify(result) }]
+      return {
+        answers: result.answers.map(answer => ({
+          id: answer.id,
+          selected: [...answer.selected],
+          ...answer.custom !== undefined ? { custom: answer.custom } : {},
+        })),
+      }
     },
   }))
 }

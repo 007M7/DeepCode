@@ -15,6 +15,7 @@ import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from '@deepseek-ai/dsh-session'
 import type { WorkflowResult, WorkflowRun } from '@deepseek-ai/dsh-workflow'
 // Declaration merge only: makes ctx.systemPrompt visible for the section registration.
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -100,13 +101,13 @@ function stopReasonError(result: WorkflowResult): string | undefined {
 }
 
 /** Render the run's outcome text: the meta name, agent count, and the JSON value (capped). */
-function renderResult(run: WorkflowRun, result: WorkflowResult, maxChars: number): string {
+function renderResult(name: string, agentsStarted: number, value: JsonValue, maxChars: number): string {
   // The engine returns JSON data (null for a valueless script), so stringify never yields undefined.
-  const rendered = JSON.stringify(result.value, null, 2)
+  const rendered = JSON.stringify(value, null, 2)
   const clipped = rendered.length > maxChars
     ? `${rendered.slice(0, maxChars)}\n… [truncated: ${rendered.length - maxChars} more characters]`
     : rendered
-  return `workflow "${run.meta.name}" completed (${result.agentsStarted} agent${result.agentsStarted === 1 ? '' : 's'}).\nReturn value:\n${clipped}`
+  return `workflow "${name}" completed (${agentsStarted} agent${agentsStarted === 1 ? '' : 's'}).\nReturn value:\n${clipped}`
 }
 
 export function apply(ctx: Context, config: Config): void {
@@ -160,7 +161,22 @@ export function apply(ctx: Context, config: Config): void {
         description: 'Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {"files": [...]}).',
       },
     },
-    async execute(args, exec): Promise<ContentBlock[]> {
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          runId: { type: 'string', required: true },
+          agentsStarted: { type: 'integer', required: true },
+          result: { type: 'json', required: true },
+        },
+      },
+      render: (args, value) => [{
+        type: 'text',
+        text: renderResult(args.meta.name, value.agentsStarted, value.result, maxResultChars),
+      }],
+    },
+    async execute(args, exec) {
       const parent = exec.agent
       if (!parent) {
         // The loop sets `exec.agent` for every model-driven call; its absence
@@ -197,7 +213,11 @@ export function apply(ctx: Context, config: Config): void {
           // throw into an isError). Report the reason, not partial output.
           throw new Error(error)
         }
-        return [{ type: 'text', text: renderResult(run, result, maxResultChars) }]
+        return {
+          runId: run.id,
+          agentsStarted: result.agentsStarted,
+          result: result.value as JsonValue,
+        }
       } finally {
         exec.signal?.removeEventListener('abort', onAbort)
         // Always reach run quiescence — never leak a live script or children.

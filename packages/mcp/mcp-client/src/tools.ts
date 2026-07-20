@@ -16,6 +16,8 @@ import { createHash } from 'node:crypto'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type { Context } from 'cordis'
 import type { ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
+import { assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools'
+import type { JsonSchemaNode, JsonValue } from '@deepseek-ai/dsh-tools'
 
 /** Resolved options relevant to tool bridging. */
 export interface ToolBridgeOptions {
@@ -25,6 +27,12 @@ export interface ToolBridgeOptions {
 
 /** State for one sync generation: the current set of disposers keyed by public name. */
 export type ToolDisposers = Map<string, () => void>
+
+/** Canonical MCP result exposed to Code Mode without discarding protocol blocks. */
+export type McpResult<Structured extends JsonValue = JsonValue> = {
+  content: JsonValue[]
+  structuredContent?: Structured
+}
 
 /**
  * DeepSeek function-name contract: at most 64 characters. Wire-protocol
@@ -105,6 +113,7 @@ export async function syncTools(
         name: publicName,
         description: tool.description ?? '',
         parameters: tool.inputSchema,
+        output: createOutput(tool.name, supportedOutputSchema(tool.outputSchema)),
         execute: createExecutor(client, tool.name, opts),
       })
     }
@@ -141,6 +150,36 @@ interface McpContentBlock {
   mimeType?: string
 }
 
+/** Keep a supported advertised schema; unsupported MCP vocabulary falls back to JsonValue. */
+function supportedOutputSchema(candidate: unknown): JsonSchemaNode | undefined {
+  if (candidate === undefined) return undefined
+  try {
+    assertSupportedJsonSchema(candidate)
+    return candidate
+  } catch {
+    return undefined
+  }
+}
+
+/** Build the canonical result schema and existing Native text projection. */
+function createOutput(rawName: string, structuredSchema: JsonSchemaNode | undefined): ToolDefinition['output'] {
+  return {
+    schema: {
+      type: 'object',
+      properties: {
+        content: { type: 'array', items: {} },
+        structuredContent: structuredSchema ?? {},
+      },
+      required: ['content'],
+      additionalProperties: false,
+    },
+    render(_args, value) {
+      const result = value as unknown as McpResult
+      return [{ type: 'text', text: extractText(result.content, rawName) }]
+    },
+  }
+}
+
 /**
  * Create an execute function for one MCP tool. The executor closes over the
  * raw MCP tool name and calls `client.callTool` with it (never the public
@@ -172,18 +211,24 @@ function createExecutor(
 
     // The SDK may return a legacy `toolResult` shape; normalize to content array.
     if (!('content' in result) || !Array.isArray(result.content)) {
-      const text = 'toolResult' in result
+      const rendered: unknown = 'toolResult' in result
         ? JSON.stringify(result.toolResult)
         : '(no output)'
-      return [{ type: 'text' as const, text }]
+      const text = typeof rendered === 'string' ? rendered : '(no output)'
+      if ('isError' in result && result.isError === true) throw new Error(text)
+      return {
+        content: [{ type: 'text', text }],
+        ...'structuredContent' in result && result.structuredContent !== undefined
+          ? { structuredContent: result.structuredContent as JsonValue }
+          : {},
+      }
     }
 
     // Trust boundary: the SDK's return type erases to `any[]` due to the
     // union of CallToolResult | CompatibilityCallToolResult. We process each
     // element defensively in extractText (reading only .type/.text/.mimeType
     // with optional fallbacks).
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const content: McpContentBlock[] = result.content
+    const content = result.content as unknown as JsonValue[]
     const text = extractText(content, rawName)
 
     // MCP isError → throw so ToolRegistry produces an isError result for the model.
@@ -191,7 +236,12 @@ function createExecutor(
       throw new Error(text)
     }
 
-    return [{ type: 'text', text }]
+    return {
+      content,
+      ...'structuredContent' in result && result.structuredContent !== undefined
+        ? { structuredContent: result.structuredContent as JsonValue }
+        : {},
+    }
   }
 }
 
@@ -203,10 +253,15 @@ function createExecutor(
  * Defensive: fields that the MCP spec declares required (mimeType, text) are
  * guarded with fallbacks because this is a network trust boundary.
  */
-function extractText(mcpContent: McpContentBlock[], toolName: string): string {
+function extractText(mcpContent: JsonValue[], toolName: string): string {
   const parts: string[] = []
 
-  for (const block of mcpContent) {
+  for (const value of mcpContent) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      parts.push('[unsupported content type: unknown]')
+      continue
+    }
+    const block = value as unknown as McpContentBlock
     switch (block.type) {
       case 'text':
         if (block.text !== undefined) parts.push(block.text)

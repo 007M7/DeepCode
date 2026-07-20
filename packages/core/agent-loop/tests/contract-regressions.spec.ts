@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import LlmService, { CallId, ContentBlock, MessageSource, ProviderRequestId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool, type PostToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture, type PostToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent, type ContinuationDecision } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { prepareReactLoopAgent } from '../src/agent.ts'
@@ -50,7 +50,7 @@ describe('session log records what agent/step-result actually produced', () => {
     const adapter = new MockAdapter([original, textResponse('done')])
     const ctx = await harness(adapter)
     const executed: string[] = []
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'injected-tool',
       description: '',
       parameters: {},
@@ -219,7 +219,7 @@ describe('abort during tool execution ends the turn', () => {
     const ctx = await harness(adapter)
     const executed: string[] = []
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'aborter',
       description: '',
       parameters: {},
@@ -241,7 +241,7 @@ describe('abort during tool execution ends the turn', () => {
         source: { kind: 'plugin', plugin: 'abort-test' },
       }],
     }))
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'second',
       description: '',
       parameters: {},
@@ -259,7 +259,7 @@ describe('abort during tool execution ends the turn', () => {
         case 'assistant/message': order.push('assistant/message'); break
         case 'tool/call': order.push(`tool/call:${event.data.callId}`); break
         case 'tool/result': {
-          const outcome = event.data.error?.code === 'ABORTED' ? 'synthetic-aborted' : 'real'
+          const outcome = event.data.error?.info?.code === 'ABORTED' ? 'synthetic-aborted' : 'real'
           order.push(`tool/result:${event.data.callId}:${outcome}`)
           break
         }
@@ -308,7 +308,7 @@ describe('abort during tool execution ends the turn', () => {
     expect(results[1]!.data).toMatchObject({
       callId: CallId('c2'),
       isError: true,
-      error: { name: 'AbortError', code: 'ABORTED' },
+      error: { info: { name: 'AbortError', code: 'ABORTED' } },
     })
   })
 
@@ -316,7 +316,7 @@ describe('abort during tool execution ends the turn', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'aborter', {})])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-abort-injection'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'aborter',
       description: '',
       parameters: {},
@@ -362,7 +362,7 @@ describe('abort during tool execution ends the turn', () => {
     ] satisfies StreamChunk[]])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-later-abort-context'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'first',
       description: '',
       parameters: {},
@@ -370,7 +370,7 @@ describe('abort during tool execution ends the turn', () => {
         return [{ type: 'text', text: 'first done' }]
       },
     }))
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'aborter',
       description: '',
       parameters: {},
@@ -411,7 +411,7 @@ describe('abort during tool execution ends the turn', () => {
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create(SessionId('a-dispose-injection'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'waiter',
       description: '',
       parameters: {},
@@ -463,7 +463,7 @@ describe('abort during tool execution ends the turn', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-historical-tool-pair'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'aborter',
       description: '',
       parameters: {},
@@ -472,7 +472,7 @@ describe('abort during tool execution ends the turn', () => {
         return [{ type: 'text', text: 'done' }]
       },
     }))
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'second',
       description: '',
       parameters: {},
@@ -771,7 +771,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'noop', {}), textResponse('done')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'noop',
       description: '',
       parameters: {},
@@ -837,7 +837,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     const agent = ctx.agentLoop.create(SessionId('owned-steer'), { provider: 'mock', model: 'mock' })
     const entered = Promise.withResolvers<undefined>()
     const release = Promise.withResolvers<undefined>()
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'gate',
       description: '',
       parameters: {},
@@ -1423,7 +1423,7 @@ describe('tool result call identity', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: 'echo',
       parameters: { x: { type: 'number' } },

@@ -50,6 +50,7 @@ import type {} from '@deepseek-ai/dsh-llm-retry'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-session'
 // Side-effect type import: resolves `ctx.get('permission')` to the service.
 import type {} from '@deepseek-ai/dsh-permission'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -1348,7 +1349,7 @@ export class ToolPresenter {
    * @param meta - the result's machine-readable meta, forwarded when present.
    * @returns a normalized tool-owned view or raw-content fallback.
    */
-  result(callId: CallId, content: ContentBlock[], isError: boolean, meta?: unknown): ToolResultView {
+  result(callId: CallId, content: ContentBlock[], isError: boolean, meta?: JsonValue): ToolResultView {
     const call = this.pending.get(callId)
     this.pending.delete(callId)
     // No remembered call (unknown/late callId) → nothing to present from; raw content.

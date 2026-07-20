@@ -20,9 +20,13 @@ export function apply(ctx: Context) {
     parameters: {
       name: { type: 'string', required: true, description: 'The name to greet' },
     },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
     async execute(args) {
       // args is inferred as { name: string }.
-      return [{ type: 'text', text: `Hello, ${args.name}!` }]
+      return `Hello, ${args.name}!`
     },
   }))
 }
@@ -107,32 +111,44 @@ export const tool = defineTool({
   name: 'example',
   description: 'Return an example result.',
   parameters: {},
+  output: {
+    schema: { type: 'string' },
+    render: (_args, value) => [{ type: 'text', text: value }],
+  },
   async execute(args, exec) {
     // args: inferred from parameters
     // exec: ToolExecution context
 
-    // Return a ContentBlock array.
+    // Return the value declared by output.schema.
     void args
     void exec
-    return [{ type: 'text', text: 'result here' }]
+    return 'result here'
   },
 })
 ```
 
 ### Return value
 
-`execute` returns a `ContentBlock[]` that becomes the tool result visible to the model:
+`execute` returns the lossless JSON value declared by `output.schema`. `output.render(args, value)` separately turns that validated value into the Native/model-facing content:
 
 ```ts ignore-check
-// Text result
-return [{ type: 'text', text: 'file content here...' }]
-
-// Multiple blocks
-return [
-  { type: 'text', text: 'Found 3 matches:' },
-  { type: 'text', text: matchResults.join('\n') },
-]
+output: {
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      path: { type: 'string', required: true },
+      content: { type: 'string', required: true },
+    },
+  },
+  render: (_args, value) => [{ type: 'text', text: value.content }],
+},
+async execute(args) {
+  return { path: args.path, content: await readFile(args.path, 'utf8') }
+}
 ```
+
+The canonical value is available to execution-time programmatic callers and is not persisted in `tool/result`; the rendered content and optional `presentationMeta` are the replayable projections. A body value that does not satisfy the schema, or is not lossless JSON, becomes an `INVALID_TOOL_OUTPUT` failure.
 
 ### Argument validation
 
@@ -148,6 +164,10 @@ A tool can define UI presentation methods for terminal and ACP clients:
 defineTool({
   name: 'bash',
   // ...
+  output: {
+    schema: { type: 'string' },
+    render: (_args, value) => [{ type: 'text', text: value }],
+  },
   presentCall(args) {
     return {
       card: 'terminal',
@@ -196,13 +216,24 @@ export function apply(ctx: Context) {
       path: { type: 'string', required: true, description: 'Directory path' },
       extension: { type: 'string', description: 'Filter by extension (e.g. ".ts")' },
     },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          count: { type: 'integer', required: true },
+          files: { type: 'array', required: true, items: { type: 'string' } },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `Found ${value.count} files.` }],
+    },
     async execute(args) {
       const entries = await readdir(args.path, { withFileTypes: true })
       let files = entries.filter(e => e.isFile())
       if (args.extension) {
         files = files.filter(f => f.name.endsWith(args.extension!))
       }
-      return [{ type: 'text', text: `Found ${files.length} files.` }]
+      return { count: files.length, files: files.map(file => file.name) }
     },
   }))
 }

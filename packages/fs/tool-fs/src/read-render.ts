@@ -77,6 +77,7 @@ function lineByteSize(line: string, currentLineCount: number): number {
 
 function consumeLine(acc: WindowAccumulator, rawLine: string, request: ReadWindow): void {
   acc.totalLines += 1
+  if (acc.done) return
   if (acc.totalLines < request.offset || acc.lines.length >= request.limit) return
 
   const text = truncateLine(rawLine, request.maxLineLength)
@@ -137,7 +138,6 @@ export async function buildWindow(
       appendToLineBuffer(chunk.slice(startPos, newlinePos))
       flushLine()
       startPos = newlinePos + 1
-      if (acc.done) return finish(acc, request, displayPath)
     }
     appendToLineBuffer(chunk.slice(startPos))
   }
