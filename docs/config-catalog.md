@@ -11,7 +11,7 @@ A `Requires:` line lists the service keys the plugin `inject`s: its `cordis.yml`
 
 ## `@deepseek-ai/dsh-acp`
 
-Requires: `agents` · `sessionPersistence` · `tools` · `userInteraction` · `llm` · `systemPrompt`
+Requires: `agents` · `commands` · `sessionPersistence` · `tools` · `userInteraction` · `llm` · `systemPrompt`
 
 ```ts config-catalog
 /** Plugin config: the agent template ACP sessions are created from. */
@@ -27,7 +27,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:207`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:247`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
@@ -68,6 +68,8 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Persisted same-session goals; owner defaults enable them, or false disables the stack and command. */
+  goals?: agentCore.GoalConfig | false
   /** Bounded transient model-request retry policy forwarded through agent-core. */
   llmRetry?: NonNullable<agentCore.Config['llmRetry']>
 }
@@ -75,7 +77,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/acp-demo/src/index.ts:36`](../packages/examples/acp-demo/src/index.ts)
+Source: [`packages/examples/acp-demo/src/index.ts:38`](../packages/examples/acp-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -118,9 +120,11 @@ Source: [`packages/core/agent-loop/src/index.ts:360`](../packages/core/agent-loo
  * order), the `tools` object to the tool registry (its presentation `mode`),
  * `dshHome` to bash environment and local skill discovery, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
- * workspace-context loader, and `toolBash`/`toolTasks` to the model-facing tool
- * plugins this bundle owns. `llmRetry` configures bounded request recovery;
- * `invariants` configures global and package-filtered relational checks. Owner schemas supply defaults for optional input;
+ * workspace-context loader, `llmRetry` to the bounded request-recovery policy,
+ * and `toolBash`/`toolTasks` to the model-facing tool plugins this bundle owns.
+ * `goals` opts into and configures the persisted goal domain plus its model tool
+ * and same-session driver; `invariants` configures global and package-filtered
+ * relational checks. Owner schemas supply defaults for optional input;
  * workspace context instead requires an explicit byte budget or `false` because
  * it changes model-visible input. Producer opt-in stays producer-local:
  * `toolBash` configures bash only; independently composed producers keep their
@@ -149,6 +153,8 @@ export interface Config {
   toolTasks?: toolTasks.Config | false
   /** Global enablement and package-name filters for invariant companions. */
   invariants?: InvariantConfig
+  /** Opt-in persisted same-session goal stack; set false or omit to leave it unmounted. */
+  goals?: GoalConfig | false
   /** Bounded transient model-request retry policy. */
   llmRetry?: llmRetry.Config
 }
@@ -164,11 +170,19 @@ export interface SkillConfig {
   /** Model-facing skill catalog and tool settings. */
   tool?: toolSkill.Config
 }
+
+/** Persisted goal domain, model-tool policy, and same-session driver config. */
+export interface GoalConfig {
+  /** Goal-domain creation defaults. */
+  domain?: GoalDomainConfig
+  /** Model-facing goal-tool authority policy. */
+  tool?: toolGoal.Config
+}
 ```
 
-Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`InvariantConfig`](#deepseek-aidsh-invariants) · [`llmRetry`](../packages/llm/llm-retry/src/index.ts) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
+Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`GoalDomainConfig`](#deepseek-aidsh-goal) · [`InvariantConfig`](#deepseek-aidsh-invariants) · [`llmRetry`](../packages/llm/llm-retry/src/index.ts) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`toolGoal`](../packages/goal/tool-goal/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
 
-Source: [`packages/examples/agent-spine-demo/src/index.ts:65`](../packages/examples/agent-spine-demo/src/index.ts)
+Source: [`packages/examples/agent-spine-demo/src/index.ts:78`](../packages/examples/agent-spine-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -1130,6 +1144,20 @@ export interface Config {
 
 Source: [`packages/fs/tool-fs-search/src/index.ts:62`](../packages/fs/tool-fs-search/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-goal`
+
+Requires: `agents` · `goals` · `tools` · `systemPrompt`
+
+```ts config-catalog
+/** Model policy and hard lower bounds for goal-state updates. */
+export interface Config {
+  /** Minimum admitted goal rounds before the model may self-report `blocked`. */
+  blockedAfterConsecutiveRounds?: number
+}
+```
+
+Source: [`packages/goal/tool-goal/src/index.ts:27`](../packages/goal/tool-goal/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-skill`
 
 Requires: `tools` · `skills`
@@ -1278,7 +1306,7 @@ Source: [`packages/core/tools/src/index.ts:382`](../packages/core/tools/src/inde
 
 ## `@deepseek-ai/dsh-tui`
 
-Requires: `agents` · `userInteraction` · `tools`
+Requires: `agents` · `commands` · `userInteraction` · `tools`
 
 ```ts config-catalog
 /** Serializable plugin configuration. */
@@ -1310,7 +1338,7 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:102`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:103`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 
@@ -1345,6 +1373,8 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task controls forwarded through agent-spine-demo; set false to omit them. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Persisted same-session goals; owner defaults enable them, or false disables the stack and command. */
+  goals?: agentCore.GoalConfig | false
   /** Persisted session id to resume instead of creating a fresh session. */
   resumeSessionId?: string
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
@@ -1354,7 +1384,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`uiTui`](../packages/ui/tui/src/index.ts)
 
-Source: [`packages/examples/tui-demo/src/index.ts:31`](../packages/examples/tui-demo/src/index.ts)
+Source: [`packages/examples/tui-demo/src/index.ts:33`](../packages/examples/tui-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 
@@ -1551,7 +1581,10 @@ Source: [`packages/context/workspace-context/src/config.ts:16`](../packages/cont
 These load from a `cordis.yml` entry with no `config:` block; they declare no config surface.
 
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
+- `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
+- `@deepseek-ai/dsh-commands` ([`packages/ui/commands/src/index.ts`](../packages/ui/commands/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
+- `@deepseek-ai/dsh-goal-session` — requires `agents` · `goals` · `sessions` ([`packages/goal/goal-session/src/index.ts`](../packages/goal/goal-session/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))

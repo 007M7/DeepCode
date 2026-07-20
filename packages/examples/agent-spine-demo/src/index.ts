@@ -1,6 +1,6 @@
 /**
  * Default executor-less, UI-less agent spine. It bundles the common services,
- * background-task registry and controls, concrete loop, local skill and
+ * background-task registry and controls, optional persisted goals, concrete loop, local skill and
  * workspace-context providers, and model-facing bash/skill consumers;
  * deployments still choose the LLM adapter, bash executor, and presentation.
  * The plugin intentionally exposes named exports only because Loader default
@@ -18,6 +18,9 @@ import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools
 import SkillService, { type Config as SkillRegistryConfig } from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import GoalService, { type Config as GoalDomainConfig } from '@deepseek-ai/dsh-goal'
+import * as goalSession from '@deepseek-ai/dsh-goal-session'
+import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
 import TaskService from '@deepseek-ai/dsh-tasks'
 import InvariantService, { type Config as InvariantConfig } from '@deepseek-ai/dsh-invariants'
 import * as sessionInvariant from '@deepseek-ai/dsh-session/invariant'
@@ -46,6 +49,14 @@ export interface SkillConfig {
   tool?: toolSkill.Config
 }
 
+/** Persisted goal domain, model-tool policy, and same-session driver config. */
+export interface GoalConfig {
+  /** Goal-domain creation defaults. */
+  domain?: GoalDomainConfig
+  /** Model-facing goal-tool authority policy. */
+  tool?: toolGoal.Config
+}
+
 /**
  * Bundle config: each field forwarded verbatim to the child that owns it —
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
@@ -54,9 +65,11 @@ export interface SkillConfig {
  * order), the `tools` object to the tool registry (its presentation `mode`),
  * `dshHome` to bash environment and local skill discovery, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
- * workspace-context loader, and `toolBash`/`toolTasks` to the model-facing tool
- * plugins this bundle owns. `llmRetry` configures bounded request recovery;
- * `invariants` configures global and package-filtered relational checks. Owner schemas supply defaults for optional input;
+ * workspace-context loader, `llmRetry` to the bounded request-recovery policy,
+ * and `toolBash`/`toolTasks` to the model-facing tool plugins this bundle owns.
+ * `goals` opts into and configures the persisted goal domain plus its model tool
+ * and same-session driver; `invariants` configures global and package-filtered
+ * relational checks. Owner schemas supply defaults for optional input;
  * workspace context instead requires an explicit byte budget or `false` because
  * it changes model-visible input. Producer opt-in stays producer-local:
  * `toolBash` configures bash only; independently composed producers keep their
@@ -85,6 +98,8 @@ export interface Config {
   toolTasks?: toolTasks.Config | false
   /** Global enablement and package-name filters for invariant companions. */
   invariants?: InvariantConfig
+  /** Opt-in persisted same-session goal stack; set false or omit to leave it unmounted. */
+  goals?: GoalConfig | false
   /** Bounded transient model-request retry policy. */
   llmRetry?: llmRetry.Config
 }
@@ -103,6 +118,12 @@ export const ToolBashConfigSchema: z<toolBash.Config> = toolBash.Config
 /** The task-control-tool config schema exported for app packages that forward `toolTasks`. */
 export const ToolTasksConfigSchema: z<toolTasks.Config> = toolTasks.Config
 
+/** The persisted-goal config schema exported for app packages that opt in. */
+export const GoalConfigSchema: z<GoalConfig> = z.object({
+  domain: GoalService.Config,
+  tool: toolGoal.Config,
+})
+
 /** The bounded LLM retry schema exported for app packages that forward `llmRetry`. */
 export const LlmRetryConfigSchema: z<llmRetry.Config> = llmRetry.Config
 
@@ -118,8 +139,9 @@ export const Config = z.intersect([
     toolBash: ToolBashConfigSchema,
     toolTasks: z.union([z.const(false), ToolTasksConfigSchema]),
     invariants: InvariantService.Config,
+    goals: z.union([z.const(false), GoalConfigSchema]),
     llmRetry: LlmRetryConfigSchema,
-  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'invariants' | 'llmRetry'>>,
+  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'invariants' | 'goals' | 'llmRetry'>>,
 ]) as unknown as z<Config>
 
 /**
@@ -139,6 +161,7 @@ export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'a
     ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
     ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
     ...config.invariants !== undefined ? { invariants: config.invariants } : {},
+    ...config.goals !== undefined ? { goals: config.goals } : {},
     ...config.llmRetry !== undefined ? { llmRetry: config.llmRetry } : {},
   }
 }
@@ -177,6 +200,11 @@ export function apply(ctx: Context, config: Config): void {
   }
   ctx.plugin(AgentRegistry)
   ctx.plugin(llmRetry, config.llmRetry ?? {})
+  if (config.goals !== undefined && config.goals !== false) {
+    ctx.plugin(GoalService, config.goals.domain ?? {})
+    ctx.plugin(toolGoal, config.goals.tool ?? {})
+    ctx.plugin(goalSession)
+  }
   ctx.plugin(TaskService)
   ctx.plugin(InvariantService, config.invariants ?? {})
   ctx.plugin(sessionInvariant)

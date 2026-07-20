@@ -334,6 +334,21 @@ describe('runScenario', () => {
     expect(result.rawStdout.indexOf('thinking about it')).toBeLessThan(result.rawStdout.indexOf('cancelled'))
   })
 
+  it('promptAndWaitForAgentMessage keeps the app live through a matching later update', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ prompt: 'respond' })
+    const result = await runScenario(
+      {
+        steps: [...boot, {
+          op: 'promptAndWaitForAgentMessage',
+          text: 'go',
+          waitForText: 'thinking about it',
+        }],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.rawStdout).toContain('thinking about it')
+  })
+
   it('promptAndCancel can bracket cancellation with tool-call updates', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({
       prompt: 'hang-until-cancel',
@@ -443,6 +458,7 @@ describe('runScenario', () => {
 
   it.each([
     [{ op: 'prompt', text: 'x' }, /prompt before newSession/],
+    [{ op: 'promptAndWaitForAgentMessage', text: 'x', waitForText: 'later' }, /promptAndWaitForAgentMessage before newSession/],
     [{ op: 'promptExpectError', text: 'x' }, /promptExpectError before newSession/],
     [{ op: 'promptAndCancel', text: 'x' }, /promptAndCancel before newSession/],
     [{ op: 'cancel' }, /cancel before newSession/],

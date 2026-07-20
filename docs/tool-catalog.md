@@ -21,6 +21,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect`, `cordis_mount`, `cordis_unmount` | `ctx.tools` | `tool/call`, `tool/result`, `live plugin-tree mutations (mount/unmount)` | - | Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes. |
 | `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after successful file operations`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin. |
 | `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.tools`, `ctx.bash`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. |
+| `@deepseek-ai/dsh-tool-goal` | `create_goal`, `get_goal`, `update_goal` | `ctx.tools`, `ctx.agents`, `ctx.goals`, `ctx.systemPrompt`, `a calling Agent in an authorized open turn` | `tool/call`, `context/message goal snapshot for mutations`, `tool/result` | - | create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds. |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.skills` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/tui-agent/cordis.yml` and `examples/acp-agent/cordis.yml`. |
 | `@deepseek-ai/dsh-tool-tasks` | `task_kill`, `task_list`, `task_output` | `ctx.tools`, `ctx.tasks`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `context/message via agent.inject() for background completion notices` | - | The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`. |
@@ -392,6 +393,98 @@ Search file contents with a ripgrep regular expression. Returns matching lines w
 Source: [`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
 
 glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.
+
+## `@deepseek-ai/dsh-tool-goal`
+
+### `create_goal`
+
+Create one persisted same-session completion goal when the current direct human request is a long-running objective that should continue across autonomous goal rounds. You may infer that intent without requiring the user to say "create a goal". Do not use this for trivial single-turn work. Execution rejects non-human and subagent authority.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "objective": {
+      "type": "string",
+      "description": "The concrete completion objective inferred from the direct human request."
+    },
+    "max_goal_rounds": {
+      "type": "number",
+      "description": "Optional positive safe-integer limit on automatic continuation rounds."
+    }
+  },
+  "required": [
+    "objective"
+  ]
+}
+```
+
+Source: [`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/index.ts)
+
+### `get_goal`
+
+Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal.
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+Source: [`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/index.ts)
+
+### `update_goal`
+
+Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "goal_id": {
+      "type": "string",
+      "description": "Exact id returned by get_goal."
+    },
+    "revision": {
+      "type": "number",
+      "description": "Exact positive revision returned by get_goal."
+    },
+    "action": {
+      "type": "string",
+      "description": "edit | pause | resume | complete | blocked",
+      "enum": [
+        "edit",
+        "pause",
+        "resume",
+        "complete",
+        "blocked"
+      ]
+    },
+    "objective": {
+      "type": "string",
+      "description": "Replacement objective; valid only with action edit."
+    },
+    "max_goal_rounds": {
+      "type": "number",
+      "description": "Replacement cap; valid only with action edit."
+    },
+    "blocked_reason": {
+      "type": "string",
+      "description": "Concrete blocking condition; required only with action blocked."
+    }
+  },
+  "required": [
+    "goal_id",
+    "revision",
+    "action"
+  ]
+}
+```
+
+Source: [`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/index.ts)
+
+create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds.
 
 ## `@deepseek-ai/dsh-tool-skill`
 

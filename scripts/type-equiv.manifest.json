@@ -39,6 +39,13 @@
     { "doc": "docs/core-data-structures/goal.md", "symbol": "EditGoalRequest", "source": "packages/goal/goal/src/types.ts" },
     { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalChanged", "source": "packages/goal/goal/src/types.ts" },
 
+    { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandInputDescriptor", "source": "packages/ui/commands/src/index.ts" },
+    { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandDefinition", "source": "packages/ui/commands/src/index.ts" },
+    { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandInvocation", "source": "packages/ui/commands/src/index.ts" },
+    { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandResult", "source": "packages/ui/commands/src/index.ts" },
+    { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandDescriptor", "source": "packages/ui/commands/src/index.ts" },
+    { "doc": "docs/core-data-structures/commands.md", "symbol": "ParsedCommand", "source": "packages/ui/commands/src/index.ts" },
+
     { "doc": "docs/core-data-structures/system-prompt.md", "symbol": "AssembleContext", "source": "packages/core/system-prompt/src/index.ts" },
     { "doc": "docs/core-data-structures/system-prompt.md", "symbol": "PromptSection", "source": "packages/core/system-prompt/src/index.ts" },
     { "doc": "docs/core-data-structures/system-prompt.md", "symbol": "ToolProviderResult", "source": "packages/core/system-prompt/src/index.ts" },

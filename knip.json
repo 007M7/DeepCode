@@ -77,6 +77,14 @@
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
+    "packages/goal/goal-session": {
+      "entry": ["tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/goal/tool-goal": {
+      "entry": ["tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
     "packages/code-runtime/code-runtime-worker": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
@@ -119,6 +127,10 @@
     },
     "packages/ui/jsonrpc": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/ui/commands": {
+      "entry": ["tests/**/*.spec.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/examples/tui-demo": {

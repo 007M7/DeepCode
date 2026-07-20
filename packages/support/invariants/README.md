@@ -38,7 +38,7 @@ The current executable companions protect these relationships:
 | `dsh-llm`, `dsh-llm-retry`, `dsh-tools`, `dsh-system-prompt` | Stream grammar, durable retry position and bounds, tool-pipeline stages and frozen results, and authoritative prompt-assembly data. |
 | `dsh-compact`, `dsh-hook-protocol`, `dsh-sandbox-policy` | Durable compaction and hook pairing, compaction metadata, and sandbox-mode vocabulary. |
 | `dsh-fs`, `dsh-subagent`, `dsh-workflow` | Filesystem event identity, provider/child pairing, and workflow/agent lifecycle identity. |
-| `dsh-goal` | Durable goal source/content agreement, revision and lifecycle transitions, timestamps, and sequential admitted rounds. |
+| `dsh-goal`, `dsh-goal-session` | Durable goal source/content agreement, revision and lifecycle transitions, timestamps, sequential admitted rounds, and reconstructed continuation prompts. |
 | `dsh-permission`, `dsh-user-approval` | Active-preset references and approval asked/decided audit pairing. |
 | `dsh-tasks`, `dsh-tool-todo` | Task snapshot lifecycle/ownership fields and durable whole-list todo structure. |
 | `dsh-time-context` | Durable clock readings agree with the session's open turn and next pre-step position, elapsed baseline, and event timestamp. |

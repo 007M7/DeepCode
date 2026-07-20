@@ -8,6 +8,7 @@
 type ScopedSubjectResolver = (args: readonly unknown[]) => unknown
 
 const scopedSubjectResolvers: Readonly<Record<string, ScopedSubjectResolver | null>> = Object.freeze({
+  'agent/cancel-requested': args => args[0],
   'agent/created': args => args[0],
   'agent/disposed': args => args[0],
   'agent/error': args => args[0],
