@@ -15,7 +15,7 @@
 
 import { realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import type { SandboxPolicy } from './index.ts'
+import type { SandboxExecutionPolicy } from './index.ts'
 
 /**
  * Resolve a granted root to the path the enforcement layer actually compares:
@@ -45,7 +45,7 @@ export function canonicalPath(path: string): string {
  * @param policy - the file-effect policy to derive the allow-list from.
  * @returns the canonical writable roots; empty exactly under `read-only`.
  */
-export function writableRoots(policy: SandboxPolicy): string[] {
+export function writableRoots(policy: SandboxExecutionPolicy): string[] {
   if (policy.mode !== 'workspace-write') return []
   return [...new Set([policy.workspaceRoot, '/tmp', tmpdir()].map(canonicalPath))]
 }

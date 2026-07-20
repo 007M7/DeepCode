@@ -16,6 +16,16 @@ async function mounted(config: { mode?: 'read-only' | 'workspace-write' | 'dange
   return ctx
 }
 
+function session(id: string, cwd?: string): Session {
+  const sessionId = SessionId(id)
+  return new Session(sessionId, undefined, {
+    version: 0,
+    id: sessionId,
+    createdAt: 0,
+    ...cwd === undefined ? {} : { cwd },
+  })
+}
+
 describe('SandboxPolicyService', () => {
   it('defaults to read-only under the process cwd', async () => {
     const ctx = await mounted()
@@ -27,6 +37,49 @@ describe('SandboxPolicyService', () => {
     const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/ws/../ws/./sub' })
     expect(ctx.sandboxPolicy.defaultMode).toBe('workspace-write')
     expect(ctx.sandboxPolicy.workspaceRoot).toBe(resolve('/ws/../ws/./sub'))
+  })
+
+  it('resolves the deployment policy for an agentless call', async () => {
+    const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/fallback' })
+    expect(ctx.sandboxPolicy.resolve()).toEqual({
+      mode: 'workspace-write',
+      workspaceRoot: resolve('/fallback'),
+    })
+  })
+
+  it('resolves each session mode and cwd together without changing the fallback', async () => {
+    const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/fallback' })
+    const first = session('sess-first', '/projects/first')
+    const second = session('sess-second', '/projects/second')
+    setSandboxMode(second, 'read-only')
+
+    expect(ctx.sandboxPolicy.resolve({ session: first })).toEqual({
+      mode: 'workspace-write',
+      workspaceRoot: resolve('/projects/first'),
+    })
+    expect(ctx.sandboxPolicy.resolve({ session: second })).toEqual({
+      mode: 'read-only',
+      workspaceRoot: resolve('/projects/second'),
+    })
+    expect(ctx.sandboxPolicy.resolve()).toEqual({
+      mode: 'workspace-write',
+      workspaceRoot: resolve('/fallback'),
+    })
+  })
+
+  it('lets an approved mode outrank the session mode while retaining its root', async () => {
+    const ctx = await mounted({ workspaceRoot: '/fallback' })
+    const active = session('sess-approved', '/projects/approved')
+    setSandboxMode(active, 'read-only')
+    expect(ctx.sandboxPolicy.resolve({ session: active, mode: 'danger-full-access' })).toEqual({
+      mode: 'danger-full-access',
+      workspaceRoot: resolve('/projects/approved'),
+    })
+  })
+
+  it('uses the configured root when a session has no cwd', async () => {
+    const ctx = await mounted({ workspaceRoot: '/fallback' })
+    expect(ctx.sandboxPolicy.resolve({ session: session('sess-no-cwd') }).workspaceRoot).toBe(resolve('/fallback'))
   })
 
   it('rejects a mode outside the closed vocabulary at load', async () => {

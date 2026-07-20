@@ -6,7 +6,7 @@ The filesystem stack: a provider seam (text IO + atomic mutation with an optiona
 |---|---|---|
 | `fs/` | Provider seam: text IO + atomic mutation primitives (optional version guard); owns the `fs/*` policy events | `ctx.fs` |
 | `fs-local/` | Local-filesystem `FileSystem` implementation | (registers `ctx.fs`) |
-| `fs-sandbox/` | Sandbox-enforcing `FileSystem`: extends `fs-local` and fences write/edit by the per-call sandbox mode (read-only denies, workspace-write contains to the workspace + temp roots), reads pass through | (registers `ctx.fs`) |
+| `fs-sandbox/` | Sandbox-enforcing `FileSystem`: extends `fs-local` and fences write/edit by the per-call mode + workspace root policy (read-only denies, workspace-write contains to the session workspace + temp roots), reads pass through | (registers `ctx.fs`) |
 | `fs-policy/` | Policy gate plugin: observed-state + read-before-edit + version-guarded write/edit, via the `fs/*` event gate | (no service — `fs/*` listeners) |
 | `tool-fs/` | Model-facing `read`/`write`/`edit` tools AND the executor (reads via `ctx.fs`, owns read windowing, dispatches `fs/*`); advertises the sandbox escalation fields when the mounted `ctx.fs` confines | (registers on `ctx.tools`) |
 | `tool-fs-search/` | Model-facing `glob`/`grep` discovery tools when `rg` is available on the bash executor `PATH`, backed by fixed ripgrep commands through `ctx.bash`, NOT by `ctx.fs` provider methods | (registers on `ctx.tools`) |

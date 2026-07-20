@@ -122,8 +122,10 @@
 
     { "doc": "docs/core-data-structures/sandbox.md", "symbol": "SandboxMode", "source": "packages/sandbox/sandbox/src/index.ts" },
     { "doc": "docs/core-data-structures/sandbox.md", "symbol": "ConfinedSandboxMode", "source": "packages/sandbox/sandbox/src/index.ts" },
+    { "doc": "docs/core-data-structures/sandbox.md", "symbol": "SandboxExecutionPolicy", "source": "packages/sandbox/sandbox/src/index.ts" },
     { "doc": "docs/core-data-structures/sandbox.md", "symbol": "SandboxEnforcement", "source": "packages/sandbox/sandbox/src/index.ts" },
     { "doc": "docs/core-data-structures/sandbox.md", "symbol": "SandboxPolicy", "source": "packages/sandbox/sandbox/src/index.ts" },
+    { "doc": "docs/core-data-structures/sandbox.md", "symbol": "SandboxPolicyRequest", "source": "packages/sandbox/sandbox-policy/src/index.ts" },
     { "doc": "docs/core-data-structures/sandbox.md", "symbol": "ConfinedArgv", "source": "packages/sandbox/sandbox/src/index.ts" },
 
     { "doc": "docs/core-data-structures/code-runtime.md", "symbol": "CodeRunRequest", "source": "packages/code-runtime/code-runtime/src/types.ts" },

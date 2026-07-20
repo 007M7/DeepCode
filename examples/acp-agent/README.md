@@ -29,7 +29,7 @@ Add to your Zed `settings.json` under `agent_servers`:
 }
 ```
 
-The editor sets each session's `cwd` to the project it opens, and bash uses that directory as its workdir. The current sandbox write boundary is nevertheless fixed when the server starts (`workspaceRoot: process.cwd()`), so launch the server from the workspace it should be allowed to modify; making that root session-scoped is deferred in the [sandbox Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md). The filesystem tools now ride the same sandbox policy through [`@deepseek-ai/dsh-fs-sandbox`](../../packages/fs/fs-sandbox/), so `read`/`write`/`edit` are available under every mode and confined to the same `workspaceRoot`.
+The editor sets each session's `cwd` to the project it opens. That directory is both bash's default workdir and the session's `workspace-write` boundary: every bash or filesystem mutation carries one policy resolved from the calling session, so a single server process may serve concurrent projects without granting either session writes into the other. The configured `workspaceRoot: process.cwd()` remains the fallback for calls without a session cwd. The filesystem tools ride the same policy through [`@deepseek-ai/dsh-fs-sandbox`](../../packages/fs/fs-sandbox/), so `read`/`write`/`edit` are available under every mode and confined to the same session root.
 
 ## Snapshot tests (record-once / replay-deterministic)
 
@@ -41,9 +41,9 @@ The default tree composes [`@deepseek-ai/dsh-sandbox-local`](../../packages/sand
 
 - **One session config option is live**: a capable client shows one `Permissions` select. `workspace-write` means workspace-confined bash plus `ask`; `danger-full-access` means unconfined bash plus `never`. Switching writes one `permission/preset` event through to the sandbox-mode and approval-policy events, and `session/load` reports the resumed value.
 - **Every approval is one-shot**: the choices are `Allow once` and `Reject`; a dismissal, rejection, missing editor, or unavailable runner fails closed.
-- **The boundary spans bash and the filesystem tools, and is config-fixed today**: bash confines through the OS runner and the `read`/`write`/`edit` tools through an in-process path fence ([`dsh-fs-sandbox`](../../packages/fs/fs-sandbox/)), both keyed to the same `workspaceRoot` — which remains the server's launch directory (a per-session root is deferred).
+- **The boundary spans bash and the filesystem tools per session**: bash confines through the OS runner and the `read`/`write`/`edit` tools through an in-process path fence ([`dsh-fs-sandbox`](../../packages/fs/fs-sandbox/)); both receive the calling session's cwd as `workspaceRoot`.
 
-`tests/escalation.e2e.ts` boots this default tree keyless, drives the permission select, and—with a key and usable runner—proves both approval outcomes against the filesystem. Most snapshots use that tree and start at `danger-full-access` so bash fixtures remain runner-independent; scenarios that call `read`, `write`, or `edit` use the fixed full-access fs overlay and a separate request-header pin. The permission-switching and escalation inputs select `workspace-write` before exercising the bash policy path. No fixture pins a real denial because kernel error text is backend-specific; real confinement remains covered by the sandbox packages' kernel e2e suites.
+`tests/escalation.e2e.ts` boots this default tree keyless, drives the permission select, and—with a key and usable runner—proves both approval outcomes against the filesystem. The agent-spine e2e independently boots one context with two project sessions and world-verifies concurrent own-root success plus sibling-root denial through both shipped tool families. Most snapshots use the ACP tree and start at `danger-full-access` so bash fixtures remain runner-independent; scenarios that call `read`, `write`, or `edit` use the full-access fs overlay and a separate request-header pin. The permission-switching and escalation inputs select `workspace-write` before exercising the bash policy path. No fixture pins real runner denial text because its dialect is platform-specific.
 
 ## MVP limitations
 

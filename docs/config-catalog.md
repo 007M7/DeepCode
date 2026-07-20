@@ -196,11 +196,10 @@ Requires: `sandbox` · `sandboxPolicy`
 ```ts config-catalog
 /**
  * Plugin config: the local executor's knobs, verbatim. The sandbox policy —
- * the default mode and the `workspace-write` boundary root — is NOT here: it
- * lives on `ctx.sandboxPolicy` (`@deepseek-ai/dsh-sandbox-policy`), the one
- * home both enforcing families read, so bash and fs can never confine to
- * different roots. The runner choice is likewise the `ctx.sandbox` provider's
- * config, not this executor's.
+ * the default mode and fallback `workspace-write` root — is NOT here: it lives
+ * on `ctx.sandboxPolicy` (`@deepseek-ai/dsh-sandbox-policy`), which resolves
+ * each calling session's mode and cwd for both enforcing families. The runner
+ * choice is likewise the `ctx.sandbox` provider's config, not this executor's.
  */
 export type Config = LocalConfig
 ```
@@ -349,8 +348,8 @@ Requires: `sandboxPolicy`
 /**
  * Plugin config: the local backend's knobs, verbatim (only `cwd`, the resolve
  * base for relative paths). The sandbox default (mode + `workspace-write`
- * boundary root) is NOT here — it lives on `ctx.sandboxPolicy`, the one home
- * both enforcing families share.
+ * fallback root) is NOT here — `ctx.sandboxPolicy` resolves each calling
+ * session for both enforcing families.
  */
 export type Config = LocalConfig
 ```
@@ -746,8 +745,8 @@ export interface Config {
   /** File-sandbox mode a session starts from (default: `read-only`). */
   mode?: SandboxMode
   /**
-   * Absolute root directory `workspace-write` may write under (default:
-   * `process.cwd()`). Both enforcing families fence against this SAME root.
+   * Fallback root for agentless calls and sessions without a cwd (default:
+   * `process.cwd()`). Normal agent calls use their session cwd instead.
    */
   workspaceRoot?: string
 }
@@ -755,7 +754,7 @@ export interface Config {
 
 Depends on: [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:44`](../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:39`](../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 

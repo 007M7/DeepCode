@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-sandbox-policy",
-  "description": "Sandbox policy home (ctx.sandboxPolicy) for the DeepSeek Harness: the deployment default mode + workspace root and the per-session sandbox/mode override, shared by every enforcing capability family",
+  "description": "Per-call sandbox policy resolver (ctx.sandboxPolicy): deployment fallbacks plus each session's mode and workspace root, shared by every enforcing capability family",
   "version": "0.0.1",
   "private": true,
   "type": "module",
