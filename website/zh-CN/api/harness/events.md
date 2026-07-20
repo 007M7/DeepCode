@@ -571,7 +571,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 
 - `session` — the session just entered and announced.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L47)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L49)
 
 ### session/disposed
 
@@ -594,7 +594,7 @@ Emitted once when an announced session leaves the store, including publication r
 
 - `session` — the session that is no longer live in the store.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L57)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L59)
 
 ### session/event
 
@@ -620,7 +620,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 - `session` — the session whose log grew.
 - `event` — the appended event, exactly as recorded.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L69)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L71)
 
 ### session/flush
 
@@ -643,7 +643,7 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 - `session` — the session whose buffered events must reach durable storage.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L79)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L81)
 
 ## subagent/*
 
