@@ -1,0 +1,529 @@
+/**
+ * Same-session goal domain: event-sourced state, compare-and-set mutations,
+ * and process-local continuation activation.
+ * @module @deepseek-ai/dsh-goal
+ */
+
+import { randomUUID } from 'node:crypto'
+import { Context, Service } from 'cordis'
+import z from 'schemastery'
+import { agentEvents } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
+import type { JsonValue, Session } from '@deepseek-ai/dsh-session'
+import {
+  applyGoalChange,
+  applyGoalEvent,
+  decodeGoalEvent,
+  emptyGoalFoldState,
+  goalChangeRef,
+} from './fold.ts'
+import type { GoalFoldState } from './fold.ts'
+import { renderGoalChange } from './render.ts'
+import {
+  GOAL_CHANGE_VERSION,
+  GoalError,
+  GoalId,
+} from './runtime.ts'
+import type {
+  CreateGoalRequest,
+  EditGoalRequest,
+  GoalActivation,
+  GoalBlockReason,
+  GoalChangeMeta,
+  GoalChanged,
+  GoalClearChangeMeta,
+  GoalOperation,
+  GoalPhase,
+  GoalRef,
+  GoalSnapshot,
+  GoalSnapshotChangeMeta,
+  GoalView,
+} from './types.ts'
+
+export * from './types.ts'
+export { GOAL_CHANGE_VERSION, GoalError, GoalId } from './runtime.ts'
+export { decodeGoalChange, foldGoal, goalChangeRef } from './fold.ts'
+export { renderGoalChange } from './render.ts'
+
+declare module 'cordis' {
+  interface Context {
+    goals: GoalService
+  }
+}
+
+/** Deployment defaults for goal creation. */
+export interface Config {
+  /** Total rounds used when a create request omits its own cap. */
+  defaultMaxGoalRounds?: number
+}
+
+/** Resolved defaults. */
+export interface ResolvedConfig {
+  /** Validated positive safe-integer default round cap. */
+  defaultMaxGoalRounds: number
+}
+
+/** One accepted mutation waiting to enter or be observed in the session log. */
+interface PendingGoalChange {
+  readonly change: GoalChangeMeta
+  readonly activation: GoalActivation
+  applied: boolean
+}
+
+/** Process-local cache plus mutations waiting in the active tool-batch FIFO. */
+interface GoalCache {
+  readonly state: GoalFoldState
+  activation: GoalActivation
+  observedSeq: number
+  readonly pending: PendingGoalChange[]
+}
+
+/** Validated create input with every deployment default materialized. */
+interface ResolvedCreateGoal {
+  readonly objective: string
+  readonly maxGoalRounds: number
+}
+
+/** Validate a caller-visible positive safe-integer round cap. */
+function resolveMaxGoalRounds(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new GoalError('maxGoalRounds must be a positive safe integer', 'GOAL_INVALID_MAX_ROUNDS')
+  }
+  return value
+}
+
+/** Validate and normalize an objective at the domain boundary. */
+function resolveObjective(value: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new GoalError('goal objective must be a non-empty string', 'GOAL_INVALID_OBJECTIVE')
+  }
+  return value.trim()
+}
+
+/** Materialize deployment defaults and validate one create request. */
+function resolveCreateGoal(request: CreateGoalRequest, defaultMaxGoalRounds: number): ResolvedCreateGoal {
+  return {
+    objective: resolveObjective(request.objective),
+    maxGoalRounds: resolveMaxGoalRounds(request.maxGoalRounds ?? defaultMaxGoalRounds),
+  }
+}
+
+/** Validate and detach one policy-owned blocker explanation. */
+function resolveBlockReason(reason: unknown): GoalBlockReason {
+  const record = typeof reason === 'object' && reason !== null && !Array.isArray(reason)
+    ? reason as Record<string, unknown>
+    : undefined
+  const code = record?.['code']
+  const message = record?.['message']
+  if (typeof code !== 'string' || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(code)
+    || typeof message !== 'string' || message.trim().length === 0) {
+    throw new GoalError(
+      'goal block reason requires a lower-kebab-case code and a non-empty message',
+      'GOAL_INVALID_BLOCK_REASON',
+    )
+  }
+  return { code, message: message.trim() }
+}
+
+/** Compare the complete canonical payloads used for deferred reconciliation. */
+function sameChange(left: GoalChangeMeta, right: GoalChangeMeta): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+/** Goal service (`ctx.goals`) backed exclusively by the owning session log. */
+export class GoalService extends Service {
+  static inject = ['agents']
+
+  static Config: z<Config> = z.object({
+    defaultMaxGoalRounds: z.number().default(256),
+  })
+
+  private readonly resolved: ResolvedConfig
+  private readonly caches = new WeakMap<Session, GoalCache>()
+
+  constructor(ctx: Context, config: Config = {}) {
+    super(ctx, 'goals')
+    this.resolved = {
+      defaultMaxGoalRounds: resolveMaxGoalRounds(config.defaultMaxGoalRounds ?? 256),
+    }
+    ctx.on('agent/session-start', (agent) => {
+      this.cache(agent.session).activation = 'disarmed'
+    })
+  }
+
+  /**
+   * Read the current goal for one exact live agent.
+   * @param agent - owning live agent.
+   * @returns a fresh view or `undefined` when no goal is current.
+   * @throws {@link GoalError} when the agent is not the registry's live instance.
+   */
+  get(agent: Agent): GoalView | undefined {
+    this.assertLive(agent)
+    const cache = this.cache(agent.session)
+    this.sync(agent.session, cache)
+    return this.view(cache)
+  }
+
+  /**
+   * Create and arm a goal. A completed goal may be replaced; every other
+   * current phase must be cleared or resumed instead.
+   * @param agent - owning live agent.
+   * @param request - objective and optional round cap.
+   * @returns the created live view.
+   */
+  create(agent: Agent, request: CreateGoalRequest): GoalView {
+    const spec = resolveCreateGoal(request, this.resolved.defaultMaxGoalRounds)
+    const cache = this.prepareMutation(agent)
+    const current = cache.state.goal
+    if (current !== undefined && current.phase !== 'complete') {
+      throw new GoalError(`goal "${current.id}" already exists with phase "${current.phase}"`, 'GOAL_ALREADY_EXISTS')
+    }
+    const now = Date.now()
+    const goal: GoalSnapshot = {
+      id: GoalId(`goal-${randomUUID()}`),
+      revision: 1,
+      objective: spec.objective,
+      phase: 'active',
+      maxGoalRounds: spec.maxGoalRounds,
+    }
+    return this.commitSnapshot(agent, cache, 'create', goal, 0, now, now, 'armed')
+  }
+
+  /**
+   * Edit objective and/or round cap without changing phase.
+   * @param agent - owning live agent.
+   * @param ref - expected current revision.
+   * @param request - at least one replacement field.
+   * @returns the edited view.
+   */
+  edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView {
+    const cache = this.prepareMutation(agent)
+    const current = this.expectCurrent(cache, ref)
+    if (request.objective === undefined && request.maxGoalRounds === undefined) {
+      throw new GoalError('goal edit requires objective and/or maxGoalRounds', 'GOAL_INVALID_EDIT')
+    }
+    const goal: GoalSnapshot = {
+      ...current,
+      revision: current.revision + 1,
+      ...request.objective === undefined ? {} : { objective: resolveObjective(request.objective) },
+      ...request.maxGoalRounds === undefined ? {} : { maxGoalRounds: resolveMaxGoalRounds(request.maxGoalRounds) },
+    }
+    return this.commitCurrent(agent, cache, 'edit', goal, cache.activation)
+  }
+
+  /**
+   * Pause an active goal and disarm automatic continuation.
+   * @param agent - owning live agent.
+   * @param ref - expected current revision.
+   * @returns the paused view.
+   */
+  pause(agent: Agent, ref: GoalRef): GoalView {
+    return this.transition(agent, ref, 'pause', ['active'], 'paused', 'disarmed')
+  }
+
+  /**
+   * Resume and arm a stopped goal, or rearm an active goal after a
+   * session-start edge, while its round budget still has capacity.
+   * @param agent - owning live agent.
+   * @param ref - expected current revision.
+   * @returns the active view.
+   */
+  resume(agent: Agent, ref: GoalRef): GoalView {
+    const cache = this.prepareMutation(agent)
+    const current = this.expectCurrent(cache, ref)
+    const resumable: readonly GoalPhase[] = ['active', 'paused', 'blocked']
+    if (!resumable.includes(current.phase)) {
+      throw this.transitionError(current, 'resume', resumable)
+    }
+    if (current.phase === 'active' && cache.activation === 'armed') {
+      throw new GoalError(`goal "${current.id}" is already active and armed`, 'GOAL_INVALID_TRANSITION')
+    }
+    if (cache.state.roundsStarted >= current.maxGoalRounds) {
+      throw new GoalError(
+        `goal "${current.id}" exhausted ${current.maxGoalRounds} goal rounds; increase maxGoalRounds before resuming`,
+        'GOAL_INVALID_TRANSITION',
+      )
+    }
+    return this.commitCurrent(agent, cache, 'resume', this.withPhase(current, 'active'), 'armed')
+  }
+
+  /**
+   * Mark a current non-complete goal complete and disarm it.
+   * @param agent - owning live agent.
+   * @param ref - expected current revision.
+   * @returns the completed view.
+   */
+  complete(agent: Agent, ref: GoalRef): GoalView {
+    return this.transition(
+      agent,
+      ref,
+      'complete',
+      ['active', 'paused', 'blocked'],
+      'complete',
+      'disarmed',
+    )
+  }
+
+  /**
+   * Mark an active goal blocked and disarm it.
+   * @param agent - owning live agent.
+   * @param ref - expected current revision.
+   * @param reason - policy-owned stable code and human-readable explanation.
+   * @returns the blocked view with its durable reason.
+   */
+  block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView {
+    const cache = this.prepareMutation(agent)
+    const current = this.expectCurrent(cache, ref)
+    if (current.phase !== 'active') {
+      throw this.transitionError(current, 'block', ['active'])
+    }
+    return this.commitCurrent(
+      agent,
+      cache,
+      'block',
+      { ...this.withPhase(current, 'blocked'), blockedReason: resolveBlockReason(reason) },
+      'disarmed',
+    )
+  }
+
+  /**
+   * Clear the current goal while retaining a durable tombstone and history.
+   * @param agent - owning live agent.
+   * @param ref - expected current revision.
+   * @returns the tombstone ref whose revision is one past the cleared snapshot.
+   */
+  clear(agent: Agent, ref: GoalRef): GoalRef {
+    const cache = this.prepareMutation(agent)
+    const current = this.expectCurrent(cache, ref)
+    const tombstone: GoalRef = { id: current.id, revision: current.revision + 1 }
+    const change: GoalClearChangeMeta = {
+      kind: 'goal/change',
+      version: GOAL_CHANGE_VERSION,
+      operation: 'clear',
+      cleared: tombstone,
+      clearedAt: this.nextMutationTime(cache),
+    }
+    this.commit(agent, cache, change, 'disarmed')
+    return { ...tombstone }
+  }
+
+  /** Resolve and validate the cache used by a mutation. */
+  private prepareMutation(agent: Agent): GoalCache {
+    this.assertLive(agent)
+    const cache = this.cache(agent.session)
+    this.sync(agent.session, cache)
+    return cache
+  }
+
+  /** Reject stale or missing current-state refs. */
+  private expectCurrent(cache: GoalCache, ref: GoalRef): GoalSnapshot {
+    const current = cache.state.goal
+    if (current === undefined) throw new GoalError('no current goal', 'GOAL_NOT_FOUND')
+    if (ref.id !== current.id || ref.revision !== current.revision) {
+      throw new GoalError(
+        `stale goal ref "${ref.id}" revision ${ref.revision}; current is "${current.id}" revision ${current.revision}`,
+        'GOAL_STALE_REVISION',
+      )
+    }
+    return current
+  }
+
+  /** Enforce exact live-agent identity rather than trusting a matching id. */
+  private assertLive(agent: Agent): void {
+    if (this.ctx.agents.get(agent.id) !== agent || agent.status === 'disposed') {
+      throw new GoalError(`agent "${agent.id}" is not live in this registry`, 'GOAL_AGENT_NOT_LIVE')
+    }
+  }
+
+  /** Return the per-session cache, folding a seed once with activation disarmed. */
+  private cache(session: Session): GoalCache {
+    let cache = this.caches.get(session)
+    if (cache !== undefined) return cache
+    const state = emptyGoalFoldState()
+    for (const event of session.events) applyGoalEvent(state, event)
+    cache = {
+      state,
+      activation: 'disarmed',
+      observedSeq: session.seq,
+      pending: [],
+    }
+    this.caches.set(session, cache)
+    return cache
+  }
+
+  /** Incrementally observe durable events without losing deferred mutations. */
+  private sync(session: Session, cache: GoalCache): void {
+    for (const event of session.events.slice(cache.observedSeq)) {
+      if (event.type === 'context/message') {
+        const change = decodeGoalEvent(event)
+        if (change !== undefined) {
+          const pending = cache.pending[0]
+          if (pending !== undefined && sameChange(pending.change, change)) {
+            if (!pending.applied) {
+              applyGoalChange(cache.state, change)
+              cache.activation = pending.activation
+              pending.applied = true
+            }
+            cache.pending.shift()
+            cache.observedSeq += 1
+            continue
+          }
+        }
+      }
+      applyGoalEvent(cache.state, event)
+      cache.observedSeq += 1
+    }
+  }
+
+  /** Build a new revision with one replacement phase. */
+  private withPhase(current: GoalSnapshot, phase: GoalPhase): GoalSnapshot {
+    return {
+      id: current.id,
+      revision: current.revision + 1,
+      objective: current.objective,
+      phase,
+      maxGoalRounds: current.maxGoalRounds,
+    }
+  }
+
+  /** Shared validated phase transition. */
+  private transition(
+    agent: Agent,
+    ref: GoalRef,
+    operation: Exclude<GoalOperation, 'create' | 'edit' | 'clear'>,
+    allowed: readonly GoalPhase[],
+    phase: GoalPhase,
+    activation: GoalActivation,
+  ): GoalView {
+    const cache = this.prepareMutation(agent)
+    const current = this.expectCurrent(cache, ref)
+    if (!allowed.includes(current.phase)) throw this.transitionError(current, operation, allowed)
+    return this.commitCurrent(agent, cache, operation, this.withPhase(current, phase), activation)
+  }
+
+  /** Render a stable invalid-transition error. */
+  private transitionError(current: GoalSnapshot, operation: GoalOperation, allowed: readonly GoalPhase[]): GoalError {
+    return new GoalError(
+      `cannot ${operation} goal "${current.id}" from phase "${current.phase}"; expected ${allowed.join(' or ')}`,
+      'GOAL_INVALID_TRANSITION',
+    )
+  }
+
+  /** Commit a mutation that retains the current goal's derived counters/times. */
+  private commitCurrent(
+    agent: Agent,
+    cache: GoalCache,
+    operation: Exclude<GoalOperation, 'create' | 'clear'>,
+    goal: GoalSnapshot,
+    activation: GoalActivation,
+  ): GoalView {
+    const createdAt = cache.state.createdAt
+    /* v8 ignore next -- strict replay and every snapshot commit set createdAt whenever a current goal exists */
+    if (createdAt === undefined) throw new Error('current goal cache lacks createdAt')
+    return this.commitSnapshot(
+      agent,
+      cache,
+      operation,
+      goal,
+      cache.state.roundsStarted,
+      createdAt,
+      this.nextMutationTime(cache),
+      activation,
+    )
+  }
+
+  /** Clamp a current goal's next timestamp across backward wall-clock movement. */
+  private nextMutationTime(cache: GoalCache): number {
+    const updatedAt = cache.state.updatedAt
+    /* v8 ignore next -- strict replay and every snapshot commit set updatedAt whenever a current goal exists */
+    if (updatedAt === undefined) throw new Error('current goal cache lacks updatedAt')
+    return Math.max(Date.now(), updatedAt)
+  }
+
+  /** Build and commit one full-snapshot mutation. */
+  private commitSnapshot(
+    agent: Agent,
+    cache: GoalCache,
+    operation: Exclude<GoalOperation, 'clear'>,
+    goal: GoalSnapshot,
+    roundsStarted: number,
+    createdAt: number,
+    updatedAt: number,
+    activation: GoalActivation,
+  ): GoalView {
+    const change: GoalSnapshotChangeMeta = {
+      kind: 'goal/change',
+      version: GOAL_CHANGE_VERSION,
+      operation,
+      goal,
+      roundsStarted,
+      createdAt,
+      updatedAt,
+    }
+    this.commit(agent, cache, change, activation)
+    const view = this.view(cache)
+    /* v8 ignore next -- applyGoalChange installs the snapshot immediately before this read */
+    if (view === undefined) throw new Error('snapshot commit cleared the goal unexpectedly')
+    return view
+  }
+
+  /** Accept one mutation into the agent log/FIFO, cache, and live event stream. */
+  private commit(agent: Agent, cache: GoalCache, change: GoalChangeMeta, activation: GoalActivation): void {
+    const ref = goalChangeRef(change)
+    // snapshotJsonValue preserves its input type for callers that already have
+    // a JsonValue; this interface is structurally JSON but intentionally has no
+    // index signature, so narrow the validated output at this boundary.
+    const meta = snapshotJsonValue(change) as JsonValue | undefined
+    /* v8 ignore next -- validated goal changes contain only finite JSON primitives and records */
+    if (meta === undefined) throw new Error('goal change is not losslessly JSON-serializable')
+    const pending: PendingGoalChange = { change, activation, applied: false }
+    cache.pending.push(pending)
+    try {
+      agent.inject(renderGoalChange(change), {
+        source: { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0 },
+        meta,
+      })
+    } catch (error: unknown) {
+      const index = cache.pending.indexOf(pending)
+      /* v8 ignore next -- a committed goal append cannot reject after its contained observers run */
+      if (index < 0) throw new Error('goal injection failed after its pending mutation was reconciled', { cause: error })
+      cache.pending.splice(index, 1)
+      throw error
+    }
+    if (!pending.applied) {
+      applyGoalChange(cache.state, change)
+      cache.activation = activation
+      pending.applied = true
+    }
+    this.sync(agent.session, cache)
+    const goal = this.view(cache)
+    const notification: GoalChanged = {
+      operation: change.operation,
+      ref: { ...ref },
+      ...goal === undefined ? {} : { goal },
+    }
+    agentEvents(this.ctx, agent).emit('goal/changed', notification)
+  }
+
+  /** Build a detached current view. */
+  private view(cache: GoalCache): GoalView | undefined {
+    const goal = cache.state.goal
+    const createdAt = cache.state.createdAt
+    const updatedAt = cache.state.updatedAt
+    if (goal === undefined) return undefined
+    /* v8 ignore next 3 -- strict replay and snapshot commits establish both timestamps with every current goal */
+    if (createdAt === undefined || updatedAt === undefined) {
+      throw new Error(`goal "${goal.id}" cache lacks timestamps`)
+    }
+    return {
+      ...goal,
+      roundsStarted: cache.state.roundsStarted,
+      createdAt,
+      updatedAt,
+      activation: cache.activation,
+    }
+  }
+}
+
+export default GoalService

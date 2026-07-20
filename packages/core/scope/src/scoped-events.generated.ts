@@ -24,6 +24,7 @@ const scopedSubjectResolvers: Readonly<Record<string, ScopedSubjectResolver | nu
   'agent/turn-continuation': args => args[0],
   'agent/turn-stop': args => args[0],
   'approval/request': args => (args[0] as Record<string, unknown>)['agent'],
+  'goal/changed': args => args[0],
   'session/created': null,
   'session/disposed': null,
   'session/event': null,

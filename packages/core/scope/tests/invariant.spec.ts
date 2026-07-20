@@ -47,6 +47,7 @@ describe('scoped-dispatch invariants', () => {
       ['agent/turn-continuation', [agent, 1, { action: 'stop' }, () => Promise.resolve({ action: 'stop' })]],
       ['agent/turn-stop', [agent, 1]],
       ['approval/request', [{ agent, toolName: 'echo' }, () => Promise.resolve('unavailable')]],
+      ['goal/changed', [agent, { operation: 'create', ref: { id: 'goal-a', revision: 1 } }]],
       ['system-prompt/assemble', [[], { scope: agent }]],
       ['tools/execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ content: [], isError: false })]],
       ['tools/post-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, { content: [], isError: false }, () => Promise.resolve({ kind: 'accept' })]],
