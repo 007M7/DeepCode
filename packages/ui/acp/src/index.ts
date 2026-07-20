@@ -514,7 +514,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   }
 
   /** Project the effective registry view onto ACP discovery metadata. */
-  const availableCommands = (agent: Agent): AvailableCommand[] => commands.list(agent, 'acp').map(command => ({
+  const availableCommands = (agent: Agent): AvailableCommand[] => commands.list(agent).map(command => ({
     name: command.name,
     description: command.description,
     ...command.input === undefined ? {} : { input: { hint: command.input.hint } },
@@ -905,7 +905,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           const controller = new AbortController()
           rec.commandAbort = controller
           try {
-            const result = await commands.execute(rec.agent, 'acp', commandLine, controller.signal)
+            const result = await commands.execute(rec.agent, commandLine, controller.signal)
             if (result !== undefined && result.text !== undefined && result.text !== '') {
               notify({
                 sessionId: rec.agent.session.id,

@@ -347,42 +347,39 @@ Human-command registry. Plain-context definitions are global; definitions regist
 ```ts cordis-catalog
 /**
  * Register a global or calling-agent-scoped command.
- * @param definition - discovery metadata, surface mask, and direct UI handler.
+ * @param definition - discovery metadata and direct UI handler.
  * @returns the exact effect disposer that unregisters this definition.
  */
 register(definition: CommandDefinition): () => void
 
 /**
- * List the effective immutable command descriptors for one agent and surface.
+ * List the effective immutable command descriptors for one agent.
  * @param agent - exact receiving agent and scoped-layer key.
- * @param surface - UI adapter requesting discovery metadata.
- * @returns name-sorted descriptors after scoped shadowing and surface filtering.
+ * @returns name-sorted descriptors after scoped shadowing.
  */
-list(agent: Agent, surface: CommandSurface): readonly CommandDescriptor[]
+list(agent: Agent): readonly CommandDescriptor[]
 
 /**
  * Resolve one effective command definition.
  * @param agent - exact receiving agent and scoped-layer key.
- * @param surface - UI adapter performing the lookup.
  * @param name - command name without a slash.
- * @returns the scoped shadow or global definition when visible on the surface.
+ * @returns the scoped shadow or global definition.
  */
-find(agent: Agent, surface: CommandSurface, name: string): CommandDefinition | undefined
+find(agent: Agent, name: string): CommandDefinition | undefined
 
 /**
  * Parse and execute a known command without sending it to the model.
  * @param agent - exact receiving agent.
- * @param surface - dispatching UI adapter.
  * @param line - complete slash-command line.
  * @param signal - cancellation signal owned by the UI request.
- * @returns a detached result, or `undefined` when syntax/name/surface does not resolve.
+ * @returns a detached result, or `undefined` when syntax or name does not resolve.
  */
-async execute( agent: Agent, surface: CommandSurface, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>
+async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md) · [CommandResult](../core-data-structures/commands.md) · [CommandSurface](../core-data-structures/commands.md)
+Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md) · [CommandResult](../core-data-structures/commands.md)
 
-Source: [`packages/ui/commands/src/index.ts:235`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:207`](../../packages/ui/commands/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 

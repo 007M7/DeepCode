@@ -39,7 +39,6 @@
     { "doc": "docs/core-data-structures/goal.md", "symbol": "EditGoalRequest", "source": "packages/goal/goal/src/types.ts" },
     { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalChanged", "source": "packages/goal/goal/src/types.ts" },
 
-    { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandSurface", "source": "packages/ui/commands/src/index.ts" },
     { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandInputDescriptor", "source": "packages/ui/commands/src/index.ts" },
     { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandDefinition", "source": "packages/ui/commands/src/index.ts" },
     { "doc": "docs/core-data-structures/commands.md", "symbol": "CommandInvocation", "source": "packages/ui/commands/src/index.ts" },

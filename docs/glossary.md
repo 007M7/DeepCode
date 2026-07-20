@@ -26,7 +26,6 @@ FIXME(glossary-completeness): Expand this glossary before the first release so i
 
 - **human command** — a slash-prefixed instruction interpreted and executed by a human-facing adapter through `ctx.commands`, without becoming a model message. It is distinct from a model-facing tool and from shell command execution through `ctx.bash`.
 - **command plane** — discovery, parsing, dispatch, cancellation, and result rendering owned by UI adapters and command plugins. Command output is UI state unless the handler separately mutates a durable domain.
-- **command surface** — the adapter identity used to filter definitions, such as `tui` or `acp`; one scoped definition may shadow a same-named global command for its exact agent.
 
 ## loop hierarchy
 

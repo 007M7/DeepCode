@@ -426,7 +426,7 @@ A command was registered or unregistered. This is an unfiltered registry notific
 'commands/change'(): void
 ```
 
-Source: [`packages/ui/commands/src/index.ts:94`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:83`](../../packages/ui/commands/src/index.ts)
 
 ## `fs/*`
 

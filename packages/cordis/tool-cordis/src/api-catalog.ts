@@ -204,19 +204,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'register(definition: CommandDefinition): () => void',
-        jsDoc: '/**\n * Register a global or calling-agent-scoped command.\n * @param definition - discovery metadata, surface mask, and direct UI handler.\n * @returns the exact effect disposer that unregisters this definition.\n */',
+        jsDoc: '/**\n * Register a global or calling-agent-scoped command.\n * @param definition - discovery metadata and direct UI handler.\n * @returns the exact effect disposer that unregisters this definition.\n */',
       },
       {
-        signature: 'list(agent: Agent, surface: CommandSurface): readonly CommandDescriptor[]',
-        jsDoc: '/**\n * List the effective immutable command descriptors for one agent and surface.\n * @param agent - exact receiving agent and scoped-layer key.\n * @param surface - UI adapter requesting discovery metadata.\n * @returns name-sorted descriptors after scoped shadowing and surface filtering.\n */',
+        signature: 'list(agent: Agent): readonly CommandDescriptor[]',
+        jsDoc: '/**\n * List the effective immutable command descriptors for one agent.\n * @param agent - exact receiving agent and scoped-layer key.\n * @returns name-sorted descriptors after scoped shadowing.\n */',
       },
       {
-        signature: 'find(agent: Agent, surface: CommandSurface, name: string): CommandDefinition | undefined',
-        jsDoc: '/**\n * Resolve one effective command definition.\n * @param agent - exact receiving agent and scoped-layer key.\n * @param surface - UI adapter performing the lookup.\n * @param name - command name without a slash.\n * @returns the scoped shadow or global definition when visible on the surface.\n */',
+        signature: 'find(agent: Agent, name: string): CommandDefinition | undefined',
+        jsDoc: '/**\n * Resolve one effective command definition.\n * @param agent - exact receiving agent and scoped-layer key.\n * @param name - command name without a slash.\n * @returns the scoped shadow or global definition.\n */',
       },
       {
-        signature: 'async execute( agent: Agent, surface: CommandSurface, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>',
-        jsDoc: '/**\n * Parse and execute a known command without sending it to the model.\n * @param agent - exact receiving agent.\n * @param surface - dispatching UI adapter.\n * @param line - complete slash-command line.\n * @param signal - cancellation signal owned by the UI request.\n * @returns a detached result, or `undefined` when syntax/name/surface does not resolve.\n */',
+        signature: 'async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>',
+        jsDoc: '/**\n * Parse and execute a known command without sending it to the model.\n * @param agent - exact receiving agent.\n * @param line - complete slash-command line.\n * @param signal - cancellation signal owned by the UI request.\n * @returns a detached result, or `undefined` when syntax or name does not resolve.\n */',
       },
     ],
   },
@@ -1127,11 +1127,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CommandDefinition',
-    declaration: 'export interface CommandDefinition {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n    readonly surfaces?: readonly CommandSurface[];\n    readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>;\n}',
+    declaration: 'export interface CommandDefinition {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n    readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>;\n}',
   },
   {
     name: 'CommandDescriptor',
-    declaration: 'export interface CommandDescriptor {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n    readonly surfaces: readonly CommandSurface[];\n}',
+    declaration: 'export interface CommandDescriptor {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n}',
   },
   {
     name: 'CommandInputDescriptor',
@@ -1139,15 +1139,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CommandInvocation',
-    declaration: 'export interface CommandInvocation {\n    readonly agent: Agent;\n    readonly surface: CommandSurface;\n    readonly rawInput: string;\n    readonly signal: AbortSignal;\n}',
+    declaration: 'export interface CommandInvocation {\n    readonly agent: Agent;\n    readonly rawInput: string;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'CommandResult',
     declaration: 'export type CommandResult = {\n    readonly kind: \'success\';\n    readonly text?: string;\n} | {\n    readonly kind: \'error\';\n    readonly text: string;\n};',
-  },
-  {
-    name: 'CommandSurface',
-    declaration: 'export type CommandSurface = \'tui\' | \'acp\' | (string & {});',
   },
   {
     name: 'CompactAgentContext',
