@@ -217,14 +217,14 @@ describe('config-driven session id', () => {
     })
 
     await expect.poll(() => warn).toHaveBeenCalledWith(expect.stringContaining(
-      'config-driven restore of "stdio-exact-failure" failed: Error: persistence index failed',
+      'config-driven restore of "stdio-exact-failure" failed: persistence index failed',
     ))
     expect(failures).toEqual([{ sessionId: SessionId('stdio-exact-failure'), error: failure }])
     expect(warn).toHaveBeenCalledWith(
-      'agent "main": config-start-failed listener threw: Error: failure observer failed',
+      'agent "main": config-start-failed listener threw: failure observer failed',
     )
     await expect.poll(() => warn).toHaveBeenCalledWith(
-      'agent "main": config-start-failed listener rejected: Error: async failure observer failed',
+      'agent "main": config-start-failed listener rejected: async failure observer failed',
     )
     expect(ctx.agents.get(SessionId('stdio-exact-failure'))).toBeUndefined()
     warn.mockRestore()
@@ -256,13 +256,13 @@ describe('config-driven session id', () => {
 
     await expect.poll(() => failures).toEqual([unrenderable])
     expect(warn).toHaveBeenCalledWith(
-      'agent "main": config-driven restore of "stdio-exact-unrenderable" failed: <unrenderable thrown value>',
+      'agent "main": config-driven restore of "stdio-exact-unrenderable" failed: <unrenderable value>',
     )
     expect(warn).toHaveBeenCalledWith(
-      'agent "main": config-start-failed listener threw: <unrenderable thrown value>',
+      'agent "main": config-start-failed listener threw: <unrenderable value>',
     )
     await expect.poll(() => warn).toHaveBeenCalledWith(
-      'agent "main": config-start-failed listener rejected: <unrenderable thrown value>',
+      'agent "main": config-start-failed listener rejected: <unrenderable value>',
     )
     await ctx.fiber.dispose()
   })

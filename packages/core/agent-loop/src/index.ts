@@ -20,7 +20,7 @@ import type {
   ResumeAgentOptions,
   SessionStartSource,
 } from '@deepseek-ai/dsh-agent'
-import type {} from '@deepseek-ai/dsh-llm'
+import { errorChain } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionHeader } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -40,15 +40,6 @@ const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([
   FiberState.DISPOSED,
   FiberState.FAILED,
 ])
-
-/** Render an arbitrary thrown value without letting coercion escape containment. */
-function renderThrown(value: unknown): string {
-  try {
-    return String(value)
-  } catch {
-    return '<unrenderable thrown value>'
-  }
-}
 
 /** Factory-level ownership of every preparing or live transaction. */
 class FactoryOwnership {
@@ -475,16 +466,16 @@ export class AgentLoop extends Service implements AgentFactory {
     error: unknown,
   ): void {
     if (!this.ownership.isActive()) return
-    this.ctx.logger.warn(`agent "${configId}": config-driven ${action} of "${sessionId}" failed: ${renderThrown(error)}`)
+    this.ctx.logger.warn(`agent "${configId}": config-driven ${action} of "${sessionId}" failed: ${errorChain(error)}`)
     const args: unknown[] = ['agent-loop/config-start-failed', sessionId, error]
     for (const callback of this.ctx.events.dispatch('emit', args)) {
       try {
         const returned: unknown = callback(...args)
         void Promise.resolve(returned).catch((listenerError: unknown) => {
-          this.ctx.logger.warn(`agent "${configId}": config-start-failed listener rejected: ${renderThrown(listenerError)}`)
+          this.ctx.logger.warn(`agent "${configId}": config-start-failed listener rejected: ${errorChain(listenerError)}`)
         })
       } catch (listenerError: unknown) {
-        this.ctx.logger.warn(`agent "${configId}": config-start-failed listener threw: ${renderThrown(listenerError)}`)
+        this.ctx.logger.warn(`agent "${configId}": config-start-failed listener threw: ${errorChain(listenerError)}`)
       }
     }
   }

@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-stdio
 
-The terminal readline front door for DeepSeek Harness agents. It reads prompts from stdin, sends or steers them through `ctx.agents`, renders the durable `session/event` transcript to stdout, and answers `ctx.userInteraction` requests in the same terminal.
+The terminal readline front door for DeepSeek Harness agents. It reads prompts from stdin, sends or steers them through `ctx.agents`, renders the durable `session/event` transcript to stdout, and answers `ctx.userInteraction` requests in the same terminal. Failed turns render their durable `turn/end` reason — `[turn failed <code>]`, `[turn aborted]`, `[turn rejected]`, `[turn interrupted …]`, or the output-token-limit notice — so a provider or network failure is never silent; unknown merge-extended reason kinds fall through as ordinary turn ends.
 
 This package owns the terminal channel only. It injects `agents` and `userInteraction`, then drives an agent created or resumed by app or developer code. The agent spine, agent lifecycle, console logger, and model-facing [`ask_user_question`](../tool-ask-user/README.md) tool remain separate composition entries.
 
