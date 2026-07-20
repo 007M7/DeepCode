@@ -32,6 +32,7 @@
     { "doc": "docs/core-data-structures/system-prompt.md", "symbol": "ToolProviderResult", "source": "packages/core/system-prompt/src/index.ts" },
 
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "StreamChunk", "source": "packages/llm/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "LlmFailure", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "TokenUsage", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "ContentBlockMap", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "AppIdentity", "source": "packages/llm/llm/src/attribution.ts" },

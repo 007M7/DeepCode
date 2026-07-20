@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
 import { CallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-llm-retry'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type ToolDefinition, type ToolResultView } from '@deepseek-ai/dsh-tools'
@@ -24,6 +25,10 @@ const REFRESHING = process.env.DSH_SNAPSHOT === 'refresh'
 
 const CHECKPOINTS = [
   'conversation-streaming',
+  'retry-scheduled',
+  'retry-recovered',
+  'retry-cancelled',
+  'retry-exhausted',
   'code-mode-pending',
   'dynamic-workflow-pending',
   'cordis-tools-pending',
@@ -219,6 +224,82 @@ describe('TUI terminal-state snapshots', () => {
       })
     })
     await checkpoint('conversation-streaming', harness.terminal)
+    await disposeSnapshot(harness)
+  })
+
+  it('pins failed-stream retraction, scheduled retry, and eventual success', async () => {
+    const harness = await setupSnapshot()
+    await renderAfter(harness, () => {
+      appendUser(harness.session, 'Recover this request.')
+      harness.session.append('assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'text-delta', index: 0, text: 'discarded partial output' },
+      })
+      harness.session.append('llm/retry', {
+        turn: 1,
+        step: 1,
+        retry: 1,
+        maxRetries: 2,
+        delayMs: 500,
+        failure: { message: 'provider rate limit', code: 'RATE_LIMIT', status: 429 },
+      })
+    })
+    await checkpoint('retry-scheduled', harness.terminal, { includeScrollback: true })
+
+    await renderAfter(harness, () => {
+      harness.session.append('assistant/message', {
+        turn: 1,
+        step: 2,
+        provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
+        content: [{ type: 'text', text: 'Recovered on the next bounded attempt.' }],
+      }, { surfaceOp: 'append' })
+      harness.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    })
+    await checkpoint('retry-recovered', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
+  })
+
+  it('pins cancellation during a scheduled retry delay', async () => {
+    const harness = await setupSnapshot()
+    await renderAfter(harness, () => {
+      appendUser(harness.session, 'Start then cancel.')
+      harness.session.append('llm/retry', {
+        turn: 1,
+        step: 1,
+        retry: 1,
+        maxRetries: 2,
+        delayMs: 1_000,
+        failure: { message: 'temporary transport failure', code: 'TRANSPORT' },
+      })
+      harness.session.append('turn/end', {
+        turn: 1,
+        reason: { kind: 'aborted', reason: 'cancelled during retry delay' },
+      })
+    })
+    await checkpoint('retry-cancelled', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
+  })
+
+  it('pins terminal exhaustion after retracting a failed partial stream', async () => {
+    const harness = await setupSnapshot()
+    await renderAfter(harness, () => {
+      appendUser(harness.session, 'Let the bounded policy exhaust.')
+      harness.session.append('assistant/chunk', {
+        turn: 1,
+        step: 3,
+        chunk: { type: 'text-delta', index: 0, text: 'discarded terminal partial output' },
+      })
+      harness.session.append('turn/end', {
+        turn: 1,
+        reason: {
+          kind: 'error',
+          step: 3,
+          failure: { message: 'provider still unavailable', code: 'SERVER', status: 503 },
+        },
+      })
+    })
+    await checkpoint('retry-exhausted', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
   })
 

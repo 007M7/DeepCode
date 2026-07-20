@@ -10,7 +10,7 @@ import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { CallId, type Message } from '@deepseek-ai/dsh-llm'
+import { CallId, LlmAdapter, LlmError, type GenerateOptions, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 
 declare module '@deepseek-ai/dsh-tasks' {
@@ -101,6 +101,16 @@ function messageText(message: Message | undefined): string {
   return message?.content.map(block => block.type === 'text' ? block.text : '').join('\n') ?? ''
 }
 
+class TransientOnceAdapter extends LlmAdapter {
+  requests = 0
+
+  async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.requests += 1
+    if (this.requests === 1) throw new LlmError('temporary outage', 'SERVER')
+    yield* textResponse('recovered by bundled policy')
+  }
+}
+
 describe('dsh-agent-spine-demo bundle', () => {
   it('brings up the full default spine', async () => {
     const ctx = await mount({ workspaceContext: false })
@@ -114,6 +124,37 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('tasks')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('loads and configures bounded request recovery for every bundled front door', async () => {
+    const adapter = new TransientOnceAdapter()
+    const ctx = await mount({
+      workspaceContext: false,
+      llmRetry: {
+        maxTransientRetries: 1,
+        initialDelayMs: 1,
+        maxDelayMs: 1,
+        jitterRatio: 0,
+      },
+    })
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('bundled-retry-session'),
+      meta: { cwd: process.cwd() },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+
+    handle.agent.send([{ type: 'text', text: 'recover' }])
+    await waitForIdle(ctx, handle.agent)
+
+    expect(adapter.requests).toBe(2)
+    const retryEvents = handle.agent.session.events.filter(event => event.type === 'llm/retry')
+    expect(retryEvents).toHaveLength(1)
+    expect(retryEvents[0]?.data.retry).toBe(1)
+    expect(retryEvents[0]?.data.maxRetries).toBe(1)
+    expect(messageText(handle.agent.session.deriveMessages().at(-1))).toBe('recovered by bundled policy')
+    await handle.dispose()
     await ctx.fiber.dispose()
   })
 
@@ -370,6 +411,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       skills: { enabled: false },
       toolBash: { enableRunInBackground: false },
       toolTasks: false as const,
+      llmRetry: { maxTransientRetries: 1, jitterRatio: 0 },
     }
 
     expect(agentCore.pickSpineConfig(appConfig)).toEqual({
@@ -381,6 +423,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       skills: appConfig.skills,
       toolBash: appConfig.toolBash,
       toolTasks: appConfig.toolTasks,
+      llmRetry: appConfig.llmRetry,
     })
     expect(agentCore.pickSpineConfig({ workspaceContext: false })).toEqual({ workspaceContext: false })
   })
