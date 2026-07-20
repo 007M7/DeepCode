@@ -152,6 +152,9 @@ importers:
       '@deepseek-ai/dsh-llm-replay':
         specifier: workspace:*
         version: link:../packages/support/llm-replay
+      '@deepseek-ai/dsh-mode':
+        specifier: workspace:*
+        version: link:../packages/mode/mode
       '@deepseek-ai/dsh-permission':
         specifier: workspace:*
         version: link:../packages/ui/permission
@@ -191,6 +194,9 @@ importers:
       '@deepseek-ai/dsh-token-meter':
         specifier: workspace:*
         version: link:../packages/llm/token-meter
+      '@deepseek-ai/dsh-tool-ask-user':
+        specifier: workspace:*
+        version: link:../packages/ui/tool-ask-user
       '@deepseek-ai/dsh-tool-cordis':
         specifier: workspace:*
         version: link:../packages/cordis/tool-cordis
@@ -440,9 +446,6 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
-      '@deepseek-ai/dsh-mode':
-        specifier: workspace:^
-        version: link:../../mode/mode
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
