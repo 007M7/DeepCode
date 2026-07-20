@@ -1,9 +1,7 @@
-/** Package-owned session-event invariants for the bash seam. @module @deepseek-ai/dsh-bash/invariant */
+/** Package-owned invariant companion for the bash seam. @module @deepseek-ai/dsh-bash/invariant */
 
 import type { Context } from 'cordis'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import { SANDBOX_MODES } from './session-mode.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-bash'
 
@@ -12,16 +10,8 @@ export const name = 'bash-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install validation for the durable sandbox-mode vocabulary. */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.on('internal/dispatch', (_mode, eventName, args) => {
-    if (eventName !== 'session/event') return
-    const event = (args as [Session, SessionEvent])[1]
-    if (event.type === 'bash/sandbox-mode' && !SANDBOX_MODES.includes(event.data.mode)) {
-      fail(`bash/sandbox-mode carries unknown mode ${JSON.stringify(event.data.mode)}`)
-    }
-  }, { global: true })
-}
+/** No runtime invariant: this stateless seam owns request/result types, while executors and policy own observations. */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register the bash invariant companion.

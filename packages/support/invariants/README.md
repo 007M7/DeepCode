@@ -22,6 +22,8 @@ The service owns every registration fiber, while the returned disposer also belo
 
 `InvariantError` extends `Error`, carries stable `code: 'INVARIANT'`, and exposes the owning `packageName` without adding a product dependency to the service.
 
+Session itself owns immutable, surface-valid log storage in every composition: it takes one lossless JSON snapshot of each candidate, validates complete provenance and positional replacement, restricts `tool/result` replacement to one current result's `content`, deep-freezes the accepted record, and exposes the log through immutable array snapshots. The `dsh-session` invariant companion checks the remaining cross-record rules that Session does not own.
+
 ## Package companions
 
 Publication and registration are exhaustive; runtime assertions are deliberately not synthetic. A companion installs a check only when its package owns an observable event relationship or relevant mutable-data relationship. Confirming a required method, plugin name, injection, effect, or fixed pure-function result is a type, load, or unit-test concern rather than a runtime invariant.
@@ -34,7 +36,7 @@ The current executable companions protect these relationships:
 |---|---|
 | `dsh-session`, `dsh-agent`, `dsh-scope`, `dsh-agent-loop` | Session enclosure and call/result trace, agent-status transitions, scoped subjects, and model-request reconstruction. |
 | `dsh-llm`, `dsh-tools`, `dsh-system-prompt` | Stream grammar, tool-pipeline stages and frozen results, and authoritative prompt-assembly data. |
-| `dsh-compact`, `dsh-hook-protocol`, `dsh-bash` | Durable compaction and hook pairing, compaction metadata, and sandbox-mode vocabulary. |
+| `dsh-compact`, `dsh-hook-protocol`, `dsh-sandbox-policy` | Durable compaction and hook pairing, compaction metadata, and sandbox-mode vocabulary. |
 | `dsh-fs`, `dsh-subagent`, `dsh-workflow` | Filesystem event identity, provider/child pairing, and workflow/agent lifecycle identity. |
 | `dsh-permission`, `dsh-user-approval` | Active-preset references and approval asked/decided audit pairing. |
 | `dsh-tasks`, `dsh-tool-todo` | Task snapshot lifecycle/ownership fields and durable whole-list todo structure. |

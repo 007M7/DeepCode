@@ -180,6 +180,82 @@ describe('session-log invariants', () => {
     }, { surfaceOp: 'append' })).toThrow(/no prior tool\/call/)
   })
 
+  it('keeps fresh tool-result appends open-step checked', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    expect(() => session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      callId: CallId('closed'),
+      content: [],
+      isError: false,
+    }, { surfaceOp: 'append' })).toThrow(/open is turn 1\/step null/)
+  })
+
+  it('treats a validated tool-result replacement as a turn-enclosed rewrite', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('tool/call', {
+      turn: 1,
+      step: 1,
+      callId: CallId('rewrite'),
+      name: 'echo',
+      arguments: '{}',
+    })
+    const original = session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      callId: CallId('rewrite'),
+      content: [{ type: 'text', text: 'original' }],
+      isError: false,
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    expect(() => session.append('tool/result', {
+      ...original.data,
+      content: [{ type: 'text', text: 'pruned' }],
+    }, {
+      surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
+      sourceEventSeqs: [original.seq],
+    })).not.toThrow()
+  })
+
+  it('rejects a tool-result replacement outside a turn', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('tool/call', {
+      turn: 1,
+      step: 1,
+      callId: CallId('rewrite'),
+      name: 'echo',
+      arguments: '{}',
+    })
+    const original = session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      callId: CallId('rewrite'),
+      content: [{ type: 'text', text: 'original' }],
+      isError: false,
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    expect(() => session.append('tool/result', {
+      ...original.data,
+      content: [{ type: 'text', text: 'pruned' }],
+    }, {
+      surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
+      sourceEventSeqs: [original.seq],
+    })).toThrow(/outside any open turn/)
+  })
+
   it('allows interrupted repair results and unresolved calls at step end', async () => {
     const repaired = (await setup()).ctx.sessions.create()
     expect(() => {

@@ -124,6 +124,14 @@ function validateEvent(
       break
     }
     case 'tool/result': {
+      // Session has already validated a provenance-backed content rewrite.
+      // It is durable turn work, not a second execution of the original call.
+      if (event.surfaceOp !== 'append') {
+        if (trace.openTurn === null) {
+          fail('tool/result surface replacement appended outside any open turn')
+        }
+        break
+      }
       requireOpenStep(trace, 'tool/result', event.data.turn, event.data.step, fail)
       const syntheticInterrupted = event.data.isError && event.data.error?.code === 'interrupted'
       if (!trace.pendingCalls.has(event.data.callId) && !syntheticInterrupted) {
