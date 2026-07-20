@@ -19,7 +19,7 @@ Configure credentials and deployment-specific transport settings per provider. O
         reasoning: high
       - provider: anthropic
         apiKey: !!js process.env.ANTHROPIC_API_KEY
-        maxRetries: 2
+        streamIdleTimeoutMs: 300000
       - provider: openrouter
         apiKey: !!js process.env.OPENROUTER_API_KEY
         headers:
@@ -30,7 +30,9 @@ Each provider name must exist in pi-ai's installed catalog and may appear only o
 
 The adapter exposes each configured provider's installed pi-ai models through `ctx.llm.listModels(provider)`. This is provider-neutral selector metadata derived from `getModels(provider)`; request-time resolution still performs the authoritative catalog lookup, so discovery does not create a second model registry.
 
-Supported profile fields are `provider`, `apiKey`, `baseURL`, `headers`, `reasoning`, `thinkingBudgets`, `cacheRetention`, `transport`, `timeoutMs`, `websocketConnectTimeoutMs`, `maxRetries`, and `maxRetryDelayMs`. They map to pi-ai's common stream options. Harness app attribution wins a conflicting configured header name.
+Supported profile fields are `provider`, `apiKey`, `baseURL`, `headers`, `reasoning`, `thinkingBudgets`, `cacheRetention`, `transport`, `timeoutMs`, `websocketConnectTimeoutMs`, and `streamIdleTimeoutMs`. The stream-idle interval is a positive finite Node timer delay, defaults to five minutes, and covers only an outstanding provider read, not consumer think time. Harness app attribution wins a conflicting configured header name.
+
+The adapter forces pi-ai's SDK `maxRetries` to zero so one `stream()` call makes one provider request. The removed profile fields `maxRetries` and `maxRetryDelayMs` fail load instead of silently multiplying or hiding the separately composed agent-level retry budget. Idle expiry aborts the SDK's stable request signal and surfaces `TIMEOUT`; an earlier caller abort remains `ABORTED`.
 
 ## Provider/model routing and replay
 
@@ -43,7 +45,7 @@ If a listener rewrites assembled assistant content, the loop drops replay state 
 ## Vocabulary differences
 
 - pi-ai tool-call arguments are parsed objects; the harness stores raw JSON strings. The adapter parses input and re-stringifies output.
-- pi-ai reports failures as in-stream error events; these map to `finish {kind:'error'|'aborted'}` chunks. Provider-specific error text and usage signals evaluated against the resolved model's context window normalize overflow to `CONTEXT_WINDOW_EXCEEDED`.
+- pi-ai reports failures as in-stream error events; these map to `finish {kind:'error'|'aborted', failure}` chunks. Provider-specific error text distinguishes terminal `QUOTA` from transient `RATE_LIMIT`, while text and usage signals evaluated against the resolved model's context window normalize overflow to `CONTEXT_WINDOW_EXCEEDED`.
 - pi-ai folds reasoning tokens into output usage; there is no separate reasoning count to map.
 - `GenerateOptions.stop` is rejected with `UNSUPPORTED_OPTION` because pi-ai's common streaming surface cannot guarantee it across providers.
 
@@ -57,7 +59,7 @@ pi-ai installs several provider SDKs and lazy-loads the one selected by the cata
 
 ## Testing
 
-Unit tests use pi-ai catalog models redirected to local mock servers and cover provider/profile routing, native API selection, endpoint overrides, attribution, conversion, replay-state validation, and cross-provider/model replay within one adapter instance. Real-API coverage remains key-gated under `pnpm run test:e2e`.
+Unit tests use pi-ai catalog models redirected to local mock servers and cover provider/profile routing, one wire request per adapter call, idle-timeout response termination, caller abort, native API selection, endpoint overrides, attribution, conversion, replay-state validation, and cross-provider/model replay within one adapter instance. Real-API coverage remains key-gated under `pnpm run test:e2e`.
 
 ## Model Experience
 
@@ -95,3 +97,4 @@ Recorded response content appends to the next request and does not invalidate it
 - **`GenerateOptions.stop` is unsupported** — pi-ai's common stream options cannot guarantee stop-sequence behavior across providers, so the adapter rejects the field.
 - **In-history `system` messages use pi-ai's common context conversion** — provider-specific placement follows pi-ai rather than a harness-owned wire override.
 - **Provider HTTP status is unavailable** — pi-ai error events do not expose a stable HTTP status across providers; failures expose only stable harness error codes.
+- **Retry policy is not an adapter option** — SDK retries are disabled so durable agent steps and `llm/retry` events own every visible attempt; direct `ctx.llm.stream()` calls remain single-attempt.

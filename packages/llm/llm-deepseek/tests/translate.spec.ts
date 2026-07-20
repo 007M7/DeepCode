@@ -232,8 +232,7 @@ describe('mapFinishReason', () => {
     (wire) => {
       expect(mapFinishReason(wire)).toEqual({
         kind: 'error',
-        message: `model stopped: ${wire}`,
-        code: wire.toUpperCase(),
+        failure: { message: `model stopped: ${wire}`, code: wire.toUpperCase() },
       })
     },
   )
