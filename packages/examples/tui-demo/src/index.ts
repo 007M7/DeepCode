@@ -1,8 +1,8 @@
 /**
  * Full-screen terminal app: the default agent spine ({@link @deepseek-ai/dsh-agent-spine-demo})
- * plus human commands, JSONL persistence, keyboard-backed user interaction,
- * and one pre-created agent whose exact session identity the TUI drives. Swappable adapters,
- * executors, optional tools, and HMR stay in the leaf. This Loader plugin
+ * plus persisted goals, human commands, JSONL persistence, keyboard-backed
+ * user interaction, and one pre-created agent whose exact session identity the
+ * TUI drives. Swappable adapters, executors, optional tools, and HMR stay in the leaf. This Loader plugin
  * intentionally exposes named exports only; a default export would hide its
  * `Config` schema (see docs/postmortem/0001).
  * @module @deepseek-ai/dsh-tui-demo
@@ -14,6 +14,7 @@ import z from 'schemastery'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import CommandService from '@deepseek-ai/dsh-commands'
+import * as commandGoal from '@deepseek-ai/dsh-command-goal'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import SessionPersistenceJsonl, {
@@ -58,6 +59,8 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task controls forwarded through agent-spine-demo; set false to omit them. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Persisted same-session goals; owner defaults enable them, or false disables the stack and command. */
+  goals?: agentCore.GoalConfig | false
   /** Persisted session id to resume instead of creating a fresh session. */
   resumeSessionId?: string
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
@@ -83,6 +86,7 @@ export const Config: z<Config> = z.object({
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
+  goals: z.union([z.const(false), agentCore.GoalConfigSchema]),
   resumeSessionId: z.string(),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
@@ -98,7 +102,9 @@ export const Config: z<Config> = z.object({
 export function composeTuiApp(ctx: Context, config: Config): void {
   const resumeSessionId = config.resumeSessionId === '' ? undefined : config.resumeSessionId
   const sessionId = SessionId(resumeSessionId ?? `main-session-${randomUUID()}`)
+  const goals = config.goals ?? {}
   ctx.plugin(CommandService)
+  if (goals !== false) ctx.plugin(commandGoal)
   ctx.plugin(SessionPersistenceJsonl, {
     root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
     ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
@@ -111,6 +117,7 @@ export function composeTuiApp(ctx: Context, config: Config): void {
   })
   ctx.plugin(agentCore, {
     ...agentCore.pickSpineConfig(config),
+    goals,
     agents: [{
       id: SessionId('main'),
       provider: config.provider,

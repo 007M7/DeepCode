@@ -12,6 +12,7 @@ stdout is the ACP JSON-RPC channel, so the cluster is defined as much by what it
 |---|---|
 | `@deepseek-ai/dsh-agent-spine-demo` | the spine, pre-creating **no** agents (ACP `session/new` creates them on demand) |
 | `@deepseek-ai/dsh-commands` | the human-command registry used for ACP discovery and direct slash dispatch |
+| `@deepseek-ai/dsh-command-goal` | the discoverable direct `/goal` producer; the app enables the spine's persisted-goal stack with it |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by clients that can complete ACP elicitation requests |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log (the bridge advertises `loadSession`) |
 | `@deepseek-ai/dsh-acp` | the bridge that owns stdout for JSON-RPC and provides ACP-backed user answers when a leaf explicitly exposes a user-question tool |
@@ -37,6 +38,7 @@ Because the package wires no logger entry, an ACP leaf has **nothing to get wron
 | `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-spine-demo` |
 | `toolBash` | owner defaults | model-facing bash config routed through `dsh-agent-spine-demo`, including bash's producer-local `enableRunInBackground` |
 | `toolTasks` | owner defaults | generic `task_output` wait bounds routed through `dsh-agent-spine-demo` |
+| `goals` | owner defaults | persisted goal-domain and model-tool config; `false` removes the goal stack and `/goal` producer |
 | `llmRetry` | owner defaults | bounded transient model-request retry policy routed through `dsh-agent-spine-demo` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 | `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
@@ -57,7 +59,7 @@ All diagnostics go to **stderr** — stdout is the protocol.
 
 ## Model Experience
 
-Indirectly, through `dsh-agent-spine-demo` and `dsh-acp`, which compose each ACP agent's prompt, tools, and message history; this app bundle adds no model-bound content itself.
+Indirectly, through `dsh-agent-spine-demo` and `dsh-acp`, which compose each ACP agent's prompt, goal tools, and message history. Direct `/goal` input and output remain outside the model, while accepted mutations append domain-owned model-visible snapshots.
 
 #### KV Cache effect
 

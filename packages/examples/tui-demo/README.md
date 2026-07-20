@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-tui-demo
 
-The full-screen terminal app: a Cordis plugin that composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), the human-command registry, JSONL persistence, keyboard-backed user interaction, a pre-created `main` agent, and [`@deepseek-ai/dsh-tui`](../../ui/tui/README.md). Its `bin` boots a leaf `cordis.yml`.
+The full-screen terminal app: a Cordis plugin that composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), persisted same-session goals, the human-command registry and `/goal` producer, JSONL persistence, keyboard-backed user interaction, a pre-created `main` agent, and [`@deepseek-ai/dsh-tui`](../../ui/tui/README.md). Its `bin` boots a leaf `cordis.yml`.
 
 Use [`@deepseek-ai/dsh-cli-demo`](../cli-demo/README.md) for pipes, scripts, and other non-interactive runs. This package requires a TTY pair and has no line-oriented fallback.
 
@@ -10,6 +10,7 @@ Use [`@deepseek-ai/dsh-cli-demo`](../cli-demo/README.md) for pipes, scripts, and
 |---|---|
 | `@deepseek-ai/dsh-agent-spine-demo` | Shared services, model-facing tools, and one configured `main` agent |
 | `@deepseek-ai/dsh-commands` | Human-only discovery and dispatch consumed by the TUI and command plugins |
+| `@deepseek-ai/dsh-command-goal` | Direct `/goal` status and mutation over the spine's persisted-goal stack |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | Durable session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-user-interaction` | Provider-neutral human question service |
 | `@deepseek-ai/dsh-tui` | Full-screen transcript, editor, tool cards, plan, and question overlays |
@@ -31,6 +32,7 @@ Swappable LLM, bash, filesystem, and other capability providers remain in the le
 | `skills` | owner defaults | Skill registry, local provider, and tool config |
 | `toolBash` | owner defaults | Model-facing bash tool config |
 | `toolTasks` | owner defaults | Background-task control-tool config, or `false` |
+| `goals` | owner defaults | Persisted goal-domain and model-tool config; `false` removes the goal stack and `/goal` producer |
 | `workspaceContext` | required | Workspace-instruction config, or `false` |
 | `persistenceRoot` | `./.sessions` | JSONL persistence root |
 | `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
@@ -71,7 +73,7 @@ Fresh runs mint a `main-session-<uuid>` session id and pass it to both the TUI a
 
 #### What the model sees
 
-Each non-empty non-command editor submission becomes a user message; a submission during a running turn becomes steering. Slash-command input and output remain human-only. The shared spine contributes the configured persona, workspace instructions, skill catalog, and visible tool schemas. TUI rendering itself is not model-visible.
+Each non-empty non-command editor submission becomes a user message; a submission during a running turn becomes steering. Slash-command input and output remain human-only, while accepted `/goal` mutations append domain-owned model-visible state. The shared spine contributes the configured persona, workspace instructions, skill catalog, goal controls, and visible tool schemas. TUI rendering itself is not model-visible.
 
 #### Token effect
 

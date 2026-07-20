@@ -50,6 +50,8 @@ function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['m
 const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
+  // Direct command dispatch reports goal state without spending a model turn.
+  { name: 'goal-command-status', hasModelTurn: false, recorded: false },
   // Protocol-only (keyless, authored): session/new advertises the mode picker,
   // session/set_mode acknowledges a valid selection, and an unknown mode id
   // fails loudly. With no model turn, its membership in the plan header class

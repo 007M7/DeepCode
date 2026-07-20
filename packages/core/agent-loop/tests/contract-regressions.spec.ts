@@ -523,7 +523,7 @@ describe('steering from late extension points is never stranded', () => {
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('one more thing')
   })
 
-  it('steer() from a step/end session-event listener forces a SAME-TURN next step (/goal pattern)', async () => {
+  it('steer() from a step/end session-event listener forces a SAME-TURN next step', async () => {
     // Assert the same-turn shape; content alone cannot distinguish re-enqueue.
     const adapter = new MockAdapter([
       textResponse('no tools, would stop'),
