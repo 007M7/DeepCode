@@ -7,7 +7,7 @@ import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
@@ -20,8 +20,8 @@ interface StubAgent {
 }
 
 /** Build one registry-compatible live agent whose injections append in place. */
-function stubAgent(rawId: string): StubAgent {
-  const session = new Session(SessionId(rawId))
+function stubAgent(rawId: string, supplied?: Session): StubAgent {
+  const session = supplied ?? new Session(SessionId(rawId))
   let status: AgentStatus = 'running'
   const agent: Agent = {
     id: session.id,
@@ -219,6 +219,42 @@ describe('goal tool execution authority', () => {
     expect(childResult.error?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
   })
 
+  it('rejects stale agent objects and agents outside running status through the executor', async () => {
+    const { ctx, root } = await harness()
+    openTurn(root, { kind: 'user' })
+    const stale = { ...root.agent }
+    const staleResult = await execute(ctx, 'get_goal', {}, stale, stale)
+    expect(staleResult.error?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
+
+    root.setStatus('idle')
+    const idleResult = await execute(ctx, 'get_goal', {}, root.agent)
+    expect(idleResult.error?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
+  })
+
+  it('treats a fork resumed as a runtime root as direct-human authority', async () => {
+    const { ctx, root } = await harness()
+    const originalTurn = openTurn(root, { kind: 'user' })
+    const created = ctx.goals.create(root.agent, { objective: 'resume the fork' })
+    closeTurn(root, originalTurn)
+    const forkId = SessionId('goal-tool-resumed-fork')
+    const forkSession = new Session(forkId, root.session.events, {
+      version: SESSION_FORMAT_VERSION,
+      id: forkId,
+      createdAt: Date.now(),
+      parentSession: root.session.id,
+      seedLength: root.session.seq,
+    })
+    const fork = stubAgent(forkId, forkSession)
+    ctx.agents.register(fork.agent)
+    expect(ctx.goals.get(fork.agent)).toMatchObject({ id: created.id, activation: 'disarmed' })
+
+    openTurn(fork, { kind: 'user' }, '继续这个目标')
+    const resumed = await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: created.revision, action: 'resume',
+    }, fork.agent)
+    expect(resultGoal(resumed)).toMatchObject({ id: created.id, revision: 2, phase: 'active' })
+  })
+
   it('rejects calls before a turn and after its end boundary', async () => {
     const { ctx, root } = await harness()
     const before = await execute(ctx, 'get_goal', {}, root.agent)
@@ -237,6 +273,10 @@ describe('goal tool execution authority', () => {
       goal_id: 'goal-missing', revision: 1, action: 'complete',
     }, root.agent)
     expect(result.error?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
+    const malformed = await execute(ctx, 'update_goal', {
+      goal_id: 'goal-missing', revision: 1, action: 'pause', objective: 'probe',
+    }, root.agent)
+    expect(malformed.error?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
   })
 
   it('accepts direct human steering in a goal-sourced root turn', async () => {
@@ -290,16 +330,29 @@ describe('goal tool state transitions', () => {
     expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', 1)).toBeUndefined()
   })
 
-  it('stops the current turn after a successful stopped-state mutation', async () => {
+  it('terminal-stops an autonomous completion but leaves a human pause interactive', async () => {
     const { ctx, root } = await harness()
-    openTurn(root, { kind: 'user' })
+    const humanTurn = openTurn(root, { kind: 'user' })
     const created = ctx.goals.create(root.agent, { objective: 'pause cleanly' })
     const paused = await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: created.revision, action: 'pause',
     }, root.agent)
     expect(resultGoal(paused)).toMatchObject({ phase: 'paused' })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', 1)).toEqual({ action: 'stop' })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', 1)).toBeUndefined()
+    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', humanTurn)).toBeUndefined()
+    const resumed = resultGoal(await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: 2, action: 'resume',
+    }, root.agent))
+    closeTurn(root, humanTurn)
+
+    const roundTurn = openTurn(root, {
+      kind: 'goal', goalId: created.id, revision: resumed['revision'] as number, round: 1,
+    })
+    const complete = await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: resumed['revision'], action: 'complete',
+    }, root.agent)
+    expect(resultGoal(complete)).toMatchObject({ phase: 'complete' })
+    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', roundTurn)).toEqual({ action: 'stop' })
+    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', roundTurn)).toBeUndefined()
   })
 
   it('rearms a restored active goal only after a new direct human prompt', async () => {

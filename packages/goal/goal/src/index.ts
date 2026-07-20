@@ -64,12 +64,19 @@ export interface ResolvedConfig {
   defaultMaxGoalRounds: number
 }
 
+/** One accepted mutation waiting to enter or be observed in the session log. */
+interface PendingGoalChange {
+  readonly change: GoalChangeMeta
+  readonly activation: GoalActivation
+  applied: boolean
+}
+
 /** Process-local cache plus mutations waiting in the active tool-batch FIFO. */
 interface GoalCache {
   readonly state: GoalFoldState
   activation: GoalActivation
   observedSeq: number
-  readonly pending: GoalChangeMeta[]
+  readonly pending: PendingGoalChange[]
 }
 
 /** Validate a caller-visible positive safe-integer round cap. */
@@ -373,15 +380,21 @@ export class GoalService extends Service {
         const change = decodeGoalEvent(event)
         if (change !== undefined) {
           const pending = cache.pending[0]
-          if (pending !== undefined && sameChange(pending, change)) {
+          if (pending !== undefined && sameChange(pending.change, change)) {
+            if (!pending.applied) {
+              applyGoalChange(cache.state, change)
+              cache.activation = pending.activation
+              pending.applied = true
+            }
             cache.pending.shift()
+            cache.observedSeq += 1
             continue
           }
         }
       }
       applyGoalEvent(cache.state, event)
+      cache.observedSeq += 1
     }
-    cache.observedSeq = session.seq
   }
 
   /** Build a new revision with one replacement phase. */
@@ -479,14 +492,26 @@ export class GoalService extends Service {
     const meta = snapshotJsonValue(change) as JsonValue | undefined
     /* v8 ignore next -- validated goal changes contain only finite JSON primitives and records */
     if (meta === undefined) throw new Error('goal change is not losslessly JSON-serializable')
-    agent.inject(renderGoalChange(change), {
-      source: { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0 },
-      envelope: 'raw',
-      meta,
-    })
-    cache.pending.push(change)
-    applyGoalChange(cache.state, change)
-    cache.activation = activation
+    const pending: PendingGoalChange = { change, activation, applied: false }
+    cache.pending.push(pending)
+    try {
+      agent.inject(renderGoalChange(change), {
+        source: { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0 },
+        envelope: 'raw',
+        meta,
+      })
+    } catch (error: unknown) {
+      const index = cache.pending.indexOf(pending)
+      /* v8 ignore next -- a committed goal append cannot reject after its contained observers run */
+      if (index < 0) throw new Error('goal injection failed after its pending mutation was reconciled', { cause: error })
+      cache.pending.splice(index, 1)
+      throw error
+    }
+    if (!pending.applied) {
+      applyGoalChange(cache.state, change)
+      cache.activation = activation
+      pending.applied = true
+    }
     this.sync(agent.session, cache)
     const goal = this.view(cache)
     const notification: GoalChanged = {

@@ -10,11 +10,13 @@ The model-facing control surface for [`ctx.goals`](../goal/README.md): `get_goal
 
 All calls are exclusive, so a model-ordered batch observes earlier mutations and their new revisions. ACP and other clients receive pure generic cards: read for `get_goal`, other for mutations.
 
-A successful mutation that leaves the goal stopped contributes the existing terminal `agent/turn-stop` decision for that physical turn. A later same-turn resume clears the contribution. This avoids an extra model request after pause, block, or completion without changing ordinary loop continuation.
+An autonomous goal round that successfully reports `complete` or `blocked` contributes the existing terminal `agent/turn-stop` decision for that physical turn. Direct-human mutations never contribute this stop: the assistant may acknowledge the change and concurrent human steering remains available to the loop.
 
 ## Authority
 
 Execution requires the exact live `exec.agent`, its inherited `AgentRegistry` initiator, running status, and an open turn. Create, edit, pause, and resume additionally require an accepted `{ kind: 'user' }` message or steering event in a runtime-root agent's current turn. Durable fork lineage does not demote a resumed root; live subagent ownership does.
+
+`{ kind: 'user' }` is a host attestation. `Agent.send()` and `steer()` assign it when their caller omits a source, so plugins, schedulers, and other non-human producers must pass their own source rather than inheriting human authority.
 
 Complete and blocked also accept the exact current goal round: a goal-sourced `user/message` whose id, revision, and round equal the folded current goal. A goal-round blocked call is mechanically rejected until `blockedAfterConsecutiveRounds`; the model judges whether the same condition actually persisted. Direct human authority may stop a goal immediately.
 
@@ -70,4 +72,5 @@ Schemas are prefix-stable while their definitions and visibility are unchanged. 
 - **Semantic intent remains model judgment** — execution can prove direct human provenance, not whether a request is substantial enough to merit a goal.
 - **Same-condition blocking remains model judgment** — the runtime enforces distinct admitted-round count, not semantic equivalence of obstacles; an independent evaluator is deferred.
 - **No scheduling or UI commands** — these tools mutate state only; the same-session driver and human command surfaces are separate stack layers.
+- **Goal-round authority requires a driver** — the autonomous `complete`/`blocked` path is dormant unless a continuation driver admits goal-sourced user turns; mounting this tool package alone does not create them.
 - **Prompt registration is independent of filtering** — a scope may hide the tools while retaining their guidance unless the deployment scopes both registrations together.

@@ -1,4 +1,4 @@
-/** Deterministic adapter that creates, reads, then pauses one goal. */
+/** Deterministic adapter that creates, reads, pauses, then acknowledges one goal. */
 
 import type { Context } from 'cordis'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
@@ -75,7 +75,7 @@ class GoalScriptAdapter extends LlmAdapter {
       if (goal === undefined) throw new Error('scripted goal state missing')
       return toolCall('update_goal', { goal_id: goal.id, revision: goal.revision, action: 'pause' })
     }
-    if (prompt.text === 'pause') return textReply('UNEXPECTED CONTINUATION AFTER PAUSE')
+    if (prompt.text === 'pause') return textReply('GOAL PAUSED')
     return textReply('UNEXPECTED PROMPT')
   }
 }
