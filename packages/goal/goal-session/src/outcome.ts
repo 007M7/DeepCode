@@ -27,10 +27,13 @@ export function classifyGoalRound(reason: TurnEndReason, durable: boolean): Goal
       return { kind: 'continue' }
     case 'aborted':
       return { kind: 'pause', reason: reason.reason ?? 'cancelled' }
-    case 'error':
-      return reason.code === 'RATE_LIMIT'
-        ? { kind: 'blocked', code: 'usage-limited', message: reason.message }
-        : { kind: 'blocked', code: 'turn-error', message: reason.message }
+    case 'error': {
+      const code = reason.failure?.code ?? reason.code
+      const message = reason.failure?.message ?? reason.message ?? 'model request failed'
+      return code === 'RATE_LIMIT' || code === 'QUOTA'
+        ? { kind: 'blocked', code: 'usage-limited', message }
+        : { kind: 'blocked', code: 'turn-error', message }
+    }
     case 'max-tokens':
       return { kind: 'blocked', code: 'max-tokens', message: 'model output reached max tokens' }
     case 'rejected':

@@ -2,9 +2,9 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
+import { resolveExampleLaunch, type ExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
-const PTY_DRIVER = String.raw`
+const POSIX_PTY_DRIVER = String.raw`
 import errno, json, os, pty, select, signal, sys, time
 node, launch_args_json, launch_env_json, cwd, actions_json, expected_exit, timeout_seconds = sys.argv[1:]
 env = os.environ.copy()
@@ -71,9 +71,103 @@ export interface TuiPtySmokeOptions {
   readonly timeoutMs?: number
 }
 
+function definedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  )
+}
+
+async function runPosixPtySmoke(
+  launch: ExampleLaunch,
+  cwd: string,
+  options: TuiPtySmokeOptions,
+  timeoutMs: number,
+): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const child = spawn('python3', [
+      '-c',
+      POSIX_PTY_DRIVER,
+      launch.command,
+      JSON.stringify(launch.args),
+      JSON.stringify(launch.env),
+      cwd,
+      JSON.stringify(options.actions ?? []),
+      String(options.expectedExitCode ?? 0),
+      String(timeoutMs / 1_000),
+    ], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => { stdout += chunk })
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk: string) => { stderr += chunk })
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL')
+      reject(new Error(`${options.label} PTY driver did not exit. stdout:\n${stdout}\nstderr:\n${stderr}`))
+    }, timeoutMs + 5_000)
+    child.once('error', (error) => { clearTimeout(timer); reject(error) })
+    child.once('exit', (code) => {
+      clearTimeout(timer)
+      if (code === 0) resolve(stdout)
+      else reject(new Error(`${options.label} PTY driver exited ${String(code)}. stdout:\n${stdout}\nstderr:\n${stderr}`))
+    })
+  })
+}
+
+async function runWindowsPtySmoke(
+  launch: ExampleLaunch,
+  cwd: string,
+  options: TuiPtySmokeOptions,
+  timeoutMs: number,
+): Promise<string> {
+  const pty = await import('node-pty')
+  return await new Promise((resolve, reject) => {
+    const actions = options.actions ?? []
+    const expectedExitCode = options.expectedExitCode ?? 0
+    let output = ''
+    let actionIndex = 0
+    let timedOut = false
+    const terminal = pty.spawn(launch.command, launch.args, {
+      name: 'xterm-256color',
+      cols: 100,
+      rows: 30,
+      cwd,
+      env: definedEnv({
+        ...process.env,
+        ...launch.env,
+        COLUMNS: '100',
+        LINES: '30',
+      }),
+    })
+    const timer = setTimeout(() => {
+      timedOut = true
+      terminal.kill()
+    }, timeoutMs)
+    terminal.onData((chunk) => {
+      output += chunk
+      while (actionIndex < actions.length && output.includes(actions[actionIndex]!.waitFor)) {
+        terminal.write(actions[actionIndex]!.send)
+        actionIndex += 1
+      }
+    })
+    terminal.onExit(({ exitCode, signal }) => {
+      clearTimeout(timer)
+      if (timedOut) {
+        reject(new Error(`${options.label} PTY process did not exit before ${String(timeoutMs)}ms. output:\n${output}`))
+      } else if (actionIndex !== actions.length) {
+        reject(new Error(`${options.label} completed ${String(actionIndex)}/${String(actions.length)} PTY actions. output:\n${output}`))
+      } else if (exitCode !== expectedExitCode) {
+        reject(new Error(`${options.label} expected exit ${String(expectedExitCode)}, got ${String(exitCode)} (signal ${String(signal)}). output:\n${output}`))
+      } else {
+        resolve(output)
+      }
+    })
+  })
+}
+
 /**
- * Boot an example in a real pseudo-terminal, drive marker-gated input, and
- * return the captured terminal bytes after the expected process exit.
+ * Boot an example in a real pseudo-terminal (ConPTY on Windows), drive
+ * marker-gated input, and return captured bytes after the expected process exit.
  * @param options - launch paths, environment, actions, and expected exit code.
  * @returns complete pseudo-terminal output.
  */
@@ -92,35 +186,10 @@ export async function runTuiPtySmoke(options: TuiPtySmokeOptions): Promise<strin
         ...options.env,
       },
     })
-    return await new Promise((resolve, reject) => {
-      const child = spawn('python3', [
-        '-c',
-        PTY_DRIVER,
-        launch.command,
-        JSON.stringify(launch.args),
-        JSON.stringify(launch.env),
-        cwd,
-        JSON.stringify(options.actions ?? []),
-        String(options.expectedExitCode ?? 0),
-        String(timeoutMs / 1_000),
-      ], { stdio: ['ignore', 'pipe', 'pipe'] })
-      let stdout = ''
-      let stderr = ''
-      child.stdout.setEncoding('utf8')
-      child.stdout.on('data', (chunk: string) => { stdout += chunk })
-      child.stderr.setEncoding('utf8')
-      child.stderr.on('data', (chunk: string) => { stderr += chunk })
-      const timer = setTimeout(() => {
-        child.kill('SIGKILL')
-        reject(new Error(`${options.label} PTY driver did not exit. stdout:\n${stdout}\nstderr:\n${stderr}`))
-      }, timeoutMs + 5_000)
-      child.once('error', (error) => { clearTimeout(timer); reject(error) })
-      child.once('exit', (code) => {
-        clearTimeout(timer)
-        if (code === 0) resolve(stdout)
-        else reject(new Error(`${options.label} PTY driver exited ${String(code)}. stdout:\n${stdout}\nstderr:\n${stderr}`))
-      })
-    })
+    if (process.platform === 'win32') {
+      return await runWindowsPtySmoke(launch, cwd, options, timeoutMs)
+    }
+    return await runPosixPtySmoke(launch, cwd, options, timeoutMs)
   } finally {
     await rm(cwd, { recursive: true, force: true })
   }

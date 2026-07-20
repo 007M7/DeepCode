@@ -6,6 +6,7 @@ import LlmService, { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, userAgent } from '@
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { getModels } from '@earendil-works/pi-ai'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { resolveProfiles } from '../src/config.ts'
 import { assemble } from './assemble.ts'
 
@@ -14,6 +15,8 @@ interface MockServer {
   paths: string[]
   requests: unknown[]
   headers: IncomingMessage['headers'][]
+  readonly closedResponses: number
+  responseClosed: Promise<void>
 }
 
 const servers: Server[] = []
@@ -23,11 +26,23 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map(server => new Promise(resolve => server.close(resolve))))
 })
 
-async function mockServer(script: { status?: number; events?: string[]; body?: string; delayMs?: number }[]): Promise<MockServer> {
+async function mockServer(script: {
+  status?: number
+  events?: string[]
+  body?: string
+  delayMs?: number
+  headers?: Record<string, string>
+}[]): Promise<MockServer> {
   const paths: string[] = []
   const requests: unknown[] = []
   const headers: IncomingMessage['headers'][] = []
+  let closedResponses = 0
+  const responseClosed = Promise.withResolvers<undefined>()
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
+    response.on('close', () => {
+      closedResponses += 1
+      responseClosed.resolve(undefined)
+    })
     let body = ''
     request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
     request.on('end', () => {
@@ -36,7 +51,7 @@ async function mockServer(script: { status?: number; events?: string[]; body?: s
       headers.push(request.headers)
       const behavior = script.shift() ?? { status: 500, body: 'script exhausted' }
       if (behavior.status !== undefined && behavior.status !== 200) {
-        response.writeHead(behavior.status, { 'content-type': 'application/json' })
+        response.writeHead(behavior.status, { 'content-type': 'application/json', ...behavior.headers })
         response.end(behavior.body ?? '{}')
         return
       }
@@ -56,7 +71,14 @@ async function mockServer(script: { status?: number; events?: string[]; body?: s
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (address === null || typeof address === 'string') throw new Error('no port')
-  return { url: `http://127.0.0.1:${address.port}`, paths, requests, headers }
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    paths,
+    requests,
+    headers,
+    responseClosed: responseClosed.promise,
+    get closedResponses() { return closedResponses },
+  }
 }
 
 const textEvents = [
@@ -107,8 +129,7 @@ describe('PiAiAdapter provider routing', () => {
       transport: 'sse',
       timeoutMs: 5000,
       websocketConnectTimeoutMs: 3000,
-      maxRetries: 0,
-      maxRetryDelayMs: 10,
+      streamIdleTimeoutMs: 10_000,
       thinkingBudgets: { high: 2048 },
     })
     await assemble(ctx, {
@@ -161,10 +182,32 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmPiAi, {
-      providers: [{ provider: 'openai', apiKey: 'test-key', baseURL: `${server.url}/v1`, maxRetries: 0 }],
+      providers: [{ provider: 'openai', apiKey: 'test-key', baseURL: `${server.url}/v1` }],
     })
     const result = await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
     expect(result.finish.kind).toBe('error')
+    expect(server.paths).toEqual(['/v1/responses'])
+  })
+
+  it('forces one wire request for an SDK-retryable provider failure', async () => {
+    const server = await mockServer([
+      {
+        status: 429,
+        headers: { 'retry-after-ms': '1' },
+        body: JSON.stringify({ error: { message: 'retryable provider failure' } }),
+      },
+      { status: 500, body: JSON.stringify({ error: { message: 'hidden SDK retry' } }) },
+      { status: 500, body: JSON.stringify({ error: { message: 'second hidden SDK retry' } }) },
+    ])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmPiAi, {
+      providers: [{ provider: 'openai', apiKey: 'test-key', baseURL: `${server.url}/v1` }],
+    })
+
+    const result = await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
+
+    expect(result.finish).toMatchObject({ kind: 'error' })
     expect(server.paths).toEqual(['/v1/responses'])
   })
 
@@ -178,7 +221,6 @@ describe('PiAiAdapter provider routing', () => {
         apiKey: 'test-key',
         baseURL: `${server.url}/api/projects/openai/openai/v1`,
         headers: { 'api-key': 'test-key', Authorization: '' },
-        maxRetries: 0,
       }],
     })
     const result = await assemble(ctx, { provider: 'openai', model: 'gpt-5.5', messages: [] })
@@ -195,9 +237,10 @@ describe('PiAiAdapter provider routing', () => {
     [500, 'SERVER'],
   ] as const)('maps HTTP %s failures to %s', async (status, code) => {
     const server = await mockServer([{ status, body: JSON.stringify({ error: { message: `provider ${status}` } }) }])
-    const ctx = await harness(server.url, { maxRetries: 0 })
+    const ctx = await harness(server.url)
     const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
-    expect(result.finish).toMatchObject({ kind: 'error', code })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code } })
+    expect(server.paths).toEqual(['/chat/completions'])
   })
 
   it('uses the resolved catalog context window for usage-based overflow detection', async () => {
@@ -218,9 +261,28 @@ describe('PiAiAdapter provider routing', () => {
 
     expect(result.finish).toEqual({
       kind: 'error',
-      message: `pi-ai detected context overflow for model "${model.id}"`,
-      code: CONTEXT_WINDOW_EXCEEDED_CODE,
+      failure: {
+        message: `pi-ai detected context overflow for model "${model.id}"`,
+        code: CONTEXT_WINDOW_EXCEEDED_CODE,
+      },
     })
+  })
+
+  it('stops the SDK request when the adapter idle watchdog expires', async () => {
+    const server = await mockServer([{ events: textEvents, delayMs: 200 }])
+    const ctx = await harness(server.url, { streamIdleTimeoutMs: 20 })
+
+    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
+      .rejects.toMatchObject({ code: 'TIMEOUT' })
+    await Promise.race([
+      server.responseClosed,
+      new Promise<never>((_resolve, reject) => {
+        setTimeout(() => { reject(new Error('SDK request did not close after idle timeout')) }, 100)
+      }),
+    ])
+
+    expect(server.paths).toEqual(['/chat/completions'])
+    expect(server.closedResponses).toBe(1)
   })
 })
 
@@ -280,16 +342,31 @@ describe('provider profile lifecycle', () => {
     expect(() => resolveProfiles([{ provider: 'openai', baseURL: '' }])).toThrow(/empty baseURL/)
   })
 
-  it('rejects negative or fractional stream tunables at schema validation', () => {
+  it.each(['maxRetries', 'maxRetryDelayMs'] as const)(
+    'rejects removed profile field %s instead of silently restoring hidden SDK retries',
+    async (field) => {
+      const legacy = { provider: 'openai', [field]: 2 }
+      expect(() => resolveProfiles([legacy as never])).toThrow(/removed.*agent recovery/i)
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      await expect(ctx.plugin(LlmPiAi, { providers: [legacy as never] }))
+        .rejects.toThrow(/removed.*agent recovery/i)
+    },
+  )
+
+  it('rejects invalid stream tunables at plugin load', async () => {
     const invalid = [
       { timeoutMs: -1 },
       { websocketConnectTimeoutMs: -1 },
-      { maxRetries: -1 },
-      { maxRetries: 0.5 },
-      { maxRetryDelayMs: -1 },
+      { streamIdleTimeoutMs: 0 },
+      { streamIdleTimeoutMs: Number.NaN },
+      { streamIdleTimeoutMs: MAX_TIMER_DELAY_MS + 1 },
     ]
     for (const entry of invalid) {
-      expect(() => new LlmPiAi.Config({ providers: [{ provider: 'openai', ...entry }] })).toThrow()
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      await expect(ctx.plugin(LlmPiAi, { providers: [{ provider: 'openai', ...entry }] }))
+        .rejects.toThrow()
     }
   })
 
@@ -301,11 +378,59 @@ describe('provider profile lifecycle', () => {
     })()).rejects.toMatchObject({ code: 'NO_ADAPTER' })
     expect(new LlmError('x', 'X')).toBeInstanceOf(Error)
   })
+
+  it('validates direct-constructor profiles at the embedding boundary', () => {
+    expect(() => new PiAiAdapter({
+      profiles: [{ provider: 'openai', streamIdleTimeoutMs: 0 }],
+    })).toThrow(/streamIdleTimeoutMs.*positive finite/)
+    expect(() => new PiAiAdapter({
+      profiles: [{ provider: 'openai', streamIdleTimeoutMs: MAX_TIMER_DELAY_MS + 1 }],
+    })).toThrow(/streamIdleTimeoutMs.*no greater/)
+  })
 })
 
 describe('abort wiring', () => {
+  it('preserves an unknown pre-dispatch adapter Error exactly', async () => {
+    const original = new Error('SDK context conversion exploded')
+    const message = Object.defineProperty({}, 'role', {
+      get() { throw original },
+    })
+    const adapter = new PiAiAdapter({ profiles: [{ provider: 'deepseek', apiKey: 'test-key' }] })
+    const drain = async (): Promise<void> => {
+      for await (const _chunk of adapter.stream({
+        provider: 'deepseek',
+        model: 'deepseek-v4-flash',
+        messages: [message as never],
+      })) { /* drain */ }
+    }
+
+    await expect(drain()).rejects.toBe(original)
+  })
+
+  it('lets a concurrent caller abort classify a pre-dispatch adapter failure', async () => {
+    const controller = new AbortController()
+    const original = new Error('conversion lost its caller')
+    const message = Object.defineProperty({}, 'role', {
+      get() {
+        controller.abort('caller cancelled during conversion')
+        throw original
+      },
+    })
+    const adapter = new PiAiAdapter({ profiles: [{ provider: 'deepseek', apiKey: 'test-key' }] })
+    const drain = async (): Promise<void> => {
+      for await (const _chunk of adapter.stream({
+        provider: 'deepseek',
+        model: 'deepseek-v4-flash',
+        messages: [message as never],
+        signal: controller.signal,
+      })) { /* drain */ }
+    }
+
+    await expect(drain()).rejects.toMatchObject({ code: 'ABORTED', cause: original })
+  })
+
   it('resolves catalog endpoints without an override before honoring pre-abort', async () => {
-    const adapter = new PiAiAdapter({ profiles: [{ provider: 'deepseek', apiKey: 'test-key', maxRetries: 0 }] })
+    const adapter = new PiAiAdapter({ profiles: [{ provider: 'deepseek', apiKey: 'test-key' }] })
     const controller = new AbortController()
     controller.abort('already stopped')
     const chunks = []
