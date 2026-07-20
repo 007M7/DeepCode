@@ -65,6 +65,37 @@ describe('streamSessionEventUpdate', () => {
       .toEqual([])
   })
 
+  it('marks retry and terminal model failure boundaries but not ordinary turn errors', () => {
+    expect(updatesFor(evt('llm/retry', {
+      turn: 1,
+      step: 1,
+      retry: 1,
+      maxRetries: 2,
+      delayMs: 500,
+      failure: { message: 'backend busy', code: 'SERVER' },
+    }))).toEqual([{
+      sessionUpdate: 'agent_message_chunk',
+      content: {
+        type: 'text',
+        text: '\n\n[Previous model attempt discarded; retrying 1/2 in 500ms: backend busy]\n\n',
+      },
+    }])
+    expect(updatesFor(evt('turn/end', {
+      turn: 1,
+      reason: { kind: 'error', step: 2, failure: { message: 'still busy', code: 'SERVER' } },
+    }))).toEqual([{
+      sessionUpdate: 'agent_message_chunk',
+      content: {
+        type: 'text',
+        text: '\n\n[Model attempt failed; any partial output above is discarded: still busy]\n\n',
+      },
+    }])
+    expect(updatesFor(evt('turn/end', {
+      turn: 1,
+      reason: { kind: 'error', step: 2, message: 'post-step failed' },
+    }))).toEqual([])
+  })
+
   it('maps tool/call to an in_progress tool_call with kind other and parsed rawInput (generic fallback, no presenter)', () => {
     const updates = updatesFor(evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'bash', arguments: '{"command":"ls"}' }))
     expect(updates).toEqual([{
