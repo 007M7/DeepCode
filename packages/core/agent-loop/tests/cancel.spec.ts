@@ -270,6 +270,31 @@ describe('Agent.cancel()', () => {
     expect(userTexts(agent)).toEqual(['first', 'later'])
   })
 
+  it('replacement work queued after idle-listener cancellation still runs', async () => {
+    const adapter = new MockAdapter([textResponse('first reply'), textResponse('replacement reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('idle-listener-post-cancel-send'), { provider: 'mock', model: 'mock' })
+
+    const replacementRegistered = Promise.withResolvers<undefined>()
+    let replacementIdle: Promise<void> | undefined
+    ctx.on('agent/status', (subject, status) => {
+      if (subject !== agent || status !== 'idle' || replacementIdle !== undefined) return
+      send(agent, 'cancelled replacement')
+      agent.cancel('idle listener')
+      send(agent, 'surviving replacement')
+      replacementIdle = agent.whenIdle()
+      replacementRegistered.resolve(undefined)
+    })
+
+    send(agent, 'first')
+    await replacementRegistered.promise
+    if (replacementIdle === undefined) throw new Error('idle listener did not register replacement work')
+    await replacementIdle
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(userTexts(agent)).toEqual(['first', 'surviving replacement'])
+  })
+
   it('cancel() mid-step aborts the active turn and drops every queued tail item', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)

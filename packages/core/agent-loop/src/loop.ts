@@ -133,7 +133,7 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
     if (handle.isDisposed()) break
 
     // Cancellation between wake and `running` skips only the cancelled work;
-    // a replacement prompt still runs and owns the eventual idle transition.
+    // a replacement prompt still runs before the eventual idle transition.
     if (handle.isCancelled()) {
       handle.clearCancel()
       if (!handle.inbox.hasQueued) {
