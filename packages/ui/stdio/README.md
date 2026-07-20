@@ -31,7 +31,7 @@ Each non-empty terminal line outside an active question becomes one text block, 
 
 #### Token effect
 
-Submitted text is retained under the agent loop's normal session-history and compaction rules. The welcome banner, `> ` prompt, rendered transcript, and `[tool call]` / `[tool result]` terminal lines add no tokens.
+Submitted text is retained under the agent loop's normal session-history and compaction rules. The welcome banner, `> ` prompt, rendered transcript, and `[tool call]` / `[tool result]` terminal lines add no tokens. A replacement `tool/result` remains model-visible through the session surface but is not rendered as a second execution; stdio keeps the original full-fidelity result line.
 
 #### KV Cache effect
 

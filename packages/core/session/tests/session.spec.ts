@@ -881,6 +881,19 @@ describe('SessionStore', () => {
     })
   })
 
+  it('attaches delegationDepth from meta to the header', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('delegated-child'), {
+      meta: { parentSession: SessionId('parent'), delegationDepth: 2 },
+    })
+    expect(session.header).toMatchObject({
+      id: 'delegated-child',
+      parentSession: 'parent',
+      delegationDepth: 2,
+    })
+  })
+
   it('rejects non-JSON and invalid scalar session metadata', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -892,6 +905,9 @@ describe('SessionStore', () => {
       { meta: { seedLength: '1' }, error: /seedLength must be a non-negative safe integer/ },
       { meta: { seedLength: 0.5 }, error: /seedLength must be a non-negative safe integer/ },
       { meta: { seedLength: -1 }, error: /seedLength must be a non-negative safe integer/ },
+      { meta: { delegationDepth: '1' }, error: /delegationDepth must be a non-negative safe integer/ },
+      { meta: { delegationDepth: 0.5 }, error: /delegationDepth must be a non-negative safe integer/ },
+      { meta: { delegationDepth: -1 }, error: /delegationDepth must be a non-negative safe integer/ },
     ]
 
     for (const [index, { meta, error }] of cases.entries()) {

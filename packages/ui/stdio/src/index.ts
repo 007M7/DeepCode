@@ -152,6 +152,10 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       inReasoning = false
       output.write(`\n  [tool call] ${toolName}(${args})`)
     } else if (event.type === 'tool/result') {
+      // A surface replacement changes future model context; it is not another
+      // execution. Keep the original full-fidelity terminal presentation and
+      // suppress duplicate output during live delivery or log replay.
+      if (event.surfaceOp !== undefined && event.surfaceOp !== 'append') return
       const { content } = event.data
       const text = content.filter(block => block.type === 'text').map(block => block.text).join('')
       output.write(`\n  [tool result] ${text}\n  `)
@@ -171,9 +175,9 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
     //    immediately — no turn will ever start, so there is nothing to wait
     //    for. (Gating on an observed 'running' here would hang forever.)
     //  - If work WAS submitted, exit the next time the agent settles to idle
-    //    AFTER having run. Two subtleties this handles: the loop batches
-    //    several queued messages into ONE turn (one idle), so we don't count
-    //    sends; and agent.send() does NOT synchronously flip status to
+    //    AFTER having run. Later lines may steer the active turn, and consecutive
+    //    queued turns can share one running interval, so we don't count inputs;
+    //    agent.send() also does NOT synchronously flip status to
     //    'running', so requiring an observed 'running' first (`sawRunning`)
     //    avoids exiting in the gap before the turn starts and dropping work.
     let stdinClosed = false

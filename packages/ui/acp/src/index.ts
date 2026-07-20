@@ -827,10 +827,11 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // session/cancel maps to the queue-aware agent.cancel(reason): it aborts
         // a RUNNING step, clears the queued + steering FIFOs, and drops a
         // turn that is about to start (the pre-step window) — so a queued-but-
-        // not-yet-started prompt never runs, and a prompt accepted right after
-        // cannot be batched into the cancelled turn. Scoped to THIS session's
+        // not-yet-started prompt never runs, while a prompt accepted afterward
+        // remains a separate queued turn. Scoped to THIS session's
         // agent — a cancel in one session never touches another's stream or
-        // pending prompt (RFC 011 isolation). We ALSO settle the in-flight prompt
+        // pending prompt (multi-session isolation).
+        // We ALSO settle the in-flight prompt
         // as cancelled directly here: do NOT rely on the resulting turn/end to
         // settle it, because cancel() may drop the turn before any turn/end is
         // emitted, and removing this direct settle would move the RPC's
@@ -1039,7 +1040,8 @@ function validateMcpServers(params: { mcpServers?: unknown[] }): void {
  *   loaded transcript reconstructs the USER side of each turn without echoing
  *   a live `session/prompt` back to the client
  * - `tool/call`   → `tool_call` (pending)
- * - `tool/result` → `tool_call_update` (completed/failed)
+ * - appended `tool/result` → `tool_call_update` (completed/failed)
+ * - replacement `tool/result` → no update (context rewrite, not execution)
  *
  * Tool-call presentation (title/kind/rawInput, and the completed-state content)
  * is owned by each TOOL via `presentCall`/`presentResult` — the bridge never
@@ -1100,6 +1102,10 @@ export function streamSessionEventUpdate(
       return
     }
     case 'tool/result': {
+      // Replacements (for example model-free pruning) are transcript rewrites,
+      // not repeated tool executions. Re-presenting one would consume no
+      // pending call and could clobber the original terminal/diff completion.
+      if (event.surfaceOp !== undefined && event.surfaceOp !== 'append') return
       const view = presenter.result(event.data.callId, event.data.content, event.data.isError, event.data.meta)
       notify({ sessionId, update: toolResultUpdate(event.data.callId, view, event.data.isError, terminal) })
       return

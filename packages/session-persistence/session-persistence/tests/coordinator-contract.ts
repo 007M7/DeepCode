@@ -106,6 +106,27 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('round-trips the delegation depth through persistence', async () => {
+      // A subagent child's recursion budget lives in its header; a reload that
+      // dropped it would reset the child to top-level and un-bound maxDepth
+      // (JSONL stores it in the header line; SQLite uses `delegation_depth`).
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const session = ctx.sessions.create(SessionId('delegated-child'), {
+          meta: { cwd: WORK, parentSession: SessionId('root'), delegationDepth: 2 },
+        })
+        send(session, oneTurnLog())
+        await ctx.parallel('session/flush', session)
+
+        const loaded = await ctx.sessionPersistence.load(SessionId('delegated-child'))
+        expect(loaded.meta.delegationDepth).toBe(2)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     it('source-frozen events cannot be mutated after buffering and persist unchanged', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)

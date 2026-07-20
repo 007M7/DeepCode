@@ -10,6 +10,7 @@ import LlmService, { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, LlmAdapter } from '@d
 import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
+import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 const SIGNAL = new AbortController().signal
@@ -94,6 +95,43 @@ function toolConversation(): Session {
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
   session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } })
+  return session
+}
+
+/** One closed routed tool step followed by an open turn for rewrite events. */
+function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Session {
+  const session = new Session(SessionId(`oversized-tool-${chars}`))
+  const callId = CallId('oversized')
+  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  if (withCompactablePrompt) {
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'older history '.repeat(200) }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+  }
+  session.append('step/start', { turn: 1, step: 1 })
+  session.append('request/header', {
+    header: { config: { provider: MODEL, model: MODEL } },
+    reason: 'initial',
+  })
+  session.append('assistant/message', {
+    turn: 1,
+    step: 1,
+    content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
+    provenance: { provider: MODEL, model: MODEL },
+  }, { surfaceOp: 'append' })
+  session.append('tool/call', { turn: 1, step: 1, callId, name: 'bash', arguments: '{}' })
+  session.append('tool/result', {
+    turn: 1,
+    step: 1,
+    callId,
+    content: [{ type: 'text', text: 'X'.repeat(chars) }],
+    isError: false,
+    meta: { presentation: 'preserved' },
+  }, { surfaceOp: 'append' })
+  session.append('step/end', { turn: 1, step: 1 })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
   return session
 }
 
@@ -413,6 +451,78 @@ describe('pressure measurement and retention', () => {
 
     const priced = ctx.tokenMeter.measure(session)
     expect(selectCompactableRange(session, priced, 1)).toBeNull()
+  })
+})
+
+describe('optional model-free tool-result pruning', () => {
+  const pruneConfig = { thresholdChars: 100, headChars: 20, tailChars: 10 }
+
+  it('does not prune a below-pressure session opportunistically', async () => {
+    const ctx = createContext(10_000)
+    const prune = new ToolResultPruneService(ctx, pruneConfig)
+    const compact = new TestCompactService(ctx, {
+      auto: false,
+      thresholdRatio: 0.8,
+      retainTokens: 100,
+    })
+    const session = oversizedToolResult()
+    const pruneSession = vi.spyOn(prune, 'pruneSession')
+
+    expect(await compactIfNeeded(compact, session)).toBeNull()
+    expect(pruneSession).not.toHaveBeenCalled()
+    expect(compact.calls).toHaveLength(0)
+    expect(session.surface.replaceGeneration).toBe(0)
+  })
+
+  it('skips LLM summarization when pruning alone clears pressure', async () => {
+    const ctx = createContext(1_000)
+    void new ToolResultPruneService(ctx, pruneConfig)
+    const compact = new TestCompactService(ctx, {
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 50,
+    })
+    const session = oversizedToolResult()
+
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeGreaterThanOrEqual(500)
+    expect(await compactIfNeeded(compact, session)).toBeNull()
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(500)
+    expect(compact.calls).toHaveLength(0)
+    expect(session.surface.replaceGeneration).toBe(1)
+  })
+
+  it('summarizes the pruned surface when pruning is insufficient', async () => {
+    const ctx = createContext(2_000)
+    void new ToolResultPruneService(ctx, pruneConfig)
+    const compact = new TestCompactService(ctx, {
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 50,
+    })
+    const session = toolConversation()
+
+    expect(await compactIfNeeded(compact, session)).not.toBeNull()
+    expect(compact.calls).toHaveLength(1)
+    expect(compact.calls[0]!.text).toContain('tool result middle pruned')
+    expect(compact.calls[0]!.text).not.toContain('result 1 '.repeat(300))
+  })
+
+  it('retains the original compact-basic behavior without the optional plugin', async () => {
+    const ctx = createContext(2_000)
+    const compact = new TestCompactService(ctx, {
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 50,
+    })
+    const session = oversizedToolResult(3_000, true)
+
+    expect(await compactIfNeeded(compact, session)).not.toBeNull()
+    expect(compact.calls).toHaveLength(1)
+    const original = session.events.find(event => event.type === 'tool/result')
+    expect(original?.type === 'tool/result' && original.data.content[0])
+      .toEqual({ type: 'text', text: 'X'.repeat(3_000) })
+    expect(session.events.filter(event =>
+      event.type === 'tool/result' && event.surfaceOp !== 'append')).toHaveLength(0)
   })
 })
 
@@ -874,6 +984,89 @@ describe('automatic listener and loader composition', () => {
     expect(session.surface.replaceGeneration).toBe(beforeGeneration + 1)
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(true)
     expect(session.surface.nodes).toContain(retainedSeq)
+  })
+
+  it('authorizes overflow retry when pruning alone advances an indivisible surface', async () => {
+    const ctx = createContext(10_000)
+    void new ToolResultPruneService(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
+    const compact = new TestCompactService(ctx, {
+      thresholdRatio: 1,
+      retainTokens: 900,
+    })
+    const session = oversizedToolResult()
+
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'retry' })
+    expect(session.surface.replaceGeneration).toBe(1)
+    expect(session.events.some(event => event.type === 'compact/summary')).toBe(false)
+    expect(compact.calls).toHaveLength(0)
+  })
+
+  it('continues overflow recovery with summarization on the pruned surface', async () => {
+    const ctx = createContext(10_000)
+    void new ToolResultPruneService(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
+    const compact = new TestCompactService(ctx, {
+      thresholdRatio: 1,
+      retainTokens: 900,
+    })
+    const session = toolConversation()
+
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'retry' })
+    expect(session.events.some(event => event.type === 'compact/summary')).toBe(true)
+    expect(compact.calls).toHaveLength(1)
+    expect(compact.calls[0]!.text).toContain('tool result middle pruned')
+  })
+
+  it('retries from a durable prune when later overflow summarization throws', async () => {
+    const ctx = createContext(10_000)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
+    void new ToolResultPruneService(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
+    const compact = new TestCompactService(ctx, {
+      thresholdRatio: 1,
+      retainTokens: 900,
+    })
+    compact.error = new Error('summary unavailable after prune')
+    const session = oversizedToolResult(3_000, true)
+
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'retry' })
+    expect(session.surface.replaceGeneration).toBe(1)
+    expect(session.events.filter(event => event.type === 'tool/result')).toHaveLength(2)
+    expect(session.events.findLast(event => event.type === 'compact/end')?.data)
+      .toMatchObject({ error: 'summary unavailable after prune' })
+    expect(warnings).toContainEqual(expect.stringContaining('retrying from the replacement surface'))
+  })
+
+  it('lets cancellation win when summary throws after a durable prune', async () => {
+    const ctx = createContext(10_000)
+    const controller = new AbortController()
+    void new ToolResultPruneService(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
+    const compact = new TestCompactService(ctx, {
+      thresholdRatio: 1,
+      retainTokens: 900,
+    })
+    compact.mutateDuringSummary = () => { controller.abort('cancelled during summary') }
+    compact.error = new Error('summary cancelled after prune')
+    const session = oversizedToolResult(3_000, true)
+
+    expect(await recover(ctx, agent(session, MODEL), overflow(), 0, controller.signal))
+      .toEqual({ action: 'fail' })
+    expect(session.surface.replaceGeneration).toBe(1)
   })
 
   it('preserves the newest whole tool-call/result pair during forced overflow compaction', async () => {

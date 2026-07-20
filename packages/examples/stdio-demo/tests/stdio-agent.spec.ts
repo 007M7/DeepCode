@@ -86,12 +86,17 @@ describe('dsh-stdio-demo app', () => {
       provider: 'mock',
       model: 'mock',
       workspaceContext: false,
+      persistenceCompression: 'none',
       welcome: 'TUI ready',
       ui: { mode: 'tui', tui: { color: false, maxToolOutputLines: 3 } },
     }, true)
     expect(calls.map(call => call.name)).toContain('ui-tui')
     expect(calls.map(call => call.name)).not.toContain('ui-stdio')
     expect(calls.map(call => call.name)).not.toContain('ConsoleExporter')
+    expect(calls.find(call => (call.config as { root?: string } | undefined)?.root === './.sessions')?.config).toEqual({
+      root: './.sessions',
+      compression: 'none',
+    })
     const tuiConfig = calls.find(call => call.name === 'ui-tui')?.config as { sessionId: string }
     expect(tuiConfig).toMatchObject({ welcome: 'TUI ready', color: false, maxToolOutputLines: 3 })
     expect(tuiConfig.sessionId).toMatch(/^main-session-/)
