@@ -91,16 +91,16 @@ export interface LoopHandle {
   cancelReason(): string
   /** Clear the cancel marker (called once per iteration after the turn returns). */
   clearCancel(): void
-  /** Settle idle waiters when pre-running cancellation skips a turn, without emitting `agent/status`. */
+  /** Settle idle waiters before pre-running cancellation publishes idle. */
   settleIdle(): void
   /** Run an active tool-call batch, accepting post-tool context into the FIFO drained before settlement. */
   readonly withToolBatch: <T>(run: (acceptContext: (context: HookContext) => void) => Promise<T>) => Promise<T>
 }
 
 /**
- * Drive queued batches as durable turns until disposal. Plugin failures end the
- * current turn without terminating the driver. The caller establishes the
- * `ctx.agents.withInitiator()` boundary before entry; package-private
+ * Drive queued messages as independent durable turns until disposal. Plugin
+ * failures end the current turn without terminating the driver. The caller
+ * establishes the `ctx.agents.withInitiator()` boundary before entry; package-private
  * orchestration recovers that exact Agent and captures its Session locally.
  * @param ctx - the plugin context the loop reaches its initiating Agent,
  * events (agent/…, session/flush), and services (systemPrompt, llm, tools)
@@ -118,20 +118,35 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
   const events = agentEvents(ctx, agent)
 
   while (!handle.isDisposed()) {
-    await handle.inbox.waitForQueued(handle.disposed)
-    if (handle.isDisposed()) break
-
-    // Cancellation between wake and `running` skips only the cancelled work;
-    // a replacement prompt still runs and owns the eventual idle transition.
+    // An idle listener can enqueue and cancel replacement work before the next
+    // wait is installed. Consume that empty marker before parking the driver.
     if (handle.isCancelled()) {
       handle.clearCancel()
       if (!handle.inbox.hasQueued) {
         handle.settleIdle()
+        handle.setStatus('idle')
+        continue
+      }
+    }
+
+    await handle.inbox.waitForQueued(handle.disposed)
+    if (handle.isDisposed()) break
+
+    // Cancellation between wake and `running` skips only the cancelled work;
+    // a replacement prompt still runs before the eventual idle transition.
+    if (handle.isCancelled()) {
+      handle.clearCancel()
+      if (!handle.inbox.hasQueued) {
+        // Settle before publishing idle: the already-idle path has no status
+        // transition, while an idle listener can register waiters for new work.
+        handle.settleIdle()
+        handle.setStatus('idle')
         continue
       }
     }
 
     handle.setStatus('running')
+    if (handle.isDisposed()) break
 
     // A synchronous `running` listener can cancel before `runTurn`; balance the
     // status only when no replacement prompt was queued by that listener.
@@ -182,12 +197,11 @@ async function runTurn(
     return messages.length > 0
   }
 
-  // Drain before opening the turn, but append only after `turn/start`.
-  const queued = handle.inbox.drainQueued()
-  const first = queued[0]
+  // Claim one queued message before opening its turn, but append it only after `turn/start`.
+  const message = handle.inbox.dequeueQueued()
   /* v8 ignore next 3 -- invariant guard: runLoop only calls runTurn when hasQueued */
-  if (!first) throw new Error('runTurn invariant violated: no queued message at turn start')
-  const trigger: TurnTrigger = { kind: 'message', source: first.source }
+  if (!message) throw new Error('runTurn invariant violated: no queued message at turn start')
+  const trigger: TurnTrigger = { kind: 'message', source: message.source }
 
   let reason: TurnEndReason = { kind: 'completed' }
   let step = 0
@@ -226,42 +240,26 @@ async function runTurn(
     // matter what throws below; the catch + closeTurn guarantee it. A pre-commit
     // veto leaves no turn/start in the log and therefore owes no turn/end.
     session.append('turn/start', { turn, trigger })
-    // Each drained queued message runs the `agent/prompt-submit` waterfall before
-    // it becomes a `user/message` — a hook can rewrite the prompt or block it.
+    // The claimed message runs the `agent/prompt-submit` waterfall before it
+    // becomes a `user/message` — a hook can rewrite the prompt or block it.
     // Recorded INSIDE the turn (after turn/start) so every event is turn-enclosed;
     // turn/end is now owed, so a throwing prompt-submit listener (the waterfall
     // throws) is caught below and the turn still closes.
-    let anyAllowed = false
-    // Seeded with a floor (only observable if the batch were empty, which
-    // runTurn never allows — it is called with ≥1 queued message); each `block`
-    // decision carries a required `reason` and overwrites it, so a fully-blocked
-    // batch always reports the last vetoing reason.
-    let lastBlockReason = 'prompt blocked by hook'
-    for (const message of queued) {
-      const decision = await events.waterfall(
-        'agent/prompt-submit', message.content, message.source,
-        () => Promise.resolve<PromptDecision>({ kind: 'allow' }),
-      )
-      if (decision.kind === 'block') {
-        lastBlockReason = decision.reason
-        // Record the veto durably: `PromptDecision.reason` is the durable record
-        // of why a prompt was blocked, but a fully-blocked batch's `rejected`
-        // turn/end only preserves the LAST reason, and a MIXED batch (this prompt
-        // blocked, another allowed) does not end `rejected` at all — so without
-        // this append a blocked prompt would vanish from the log whenever any
-        // sibling prompt is allowed. `prompt/blocked` sits in the open turn in
-        // place of the `user/message` this prompt would have become.
-        session.append('prompt/blocked', { content: message.content, source: message.source, reason: decision.reason })
-        continue
-      }
-      anyAllowed = true
+    const promptDecision = await events.waterfall(
+      'agent/prompt-submit', message.content, message.source,
+      () => Promise.resolve<PromptDecision>({ kind: 'allow' }),
+    )
+    if (promptDecision.kind === 'block') {
+      session.append('prompt/blocked', { content: message.content, source: message.source, reason: promptDecision.reason })
+      reason = { kind: 'rejected', reason: promptDecision.reason }
+    } else {
       // `allow.content` REPLACES the prompt bytes (a rewrite); absent keeps them.
-      const content = decision.content ?? message.content
+      const content = promptDecision.content ?? message.content
       session.append('user/message', { content, source: message.source }, { surfaceOp: 'append' })
       // Every `allow.additionalContexts` entry is a separate context/message the
       // next request also sees. The turn is open, so inject() appends each one
       // into THIS turn without flattening provenance or metadata.
-      for (const context of decision.additionalContexts ?? []) {
+      for (const context of promptDecision.additionalContexts ?? []) {
         agent.inject(context.content, {
           source: context.source,
           ...context.meta !== undefined ? { meta: context.meta } : {},
@@ -270,11 +268,8 @@ async function runTurn(
     }
 
     while (true) {
-      // A fully blocked batch closes its zero-step turn as rejected.
-      if (!anyAllowed) {
-        reason = { kind: 'rejected', reason: lastBlockReason }
-        break
-      }
+      // A blocked prompt closes its zero-step turn as rejected.
+      if (promptDecision.kind === 'block') break
       step += 1
 
       // Steering from the previous round's continuation listeners joins before

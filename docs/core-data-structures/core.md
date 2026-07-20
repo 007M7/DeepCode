@@ -360,15 +360,20 @@ interface Agent {
   readonly ctx: Context
 
   /**
-   * Queue detached, frozen lossless-JSON input; starts a turn when idle.
+   * Queue one detached, frozen lossless-JSON item. If claimed, it is the sole
+   * ordinary message in its FIFO-ordered turn; the next claimed item waits for
+   * that turn's checkpoint.
    * Invalid input throws synchronously before notification or enqueue.
    */
   send(content: ContentBlock[], options?: SendOptions): void
 
   /**
-   * Steer a running turn: content is injected between steps of the current
-   * turn. Uses the same owned-value and synchronous-validation boundary as
-   * {@link send}; when idle, behaves exactly like that method.
+   * Submit steering while the agent is `running`. An open turn records it at
+   * the next steering checkpoint before a request or continuation decision;
+   * policy may stop before another step. After turn close and its checkpoint,
+   * any remainder is queued for a later turn; terminal `agent/turn-stop`,
+   * cancellation, or disposal may discard it. Uses the same synchronous
+   * snapshot-and-validation boundary as {@link send}; when idle, delegates to it.
    */
   steer(content: ContentBlock[], options?: SendOptions): void
 
@@ -382,10 +387,11 @@ interface Agent {
   inject(content: ContentBlock[], options?: InjectOptions): void
 
   /**
-   * Clear queued and steering work, including work waiting to start, and abort
-   * the active step. The supplied reason is preserved across pre-step and active
-   * cancellation windows, and `whenIdle()` resolves after cancellation reaches
-   * quiescence. Idle cancellation is a no-op and does not arm a later cancel.
+   * Clear all queued and steering work, including items waiting to start, and
+   * abort the active step. The supplied reason is preserved across pre-step
+   * and active cancellation windows, and `whenIdle()` resolves after
+   * cancellation reaches quiescence. Idle cancellation is a no-op and does not
+   * arm a later cancel.
    */
   cancel(reason?: string): void
 
@@ -395,7 +401,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`, and `SessionId` is branded. `AgentOptions` is merge-extensible and currently includes `provider?` and `model?`; dispatch requires both after `agent/request`. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
+`AgentStatus` is `'idle' | 'running' | 'disposed'`, and `SessionId` is branded. `running` describes the driver-wide drain interval, which can span turn close, its durability checkpoint, and consecutive queued turns; it does not prove a turn is still open. `AgentOptions` is merge-extensible and currently includes `provider?` and `model?`; dispatch requires both after `agent/request`. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
 
 The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
 
@@ -419,13 +425,14 @@ interface HookContext {
 }
 ```
 
-`agent/prompt-submit` returns a `PromptDecision` (allow a drained queued message — optionally rewriting its `content` or attaching `additionalContexts` — or block it; a batch whose every prompt is blocked opens a zero-step turn that ends `rejected`):
+`agent/prompt-submit` returns a `PromptDecision` (allow the turn's claimed queued message — optionally rewriting its `content` or attaching `additionalContexts` — or record `prompt/blocked` and end that zero-step turn as `rejected`):
 
 ```ts type-equiv
 /**
  * Prompt interception result. `allow.content` replaces the prompt and each
- * `additionalContexts` entry becomes a separate context message. `block` records a
- * durable `prompt/blocked`; an all-blocked batch ends a zero-step rejected turn.
+ * `additionalContexts` entry becomes a separate context message. `block`
+ * records a durable `prompt/blocked` and ends the claimed prompt's zero-step
+ * turn as rejected.
  */
 type PromptDecision =
   | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
