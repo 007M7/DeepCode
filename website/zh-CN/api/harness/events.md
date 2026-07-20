@@ -470,7 +470,7 @@ Single-slot decision for the next FileSystem.editText. Calling `next()` yields a
 - `target` — the resolved target about to be edited.
 - `actor` — the opaque tool-execution context the decider keys off.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L61)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L62)
 
 ### fs/observed
 
@@ -494,7 +494,7 @@ Record a successful observation. Listeners must be synchronous recorders: throws
 - `version` — the version the actor now holds as its observation.
 - `actor` — the observing tool-execution context; undefined records nothing useful.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L70)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L71)
 
 ### fs/write-intent
 
@@ -517,7 +517,7 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 - `target` — the resolved target about to be written.
 - `actor` — the opaque tool-execution context the decider keys off.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L53)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/fs/fs/src/index.ts#L54)
 
 ## llm/*
 
@@ -532,7 +532,7 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
  * adapter's stream, or yield your own chunks to short-circuit.
  * @param options - the full request. A LOOP-built request arrives
  *   deep-frozen (mutation throws): its content is a pure function of the
- *   session log (the reconstructability RFC), so listeners read it, never
+ *   session log (the reconstructability Agent Note), so listeners read it, never
  *   rewrite it. A hand-built one-shot (compaction summarize) is the
  *   caller's own object and stays mutable here.
  * @mode waterfall
@@ -542,7 +542,7 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 
 Waterfall around every streaming model call (retry, replay, routing). Bound to the LlmService; call `next()` to reach the resolved adapter's stream, or yield your own chunks to short-circuit.
 
-- `options` — the full request. A LOOP-built request arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability RFC), so listeners read it, never rewrite it. A hand-built one-shot (compaction summarize) is the caller's own object and stays mutable here.
+- `options` — the full request. A LOOP-built request arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. A hand-built one-shot (compaction summarize) is the caller's own object and stays mutable here.
 
 [Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/llm/llm/src/index.ts#L43)
 

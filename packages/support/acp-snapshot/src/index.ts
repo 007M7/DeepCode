@@ -2,7 +2,7 @@
  * ACP snapshot suite kit — the shared machinery behind the keyless snapshot
  * tier (`pnpm run test:snapshot`). Four layers, composable per example: the
  * shared subprocess/client launcher ({@link launchAcpTestAgent}), the scripted
- * scenario harness ({@link runScenario}), the pure golden normalizers
+ * scenario harness ({@link runScenario}), the pure expected-output normalizers
  * ({@link normalizeStdout} / {@link normalizeSessionLog} /
  * {@link scrubRequestHeaders} / {@link scrubSystemPrompts}), and the suite
  * factory ({@link defineAcpSnapshotSuite}) that registers a scenario table as a

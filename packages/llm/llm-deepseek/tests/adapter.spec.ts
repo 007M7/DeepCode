@@ -3,6 +3,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, userAgent } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter } from '@deepseek-ai/dsh-llm-deepseek'
 import { httpErrorCode } from '../src/adapter.ts'
@@ -131,6 +132,19 @@ describe('DeepSeekAdapter against a mock server', () => {
       kinds.push(chunk.type)
     }
     expect(kinds).toEqual(['block-start', 'text-delta', 'block-end', 'usage', 'finish'])
+  })
+
+  it('forwards the harness session id for host-side trajectory routing', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const ctx = await harness(server.url)
+
+    await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      sessionId: SessionId('child-session'),
+    })
+
+    expect(server.headers[0]?.['x-deepseek-harness-session-id']).toBe('child-session')
   })
 
   it('forwards thinking config onto the wire', async () => {

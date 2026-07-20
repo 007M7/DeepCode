@@ -286,7 +286,7 @@ abstract start(spec: BashExecSpec): BashProcess
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashProcess](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:49`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:48`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.bashEnv` — `BashEnvRegistry`
 
@@ -317,7 +317,7 @@ list(): BashEnvVariableInfo[]
 
 Types: [DshEnvironment](../core-data-structures/bash.md) · [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/bash/tool-bash/src/index.ts:102`](../../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/tool-bash/src/index.ts:103`](../../packages/bash/tool-bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
@@ -458,9 +458,12 @@ abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
  * @param content - the full new file content.
  * @param expected - the write intent guarding the write; omit for unconditional.
  * @param signal - aborts before the atomic rename takes effect.
+ * @param sandboxMode - the per-call sandbox mode this write runs under; a
+ *   sandboxing backend fences the write by it, the bare backend ignores it.
+ *   Omit to leave the backend its own default.
  * @returns the outcome, including the version the write produced.
  */
-abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
+abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsWriteOutcome>
 
 /**
  * Atomically edit literal text. When supplied, the version guard is checked
@@ -470,14 +473,17 @@ abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, 
  * @param edit - the literal search/replace request.
  * @param expected - the version guard; omit for an unconditional edit.
  * @param signal - aborts before the atomic rename takes effect.
+ * @param sandboxMode - the per-call sandbox mode this edit runs under; a
+ *   sandboxing backend fences the edit by it, the bare backend ignores it.
+ *   Omit to leave the backend its own default.
  * @returns the outcome, including the version the edit produced.
  */
-abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
+abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsEditOutcome>
 ```
 
-Types: [FsDirEntry](../core-data-structures/filesystem.md) · [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsPathInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
+Types: [FsDirEntry](../core-data-structures/filesystem.md) · [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsPathInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md) · [SandboxMode](../core-data-structures/sandbox.md)
 
-Source: [`packages/fs/fs/src/index.ts:80`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:81`](../../packages/fs/fs/src/index.ts)
 
 ## `ctx.llm` — `LlmService`
 
@@ -569,7 +575,7 @@ set(session: Session, name: string): void
 
 Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/ui/permission/src/index.ts:94`](../../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:97`](../../packages/ui/permission/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
@@ -592,7 +598,13 @@ abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 
 Types: [ConfinedArgv](../core-data-structures/sandbox.md) · [SandboxPolicy](../core-data-structures/sandbox.md)
 
-Source: [`packages/sandbox/sandbox/src/index.ts:111`](../../packages/sandbox/sandbox/src/index.ts)
+Source: [`packages/sandbox/sandbox/src/index.ts:122`](../../packages/sandbox/sandbox/src/index.ts)
+
+## `ctx.sandboxPolicy` — `SandboxPolicyService`
+
+The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mode and workspace root; enforcing implementations read defaultMode and workspaceRoot, and the tool layers fold each session's `sandbox/mode` override with effectiveSandboxMode on top.
+
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:60`](../../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 

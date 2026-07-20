@@ -2,7 +2,7 @@
 
 The **basic compaction backend**: a `BasicCompactService` implementing the `@deepseek-ai/dsh-compact` seam with reusable `ctx.tokenMeter` pressure, token-budget retention, and summarization as a direct one-shot `ctx.llm.stream()` call (interceptable at `llm/stream`).
 
-This is the implementation tier of the compaction capability — see the [interface package](../compact/README.md) for the seam and the [capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md) for the design.
+This is the implementation tier of the compaction capability — see the [interface package](../compact/README.md) for the seam and the [capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) for the design.
 
 ## What it owns
 
@@ -57,29 +57,45 @@ Loading the plugin registers `ctx.compact`. Add [`dsh-compact-tool-result-prune`
 
 ### Conversation history
 
-**What the model sees**: After a successful step crosses the threshold, oversized tool results are first rewritten when the optional pruner is loaded. If summarization remains necessary, the next request receives the checkpoint preamble below, a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. Overflow recovery rebuilds the immediate retry from whatever replacement advanced the surface.
+#### What the model sees
 
-**Token effect**: Model-free pruning can avoid the auxiliary call entirely; otherwise it reduces that call's transcript before the summary replaces an older range. A summary remains until a later compaction replaces it, while an indivisible non-tool unit can still exceed the budget.
+After a successful step crosses the threshold, oversized tool results are first rewritten when the optional pruner is loaded. If summarization remains necessary, the next request receives the checkpoint preamble below, a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. Overflow recovery rebuilds the immediate retry from whatever replacement advanced the surface. A checkpoint replaces the selected older range and is followed by the retained recent units.
 
-#### Conversation checkpoint preamble
+##### Conversation checkpoint preamble
 
 ```markdown
 This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.
 ```
 
+#### Token effect
+
+Model-free pruning can avoid the auxiliary call entirely; otherwise it reduces that call's transcript before the summary replaces an older range. The replacement reduces future input history rather than appending a second copy. A summary remains until a later compaction replaces it, while an indivisible non-tool unit can still exceed the budget.
+
+#### KV Cache effect
+
+Replacing rather than append-only. Each checkpoint invalidates reuse from the first replaced history token; the unchanged request prefix before that range remains reusable.
+
 ### Auxiliary summarizer user message
 
-**What the model sees**: The summarization model receives exactly `Summarize this conversation history:` followed by a blank line, the data-dependent [`renderTranscript()`](../compact/README.md) output, another blank line, and `Summary:`. The conversation model never sees this private request or its reasoning; only returned text is stored.
+#### What the model sees
 
-**Token effect**: This is a separate model call with data-dependent input and `maxTokens`-capped output. Convergence retries can pay this cost more than once.
+The summarization model receives exactly `Summarize this conversation history:` followed by a blank line, the data-dependent [`renderTranscript()`](../compact/README.md) output, another blank line, and `Summary:`. The conversation model never sees this private request or its reasoning; only returned text is stored.
+
+#### Token effect
+
+This is a separate model call with data-dependent input and `maxTokens`-capped output. Convergence retries can pay this cost more than once.
+
+#### KV Cache effect
+
+Independent of the conversation request cache. An auxiliary call can reuse an exact transcript prefix, while a different selected range or rendering invalidates reuse from its first changed token.
 
 ### Auxiliary summarizer system prompt
 
-**What the model sees**: The summarization model receives the checkpoint-writing instruction below.
+#### What the model sees
 
-**Token effect**: Fixed auxiliary input cost plus the data-dependent transcript on every summarization attempt.
+The summarization model receives the checkpoint-writing instruction below.
 
-#### Auxiliary summarizer system prompt
+##### Auxiliary summarizer system prompt
 
 ```markdown
 You are a compaction engine for an AI coding assistant. Condense the conversation transcript into a structured checkpoint that lets another model resume the work with no loss of essential context.
@@ -117,6 +133,14 @@ Rules:
 - If the transcript already contains a <compacted-summary> block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.
 ```
 
+#### Token effect
+
+Fixed auxiliary input cost plus the data-dependent transcript on every summarization attempt.
+
+#### KV Cache effect
+
+Prefix-stable for auxiliary calls while this instruction and the summarizer route are unchanged. Changing either starts a different prefix; transcript changes occur after the instruction.
+
 ## Known Limitations and Deferred Work
 
 - **Meter accuracy follows the fixed heuristic** — missing reusable provider usage falls back to character count plus structural overhead rather than exact tokenization.
@@ -124,4 +148,4 @@ Rules:
 - **Some indivisible-unit and envelope-only overflow remains outside surface compaction** — recovery cannot shrink system/tools/prefix, split an indivisible non-tool node, or repair a tool unit whose non-prunable remainder still exceeds the window. The optional pruner can shrink text-bearing tool-result bulk inside an otherwise indivisible pair.
 - **`compactRegion` requires an open turn** — a manual call on a fully-closed session throws ("no open turn") rather than compacting.
 - **Summarization failure preserves the latest durable surface** — before any replacement, the auto path logs a warning and proceeds with full over-budget history. If pruning already landed, a later summarization failure proceeds from that durable pruned surface. Summarization truncation at `maxTokens`, which hidden reasoning tokens can consume, follows the same rule.
-- **The summarization call has no transcript-snapshot coverage** — `dsh-llm-replay` derives calls from `assistant/chunk` events, so this chunk-less direct `ctx.llm.stream()` call cannot replay (named deferred replay infrastructure in [the seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)).
+- **The summarization call has no transcript-snapshot coverage** — `dsh-llm-replay` derives calls from `assistant/chunk` events, so this chunk-less direct `ctx.llm.stream()` call cannot replay (named deferred replay infrastructure in [the seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)).

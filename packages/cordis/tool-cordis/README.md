@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-tool-cordis
 
-The self-referential cordis toolset: three model-facing tools over the live runtime the agent runs inside. Design home — sandbox semantics, mount lifecycle, cross-mount composition, the generated API catalog, standing decisions: [the toolset RFC](../../../docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
+The self-referential cordis toolset: three model-facing tools over the live runtime the agent runs inside. Design home — sandbox semantics, mount lifecycle, cross-mount composition, the generated API catalog, standing decisions: [the toolset Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
 
 ## What it does
 
@@ -12,7 +12,7 @@ Exact model-facing schemas: [the generated tool catalog](../../../docs/tool-cata
 
 ## Trust stance
 
-The sandbox isolates globals but is not a security boundary. Node globals are absent or redirect to Cordis services such as `ctx.fs`, `ctx.web`, and `ctx.bash`, and writes to `globalThis` stay local, but host-realm helpers make escape possible. Mounted plugins receive a façade without framework internals, yet its allowed services affect the live runtime. Treat this toolset like bash access; see the [design and trust stance](../../../docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
+The sandbox isolates globals but is not a security boundary. Node globals are absent or redirect to Cordis services such as `ctx.fs`, `ctx.web`, and `ctx.bash`, and writes to `globalThis` stay local, but host-realm helpers make escape possible. Mounted plugins receive a façade without framework internals, yet its allowed services affect the live runtime. Treat this toolset like bash access; see the [design and trust stance](../../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
 
 ## Config
 
@@ -36,21 +36,45 @@ Namespace plugin: named exports `name` / `inject` / `Config` / `apply`, no defau
 
 ### Tool schemas
 
-**What the model sees**: The conversation model sees the generated [`cordis_inspect`, `cordis_mount`, and `cordis_unmount` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-cordis) whenever this plugin is visible.
+#### What the model sees
 
-**Token effect**: Fixed schema cost on every request in that tool view.
+The conversation model sees the generated [`cordis_inspect`, `cordis_mount`, and `cordis_unmount` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-cordis) whenever this plugin is visible.
+
+#### Token effect
+
+Fixed schema cost on every request in that tool view.
+
+#### KV Cache effect
+
+Prefix-stable while this tool view is unchanged. Scoping or plugin lifecycle changes that hide these definitions may invalidate reuse from the first changed schema token.
 
 ### Tool-call history and results
 
-**What the model sees**: Inspect joins selected sections exactly as `## <section>` then a newline and the data-dependent body, with one blank line between sections. Its broad API/event reports omit JSDoc; `name` with `what: "api"` or `what: "events"` returns one exact target with its original JSDoc. Mount returns `mounted <id> (plugin "<name>", state: <state>)`, optionally inserting ` — waiting for service(s): <names> (activates when provided)` before the closing parenthesis. Unmount returns `unmounted <id> (plugin "<name>")`; an unknown id becomes `Error: no dynamic plugin with id "<id>" (list mounts with cordis_inspect what:"dynamic")`. The submitted mount program remains in the assistant tool-call history.
+#### What the model sees
 
-**Token effect**: Inspect output and mount code are data-dependent and resent until compaction; lifecycle acknowledgements are small.
+Inspect joins selected sections exactly as `## <section>` then a newline and the data-dependent body, with one blank line between sections. Its broad API/event reports omit JSDoc; `name` with `what: "api"` or `what: "events"` returns one exact target with its original JSDoc. Mount returns `mounted <id> (plugin "<name>", state: <state>)`, optionally inserting ` — waiting for service(s): <names> (activates when provided)` before the closing parenthesis. Unmount returns `unmounted <id> (plugin "<name>")`; an unknown id becomes `Error: no dynamic plugin with id "<id>" (list mounts with cordis_inspect what:"dynamic")`. The submitted mount program remains in the assistant tool-call history.
+
+#### Token effect
+
+Inspect output and mount code are data-dependent and resent until compaction; lifecycle acknowledgements are small.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ### Later requests after a mount
 
-**What the model sees**: A mounted plugin may register tools, prompt contributions, or listeners that change later requests for the scopes it targets; unmount removes those contributions after quiescence.
+#### What the model sees
 
-**Token effect**: Indirect token impact equals the mounted plugin's contributions and lasts only for the mount lifetime.
+A mounted plugin may register tools, prompt contributions, or listeners that change later requests for the scopes it targets; unmount removes those contributions after quiescence.
+
+#### Token effect
+
+Indirect token impact equals the mounted plugin's contributions and lasts only for the mount lifetime.
+
+#### KV Cache effect
+
+Mounting or unmounting a prompt or tool contribution changes later request prefixes and may invalidate reuse from the first changed contribution; an unchanged mount set remains prefix-stable.
 
 ## Known Limitations and Deferred Work
 

@@ -49,6 +49,19 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     expect(bash?.source).toBe('packages/bash/tool-bash/src/index.ts')
   })
 
+  it('harvests search tools without depending on the generator process PATH', async () => {
+    const oldPath = process.env.PATH
+    try {
+      process.env.PATH = ''
+      const catalog = await collectToolCatalog()
+      const search = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-fs-search')
+      expect(search?.schemas.map(s => s.name).sort()).toEqual(['glob', 'grep'])
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH
+      else process.env.PATH = oldPath
+    }
+  })
+
   it('records the shipped `subagent_fork` alias in a note (config-driven tool name)', async () => {
     // `tool-subagent`'s registered name is the load-time `toolName` config, so the shipped
     // agents surface this one package as both `subagent` and `subagent_fork`.

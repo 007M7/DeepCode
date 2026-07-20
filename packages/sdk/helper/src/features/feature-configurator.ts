@@ -26,6 +26,7 @@ export class FeatureConfigurator {
    * @param current - currently installed selection, when configuring.
    * @param prefilledOptions - options already chosen by a tree picker.
    * @param prefilledSecrets - non-interactive secret values supplied by creation.
+   * @param prefilledValues - non-interactive value inputs supplied by a headless spec.
    * @returns normalized selection with captured values and secrets.
    */
   async configure(
@@ -34,6 +35,7 @@ export class FeatureConfigurator {
     current?: FeatureSelection,
     prefilledOptions?: readonly string[],
     prefilledSecrets: Readonly<Record<string, string>> = {},
+    prefilledValues: Readonly<Record<string, unknown>> = {},
   ): Promise<FeatureSelection> {
     let options: readonly string[]
     switch (feature.mode) {
@@ -69,6 +71,11 @@ export class FeatureConfigurator {
       id: feature.id,
       options,
     }
+    const coercedPrefilled: Record<string, string> = {}
+    for (const [key, value] of Object.entries(prefilledValues)) {
+      if (typeof value !== 'string') throw new Error(`${feature.id}.${key} value must be a string`)
+      coercedPrefilled[key] = value
+    }
     const values: Record<string, string> = {}
     for (const input of feature.valueInputs(selected, profile)) {
       const existing = current?.values?.[input.id]
@@ -81,7 +88,7 @@ export class FeatureConfigurator {
         ...existing === undefined ? {} : { initialValue: existing },
         validate: value => value.trim().length === 0 ? 'A value is required' : undefined,
       })
-      values[input.id] = requireAnswer(await question.resolve(this.port))
+      values[input.id] = requireAnswer(await question.resolve(this.port, coercedPrefilled[input.id]))
     }
     const base: FeatureSelection = Object.keys(values).length === 0
       ? selected

@@ -67,6 +67,10 @@
       "link": "/zh-CN/api/harness/sandbox"
     },
     {
+      "text": "ctx.sandboxPolicy",
+      "link": "/zh-CN/api/harness/sandbox-policy"
+    },
+    {
       "text": "ctx.sessionPersistence",
       "link": "/zh-CN/api/harness/session-persistence"
     },

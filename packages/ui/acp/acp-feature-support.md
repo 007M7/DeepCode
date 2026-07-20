@@ -86,13 +86,13 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | `plan` | S | ❌ | ✅ | ✅ | No agent plan emitted. Both adapters emit real plan entries (Codex's `CodexEventHandler.updatePlan` maps `turn/plan/updated` → `{ sessionUpdate: 'plan', entries }`). |
 | `available_commands_update` | S | ❌ | ✅ | ✅ | No slash commands advertised. |
 | `current_mode_update` | S | ❌ | ✅ | ✅ | No session modes. |
-| `config_option_update` | S | ❌ | ✅ | ✅ | Config options exist (advertised in `session/new`/`session/load`, switched via `session/set_config_option`), but the bridge never pushes agent-initiated changes — an operator default drift is narrated to the MODEL, not echoed to the editor. Future work in the [sandbox RFC § Per-session mode switching](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md). |
+| `config_option_update` | S | ❌ | ✅ | ✅ | Config options exist (advertised in `session/new`/`session/load`, switched via `session/set_config_option`), but the bridge never pushes agent-initiated changes — an operator default drift is narrated to the MODEL, not echoed to the editor. Future work in the [sandbox Agent Note § Per-session mode switching](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md). |
 | `usage_update` | S | ❌ | ✅ | ✅ | Token/cost reporting not surfaced (the harness records token usage internally on `assistant/message`). |
 | `session_info_update` | S | ❌ | ⚠️ | ⚠️ | Session title/metadata not pushed. |
 
 ## 5. Tool-call rendering
 
-Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult` on the `dsh-tools` definition), not special-cased in the bridge — see the [terminal-and-tool-rendering RFC](../../../docs/rfc/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md).
+Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult` on the `dsh-tools` definition), not special-cased in the bridge — see the [terminal-and-tool-rendering Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md).
 
 | Feature | Stable | Bridge | Claude | Codex | Notes |
 |---|---|---|---|---|---|
@@ -111,7 +111,7 @@ Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult
 
 ## 6. Session modes / config options / models
 
-Config options ✅: the bridge advertises a `model` select from the advisory LLM provider/model catalog, preserving each provider/model pair in an opaque value and grouping multiple providers. A selected pair is isolated to one session, snapshotted with the prompt for each step, applied through `agent/request`, and restored from the logged request header on load. When `ctx.permission` is composed, the bridge also advertises one `permission` select whose values come from the deployment preset table and whose current value derives from the session log; idle permission switches anchor at the next `agent/prompt-submit` inside its open turn. Session modes stay deliberately unmodeled because config options replace them in ACP v2. See the [model-catalog RFC](../../../docs/rfc/implemented/architecture/2026-07-15-llm-model-catalog-and-acp-selection.md) and [sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md).
+Config options ✅: the bridge advertises a `model` select from the advisory LLM provider/model catalog, preserving each provider/model pair in an opaque value and grouping multiple providers. A selected pair is isolated to one session, snapshotted with the prompt for each step, applied through `agent/request`, and restored from the logged request header on load. When `ctx.permission` is composed, the bridge also advertises one `permission` select whose values come from the deployment preset table and whose current value derives from the session log; idle permission switches anchor at the next `agent/prompt-submit` inside its open turn. Session modes stay deliberately unmodeled because config options replace them in ACP v2. See the [model-catalog Agent Note](../../../.agents/notes/implemented/architecture/2026-07-15-llm-model-catalog-and-acp-selection.md) and [sandbox Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md).
 
 ## 7. Content blocks
 
@@ -130,7 +130,7 @@ The bridge rejects unsupported prompt blocks rather than silently dropping them 
 | Feature | Stable | Bridge | Notes |
 |---|---|---|---|
 | `StopReason` mapping | S | ✅ | `turnEndToStopReason` is total over harness turn-end reasons → `end_turn`/`max_tokens`/`cancelled`. |
-| Multi-session (N per connection) | S | ✅ | Strict per-session demux; concurrent streams never interleave. See the [multi-session RFC](../../../docs/rfc/implemented/feature/2026-06-14-acp-multi-session.md). |
+| Multi-session (N per connection) | S | ✅ | Strict per-session demux; concurrent streams never interleave. See the [multi-session Agent Note](../../../.agents/notes/implemented/feature/2026-06-14-acp-multi-session.md). |
 | Disconnect / disposal teardown | S | ✅ | Quiesces every live session on client disconnect or Cordis disposal. |
 | `_meta` extensibility | S | ⚠️ | Consumed (Zed terminal cap) and emitted (terminal `_meta`); no other custom extensions. |
 | Background-task ownership isolation | — | ✅ | Generic `task_output`/`task_kill` reject tasks whose branded owner `SessionId` belongs to another session. |
@@ -156,4 +156,4 @@ Unstable/draft ACP features that **neither** reference adapter ships are not tra
 
 - Stable spec: `schema/v1/schema.json` (schema `1.14.0`) and `docs/protocol/v1/*.mdx` in the [agent-client-protocol](https://github.com/agentclientprotocol/agent-client-protocol) repo.
 - Reference adapters: [`claude-agent-acp`](https://github.com/zed-industries/claude-code-acp) and [`codex-acp`](https://github.com/zed-industries/codex-acp).
-- Bridge: [`README.md`](README.md), [`src/index.ts`](src/index.ts), and the ACP RFCs under [`docs/rfc/`](../../../docs/rfc/README.md).
+- Bridge: [`README.md`](README.md), [`src/index.ts`](src/index.ts), and the ACP Agent Notes under [`.agents/notes/`](../../../.agents/notes/README.md).

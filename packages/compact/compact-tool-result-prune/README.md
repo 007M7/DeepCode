@@ -39,9 +39,17 @@ export function apply(ctx: Context): void {
 
 ### Pruned tool result
 
-**What the model sees**: Once a compaction trigger qualifies, future requests see the retained head, `\n\n[... tool result middle pruned ...]\n\n`, and retained tail in place of the removed text. Rich blocks keep their order. The model does not see a second copy of the original.
+#### What the model sees
 
-**Token effect**: Each rewritten tool result has at most `thresholdChars` text code points. Pruning itself makes no model call; compact-basic skips summarization when the remeasured request falls below pressure, otherwise the summarizer reads the pruned surface.
+Once a compaction trigger qualifies, future requests see the retained head, `\n\n[... tool result middle pruned ...]\n\n`, and retained tail in place of the removed text. Rich blocks keep their order. The model does not see a second copy of the original.
+
+#### Token effect
+
+Each rewritten tool result has at most `thresholdChars` text code points. Pruning itself makes no model call; compact-basic skips summarization when the remeasured request falls below pressure, otherwise the summarizer reads the pruned surface.
+
+#### KV Cache effect
+
+Replacing an earlier result invalidates the reusable request prefix from that result onward; subsequent requests reuse the new pruned prefix until another surface replacement occurs.
 
 ## Known Limitations and Deferred Work
 

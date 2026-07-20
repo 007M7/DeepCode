@@ -6,7 +6,7 @@
 
 Owns the deployment's permission presets and their write path. Requires a confining `ctx.bash` executor and `ctx.approval`; unmatched knob values are reported as CUSTOM_PRESET, not an error.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/permission/src/index.ts#L94)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/permission/src/index.ts#L97)
 
 ### ctx.permission.names
 
@@ -20,7 +20,7 @@ get names(): readonly string[]
 
 The advertised preset names, in the preset table's declaration order.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/permission/src/index.ts#L134)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/permission/src/index.ts#L137)
 
 ### ctx.permission.current(events)
 
@@ -41,7 +41,7 @@ Resolve the preset matching the effective knob values. A still-matching last sel
 
 **Returns** the effective preset name, or `custom` when nothing matches.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/permission/src/index.ts#L145)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/permission/src/index.ts#L148)
 
 ### ctx.permission.resolve(name)
 
@@ -61,7 +61,7 @@ Resolve a preset's knob bundle.
 
 **Returns** the configured bundle.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/permission/src/index.ts#L166)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/permission/src/index.ts#L169)
 
 ### ctx.permission.optionOf(name)
 
@@ -82,7 +82,7 @@ Build the client option for a table entry or CUSTOM_PRESET. A missing label fall
 
 **Returns** the option a client renders.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/permission/src/index.ts#L181)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/permission/src/index.ts#L184)
 
 ### ctx.permission.set(session, name)
 
@@ -101,4 +101,4 @@ Record a changed preset, then update each changed knob through its own setter. S
 - `session` — the session the switch belongs to.
 - `name` — the preset to switch to; unknown names throw.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/permission/src/index.ts#L195)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/permission/src/index.ts#L198)

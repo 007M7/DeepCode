@@ -5,7 +5,7 @@
 
 Every event type that can appear in a session's durable event log: the complete persisted `SessionEvent` envelope and each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with source JSDoc, full payload declaration, surface badge, and declaration site. It complements [session.md](core-data-structures/session.md) (surface ordering and the `deriveMessages()` projection), [persistence.md](core-data-structures/persistence.md) (how the log is made durable), and the [cordis events catalog](cordis-catalog/events.md) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).
 
-This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks retain the source declaration and nested property JSDoc, removing only the indentation imposed by a containing interface/module, and use a `ts persistence-catalog` fence (skipped by doc-typecheck because declarations reference types from their owning modules). Type names in a payload link to the page that documents them. See [the persistence-log-catalog RFC](rfc/implemented/process/2026-07-04-persistence-log-catalog.md).
+This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks retain the source declaration and nested property JSDoc, removing only the indentation imposed by a containing interface/module, and use a `ts persistence-catalog` fence (skipped by doc-typecheck because declarations reference types from their owning modules). Type names in a payload link to the page that documents them. See [the persistence-log-catalog Agent Note](../.agents/notes/implemented/process/2026-07-04-persistence-log-catalog.md).
 
 The envelope declarations below compose each event's `type`, monotonic `seq`, epoch-ms `time`, `data`, and the conditional `surfaceOp`/`sourceEventSeqs` fields. **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: a durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](core-data-structures/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.
 
@@ -169,21 +169,6 @@ Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-st
 
 Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
 
-### `bash/*`
-
-#### `bash/sandbox-mode` — log-only
-
-```ts persistence-catalog
-/**
- * Durable log-only sandbox-mode override; never a surface event or model
- * message. Execution and ACP option reporting fold the latest event through
- * {@link effectiveSandboxMode} without adding a prompt notice.
- */
-'bash/sandbox-mode': { mode: SandboxMode }
-```
-
-Source: [`packages/bash/bash/src/session-mode.ts:20`](../packages/bash/bash/src/session-mode.ts)
-
 ### `compact/*`
 
 #### `compact/end` — log-only
@@ -224,7 +209,7 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
    * The model that wrote the summary — the summarize call's envelope,
    * reported by the backend that made the call, logged so the one-shot
    * request is reconstructable from log + code and "which model wrote
-   * this summary" has a durable answer (the reconstructability RFC).
+   * this summary" has a durable answer (the reconstructability Agent Note).
    */
   model: string
   /** The generation cap the summarize call sent, when one applied. */
@@ -320,7 +305,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:33`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src/index.ts)
 
 ### `prompt/*`
 
@@ -351,6 +336,24 @@ Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/
 ```
 
 Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/types.ts)
+
+### `sandbox/*`
+
+#### `sandbox/mode` — log-only
+
+```ts persistence-catalog
+/**
+ * The session's sandbox mode was switched — log-only (like `approval/*`;
+ * NOT a surface event, carries no `surfaceOp`): durable and replayable,
+ * never in the model transcript. The LAST such event is the session's
+ * override ({@link effectiveSandboxMode}); who asked for it is derivable
+ * from position (an event after the log's last `request/header*` was a
+ * runtime switch by the user; see the tool layer's narrator).
+ */
+'sandbox/mode': { mode: SandboxMode }
+```
+
+Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
 
 ### `steering/*`
 

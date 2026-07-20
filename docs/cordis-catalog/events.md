@@ -408,7 +408,7 @@ Single-slot decision for the next FileSystem.editText. Calling `next()` yields a
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:61`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:62`](../../packages/fs/fs/src/index.ts)
 
 ### `fs/observed` — emit
 
@@ -428,7 +428,7 @@ Record a successful observation. Listeners must be synchronous recorders: throws
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:70`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:71`](../../packages/fs/fs/src/index.ts)
 
 ### `fs/write-intent` — waterfall
 
@@ -448,7 +448,7 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:53`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:54`](../../packages/fs/fs/src/index.ts)
 
 ## `llm/*`
 
@@ -463,7 +463,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
  * adapter's stream, or yield your own chunks to short-circuit.
  * @param options - the full request. A LOOP-built request arrives
  *   deep-frozen (mutation throws): its content is a pure function of the
- *   session log (the reconstructability RFC), so listeners read it, never
+ *   session log (the reconstructability Agent Note), so listeners read it, never
  *   rewrite it. A hand-built one-shot (compaction summarize) is the
  *   caller's own object and stays mutable here.
  * @mode waterfall
