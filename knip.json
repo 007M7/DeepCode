@@ -72,11 +72,11 @@
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/goal/goal-session": {
-      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "entry": ["tests/**/*.spec.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/goal/tool-goal": {
-      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "entry": ["tests/**/*.spec.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/code-runtime/code-runtime-worker": {
