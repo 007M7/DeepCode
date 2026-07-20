@@ -14,7 +14,9 @@ import { foldGoal } from '@deepseek-ai/dsh-goal'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 
-const scenarioDir = join(dirname(fileURLToPath(import.meta.url)), 'snapshots/goal-session')
+// This lifecycle proof has goal-specific timestamp normalization and semantic
+// assertions, so it owns a separate snapshot root from the generic ACP suite.
+const scenarioDir = join(dirname(fileURLToPath(import.meta.url)), 'goal-snapshots/goal-session')
 const fixtureFile = join(scenarioDir, 'session.jsonl')
 const overrideFile = join(scenarioDir, 'replay.override.json')
 const stdoutExpected = join(scenarioDir, 'stdout.expected.jsonl')
