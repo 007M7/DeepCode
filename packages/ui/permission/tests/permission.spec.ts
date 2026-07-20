@@ -51,7 +51,7 @@ describe('PermissionService', () => {
   it('a knob state matching no table entry derives custom — a state, not an error', async () => {
     const ctx = await mounted()
     const session = freshSession('sess-custom')
-    session.append('bash/sandbox-mode', { mode: 'read-only' })
+    session.append('sandbox/mode', { mode: 'read-only' })
     expect(ctx.permission.current(session.events)).toBe(CUSTOM_PRESET)
     ctx.permission.set(session, 'danger-full-access')
     expect(ctx.permission.current(session.events)).toBe('danger-full-access')
@@ -74,7 +74,7 @@ describe('PermissionService', () => {
     ctx.permission.set(session, 'agentish')
     expect(ctx.permission.current(session.events)).toBe('agentish')
     session.append('approval/policy', { policy: 'never' })
-    session.append('bash/sandbox-mode', { mode: 'danger-full-access' })
+    session.append('sandbox/mode', { mode: 'danger-full-access' })
     expect(ctx.permission.current(session.events)).toBe('danger-full-access')
   })
 
@@ -84,7 +84,7 @@ describe('PermissionService', () => {
     ctx.permission.set(session, 'danger-full-access')
     expect(session.events.map(e => [e.type, e.data])).toEqual([
       ['permission/preset', { preset: 'danger-full-access' }],
-      ['bash/sandbox-mode', { mode: 'danger-full-access' }],
+      ['sandbox/mode', { mode: 'danger-full-access' }],
       ['approval/policy', { policy: 'never' }],
     ])
   })
@@ -102,12 +102,12 @@ describe('PermissionService', () => {
     ctx.permission.set(session, 'danger-full-access')
     // Re-selecting from a drifted state records the choice and repairs only
     // the changed knob.
-    session.append('bash/sandbox-mode', { mode: 'read-only' })
+    session.append('sandbox/mode', { mode: 'read-only' })
     ctx.permission.set(session, 'danger-full-access')
     const tail = session.events.slice(4)
     expect(tail.map(e => [e.type, e.data])).toEqual([
       ['permission/preset', { preset: 'danger-full-access' }],
-      ['bash/sandbox-mode', { mode: 'danger-full-access' }],
+      ['sandbox/mode', { mode: 'danger-full-access' }],
     ])
   })
 

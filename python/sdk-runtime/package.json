@@ -38,6 +38,7 @@
     "@deepseek-ai/dsh-paths": "workspace:^",
     "@deepseek-ai/dsh-repeat-tool-guard": "workspace:^",
     "@deepseek-ai/dsh-sandbox": "workspace:^",
+    "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
     "@deepseek-ai/dsh-scope": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-persistence": "workspace:^",
