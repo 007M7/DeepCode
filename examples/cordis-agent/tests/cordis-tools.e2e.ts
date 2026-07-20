@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { cordisHarness, waitForIdle } from './harness.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 /**
  * With-key smoke for the self-referential cordis tools: a REAL model drives
@@ -38,7 +38,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
   it('mounts a status listener whose tagged output actually fires, then unmounts it', async () => {
     ctx = await cordisHarness()
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const agent = ctx.agentLoop.create(AgentId('cordis-e2e-listener'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('cordis-e2e-listener'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',
@@ -66,7 +66,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
 
   it('builds itself a reverse_text tool and actually calls it', async () => {
     ctx = await cordisHarness()
-    const agent = ctx.agentLoop.create(AgentId('cordis-e2e-selftool'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('cordis-e2e-selftool'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',
@@ -113,7 +113,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
 
   it('composes two mounts through provide/inject, and unmounting the provider parks the consumer', async () => {
     ctx = await cordisHarness()
-    const agent = ctx.agentLoop.create(AgentId('cordis-e2e-compose'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('cordis-e2e-compose'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',

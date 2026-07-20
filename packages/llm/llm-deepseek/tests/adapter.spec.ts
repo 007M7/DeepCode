@@ -2,9 +2,11 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { LlmError, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmService, { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, userAgent } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import { DeepSeekAdapter, httpErrorCode } from '@deepseek-ai/dsh-llm-deepseek'
+import { DeepSeekAdapter } from '@deepseek-ai/dsh-llm-deepseek'
+import { httpErrorCode } from '../src/adapter.ts'
 import { assemble } from './assemble.ts'
 
 /** One scripted behavior for the next request the mock server receives. */
@@ -132,6 +134,19 @@ describe('DeepSeekAdapter against a mock server', () => {
     expect(kinds).toEqual(['block-start', 'text-delta', 'block-end', 'usage', 'finish'])
   })
 
+  it('forwards the harness session id for host-side trajectory routing', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const ctx = await harness(server.url)
+
+    await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      sessionId: SessionId('child-session'),
+    })
+
+    expect(server.headers[0]?.['x-deepseek-harness-session-id']).toBe('child-session')
+  })
+
   it('forwards thinking config onto the wire', async () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const ctx = await harness(server.url, { thinking: 'disabled', reasoningEffort: 'high' })
@@ -159,7 +174,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       status,
       body: JSON.stringify({ error: { message: `failed with ${status}`, type: 't', code: 'c' } }),
     }
-    const server = await mockServer([behavior, behavior, behavior])
+    const server = await mockServer([behavior, behavior])
     const ctx = await harness(server.url)
     await expect(assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] }))
       .rejects.toThrow(`failed with ${status}`)
@@ -167,11 +182,32 @@ describe('DeepSeekAdapter against a mock server', () => {
       assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
         .catch((error: unknown) => (error as LlmError).code),
     ).resolves.toBe(code)
-    // The numeric HTTP status is carried on the error for explicit handling.
-    await expect(
-      assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
-        .catch((error: unknown) => (error as LlmError).status),
-    ).resolves.toBe(status)
+  })
+
+  it('classifies a thrown HTTP context-window rejection with the canonical code', async () => {
+    const server = await mockServer([{
+      kind: 'http-error',
+      status: 400,
+      body: JSON.stringify({
+        error: {
+          message: 'This model maximum context length is 128000 tokens; your input exceeds that limit.',
+          type: 'invalid_request_error',
+          code: 'context_length_exceeded',
+        },
+      }),
+    }])
+    const ctx = await harness(server.url)
+    const code = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+      .catch((error: unknown) => (error as LlmError).code)
+    expect(code).toBe(CONTEXT_WINDOW_EXCEEDED_CODE)
+  })
+
+  it('classifies only context-capacity HTTP 400 details as context overflow', () => {
+    expect(httpErrorCode(400, { message: 'request too large for model context' }))
+      .toBe(CONTEXT_WINDOW_EXCEEDED_CODE)
+    expect(httpErrorCode(400, { message: 'invalid input: temperature exceeds maximum allowed value' }))
+      .toBe('INVALID_REQUEST')
+    expect(httpErrorCode(413, { code: 'context_length_exceeded' })).toBe('HTTP_413')
   })
 
   it('keeps the status-line message for JSON error bodies without a message', async () => {
@@ -241,6 +277,19 @@ describe('DeepSeekAdapter against a mock server', () => {
 })
 
 describe('plugin registration and config', () => {
+  it('keeps wire helpers off the package root', () => {
+    for (const helper of [
+      'httpErrorCode',
+      'serializeMessages',
+      'serializeRequest',
+      'DONE',
+      'parseSse',
+      'mapFinishReason',
+      'mapUsage',
+      'translate',
+    ]) expect(LlmDeepSeek).not.toHaveProperty(helper)
+  })
+
   it('registers the deepseek provider and unregisters on dispose (HMR safety)', async () => {
     const server = await mockServer([])
     const ctx = new Context()

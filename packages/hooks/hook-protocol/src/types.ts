@@ -43,7 +43,7 @@ declare module '@deepseek-ai/dsh-session' {
 /**
  * The bridge that ran a hook — the CC bridge stamps `'claude'`, the Codex
  * bridge `'codex'`. A native plugin on the interception seams is not a bridge
- * and writes no `hook/*` provenance (see the interception-seams RFC).
+ * and writes no `hook/*` provenance (see the interception-seams Agent Note).
  */
 export type HookDialect = 'claude' | 'codex'
 
@@ -130,7 +130,7 @@ export interface HookOutput {
   systemMessage?: string
   /**
    * A tool-input rewrite a hook requested (CC `updatedInput`). PARSED but NOT
-   * honored — input rewrite is deferred (see the interception-seams RFC); a
+   * honored — input rewrite is deferred (see the interception-seams Agent Note); a
    * bridge logs + warns when this is present.
    */
   updatedInput?: Record<string, unknown>

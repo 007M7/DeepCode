@@ -29,7 +29,8 @@
   config:
     cwd: !!js process.cwd()
 
-# The app pre-creates `main` on the mock model and supplies logging, persistence, and readline UI.
+# The app pre-creates `main` on the mock model and supplies persistence plus
+# TTY-selected `dsh-tui`/`dsh-stdio` front doors; readline mode also owns logging.
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-demo'
   config:

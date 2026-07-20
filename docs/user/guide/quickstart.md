@@ -70,7 +70,7 @@ Create a gitignored `.env` file in the repository root:
 DEEPSEEK_API_KEY=sk-your-key-here
 ```
 
-### Start coding-agent
+### Start repl-agent
 
 ```sh
 pnpm run demo:repl
@@ -91,7 +91,7 @@ Try a task:
 
 ## What happened
 
-echo-agent and coding-agent use the same application framework (`@deepseek-ai/dsh-stdio-demo`). Their `cordis.yml` files select different plugins and configuration. Custom agents use the same composition model.
+echo-agent and repl-agent use the same application framework (`@deepseek-ai/dsh-stdio-demo`). Their `cordis.yml` files select different plugins and configuration. Custom agents use the same composition model.
 
 ## Next steps
 

@@ -22,7 +22,7 @@ Use the split lifecycle only when teardown must be ordered with another resource
 - `enter(session)` performs the collision check, publishes without announcing, and returns an entry-bound idempotent detach. Concurrent same-id preparations are allowed, but only one entry succeeds; a stale detach cannot remove its replacement.
 - `announce(session)` emits the single creation edge and rejects repeat or reentrant announcements. Detach during that dispatch is deferred and later emits the paired disposal edge; an unannounced entry emits neither lifecycle edge.
 
-`dsh-agent-loop` uses this split so final loop flush precedes session detach; see the [ownership RFC](../../../docs/rfc/implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md).
+`dsh-agent-loop` uses this split so final loop flush precedes session detach; see the [ownership Agent Note](../../../.agents/notes/implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md).
 
 ### Live service events
 
@@ -35,7 +35,7 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 - `session.append(type, data, opts?)` snapshots and freezes durable data and surface metadata, validates marker shape, provenance, and complete replacement coverage, commits synchronously, then notifies observers with independent failure containment. Reentrant attached-session appends reject, and runtime checks cover widened unions and loaded logs.
 - `session.deriveMessages()` incrementally projects each new surface entry once and returns a fresh array over shared frozen messages. Assistant projections preserve provider/model provenance and adapter-private replay state. A surface rewrite rebuilds the projection; there is no raw-log fallback.
 - `session.deriveEventMessage(event)` is the canonical per-event projection used by reconstruction and invariants.
-- `session.surface` lazily folds only new `surfaceOp` markers; `replaceGeneration` changes on every rewrite.
+- `session.surface` exposes the readonly `SessionSurface` view owned by the session's single incremental surface manager; `replaceGeneration` changes on every committed rewrite.
 - `session.events` is a cached frozen snapshot invalidated by append; accepted events remain deeply frozen.
 - `session.seq`, `session.id` — current sequence and readonly typed identity.
 - `session.header: SessionHeader` — detached, deep-frozen creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`/`seedLength`). Construction validates the durable record and requires its id to match `session.id`.
@@ -48,12 +48,13 @@ Durable values need one accepted representation, not a check followed by a secon
 
 - `SurfaceOp` — how an event entered the ordered surface: `'append'` (normal tail append) or `{ op: 'replace', start, end }` (replace entries from `start` through `end` inclusive — both must be valid surface seqs; `start === end` replaces one entry). Used by compaction to shadow old events without deleting them.
 - `SurfaceIntent` — `{ surfaceOp: SurfaceOp; sourceEventSeqs?: number[] }`, the required third parameter to `session.append()` for surface-eligible types.
+- `SessionSurface` — the readonly live `nodes` and `replaceGeneration` projection exposed by `session.surface`; candidate validation remains private to `Session`.
 - `foldSurface(events)` — replay the canonical surface contract into detached current event sequences and actual replacement ranges. The same pass rejects non-contiguous seqs, misplaced or malformed metadata, empty or duplicate provenance, non-earlier sources, invalid positional ranges, and replacements that fail to cite every shadowed surface entry; `SurfaceManager` shares the atomic transition while retaining only its incremental sequence cache.
 - `isSurfaceEvent(event)` / `isSurfaceEligibleType(type)` — the first narrows a `SessionEvent` to a fully formed surface event; the second detects a surface-eligible event missing its marker when validating a seed or loaded log.
 
 ### Request-header reconstruction (`request-header.ts`)
 
-`request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. `messagePrefix` remains separate from derived history. See the [reconstructable-requests RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
+`request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. `messagePrefix` remains separate from derived history. See the [reconstructable-requests Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
 `context/message` defaults to the canonical tagged context projection. A producer may set `envelope: 'raw'` when its `content` already contains the complete model-facing frame, and may attach JSON `meta` for replayable plugin state; metadata remains durable but is excluded from `deriveMessages()`.
 
@@ -84,25 +85,49 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 
 ### Derived message history
 
-**What the model sees**: The model receives projections of `user/message`, `assistant/message`, and `tool/result` surface entries verbatim. A `context/message` is a user-role message containing exactly `<context source="<source-kind>">`, its content blocks, and `</context>`; `steering/message` uses the identical `<steering source="<source-kind>">` / `</steering>` wrapper. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
+#### What the model sees
 
-**Token effect**: Appended surface entries are resent on later steps. A `replace` surface operation removes the shadowed entries from future inputs without deleting their raw log records.
+The model receives projections of `user/message`, `assistant/message`, and `tool/result` surface entries verbatim. A `context/message` is a user-role message containing exactly `<context source="<source-kind>">`, its content blocks, and `</context>`; `steering/message` uses the identical `<steering source="<source-kind>">` / `</steering>` wrapper. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
+
+#### Token effect
+
+Appended surface entries are resent on later steps. A `replace` surface operation removes the shadowed entries from future inputs without deleting their raw log records.
+
+#### KV Cache effect
+
+Appended surface entries preserve reusable prefixes. A `replace` operation invalidates reuse from the first shadowed message even though the underlying event log stays append-only.
 
 ### Crash-repair result
 
-**What the model sees**: If a persisted turn ended with unanswered tool calls, each synthetic error result contains exactly `Tool call interrupted by a crash; no result was recorded.`
+#### What the model sees
 
-**Token effect**: Zero tokens in an intact session. Each repaired call adds this retained error text on resume.
+If a persisted turn ended with unanswered tool calls, each synthetic error result contains exactly `Tool call interrupted by a crash; no result was recorded.`
+
+#### Token effect
+
+Zero tokens in an intact session. Each repaired call adds this retained error text on resume.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ### Logged request header
 
-**What the model sees**: The session reconstructs the system prompt, tool schemas, call config, and session prefix that the loop actually sent. Header events do not add a second copy to message history; the prefix is prepended outside `deriveMessages()`.
+#### What the model sees
 
-**Token effect**: Zero duplicate tokens from logging. The reconstructed prefix, system text, and schemas still incur their normal per-request cost.
+The session reconstructs the system prompt, tool schemas, call config, and session prefix that the loop actually sent. Header events do not add a second copy to message history; the prefix is prepended outside `deriveMessages()`.
+
+#### Token effect
+
+Zero duplicate tokens from logging. The reconstructed prefix, system text, and schemas still incur their normal per-request cost.
+
+#### KV Cache effect
+
+Logging causes no invalidation, and exact reconstruction preserves request-prefix identity. A later header with changed prefix, prompt, or schemas may invalidate reuse from its first difference.
 
 ## Known Limitations and Deferred Work
 
 - **Session branching/tree** (pi-style entry tree) — deferred unless needed beyond boundary-based `fork()`.
-- **`fork()` cuts only at closed-turn boundaries of live sessions** — the boundary must be a `turn/end` event and the source must be in the store; forking a persisted-but-unloaded session is excluded from the [fork API](../../../docs/rfc/implemented/feature/2026-06-30-session-store-fork-api.md).
+- **`fork()` cuts only at closed-turn boundaries of live sessions** — the boundary must be a `turn/end` event and the source must be in the store; forking a persisted-but-unloaded session is excluded from the [fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md).
 - **`SESSION_FORMAT_VERSION` stays pinned at `0`** — pre-release, no compatibility implied: a backend rejects any other version, and no migration path exists until the first release ([policy](../../../AGENTS.md)).
 - **`TurnEndReasonMap` omits the ACP-named `refusal` / `max_turn_requests` variants** — producer-gated: they land when an adapter or the loop first emits them.

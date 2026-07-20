@@ -83,7 +83,7 @@ describe('dsh-acp-demo composition', () => {
   })
 
   it('defaults the persistence root when omitted', async () => {
-    // Exercises the `?? './.sessions'` fallback for a direct-apply caller that
+    // Exercises the `DEFAULT_PERSISTENCE_ROOT` fallback for a direct-apply caller that
     // bypasses the schema's `.default(...)`: call `apply` directly (not via
     // `ctx.plugin`, which validates+defaults the config first) with no
     // persistenceRoot, so the runtime fallback is the one that fires.

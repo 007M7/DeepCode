@@ -50,6 +50,7 @@
     { "path": "./packages/context/workspace-context" },
     { "path": "./packages/core/agent-loop" },
     { "path": "./packages/examples/agent-spine-demo" },
+    { "path": "./packages/examples/cli-demo" },
     { "path": "./packages/bash/bash" },
     { "path": "./packages/code-runtime/code-runtime" },
     { "path": "./packages/code-runtime/code-runtime-worker" },
@@ -84,13 +85,13 @@
     { "path": "./packages/ui/app-boot" },
     { "path": "./packages/ui/jsonrpc" },
     { "path": "./packages/examples/jsonrpc-demo" },
+    { "path": "./packages/ui/tui" },
     { "path": "./packages/ui/stdio" },
     { "path": "./packages/examples/stdio-demo" },
     { "path": "./packages/support/llm-replay" },
     { "path": "./packages/support/acp-snapshot" },
     { "path": "./packages/support/loader-smoke" },
     { "path": "./packages/subagent/subagent" },
-    { "path": "./packages/support/subagent-mock" },
     { "path": "./packages/subagent/tool-subagent" },
     { "path": "./packages/subagent/subagent-inprocess" },
     { "path": "./packages/subagent/subagent-subprocess" },
@@ -111,6 +112,7 @@
     { "path": "./packages/mcp/mcp-client" },
     { "path": "./packages/sdk/helper" },
     { "path": "./packages/sdk/scripts" },
-    { "path": "./packages/sdk/create-sdk" }
+    { "path": "./packages/sdk/create-sdk" },
+    { "path": "./packages/sdk/telemetry" }
   ]
 }

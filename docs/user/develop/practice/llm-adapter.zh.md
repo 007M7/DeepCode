@@ -176,7 +176,7 @@ class HttpAdapter extends LlmAdapter {
       ...options.signal ? { signal: options.signal } : {},
     })
     if (!response.ok) {
-      throw new LlmError(`Provider API error: ${response.status}`, 'PROVIDER_HTTP_ERROR', response.status)
+      throw new LlmError(`Provider API error: ${response.status}`, 'PROVIDER_HTTP_ERROR')
     }
     // A real adapter parses the response and emits the complete chunk sequence.
     yield { type: 'finish', reason: { kind: 'stop' } }

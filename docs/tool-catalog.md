@@ -5,7 +5,7 @@
 
 Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the cordis [events](cordis-catalog/events.md) & [services](cordis-catalog/services.md) catalogs (the wiring a plugin listens to and calls) and [core-data-structures/](core-data-structures/core.md) (the types those signatures move) — this page is the *tools* the agent is offered.
 
-This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator's boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog RFC](rfc/implemented/process/2026-07-02-tool-schema-catalog.md).
+This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator's boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog Agent Note](../.agents/notes/implemented/process/2026-07-02-tool-schema-catalog.md).
 
 Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config. The registered tool NAME can be a load-time config (e.g. `tool-subagent`'s `toolName`), so a deployment may surface a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog's packages-only scope.
 
@@ -16,13 +16,13 @@ This table connects model-visible tool names to the plugin package and service s
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
 | --- | --- | --- | --- | --- | --- |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userInteraction` | `tool/call`, `tool/result after a UI/provider answers the question` | - | ask_user_question pauses the tool call until the active UI provider returns a human answer. |
-| `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.codeRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/code-dispatch per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode RFC). Under `code` it is the registry's only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
+| `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.codeRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/code-dispatch per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry's only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.bash`, `ctx.tasks at call time for run_in_background` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.tasks` runtime and is collected/stopped through the `task_*` tools from `@deepseek-ai/dsh-tool-tasks`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled. |
-| `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect`, `cordis_mount`, `cordis_unmount` | `ctx.tools` | `tool/call`, `tool/result`, `live plugin-tree mutations (mount/unmount)` | - | Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes. |
+| `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect`, `cordis_mount`, `cordis_unmount` | `ctx.tools` | `tool/call`, `tool/result`, `live plugin-tree mutations (mount/unmount)` | - | Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes. |
 | `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after successful file operations`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin. |
 | `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.tools`, `ctx.bash`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | glob and grep are bash-backed discovery tools: they run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.skills` | `tool/call`, `tool/result` | - | - |
-| `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/coding-agent/cordis.yml` and `examples/acp-agent/cordis.yml`. |
+| `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/repl-agent/cordis.yml` and `examples/acp-agent/cordis.yml`. |
 | `@deepseek-ai/dsh-tool-tasks` | `task_kill`, `task_list`, `task_output` | `ctx.tools`, `ctx.tasks`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `context/message via agent.inject() for background completion notices` | - | The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflows`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
@@ -121,7 +121,7 @@ Execute a TypeScript program against the available tools. Write the BODY of an a
 
 Source: [`packages/core/tools/src/code-mode.ts`](../packages/core/tools/src/code-mode.ts)
 
-Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode RFC). Under `code` it is the registry's only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.
+Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry's only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.
 
 ## `@deepseek-ai/dsh-tool-bash`
 
@@ -169,7 +169,7 @@ The bash tool is the model-facing consumer of the bash executor seam. A `run_in_
 
 ### `cordis_inspect`
 
-Inspect the live cordis runtime that is running THIS agent. Read-only. Sections: `services` (every provided ctx service and the plugin fiber that owns it), `plugins` (a flat list of the loaded plugins with their lifecycle states), `tools` (the model-facing tools currently registered, i.e. what you can call), `dynamic` (plugins you mounted via cordis_mount: id, name, state, provided services, awaited services), `api` (method signatures AND argument/return type shapes for every LIVE service — read this before writing plugin code that calls a service), `events` (every harness event with its dispatch mode and exact signature — pick listener targets here). Omit `what` to get all six sections.
+Inspect the live cordis runtime that is running THIS agent. Read-only. Sections: `services` (every provided ctx service and the plugin fiber that owns it), `plugins` (a flat list of the loaded plugins with their lifecycle states), `tools` (the model-facing tools currently registered, i.e. what you can call), `dynamic` (plugins you mounted via cordis_mount: id, name, state, provided services, awaited services), `api` (method signatures AND argument/return type shapes for every LIVE service — read this before writing plugin code that calls a service), `events` (every harness event with its dispatch mode and exact signature — pick listener targets here). Omit `what` to get all six sections. With `what:"api"` or `what:"events"`, pass an exact `name` to narrow to one service/event and include its original source JSDoc.
 
 ```json
 {
@@ -186,6 +186,10 @@ Inspect the live cordis runtime that is running THIS agent. Read-only. Sections:
         "api",
         "events"
       ]
+    },
+    "name": {
+      "type": "string",
+      "description": "Exact service key or event name whose original JSDoc to include; valid only with what:\"api\" or what:\"events\"."
     }
   }
 }
@@ -235,7 +239,7 @@ Dispose a plugin previously mounted with cordis_mount, by id. All its registrati
 
 Source: [`packages/cordis/tool-cordis/src/index.ts`](../packages/cordis/tool-cordis/src/index.ts)
 
-Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes.
+Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes.
 
 ## `@deepseek-ai/dsh-tool-fs`
 
@@ -444,7 +448,7 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
 
 Source: [`packages/subagent/tool-subagent/src/index.ts`](../packages/subagent/tool-subagent/src/index.ts)
 
-The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/coding-agent/cordis.yml` and `examples/acp-agent/cordis.yml`.
+The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/repl-agent/cordis.yml` and `examples/acp-agent/cordis.yml`.
 
 ## `@deepseek-ai/dsh-tool-tasks`
 

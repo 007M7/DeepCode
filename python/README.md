@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Python packages for driving DeepSeek Harness as a subprocess: a client SDK that spawns the `dsh-jsonrpc-agent` binary and talks newline-delimited JSON-RPC over stdio. The runtime carrier is the single-file executable produced by this repo; design, build, and acceptance details live in [docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md](../docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md).
+Python packages for driving DeepSeek Harness as a subprocess: a client SDK that spawns the `dsh-jsonrpc-agent` binary and talks newline-delimited JSON-RPC over stdio. The runtime carrier is the single-file executable produced by this repo; design, build, and acceptance details live in [.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md](../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md).
 
 ## Packages
 

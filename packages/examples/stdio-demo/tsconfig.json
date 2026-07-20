@@ -42,6 +42,9 @@
       "path": "../../ui/stdio"
     },
     {
+      "path": "../../ui/tui"
+    },
+    {
       "path": "../../ui/tool-ask-user"
     },
     {

@@ -23,13 +23,15 @@
     "docs/user/guide/index.md",
     "docs/user/guide/quickstart.md",
     "docs/user/index.md",
-    "docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md",
-    "docs/rfc/implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md",
+    ".agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md",
+    ".agents/notes/implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md",
     "python/README.md",
     "python/sdk-runtime/README.md",
     "python/sdk/README.md"
   ],
   "excluded": [
+    ".agents/notes/AGENTS.md",
+    ".agents/notes/implemented/AGENTS.md",
     "docs/AGENTS.md",
     "docs/config-catalog.md",
     "docs/cordis-catalog/",

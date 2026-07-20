@@ -55,6 +55,14 @@ export interface SurfaceFoldResult {
   replacements: SurfaceFoldReplacement[]
 }
 
+/** Readonly live projection of the message-producing session events. */
+export interface SessionSurface {
+  /** Current surface event sequences in model-visible order. */
+  readonly nodes: readonly number[]
+  /** Monotonic count of committed positional replacements. */
+  readonly replaceGeneration: number
+}
+
 /** Mutable state shared by complete and incremental folds. */
 interface SurfaceFoldState {
   nodes: number[]
@@ -244,7 +252,7 @@ export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult 
 }
 
 /** Incremental ordered surface view and append-boundary validator. */
-export class SurfaceManager {
+export class SurfaceManager implements SessionSurface {
   /** Shared transition state; replacement history is not retained. */
   private _state = createFoldState()
   /** Last processed seq; -1 folds a seeded log on first access. */

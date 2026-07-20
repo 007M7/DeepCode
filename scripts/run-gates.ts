@@ -341,8 +341,8 @@ function docSyncLeafGates(options: {
     pnpmScript('package-paths', 'verify-package-paths', { label: 'package paths' }),
     pnpmScript('package-readme-model-experience', 'verify-package-readme-model-experience', { label: 'package README model experience' }),
     pnpmScript('mermaid', 'verify-mermaid'),
-    pnpmScript('rfc-classification', 'verify-rfc-classification', { label: 'rfc classification' }),
-    pnpmScript('rfc-format', 'verify-rfc-format', { label: 'rfc format' }),
+    pnpmScript('agent-note-classification', 'verify-agent-note-classification', { label: 'agent note classification' }),
+    pnpmScript('agent-note-format', 'verify-agent-note-format', { label: 'agent note format' }),
     pnpmScript('type-equivalence', 'verify-type-equiv', { label: 'type equivalence' }),
     pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt' }),
     pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),
@@ -397,7 +397,9 @@ function builtBinSmokeGate(): Gate {
     '--config',
     'vitest.e2e.config.ts',
     'packages/examples/stdio-demo/tests/built-bin.e2e.ts',
+    'packages/examples/cli-demo/tests/built-bin.e2e.ts',
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
+    'packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts',
     // The worker-entry packages' built bundles: the only automated proof
     // that lib/index.js resolves its sibling lib/worker.cjs under plain node
     // (the e2e lane runs unbuilt, so these files self-skip there).

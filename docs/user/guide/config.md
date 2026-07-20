@@ -9,7 +9,7 @@ Harness uses `cordis.yml` to describe which plugins an agent loads and the confi
 The repository examples are runnable configurations and the most reliable starting points for a new project:
 
 - [echo-agent](../../../examples/echo-agent/cordis.yml) uses a local mock model and needs no API key.
-- [coding-agent](../../../examples/coding-agent/cordis.yml) combines the DeepSeek model, Bash, filesystem, compaction, subagents, and workflows.
+- [repl-agent](../../../examples/repl-agent/cordis.yml) combines the DeepSeek model, Bash, filesystem, compaction, subagents, and workflows.
 - [acp-agent](../../../examples/acp-agent/cordis.yml) connects to editor clients over ACP.
 
 A minimal configuration is a list of plugin entries:

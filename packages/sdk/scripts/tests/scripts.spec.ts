@@ -5,6 +5,7 @@ import { PassThrough, Writable } from 'node:stream'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import {
+  HeadlessPromptPort,
   LocalPluginBlueprint,
   NpmPackageManager,
   SdkProject,
@@ -29,7 +30,9 @@ import { parseDshSdkArgs, parseSdkBootArgs } from '../src/args.ts'
 import { PluginBuild, ProjectBuild, runProjectBuild } from '../src/build.ts'
 import { runDshSdkCommand, type DshSdkCommandContext } from '../src/command.ts'
 import { runConfigCommand } from '../src/config.ts'
-import { ConfigWorkflow } from '../src/config/config-workflow.ts'
+import { ConfigWorkflow, type ConfigPlan } from '../src/config/config-workflow.ts'
+import { runCreatePluginCommand } from '../src/create-plugin.ts'
+import { reportCommandTelemetry, type CommandTelemetryEvent } from '../src/telemetry.ts'
 import { initialize, resolve as resolveLocalPlugin } from '../src/local-plugin-loader-hooks.ts'
 
 const temporary: string[] = []
@@ -165,6 +168,7 @@ describe('Commander launcher arguments', () => {
     await expect(runDshSdkCommand(['unknown'], context)).resolves.toBe(1)
     await expect(runDshSdkCommand([], context)).resolves.toBe(0)
     expect(context.readStdout()).toContain('Usage: dsh-sdk')
+    expect(context.readStdout()).toContain('create <source>')
 
     const defaults = commandContext(root)
     await writeFile(join(root, 'main.mjs'), 'export function main() { return "ok" }\n')
@@ -399,6 +403,28 @@ describe('ConfigWorkflow', () => {
     expect(output.read()).toContain('Disable feature: todo')
   })
 
+  it('reconciles a headless plan without prompting and preserves custom plugins', async () => {
+    const project = await committedProject([], [new LocalPluginBlueprint('plugin', 'plugin')])
+    const registry = createBuiltinRegistry(project.profile)
+    const output = outputBuffer()
+    let installs = 0
+    const plan: ConfigPlan = {
+      features: [
+        { id: featureId('bash'), options: ['local'] },
+        { id: featureId('persistence'), options: ['jsonl'] },
+        { id: featureId('todo'), options: ['default'] },
+        { id: featureId('web'), options: ['exa'], secrets: { apiKey: 'exa-key' } },
+      ],
+    }
+    const result = await new ConfigWorkflow(
+      new HeadlessPromptPort(), output.stream, async () => { installs += 1 },
+    ).run(project, registry, plan)
+    expect(result.commit?.project.cordis.entry('tool-todo')).toBeDefined()
+    // the unlisted custom local plugin keeps its enabled state (not nuked by the plan)
+    expect(result.commit?.project.cordis.entry('plugin')?.disabled).toBeFalsy()
+    expect(installs).toBe(1)
+  })
+
   it('installs once after NPM dependency changes and keeps committed files on install failure', async () => {
     const project = await committedProject()
     const registry = createBuiltinRegistry(project.profile)
@@ -534,5 +560,110 @@ describe('ConfigWorkflow', () => {
     expect(result.commit?.project.profile.runInterface).toBe('embed')
     expect(result.commit?.project.cordis.entry('tool-ask-user')?.disabled).toBe(true)
     expect(output.read()).toContain('Disable feature: ask-user')
+  })
+})
+
+describe('dsh-sdk create', () => {
+  const writeDependency = (name: string) => async (_m: unknown, spec: string, cwd: string): Promise<void> => {
+    const path = join(cwd, 'package.json')
+    const manifest = JSON.parse(await readFile(path, 'utf8')) as { dependencies?: Record<string, string> }
+    manifest.dependencies = { ...manifest.dependencies, [name]: spec }
+    await writeFile(path, JSON.stringify(manifest, null, 2))
+  }
+
+  it('adds a dependency and mounts it after confirmation', async () => {
+    const project = await committedProject()
+    const context = { ...commandContext(project.root), port: new QueuePort([true]), add: writeDependency('my-ext-plugin') }
+    const result = await runCreatePluginCommand('github:o/r#sha', context)
+    expect(result?.project.cordis.entry('my-ext-plugin')?.name).toBe('my-ext-plugin')
+    expect(context.readStdout()).toContain('Mounted my-ext-plugin')
+  })
+
+  it('derives the cordis id from a scoped package name', async () => {
+    const project = await committedProject()
+    const context = { ...commandContext(project.root), port: new QueuePort([true]), add: writeDependency('@acme/cool-plugin') }
+    const result = await runCreatePluginCommand('@acme/cool-plugin@1.0.0', context)
+    expect(result?.project.cordis.entry('cool-plugin')?.name).toBe('@acme/cool-plugin')
+  })
+
+  it('returns undefined and adds nothing when declined', async () => {
+    const project = await committedProject()
+    let added = false
+    const context = {
+      ...commandContext(project.root),
+      port: new QueuePort([false]),
+      add: async () => { added = true },
+    }
+    await expect(runCreatePluginCommand('pkg@1.0.0', context)).resolves.toBeUndefined()
+    expect(added).toBe(false)
+  })
+
+  it('rejects an empty source, a non-TTY session, and a no-op add', async () => {
+    const project = await committedProject()
+    await expect(runCreatePluginCommand('   ', { ...commandContext(project.root), port: new QueuePort([]) }))
+      .rejects.toThrow('requires a plugin source')
+    const noTty = commandContext(project.root)
+    noTty.stdin.isTTY = false
+    noTty.stdout.isTTY = false
+    await expect(runCreatePluginCommand('pkg@1.0.0', noTty)).rejects.toThrow('interactive TTY')
+    const noOutTty = commandContext(project.root)
+    noOutTty.stdout.isTTY = false
+    await expect(runCreatePluginCommand('pkg@1.0.0', noOutTty)).rejects.toThrow('interactive TTY')
+    await expect(runCreatePluginCommand('pkg@1.0.0', {
+      ...commandContext(project.root), port: new QueuePort([true]), add: async () => {},
+    })).rejects.toThrow('added no new dependency')
+  })
+
+  it('dispatches create through the launcher', async () => {
+    const project = await committedProject()
+    const context = commandContext(project.root)
+    context.createPlugin = async () => undefined
+    await expect(runDshSdkCommand(['create', 'pkg@1.0.0'], context)).resolves.toBe(0)
+  })
+})
+
+describe('command telemetry', () => {
+  it('reports when consent allows and skips when denied or faulting', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-telemetry-'))
+    temporary.push(dir)
+    const sent: unknown[] = []
+    const reporter = { report: () => { sent.push(1) }, flush: async () => {} }
+    await reportCommandTelemetry(
+      { command: 'build', cwd: dir, durationMs: 5, success: true },
+      { resolve: async () => ({ allowed: true, reason: 'absent' }), reporter },
+    )
+    expect(sent).toHaveLength(1)
+    await reportCommandTelemetry(
+      { command: 'build', cwd: dir, durationMs: 5, success: true },
+      { resolve: async () => ({ allowed: false, reason: 'disabled' }), reporter },
+    )
+    expect(sent).toHaveLength(1)
+    await expect(reportCommandTelemetry(
+      { command: 'build', cwd: dir, durationMs: 5, success: true },
+      { resolve: async () => { throw new Error('boom') }, reporter },
+    )).resolves.toBeUndefined()
+    expect(sent).toHaveLength(1)
+  })
+
+  it('emits a telemetry event carrying each command outcome', async () => {
+    const project = await committedProject()
+    const events: CommandTelemetryEvent[] = []
+    const context = commandContext(project.root)
+    context.telemetry = async (event) => { events.push(event) }
+    context.build = async () => {}
+    await expect(runDshSdkCommand(['build'], context)).resolves.toBe(0)
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ command: 'build', cwd: project.root, success: true })
+
+    await runDshSdkCommand([], context)
+    expect(events).toHaveLength(1)
+
+    context.build = async () => { throw new Error('boom') }
+    await expect(runDshSdkCommand(['build'], context)).resolves.toBe(1)
+    expect(events[1]).toMatchObject({ command: 'build', success: false })
+
+    context.config = async () => ({ installError: new Error('offline') })
+    await expect(runDshSdkCommand(['config'], context)).resolves.toBe(1)
+    expect(events.at(-1)).toMatchObject({ command: 'config', success: false })
   })
 })

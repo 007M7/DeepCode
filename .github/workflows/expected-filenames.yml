@@ -1,0 +1,21 @@
+name: Expected filenames
+
+on:
+  pull_request:
+    paths:
+      - '*[gG][oO][lL][dD][eE][nN]*'
+      - '**/*[gG][oO][lL][dD][eE][nN]*'
+      - '!vendor/**'
+
+permissions:
+  contents: read
+
+jobs:
+  expected-filenames:
+    name: no golden filenames
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check tracked filenames
+        run: scripts/check-expected-filenames.sh

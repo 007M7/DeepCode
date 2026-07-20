@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
@@ -30,7 +30,7 @@ async function setup(script: Script) {
   await ctx.plugin(spawn, { providerName: 'spawn' })
   await ctx.plugin(WorkerWorkflowEngine, {})
   ctx.llm.registerAdapter(['mock'], adapter)
-  const parent = ctx.agentLoop.create(AgentId('parent'), { provider: 'mock', model: 'mock' })
+  const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
   return { ctx, parent, adapter }
 }
 
@@ -66,7 +66,7 @@ return { prose, verdict: judged.verdict, confidence: judged.confidence }`,
     // Both children were disposed to quiescence — no live child agents remain.
     expect(childIds.length).toBe(2)
     for (const childId of childIds) {
-      expect(ctx.agents.get(AgentId(childId))).toBeUndefined()
+      expect(ctx.agents.get(SessionId(childId))).toBeUndefined()
     }
   })
 
