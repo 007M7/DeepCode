@@ -111,7 +111,7 @@ Each step assembles ordered prompt sections, tool schemas, and `{{name}}` variab
 
 Tool-time context—including async `agent.inject()` notices and post-tool `additionalContexts`—settles, then follows recorded results. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering before signal closure. Leftovers become queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through turn close and flush, and discards later steering but preserves queued prompts.
 
-Optional pruning precedes summaries, and `dsh-compact-basic` retries context overflow only after durable surface progress; `dsh-llm-retry` applies bounded transient backoff. Their independent budgets compose on `agent/request-error`, and cancellation wins ([compaction decision](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [transient-recovery decision](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
+Pruning precedes summaries; overflow retries require durable progress. Bounded transient retries compose on `agent/request-error`; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
 
 ### Failure Boundaries
 
