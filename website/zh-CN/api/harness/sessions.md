@@ -7,7 +7,7 @@
 In-memory session store (`ctx.sessions`).
 Persistence is intentionally not implemented here — persistence plugins subscribe to `session/event` and flush on `session/flush` / dispose.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L581)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L553)
 
 ### ctx.sessions.create(id?, options?)
 
@@ -44,7 +44,7 @@ For an agent whose session must be torn down IN ORDER with its loop (so the loop
 
 **Returns** the live session, already entered and announced.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L610)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L582)
 
 ### ctx.sessions.prepare(id?, options?)
 
@@ -75,7 +75,7 @@ Build a session WITHOUT entering it into the store — validate the id/cwd and c
 
 **Returns** the constructed session, NOT yet in the store.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L639)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L611)
 
 ### ctx.sessions.enter(session)
 
@@ -112,7 +112,7 @@ Re-checks the id for a duplicate: `prepare` and `enter` are public cross-package
 
 **Returns** the detach disposer (publication hooks + store removal). When called from a synchronous `session/created` listener, removal and disposal wait until that creation dispatch unwinds.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L684)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L656)
 
 ### ctx.sessions.announce(session)
 
@@ -131,7 +131,7 @@ Emit `session/created` exactly once for an entered session (with the carrier ent
 
 - `session` — the entered session to announce to listeners.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L739)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L711)
 
 ### ctx.sessions.flush(session)
 
@@ -156,7 +156,7 @@ Dispatch the awaited `session/flush` durability checkpoint for `session`, with t
 
 **Returns** resolves when every flush listener has settled; after all settle, rejects with the first registered listener failure if any listener failed.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L791)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L763)
 
 ### ctx.sessions.get(id)
 
@@ -175,7 +175,7 @@ Look up a live session.
 
 **Returns** the session, or undefined when no live session has that id.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L823)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L795)
 
 ### ctx.sessions.list()
 
@@ -191,7 +191,7 @@ All live sessions, in creation order.
 
 **Returns** a fresh array; mutating it does not affect the store.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L831)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L803)
 
 ### ctx.sessions.fork(source, boundary?, childSessionId?)
 
@@ -220,4 +220,4 @@ Create a live child session from a turn-enclosed prefix of a live source. `bound
 
 **Returns** The created live child session.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L848)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/session/src/index.ts#L820)
