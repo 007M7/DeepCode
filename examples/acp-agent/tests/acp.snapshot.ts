@@ -5,12 +5,12 @@ import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from
 /**
  * The acp-agent example's snapshot suite: the scenario table for
  * `dsh-acp-snapshot`'s suite factory, which owns every compare/guard mechanic
- * (golden + re-persisted-log diffs, record/refresh write-back, the pinned-header
+ * (expected-output + re-persisted-log diffs, record/refresh write-back, the pinned-header
  * uniformity guard, the fixture guards). Fixtures live under `snapshots/<name>/`;
  * `pnpm run test:snapshot:record` re-records model transcripts against the real
- * API; `pnpm run test:snapshot:refresh` rewrites current replay goldens keyless.
- * See the package README (packages/support/acp-snapshot) and the snapshot RFC,
- * docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
+ * API; `pnpm run test:snapshot:refresh` rewrites current replay expected outputs keyless.
+ * See the package README (packages/support/acp-snapshot) and the snapshot Agent Note,
+ * .agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
 // The dsh-acp-demo bin (the demo:acp entry), this example's cordis.yml, and
@@ -53,6 +53,13 @@ const SCENARIOS: Scenario[] = [
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  {
+    name: 'parallel-tool-calls',
+    hasModelTurn: true,
+    recorded: false,
+    headerClass: 'fs',
+    configPath: FS_CONFIG,
+  },
   { name: 'bash-spill', hasModelTurn: true, recorded: false, headerClass: 'fs', configPath: FS_CONFIG },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
@@ -65,6 +72,17 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-read-window', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
   { name: 'fs-policy-reject', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
+  // ACP exposes the adapter catalog as a session-scoped model select. This
+  // scenario pins the default flash request, the switch response, and the
+  // resulting changed request-header snapshot for pro.
+  {
+    name: 'model-switching',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    expectedHeaderChanges: 1,
+    headerClass: 'model-switching',
+  },
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
   // Keyless, authored (like error-finish/cancel): deterministically forcing a
   // LIVE model to repeat one call three times is not a stable recording, so
@@ -85,14 +103,15 @@ const SCENARIOS: Scenario[] = [
     configPath: WORKSPACE_CONTEXT_CONFIG,
   },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
-  { name: 'subagent-spawn', hasModelTurn: true, recorded: true, childSessions: 1 },
-  { name: 'subagent-multi', hasModelTurn: true, recorded: true, childSessions: 2 },
-  { name: 'subagent-fork', hasModelTurn: true, recorded: true, childSessions: 1 },
-  { name: 'subagent-mixed', hasModelTurn: true, recorded: true, childSessions: 2 },
+  { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true },
+  { name: 'subagent-spawn', hasModelTurn: true, recorded: true },
+  { name: 'subagent-multi', hasModelTurn: true, recorded: true },
+  { name: 'subagent-fork', hasModelTurn: true, recorded: true },
+  { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
   // The workflow tool: the model writes a one-child orchestration script; the
   // child runs as a spawn subagent under the worker-thread engine (its session is the
   // child fixture), and the tool result carries the script's return value.
-  { name: 'workflow-run', hasModelTurn: true, recorded: true, childSessions: 1 },
+  { name: 'workflow-run', hasModelTurn: true, recorded: true },
   // Authored counterpart to the packaged Python SDK snapshot: mount a live marker, inspect it
   // through Code Mode, run direct and workflow children, then unmount it. The extra Code Mode and
   // Cordis plugins require their own request-header pin; the fixture tests deterministic composition.
@@ -100,8 +119,14 @@ const SCENARIOS: Scenario[] = [
     name: 'advanced-toolchain',
     hasModelTurn: true,
     recorded: false,
-    childSessions: 2,
     pinsHeader: true,
+    headerClass: 'advanced',
+    configPath: ADVANCED_CONFIG,
+  },
+  {
+    name: 'cordis-inspect-jsdoc',
+    hasModelTurn: true,
+    recorded: false,
     headerClass: 'advanced',
     configPath: ADVANCED_CONFIG,
   },
@@ -112,14 +137,11 @@ const SCENARIOS: Scenario[] = [
   // The mid-turn seams fire during a real model turn, so each is recorded with its hook active
   // (the model's reaction to a deny/block/force-continue is part of the captured transcript).
   // SessionStart/SubagentStart are excluded because detached injection races log
-  // order; SubagentStop writes no transcript, so a golden could not prove it ran.
-  // Unit tests cover those points; the hook-snapshot-matrix RFC owns the rationale.
+  // order; SubagentStop writes no transcript, so an expected output could not prove it ran.
+  // Unit tests cover those points; the hook-snapshot-matrix Agent Note owns the rationale.
   { name: 'hook-cc-promptsubmit-context', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-deny', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-ask', hasModelTurn: true, recorded: true },
-  // TODO(hook-snapshot-noise): re-record the PostToolUse block fixtures with a
-  // self-limiting prompt or hook so one rejected result proves the seam without
-  // repeated block/retry cycles in the committed JSONL.
   { name: 'hook-cc-posttool-block', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-posttool-context', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-stop-continue', hasModelTurn: true, recorded: true },
@@ -144,13 +166,13 @@ const SCENARIOS: Scenario[] = [
     configPath: CODE_MODE_WORKSPACE_CONTEXT_CONFIG,
   },
   { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
-  // The default tree owns the single Permissions select. Snapshot mode starts
-  // in danger-full-access so established fixtures stay runner-independent;
-  // these policy scenarios switch to workspace-write in their input scripts.
+  // The default tree also owns the Permissions select. Snapshot mode starts in
+  // danger-full-access so established fixtures stay runner-independent; these
+  // policy scenarios switch to workspace-write in their input scripts.
   // Real-kernel confinement remains in escalation.e2e.ts and the sandbox
   // packages' e2e suites.
   { name: 'config-options', hasModelTurn: false, recorded: false, headerClass: 'sandbox' },
-  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'sandbox' },
+  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'sandbox' },
   { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
   { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
 ]

@@ -163,11 +163,13 @@ function gatesForMode(selected: Mode): Gate[] {
       ]
     case 'ci-coverage':
       return [
+        pnpmScript('build', 'build'),
         coverageGate(),
       ]
     case 'ci-snapshot':
       return [
-        pnpmScript('snapshot', 'test:snapshot'),
+        pnpmScript('build', 'build'),
+        snapshotGate(),
       ]
     case 'ci-artifacts':
       return ciArtifactGates()
@@ -186,7 +188,7 @@ function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
         pnpmScript('test', 'test'),
         pnpmScript('duplication', 'duplication'),
-        pnpmScript('snapshot', 'test:snapshot'),
+        snapshotGate(),
         pnpmScript('build', 'build'),
         ...hygieneLeafGates({ artifactNeeds: ['build'] }),
         ...docSyncLeafGates({
@@ -207,11 +209,12 @@ function ciPrimaryGates(): Gate[] {
     lintGate(),
     pnpmScript('duplication', 'duplication'),
     coverageGate(),
-    pnpmScript('snapshot', 'test:snapshot'),
+    snapshotGate(),
     demoSmokeGate({ needs: ['lint'] }),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
+    pnpmScript('website-build', 'website:build', { label: 'website build' }),
     pnpmScript('build', 'build', { needs: ['typecheck'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
@@ -231,6 +234,7 @@ function ciStaticGates(): Gate[] {
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
+    pnpmScript('website-build', 'website:build', { label: 'website build' }),
   ]
 }
 
@@ -279,6 +283,18 @@ function coverageGate(): Gate {
     ...positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers'),
   ], {
     label: 'test:coverage',
+    env: { DSH_EXAMPLE_MODE: 'lib' },
+    needs: ['build'],
+  })
+}
+
+// The snapshot suite boots the example bins in `lib` mode (built artifact under plain Node,
+// plugins via real exports) — CI and pre-push already build, so they exercise what ships rather
+// than the tsx/source path dev uses. It therefore waits on `build`.
+function snapshotGate(): Gate {
+  return pnpmScript('snapshot', 'test:snapshot', {
+    env: { DSH_EXAMPLE_MODE: 'lib' },
+    needs: ['build'],
   })
 }
 
@@ -321,19 +337,21 @@ function docSyncLeafGates(options: {
     pnpmScript('persistence-catalog', 'verify-persistence-catalog', { label: 'persistence catalog' }),
     pnpmScript('doc-graphs', 'verify-doc-graphs', { label: 'doc graphs' }),
     pnpmScript('scoped-events', 'verify-scoped-events', { label: 'scoped events' }),
+    pnpmScript('website-api', 'verify-website-api', { label: 'website api' }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap' }),
     pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
     pnpmScript('package-paths', 'verify-package-paths', { label: 'package paths' }),
     pnpmScript('package-readme-model-experience', 'verify-package-readme-model-experience', { label: 'package README model experience' }),
     pnpmScript('mermaid', 'verify-mermaid'),
-    pnpmScript('rfc-classification', 'verify-rfc-classification', { label: 'rfc classification' }),
-    pnpmScript('rfc-format', 'verify-rfc-format', { label: 'rfc format' }),
+    pnpmScript('agent-note-classification', 'verify-agent-note-classification', { label: 'agent note classification' }),
+    pnpmScript('agent-note-format', 'verify-agent-note-format', { label: 'agent note format' }),
     pnpmScript('type-equivalence', 'verify-type-equiv', { label: 'type equivalence' }),
     pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt' }),
     pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),
     pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets' }),
     pnpmScript('package-readme-limitations', 'verify-package-readme-limitations', { label: 'package README limitations' }),
+    pnpmScript('website-yaml', 'verify-website-yaml', { label: 'website yaml' }),
   ]
 }
 
@@ -381,7 +399,9 @@ function builtBinSmokeGate(): Gate {
     '--config',
     'vitest.e2e.config.ts',
     'packages/examples/stdio-demo/tests/built-bin.e2e.ts',
+    'packages/examples/cli-demo/tests/built-bin.e2e.ts',
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
+    'packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts',
     // The worker-entry packages' built bundles: the only automated proof
     // that lib/index.js resolves its sibling lib/worker.cjs under plain node
     // (the e2e lane runs unbuilt, so these files self-skip there).

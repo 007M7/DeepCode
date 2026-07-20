@@ -1,551 +1,215 @@
 /**
- * Basic compaction backend. It estimates request pressure, retains a recent
- * tool-balanced surface tail, summarizes the older head through a one-shot model
- * call, and replaces that head with one checkpoint. Auto-compaction runs before
- * every step so a growing turn can compact its earlier closed steps.
+ * Basic replay-aware compaction backend.
+ *
  * @module @deepseek-ai/dsh-compact-basic
  */
 
 import { Context } from 'cordis'
-import { CompactService, renderTranscript } from '@deepseek-ai/dsh-compact'
-import type { CompactionResult } from '@deepseek-ai/dsh-compact'
-import { BlockAssembler } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { isToolPairingBalanced } from '@deepseek-ai/dsh-session'
+import z from 'schemastery'
+import { CompactService } from '@deepseek-ai/dsh-compact'
+import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compact'
+import type { Session } from '@deepseek-ai/dsh-session'
+import { CONTEXT_WINDOW_EXCEEDED_CODE, assertNever } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { BasicCompactConfig, ResolvedConfig } from './types.ts'
-import { resolveConfig } from './types.ts'
+import { resolveConfig } from './config.ts'
+import { compactSurfaceRegion, selectCompactableRange } from './region.ts'
+import { summarizeWithLlm } from './summarizer.ts'
+import type {
+  BasicCompactConfig,
+  ResolvedConfig,
+} from './types.ts'
 
-export type { BasicCompactConfig, ResolvedConfig } from './types.ts'
-export { resolveConfig } from './types.ts'
+export type {
+  BasicCompactConfig,
+  ResolvedConfig,
+} from './types.ts'
 
-/** Per-block structural overhead for JSON framing / type tag. */
-const BLOCK_OVERHEAD = 4
-
-/** Role-field framing overhead added per message in {@link BasicCompactService.estimateTokens}. */
-const ROLE_OVERHEAD = 4
-
-/** Tags wrapping the structured summary inside the landed checkpoint node. */
-const SUMMARY_OPEN_TAG = '<compacted-summary>'
-const SUMMARY_CLOSE_TAG = '</compacted-summary>'
-
-/**
- * Fixed summary structure for resumable checkpoints. A tagged prior checkpoint
- * is merged with newer history instead of copied forward verbatim.
- */
-const SUMMARIZE_SYSTEM_PROMPT = [
-  'You are a compaction engine for an AI coding assistant. Condense the conversation transcript into a structured checkpoint that lets another model resume the work with no loss of essential context.',
-  '',
-  'Output EXACTLY the Markdown structure below: keep every section, in order. Use terse bullets, not prose paragraphs. Write "(none)" for an empty section — never drop a section.',
-  '',
-  '## Primary Request and Intent',
-  "- [the user's original and evolving goals; quote verbatim where the exact wording matters]",
-  '',
-  '## Key Technical Concepts',
-  '- [technologies, frameworks, patterns, and conventions in play]',
-  '',
-  '## Files and Code',
-  '- [exact path: why it matters, key changes or snippets]',
-  '',
-  '## Errors and Fixes',
-  '- [error: how it was resolved, plus any related user feedback]',
-  '',
-  '## Pending Tasks',
-  '- [explicitly requested work not yet completed]',
-  '',
-  '## Current Work',
-  '- [precisely what was in progress at this checkpoint]',
-  '',
-  '## Next Step',
-  '- [the single next action, directly in line with the most recent request, or "(none)"]',
-  '',
-  '## Critical Context',
-  '- [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]',
-  '',
-  'Rules:',
-  '- Preserve exact file paths, commands, error strings, identifiers, and function signatures.',
-  '- Capture user feedback and explicit instructions faithfully, especially corrections.',
-  '- Do NOT mention this summarization process or that the context was compacted.',
-  `- If the transcript already contains a ${SUMMARY_OPEN_TAG} block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.`,
-].join('\n')
-
-/** Framing that makes a landed summary established context rather than a new request. */
-const CHECKPOINT_PREAMBLE =
-  'This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.'
-
-/**
- * Map a terminal summary failure to an error. A max-token finish is rejected
- * because committing an incomplete checkpoint would shadow the full history.
- */
-function finishError(finish: FinishReason): Error | undefined {
-  switch (finish.kind) {
-    case 'error': {
-      const error = new Error(finish.message) as Error & { code?: string }
-      if (finish.code !== undefined) error.code = finish.code
-      return error
-    }
-    case 'aborted': {
-      const error = new Error('summarization stream aborted') as Error & { code?: string }
-      error.code = 'ABORTED'
-      return error
-    }
-    case 'max-tokens': {
-      const error = new Error('summarization truncated at the token cap (incomplete checkpoint)') as Error & { code?: string }
-      error.code = 'MAX_TOKENS'
-      return error
-    }
-    default:
-      return undefined
-  }
+/** Resolve the exact model durably routed for the latest provider request. */
+function routedModel(session: Session): string | undefined {
+  const model = session.requestHeader()?.config.model
+  return model === undefined || model.length === 0 ? undefined : model
 }
 
 /**
- * Basic, dependency-light compaction backend: estimates the surface's token
- * footprint, summarizes the stale prefix through the model, and shadows it
- * behind a durable checkpoint. Every threshold/budget knob is required config
- * ({@link BasicCompactConfig}); the estimator's text density is the
- * `charsPerToken` knob.
+ * Dependency-light compaction backend using `ctx.tokenMeter` for pressure,
+ * retention, provenance, and summary-convergence pricing.
+ *
+ * `summarize()` is the sole subclass customization hook; the replay and durable
+ * mutation strategy stays fixed so every pricing decision uses the singleton
+ * token meter.
  */
 export class BasicCompactService extends CompactService {
-  static inject = ['llm']
+  static inject = ['llm', 'tokenMeter']
 
-  /** Resolved configuration (`auto` defaulted). */
+  static Config: z<BasicCompactConfig> = z.object({
+    thresholdRatio: z.number().default(0.8),
+    retainTokens: z.number().step(1),
+    summarizationProvider: z.string().default(''),
+    summarizationModel: z.string().default(''),
+    maxTokens: z.number().step(1).min(1).default(8192),
+    compactionRetries: z.number().step(1).min(0).default(1),
+    maxOverflowRetries: z.number().step(1).min(0).default(1),
+    auto: z.boolean().default(true),
+  })
+
+  /** Resolved and validated compaction configuration. */
   readonly config: ResolvedConfig
 
-  constructor(ctx: Context, config: BasicCompactConfig) {
+  constructor(ctx: Context, config: BasicCompactConfig = {}) {
     super(ctx)
-    this.config = resolveConfig(config)
-
-    if (this.config.auto) {
-      // Check before every step so a single growing turn can compact earlier closed steps.
-      // This serial pre-step seam mutates the surface outside the pending step.
-      ctx.on('agent/pre-step', async (agent: Agent, _turn: number, _step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal) => {
-        try {
-          const result = await this.compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)
-          if (result) {
-            const after = this.estimatePressure(agent.session, fullSystemPrompt, sessionPrefix)
-            ctx.logger.info(
-              `compaction: shadowed ${result.shadowedSeqs.length} surface nodes ` +
-              `(seqs ${result.shadowedRange.start}-${result.shadowedRange.end}, ` +
-              `~${result.shadowedTokenCount} tokens) ` +
-              `→ ${after} estimated tokens after compaction`,
-            )
-          }
-        } catch (error: unknown) {
-          // A failed compaction must not prevent the model call — the surface is
-          // untouched on failure, so the loop derives the full history and the
-          // call proceeds.
-          const msg = error instanceof Error ? error.message : String(error)
-          ctx.logger.warn(`compaction failed: ${msg}; proceeding with full history`)
-        }
-      })
-    }
+    this.config = resolveConfig(config, ctx.tokenMeter)
+    if (this.config.auto) this._registerAutomaticCompaction()
   }
 
-  // ---- Token estimation (overridable hooks) ----
-
-  // TODO: chars/charsPerToken is a coarse heuristic. Replace with an exact
-  // count — a real tokenizer, or the provider's post-response `usage` (input
-  // tokens) fed back as a correction — so threshold decisions match the
-  // model's actual budget.
   /**
-   * Estimate the token count of content blocks — chars divided by the
-   * `charsPerToken` config, with per-block overhead. Override in a subclass to
-   * plug in a real tokenizer.
-   *
-   * @param blocks - the blocks to estimate; `tool-result` blocks recurse into
-   *   their nested content, and unknown (merge-extended) types fall back to
-   *   their JSON-stringified length.
-   * @returns the estimated token count.
+   * Register the automatic post-step pressure and context-overflow recovery
+   * listeners. `compactIfNeeded` stays dynamically dispatched so subclass
+   * overrides are honored at event time.
    */
-  estimateContentTokens(blocks: readonly ContentBlock[]): number {
-    const { charsPerToken } = this.config
-    let tokens = 0
-    for (const block of blocks) {
-      switch (block.type) {
-        case 'text':
-        case 'reasoning':
-          tokens += Math.ceil(block.text.length / charsPerToken) + BLOCK_OVERHEAD
-          break
-        case 'tool-call':
-          tokens += Math.ceil(block.name.length / charsPerToken)
-            + Math.ceil(block.arguments.length / charsPerToken)
-            + BLOCK_OVERHEAD
-          break
-        case 'tool-result':
-          tokens += this.estimateContentTokens(block.content) + BLOCK_OVERHEAD
-          break
-        default:
-          // Unknown block types (merge-extensible ContentBlockMap):
-          // estimate conservatively via JSON stringify.
-          tokens += BLOCK_OVERHEAD + Math.ceil(JSON.stringify(block).length / charsPerToken)
+  private _registerAutomaticCompaction(): void {
+    const { ctx } = this
+    const logResult = (result: CompactionResult, trigger: string): void => {
+      ctx.logger.info(
+        `compaction (${trigger}): shadowed ${result.shadowedSeqs.length} surface nodes `
+        + `(seqs ${result.shadowedRange.start}-${result.shadowedRange.end}, `
+        + `~${result.shadowedTokenCount} tokens)`,
+      )
+    }
+
+    ctx.on('agent/post-step', async (
+      agent: Agent,
+      _turn: number,
+      _step: number,
+      signal: AbortSignal,
+    ) => {
+      if (signal.aborted) return
+      try {
+        const result = await this.compactIfNeeded(agent, 'pressure', signal)
+        if (result !== null) logResult(result, 'post-step pressure')
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error)
+        ctx.logger.warn(`post-step compaction failed: ${message}; continuing the turn`)
       }
-    }
-    return tokens
+    })
+
+    ctx.on('agent/request-error', async (agent, _turn, _step, error, retryAttempt, signal, next) => {
+      if (error.code !== CONTEXT_WINDOW_EXCEEDED_CODE
+        || retryAttempt >= this.config.maxOverflowRetries
+        || signal.aborted) return next()
+
+      let generation: number
+      let result: CompactionResult | null
+      try {
+        generation = agent.session.surface.replaceGeneration
+        result = await this.compactIfNeeded(agent, 'context-overflow', signal)
+      } catch (recoveryError: unknown) {
+        const message = recoveryError instanceof Error ? recoveryError.message : String(recoveryError)
+        ctx.logger.warn(
+          `context-overflow compaction failed: ${message}; preserving the original request error`,
+        )
+        return next()
+      }
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while compaction is awaited.
+      if (signal.aborted || result === null
+        || agent.session.surface.replaceGeneration <= generation) return next()
+      logResult(result, 'context overflow recovery')
+      return { action: 'retry' }
+    })
   }
 
   /**
-   * Estimate token count for a single session event. Returns 0 for non-message
-   * event types (boundaries, chunks, usage, errors, compact markers).
-   *
-   * @param event - any session event; only the message-bearing types carry
-   *   content to count.
-   * @returns the estimated token count of the event's content, or 0 for a
-   *   non-message event.
+   * Summarize a rendered region through a direct one-shot `ctx.llm.stream()`
+   * call. Override this sole hook for a template or remote summarizer.
+   * @param text - plain-text conversation region to condense.
+   * @param agent - supplies routed-model history, fallback model, and session id.
+   * @param signal - optional cancellation forwarded to the adapter.
+   * @returns safe text summary blocks and exact auxiliary-call provenance.
    */
-  estimateEventTokens(event: SessionEvent): number {
-    switch (event.type) {
-      case 'user/message':
-      case 'assistant/message':
-      case 'context/message':
-      case 'steering/message':
-      case 'tool/result':
-        return this.estimateContentTokens(event.data.content)
-      default:
-        return 0
-    }
+  protected async summarize(
+    text: string,
+    agent: Agent,
+    signal?: AbortSignal,
+  ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
+    return summarizeWithLlm(this.ctx, this.config, text, agent, signal)
   }
 
   /**
-   * Estimate total tokens across a list of messages plus optional system prompt.
-   *
-   * @param messages - the derived conversation messages; each adds a fixed
-   *   role-framing overhead on top of its content estimate.
-   * @param systemPrompt - counted at chars / `charsPerToken` when provided.
-   * @returns the estimated token footprint of the whole request.
-   */
-  estimateTokens(messages: readonly Message[], systemPrompt?: string): number {
-    let total = 0
-    for (const msg of messages) {
-      total += this.estimateContentTokens(msg.content)
-      total += ROLE_OVERHEAD
-    }
-    if (systemPrompt) total += Math.ceil(systemPrompt.length / this.config.charsPerToken)
-    return total
-  }
-
-  /**
-   * Summarize through a direct one-shot `ctx.llm.stream()` call, not an agent
-   * step or `agent/request` dispatch. Failure finishes and truncated summaries
-   * reject; the signal is forwarded and only text reaches the checkpoint.
-   *
-   * @param text - plain-text rendering of the conversation region to condense.
-   * @param agent - supplies the fallback model and the session id stamped on
-   *   the call; throws when neither it nor the config names a model.
-   * @param signal - optional abort signal, forwarded into the model call.
-   * @returns the text-only summary blocks plus the call envelope used
-   *   (`model`, and `maxTokens` when the summarizer has a cap).
-   */
-  async summarize(
-    text: string, agent: Agent, signal?: AbortSignal,
-  ): Promise<{ summary: ContentBlock[]; model: string; maxTokens?: number }> {
-    const assembler = new BlockAssembler()
-    const options: GenerateOptions = {
-      model: this.config.summarizationModel || agent.options.model || '',
-      messages: [{
-        role: 'user',
-        content: [{ type: 'text', text: `Summarize this conversation history:\n\n${text}\n\nSummary:` }],
-      }],
-      system: SUMMARIZE_SYSTEM_PROMPT,
-      maxTokens: this.config.maxTokens,
-      sessionId: agent.session.id,
-    }
-    // exactOptionalPropertyTypes: only set `signal` when present — assigning
-    // `undefined` to an optional `signal?: AbortSignal` is a type error.
-    if (signal) options.signal = signal
-    if (!options.model) {
-      throw new Error('no model available for summarization: set BasicCompactConfig.summarizationModel or AgentOptions.model')
-    }
-    for await (const chunk of this.ctx.llm.stream(options)) {
-      assembler.push(chunk)
-    }
-
-    const error = finishError(assembler.finish)
-    if (error) throw error
-
-    const summary = this._textOnly(assembler.message().content)
-    if (!summary.some(block => block.type === 'text' && block.text.trim().length > 0)) {
-      throw new Error('summarization produced no text summary content')
-    }
-
-    // config.maxTokens is required and validated positive, so this backend's
-    // envelope always carries the cap; the return type's optionality exists
-    // for overriding subclasses whose summarizer has none.
-    return { summary, model: options.model, maxTokens: this.config.maxTokens }
-  }
-
-  // ---- Core API (implements the abstract contract) ----
-
-  /**
-   * The sole pressure gate: count the next request's prefix, derived history,
-   * and system prompt. Above threshold, retain a recent tool-balanced tail and
-   * compact the head, reconsolidating any prior automatic checkpoint. Returns
-   * `null` when no safe or necessary range exists.
+   * Compact for replayed post-step pressure or one provider-confirmed context
+   * overflow. Both triggers price the latest durable routed request envelope;
+   * overflow bypasses the normal threshold and retained-tail policy so it can
+   * force one useful balanced reduction.
+   * @param agent - agent whose latest durable routed request is measured.
+   * @param trigger - normal post-step pressure or context-overflow recovery.
+   * @param signal - live turn cancellation signal forwarded to summarization.
+   * @returns the latest compaction result, or `null` when no check/work applies.
    */
   override async compactIfNeeded(
     agent: Agent,
-    fullSystemPrompt: string,
-    sessionPrefix: readonly Message[],
+    trigger: CompactionTrigger,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
-    const session = agent.session
-    const threshold = Math.floor(this.config.contextWindow * this.config.thresholdRatio)
-    let result: CompactionResult | null = null
-    for (let attempt = 0; attempt <= this.config.compactionRetries; attempt++) {
-      const totalTokens = this.estimatePressure(session, fullSystemPrompt, sessionPrefix)
-      if (totalTokens < threshold) return result
-
-      const range = this._compactableRange(session)
-      if (range === null) {
-        /* v8 ignore else -- defensive for non-standard subclass mutations; the concrete replace keeps a compactable head checkpoint. */
-        if (result === null) return null
-        /* v8 ignore next -- paired with the ignored defensive branch above. */
-        break
+    const model = routedModel(agent.session)
+    if (model === undefined) return null
+    const meter = this.ctx.tokenMeter
+    switch (trigger) {
+      case 'context-overflow': {
+        const measurement = meter.measure(agent.session)
+        const range = selectCompactableRange(agent.session, measurement, 0)
+        if (range === null) return null
+        return this.compactRegion(range.start, range.end, agent, signal)
       }
-
-      result = await this.compactRegion(session, range.start, range.end, agent, signal)
+      case 'pressure':
+        break
+      /* v8 ignore next -- closed-union exhaustiveness guard */
+      default:
+        assertNever(trigger, 'compaction trigger')
     }
 
-    const totalTokens = this.estimatePressure(session, fullSystemPrompt, sessionPrefix)
-    if (totalTokens < threshold) return result
+    const threshold = Math.floor(meter.contextWindow * this.config.thresholdRatio)
+    let measurement = meter.measure(agent.session)
+    if (measurement.totalTokens < threshold) return null
+
+    let result: CompactionResult | null = null
+    for (let attempt = 0; attempt <= this.config.compactionRetries; attempt += 1) {
+      const range = selectCompactableRange(agent.session, measurement, this.config.retainTokens)
+      if (range === null) {
+        /* v8 ignore else -- concrete replacement preserves a compactable checkpoint; subclass hooks cannot mutate it. */
+        if (result === null) return null
+        /* v8 ignore next -- paired with the defensive post-success branch above. */
+        break
+      }
+      result = await this.compactRegion(range.start, range.end, agent, signal)
+      measurement = meter.measure(agent.session)
+      if (measurement.totalTokens < threshold) return result
+    }
 
     throw new Error(
       `compaction still above threshold after ${this.config.compactionRetries + 1} compaction attempts `
-      + `(${totalTokens} estimated tokens >= threshold ${threshold})`,
+      + `(${measurement.totalTokens} estimated tokens >= threshold ${threshold})`,
     )
   }
 
   /**
-   * Estimated token pressure of the NEXT request: the session prefix
-   * (`EpochHeader.messagePrefix` — request-only messages the loop sends in
-   * front of the derived history, composed before the pre-step seam and
-   * handed to the gate), the derived history, and the system prompt.
-   * @param session - the session whose next request is being estimated.
-   * @param fullSystemPrompt - the assembled system prompt (counts toward pressure).
-   * @param sessionPrefix - the instance's composed session prefix (counts toward pressure).
-   * @returns the estimated token total the next request will carry.
+   * Compact one inclusive positional range from the agent-owned surface using
+   * the effective token meter for all retention and shrink pricing.
+   * @param start - inclusive first surface-node seq.
+   * @param end - inclusive last surface-node seq.
+   * @param agent - owner of the target session, used by the summarizer.
+   * @param signal - optional summarization cancellation signal.
+   * @returns the successful durable compaction result.
    */
-  estimatePressure(session: Session, fullSystemPrompt: string, sessionPrefix: readonly Message[]): number {
-    return this.estimateTokens([...sessionPrefix, ...session.deriveMessages()], fullSystemPrompt)
-  }
-
   override async compactRegion(
-    session: Session,
     start: number,
     end: number,
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
-    // Resolve by surface position: a newer replacement seq may occupy an older slot.
-    const nodes = session.surface.nodes
-    const startIdx = nodes.findIndex(n => n.seq === start)
-    const endIdx = nodes.findIndex(n => n.seq === end)
-    if (startIdx === -1) throw new Error(`compactRegion: start seq ${start} not found in surface`)
-    if (endIdx === -1) throw new Error(`compactRegion: end seq ${end} not found in surface`)
-    if (startIdx > endIdx) {
-      throw new Error(`compactRegion: start seq ${start} (position ${startIdx}) is after end seq ${end} (position ${endIdx}) on the surface`)
-    }
-
-    // Both range edges must preserve assistant tool-call/result pairing.
-    const events = session.events
-    if (!isToolPairingBalanced(nodes, events, start)) {
-      throw new Error(`compactRegion: start seq ${start} is not a balanced boundary (would split a step's tool-call/result pair)`)
-    }
-    // The cut after `end` is named by `end`'s surface successor, or `null` when
-    // `end` is the tail.
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const afterEnd: number | null = nodes[endIdx]!.next
-    if (!isToolPairingBalanced(nodes, events, afterEnd)) {
-      throw new Error(`compactRegion: end seq ${end} is not a balanced boundary (would split a step, or the step is still open)`)
-    }
-
-    if (this._isCompactionInProgress(session)) {
-      throw new Error('compaction already in progress')
-    }
-
-    // Compaction's events (compact/* and the replacement user/message) must be turn-enclosed:
-    // the session-log contract rejects any plugin event appended outside an open turn.
-    const openTurn = this._openTurn(session)
-    if (openTurn === null) {
-      throw new Error('compactRegion: no open turn — compaction events must be enclosed in a turn')
-    }
-    // Slice the ordered surface nodes [startIdx, endIdx] inclusive — the
-    // shadowed range is positional, so this is the set the replace op covers.
-    const shadowedSeqs = nodes.slice(startIdx, endIdx + 1).map(n => n.seq)
-
-    // --- Acquire lock ---
-    const startEvent = session.append('compact/start', { turn: openTurn })
-
-    try {
-      // --- Extract text and summarize ---
-      const text = renderTranscript(session.events, shadowedSeqs)
-      const { summary, model, maxTokens } = await this.summarize(text, agent, signal)
-
-      // Estimate token count of the shadowed content for provenance.
-      let shadowedTokenCount = 0
-      for (const seq of shadowedSeqs) {
-        // seq comes from a surface node — always a valid log index by construction.
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        shadowedTokenCount += this.estimateEventTokens(session.events[seq]!)
-      }
-      const framedSummary = this._frameSummary(summary)
-      const framedSummaryTokenCount = this.estimateContentTokens(framedSummary)
-      if (framedSummaryTokenCount >= shadowedTokenCount) {
-        throw new Error(
-          `summary is not smaller than the shadowed content (${framedSummaryTokenCount} estimated framed tokens >= ${shadowedTokenCount})`,
-        )
-      }
-      // --- Provenance record (log-only) ---
-      const summaryEvent = session.append('compact/summary', {
-        summary,
-        shadowedRange: { start, end },
-        shadowedSeqs,
-        shadowedTokenCount,
-        model,
-        ...maxTokens !== undefined ? { maxTokens } : {},
-      })
-
-      // --- Surface replacement --- The user/message directly shadows all compacted surface
-      // nodes with a single replace op.
-      session.append('user/message', {
-        content: framedSummary,
-        source: { kind: 'plugin', plugin: 'compact' },
-      }, {
-        surfaceOp: { op: 'replace', start, end },
-        sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
-      })
-
-      // --- Release lock (log-only) ---
-      // Appended LAST so the lock brackets the WHOLE operation: a crash between
-      // compact/start and here leaves a detectable orphaned lock (a compact/start
-      // with no matching compact/end) rather than a compact/end that falsely
-      // claims compaction finished before the surface replacement landed.
-      const endEvent = session.append('compact/end', { turn: openTurn })
-
-      return {
-        startSeq: startEvent.seq,
-        summarySeq: summaryEvent.seq,
-        endSeq: endEvent.seq,
-        summary,
-        shadowedRange: { start, end },
-        shadowedSeqs,
-        shadowedTokenCount,
-      }
-    } catch (error: unknown) {
-      // Always release the lock — append compact/end with the error so a
-      // wedged lock is impossible.
-      const msg = error instanceof Error ? error.message : String(error)
-      session.append('compact/end', { turn: openTurn, error: msg })
-      throw error
-    }
-  }
-
-  // ---- Internal helpers ----
-
-  /**
-   * Frame the raw summary blocks into the content that lands on the surface:
-   * a checkpoint preamble (so a resuming model reads it as a checkpoint, not a
-   * fresh user request) followed by the summary wrapped in
-   * {@link SUMMARY_OPEN_TAG}/{@link SUMMARY_CLOSE_TAG}. The tags make a prior
-   * checkpoint detectable in the transcript on the next compaction cycle, which
-   * triggers the merge rule in the summarization prompt. The raw, unframed
-   * `summary` is preserved separately on the `compact/summary` provenance event.
-   */
-  private _frameSummary(summary: readonly ContentBlock[]): ContentBlock[] {
-    return [
-      { type: 'text', text: `${CHECKPOINT_PREAMBLE}\n\n${SUMMARY_OPEN_TAG}` },
-      ...summary,
-      { type: 'text', text: SUMMARY_CLOSE_TAG },
-    ]
-  }
-
-  /**
-   * Whether a compaction is currently in progress for `session` — an unmatched `compact/start`
-   * (no later `compact/end`) WITHIN the current turn.
-   */
-  private _isCompactionInProgress(session: Session): boolean {
-    const events = session.events
-    for (let i = events.length - 1; i >= 0; i--) {
-      // Index bounded by i >= 0 and i < events.length — never undefined.
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const e = events[i]!
-      if (e.type === 'compact/start') return true
-      if (e.type === 'compact/end') break
-      // A turn/end bounds the scan: anything before it belongs to a prior
-      // (closed) turn and cannot be an in-progress compaction of THIS turn.
-      if (e.type === 'turn/end') break
-    }
-    return false
-  }
-
-  /** Resolve the next head-anchored compactable surface range, or `null`. */
-  private _compactableRange(session: Session): { start: number; end: number } | null {
-    const nodes = session.surface.nodes
-    if (nodes.length === 0) return null
-
-    const events = session.events
-    const retainBudget = this.config.retainTokens
-
-    // Walk tail→head summing per-node token estimates. `keepFromIdx` is the
-    // index of the OLDEST node we retain verbatim; everything strictly older
-    // (`[0, keepFromIdx - 1]`) is the compactable range.
-    let accumulated = 0
-    let keepFromIdx = nodes.length // nothing retained yet
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const node = nodes[i]!
-      const event = events[node.seq]
-      /* v8 ignore next -- node.seq is a surface-node seq, always a valid log index by construction */
-      if (event) accumulated += this.estimateEventTokens(event)
-      keepFromIdx = i
-      if (accumulated >= retainBudget) break
-    }
-
-    // The whole surface fits the retain budget — nothing to compact.
-    if (keepFromIdx === 0) return null
-
-    // Round the cutoff to a tool-pairing boundary: if the cut before `nodes[keepFromIdx]` is
-    // unbalanced (an unanswered tool-call sits before it — i.e. it is mid-step), extend the
-    // retained side head-ward until the cut is balanced, so the compacted range ends without
-    // splitting an assistant↔result pair.
-    while (keepFromIdx > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      if (isToolPairingBalanced(nodes, events, nodes[keepFromIdx]!.seq)) break
-      keepFromIdx -= 1
-    }
-    if (keepFromIdx === 0) return null
-
-    // The compacted range is [head … keepFromIdx - 1], anchored at the head.
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const firstSeq = nodes[0]!.seq
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const cutoffSeq = nodes[keepFromIdx - 1]!.seq
-    return { start: firstSeq, end: cutoffSeq }
-  }
-
-  /** Keep only text; checkpoints cannot contain reasoning or orphan tool calls. */
-  private _textOnly(blocks: readonly ContentBlock[]): ContentBlock[] {
-    return blocks.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
-  }
-
-  /**
-   * The turn number of the currently OPEN turn — a `turn/start` not yet
-   * followed by its `turn/end` — or `null` if the session has no open turn.
-   *
-   * Compaction's events must be enclosed in a turn, so scanning back from the
-   * tail: a `turn/start` means that turn is open (return it); a `turn/end` means
-   * the most recent turn already closed (return null). The whole compaction
-   * sequence (compact/start … compact/end) is stamped with this turn.
-   */
-  private _openTurn(session: Session): number | null {
-    for (let i = session.events.length - 1; i >= 0; i--) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const e = session.events[i]!
-      if (e.type === 'turn/start') return e.data.turn
-      if (e.type === 'turn/end') return null
-    }
-    return null
+    const session = agent.session
+    return compactSurfaceRegion({
+      meter: this.ctx.tokenMeter,
+      summarize: (text, owner, abort) => this.summarize(text, owner, abort),
+    }, session, start, end, agent, signal)
   }
 }
 

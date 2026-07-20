@@ -86,7 +86,7 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
 
   // Boundary/step-scoped events have explicit cases; every OTHER event type —
   // including plugin-added (merge-extensible) SessionEventMap keys — is caught
-  // by the `default` and must be turn-enclosed (the turn-enclosure RFC). No assertNever: an
+  // by the `default` and must be turn-enclosed (the turn-enclosure Agent Note). No assertNever: an
   // unknown variant is valid, not a compile error.
   switch (event.type) {
     case 'turn/start': {
@@ -162,7 +162,7 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
       pendingCalls = { kind: 'delete', callId: event.data.callId }
       break
     }
-    // Turn-enclosure (the turn-enclosure RFC): EVERY session event not handled by a boundary
+    // Turn-enclosure (the turn-enclosure Agent Note): EVERY session event not handled by a boundary
     // case above must sit inside an open turn. The durable session log uses the
     // turn as its commit/replay boundary (the JSONL backend treats anything
     // after the last turn/end as a crash tail), so a bare event between turns is
@@ -330,7 +330,7 @@ export function apply(ctx: Context): void {
     }
   }, { global: true })
 
-  // Request-reconstruction cross-check (the reconstructability RFC): a
+  // Request-reconstruction cross-check (the reconstructability Agent Note): a
   // loop-built request — frozen envelope + live sessionId is the marker; a
   // hand-built one-shot (compaction summarize) is unfrozen and skipped — must
   // be EXACTLY what the session log reconstructs:
@@ -346,7 +346,7 @@ export function apply(ctx: Context): void {
   //   the boundary (an `agent/request`-window inject) is legitimately absent
   //   from this request, and a current-surface comparison would false-fire.
   // - header: every non-content field must equal the fold of the log's
-  //   `request/header*` events — the loop logs the header event BEFORE
+  //   `request/header` events — the loop logs the header event BEFORE
   //   dispatch, so the fold already covers this request.
   //
   // Registered with `prepend: true` so a short-circuiting llm/stream listener

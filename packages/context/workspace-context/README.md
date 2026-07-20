@@ -46,7 +46,7 @@ The core `context/message` envelope is disabled for these messages because the p
 
 ## State And Refresh
 
-Model-visible text contains no hidden state markers. Each dynamic context event instead carries JSON metadata with a versioned list of `{ action, scope, path, previousPath?, digest? }` changes. On every relevant tool touch, the plugin reconstructs loaded state from its visible session events and overlays a short in-memory pending window for context present on the immutable top-level `tools/result` but not yet appended by the loop. A matching durable `context/message` confirms the pending transition. If the owning `step/end` arrives first because a later tool aborted the step and the loop discarded its context buffer, the plugin clears the pending transition and its version fast path so the next successful touch can load it again. Nested Code Mode results stage pending changes under the outer execution token for same-run duplicate suppression; the outer result rolls that state back and recommits only contexts that survived outer policy.
+Model-visible text contains no hidden state markers. Each dynamic context event instead carries JSON metadata with a versioned list of `{ action, scope, path, previousPath?, digest? }` changes. On every relevant tool touch, the plugin reconstructs loaded state from its visible session events and overlays a short in-memory pending window for context present on the immutable top-level `tools/result` but not yet appended by the loop. A matching durable `context/message` confirms the pending transition. If the owning `step/end` arrives before a matching context reaches the log, the plugin clears the pending transition and its version fast path so the next successful touch can load it again. Nested Code Mode results stage pending changes under the outer execution token for same-run duplicate suppression; the outer result rolls that state back and recommits only contexts that survived outer policy.
 
 An unchanged path and SHA-1 content digest is not injected again. A per-session, per-scope metadata cache stores only `{ path, version, digest }`: when the provider's opaque `FsVersion` and the effective visible state both match, reconciliation skips the content read; a changed version triggers a bounded read and SHA-1 confirmation before any model-visible update. Resume works because SHA-1 state is persisted in the session log, while an empty in-memory version cache merely causes one confirming read. Compaction re-arms a scope after its context event leaves the visible surface even when the cached version is unchanged. A removal is a tombstone, so a later candidate reappearance is loaded again. Only model-visible changes actually rendered within the byte budget enter metadata, pending state, and the version cache; an omitted change remains eligible for a later touch, while a same-digest version refresh updates metadata only.
 
@@ -78,11 +78,11 @@ Instruction content is read through `streamText()` under `maxSourceBytes`, even 
 
 ### Baseline session prefix
 
-**What the model sees**: At the first request of each loop instance, the model receives one user-role prefix message containing the bounded user-global and project instruction chain in broad-to-specific order.
+#### What the model sees
 
-**Token effect**: The rendered baseline is frozen and resent on every request in that loop instance. `maxBytes` bounds the complete message, broader files are omitted before the most-specific file is truncated, and an empty chain contributes zero tokens.
+At the first request of each loop instance, the model receives one user-role prefix message containing the bounded user-global and project instruction chain in broad-to-specific order.
 
-#### Baseline instruction template
+##### Baseline instruction template
 
 ```markdown
 <system-reminder>
@@ -98,13 +98,21 @@ Instructions from: AGENTS.md
 </system-reminder>
 ```
 
+#### Token effect
+
+The rendered baseline is frozen and resent on every request in that loop instance. `maxBytes` bounds the complete message, broader files are omitted before the most-specific file is truncated, and an empty chain contributes zero tokens.
+
+#### KV Cache effect
+
+Prefix-stable within one loop instance because the baseline is frozen. A new or resumed instance recomposes it, so instruction, precedence, cwd, candidate, or byte-budget changes may invalidate reuse from the first changed baseline token.
+
 ### Newly discovered scope context
 
-**What the model sees**: After a successful first-party filesystem call reaches a deeper directory, the next request includes one retained raw `context/message` with the newly applicable instruction file.
+#### What the model sees
 
-**Token effect**: Each discovered scope adds bounded history tokens until compaction. Unchanged content is suppressed by visible session state plus version/digest comparison, and Code Mode defers the same message until after the outer `run_code` result.
+After a successful first-party filesystem call reaches a deeper directory, the next request includes one retained raw `context/message` with the newly applicable instruction file.
 
-#### Additional instruction template
+##### Additional instruction template
 
 ```markdown
 <system-reminder>
@@ -116,13 +124,21 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 </system-reminder>
 ```
 
+#### Token effect
+
+Each discovered scope adds bounded history tokens until compaction. Unchanged content is suppressed by visible session state plus version/digest comparison, and Code Mode defers the same message until after the outer `run_code` result.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ### Changed or removed instruction context
 
-**What the model sees**: A changed file produces `Updated instructions from: <path>` plus its replacement content; a candidate switch also names the previous path. A removed final candidate produces the removal notice below.
+#### What the model sees
 
-**Token effect**: Each confirmed change or removal is one retained history message bounded by `maxBytes`. Provider failures add no message, and an update omitted by the budget remains eligible for a later filesystem touch.
+A changed file produces `Updated instructions from: <path>` plus its replacement content; a candidate switch also names the previous path. A removed final candidate produces the removal notice below.
 
-#### Removal notice
+##### Removal notice
 
 ```markdown
 <system-reminder>
@@ -131,6 +147,14 @@ Instructions removed: packages/app/AGENTS.md
 The previously loaded instructions from this file no longer apply.
 </system-reminder>
 ```
+
+#### Token effect
+
+Each confirmed change or removal is one retained history message bounded by `maxBytes`. Provider failures add no message, and an update omitted by the budget remains eligible for a later filesystem touch.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

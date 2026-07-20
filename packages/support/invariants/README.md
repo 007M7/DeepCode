@@ -32,6 +32,7 @@ Session log (per session):
 - **steps nest in turns** — `step/start` opens a step in the open turn; `step/end` closes the matching step.
 - **chunks belong to an open step** — `step/start` precedes its `assistant/chunk`s.
 - **a `tool/result` needs a prior `tool/call`** — but NOT the converse: a `tool/call` may have no result (a thrown tool-execution pipeline step ends the turn with no `tool/result`, which is legal).
+- **provenance sources are valid and unambiguous** — `sourceEventSeqs` contains unique earlier known seqs; only `assistant/message` may carry an explicit empty list, which denotes a known empty provider stream rather than absent legacy provenance.
 
 Agent status (per agent):
 
@@ -39,13 +40,13 @@ Agent status (per agent):
 
 Model requests (on `llm/stream`):
 
-- **a loop-built request is exactly what the log reconstructs** — a frozen request with a live `sessionId` is rebuilt through a fresh `Session` from the prefix before its in-flight `step/start`; later content belongs to the next request, and hand-built unfrozen one-shots are excluded. Frozen messages must match that derivation, while every other field matches folded `request/header*` events. The prepended check runs before ordinary short-circuiting stream listeners, but correctness comes from the sequence boundary rather than listener timing. See the [reconstructability RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
+- **a loop-built request is exactly what the log reconstructs** — a frozen request with a live `sessionId` (the loop-built marker; hand-built one-shots like compaction's summarize are unfrozen and skipped) must carry frozen `messages` deep-equal to the derivation over the log prefix strictly before the in-flight step's `step/start` (rebuilt through a FRESH `Session`, so the live cache cannot vouch for itself — and boundary-correct: content logged after `step/start` legitimately belongs to the next request), and every non-content field must equal the latest logged `request/header` (see [the reconstructability Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)). Registered with `prepend: true` so a short-circuiting `llm/stream` listener (the replay adapter) cannot silence it; prepend orders it against append-registered listeners only — correctness rests on the seq-bounded rebuild, never listener timing.
 
 On any violation it throws `InvariantError` (`code: 'INVARIANT'`).
 
 ## Why runtime assertions remain useful
 
-Session enforces the per-record storage boundary at runtime, where a cast cannot bypass it. Pervasive `DeepReadonly<SessionEvent>` types would add noise across consumers without expressing relationships such as turn/step nesting, subject-correct scoped dispatch, or equality between a request and its log reconstruction. This plugin checks those relationships wherever it is mounted while `dsh-session` keeps history immutable in every composition. See [source-owned session immutability and dev-mode invariants](../../../docs/rfc/implemented/architecture/2026-06-11-dev-invariants-over-deep-readonly.md).
+Session enforces the per-record storage boundary at runtime, where a cast cannot bypass it. Pervasive `DeepReadonly<SessionEvent>` types would add noise across consumers without expressing relationships such as turn/step nesting, subject-correct scoped dispatch, or equality between a request and its log reconstruction. This plugin checks those relationships wherever it is mounted while `dsh-session` keeps history immutable in every composition. See [source-owned session immutability and dev-mode invariants](../../../.agents/notes/implemented/architecture/2026-06-11-dev-invariants-over-deep-readonly.md).
 
 ## Seeded sessions
 
@@ -54,6 +55,10 @@ A seeded or forked session arrives with events already in its log because constr
 ## Model Experience
 
 None, as this observer only validates events and frozen requests and never rewrites prompts, schemas, messages, or streams.
+
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 

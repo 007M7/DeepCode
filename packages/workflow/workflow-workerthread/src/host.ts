@@ -326,7 +326,14 @@ export class WorkerRun implements WorkflowRun {
         parent: this.parent,
         signal: this.controller.signal,
         ...request.schema !== undefined ? { outputSchema: request.schema } : {},
-        ...request.model !== undefined ? { agentOptions: { model: request.model } } : {},
+        ...request.provider !== undefined || request.model !== undefined
+          ? {
+            agentOptions: {
+              ...request.provider !== undefined ? { provider: request.provider } : {},
+              ...request.model !== undefined ? { model: request.model } : {},
+            },
+          }
+          : {},
       })
     } catch (error: unknown) {
       const failure = this.childAdmissionFailure()

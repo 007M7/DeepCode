@@ -6,6 +6,7 @@
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { readdirSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
@@ -32,6 +33,10 @@ interface Behavior {
   rejectExtraDirs?: boolean
   /** How `session/prompt` settles: a clean response, a JSON-RPC error, or a hang until `session/cancel`. */
   prompt?: 'respond' | 'error' | 'hang-until-cancel'
+  /** Emit a tool call instead of a message chunk before parking a cancellable prompt. */
+  cancelAtToolCall?: boolean
+  /** Emit the parked tool call's terminal update after answering cancellation. */
+  cancelToolCallUpdate?: boolean
   /** Before responding to a prompt, send a `session/request_permission` request and echo its outcome as a chunk. */
   permissionProbe?: boolean
   /** Echo the `DSH_SNAPSHOT_*` env the harness set as a chunk (spec-side env-plumbing assertions). */
@@ -40,6 +45,8 @@ interface Behavior {
   echoWorkspace?: boolean
   /** Write a line to stderr on boot (spec-side stderr-capture assertions). */
   stderrNote?: string
+  /** Let a short-lived descendant retain stdio and emit one final ACP update plus stderr line after this parent exits. */
+  lateInheritedOutput?: boolean
   /** Session logs to persist on stdin EOF. */
   logs?: ScriptedLog[]
   /** Leave a stray FILE directly under the sessions root (harvest must skip it). */
@@ -123,7 +130,23 @@ async function handlePrompt(id: number | string): Promise<void> {
       params: { sessionId, update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'mulling' } } },
     })
   }
-  chunk('thinking about it')
+  if (behavior.cancelAtToolCall === true) {
+    send({
+      method: 'session/update',
+      params: {
+        sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'call_fake_1',
+          title: 'fake tool',
+          kind: 'execute',
+          status: 'in_progress',
+        },
+      },
+    })
+  } else {
+    chunk('thinking about it')
+  }
   if (behavior.echoEnv === true) {
     chunk(`env:${JSON.stringify({
       mode: process.env.DSH_SNAPSHOT,
@@ -226,6 +249,19 @@ function handleFrame(frame: Record<string, unknown>): void {
         const parked = parkedPromptId
         parkedPromptId = null
         respond(parked, { stopReason: 'cancelled' })
+        if (behavior.cancelToolCallUpdate === true) {
+          send({
+            method: 'session/update',
+            params: {
+              sessionId,
+              update: {
+                sessionUpdate: 'tool_call_update',
+                toolCallId: 'call_fake_1',
+                status: 'failed',
+              },
+            },
+          })
+        }
       }
       return
     default:
@@ -247,6 +283,24 @@ function flushLogsAndExit(): void {
     writeFileSync(join(sessionsRoot, 'bucket-noise', 'notes.txt'), 'not a session log\n')
   }
   if (behavior.deleteSessionsRoot === true) rmSync(sessionsRoot, { recursive: true, force: true })
+  if (behavior.lateInheritedOutput === true) {
+    const frame = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'late inherited stdout' },
+        },
+      },
+    })
+    const code = [
+      `setTimeout(() => process.stdout.write(${JSON.stringify(`${frame}\n`)}), 50)`,
+      `setTimeout(() => process.stderr.write(${JSON.stringify('late inherited stderr\n')}), 75)`,
+    ].join(';')
+    spawn(process.execPath, ['-e', code], { stdio: ['ignore', 1, 2] }).unref()
+  }
   process.exit(0)
 }
 

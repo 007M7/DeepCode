@@ -43,3 +43,4 @@ export {
 } from './questions/question.ts'
 export type { Question } from './questions/question.ts'
 export { ClackPromptPort } from './questions/clack-prompt-port.ts'
+export { HeadlessPromptError, HeadlessPromptPort } from './questions/headless-prompt-port.ts'
