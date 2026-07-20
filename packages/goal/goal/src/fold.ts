@@ -325,8 +325,7 @@ export function decodeGoalEvent(event: ContextMessageEvent): GoalChangeMeta | un
   if (source === undefined || source.goalId !== ref.id || source.revision !== ref.revision || source.round !== 0) {
     throw new Error(`goal change at session event ${event.seq} has mismatched source attribution`)
   }
-  if (event.data.envelope !== 'raw'
-    || JSON.stringify(event.data.content) !== JSON.stringify(renderGoalChange(change))) {
+  if (JSON.stringify(event.data.content) !== JSON.stringify(renderGoalChange(change))) {
     throw new Error(`goal change at session event ${event.seq} has mismatched model-visible content`)
   }
   return change

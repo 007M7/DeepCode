@@ -71,6 +71,10 @@ declare const tools: {
     new_string: string;
     /** Replace all matches. Defaults to false; when false, old_string must appear exactly once. */
     replace_all?: boolean;
+    /** The wider sandbox mode this file operation needs. Only valid as a one-shot retry of an operation the sandbox just denied; requires justification and user approval. */
+    sandbox_permissions?: "workspace-write" | "danger-full-access";
+    /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. */
+    justification?: string;
   }): Promise<string>;
   /** Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal. */
   get_goal(args: Record<string, unknown>): Promise<string>;
@@ -189,6 +193,10 @@ declare const tools: {
     file_path: string;
     /** Full UTF-8 text content to write. */
     content: string;
+    /** The wider sandbox mode this file operation needs. Only valid as a one-shot retry of an operation the sandbox just denied; requires justification and user approval. */
+    sandbox_permissions?: "workspace-write" | "danger-full-access";
+    /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. */
+    justification?: string;
   }): Promise<string>;
 }
 ```
