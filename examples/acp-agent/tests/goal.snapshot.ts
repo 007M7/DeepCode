@@ -25,7 +25,7 @@ const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 
 const agent: AgentUnderTest = {
   binScript: fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url)),
-  configPath: fileURLToPath(new URL('../goal.cordis.yml', import.meta.url)),
+  configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
   tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
 
