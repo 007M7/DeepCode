@@ -12,6 +12,8 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, assertNever } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+// Type-only: makes the optional sibling service available to `ctx.get()`.
+import type {} from '@deepseek-ai/dsh-compact-tool-result-prune'
 import { resolveConfig } from './config.ts'
 import { compactSurfaceRegion, selectCompactableRange } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
@@ -98,22 +100,35 @@ export class BasicCompactService extends CompactService {
         || retryAttempt >= this.config.maxOverflowRetries
         || signal.aborted) return next()
 
-      let generation: number
+      const generation = agent.session.surface.replaceGeneration
       let result: CompactionResult | null
       try {
-        generation = agent.session.surface.replaceGeneration
         result = await this.compactIfNeeded(agent, 'context-overflow', signal)
       } catch (recoveryError: unknown) {
         const message = recoveryError instanceof Error ? recoveryError.message : String(recoveryError)
+        // A model-free prune can land before later summary work fails. That
+        // durable reduction is sufficient retry proof; do not discard it just
+        // because the optional second phase threw. Cancellation still wins.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while recovery is awaited.
+        if (!signal.aborted && agent.session.surface.replaceGeneration > generation) {
+          ctx.logger.warn(
+            `context-overflow compaction failed after durable surface progress: ${message}; `
+            + 'retrying from the replacement surface',
+          )
+          return { action: 'retry' }
+        }
         ctx.logger.warn(
-          `context-overflow compaction failed: ${message}; preserving the original request error`,
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while recovery is awaited.
+          `context-overflow compaction failed: ${message}; ${signal.aborted
+            ? 'cancellation prevents retry'
+            : 'preserving the original request error'}`,
         )
         return next()
       }
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while compaction is awaited.
-      if (signal.aborted || result === null
+      if (signal.aborted
         || agent.session.surface.replaceGeneration <= generation) return next()
-      logResult(result, 'context overflow recovery')
+      if (result !== null) logResult(result, 'context overflow recovery')
       return { action: 'retry' }
     })
   }
@@ -142,7 +157,7 @@ export class BasicCompactService extends CompactService {
    * @param agent - agent whose latest durable routed request is measured.
    * @param trigger - normal post-step pressure or context-overflow recovery.
    * @param signal - live turn cancellation signal forwarded to summarization.
-   * @returns the latest compaction result, or `null` when no check/work applies.
+   * @returns the latest summary compaction result, or `null` when no summary ran.
    */
   override async compactIfNeeded(
     agent: Agent,
@@ -152,22 +167,34 @@ export class BasicCompactService extends CompactService {
     const model = routedModel(agent.session)
     if (model === undefined) return null
     const meter = this.ctx.tokenMeter
+    const threshold = Math.floor(meter.contextWindow * this.config.thresholdRatio)
+    let measurement = meter.measure(agent.session)
     switch (trigger) {
-      case 'context-overflow': {
-        const measurement = meter.measure(agent.session)
-        const range = selectCompactableRange(agent.session, measurement, 0)
-        if (range === null) return null
-        return this.compactRegion(range.start, range.end, agent, signal)
-      }
+      case 'context-overflow':
+        break
       case 'pressure':
+        if (measurement.totalTokens < threshold) return null
         break
       /* v8 ignore next -- closed-union exhaustiveness guard */
       default:
         assertNever(trigger, 'compaction trigger')
     }
 
-    const threshold = Math.floor(meter.contextWindow * this.config.thresholdRatio)
-    let measurement = meter.measure(agent.session)
+    // Pruning is optional so compact-basic remains independently composable.
+    // Once either trigger qualifies, land the model-free pass before choosing
+    // a summary range, then remeasure through the singleton replay fold.
+    const prune = this.ctx.get('toolResultPrune')
+    if (prune !== undefined) {
+      prune.pruneSession(agent.session)
+      measurement = meter.measure(agent.session)
+    }
+
+    if (trigger === 'context-overflow') {
+      const range = selectCompactableRange(agent.session, measurement, 0)
+      if (range === null) return null
+      return this.compactRegion(range.start, range.end, agent, signal)
+    }
+
     if (measurement.totalTokens < threshold) return null
 
     let result: CompactionResult | null = null

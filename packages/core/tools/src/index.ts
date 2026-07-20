@@ -235,8 +235,8 @@ export interface ToolExecution extends ToolExecutionInput {
 export interface ToolRunContext extends ToolExecution {
   /**
    * Defer one nested-dispatch context until this tool's final result reaches
-   * the agent loop. Contexts retain their individual source, envelope, and
-   * metadata and are emitted in call order.
+   * the agent loop. Contexts retain their individual source and metadata and
+   * are emitted in call order.
    */
   deferContext(context: HookContext): void
 }
@@ -958,14 +958,19 @@ export class ToolRegistry extends Service {
     // Freeze the remaining mutable signal slot before observers receive the
     // shared WeakMap-keyable execution object.
     Object.freeze(exec)
+    const { name: toolName, callId } = exec
+    const reportFailure = (error: unknown): void => {
+      this.ctx.logger.warn(`tool "${toolName}" (${callId}): tools/result observer failed: ${errorMessage(error)}`)
+    }
     const callbacks = this.ctx.events.dispatch('emit', [
       scopeTarget(this, exec.agent), 'tools/result', exec, result,
     ])
     for (const callback of callbacks) {
       try {
-        callback(exec, result)
+        const returned: unknown = callback(exec, result)
+        void Promise.resolve(returned).catch(reportFailure)
       } catch (error: unknown) {
-        this.ctx.logger.warn(`tool "${exec.name}" (${exec.callId}): tools/result observer failed: ${errorMessage(error)}`)
+        reportFailure(error)
       }
     }
   }

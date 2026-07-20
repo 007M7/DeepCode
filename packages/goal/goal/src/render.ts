@@ -6,7 +6,7 @@ import type { GoalChangeMeta } from './types.ts'
 /**
  * Render a complete goal snapshot or clear tombstone without hidden prose.
  * @param change - durable goal change metadata.
- * @returns the single raw context block logged for model reconstruction.
+ * @returns the single context block logged and projected verbatim for model reconstruction.
  */
 export function renderGoalChange(change: GoalChangeMeta): ContentBlock[] {
   const payload = change.operation === 'clear'

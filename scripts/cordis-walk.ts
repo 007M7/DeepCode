@@ -1,10 +1,7 @@
 /**
- * Shared AST walkers for the cordis documentation generators
- * (`gen-cordis-catalog.ts`, `gen-website-api.ts`): locating the cordis module
- * merge in a source file, enumerating its `interface Events` members, and
- * resolving the `interface Context` service keys to their service classes.
- * One walk, two renderers — the catalog and the website page carry different
- * prose but must agree on WHAT exists.
+ * AST walkers for the Cordis catalog generator: locate the Cordis module merge
+ * in a source file, enumerate its `interface Events` members, and resolve the
+ * `interface Context` service keys to their service classes.
  */
 
 import ts from 'typescript'

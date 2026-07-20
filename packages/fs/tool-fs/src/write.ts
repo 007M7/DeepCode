@@ -14,6 +14,7 @@ import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { computeHunkDiffs, diffsFromMeta, type FsDiffMeta } from './diff.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
+import type { FsSandboxSurface } from './sandbox.ts'
 
 /**
  * Validate value constraints the schema DSL can't express: only a non-blank
@@ -42,10 +43,23 @@ ${verb} file
 }
 
 /**
+ * The `write` tool's validated argument shape: the base parameters plus the
+ * two escalation fields, advertised only under a confining `ctx.fs` (absent
+ * from the schema otherwise, so the validator rejects them before `execute`).
+ */
+interface WriteToolArgs {
+  file_path: string
+  content: string
+  sandbox_permissions?: string
+  justification?: string
+}
+
+/**
  * Register the `write` tool and its system-prompt guidance.
  * @param ctx - the plugin context; registrations are effects scoped to it, and execution uses its `fs` service.
+ * @param sandbox - the shared sandbox-escalation surface (advertisement, mode stamping, denial mapping).
  */
-export function applyWriteTool(ctx: Context): void {
+export function applyWriteTool(ctx: Context, sandbox: FsSandboxSurface): void {
   ctx.systemPrompt.section({
     name: 'tool:write',
     order: 101,
@@ -58,14 +72,26 @@ export function applyWriteTool(ctx: Context): void {
     parameters: {
       file_path: { type: 'string', required: true, description: 'Path to write, resolved by the filesystem backend.' },
       content: { type: 'string', required: true, description: 'Full UTF-8 text content to write.' },
+      ...sandbox.escalationModes.length > 0 ? sandbox.schemaFields() : {},
     },
-    async execute(args, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
+    async execute(args: WriteToolArgs, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
       const input = parseWriteArgs(args)
+      // Resolve the per-call sandbox mode (escalation grant > session override
+      // > backend default) BEFORE anything executes; an escalating call
+      // resolves approval here and throws its distinct text on any non-grant.
+      const sandboxMode = await sandbox.stampMode('write', args, exec)
       const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec))
       // Single-slot decision: the policy plugin produces createIfAbsent/
       // replaceIfVersion; the bare default is undefined (unconditional). No stat.
       const intent = await ctx.waterfall('fs/write-intent', target, exec, () => undefined)
-      const outcome = await ctx.fs.writeText(target, input.content, intent, exec.signal)
+      let outcome: FsWriteOutcome
+      try {
+        outcome = await ctx.fs.writeText(target, input.content, intent, exec.signal, sandboxMode)
+      } catch (error: unknown) {
+        // A sandbox denial becomes the shared [sandbox: …] marker (the model
+        // recognizes it from bash); any other error passes through.
+        throw sandbox.mapError(error, sandboxMode)
+      }
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
       // Overwrites carry applied hunks. Creates have no prior text, so result presentation uses
