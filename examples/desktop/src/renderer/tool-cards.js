@@ -704,11 +704,26 @@ function formatJson(v, emptyMsg) {
 // -- code-dispatch fan-out ---------------------------------------------------
 
 /**
- * Append a sub-call row to a parent `run_code` tool block. The row is a small
- * indented line summarising the sub-tool call — a full nested card would drown
- * the stream when Code Mode fans out to a dozen calls.
+ * Append a sub-call row to a parent `run_code` tool block. Each row is a
+ * `<details>` whose collapsed `<summary>` keeps the compact one-line shape
+ * (branch · status · name · result gist) so a dozen fan-out calls stay
+ * scannable; expanding it reveals that sub-call's arguments and result summary.
+ * A `{ }` inspector badge on the summary opens the unified Inspector anchored
+ * to a reconstructed `tool/call` event for the sub-call (same affordance the
+ * top-level tool cards carry).
+ *
+ * Wire shape (packages/core/tools/src/code-mode.ts): the `tool/code-dispatch`
+ * event carries `{parentCallId, subCallId, name, arguments, isError,
+ * resultSummary}` — arguments AND result land in ONE event (the event fires
+ * after the sub-call completes), so there is no separate result event to await.
+ *
+ * Nesting: the wire carries no depth field for dispatch-within-dispatch, so
+ * rows render flat. If a caller ever passes a finite `event.depth > 0` we
+ * indent one level per depth (reusing the fused-call-row inset), leaving the
+ * shape ready if the runtime starts emitting depth.
+ *
  * @param {HTMLElement} parentResBox — the `.result` div of the enclosing run_code call
- * @param {{ name: string, subCallId: string, isError: boolean, resultSummary?: string }} event
+ * @param {{ name: string, subCallId: string, arguments?: unknown, isError: boolean, resultSummary?: string, depth?: number }} event
  * @returns {HTMLElement}
  */
 function appendCodeDispatch(parentResBox, event) {
@@ -725,24 +740,96 @@ function appendCodeDispatch(parentResBox, event) {
     list.appendChild(header)
     parentResBox.appendChild(list)
   }
-  const row = document.createElement('div')
-  row.className = 'card-code-dispatch-row ' + (event && event.isError ? 'err' : 'ok')
+  const isError = !!(event && event.isError)
+  const s = event && typeof event.resultSummary === 'string' ? event.resultSummary : ''
+  const subName = String(event && event.name != null ? event.name : '(unknown)')
+
+  // The row is a <details> so it expands in place. Class stays
+  // `card-code-dispatch-row ok|err` so existing probes/tests that select the
+  // row by class keep working across the collapsed→expandable change.
+  const row = document.createElement('details')
+  row.className = 'card-code-dispatch-row ' + (isError ? 'err' : 'ok')
+  if (event && event.subCallId != null) row.setAttribute('data-sub-call-id', String(event.subCallId))
+  // Optional depth inset (defensive; wire has no depth today).
+  const depth = event && Number.isFinite(event.depth) ? Math.max(0, Math.floor(event.depth)) : 0
+  if (depth > 0) {
+    row.classList.add('nested')
+    row.style.marginLeft = (depth * 12) + 'px'
+  }
+
+  const summary = document.createElement('summary')
+  summary.className = 'card-code-dispatch-summary-line'
   const branch = document.createElement('span')
   branch.className = 'card-code-dispatch-branch'
   branch.textContent = '└─' // └─
-  const name = document.createElement('span')
-  name.className = 'card-code-dispatch-name'
-  name.textContent = String(event && event.name != null ? event.name : '(unknown)')
   const dot = document.createElement('span')
   dot.className = 'card-code-dispatch-dot'
-  dot.textContent = event && event.isError ? '✗' : '✓' // ✗/✓
-  const summary = document.createElement('span')
-  summary.className = 'card-code-dispatch-summary'
-  const s = event && typeof event.resultSummary === 'string' ? event.resultSummary : ''
-  summary.textContent = s
-  row.append(branch, dot, name, summary)
+  dot.textContent = isError ? '✗' : '✓' // ✗/✓
+  const name = document.createElement('span')
+  name.className = 'card-code-dispatch-name'
+  name.textContent = subName
+  // The collapsed one-line result gist keeps the original class name so the
+  // scannable summary text is unchanged when the row is closed.
+  const gist = document.createElement('span')
+  gist.className = 'card-code-dispatch-summary'
+  gist.textContent = s
+  summary.append(branch, dot, name, gist)
+
+  // { } inspector badge on the summary, anchored to a reconstructed tool/call
+  // event for this sub-call. Guarded: absent inspector (early boot / node
+  // tests) simply skips the badge — never throws.
+  const ins = (typeof window !== 'undefined') ? window.__dshInspector : null
+  if (ins && typeof ins.attachInspectBadge === 'function') {
+    const subEvent = {
+      type: 'tool/call',
+      __reconstructed: true,
+      data: {
+        callId: event && event.subCallId,
+        name: subName,
+        arguments: event ? event.arguments : undefined,
+        result: { isError, resultSummary: s },
+      },
+    }
+    ins.attachInspectBadge(summary, () => ({ event: subEvent, tab: 'json', title: `sub-call: ${subName}` }))
+  }
+  row.appendChild(summary)
+
+  // Expanded body: args + result summary. Built once; the <details> toggle
+  // shows/hides it with no rebuild.
+  const detail = document.createElement('div')
+  detail.className = 'card-code-dispatch-detail'
+  detail.appendChild(dispatchDetailBlock('args', codeDispatchArgsText(event && event.arguments)))
+  detail.appendChild(dispatchDetailBlock('result', s || (isError ? '[error]' : '[ok]')))
+  row.appendChild(detail)
+
   list.appendChild(row)
   return row
+}
+
+// A labelled monospace block inside an expanded sub-call row.
+function dispatchDetailBlock(label, text) {
+  const wrap = document.createElement('div')
+  wrap.className = 'card-code-dispatch-detail-block'
+  const lab = document.createElement('div')
+  lab.className = 'card-code-dispatch-detail-label'
+  lab.textContent = label
+  const pre = document.createElement('pre')
+  pre.className = 'card-code-dispatch-detail-body'
+  pre.textContent = text
+  wrap.append(lab, pre)
+  return wrap
+}
+
+// Flatten a sub-call's `arguments` (any JS value or JSON string) into a pretty
+// block for the expanded row. Mirrors formatJson's re-parse trick so a
+// JSON-string arg reads indented, not as escape soup.
+function codeDispatchArgsText(args) {
+  if (args == null) return '(no arguments)'
+  if (typeof args === 'string') {
+    if (args === '') return '(no arguments)'
+    try { return JSON.stringify(JSON.parse(args), null, 2) } catch { return args }
+  }
+  try { return JSON.stringify(args, null, 2) } catch { return String(args) }
 }
 
 // -- exports -----------------------------------------------------------------

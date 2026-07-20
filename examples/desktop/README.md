@@ -327,6 +327,23 @@ becomes a visualiser of the runtime's actual state.
   render a terminal card with a scrollback pane. Both fall back to the
   generic collapsible-details view if the `meta` discriminant is
   missing.
+- **Cordis self-modification card.** The three self-referential tools
+  (`cordis_mount` / `cordis_unmount` / `cordis_inspect`) — the model
+  editing its own live runtime — get a purpose-built card instead of
+  raw text. Mount shows the `{id, name, state}` of the new entry plus a
+  `＋entry` delta (and the awaited services when a plugin is pending);
+  unmount shows the removed id with a `－entry` delta; inspect renders
+  the returned runtime inventory (services / plugins / tools / dynamic /
+  api / events) through the shared collapsible Fields tree. All three
+  are parsed from the tool's own plain-text result (they carry a
+  `generic` render intent), so the card never fabricates a shape the
+  runtime didn't emit — an unrecognised text falls back to raw.
+- **Nested code-dispatch tree.** When Code Mode (`run_code`) fans out to
+  sub-tool calls, each sub-call appears as an expandable row inside the
+  parent's result box: collapsed it keeps the one-line
+  `└─ ✓ name  summary` shape; expanded it reveals that sub-call's
+  arguments and result, and carries its own `{ }` inspector badge
+  anchored to the sub-call event.
 - **Fork & edit-rerun.** Every assistant bubble has a hover-revealed
   **fork from here** button; use it to mint a child session seeded at
   that exact seq, edit the user turn, and let a different reply

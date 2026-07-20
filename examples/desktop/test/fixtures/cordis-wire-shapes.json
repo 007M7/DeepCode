@@ -1,0 +1,284 @@
+{
+  "_comment": "Realistic tool/call + tool/result wire shapes for the three cordis tools, mirroring the REAL upstream package (packages/cordis/tool-cordis/src in the sibling runtime repo). All three declare a `generic` render intent and return PLAIN-TEXT content blocks — there is no structured result object on the wire. Result text strings below are the exact formats the tool's execute() returns (index.ts) and inspect renderers emit (inspect.ts); STATE_LABELS are lowercase upstream (`active`/`pending`). meta is omitted (generic card carries none). These feed the cordis-card unit tests + the QA shoot's event-injection seam.",
+
+  "mount_ok": {
+    "call": {
+      "type": "tool/call",
+      "seq": 101,
+      "time": 1721400000000,
+      "data": {
+        "turn": 0,
+        "step": 0,
+        "callId": "cordis-mount-1",
+        "name": "cordis_mount",
+        "arguments": "{\"code\":\"return {\\n  name: 'change-logger',\\n  inject: ['tools'],\\n  apply(ctx) {\\n    ctx.on('tools/change', () => console.log('tools changed'))\\n  },\\n}\"}"
+      }
+    },
+    "result": {
+      "type": "tool/result",
+      "seq": 102,
+      "time": 1721400001200,
+      "data": {
+        "turn": 0,
+        "step": 0,
+        "callId": "cordis-mount-1",
+        "isError": false,
+        "durationMs": 1180,
+        "content": [
+          { "type": "text", "text": "mounted dyn-1 (plugin \"change-logger\", state: active)" }
+        ]
+      }
+    }
+  },
+
+  "mount_pending_waiting": {
+    "call": {
+      "type": "tool/call",
+      "seq": 111,
+      "time": 1721400010000,
+      "data": {
+        "turn": 1,
+        "step": 0,
+        "callId": "cordis-mount-2",
+        "name": "cordis_mount",
+        "arguments": "{\"code\":\"return {\\n  name: 'greeter-consumer',\\n  inject: ['greeter'],\\n  apply(ctx) { ctx.greeter.hello() },\\n}\"}"
+      }
+    },
+    "result": {
+      "type": "tool/result",
+      "seq": 112,
+      "time": 1721400010900,
+      "data": {
+        "turn": 1,
+        "step": 0,
+        "callId": "cordis-mount-2",
+        "isError": false,
+        "durationMs": 860,
+        "content": [
+          { "type": "text", "text": "mounted dyn-2 (plugin \"greeter-consumer\", state: pending — waiting for service(s): greeter (activates when provided))" }
+        ]
+      }
+    }
+  },
+
+  "mount_error": {
+    "call": {
+      "type": "tool/call",
+      "seq": 121,
+      "time": 1721400020000,
+      "data": {
+        "turn": 2,
+        "step": 0,
+        "callId": "cordis-mount-3",
+        "name": "cordis_mount",
+        "arguments": "{\"code\":\"const x = 1\"}"
+      }
+    },
+    "result": {
+      "type": "tool/result",
+      "seq": 122,
+      "time": 1721400020400,
+      "data": {
+        "turn": 2,
+        "step": 0,
+        "callId": "cordis-mount-3",
+        "isError": true,
+        "durationMs": 40,
+        "content": [
+          { "type": "text", "text": "mount code returned `undefined` — did you forget `return`?\n  ✓ return (ctx) => { … }\n  ✓ return { name: '…', inject: […], apply(ctx) { … } }" }
+        ]
+      }
+    }
+  },
+
+  "unmount_ok": {
+    "call": {
+      "type": "tool/call",
+      "seq": 131,
+      "time": 1721400030000,
+      "data": {
+        "turn": 3,
+        "step": 0,
+        "callId": "cordis-unmount-1",
+        "name": "cordis_unmount",
+        "arguments": "{\"id\":\"dyn-1\"}"
+      }
+    },
+    "result": {
+      "type": "tool/result",
+      "seq": 132,
+      "time": 1721400030500,
+      "data": {
+        "turn": 3,
+        "step": 0,
+        "callId": "cordis-unmount-1",
+        "isError": false,
+        "durationMs": 520,
+        "content": [
+          { "type": "text", "text": "unmounted dyn-1 (plugin \"change-logger\")" }
+        ]
+      }
+    }
+  },
+
+  "unmount_error": {
+    "call": {
+      "type": "tool/call",
+      "seq": 141,
+      "time": 1721400040000,
+      "data": {
+        "turn": 4,
+        "step": 0,
+        "callId": "cordis-unmount-2",
+        "name": "cordis_unmount",
+        "arguments": "{\"id\":\"dyn-9\"}"
+      }
+    },
+    "result": {
+      "type": "tool/result",
+      "seq": 142,
+      "time": 1721400040100,
+      "data": {
+        "turn": 4,
+        "step": 0,
+        "callId": "cordis-unmount-2",
+        "isError": true,
+        "durationMs": 12,
+        "content": [
+          { "type": "text", "text": "no dynamic plugin with id \"dyn-9\" (list mounts with cordis_inspect what:\"dynamic\")" }
+        ]
+      }
+    }
+  },
+
+  "inspect_all": {
+    "call": {
+      "type": "tool/call",
+      "seq": 151,
+      "time": 1721400050000,
+      "data": {
+        "turn": 5,
+        "step": 0,
+        "callId": "cordis-inspect-1",
+        "name": "cordis_inspect",
+        "arguments": "{}"
+      }
+    },
+    "result": {
+      "type": "tool/result",
+      "seq": 152,
+      "time": 1721400050700,
+      "data": {
+        "turn": 5,
+        "step": 0,
+        "callId": "cordis-inspect-1",
+        "isError": false,
+        "durationMs": 34,
+        "content": [
+          { "type": "text", "text": "## services\n- tools (provided by ToolRegistry)\n- systemPrompt (provided by SystemPrompt)\n- bash (provided by LocalBash)\n\n## plugins\n- cordis-dynamic [active]\n- tool-cordis [active]\n\n## tools\n- cordis_inspect\n- cordis_mount\n- cordis_unmount\n- bash\n- read\n\n## dynamic\n- dyn-1: change-logger [active]\n\n## api\n- tools — the model-facing tool registry\n    register(definition: ToolDefinition)\n- systemPrompt — the composed system prompt\ninherited ctx API:\n- ctx.effect — register a disposable effect\n\n## events\n- tools/change [emit] — fired when the tool registry changes\n    'tools/change'(): void\n- tools/pre-execute [waterfall] — intercept a tool call\n    'tools/pre-execute'(call, next): void\nwaterfall listeners receive a trailing next() and MUST call it to delegate — returning without next() vetoes the chain." }
+        ]
+      }
+    }
+  },
+
+  "inspect_dynamic": {
+    "call": {
+      "type": "tool/call",
+      "seq": 161,
+      "time": 1721400060000,
+      "data": {
+        "turn": 6,
+        "step": 0,
+        "callId": "cordis-inspect-2",
+        "name": "cordis_inspect",
+        "arguments": "{\"what\":\"dynamic\"}"
+      }
+    },
+    "result": {
+      "type": "tool/result",
+      "seq": 162,
+      "time": 1721400060300,
+      "data": {
+        "turn": 6,
+        "step": 0,
+        "callId": "cordis-inspect-2",
+        "isError": false,
+        "durationMs": 18,
+        "content": [
+          { "type": "text", "text": "## dynamic\n- dyn-1: change-logger [active]\n- dyn-2: greeter-consumer [pending] — waiting for: greeter" }
+        ]
+      }
+    }
+  },
+
+  "code_dispatch_run": {
+    "parent_call": {
+      "type": "tool/call",
+      "seq": 201,
+      "time": 1721400070000,
+      "data": {
+        "turn": 7,
+        "step": 0,
+        "callId": "run-code-1",
+        "name": "run_code",
+        "arguments": "{\"code\":\"const files = await bash({command:'ls src'});\\nconst hosts = await read({file_path:'/etc/hosts'});\\nawait edit({file_path:'src/x.ts', old_string:'foo', new_string:'bar'})\"}"
+      }
+    },
+    "parent_result": {
+      "type": "tool/result",
+      "seq": 208,
+      "time": 1721400072500,
+      "data": {
+        "turn": 7,
+        "step": 0,
+        "callId": "run-code-1",
+        "isError": false,
+        "durationMs": 2480,
+        "content": [
+          { "type": "text", "text": "[code mode dispatched 3 sub-calls]" }
+        ]
+      }
+    },
+    "dispatches": [
+      {
+        "type": "tool/code-dispatch",
+        "seq": 202,
+        "time": 1721400070600,
+        "data": {
+          "parentCallId": "run-code-1",
+          "subCallId": "run-code-1:code:1",
+          "name": "bash",
+          "arguments": { "command": "ls src" },
+          "isError": false,
+          "resultSummary": "index.ts\nmount.ts\ninspect.ts\npresent.ts"
+        }
+      },
+      {
+        "type": "tool/code-dispatch",
+        "seq": 204,
+        "time": 1721400071300,
+        "data": {
+          "parentCallId": "run-code-1",
+          "subCallId": "run-code-1:code:2",
+          "name": "read",
+          "arguments": { "file_path": "/etc/hosts" },
+          "isError": false,
+          "resultSummary": "read 12 lines from /etc/hosts"
+        }
+      },
+      {
+        "type": "tool/code-dispatch",
+        "seq": 206,
+        "time": 1721400072100,
+        "data": {
+          "parentCallId": "run-code-1",
+          "subCallId": "run-code-1:code:3",
+          "name": "edit",
+          "arguments": { "file_path": "src/x.ts", "old_string": "foo", "new_string": "bar" },
+          "isError": true,
+          "resultSummary": "no match for old_string in src/x.ts"
+        }
+      }
+    ]
+  }
+}

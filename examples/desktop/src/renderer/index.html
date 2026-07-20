@@ -337,6 +337,9 @@
                 <button id="mock-card-diff-write" class="ghost small">card · diff (write)</button>
                 <button id="mock-card-diff-multi" class="ghost small">card · diff (3 files · hunks)</button>
                 <button id="mock-code-dispatch" class="ghost small">code-dispatch fan-out</button>
+                <button id="mock-cordis-mount" class="ghost small">cordis · mount</button>
+                <button id="mock-cordis-inspect" class="ghost small">cordis · inspect</button>
+                <button id="mock-cordis-unmount" class="ghost small">cordis · unmount</button>
                 <button id="mock-web-search" class="ghost small">web · search</button>
                 <button id="mock-skill" class="ghost small">skill loaded</button>
                 <button id="mock-workflow" class="ghost small">workflow card</button>
@@ -1455,6 +1458,13 @@
        from any tab. -->
   <script src="./fork-compare.js"></script>
   <script src="./tool-cards.js"></script>
+  <!-- lane-cordis-card: dedicated card for the self-referential cordis
+       toolset (mount/unmount/inspect). Loads after tool-cards.js (shares the
+       family-map convention); the inspect body resolves
+       trace-detail-pane.buildJsonTree lazily at render, so parse order vs.
+       that script doesn't matter. Defines window.__dshCordisCard, consumed by
+       the renderer's tool/result dispatch. -->
+  <script src="./cordis-card.js"></script>
   <!-- artifacts-board.js defines window.__dshArtifactsBoard (Board/Timeline/
        Evolution renderers) and MUST load before artifacts.js so the L0 row
        version-chip click handler + view switcher find the module ready. -->

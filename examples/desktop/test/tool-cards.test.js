@@ -231,12 +231,15 @@ test('appendCodeDispatch: first call clears placeholder + creates the list heade
   const { appendCodeDispatch } = loadCards()
   const box = document.createElement('div')
   box.textContent = '…'
-  appendCodeDispatch(box, { name: 'bash', subCallId: 'sc1', isError: false, resultSummary: 'ok' })
+  appendCodeDispatch(box, { name: 'bash', subCallId: 'sc1', arguments: { command: 'ls' }, isError: false, resultSummary: 'ok' })
   const header = walk(box, (n) => n.classList && n.classList.contains('card-code-dispatch-header'))
   assert.equal(header.length, 1)
   const rows = walk(box, (n) => n.classList && n.classList.contains('card-code-dispatch-row'))
   assert.equal(rows.length, 1)
   assert.ok(rows[0].classList.contains('ok'))
+  // Row is a <details> now (expandable) but keeps the row class + sub-call id.
+  assert.equal(rows[0].tagName, 'DETAILS')
+  assert.equal(rows[0].attrs['data-sub-call-id'], 'sc1')
   const name = walk(rows[0], (n) => n.classList && n.classList.contains('card-code-dispatch-name'))[0]
   assert.equal(name._text, 'bash')
 })
@@ -252,6 +255,92 @@ test('appendCodeDispatch: second call reuses the same list (no double header)', 
   const rows = walk(box, (n) => n.classList && n.classList.contains('card-code-dispatch-row'))
   assert.equal(rows.length, 2)
   assert.ok(rows[1].classList.contains('err'))
+})
+
+test('appendCodeDispatch: expandable body carries args + result blocks', () => {
+  global.document = makeShim().doc
+  const { appendCodeDispatch } = loadCards()
+  const box = document.createElement('div')
+  appendCodeDispatch(box, {
+    name: 'bash', subCallId: 'sc1',
+    arguments: { command: 'ls src' }, isError: false, resultSummary: 'listed 4 entries',
+  })
+  const blocks = walk(box, (n) => n.classList && n.classList.contains('card-code-dispatch-detail-block'))
+  assert.equal(blocks.length, 2, 'args + result blocks')
+  const labels = walk(box, (n) => n.classList && n.classList.contains('card-code-dispatch-detail-label')).map((n) => n._text)
+  assert.deepEqual(labels, ['args', 'result'])
+  const bodies = walk(box, (n) => n.classList && n.classList.contains('card-code-dispatch-detail-body')).map((n) => n._text)
+  // args pretty-printed; result summary verbatim
+  assert.ok(bodies[0].includes('"command"'))
+  assert.ok(bodies[0].includes('ls src'))
+  assert.equal(bodies[1], 'listed 4 entries')
+})
+
+test('appendCodeDispatch: string (JSON) arguments re-parsed pretty; empty args labelled', () => {
+  global.document = makeShim().doc
+  const { appendCodeDispatch } = loadCards()
+  const box = document.createElement('div')
+  appendCodeDispatch(box, { name: 'read', subCallId: 's', arguments: '{"file_path":"/x"}', isError: false, resultSummary: 'ok' })
+  appendCodeDispatch(box, { name: 'noop', subCallId: 't', isError: false, resultSummary: 'ok' })
+  const bodies = walk(box, (n) => n.classList && n.classList.contains('card-code-dispatch-detail-body')).map((n) => n._text)
+  assert.ok(bodies[0].includes('"file_path"'))
+  // second row's args block (index 2) is the "(no arguments)" fallback
+  assert.equal(bodies[2], '(no arguments)')
+})
+
+test('appendCodeDispatch: inspector badge anchored to a reconstructed sub-call event', () => {
+  global.document = makeShim().doc
+  global.window = {
+    __dshInspector: {
+      attachInspectBadge(el, getTarget) {
+        const badge = document.createElement('button')
+        badge.className = 'inspect-badge'
+        badge._getTarget = getTarget
+        el.appendChild(badge)
+        return badge
+      },
+    },
+  }
+  try {
+    const { appendCodeDispatch } = loadCards()
+    const box = document.createElement('div')
+    appendCodeDispatch(box, {
+      name: 'edit', subCallId: 'run-code-1:code:3',
+      arguments: { file_path: 'src/x.ts' }, isError: true, resultSummary: 'no match',
+    })
+    const badge = walk(box, (n) => n.classList && n.classList.contains('inspect-badge'))[0]
+    assert.ok(badge, 'badge attached to the row summary')
+    const target = badge._getTarget()
+    assert.equal(target.tab, 'json')
+    assert.equal(target.event.type, 'tool/call')
+    assert.equal(target.event.__reconstructed, true)
+    assert.equal(target.event.data.callId, 'run-code-1:code:3')
+    assert.equal(target.event.data.name, 'edit')
+    assert.deepEqual(target.event.data.arguments, { file_path: 'src/x.ts' })
+    assert.equal(target.event.data.result.isError, true)
+    assert.equal(target.event.data.result.resultSummary, 'no match')
+  } finally {
+    delete global.window
+  }
+})
+
+test('appendCodeDispatch: no inspector present → no badge, no throw', () => {
+  global.document = makeShim().doc
+  delete global.window
+  const { appendCodeDispatch } = loadCards()
+  const box = document.createElement('div')
+  appendCodeDispatch(box, { name: 'bash', subCallId: 's', isError: false, resultSummary: 'ok' })
+  const badges = walk(box, (n) => n.classList && n.classList.contains('inspect-badge'))
+  assert.equal(badges.length, 0)
+})
+
+test('appendCodeDispatch: finite depth indents the row (defensive; wire has none today)', () => {
+  global.document = makeShim().doc
+  const { appendCodeDispatch } = loadCards()
+  const box = document.createElement('div')
+  const row = appendCodeDispatch(box, { name: 'bash', subCallId: 's', isError: false, resultSummary: 'ok', depth: 2 })
+  assert.ok(row.classList.contains('nested'))
+  assert.equal(row.style.marginLeft, '24px')
 })
 
 // ----- durationMs pill (Ticket D) -------------------------------------------

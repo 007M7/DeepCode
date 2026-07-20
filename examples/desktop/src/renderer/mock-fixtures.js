@@ -282,6 +282,74 @@ function mockCodeDispatch() {
   }
 }
 
+// -- cordis dedicated-card mocks (lane-cordis-card) --------------------------
+// Drive the three cordis operations through the SAME onSessionEvent dispatch
+// path a real Vibe run would, using PLAIN-TEXT result content (the real wire
+// shape — all three tools are generic render intents). Text strings mirror
+// packages/cordis/tool-cordis/src (index.ts execute + inspect.ts renderers).
+
+function mockCordisMount() {
+  injectMockToolResult({
+    name: 'cordis_mount',
+    args: {
+      code: "return {\n  name: 'change-logger',\n  inject: ['tools'],\n  apply(ctx) {\n    ctx.on('tools/change', () => console.log('tools changed'))\n  },\n}",
+    },
+    meta: undefined,
+    content: [{ type: 'text', text: 'mounted dyn-1 (plugin "change-logger", state: active)' }],
+    isError: false,
+  })
+}
+
+function mockCordisInspect() {
+  const report = [
+    '## services',
+    '- tools (provided by ToolRegistry)',
+    '- systemPrompt (provided by SystemPrompt)',
+    '- bash (provided by LocalBash)',
+    '',
+    '## plugins',
+    '- cordis-dynamic [active]',
+    '- tool-cordis [active]',
+    '',
+    '## tools',
+    '- cordis_inspect',
+    '- cordis_mount',
+    '- cordis_unmount',
+    '- bash',
+    '- read',
+    '',
+    '## dynamic',
+    '- dyn-1: change-logger [active]',
+    '',
+    '## api',
+    '- tools — the model-facing tool registry',
+    '    register(definition: ToolDefinition)',
+    'inherited ctx API:',
+    '- ctx.effect — register a disposable effect',
+    '',
+    '## events',
+    '- tools/change [emit] — fired when the tool registry changes',
+    "    'tools/change'(): void",
+    'waterfall listeners receive a trailing next() and MUST call it to delegate — returning without next() vetoes the chain.',
+  ].join('\n')
+  injectMockToolResult({
+    name: 'cordis_inspect',
+    args: {},
+    meta: undefined,
+    content: [{ type: 'text', text: report }],
+    isError: false,
+  })
+}
+
+function mockCordisUnmount() {
+  injectMockToolResult({
+    name: 'cordis_unmount',
+    args: { id: 'dyn-1' },
+    meta: undefined,
+    content: [{ type: 'text', text: 'unmounted dyn-1 (plugin "change-logger")' }],
+    isError: false,
+  })
+}
 // -- context lane mocks ------------------------------------------
 // Drive the recall card + compact card DOM without a live daemon. Same
 // event-injection shape as the other mocks — feeds through onSessionEvent

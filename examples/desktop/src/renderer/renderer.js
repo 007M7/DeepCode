@@ -1503,6 +1503,18 @@ function safePretty(v) {
   try { return JSON.stringify(v, null, 2) } catch { return String(v) }
 }
 
+// Parse a tool/call `arguments` value (JSON string on the wire, or already an
+// object on some synthesized paths) into a plain object. Returns {} on any
+// failure so consumers can read fields without a null guard. Used by the
+// cordis card to reach `code` / `id` / `what` for its header + source fold.
+function safeParseArgs(v) {
+  if (v && typeof v === 'object') return v
+  if (typeof v === 'string' && v) {
+    try { const p = JSON.parse(v); return p && typeof p === 'object' ? p : {} } catch { return {} }
+  }
+  return {}
+}
+
 // Concatenate a content-block array's text-type entries. Reasoning blocks
 // are streamed into their own frame via `reasoning-delta` chunks; tool_use
 // / tool-call blocks are rendered as tool cards from the `tool/call` event
@@ -5525,6 +5537,21 @@ function onSessionEvent(sessionId, event) {
           // `view.exitCode`, not `isError`.
           resBox.textContent = ''
           resBox.appendChild(tc.renderTerminalCard(view))
+        } else if (window.__dshCordisCard && window.__dshCordisCard.isCordisTool(toolName)) {
+          // cordis self-referential toolset (mount/unmount/inspect): purpose-
+          // built card parsed from the tool's own text (all three are generic
+          // render intents with plain-text results — see cordis-card.js). This
+          // sits AFTER the meta.card switch so a cordis tool that ever grows a
+          // structured widget/diff view still takes that path first; here we
+          // own only the generic-text case the family would otherwise dump raw.
+          resBox.textContent = ''
+          const argsObj = safeParseArgs(payload && payload.args)
+          resBox.appendChild(window.__dshCordisCard.renderCordisCard({
+            name: toolName,
+            argsObj,
+            text: textFromContentBlocks(content),
+            isError: !!isError,
+          }))
         } else {
           resBox.textContent = textFromContentBlocks(content) || (isError ? '[error]' : '[ok]')
           if (isError) resBox.style.color = 'var(--error)'
@@ -7099,6 +7126,14 @@ document.getElementById('mock-card-diff-write').addEventListener('click', mockCa
 const mockCardDiffMultiBtn = document.getElementById('mock-card-diff-multi')
 if (mockCardDiffMultiBtn) mockCardDiffMultiBtn.addEventListener('click', mockCardDiffMulti)
 document.getElementById('mock-code-dispatch').addEventListener('click', mockCodeDispatch)
+// cordis dedicated-card mocks (lane-cordis-card) — guarded like the P1 batch
+// below because the buttons are optional (two-file change to add them).
+const mockCordisMountBtn = document.getElementById('mock-cordis-mount')
+if (mockCordisMountBtn) mockCordisMountBtn.addEventListener('click', mockCordisMount)
+const mockCordisInspectBtn = document.getElementById('mock-cordis-inspect')
+if (mockCordisInspectBtn) mockCordisInspectBtn.addEventListener('click', mockCordisInspect)
+const mockCordisUnmountBtn = document.getElementById('mock-cordis-unmount')
+if (mockCordisUnmountBtn) mockCordisUnmountBtn.addEventListener('click', mockCordisUnmount)
 // P1 batch C mock buttons — guarded because the IDs are optional (adding
 // them is a two-file change: index.html + here). Missing buttons are a
 // silent no-op instead of a boot-time TypeError.

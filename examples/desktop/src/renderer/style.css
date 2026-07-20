@@ -1807,6 +1807,96 @@ body.layout-monitor .stream {
 .card-code-dispatch-row.ok  .card-code-dispatch-dot { color: var(--ok); }
 .card-code-dispatch-row.err .card-code-dispatch-dot { color: var(--error); }
 
+/* Expandable sub-call rows (lane-cordis-card): the row is now a <details>.
+ * The summary keeps the compact one-line look; the body reveals args + result
+ * on expand. Marker hidden so the branch glyph reads as the sole affordance. */
+.card-code-dispatch-row { cursor: default; }
+.card-code-dispatch-summary-line {
+  display: flex; align-items: center; gap: 6px; padding: 2px 0;
+  font-family: var(--mono); font-size: 12px; cursor: pointer;
+  list-style: none;
+}
+.card-code-dispatch-summary-line::-webkit-details-marker { display: none; }
+.card-code-dispatch-summary-line::marker { content: ''; }
+.card-code-dispatch-summary-line .inspect-badge { margin-left: auto; }
+.card-code-dispatch-detail {
+  margin: 2px 0 4px 18px; padding-left: 8px;
+  border-left: 1px dashed var(--border);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.card-code-dispatch-detail-label {
+  color: var(--muted); font-size: 10px; letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.card-code-dispatch-detail-body {
+  margin: 0; font-family: var(--mono); font-size: 11px;
+  white-space: pre-wrap; word-break: break-word;
+  color: var(--text); max-height: 200px; overflow: auto;
+}
+.card-code-dispatch-row.nested { border-left: 1px solid var(--border); }
+
+/* -- cordis dedicated card (lane-cordis-card) --------------------------------
+ * The self-referential toolset (mount/unmount/inspect): the model editing its
+ * own runtime. Uses the cordis family accent (--muted band on the tool-block)
+ * plus a purpose-built header + body. */
+.card-cordis {
+  border-top: 1px dashed var(--border); margin-top: 4px; padding-top: 6px;
+  font-size: 12px;
+}
+.card-cordis-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+}
+.card-cordis-op-glyph {
+  font-family: var(--mono); font-size: 13px; color: var(--accent);
+  width: 1.2em; text-align: center; flex: 0 0 auto;
+}
+.card-cordis-id {
+  font-family: var(--mono); font-weight: 600; color: var(--text);
+}
+.card-cordis-status { font-size: 9px; line-height: 1; flex: 0 0 auto; }
+.card-cordis-status.ok  { color: var(--ok); }
+.card-cordis-status.err { color: var(--error); }
+.card-cordis-body { display: flex; flex-direction: column; gap: 6px; }
+.card-cordis-kv {
+  display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px;
+  font-family: var(--mono); font-size: 12px;
+}
+.card-cordis-kv-row { display: contents; }
+.card-cordis-kv-key { color: var(--muted); }
+.card-cordis-kv-val { color: var(--text); word-break: break-word; }
+.card-cordis-delta {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 12px;
+}
+.card-cordis-delta-sig { width: 1em; text-align: center; flex: 0 0 auto; }
+.card-cordis-delta.add .card-cordis-delta-sig { color: var(--ok); }
+.card-cordis-delta.del .card-cordis-delta-sig { color: var(--error); }
+.card-cordis-delta.add .card-cordis-delta-entry { color: var(--text); }
+.card-cordis-delta.del .card-cordis-delta-entry {
+  color: var(--muted); text-decoration: line-through;
+}
+.card-cordis-error {
+  font-family: var(--mono); font-size: 12px; color: var(--error);
+  white-space: pre-wrap; word-break: break-word;
+}
+.card-cordis-raw {
+  margin: 0; font-family: var(--mono); font-size: 12px;
+  white-space: pre-wrap; word-break: break-word; color: var(--text);
+}
+.card-cordis-tree { font-size: 12px; }
+.card-cordis-code { margin-top: 2px; }
+.card-cordis-code-summary {
+  cursor: pointer; color: var(--muted); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+.card-cordis-code-body {
+  margin: 4px 0 0; font-family: var(--mono); font-size: 11px;
+  white-space: pre-wrap; word-break: break-word;
+  color: var(--text); max-height: 240px; overflow: auto;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 4px; padding: 6px 8px;
+}
+
 /* --- visibility batch B (todo, prompt/blocked, turn/end, subagent finished, sandbox+preset badges, approval audit) --- */
 /* Owned by visibility-controller.js; scoped to .visibility-* / .todo-* / .pb-* / .sas-* / .sandbox-* / .preset-* classes so the block adds surface without overriding anything above. */
 
