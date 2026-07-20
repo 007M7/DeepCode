@@ -143,6 +143,12 @@ const NON_IIFE_ALLOWLIST = new Set([
   'intervention-timeline.js',
   'compact-config-model.js',
   'subagent-drilldown.js',
+  // lane-msg-queue (2026-07-20) composer message queue: dual-exported pure
+  // FIFO model — module.exports for node --test, window.__dshMsgQueueModel
+  // for the renderer. Same shape as compact-config-model.js; preloadPure
+  // require()s it so it must not be IIFE-wrapped. Sole top-level binding is
+  // `function createMsgQueue`, unique across the shared scope.
+  'msg-queue-model.js',
 ])
 
 function listRendererScripts() {

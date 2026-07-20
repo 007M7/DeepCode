@@ -104,6 +104,17 @@ a toggle), and `context/message` / `steering/message` events surface as
 and why. A `Cancel` button appears mid-turn and cuts the stream via
 `session/cancel`.
 
+The wire accepts only one in-flight prompt per session, so pressing Enter
+while a turn is running **queues** your message instead of erroring: a strip
+above the composer shows one chip per queued message with a `queued N`
+counter, and each chip lets you edit the text inline, delete it, or bump it to
+the front (**send next**). When the turn ends, the head of the queue is sent
+automatically — one message per turn completion — so a burst of follow-ups
+plays out in order without you babysitting each turn. The queue is
+per-session (switching sessions shows that session's queue), survives a
+cancelled turn, and is cleared with a notice if the runtime restarts or you
+switch profiles.
+
 ![](docs/readme-shots/03-chat.png)
 
 #### Session Tree

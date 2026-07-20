@@ -99,6 +99,19 @@ const statusText = document.getElementById('status-text')
 const modelBadge = document.getElementById('model-badge')
 const profileSelect = document.getElementById('profile')
 const newSessionBtn = document.getElementById('new-session')
+const msgQueueStripEl = document.getElementById('msg-queue-strip')
+
+// Composer message queue (lane-msg-queue). The wire accepts one in-flight
+// prompt per session; a mid-turn Enter would otherwise fire a second
+// session/prompt that the daemon rejects. Instead we park the text in a
+// per-session FIFO (msg-queue-model.js) and auto-drain the head when the
+// turn completes. The model is a pure data structure; all DOM + wire timing
+// lives in this file (see §"message queue"). Guarded so a stripped build
+// without the module script simply disables queueing (send stays direct).
+const msgQueue = (typeof window !== 'undefined' && window.__dshMsgQueueModel
+  && typeof window.__dshMsgQueueModel.createMsgQueue === 'function')
+  ? window.__dshMsgQueueModel.createMsgQueue()
+  : null
 
 const state = {
   activeSessionId: null,
@@ -586,6 +599,9 @@ async function selectSession(id) {
   // their seed boundary. During live streaming we grow the same map when
   // subagent.started fires.
   installKnownForkMarkers(id)
+  // Per-session queue: repaint the strip for the session we just switched to.
+  // Strict isolation — the strip only ever shows the active session's queue.
+  renderMsgQueueStrip()
 }
 
 async function replayHistory(id) {
@@ -4856,6 +4872,11 @@ function onSessionEvent(sessionId, event) {
     // without a badge instead of one from the previous turn.
     const startData = event.data || event
     meta.currentTurnTrigger = (startData && startData.trigger) || null
+    // Arm the once-per-turn queue drain. turn/end and session.finished both
+    // signal completion (a clean turn emits turn/end; an errored/cancelled
+    // turn may arrive only as session.finished). Whichever fires first
+    // consumes this flag so the queue drains exactly one item per turn.
+    meta._turnDrainPending = true
     if (sessionId === state.activeSessionId) { state.inflightTurn = true; updateCancelButton(); updateCompactButton(); updateForkButtons() }
     renderSessionList()
   }
@@ -4864,6 +4885,11 @@ function onSessionEvent(sessionId, event) {
     meta.currentTurnTrigger = null
     if (sessionId === state.activeSessionId) { state.inflightTurn = false; updateCancelButton(); updateCompactButton(); updateForkButtons() }
     renderSessionList()
+    // Auto-drain one queued message for this session now that its turn is
+    // done. Fires for the exact turn-completion condition that re-enables
+    // Cancel; a cancelled turn ends with turn/end too, so the queue drains
+    // there just like a clean completion (queue survives Cancel by design).
+    void drainMsgQueueOnce(sessionId)
   }
   if (event.time && event.time > meta.lastEventTime) meta.lastEventTime = event.time
   // §1.1 trace bucket: non-boundary events get bucketed into
@@ -6071,9 +6097,133 @@ function onInterruptInvalidate({ interruptId, reason }) {
 
 // -- send / cancel -----------------------------------------------------------
 
+// -- message queue ----------------------------------------------------------
+//
+// Renders the strip above the composer for the ACTIVE session's queue. The
+// strip is hidden when the queue is empty; each queued message is one chip
+// with truncated text (click to inline-edit), a "send next" (promote) button,
+// and a delete (×). A "queued N" counter badge leads the row. Per-session:
+// selectSession + every mutation calls this, so switching sessions shows that
+// session's queue and nothing bleeds across sessions.
+
+const MSG_QUEUE_CHIP_MAX = 48
+
+// Truncate for the chip label. Kept in sync with MSG_QUEUE_CHIP_MAX; the full
+// text lives on the chip's title attribute so hover reveals the whole thing.
+function truncateQueueText(text) {
+  const t = String(text || '')
+  return t.length > MSG_QUEUE_CHIP_MAX ? t.slice(0, MSG_QUEUE_CHIP_MAX - 1) + '…' : t
+}
+
+// Swap a chip's static label for an inline <input> seeded with the full text.
+// Enter / blur commits via msgQueue.update (blank ⇒ delete, matching the
+// model's "never keep a blank" rule); Escape re-renders to cancel.
+function beginQueueChipEdit(sessionId, id, chipEl, fullText) {
+  if (!chipEl) return
+  const input = document.createElement('input')
+  input.type = 'text'
+  input.className = 'msg-queue-chip-edit'
+  input.value = fullText
+  let done = false
+  const commit = (save) => {
+    if (done) return
+    done = true
+    if (save) {
+      const v = input.value.trim()
+      if (!v) msgQueue.remove(sessionId, id)
+      else msgQueue.update(sessionId, id, v)
+    }
+    renderMsgQueueStrip()
+  }
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(true) }
+    else if (e.key === 'Escape') { e.preventDefault(); commit(false) }
+  })
+  input.addEventListener('blur', () => commit(true))
+  chipEl.textContent = ''
+  chipEl.appendChild(input)
+  input.focus()
+}
+
+function makeQueueChip(sessionId, item) {
+  const chip = document.createElement('span')
+  chip.className = 'msg-queue-chip'
+  chip.dataset.queueId = String(item.id)
+
+  const label = document.createElement('button')
+  label.type = 'button'
+  label.className = 'msg-queue-chip-text'
+  label.textContent = truncateQueueText(item.text)
+  label.title = item.text + '\n(click to edit)'
+  label.addEventListener('click', () => beginQueueChipEdit(sessionId, item.id, chip, item.text))
+
+  // "send next" — promote to head so the next drain sends this item first.
+  const promoteBtn = document.createElement('button')
+  promoteBtn.type = 'button'
+  promoteBtn.className = 'msg-queue-chip-btn msg-queue-chip-promote'
+  promoteBtn.title = 'Send this one next'
+  promoteBtn.setAttribute('aria-label', 'Send this message next')
+  promoteBtn.textContent = '↑'
+  promoteBtn.addEventListener('click', () => { msgQueue.promote(sessionId, item.id); renderMsgQueueStrip() })
+
+  const delBtn = document.createElement('button')
+  delBtn.type = 'button'
+  delBtn.className = 'msg-queue-chip-btn msg-queue-chip-del'
+  delBtn.title = 'Remove from queue'
+  delBtn.setAttribute('aria-label', 'Remove queued message')
+  delBtn.textContent = '×'
+  delBtn.addEventListener('click', () => { msgQueue.remove(sessionId, item.id); renderMsgQueueStrip() })
+
+  chip.append(label, promoteBtn, delBtn)
+  return chip
+}
+
+function renderMsgQueueStrip() {
+  if (!msgQueueStripEl || !msgQueue) return
+  const sid = state.activeSessionId
+  const items = sid ? msgQueue.list(sid) : []
+  msgQueueStripEl.textContent = ''
+  if (items.length === 0) {
+    msgQueueStripEl.hidden = true
+    return
+  }
+  msgQueueStripEl.hidden = false
+
+  const badge = document.createElement('span')
+  badge.className = 'msg-queue-count'
+  badge.textContent = `queued ${items.length}`
+  msgQueueStripEl.appendChild(badge)
+
+  // Only the head is a promote target worth showing an active arrow on, but
+  // we render the affordance on every non-head chip; the head chip's arrow is
+  // greyed (already next) via the .is-head class.
+  for (let i = 0; i < items.length; i++) {
+    const chip = makeQueueChip(sid, items[i])
+    if (i === 0) chip.classList.add('is-head')
+    msgQueueStripEl.appendChild(chip)
+  }
+}
+
 async function send() {
   const text = inputEl.value.trim()
   if (!text) return
+  // Mid-turn Enter: the active session already has a prompt in flight (the
+  // wire accepts only one at a time). Park this text in the session's queue
+  // and clear the composer as if sent — it auto-drains on turn/end. Only
+  // applies when there's an active session AND a turn is running; a fresh
+  // "+" session or an idle session falls through to the normal send path.
+  if (msgQueue && state.activeSessionId && state.inflightTurn) {
+    const sid = state.activeSessionId
+    const meta = state.sessions.get(sid)
+    if (meta && !meta.hasUserMessage) {
+      meta.hasUserMessage = true
+      if (!meta.title) meta.title = text.slice(0, 40)
+    }
+    msgQueue.enqueue(sid, text)
+    inputEl.value = ''
+    renderMsgQueueStrip()
+    return
+  }
   if (!state.activeSessionId) {
     const { id } = await window.dsh.newSession()
     ensureSession(id, { title: text.slice(0, 40), hasUserMessage: true })
@@ -6091,20 +6241,64 @@ async function send() {
     }
   }
   const sid = state.activeSessionId
-  // Optimistic bubble — the server echoes user/message shortly after, and the
-  // event handler adopts this element in place instead of re-rendering.
-  appendMessage({ role: 'user', text, optimistic: true })
-  updateEmptyStateVisibility()
-  inputEl.value = ''
-  sendBtn.disabled = true
-  state.inflightTurn = true; updateCancelButton(); updateCompactButton(); updateForkButtons()
+  await dispatchPrompt(sid, text, { clearComposer: true })
+}
+
+// The shared "actually send a prompt" tail: optimistic bubble + inflight
+// flag + sendPrompt, with the existing error surface. Extracted from send()
+// so the queue's auto-drain sends a parked message through the exact same
+// path a live Enter takes. `opts.clearComposer` empties the textarea (live
+// send); the drain path leaves it alone (the user may be mid-typing the next
+// message). The optimistic bubble + inflight flag only apply when `sid` is
+// the active session — a drain firing for a background session's turn/end
+// must not paint into the foreground stream (the echoed user/message renders
+// when that session is next viewed).
+async function dispatchPrompt(sid, text, opts = {}) {
+  const isActive = sid === state.activeSessionId
+  if (isActive) {
+    // Optimistic bubble — the server echoes user/message shortly after, and
+    // the event handler adopts this element in place instead of re-rendering.
+    appendMessage({ role: 'user', text, optimistic: true })
+    updateEmptyStateVisibility()
+    if (opts.clearComposer) inputEl.value = ''
+    sendBtn.disabled = true
+    state.inflightTurn = true; updateCancelButton(); updateCompactButton(); updateForkButtons()
+  }
+  const meta = state.sessions.get(sid)
+  if (meta) meta.running = true
   try {
     await window.dsh.sendPrompt(sid, text)
   } catch (err) {
+    // Surface the error on the stream (matches the live-send path). We do
+    // NOT clear the rest of the queue — a failed drain leaves the remaining
+    // items parked so the user can retry / edit rather than losing them.
     appendSystem(`error: ${err.message}`)
   } finally {
-    sendBtn.disabled = false
+    if (isActive) sendBtn.disabled = false
   }
+}
+
+// Drain exactly one queued message for `sessionId` and send it — guarded so
+// it fires at most once per turn even when both turn/end and
+// session.finished arrive for the same turn. The `_turnDrainPending` flag is
+// armed on turn/start and consumed here. ONE item per turn completion, so
+// each queued follow-up waits for its own turn to finish (the head's
+// turn/end drains the next head, and so on). Runs after the completion
+// handler has flipped inflightTurn off, so dispatchPrompt re-arms it for the
+// drained send.
+async function drainMsgQueueOnce(sessionId) {
+  if (!msgQueue) return
+  const meta = state.sessions.get(sessionId)
+  // Guard: only the first completion signal for this turn drains. Absent a
+  // meta (defensive) we still allow one drain.
+  if (meta) {
+    if (!meta._turnDrainPending) return
+    meta._turnDrainPending = false
+  }
+  const next = msgQueue.drain(sessionId)
+  renderMsgQueueStrip()
+  if (!next) return
+  await dispatchPrompt(sessionId, next.text, { clearComposer: false })
 }
 
 async function cancel() {
@@ -6171,6 +6365,11 @@ window.dsh.onNotify(({ method, params }) => {
     if (params.sessionId === state.activeSessionId) { state.inflightTurn = false; updateCancelButton(); updateForkButtons() }
     // Refresh listing so title/lastEventTime catch up.
     void refreshSessionList()
+    // Drain-once: if this session's turn ended via session.finished without a
+    // clean turn/end (error/cancel paths), the guard fires the single drain
+    // here. If turn/end already drained, `_turnDrainPending` is false and this
+    // is a no-op.
+    void drainMsgQueueOnce(params.sessionId)
   } else if (method === 'subagent.started') {
     // Grow the tree eagerly: register the child session with a placeholder
     // parent link, refresh the sidebar, and drop a fork marker on the parent
@@ -6615,6 +6814,19 @@ window.dsh.onInitialized((info) => {
   titleEl.textContent = 'New chat'
   updateEmptyStateVisibility()
   updateCancelButton()
+  // Runtime crash / profile switch = a fresh session namespace (the old
+  // session ids can never come back). Any messages still queued against the
+  // dead runtime's sessions would send into the void, so wipe every queue
+  // and — if we actually dropped anything — drop a one-line notice so the
+  // user knows their parked follow-ups didn't survive the restart. Mirrors
+  // the interrupt-invalidate posture (stale-against-restart state is a trap).
+  if (msgQueue) {
+    const dropped = msgQueue.clearAll()
+    if (dropped > 0) {
+      appendSystem(`runtime restarted — cleared ${dropped} queued message${dropped === 1 ? '' : 's'}`)
+    }
+    renderMsgQueueStrip()
+  }
   // New runtime = unknown compact support; button falls back to greyed
   // until the first successful call proves the daemon accepts the method
   // (or a MethodNotFound flips it to `false`).
@@ -8211,6 +8423,14 @@ window.__dshRenderer = {
     sessionIds: Array.from(state.sessions.keys()),
     replayingId: state.replayingId,
   }),
+  // Message queue (lane-msg-queue) seam: expose the send entry point, the
+  // pure queue handle, and the strip renderer so renderer-level tests and QA
+  // scripts can walk the enqueue-on-inflight + auto-drain wiring without a
+  // real wire round-trip. `getMsgQueue` returns the live model instance.
+  send,
+  getMsgQueue: () => msgQueue,
+  listMsgQueue: (sid) => (msgQueue ? msgQueue.list(sid) : []),
+  renderMsgQueueStrip,
 }
 
 // `⌘.` (Ctrl-. on non-Mac) toggles every trace-event-row

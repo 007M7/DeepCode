@@ -517,6 +517,13 @@
                matching the widget action catalog (see next-actions.js).
                Empty by default; hidden entirely when no suggestions land. -->
           <div id="next-action-chips" class="next-action-chips" hidden></div>
+          <!-- Message queue strip (lane-msg-queue). Hidden until the active
+               session has queued messages. Renderer's renderMsgQueueStrip
+               fills it with one chip per queued message (truncated text,
+               inline-edit, delete, "send next") + a "queued N" counter.
+               Per-session: switching sessions re-renders from that session's
+               queue. See msg-queue-model.js + renderer.js §"message queue". -->
+          <div id="msg-queue-strip" class="msg-queue-strip" hidden aria-live="polite"></div>
           <div class="composer-frame">
             <textarea id="input" rows="3" placeholder="Message DSH… (Enter to send, Shift+Enter for newline)"></textarea>
             <div class="composer-bar">
@@ -1487,6 +1494,7 @@
        drill-down view models. Loaded before subagent-view.js so
        buildInlineSubagentTrace can pick up the drill-down helpers. -->
   <script src="./compact-config-model.js"></script>
+  <script src="./msg-queue-model.js"></script>
   <script src="./subagent-drilldown.js"></script>
   <script src="./context-rail.js"></script>
   <script src="./workflow-view.js"></script>

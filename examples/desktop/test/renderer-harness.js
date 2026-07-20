@@ -419,6 +419,7 @@ async function loadRenderer(customStubs = {}, options = {}) {
     ['tool-cards.js', '__dshToolCards'],
     ['widgets.js', '__dshWidgets'],
     ['capabilities.js', '__dshCapabilities'],
+    ['msg-queue-model.js', '__dshMsgQueueModel'],
   ]
   for (const [file, key] of preloadPure) {
     const p = path.join(__dirname, '..', 'src', 'renderer', file)
