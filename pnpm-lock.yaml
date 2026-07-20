@@ -203,6 +203,9 @@ importers:
       '@deepseek-ai/dsh-tool-fs-search':
         specifier: workspace:*
         version: link:../packages/fs/tool-fs-search
+      '@deepseek-ai/dsh-tool-goal':
+        specifier: workspace:*
+        version: link:../packages/goal/tool-goal
       '@deepseek-ai/dsh-tool-subagent':
         specifier: workspace:*
         version: link:../packages/subagent/tool-subagent
@@ -1088,6 +1091,37 @@ importers:
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+
+  packages/goal/tool-goal:
+    dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: 3.18.0
+    devDependencies:
+      '@cordisjs/plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-goal':
+        specifier: workspace:^
+        version: link:../goal
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
 
   packages/guard/repeat-tool-guard:
     dependencies:

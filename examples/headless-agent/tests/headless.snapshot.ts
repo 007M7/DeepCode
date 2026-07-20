@@ -11,10 +11,12 @@ import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-l
 import { describe, expect, it } from 'vitest'
 
 const snapshotsDir = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
-const scenarioDir = join(snapshotsDir, 'advanced-toolchain')
-const sessionFixture = join(scenarioDir, 'session.jsonl')
-const streamExpected = join(scenarioDir, 'stream-json.expected.jsonl')
-const configPath = fileURLToPath(new URL('../advanced.cordis.snapshot.yml', import.meta.url))
+const advancedScenarioDir = join(snapshotsDir, 'advanced-toolchain')
+const advancedSessionFixture = join(advancedScenarioDir, 'session.jsonl')
+const advancedStreamExpected = join(advancedScenarioDir, 'stream-json.expected.jsonl')
+const advancedConfigPath = fileURLToPath(new URL('../advanced.cordis.snapshot.yml', import.meta.url))
+const goalScenarioDir = join(snapshotsDir, 'goal-tools')
+const goalConfigPath = fileURLToPath(new URL('../goal.cordis.snapshot.yml', import.meta.url))
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
@@ -70,12 +72,36 @@ function normalizeHeadlessStream(rawStdout: string, cwd: string): string {
   return normalizeStdout(`${normalizedRecords.map(record => JSON.stringify(record)).join('\n')}\n`, context)
 }
 
-async function advancedPrompt(): Promise<string> {
-  const input = JSON.parse(await readFile(join(scenarioDir, 'input.json'), 'utf8')) as {
+/** Zero durable goal timestamps inside both metadata records and rendered XML JSON. */
+function normalizeGoalTimestamps(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value.replace(/("(?:createdAt|updatedAt|clearedAt)":)\d+/g, '$10')
+  }
+  if (Array.isArray(value)) return value.map(normalizeGoalTimestamps)
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+      key,
+      ['createdAt', 'updatedAt', 'clearedAt'].includes(key) && typeof item === 'number'
+        ? 0
+        : normalizeGoalTimestamps(item),
+    ]))
+  }
+  return value
+}
+
+/** Normalize the stream's durable goal timestamps after the shared scrubbers. */
+function normalizeGoalStream(rawStdout: string, cwd: string): string {
+  return parseJsonl(normalizeHeadlessStream(rawStdout, cwd))
+    .map(record => JSON.stringify(normalizeGoalTimestamps(record)))
+    .join('\n') + '\n'
+}
+
+async function scenarioPrompt(dir: string, label: string): Promise<string> {
+  const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as {
     steps?: { op?: unknown; text?: unknown }[]
   }
   const prompt = input.steps?.find(step => step.op === 'prompt')?.text
-  if (typeof prompt !== 'string') throw new Error('advanced-toolchain input has no prompt step')
+  if (typeof prompt !== 'string') throw new Error(`${label} input has no prompt step`)
   return prompt
 }
 
@@ -90,24 +116,27 @@ async function persistedLogs(cwd: string): Promise<PersistedLog[]> {
 
 describe('headless stream-json snapshots', () => {
   it('replays the advanced toolchain through the one-shot app', async () => {
-    const prompt = await advancedPrompt()
+    const prompt = await scenarioPrompt(advancedScenarioDir, 'advanced-toolchain')
     const expectedSessions = await Promise.all([
-      sessionFixture,
-      join(scenarioDir, 'session.1.jsonl'),
-      join(scenarioDir, 'session.2.jsonl'),
+      advancedSessionFixture,
+      join(advancedScenarioDir, 'session.1.jsonl'),
+      join(advancedScenarioDir, 'session.2.jsonl'),
     ].map(file => readFile(file, 'utf8')))
     let runCwd = ''
     const result = await runLoaderSmoke({
       label: 'advanced headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-advanced-',
       binScript,
-      configPath,
-      binArgs: ['--config', configPath, '--output-format', 'stream-json', prompt],
+      configPath: advancedConfigPath,
+      binArgs: ['--config', advancedConfigPath, '--output-format', 'stream-json', prompt],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT: 'replay',
-        DSH_SNAPSHOT_FILE: sessionFixture,
-        DSH_SNAPSHOT_CHILD_FILES: [join(scenarioDir, 'session.1.jsonl'), join(scenarioDir, 'session.2.jsonl')].join(delimiter),
+        DSH_SNAPSHOT_FILE: advancedSessionFixture,
+        DSH_SNAPSHOT_CHILD_FILES: [
+          join(advancedScenarioDir, 'session.1.jsonl'),
+          join(advancedScenarioDir, 'session.2.jsonl'),
+        ].join(delimiter),
         NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
       },
       prepare: (cwd) => { runCwd = cwd },
@@ -134,6 +163,56 @@ describe('headless stream-json snapshots', () => {
 
     expect(result.stderr).toBe('')
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(advancedStreamExpected, normalized)
+    expect(normalized).toBe(await readFile(advancedStreamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('replays persisted goal tools through the one-shot app', async () => {
+    const prompt = await scenarioPrompt(goalScenarioDir, 'goal-tools')
+    const streamExpected = join(goalScenarioDir, 'stream-json.expected.jsonl')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'goal tools headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-goal-tools-',
+      binScript,
+      configPath: goalConfigPath,
+      binArgs: ['--config', goalConfigPath, '--output-format', 'stream-json', prompt],
+      tsconfigPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        DSH_SNAPSHOT_FILE: join(goalScenarioDir, 'session.jsonl'),
+        DSH_SNAPSHOT_OVERRIDE: join(goalScenarioDir, 'replay.override.json'),
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd)
+        expect(logs).toHaveLength(1)
+        const records = parseJsonl(logs[0]?.content ?? '')
+        const calls = records.filter(record => record.type === 'tool/call')
+          .map(record => (record.data as JsonObject | undefined)?.name)
+        expect(calls).toEqual(['create_goal', 'get_goal'])
+        const goalChanges = records.filter((record) => {
+          if (record.type !== 'context/message') return false
+          const data = record.data as JsonObject | undefined
+          const meta = data?.meta as JsonObject | undefined
+          return meta?.kind === 'goal/change'
+        })
+        expect(goalChanges).toHaveLength(1)
+        const data = goalChanges[0]?.data as JsonObject | undefined
+        const meta = data?.meta as JsonObject | undefined
+        const goal = meta?.goal as JsonObject | undefined
+        expect(meta?.operation).toBe('create')
+        expect(goal).toMatchObject({
+          objective: 'Finish the headless goal-tool snapshot proof',
+          phase: 'active',
+          maxGoalRounds: 7,
+        })
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeGoalStream(result.stdout, runCwd)
     if (refreshing) await writeFile(streamExpected, normalized)
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)

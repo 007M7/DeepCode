@@ -43,6 +43,7 @@
     "@deepseek-ai/dsh-tool-cordis": "workspace:*",
     "@deepseek-ai/dsh-tool-fs": "workspace:*",
     "@deepseek-ai/dsh-tool-fs-search": "workspace:*",
+    "@deepseek-ai/dsh-tool-goal": "workspace:*",
     "@deepseek-ai/dsh-tool-subagent": "workspace:*",
     "@deepseek-ai/dsh-tool-todo": "workspace:*",
     "@deepseek-ai/dsh-tool-workflow": "workspace:*",

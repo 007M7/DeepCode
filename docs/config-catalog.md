@@ -1111,6 +1111,20 @@ export interface Config {
 
 Source: [`packages/fs/tool-fs-search/src/index.ts:62`](../packages/fs/tool-fs-search/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-goal`
+
+Requires: `agents` · `goals` · `tools` · `systemPrompt`
+
+```ts config-catalog
+/** Model policy and hard lower bounds for goal-state updates. */
+export interface Config {
+  /** Minimum admitted goal rounds before the model may self-report `blocked`. */
+  blockedAfterConsecutiveRounds?: number
+}
+```
+
+Source: [`packages/goal/tool-goal/src/index.ts:27`](../packages/goal/tool-goal/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-skill`
 
 Requires: `tools` · `skills`

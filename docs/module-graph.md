@@ -31,6 +31,7 @@ flowchart TD
   end
   subgraph group_goal["packages/goal"]
     pkg_goal["goal"]
+    pkg_tool_goal["tool-goal"]
   end
   subgraph group_bash["packages/bash"]
     pkg_bash["bash"]
@@ -283,6 +284,12 @@ flowchart TD
   pkg_agent_loop --> pkg_session_persistence
   pkg_agent_loop --> pkg_system_prompt
   pkg_agent_loop --> pkg_tools
+  pkg_tool_goal --> pkg_agent
+  pkg_tool_goal --> pkg_goal
+  pkg_tool_goal --> pkg_llm
+  pkg_tool_goal --> pkg_session
+  pkg_tool_goal --> pkg_system_prompt
+  pkg_tool_goal --> pkg_tools
   pkg_tool_bash --> pkg_agent
   pkg_tool_bash --> pkg_bash
   pkg_tool_bash --> pkg_home
@@ -539,6 +546,7 @@ flowchart TD
 | [`fs-sandbox`](../packages/fs/fs-sandbox) | `fs` | [`fs`](../packages/fs/fs), [`fs-local`](../packages/fs/fs-local), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy) |
 | [`permission`](../packages/ui/permission) | `ui` | [`bash`](../packages/bash/bash), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`user-approval`](../packages/ui/user-approval) |
 | [`agent-loop`](../packages/core/agent-loop) | `core` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
+| [`tool-goal`](../packages/goal/tool-goal) | `goal` | [`agent`](../packages/core/agent), [`goal`](../packages/goal/goal), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-bash`](../packages/bash/tool-bash) | `bash` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`home`](../packages/util/home), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session-persistence`](../packages/session-persistence/session-persistence), [`system-prompt`](../packages/core/system-prompt), [`tasks`](../packages/tasks/tasks), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval) |
 | [`tool-fs`](../packages/fs/tool-fs) | `fs` | [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval) |
 | [`tool-fs-search`](../packages/fs/tool-fs-search) | `fs` | [`bash`](../packages/bash/bash), [`llm`](../packages/llm/llm), [`retention`](../packages/util/retention), [`session`](../packages/core/session), [`spill`](../packages/spill/spill), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
