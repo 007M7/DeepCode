@@ -117,7 +117,6 @@ describe('goal domain through a real cordis.yml and stdio process', () => {
         maxGoalRounds: 7,
       },
     })
-    expect(context.data.envelope).toBe('raw')
     expect(context.data.content).toEqual(renderGoalChange(change))
     expect(JSON.stringify(context)).not.toContain('activation')
     expect(events.filter(event => event.type === 'user/message'

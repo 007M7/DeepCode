@@ -7,7 +7,7 @@ Every cordis event a plugin can listen to: exact signature, dispatch mode, and o
 
 This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verified fresh by `pnpm run verify-cordis-catalog` (part of `doc-sync`) — do not edit it by hand. Signature blocks use a `ts cordis-catalog` fence and include the original source JSDoc immediately before each event or service method. doc-typecheck skips these bare declaration fragments; type names in a signature link to the page that documents them.
 
-The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns, grouped by scope. The **inherited tier** at the end is the cordis-core + loader/hmr/timer event surface a plugin also sees — pinned vendor source, summarized tersely.
+The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns, grouped by scope. The **inherited tier** at the end is the cordis-core + loader/hmr/timer event surface a plugin also sees — pinned vendor source, summarized tersely. The event-dispatch methods themselves are generated in the [Cordis core Events API](core/events.md).
 
 Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`).
 
@@ -125,14 +125,14 @@ Source: [`packages/core/agent/src/types.ts:207`](../../packages/core/agent/src/t
 
 ### `agent/prompt-submit` — waterfall
 
-Allow, rewrite, or block one drained prompt before it becomes a user message. Call `next()` for the unchanged default.
+Allow, rewrite, or block one claimed prompt before it becomes a user message. Call `next()` for the unchanged default.
 
 ```ts cordis-catalog
 /**
- * Allow, rewrite, or block one drained prompt before it becomes a user
+ * Allow, rewrite, or block one claimed prompt before it becomes a user
  * message. Call `next()` for the unchanged default.
- * @param agent - the agent draining its inbox.
- * @param content - the drained message's blocks, as queued.
+ * @param agent - the agent whose turn claimed the message.
+ * @param content - the claimed message's blocks, as queued.
  * @param source - the message's resolved source.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
@@ -408,7 +408,7 @@ Single-slot decision for the next FileSystem.editText. Calling `next()` yields a
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:61`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:62`](../../packages/fs/fs/src/index.ts)
 
 ### `fs/observed` — emit
 
@@ -428,7 +428,7 @@ Record a successful observation. Listeners must be synchronous recorders: throws
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:70`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:71`](../../packages/fs/fs/src/index.ts)
 
 ### `fs/write-intent` — waterfall
 
@@ -448,7 +448,7 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:53`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:54`](../../packages/fs/fs/src/index.ts)
 
 ## `goal/*`
 
@@ -608,7 +608,7 @@ A ready child settled. Scope-filtered dispatch uses the same delegating parent c
 
 Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:112`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:139`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -625,7 +625,7 @@ A provider became resolvable in the registry.
 
 Types: [SubagentProvider](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:86`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:113`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-removed` — emit
 
@@ -640,7 +640,7 @@ A provider left the registry. Accepted runs remain holder-owned.
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:92`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:119`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
@@ -662,7 +662,7 @@ A provider established a ready child. For in-process providers, `ctx.agents.get(
 
 Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:103`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:130`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 

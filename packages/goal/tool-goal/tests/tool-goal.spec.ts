@@ -36,7 +36,6 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
       session.append('context/message', {
         content,
         source,
-        ...options?.envelope === undefined ? {} : { envelope: options.envelope },
         ...options?.meta === undefined ? {} : { meta: options.meta },
       }, { surfaceOp: 'append' })
     },

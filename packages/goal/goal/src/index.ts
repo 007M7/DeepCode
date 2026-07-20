@@ -482,7 +482,6 @@ export class GoalService extends Service {
     try {
       agent.inject(renderGoalChange(change), {
         source: { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0 },
-        envelope: 'raw',
         meta,
       })
     } catch (error: unknown) {

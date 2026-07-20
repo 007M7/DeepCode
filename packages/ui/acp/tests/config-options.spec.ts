@@ -199,12 +199,12 @@ describe('acp bridge — session config options', () => {
     expect(after.configOptions).toEqual(optionsWithPermission('danger-full-access'))
 
     const session = h.ctx.agents.list()[0]?.session
-    expect(session?.events.some(e => e.type === 'permission/preset' || e.type === 'bash/sandbox-mode' || e.type === 'approval/policy')).toBe(false)
+    expect(session?.events.some(e => e.type === 'permission/preset' || e.type === 'sandbox/mode' || e.type === 'approval/policy')).toBe(false)
 
     await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'anchor' }] })
     const events = session?.events ?? []
     expect(events.filter(e => e.type === 'permission/preset').map(e => e.data)).toEqual([{ preset: 'danger-full-access' }])
-    expect(events.filter(e => e.type === 'bash/sandbox-mode').map(e => e.data)).toEqual([{ mode: 'danger-full-access' }])
+    expect(events.filter(e => e.type === 'sandbox/mode').map(e => e.data)).toEqual([{ mode: 'danger-full-access' }])
     expect(events.filter(e => e.type === 'approval/policy').map(e => e.data)).toEqual([{ policy: 'never' }])
     const turnStart = events.findIndex(e => e.type === 'turn/start')
     const anchored = events.findIndex(e => e.type === 'permission/preset')
@@ -234,7 +234,7 @@ describe('acp bridge — session config options', () => {
     expect(back.configOptions).toEqual(optionsWithPermission('workspace-write'))
     await h.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'anchor' }] })
     const events = h.ctx.agents.list()[0]?.session.events ?? []
-    expect(events.some(e => e.type === 'permission/preset' || e.type === 'bash/sandbox-mode' || e.type === 'approval/policy')).toBe(false)
+    expect(events.some(e => e.type === 'permission/preset' || e.type === 'sandbox/mode' || e.type === 'approval/policy')).toBe(false)
   })
 
   it('a no-op switch (the value already shown) records nothing and keeps a live pending', async () => {
@@ -262,7 +262,7 @@ describe('acp bridge — session config options', () => {
     const anchored = events.findIndex(e => e.type === 'permission/preset')
     expect(turnStart).toBeGreaterThanOrEqual(0)
     expect(anchored).toBeGreaterThan(turnStart)
-    expect(events.some(e => e.type === 'bash/sandbox-mode')).toBe(true)
+    expect(events.some(e => e.type === 'sandbox/mode')).toBe(true)
     expect(events.some(e => e.type === 'approval/policy')).toBe(true)
     await h.client.cancel({ sessionId })
     await hung
@@ -332,7 +332,7 @@ describe('acp bridge — session config options', () => {
     const agent = h.ctx.agents.list()[0]
     if (agent === undefined) throw new Error('expected an agent')
     agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    agent.session.append('bash/sandbox-mode', { mode: 'read-only' })
+    agent.session.append('sandbox/mode', { mode: 'read-only' })
     agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const echo = await h.client.setSessionConfigOption({ sessionId, configId: 'permission', value: 'custom' })
     const option = echo.configOptions?.find(entry => entry.id === 'permission')
