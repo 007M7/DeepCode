@@ -53,9 +53,15 @@ const run = (args, options = {}) => spawnSync(launcher, args, { encoding: 'utf8'
   assert.equal(danglingPath.status, LAUNCHER_FAILURE_EXIT);
   assert.match(danglingPath.stderr, /--ro requires a path/);
 
-  const probeWithExtras = run(['--probe', '--ro', '/']);
-  assert.equal(probeWithExtras.status, LAUNCHER_FAILURE_EXIT);
-  assert.match(probeWithExtras.stderr, /--probe takes no other arguments/);
+  for (const args of [
+    ['--probe', '--ro', '/'],
+    ['--probe', '--'],
+    ['--probe', '--probe'],
+  ]) {
+    const probeWithExtras = run(args);
+    assert.equal(probeWithExtras.status, LAUNCHER_FAILURE_EXIT);
+    assert.match(probeWithExtras.stderr, /--probe takes no other arguments/);
+  }
 }
 
 // --- probe: the functional availability signal ---

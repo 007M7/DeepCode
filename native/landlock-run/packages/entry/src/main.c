@@ -155,6 +155,9 @@ static int parse(int argc, char **argv, struct cli *cli) {
   while (index < argc) {
     const char *arg = argv[index];
     if (strcmp(arg, "--probe") == 0) {
+      if (argc != 2) {
+        return fail_usage("--probe takes no other arguments", NULL);
+      }
       cli->probe = 1;
       index += 1;
     } else if (strcmp(arg, "--ro") == 0 || strcmp(arg, "--rw") == 0) {
@@ -174,11 +177,7 @@ static int parse(int argc, char **argv, struct cli *cli) {
       return fail_usage("unknown argument: ", arg);
     }
   }
-  if (cli->probe) {
-    if (cli->ro_count > 0 || cli->rw_count > 0 || (cli->command != NULL && cli->command[0] != NULL)) {
-      return fail_usage("--probe takes no other arguments", NULL);
-    }
-  } else if (cli->command == NULL || cli->command[0] == NULL) {
+  if (!cli->probe && (cli->command == NULL || cli->command[0] == NULL)) {
     return fail_usage("missing `-- <argv>...` command", NULL);
   }
   return 0;
