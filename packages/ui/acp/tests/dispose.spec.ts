@@ -223,7 +223,8 @@ describe('acp bridge — disposal & HMR safety', () => {
 
   it('per-session AgentHandle dispose leaves sibling agents untouched', async () => {
     // The factory returns a per-agent AgentHandle whose dispose() tears down
-    // EXACTLY that agent + its session — RFC 011 isolation. Create two agents
+    // EXACTLY that agent + its session — the registry's per-handle isolation
+    // contract. Create two agents
     // directly through the registry factory (the same path the ACP bridge uses),
     // dispose one handle, and assert the other survives, registered and
     // queryable, with its session still in the store.

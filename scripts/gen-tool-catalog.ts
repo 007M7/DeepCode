@@ -12,6 +12,8 @@ import { Context } from 'cordis'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
+import { BashExecutor } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -38,6 +40,44 @@ import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog.md'
+const CATALOG_RG_PROBE_COMMAND = 'command -v rg >/dev/null 2>&1'
+
+/**
+ * Minimal bash service for harvesting `dsh-tool-fs-search` schemas. The search
+ * plugin now probes `rg` at registration time, but the generated catalog must
+ * remain independent of the host PATH and never execute a real search.
+ */
+class CatalogSearchBashExecutor extends BashExecutor {
+  override resolve(request: BashExecRequest): BashExecSpec {
+    return {
+      command: request.command,
+      workdir: request.workdir ?? root,
+      timeoutMs: request.timeoutMs ?? 60_000,
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
+      signal: request.signal,
+      sandboxMode: request.sandboxMode,
+    }
+  }
+
+  override run(spec: BashExecSpec): Promise<BashRunResult> {
+    if (spec.command !== CATALOG_RG_PROBE_COMMAND) {
+      throw new Error(`gen-tool-catalog: unexpected search bash command during schema harvest: ${spec.command}`)
+    }
+    return Promise.resolve({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      aborted: false,
+      timeoutMs: spec.timeoutMs,
+      stdout: { text: '', truncated: false },
+      stderr: { text: '', truncated: false },
+    })
+  }
+
+  override start(): BashProcess {
+    throw new Error('gen-tool-catalog: search schema harvest must not start background processes')
+  }
+}
 
 /** Register the descriptor needed to mount schema-producing consumers. */
 function registerCatalogSubagentProvider(ctx: Context, name: string): void {
@@ -169,14 +209,15 @@ const TOOL_PACKAGES: ToolPackage[] = [
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
       // The tools inject `bash` (search executes fixed `rg` commands through
-      // the executor seam, not ctx.fs); boot the local executor to satisfy it.
-      // `ctx.spillStore` is optional (read via ctx.get) and does not affect the
-      // schemas, so no spill backend is mounted.
-      await ctx.plugin(LocalBashExecutor)
+      // the executor seam, not ctx.fs). Use a catalog-only executor so the
+      // registration-time `rg` probe stays deterministic and the generator
+      // never depends on the host PATH. `ctx.spillStore` is optional (read via
+      // ctx.get) and does not affect the schemas, so no spill backend is mounted.
+      await ctx.plugin(CatalogSearchBashExecutor)
       await ctx.plugin(ToolFsSearch)
     },
     note:
-      'glob and grep are bash-backed discovery tools: they run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
+      'glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-skill',
