@@ -111,10 +111,9 @@ function present(title: string, kind: 'read' | 'other', rawInput?: unknown): Gen
 function observeMutation(
   terminalTurns: WeakMap<Agent, number>,
   execution: GoalToolExecution,
-  goal: GoalView,
   autonomousTerminal: boolean,
 ): void {
-  if (!autonomousTerminal || (goal.phase === 'active' && goal.activation === 'armed')) {
+  if (!autonomousTerminal) {
     terminalTurns.delete(execution.agent)
     return
   }
@@ -173,7 +172,7 @@ export function apply(ctx: Context, config: Config): void {
         objective: args.objective,
         ...args.max_goal_rounds === undefined ? {} : { maxGoalRounds: args.max_goal_rounds },
       })
-      observeMutation(terminalTurns, execution, goal, false)
+      observeMutation(terminalTurns, execution, false)
       return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
     },
     presentCall: args => present('Create goal', 'other', args.objective),
@@ -207,7 +206,7 @@ export function apply(ctx: Context, config: Config): void {
       if (args.action === 'edit') {
         requireDirectHuman(ctx, execution)
         const goal = ctx.goals.edit(execution.agent, ref, replacements)
-        observeMutation(terminalTurns, execution, goal, false)
+        observeMutation(terminalTurns, execution, false)
         return Promise.resolve([{
           type: 'text',
           text: renderGoal(goal),
@@ -224,7 +223,7 @@ export function apply(ctx: Context, config: Config): void {
         const goal = args.action === 'pause'
           ? ctx.goals.pause(execution.agent, ref)
           : ctx.goals.resume(execution.agent, ref)
-        observeMutation(terminalTurns, execution, goal, false)
+        observeMutation(terminalTurns, execution, false)
         return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
       }
       const authority = completionAuthority(ctx, execution)
@@ -245,7 +244,7 @@ export function apply(ctx: Context, config: Config): void {
       const goal = args.action === 'complete'
         ? ctx.goals.complete(execution.agent, ref)
         : ctx.goals.block(execution.agent, ref)
-      observeMutation(terminalTurns, execution, goal, authority.kind === 'goal-round')
+      observeMutation(terminalTurns, execution, authority.kind === 'goal-round')
       return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
     },
     presentCall: args => present(
