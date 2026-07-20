@@ -1,5 +1,6 @@
 /**
- * dsh-llm's owned branded id: `CallId` (tool-call correlation).
+ * dsh-llm's owned branded ids: tool-call correlation and provider request
+ * diagnostics.
  *
  * The `Branded<B>` primitive itself lives in `@deepseek-ai/dsh-brand` (a
  * zero-dependency type-only package) so every owner of a cross-boundary id can
@@ -24,4 +25,16 @@ export type CallId = Branded<'CallId'>
  */
 export function CallId(id: string): CallId {
   return id as CallId
+}
+
+/** Provider-issued request identifier retained for diagnostics across package boundaries. */
+export type ProviderRequestId = Branded<'ProviderRequestId'>
+
+/**
+ * Brand a provider-issued request identifier.
+ * @param id - the opaque provider-issued string.
+ * @returns the same string, branded; no validation is performed.
+ */
+export function ProviderRequestId(id: string): ProviderRequestId {
+  return id as ProviderRequestId
 }
