@@ -104,8 +104,8 @@ async function makeConsumer(
   return dir
 }
 
-/** Run the built bin in `cwd` against `configArg` with one stdin line; resolve with stdout/stderr + exit code. */
-function runBuiltBin(cwd: string, configArg: string, line: string): Promise<{ stdout: string; code: number; stderr: string }> {
+/** Run the built bin in `cwd` against `configArg` with piped stdin; resolve with stdout/stderr + exit code. */
+function runBuiltBin(cwd: string, configArg: string, input: string): Promise<{ stdout: string; code: number; stderr: string }> {
   return new Promise((resolve, reject) => {
     // --expose-internals: the cordis Loader resolves bare plugin specifiers via
     // its internal module loader (active only under this flag); demo:echo passes
@@ -128,7 +128,7 @@ function runBuiltBin(cwd: string, configArg: string, line: string): Promise<{ st
     }, 25_000)
     child.on('exit', (code) => { clearTimeout(timer); resolve({ stdout, code: code ?? -1, stderr }) })
     child.on('error', (err) => { clearTimeout(timer); reject(err) })
-    child.stdin.write(`${line}\n`)
+    child.stdin.write(`${input}\n`)
     child.stdin.end()
   })
 }
@@ -164,6 +164,17 @@ describe.skipIf(!existsSync(stdioBin))('dsh-stdio-demo BUILT bin (node lib/bin.j
     expect(stderr).not.toContain('failed to load')
     expect(stdout).toContain('DISABLED-OK ready.')
     expect(stdout).toContain('[tool result] ECHO: HI')
+    expect(code).toBe(0)
+  }, 30_000)
+
+  it('runs two synchronously piped lines as two ordinary turns', async () => {
+    consumer = await makeConsumer('TWO-TURNS ready.')
+    const { stdout, code, stderr } = await runBuiltBin(consumer, './cordis.yml', 'first\nsecond')
+    expect(stderr).not.toContain('UNHANDLED')
+    expect(stdout).toContain('[main turn 1]')
+    expect(stdout).toContain('You said: "first"')
+    expect(stdout).toContain('[main turn 2]')
+    expect(stdout).toContain('You said: "second"')
     expect(code).toBe(0)
   }, 30_000)
 

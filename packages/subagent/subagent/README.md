@@ -60,7 +60,7 @@ Provider additions and removals also emit `subagent/provider-added` and `subagen
 
 ## Collection model
 
-The model-facing tool collects synchronously by default: it awaits the child result and disposes the run before returning. Background delegation does not change this seam; the consumer registers startup and the eventual run with the generic `ctx.tasks` runtime, then collection and cancellation use the shared task tools. See the [background subagent tasks RFC](../../../docs/rfc/implemented/feature/2026-07-08-background-subagent-tasks.md), the [capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md), and `src/types.ts` for the complete contracts.
+The model-facing tool collects synchronously by default: it awaits the child result and disposes the run before returning. Background delegation does not change this seam; the consumer registers startup and the eventual run with the generic `ctx.tasks` runtime, then collection and cancellation use the shared task tools. See the [background subagent tasks Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md), the [capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md), and `src/types.ts` for the complete contracts.
 
 ## Model Experience
 

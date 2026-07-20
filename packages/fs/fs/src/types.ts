@@ -168,6 +168,7 @@ export type FsErrorCode =
   | 'FS_NOT_TEXT'
   | 'FS_NOT_REGULAR_FILE'
   | 'FS_PERMISSION_DENIED'
+  | 'FS_SANDBOX_DENIED'
   | 'FS_IO_ERROR'
   | 'FS_STALE_VERSION'
   | 'FS_NOT_OBSERVED'

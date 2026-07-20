@@ -2,11 +2,11 @@
 
 The **durability seam** for the event log. [session.md](session.md) describes the in-memory `Session` — the append-only `SessionEvent` log that is the source of truth. This page describes how that log is made durable: the abstract `SessionPersistence` service, its backends, the flush checkpoint, crash recovery, and the metadata header that travels alongside the log. The event vocabulary the log carries is enumerated, member by member, in the generated [persistence log event catalog](../persistence-catalog.md).
 
-The seam is a textbook [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session-persistence/session-persistence), `ctx.sessionPersistence`) defining locate/create/append/load/list over the existing `SessionEvent` — **no parallel persisted type** — and two interchangeable backends that pass the same `runPersistenceContract` suite. See the [session-persistence RFC](../rfc/implemented/architecture/2026-06-14-session-persistence.md).
+The seam is a textbook [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session-persistence/session-persistence), `ctx.sessionPersistence`) defining locate/create/append/load/list over the existing `SessionEvent` — **no parallel persisted type** — and two interchangeable backends that pass the same `runPersistenceContract` suite. See the [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md).
 
 ## The flush checkpoint
 
-`session/event` is a *synchronous* notification; persistence plugins buffer it (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end. Flush is `ctx.parallel` (awaited): a turn's events are durably committed before the next turn starts, and the turn boundary is the commit boundary. A rejecting flush is reported via `agent/error` and the logger — never as a session event (it would land past the commit boundary), so the backend keeps its buffered events for the next flush.
+`session/event` is a *synchronous* notification; persistence plugins buffer it (write-behind) until `session/flush`. The loop awaits an ordinary turn's checkpoint before claiming the next queue item; synchronous idle `inject()` schedules its checkpoint without blocking `send()`, and disposal still drains it. A successful flush durably commits the closed turn as one unit; a rejecting flush is reported through `agent/error` and the logger — never as a session event past the closed turn — while the backend keeps its buffered events for the next flush.
 
 ## Crash recovery preserves an interrupted turn
 
@@ -98,4 +98,4 @@ Both implement the same abstract `SessionPersistence` (locate/create/append/load
 - **[dsh-session-persistence-jsonl](../../packages/session-persistence/session-persistence-jsonl)** — an append-only JSONL log per session with crash-safe atomic writes, the interrupted-turn crash recovery above, and a read/replay path.
 - **[dsh-session-persistence-sqlite](../../packages/session-persistence/session-persistence-sqlite)** — `node:sqlite`, one row per `SessionEvent`. The row shape `(session_id, seq, type, time, data, source_event_seqs, surface_op)` maps 1:1 onto the event, including optional surface metadata, so there is no parallel persisted schema to keep in sync.
 
-Multiple backends sharing one on-disk session coordinate writes through the [shared persistence write-coordinator](../rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
+Multiple backends sharing one on-disk session coordinate writes through the [shared persistence write-coordinator](../../.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).

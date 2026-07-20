@@ -64,7 +64,7 @@ export interface Config {
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
   toolBash?: NonNullable<agentCore.Config['toolBash']>
-  /** Generic background-task control-tool config forwarded through agent-core. */
+  /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
 }
 ```
@@ -140,12 +140,14 @@ export interface Config {
   skills?: SkillConfig
   /** Model-facing bash tool config, including this producer's background opt-in. */
   toolBash?: toolBash.Config
-  /** Generic background-task control-tool wait bounds. */
-  toolTasks?: toolTasks.Config
+  /** Generic background-task controls; set false to keep the task service without model-facing task tools. */
+  toolTasks?: toolTasks.Config | false
 }
 
 /** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
 export interface SkillConfig {
+  /** Mount the bundled local skill provider and model-facing skill tool (default true). */
+  enabled?: boolean
   /** Registry-level discovery cache settings. */
   registry?: SkillRegistryConfig
   /** Local filesystem skill provider settings. */
@@ -157,7 +159,7 @@ export interface SkillConfig {
 
 Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
 
-Source: [`packages/examples/agent-spine-demo/src/index.ts:57`](../packages/examples/agent-spine-demo/src/index.ts)
+Source: [`packages/examples/agent-spine-demo/src/index.ts:59`](../packages/examples/agent-spine-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -172,7 +174,9 @@ export interface Config {
   maxTimeoutMs?: number
   /** Per-stream in-memory output cap; overflow spills to a temp file. */
   maxOutputBytes?: number
-  /** Grace period between the SIGTERM and the SIGKILL escalation on a kill. */
+  /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
+  maxSpillBytes?: number
+  /** Grace period for kill escalation and for inherited pipes after shell exit. */
   graceMs?: number
 }
 ```
@@ -181,28 +185,21 @@ Source: [`packages/bash/bash-local/src/index.ts:17`](../packages/bash/bash-local
 
 ## `@deepseek-ai/dsh-bash-sandbox`
 
-Requires: `sandbox`
+Requires: `sandbox` · `sandboxPolicy`
 
 ```ts config-catalog
 /**
- * Plugin config: the local executor's knobs plus the sandbox policy. All
- * optional — `static Config` supplies the defaults (`mode: 'read-only'` is the
- * fail-safe default; an example that wants a workspace-writable agent opts in
- * explicitly). The runner choice is not configured here: which platform
- * backend confines the command is the `ctx.sandbox` provider's config.
+ * Plugin config: the local executor's knobs, verbatim. The sandbox policy —
+ * the default mode and the `workspace-write` boundary root — is NOT here: it
+ * lives on `ctx.sandboxPolicy` (`@deepseek-ai/dsh-sandbox-policy`), the one
+ * home both enforcing families read, so bash and fs can never confine to
+ * different roots. The runner choice is likewise the `ctx.sandbox` provider's
+ * config, not this executor's.
  */
-export interface Config extends LocalConfig {
-  /** File-sandbox mode commands run under (default: `read-only`). */
-  mode?: SandboxMode
-  /**
-   * Root directory `workspace-write` mode may write under (default: the
-   * executor's default working directory — `cwd`, else `process.cwd()`).
-   */
-  workspaceRoot?: string
-}
+export type Config = LocalConfig
 ```
 
-Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local) · [`SandboxMode`](core-data-structures/sandbox.md)
+Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local)
 
 Source: [`packages/bash/bash-sandbox/src/index.ts:27`](../packages/bash/bash-sandbox/src/index.ts)
 
@@ -306,6 +303,22 @@ export interface BasicCompactConfig {
 
 Source: [`packages/compact/compact-basic/src/types.ts:8`](../packages/compact/compact-basic/src/types.ts)
 
+## `@deepseek-ai/dsh-compact-tool-result-prune`
+
+```ts config-catalog
+/** Character-budget policy for deterministic tool-result pruning. */
+export interface ToolResultPruneConfig {
+  /** Prune when total text exceeds this many Unicode code points. Defaults to `8192`. */
+  thresholdChars?: number
+  /** Maximum leading Unicode code points retained. Defaults to `4096`. */
+  headChars?: number
+  /** Maximum trailing Unicode code points retained. Defaults to `1024`. */
+  tailChars?: number
+}
+```
+
+Source: [`packages/compact/compact-tool-result-prune/src/types.ts:4`](../packages/compact/compact-tool-result-prune/src/types.ts)
+
 ## `@deepseek-ai/dsh-fs-local`
 
 ```ts config-catalog
@@ -317,6 +330,24 @@ export interface Config {
 ```
 
 Source: [`packages/fs/fs-local/src/index.ts:38`](../packages/fs/fs-local/src/index.ts)
+
+## `@deepseek-ai/dsh-fs-sandbox`
+
+Requires: `sandboxPolicy`
+
+```ts config-catalog
+/**
+ * Plugin config: the local backend's knobs, verbatim (only `cwd`, the resolve
+ * base for relative paths). The sandbox default (mode + `workspace-write`
+ * boundary root) is NOT here — it lives on `ctx.sandboxPolicy`, the one home
+ * both enforcing families share.
+ */
+export type Config = LocalConfig
+```
+
+Depends on: [`LocalConfig`](#deepseek-aidsh-fs-local)
+
+Source: [`packages/fs/fs-sandbox/src/index.ts:49`](../packages/fs/fs-sandbox/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -384,8 +415,10 @@ Source: [`packages/hooks/hooks-codex/src/index.ts:42`](../packages/hooks/hooks-c
 Requires: `agents`
 
 ```ts config-catalog
-/** Runtime-only test seams; no field is configurable from `cordis.yml`. */
+/** JSON-RPC deployment config plus runtime-only test seams. */
 export interface JsonRpcConfig {
+  /** Report max-token turn/subagent termination as a successful SDK result. */
+  maxTokensAsSuccess?: boolean
   /** Transport input override; production uses `process.stdin`. */
   input?: Readable
   /** Transport output override; production uses `process.stdout`. */
@@ -592,7 +625,7 @@ export interface Config {
 
 /** One preset's sandbox/approval bundle and optional client presentation. */
 export interface PresetSpec {
-  /** The `bash/sandbox-mode` value the preset writes through. */
+  /** The `sandbox/mode` value the preset writes through. */
   sandbox: SandboxMode
   /** The `approval/policy` value the preset writes through. */
   approval: ApprovalPolicy
@@ -605,7 +638,7 @@ export interface PresetSpec {
 
 Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/ui/permission/src/index.ts:80`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:83`](../packages/ui/permission/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 
@@ -666,6 +699,31 @@ export interface Config {
 ```
 
 Source: [`packages/sandbox/sandbox-local/src/index.ts:19`](../packages/sandbox/sandbox-local/src/index.ts)
+
+## `@deepseek-ai/dsh-sandbox-policy`
+
+```ts config-catalog
+/**
+ * Plugin config: the deployment's sandbox default. All optional — `Config`
+ * supplies the defaults (`mode: 'read-only'` is the fail-safe default; a
+ * deployment that wants a workspace-writable agent opts in explicitly). The
+ * runner choice is NOT here (it is the `ctx.sandbox` provider's config), nor
+ * is any per-family knob: this is the one shared policy home.
+ */
+export interface Config {
+  /** File-sandbox mode a session starts from (default: `read-only`). */
+  mode?: SandboxMode
+  /**
+   * Absolute root directory `workspace-write` may write under (default:
+   * `process.cwd()`). Both enforcing families fence against this SAME root.
+   */
+  workspaceRoot?: string
+}
+```
+
+Depends on: [`SandboxMode`](core-data-structures/sandbox.md)
+
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:44`](../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
@@ -856,7 +914,7 @@ export interface Config {
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
   toolBash?: NonNullable<agentCore.Config['toolBash']>
-  /** Generic background-task control-tool config forwarded through agent-core. */
+  /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /**
    * If set, the pre-created agent RESUMES this persisted session id instead of
@@ -1022,7 +1080,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/tool-bash/src/index.ts:39`](../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/tool-bash/src/index.ts:40`](../packages/bash/tool-bash/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -1034,7 +1092,7 @@ export interface Config {
   /**
    * Milliseconds the SYNCHRONOUS portion of mount code may run in the vm
    * before evaluation is aborted (default 5000). An async body escapes this
-   * bound — see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md for the trust stance.
+   * bound — see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md for the trust stance.
    */
   vmTimeoutMs?: number
 }
@@ -1060,7 +1118,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-fs/src/index.ts:22`](../packages/fs/tool-fs/src/index.ts)
+Source: [`packages/fs/tool-fs/src/index.ts:24`](../packages/fs/tool-fs/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-fs-search`
 
@@ -1082,7 +1140,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-fs-search/src/index.ts:59`](../packages/fs/tool-fs-search/src/index.ts)
+Source: [`packages/fs/tool-fs-search/src/index.ts:62`](../packages/fs/tool-fs-search/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-skill`
 
@@ -1470,7 +1528,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 
 ## Seam packages (not directly loadable)
 
-Abstract service classes — a deployment loads a concrete implementation package instead ([capability seams](rfc/implemented/architecture/2026-06-13-capability-seams.md)).
+Abstract service classes — a deployment loads a concrete implementation package instead ([capability seams](../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)).
 
 - `@deepseek-ai/dsh-bash` — abstract `BashExecutor` ([`packages/bash/bash/src/index.ts`](../packages/bash/bash/src/index.ts))
 - `@deepseek-ai/dsh-code-runtime` — abstract `CodeRuntime` ([`packages/code-runtime/code-runtime/src/index.ts`](../packages/code-runtime/code-runtime/src/index.ts))

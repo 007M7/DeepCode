@@ -91,7 +91,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **A fresh process per run** — persistent-process pooling is a future optimization ([the seam RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md)).
+- **A fresh process per run** — persistent-process pooling is a future optimization ([the seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)).
 - **No optional start-time capabilities** — this provider cannot apply the local harness's `outputSchema`, depth cap, tool filter, or persona inside the remote process, so it advertises none and the service rejects requests that require them.
 - **Only `agent_message_chunk` text is collected** — the child's tool-call activity, thought chunks, and plan updates are not surfaced to the parent.
 - **Permission prompts are auto-answered** (`permission: allow | reject`) — no human is surfaced a child's `session/request_permission` in this cut.

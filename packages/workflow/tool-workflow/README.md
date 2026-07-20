@@ -12,7 +12,7 @@ Collection is SYNCHRONOUS this cut (like [`dsh-tool-subagent`](../../subagent/to
 
 ## Render intent
 
-Decided up front (per the [render-intent RFC](../../../docs/rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md)): a `generic` card titled `workflow: <meta.name>`, read directly from `args.meta.name` (presentation is a pure function of args and does not ask the engine to parse); the script text rides as `rawInput`. The result keeps the generic card.
+Decided up front (per the [render-intent Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)): a `generic` card titled `workflow: <meta.name>`, read directly from `args.meta.name` (presentation is a pure function of args and does not ask the engine to parse); the script text rides as `rawInput`. The result keeps the generic card.
 
 ## Config
 

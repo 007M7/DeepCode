@@ -6,6 +6,7 @@
 
 import type { BashProcessRead, BashRunResult, BashSandboxInfo, CollectedOutput } from '@deepseek-ai/dsh-bash'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import { escalationHintMarker, sandboxDenialMarker } from '@deepseek-ai/dsh-sandbox'
 
 /** Append the truncation notice (with the full-output spill path) to a stream's text. */
 function streamText(output: CollectedOutput): string {
@@ -42,10 +43,10 @@ export function renderResult(
   const markers: string[] = []
   // Keep the exit marker last because parseExitStatus anchors there.
   if (result.sandbox?.denied) {
-    markers.push(`[sandbox: file access denied under ${result.sandbox.mode} mode]`)
+    markers.push(sandboxDenialMarker(result.sandbox.mode))
     // Hint only when the composition exposes escalation, before the final exit marker.
     if (escalationModes.length > 0) {
-      markers.push('[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]')
+      markers.push(escalationHintMarker('command'))
     }
   }
   // A command may trap SIGTERM and exit 0 after timeout; still report interruption.
@@ -84,9 +85,9 @@ export function renderProcessRead(
   if (sandbox?.runnerFailed) {
     notices.push(`[sandbox: the sandbox runner itself failed under ${sandbox.mode} mode — the command did not run; this is a sandbox problem, not a command failure]`)
   } else if (sandbox?.denied) {
-    notices.push(`[sandbox: file access denied under ${sandbox.mode} mode]`)
+    notices.push(sandboxDenialMarker(sandbox.mode))
     if (escalationModes.length > 0) {
-      notices.push('[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]')
+      notices.push(escalationHintMarker('command'))
     }
   }
   if (notices.length === 0) return read.delta

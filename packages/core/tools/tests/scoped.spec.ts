@@ -582,13 +582,18 @@ describe('scoped execution dispatch', () => {
     ctx.on('tools/result', () => {
       throw { toString: () => { throw new Error('coercion trap') } }
     })
+    ctx.on('tools/result', () => Promise.reject(new Error('async observer failure')) as never)
     ctx.on('tools/result', (_exec, result) => { seen.push(result.isError) })
 
     const result = await ctx.tools.execute({ callId: CallId('final'), name: 't', arguments: {}, agent: key })
+    await Promise.resolve()
     expect(result).toMatchObject({ isError: true, content: [{ type: 'text', text: 'outer failure' }] })
     expect(seen).toEqual([true, true])
     expect(dispatchModes).toEqual(['emit'])
-    expect(warn).toHaveBeenCalledOnce()
-    expect(String(warn.mock.calls[0]?.[0])).toContain('<unprintable thrown value>')
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(warn.mock.calls.map(call => String(call[0]))).toEqual(expect.arrayContaining([
+      expect.stringContaining('<unprintable thrown value>'),
+      expect.stringContaining('async observer failure'),
+    ]))
   })
 })

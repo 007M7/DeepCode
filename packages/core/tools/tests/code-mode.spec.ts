@@ -13,7 +13,7 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap } from '@deepseek-ai/dsh-session'
 
 /**
- * Code Mode unit tier (per the RFC's plan): provider contribution per mode,
+ * Code Mode unit tier (per the Agent Note's plan): provider contribution per mode,
  * misconfiguration rejections, the run_code dispatch bridge (serialization,
  * abort, JSON normalization, error mapping, events, quiescence), and HMR
  * safety — all against an in-repo fake runtime, exactly the
@@ -487,7 +487,6 @@ describe('the run_code dispatch bridge', () => {
           additionalContexts: [{
             content: [{ type: 'text' as const, text: `context for ${exec.callId}` }],
             source: { kind: 'plugin' as const, plugin: 'test' },
-            envelope: 'raw' as const,
             meta: { callId: exec.callId },
           }],
         })
@@ -505,13 +504,11 @@ describe('the run_code dispatch bridge', () => {
       {
         content: [{ type: 'text', text: 'context for call-1:code:1' }],
         source: { kind: 'plugin', plugin: 'test' },
-        envelope: 'raw',
         meta: { callId: 'call-1:code:1' },
       },
       {
         content: [{ type: 'text', text: 'context for call-1:code:2' }],
         source: { kind: 'plugin', plugin: 'test' },
-        envelope: 'raw',
         meta: { callId: 'call-1:code:2' },
       },
     ])
