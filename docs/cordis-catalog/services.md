@@ -577,7 +577,7 @@ clear(agent: Agent, ref: GoalRef): GoalRef
 
 Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [CreateGoalSpec](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:97`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:104`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.llm` — `LlmService`
 

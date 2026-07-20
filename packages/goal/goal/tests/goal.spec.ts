@@ -235,6 +235,25 @@ describe('GoalService creation and replay', () => {
     expect(() => foldGoal(session.events)).not.toThrow()
   })
 
+  it('removes the service and its session-start listener with the providing fiber', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const fiber = await ctx.plugin(GoalService)
+    const first = ctx.goals
+    const stub = stubAgent('goal-hmr')
+    ctx.agents.register(stub.agent)
+    const goal = first.create(stub.agent, { objective: 'survive service reload' })
+
+    await fiber.dispose()
+    expect(ctx.get('goals')).toBeUndefined()
+    agentEvents(ctx, stub.agent).emit('agent/session-start', 'resume')
+    expect(first.get(stub.agent)).toMatchObject({ id: goal.id, activation: 'armed' })
+
+    await ctx.plugin(GoalService)
+    expect(ctx.goals).not.toBe(first)
+    expect(ctx.goals.get(stub.agent)).toMatchObject({ id: goal.id, activation: 'disarmed' })
+  })
+
   it('requires the exact live registry instance for reads and mutations', async () => {
     const { ctx, agent } = await harness()
     const impostor = { ...agent, session: new Session(agent.id) }
@@ -404,6 +423,46 @@ describe('GoalService mutations', () => {
     expect(foldGoal(session.events)).toMatchObject({ goal: { revision: 3, phase: 'paused' } })
   })
 
+  it('publishes a mutation consistently to a reentrant session observer', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(GoalService)
+    const stub = stubAgentForSession(ctx.sessions.create(SessionId('goal-reentrant-observer')))
+    ctx.agents.register(stub.agent)
+    let observed: ReturnType<GoalService['get']>
+    ctx.on('session/event', (session, event) => {
+      if (session === stub.session && event.type === 'context/message') observed = ctx.goals.get(stub.agent)
+    })
+
+    const created = ctx.goals.create(stub.agent, { objective: 'publish once' })
+
+    expect(observed).toEqual(created)
+    expect(ctx.goals.get(stub.agent)).toEqual(created)
+    expect(foldGoal(stub.session.events)).toMatchObject({ goal: { id: created.id, revision: 1 } })
+  })
+
+  it('rolls back a pending mutation when injection rejects before append', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(GoalService)
+    const stub = stubAgent('goal-rejected-injection')
+    const append = stub.agent.inject.bind(stub.agent)
+    let reject = true
+    stub.agent.inject = (content, options) => {
+      if (reject) throw new Error('injection rejected')
+      append(content, options)
+    }
+    ctx.agents.register(stub.agent)
+
+    expect(() => ctx.goals.create(stub.agent, { objective: 'first attempt' })).toThrow('injection rejected')
+    reject = false
+    expect(ctx.goals.create(stub.agent, { objective: 'second attempt' })).toMatchObject({
+      objective: 'second attempt',
+      revision: 1,
+    })
+  })
+
   it('rejects deferred goal mutations that enter the log out of FIFO order', async () => {
     const test = await harness()
     test.setDeferred(true)
@@ -446,6 +505,39 @@ describe('GoalService mutations', () => {
       objective: change.goal.objective,
       activation: 'disarmed',
     })
+  })
+
+  it('reports the same corrupt unseen event after committing its valid prefix', async () => {
+    const { ctx, agent, session } = await harness()
+    expect(ctx.goals.get(agent)).toBeUndefined()
+    const change: GoalSnapshotChangeMeta = {
+      kind: 'goal/change',
+      version: 1,
+      operation: 'create',
+      goal: {
+        id: GoalId('goal-valid-prefix'),
+        revision: 1,
+        objective: 'valid prefix',
+        phase: 'active',
+        maxGoalRounds: 4,
+      },
+      roundsStarted: 0,
+      createdAt: 12,
+      updatedAt: 12,
+    }
+    appendInjection(session, renderGoalChange(change), {
+      source: { kind: 'goal', goalId: change.goal.id, revision: 1, round: 0 },
+      envelope: 'raw',
+      meta: change as never,
+    })
+    appendInjection(session, [{ type: 'text', text: 'corrupt' }], {
+      source: { kind: 'goal', goalId: change.goal.id, revision: 2, round: 0 },
+      envelope: 'raw',
+      meta: { ...change, operation: 'edit', extra: true } as never,
+    })
+
+    expect(() => ctx.goals.get(agent)).toThrow('invalid shape')
+    expect(() => ctx.goals.get(agent)).toThrow('invalid shape')
   })
 })
 
