@@ -4,15 +4,6 @@ The in-memory, event-sourced model of [dsh-session](../../packages/core/session)
 
 Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
-## Context framing
-
-`ContextEnvelope` selects the standard tagged projection or preserves a producer-owned complete frame. The latter changes framing only; the event remains a user-role `context/message` in chronological history.
-
-```ts type-equiv
-/** Canonical context-tag framing, or caller-owned framing rendered verbatim. */
-type ContextEnvelope = 'context' | 'raw'
-```
-
 ## `SessionEventMap` — the event vocabulary
 
 The append-only event types. Merge-extensible: a plugin declares extra event types via declaration merging — e.g. the [compaction seam](compaction.md) adds `compact/start` / `compact/summary` / `compact/end`, and `@deepseek-ai/dsh-hook-protocol` adds log-only `hook/invoked` / `hook/result` provenance for a hook bridge. Like `compact/*`, these are NOT `SurfaceEventType`s (no `surfaceOp`). The generated [persistence log event catalog](../persistence-catalog.md) enumerates every member — core and merged — with its payload, surface badge, and declaration site.
@@ -52,14 +43,17 @@ interface SessionEventMap {
   /**
    * In-session context injection (file-change notices, subdir AGENTS.md,
    * skill content, cron notifications, …). Rendered into the derived history
-   * as synthetic context — NOT a user prompt. `envelope: 'raw'` lets a caller
-   * own the complete model-facing frame; `meta` is durable JSON state omitted
-   * from the model projection.
+   * as a synthetic user-role message carrying `content` verbatim — NOT a
+   * user prompt. `meta` is durable JSON state omitted from the model
+   * projection; it is also the intended channel for any future framing
+   * directive (a producer declares the frame, a dedicated renderer applies it —
+   * see the deferred note in
+   * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
+   * so the surface keeps projecting `content` verbatim rather than wrapping it.
    */
   'context/message': {
     content: ContentBlock[]
     source: MessageSource
-    envelope?: ContextEnvelope
     meta?: JsonValue
   }
   /** Raw stream chunk — token-level replay fidelity. */
@@ -432,8 +426,8 @@ declare class Session {
 - `user/message` → a user message.
 - `assistant/message` → an assistant message with the event's provider/model provenance and optional adapter-private replay state. Raw `assistant/chunk` events are replay/UI data and are **skipped** in derivation (the assembled message is authoritative). An **empty-content** `assistant/message` is also skipped — a max-tokens step cut off with no content still records an `assistant/message` to host its usage/provenance, but a content-less assistant turn must not enter the provider transcript.
 - `tool/result` → a user message carrying a `tool-result` block.
-- `context/message` → a user-role message at its chronological position. The default `envelope` is `context`, which wraps content as `<context source="…">…</context>`; `envelope: 'raw'` uses caller-owned framing verbatim. Optional JSON `meta` remains in the event log and is never rendered.
-- `steering/message` → a user-role message wrapped in `<steering source="…">…</steering>` at its chronological position.
+- `context/message` → a user-role message carrying its `content` verbatim at its chronological position. Optional JSON `meta` remains in the event log and is never rendered.
+- `steering/message` → a user-role message carrying its content verbatim at its chronological position.
 
 Everything else (`turn/*`, `step/*`) is structural and does not project into a message. Token usage is observed on `assistant/message.usage` (the step that produced it); an operational error's step number is on `turn/end.reason` for `kind: 'error'`. Because this unreleased format intentionally has no compatibility promise, seed/load validation rejects request headers without provider+model and assistant messages without provider/model provenance instead of guessing a route for historical data.
 

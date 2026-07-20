@@ -67,6 +67,10 @@
       "link": "/zh-CN/api/harness/sandbox"
     },
     {
+      "text": "ctx.sandboxPolicy",
+      "link": "/zh-CN/api/harness/sandbox-policy"
+    },
+    {
       "text": "ctx.sessionPersistence",
       "link": "/zh-CN/api/harness/session-persistence"
     },
@@ -101,6 +105,10 @@
     {
       "text": "ctx.tokenMeter",
       "link": "/zh-CN/api/harness/token-meter"
+    },
+    {
+      "text": "ctx.toolResultPrune",
+      "link": "/zh-CN/api/harness/tool-result-prune"
     },
     {
       "text": "ctx.tools",

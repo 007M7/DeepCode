@@ -53,24 +53,25 @@ const SCENARIOS: Scenario[] = [
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  // The fs overlay only adds the spill stack (the sandboxed filesystem tools
+  // live in the base tree), so these scenarios share the default header class.
   {
     name: 'parallel-tool-calls',
     hasModelTurn: true,
     recorded: false,
-    headerClass: 'fs',
     configPath: FS_CONFIG,
   },
-  { name: 'bash-spill', hasModelTurn: true, recorded: false, headerClass: 'fs', configPath: FS_CONFIG },
+  { name: 'bash-spill', hasModelTurn: true, recorded: false, configPath: FS_CONFIG },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
-  { name: 'workspace-edit', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-read', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-write', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-edit', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-read-window', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-policy-reject', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
+  { name: 'workspace-edit', hasModelTurn: true, recorded: true },
+  { name: 'fs-read', hasModelTurn: true, recorded: true },
+  { name: 'fs-write', hasModelTurn: true, recorded: true },
+  { name: 'fs-edit', hasModelTurn: true, recorded: true },
+  { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true },
+  { name: 'fs-read-window', hasModelTurn: true, recorded: true },
+  { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
   // ACP exposes the adapter catalog as a session-scoped model select. This
   // scenario pins the default flash request, the switch response, and the
@@ -175,6 +176,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'sandbox' },
   { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
   { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
+  { name: 'fs-escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
 ]
 
 defineAcpSnapshotSuite({

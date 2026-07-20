@@ -38,6 +38,7 @@ flowchart TD
     pkg_fs["fs"]
     pkg_fs_local["fs-local"]
     pkg_fs_policy["fs-policy"]
+    pkg_fs_sandbox["fs-sandbox"]
     pkg_tool_fs["tool-fs"]
     pkg_tool_fs_search["tool-fs-search"]
   end
@@ -49,6 +50,7 @@ flowchart TD
   subgraph group_compact["packages/compact"]
     pkg_compact["compact"]
     pkg_compact_basic["compact-basic"]
+    pkg_compact_tool_result_prune["compact-tool-result-prune"]
   end
   subgraph group_subagent["packages/subagent"]
     pkg_subagent["subagent"]
@@ -136,6 +138,7 @@ flowchart TD
   subgraph group_sandbox["packages/sandbox"]
     pkg_sandbox["sandbox"]
     pkg_sandbox_local["sandbox-local"]
+    pkg_sandbox_policy["sandbox-policy"]
   end
   subgraph group_sdk["packages/sdk"]
     pkg_helper["helper"]
@@ -163,8 +166,6 @@ flowchart TD
   pkg_session --> pkg_scope
   pkg_system_prompt --> pkg_llm
   pkg_system_prompt --> pkg_scope
-  pkg_fs --> pkg_brand
-  pkg_fs --> pkg_llm
   pkg_web --> pkg_llm
   pkg_sandbox --> pkg_llm
   pkg_token_meter --> pkg_llm
@@ -175,14 +176,13 @@ flowchart TD
   pkg_agent --> pkg_session
   pkg_agent --> pkg_system_prompt
   pkg_bash --> pkg_sandbox
-  pkg_bash --> pkg_session
-  pkg_fs_local --> pkg_fs
-  pkg_fs_policy --> pkg_fs
-  pkg_skill_local --> pkg_fs
-  pkg_skill_local --> pkg_home
-  pkg_skill_local --> pkg_skill
+  pkg_fs --> pkg_brand
+  pkg_fs --> pkg_llm
+  pkg_fs --> pkg_sandbox
   pkg_compact --> pkg_llm
   pkg_compact --> pkg_session
+  pkg_compact_tool_result_prune --> pkg_llm
+  pkg_compact_tool_result_prune --> pkg_session
   pkg_web_fetch_local --> pkg_timeout
   pkg_web_fetch_local --> pkg_web
   pkg_web_search_deepseek --> pkg_web
@@ -196,10 +196,18 @@ flowchart TD
   pkg_llm_replay --> pkg_session
   pkg_sandbox_local --> pkg_llm
   pkg_sandbox_local --> pkg_sandbox
+  pkg_sandbox_policy --> pkg_sandbox
+  pkg_sandbox_policy --> pkg_session
   pkg_bash_local --> pkg_bash
   pkg_bash_local --> pkg_timeout
+  pkg_fs_local --> pkg_fs
+  pkg_fs_policy --> pkg_fs
+  pkg_skill_local --> pkg_fs
+  pkg_skill_local --> pkg_home
+  pkg_skill_local --> pkg_skill
   pkg_compact_basic --> pkg_agent
   pkg_compact_basic --> pkg_compact
+  pkg_compact_basic --> pkg_compact_tool_result_prune
   pkg_compact_basic --> pkg_llm
   pkg_compact_basic --> pkg_session
   pkg_compact_basic --> pkg_token_meter
@@ -244,8 +252,14 @@ flowchart TD
   pkg_bash_sandbox --> pkg_bash
   pkg_bash_sandbox --> pkg_bash_local
   pkg_bash_sandbox --> pkg_sandbox
+  pkg_bash_sandbox --> pkg_sandbox_policy
+  pkg_fs_sandbox --> pkg_fs
+  pkg_fs_sandbox --> pkg_fs_local
+  pkg_fs_sandbox --> pkg_sandbox
+  pkg_fs_sandbox --> pkg_sandbox_policy
   pkg_permission --> pkg_bash
   pkg_permission --> pkg_sandbox
+  pkg_permission --> pkg_sandbox_policy
   pkg_permission --> pkg_session
   pkg_permission --> pkg_user_approval
   pkg_agent_loop --> pkg_agent
@@ -260,6 +274,7 @@ flowchart TD
   pkg_tool_bash --> pkg_home
   pkg_tool_bash --> pkg_llm
   pkg_tool_bash --> pkg_sandbox
+  pkg_tool_bash --> pkg_sandbox_policy
   pkg_tool_bash --> pkg_session_persistence
   pkg_tool_bash --> pkg_system_prompt
   pkg_tool_bash --> pkg_tasks
@@ -267,9 +282,12 @@ flowchart TD
   pkg_tool_bash --> pkg_user_approval
   pkg_tool_fs --> pkg_fs
   pkg_tool_fs --> pkg_llm
+  pkg_tool_fs --> pkg_sandbox
+  pkg_tool_fs --> pkg_sandbox_policy
   pkg_tool_fs --> pkg_session
   pkg_tool_fs --> pkg_system_prompt
   pkg_tool_fs --> pkg_tools
+  pkg_tool_fs --> pkg_user_approval
   pkg_tool_fs_search --> pkg_bash
   pkg_tool_fs_search --> pkg_llm
   pkg_tool_fs_search --> pkg_retention
@@ -470,16 +488,14 @@ flowchart TD
 | [`llm-pi-ai`](../packages/llm/llm-pi-ai) | `llm` | [`llm`](../packages/llm/llm) |
 | [`session`](../packages/core/session) | `core` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
 | [`system-prompt`](../packages/core/system-prompt) | `core` | [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
-| [`fs`](../packages/fs/fs) | `fs` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm) |
 | [`web`](../packages/web/web) | `web` | [`llm`](../packages/llm/llm) |
 | [`sandbox`](../packages/sandbox/sandbox) | `sandbox` | [`llm`](../packages/llm/llm) |
 | [`token-meter`](../packages/llm/token-meter) | `llm` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`agent`](../packages/core/agent) | `core` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
-| [`bash`](../packages/bash/bash) | `bash` | [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session) |
-| [`fs-local`](../packages/fs/fs-local) | `fs` | [`fs`](../packages/fs/fs) |
-| [`fs-policy`](../packages/fs/fs-policy) | `fs` | [`fs`](../packages/fs/fs) |
-| [`skill-local`](../packages/skill/skill-local) | `skill` | [`fs`](../packages/fs/fs), [`home`](../packages/util/home), [`skill`](../packages/skill/skill) |
+| [`bash`](../packages/bash/bash) | `bash` | [`sandbox`](../packages/sandbox/sandbox) |
+| [`fs`](../packages/fs/fs) | `fs` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
 | [`compact`](../packages/compact/compact) | `compact` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune) | `compact` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`web-fetch-local`](../packages/web/web-fetch-local) | `web` | [`timeout`](../packages/util/timeout), [`web`](../packages/web/web) |
 | [`web-search-deepseek`](../packages/web/web-search-deepseek) | `web` | [`web`](../packages/web/web) |
 | [`web-search-exa`](../packages/web/web-search-exa) | `web` | [`web`](../packages/web/web) |
@@ -488,8 +504,12 @@ flowchart TD
 | [`session-persistence`](../packages/session-persistence/session-persistence) | `session-persistence` | [`session`](../packages/core/session) |
 | [`llm-replay`](../packages/support/llm-replay) | `support` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`sandbox-local`](../packages/sandbox/sandbox-local) | `sandbox` | [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
+| [`sandbox-policy`](../packages/sandbox/sandbox-policy) | `sandbox` | [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session) |
 | [`bash-local`](../packages/bash/bash-local) | `bash` | [`bash`](../packages/bash/bash), [`timeout`](../packages/util/timeout) |
-| [`compact-basic`](../packages/compact/compact-basic) | `compact` | [`agent`](../packages/core/agent), [`compact`](../packages/compact/compact), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
+| [`fs-local`](../packages/fs/fs-local) | `fs` | [`fs`](../packages/fs/fs) |
+| [`fs-policy`](../packages/fs/fs-policy) | `fs` | [`fs`](../packages/fs/fs) |
+| [`skill-local`](../packages/skill/skill-local) | `skill` | [`fs`](../packages/fs/fs), [`home`](../packages/util/home), [`skill`](../packages/skill/skill) |
+| [`compact-basic`](../packages/compact/compact-basic) | `compact` | [`agent`](../packages/core/agent), [`compact`](../packages/compact/compact), [`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
 | [`spill-local`](../packages/spill/spill-local) | `spill` | [`spill`](../packages/spill/spill) |
 | [`hook-protocol`](../packages/hooks/hook-protocol) | `hooks` | [`bash`](../packages/bash/bash), [`session`](../packages/core/session) |
 | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
@@ -502,11 +522,12 @@ flowchart TD
 | [`tasks`](../packages/tasks/tasks) | `tasks` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`workflow`](../packages/workflow/workflow) | `workflow` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`tools`](../packages/core/tools) | `core` | [`agent`](../packages/core/agent), [`code-runtime`](../packages/code-runtime/code-runtime), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`user-approval`](../packages/ui/user-approval) |
-| [`bash-sandbox`](../packages/bash/bash-sandbox) | `bash` | [`bash`](../packages/bash/bash), [`bash-local`](../packages/bash/bash-local), [`sandbox`](../packages/sandbox/sandbox) |
-| [`permission`](../packages/ui/permission) | `ui` | [`bash`](../packages/bash/bash), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session), [`user-approval`](../packages/ui/user-approval) |
+| [`bash-sandbox`](../packages/bash/bash-sandbox) | `bash` | [`bash`](../packages/bash/bash), [`bash-local`](../packages/bash/bash-local), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy) |
+| [`fs-sandbox`](../packages/fs/fs-sandbox) | `fs` | [`fs`](../packages/fs/fs), [`fs-local`](../packages/fs/fs-local), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy) |
+| [`permission`](../packages/ui/permission) | `ui` | [`bash`](../packages/bash/bash), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`user-approval`](../packages/ui/user-approval) |
 | [`agent-loop`](../packages/core/agent-loop) | `core` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
-| [`tool-bash`](../packages/bash/tool-bash) | `bash` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`home`](../packages/util/home), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`session-persistence`](../packages/session-persistence/session-persistence), [`system-prompt`](../packages/core/system-prompt), [`tasks`](../packages/tasks/tasks), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval) |
-| [`tool-fs`](../packages/fs/tool-fs) | `fs` | [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
+| [`tool-bash`](../packages/bash/tool-bash) | `bash` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`home`](../packages/util/home), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session-persistence`](../packages/session-persistence/session-persistence), [`system-prompt`](../packages/core/system-prompt), [`tasks`](../packages/tasks/tasks), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval) |
+| [`tool-fs`](../packages/fs/tool-fs) | `fs` | [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval) |
 | [`tool-fs-search`](../packages/fs/tool-fs-search) | `fs` | [`bash`](../packages/bash/bash), [`llm`](../packages/llm/llm), [`retention`](../packages/util/retention), [`session`](../packages/core/session), [`spill`](../packages/spill/spill), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-skill`](../packages/skill/tool-skill) | `skill` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`skill`](../packages/skill/skill), [`tools`](../packages/core/tools) |
 | [`subagent`](../packages/subagent/subagent) | `subagent` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
