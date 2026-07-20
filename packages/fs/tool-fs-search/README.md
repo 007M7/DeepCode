@@ -1,20 +1,20 @@
 # @deepseek-ai/dsh-tool-fs-search
 
-The **model-facing filesystem discovery tools** — `glob`, `grep` — backed by the **bash executor seam**, not by `ctx.fs` provider methods. Each call assembles a fixed ripgrep command (every model-controlled value through one package-private shell-quoting helper), runs it via `ctx.bash.resolve(request)` → `ctx.bash.run(spec)` as an ordinary foreground tool call, parses the raw `rg` output, and returns a bounded, workdir-relative result. The package injects `tools`, `systemPrompt`, and `bash` — deliberately **not** `fs`; `ctx.spillStore` is read opportunistically with `ctx.get()` because formatted-result spill is optional.
+The **model-facing filesystem discovery tools** — `glob`, `grep` — backed by the **bash executor seam**, not by `ctx.fs` provider methods. At load, the package probes `command -v rg` through `ctx.bash`; if the executor cannot find ripgrep on its `PATH`, it logs a warning and registers no tools or prompt sections. Each call assembles a fixed ripgrep command (every model-controlled value through one package-private shell-quoting helper), runs it via `ctx.bash.resolve(request)` → `ctx.bash.run(spec)` as an ordinary foreground tool call, parses the raw `rg` output, and returns a bounded, workdir-relative result. The package injects `tools`, `systemPrompt`, and `bash` — deliberately **not** `fs`; `ctx.spillStore` is read opportunistically with `ctx.get()` because formatted-result spill is optional.
 
 ```ts ignore-check
-// Default deployment: a bash executor, then the discovery tools.
+// Default deployment: a bash executor whose PATH includes rg, then the discovery tools.
 await ctx.plugin(LocalBashExecutor, { cwd: process.cwd() }) // @deepseek-ai/dsh-bash-local
-await ctx.plugin(ToolFsSearch)                              // this package — registers glob/grep
+await ctx.plugin(ToolFsSearch)                              // this package — conditionally registers glob/grep
 // Optional: a spill backend makes capped results fully recoverable.
 await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-spill-local
 ```
 
 Why bash-backed: local workspace discovery is naturally a process-backed `rg` workflow, and putting search on `ctx.fs` would force every filesystem backend to grow a search API. The bash executor owns request defaulting/capping, subprocess execution, process-group termination, environment scrubbing, raw output capture, and backend substitution (local, sandboxed, remote); this package owns schemas, argument validation, shell quoting, parsing, retention, formatted-result spill, and timeout declaration. The tools never call `ctx.bash.start()` and never expose a bash task id — the call returns only after `rg` exits, times out, is aborted, or fails.
 
-## Deployment requirement: co-located bash + filesystem
+## Deployment requirement: rg + co-located bash/filesystem
 
-Returned paths are displayed relative to the resolved bash workdir (the calling agent's session cwd when present, else the executor's configured default) and are follow-up-readable with `read` only when the bash workdir and the filesystem root are the same workspace. v1 documents that requirement and performs no runtime cross-service validation; remote or virtual filesystem search waits for a shared workspace contract or a provider-specific search backend.
+The mounted bash executor must be able to resolve `rg` from its `PATH` at plugin load; otherwise `glob` and `grep` are absent from the model-visible tool schema. Returned paths are displayed relative to the resolved bash workdir (the calling agent's session cwd when present, else the executor's configured default) and are follow-up-readable with `read` only when the bash workdir and the filesystem root are the same workspace. v1 documents that co-location requirement and performs no runtime cross-service validation; remote or virtual filesystem search waits for a shared workspace contract or a provider-specific search backend.
 
 ## Config
 
@@ -43,7 +43,7 @@ Raw `rg` stdout is an internal transport detail. Each search requests `stdoutMax
 
 ## Errors
 
-Search failures carry the package-owned `SearchError` (a `HarnessError` subclass), surfaced as `{ name, code }` on `isError` results: `SEARCH_INVALID_PATTERN` (ripgrep rejected the regex/glob), `SEARCH_FAILED` (missing `rg`, inaccessible target, signal kill, malformed `--json` output), `SEARCH_RAW_OUTPUT_OVERFLOW` (raw output over `rawOutputMaxBytes`, or still truncated after the requested stdout capture budget), and `SEARCH_ABORTED` (tool timeout, caller cancellation, or the bash executor's own timeout). ripgrep exit semantics are tool-owned: exit 0 is success with results, exit 1 is a successful empty search (`No files found` / `No matches found`), and only other exits are failures. Model argument mistakes (blank pattern, a list-valued `include`) stay ordinary tool argument errors.
+Search failures carry the package-owned `SearchError` (a `HarnessError` subclass), surfaced as `{ name, code }` on `isError` results: `SEARCH_INVALID_PATTERN` (ripgrep rejected the regex/glob), `SEARCH_FAILED` (runtime `rg` disappearance after registration, inaccessible target, signal kill, malformed `--json` output), `SEARCH_RAW_OUTPUT_OVERFLOW` (raw output over `rawOutputMaxBytes`, or still truncated after the requested stdout capture budget), and `SEARCH_ABORTED` (tool timeout, caller cancellation, or the bash executor's own timeout). ripgrep exit semantics are tool-owned: exit 0 is success with results, exit 1 is a successful empty search (`No files found` / `No matches found`), and only other exits are failures. Model argument mistakes (blank pattern, a list-valued `include`) stay ordinary tool argument errors.
 
 ## Model Experience
 
@@ -51,7 +51,7 @@ Search failures carry the package-owned `SearchError` (a `HarnessError` subclass
 
 #### What the model sees
 
-Every request in this plugin's registration scope contains the independently registered glob and grep guidance below. Agent-scoped tool restrictions can hide either schema without removing its prompt section.
+After the load-time `rg` probe succeeds, every request in this plugin's registration scope contains the independently registered glob and grep guidance below. Agent-scoped tool restrictions can hide either schema without removing its prompt section.
 
 ##### Glob guidance
 
@@ -67,7 +67,7 @@ Use the grep tool — not shell grep or rg — to search file contents. Use read
 
 #### Token effect
 
-Fixed guidance cost per request while the plugin is active.
+Fixed guidance cost per request while the tools are registered.
 
 #### KV Cache effect
 
@@ -77,7 +77,7 @@ Prefix-stable while the plugin scope and guidance text are unchanged. Activation
 
 #### What the model sees
 
-The generated [`glob` and `grep` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-fs-search) while this surface is visible.
+The generated [`glob` and `grep` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-fs-search) after the load-time `rg` probe succeeds and while this surface is visible.
 
 #### Token effect
 
@@ -118,5 +118,5 @@ Append-only; newly visible content follows the reusable request prefix and does 
 ## Known Limitations and Deferred Work
 
 - **Search and file access have no shared-workspace proof** — returned paths are follow-up-readable only when the bash workdir and filesystem root denote the same workspace; the package performs no runtime cross-service validation.
-- **Ripgrep is a deployment dependency** — a missing or incompatible `rg` executable fails calls with `SEARCH_FAILED`; remote or virtual filesystems need a co-located executor or another search consumer.
+- **Ripgrep is a deployment dependency** — a missing `rg` executable makes the package register no tools or guidance; an incompatible executable or one that disappears after registration fails calls with `SEARCH_FAILED`. Remote or virtual filesystems need a co-located executor or another search consumer.
 - **The schemas expose one bounded page** — offset pagination, case-mode switches, alternate output modes, and provider-backed discovery remain outside this package; capped complete output requires a spill backend.

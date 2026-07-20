@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-本仓库的文档会被公司内外的人和 agent（智能体）阅读，因此 README 与 docs 目录树以英文和简体中文双语维护。本页定义配对契约、强制门禁与推进策略；[translation-rules.md](translation-rules.md) 定义如何翻译；[terminology.md](terminology.md) 是术语真源。仓库内置的 agent 工作流见 [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md)。
+本仓库的文档会被公司内外的人和 agent（智能体）阅读，因此 README、Agent Note 与 docs 目录树以英文和简体中文双语维护。本页定义配对契约、强制门禁与推进策略；[translation-rules.md](translation-rules.md) 定义如何翻译；[terminology.md](terminology.md) 是术语真源。仓库内置的 agent 工作流见 [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md)。
 
 ## 配对契约
 
-- **两种语言同权。**一篇文档可以先用任一语言撰写和评审——先写中文的 RFC 与先写英文的一样正当——另一侧由它翻译而来。两个文件谁也不高于谁；约束它们的是二者必须说同样的话。
+- **两种语言同权。**一篇文档可以先用任一语言撰写和评审——先写中文的 Agent Note 与先写英文的一样正当——另一侧由它翻译而来。两个文件谁也不高于谁；约束它们的是二者必须说同样的话。
 - **一对文档是三个同目录文件。**英文 `foo.md`、中文 `foo.zh.md`，加一份一致性记录 `foo.i18n.yaml`，都在同一目录。不用语言目录，不用独立翻译仓库，不用中英混排的单文件。配对整体合入：PR（Pull Request）永远不会只带一种语言而缺其余两个文件。
 - **一致性记录。**`foo.i18n.yaml` 保存两侧文件在上一次被确认「说同样的话」时各自的完整 git blob hash：
 
@@ -26,7 +26,7 @@
 1. [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) 中 `required` 列出的每个文件都有完整配对。
 2. 任何已存在的配对——无论是否 required——都完整且一致：三个文件齐全、每一侧的当前 blob hash 等于记录值（改了任一侧而没重新确认配对就变红）、双方都带语言切换行、结构签名按序一致——标题深度、逐字节一致的代码块（信息字符串与内容）、表格行列数、列表类型、有序列表起始编号、列表项数量，以及除切换行之外的每个链接目标。
 3. 列为 `excluded` 的文件完全没有 `.zh.md`，也没有 `.i18n.yaml`。
-4. 凡文件名符合 `yyyy-mm-dd-*.md` 且日期不早于 manifest（元数据清单）中 `requiredSince` 分界日期的文档，都必须有完整配对——新建的日期命名 RFC 从创建起便须配齐中英文。
+4. 凡文件名符合 `yyyy-mm-dd-*.md` 且日期不早于 manifest（元数据清单）中 `requiredSince` 分界日期的文档，都必须有完整配对——新建的日期命名 Agent Note 从创建起便须配齐中英文。
 
 `pnpm run verify-translation-pairing --list` 打印范围内每篇文档的当前配对状态——missing、out-of-sync 或 ok——是翻译批次的工作清单。它从不失败；它只报告。
 
@@ -36,16 +36,16 @@
 
 ## 范围、排除与推进
 
-**范围**：根 `README.md`、`docs/**` 下的全部内容，以及 `python/**` 下的全部内容。package README（`packages/**`）在后续批次加入范围。
+**范围**：根 `README.md`，以及 `.agents/notes/**`、`docs/**` 与 `python/**` 下的全部内容。package README（`packages/**`）在后续批次加入范围。
 
 **排除**（永不配对，门禁拒绝为它们建 `.zh.md` 或 `.i18n.yaml`）：
 
 - `docs/cordis-catalog/`、`docs/tool-catalog/`、`docs/config-catalog.md`、`docs/persistence-catalog.md` 与 `docs/module-graph.md`——生成文件；生成器目前只输出英文，手写译文在每次重新生成时必然陈旧。计划中的后续工作是让生成器同时输出中文，届时这些文件移出排除清单。
-- `docs/AGENTS.md`——agent 指令，与根 `AGENTS.md` 一样只以英文维护。
+- `docs/AGENTS.md` 与 `.agents/notes/**/AGENTS.md`——agent 指令，与根 `AGENTS.md` 一样只以英文维护。
 - `docs/i18n/terminology.md` 与 [style-samples.md](style-samples.md)——二者本身即为中英对照文档。
 - [translation-prompt.md](translation-prompt.md)——自动翻译流水线的 prompt 模板；正文逐字进入模型请求，配对翻译会改变流水线行为。
 
-**推进**：以日期命名的文档（`yyyy-mm-dd-*.md`，即 RFC），只要标注日期等于或晚于 manifest 的 `requiredSince` 分界日期，合入时就必须配齐双语文件。更早日期的文件属于 backlog（待翻清单），包括分界前夜创建的文件。RFC 文件名记录首次提出日期，因此倒填日期绕过分界属于评审可见的违规。manifest 中的 `required` 列表是当前执行红线，并非全量覆盖这一最终目标。翻译批次将路径加入 `required`，使门禁只向前收紧。未列入的文档仍可通过 `--list` 查看，而任何已存在的配对都受完整契约约束。后续修改必须同步更新两侧，因此 `required` 的扩展速度不能超过翻译评审的承载能力。
+**推进**：以日期命名的文档（`yyyy-mm-dd-*.md`，即 Agent Note），只要标注日期等于或晚于 manifest 的 `requiredSince` 分界日期，合入时就必须配齐双语文件。更早日期的文件属于 backlog（待翻清单），包括分界前夜创建的文件。Agent Note 文件名记录首次提出日期，因此倒填日期绕过分界属于评审可见的违规。manifest 中的 `required` 列表是当前执行红线，并非全量覆盖这一最终目标。翻译批次将路径加入 `required`，使门禁只向前收紧。未列入的文档仍可通过 `--list` 查看，而任何已存在的配对都受完整契约约束。后续修改必须同步更新两侧，因此 `required` 的扩展速度不能超过翻译评审的承载能力。
 
 ## 分工
 

@@ -2,8 +2,9 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
 // Real-API suite, separate because it spends tokens. Each test self-skips without
-// DEEPSEEK_API_KEY for keyless CI; the credentialed workflow preflights the secret. Values may come
-// from the environment or gitignored root `.env`, with optional DEEPSEEK_BASE_URL.
+// its provider credential for keyless CI; credentialed workflows preflight the
+// secrets they require. Values may come from the environment or gitignored root
+// `.env`, with provider-specific endpoint overrides where supported.
 try {
   // Node >= 21.7 native; throws when the file does not exist.
   process.loadEnvFile(new URL('.env', import.meta.url).pathname)

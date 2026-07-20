@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, statSync } from 'node:fs'
+import { mkdtempSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -6,7 +6,10 @@ import type { DshEnvironment } from '@deepseek-ai/dsh-bash'
 import { killGroup, OutputCollector, runBash } from '../src/run.ts'
 import type { RunningBash } from '../src/run.ts'
 
-const { failNextClose } = vi.hoisted(() => ({ failNextClose: { value: false } }))
+const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
+  failNextClose: { value: false },
+  failNextUnlink: { value: false },
+}))
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   return {
@@ -17,6 +20,13 @@ vi.mock('node:fs', async (importOriginal) => {
         throw Object.assign(new Error('simulated EIO on close'), { code: 'EIO' })
       }
       actual.closeSync(fd)
+    },
+    unlinkSync(path: Parameters<typeof actual.unlinkSync>[0]): void {
+      if (failNextUnlink.value) {
+        failNextUnlink.value = false
+        throw Object.assign(new Error('simulated EIO on unlink'), { code: 'EIO' })
+      }
+      actual.unlinkSync(path)
     },
   }
 })
@@ -29,6 +39,7 @@ function spec(command: string, overrides: Partial<Parameters<typeof runBash>[0]>
     cwd: process.cwd(),
     stdoutMaxBytes: 64_000,
     stderrMaxBytes: 64_000,
+    maxSpillBytes: 64 * 1024 * 1024,
     graceMs: 3_000,
     ...overrides,
   }
@@ -173,6 +184,22 @@ describe('runBash', () => {
     const result = await running.done
     expect(result.signal).toBe('SIGTERM')
   })
+
+  it('bounds inherited-pipe draining after the shell exits', async () => {
+    const pidFile = join(spillDir, `pipe-holder-${Date.now()}.pid`)
+    const started = Date.now()
+    const running = runBash(spec(`sleep 60 & echo $! > ${pidFile}; echo shell-done`, { graceMs: 100 }))
+    const descendant = await waitForPidFile(pidFile)
+    try {
+      const result = await running.done
+      expect(Date.now() - started).toBeLessThan(1_000)
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout.text).toBe('shell-done\n')
+    } finally {
+      process.kill(descendant, 'SIGKILL')
+      await waitGone(descendant)
+    }
+  })
 })
 
 describe('stdin and extra env (set by in-process plugins)', () => {
@@ -282,7 +309,7 @@ describe('output truncation and spill', () => {
 
 describe('OutputCollector', () => {
   it('keeps the tail of a single oversized chunk', () => {
-    const collector = new OutputCollector(10, 'test', spillDir)
+    const collector = new OutputCollector(10, 100, 'test', spillDir)
     collector.push(Buffer.from('0123456789abcdef'))
     const out = collector.finalize()
     expect(out.text).toBe('6789abcdef')
@@ -291,7 +318,7 @@ describe('OutputCollector', () => {
   })
 
   it('readFrom returns increments and flags lossy reads', () => {
-    const collector = new OutputCollector(10, 'test', spillDir)
+    const collector = new OutputCollector(10, 100, 'test', spillDir)
     collector.push(Buffer.from('aaaaa'))
     const first = collector.readFrom(0)
     expect(first.text).toBe('aaaaa')
@@ -312,7 +339,7 @@ describe('OutputCollector', () => {
   })
 
   it('contains close failures and drops the spill path', () => {
-    const collector = new OutputCollector(4, 'closefail', spillDir)
+    const collector = new OutputCollector(4, 100, 'closefail', spillDir)
     collector.push(Buffer.from('aaaa'))
     collector.push(Buffer.from('bbbb'))
     expect(collector.readFrom(0).spillPath).toBeDefined()
@@ -325,6 +352,46 @@ describe('OutputCollector', () => {
     expect(out!.text).toBe('bbbb')
     expect(out!.truncated).toBe(true)
     expect(out!.spillPath).toBeUndefined()
+  })
+
+  it('discards a spill that exceeds its configured cap', () => {
+    const collector = new OutputCollector(4, 8, 'bounded', spillDir)
+    collector.push(Buffer.from('aaaa'))
+    collector.push(Buffer.from('bbbb'))
+    const spillPath = collector.readFrom(0).spillPath!
+    expect(readFileSync(spillPath, 'utf8')).toBe('aaaabbbb')
+
+    collector.push(Buffer.from('c'))
+    collector.push(Buffer.from('dddd'))
+    const out = collector.finalize()
+    expect(out.text).toBe('dddd')
+    expect(out.truncated).toBe(true)
+    expect(out.spillPath).toBeUndefined()
+    expect(() => readFileSync(spillPath)).toThrow()
+  })
+
+  it('does not create a spill when the first overflowing chunk exceeds the cap', () => {
+    const collector = new OutputCollector(4, 4, 'no-spill', spillDir)
+    collector.push(Buffer.from('abcdefgh'))
+    const out = collector.finalize()
+    expect(out.text).toBe('efgh')
+    expect(out.truncated).toBe(true)
+    expect(out.spillPath).toBeUndefined()
+  })
+
+  it('contains cleanup failures while disabling an oversize spill', () => {
+    const collector = new OutputCollector(4, 8, 'cleanup-fail', spillDir)
+    collector.push(Buffer.from('aaaa'))
+    collector.push(Buffer.from('bbbb'))
+    const spillPath = collector.readFrom(0).spillPath!
+
+    failNextClose.value = true
+    failNextUnlink.value = true
+    expect(() => { collector.push(Buffer.from('c')) }).not.toThrow()
+    expect(failNextClose.value).toBe(false)
+    expect(failNextUnlink.value).toBe(false)
+    expect(collector.finalize().spillPath).toBeUndefined()
+    unlinkSync(spillPath)
   })
 })
 
