@@ -15,7 +15,10 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionPersistenceJsonl, {
+  JsonlCompressionSchema,
+  type JsonlCompression,
+} from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as uiTui from '@deepseek-ai/dsh-tui'
@@ -42,6 +45,8 @@ export interface Config {
   dshHome?: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
+  persistenceCompression?: JsonlCompression
   /** TUI subtitle rendered on start. Defaults to `ready.`. */
   welcome?: string
   /** Full-screen TUI presentation settings. */
@@ -71,6 +76,7 @@ export const Config: z<Config> = z.object({
   tools: ToolRegistry.Config,
   dshHome: z.string(),
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
+  persistenceCompression: JsonlCompressionSchema,
   welcome: z.string().default(DEFAULT_WELCOME),
   ui: uiTui.TuiConfigSchema,
   skills: agentCore.SkillConfigSchema,
@@ -91,7 +97,10 @@ export const Config: z<Config> = z.object({
 export function composeTuiApp(ctx: Context, config: Config): void {
   const resumeSessionId = config.resumeSessionId === '' ? undefined : config.resumeSessionId
   const sessionId = SessionId(resumeSessionId ?? `main-session-${randomUUID()}`)
-  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT })
+  ctx.plugin(SessionPersistenceJsonl, {
+    root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
+    ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
+  })
   ctx.plugin(UserInteractionService)
   ctx.plugin(uiTui, {
     ...config.ui,

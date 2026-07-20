@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, mkdir, rm, symlink, writeFile, readFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, rm, symlink, writeFile, readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -15,21 +15,24 @@ import {
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
 import { Readable, Writable } from 'node:stream'
+import { promisify } from 'node:util'
+import { zstdDecompress } from 'node:zlib'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
  * Published-entry smoke: run `lib/bin.js` under plain Node in a symlinked external consumer and
- * require a valid initialize response. This catches built-only settle races and stdout protocol
- * leaks that the tsx source-path smoke cannot. It skips before build; initialize is keyless, with a
- * dummy key used only to boot the adapter. `--expose-internals` enables Cordis bare-plugin loading.
+ * complete a mock-backed turn. This catches built-only settle races, stdout protocol leaks, and
+ * published persistence behavior that the tsx source-path smoke cannot. It skips before build;
+ * `--expose-internals` enables Cordis bare-plugin loading.
  */
 
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 const acpBin = join(repoRoot, 'packages/examples/acp-demo/lib/bin.js')
+const decompress = promisify(zstdDecompress)
 
 const dshPackages = [
   'examples/agent-spine-demo', 'core/agent', 'core/session', 'core/system-prompt',
-  'core/tools', 'core/agent-loop', 'llm/llm', 'llm/llm-deepseek', 'bash/bash',
+  'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash',
   'bash/bash-local', 'bash/tool-bash', 'context/workspace-context', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
   'session-persistence/session-persistence-jsonl', 'ui/acp', 'examples/acp-demo', 'util/paths',
@@ -73,18 +76,31 @@ async function makeConsumer(): Promise<string> {
     const resolved = fileURLToPath(import.meta.resolve(`${dep}/package.json`, fromAcp))
     await link(dirname(resolved), dep, nm)
   }
+  await writeFile(join(dir, 'mock-llm.mjs'), [
+    "import { LlmAdapter } from '@deepseek-ai/dsh-llm'",
+    'class Mock extends LlmAdapter {',
+    '  async * stream() {',
+    "    yield { type: 'block-start', index: 0, blockType: 'text' }",
+    "    yield { type: 'text-delta', index: 0, text: 'ACP BUILT OK' }",
+    "    yield { type: 'block-end', index: 0, block: { type: 'text', text: 'ACP BUILT OK' } }",
+    "    yield { type: 'finish', reason: { kind: 'stop' } }",
+    '  }',
+    '}',
+    "export const name = 'built-acp-mock'",
+    "export const inject = ['llm']",
+    "export function apply(ctx) { ctx.llm.registerAdapter(['built-acp-mock'], new Mock()) }",
+    '',
+  ].join('\n'))
   await writeFile(join(dir, 'cordis.yml'), [
-    '- id: llm-deepseek',
-    '  name: \'@deepseek-ai/dsh-llm-deepseek\'',
-    '  config:',
-    '    apiKey: !!js process.env.DEEPSEEK_API_KEY',
+    '- id: mock-llm',
+    '  name: \'./mock-llm.mjs\'',
     '- id: bash',
     '  name: \'@deepseek-ai/dsh-bash-local\'',
     '- id: acp-agent',
     '  name: \'@deepseek-ai/dsh-acp-demo\'',
     '  config:',
-    '    provider: deepseek',
-    '    model: deepseek-v4-flash',
+    '    provider: built-acp-mock',
+    '    model: built-acp-mock',
     '    persona: \'test agent\'',
     '    workspaceContext: false',
     '',
@@ -113,14 +129,12 @@ afterEach(async () => {
 })
 
 describe.skipIf(!existsSync(acpBin))('dsh-acp-demo BUILT bin (node lib/bin.js, no tsx)', () => {
-  it('boots the published bin and answers an initialize JSON-RPC frame on stdout', async () => {
+  it('boots the published bin, completes a turn, and writes default Zstandard persistence', async () => {
     consumer = await makeConsumer()
     child = spawn(process.execPath, ['--expose-internals', acpBin, '--config', './cordis.yml'], {
       cwd: consumer,
-      // Dummy key: initialize never reaches the model, so it is never used.
       env: {
         ...process.env,
-        DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
         DSH_HOME: join(consumer, '.dsh'),
         DSH_AGENTS_HOME: join(consumer, '.agents'),
       },
@@ -151,6 +165,18 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-demo BUILT bin (node lib/bin.js, n
     // regression would exit before answering); loadSession proves the real app
     // mounted, not a collapsed export shape.
     expect(init.agentCapabilities?.loadSession).toBe(true)
+    const { sessionId } = await client.newSession({ cwd: consumer, mcpServers: [] })
+    const result = await client.prompt({ sessionId, prompt: [{ type: 'text', text: 'reply' }] })
+    expect(result.stopReason).toBe('end_turn')
+    const sessionsRoot = join(consumer, '.sessions')
+    let log: string | undefined
+    await expect.poll(async () => {
+      log = (await readdir(sessionsRoot, { recursive: true })).find(file => file.endsWith('.jsonl.zstd'))
+      return log
+    }).toBeTypeOf('string')
+    const compressed = await readFile(join(sessionsRoot, log!))
+    expect(compressed.subarray(0, 4).toString('hex')).toBe('28b52ffd')
+    expect(JSON.parse((await decompress(compressed)).toString())).toMatchObject({ type: 'session', id: sessionId })
     expect(stderr.join('')).not.toContain('without inject')
     // stdout purity: every emitted line is a JSON-RPC frame, no logger leak.
     for (const line of rawOut.join('').split('\n').filter(l => l.trim().length > 0)) {
@@ -182,7 +208,6 @@ function runBinExpectingExit(configArg: string, cwd: string = tmpdir()): Promise
       cwd,
       env: {
         ...process.env,
-        DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot',
         DSH_HOME: join(cwd, '.dsh'),
         DSH_AGENTS_HOME: join(cwd, '.agents'),
       },

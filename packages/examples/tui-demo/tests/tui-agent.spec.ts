@@ -31,6 +31,7 @@ describe('dsh-tui-demo app', () => {
       tools: { mode: 'code' },
       dshHome: '/tmp/dsh-home',
       persistenceRoot: '/tmp/tui-sessions',
+      persistenceCompression: 'none',
       welcome: 'TUI ready',
       ui: { color: false, maxToolOutputLines: 3 },
       skills: { tool: { catalogDescriptionMaxLength: 8 } },
@@ -46,7 +47,7 @@ describe('dsh-tui-demo app', () => {
       'agent-spine-demo',
       'tool-ask-user',
     ])
-    expect(calls[0]?.config).toEqual({ root: '/tmp/tui-sessions' })
+    expect(calls[0]?.config).toEqual({ root: '/tmp/tui-sessions', compression: 'none' })
     const tuiConfig = calls[2]?.config as { sessionId: string }
     expect(tuiConfig).toMatchObject({ welcome: 'TUI ready', color: false, maxToolOutputLines: 3 })
     expect(tuiConfig.sessionId).toMatch(/^main-session-[0-9a-f-]{36}$/)

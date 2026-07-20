@@ -180,6 +180,11 @@ function gatesForMode(selected: Mode): Gate[] {
           'run',
           'packages/workflow/workflow-workerthread/tests/source-worker.compat.spec.ts',
         ], { label: 'source worker smoke' }),
+        pnpmExec('jsonl-zstd-smoke', [
+          'vitest',
+          'run',
+          'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
+        ], { label: 'JSONL Zstandard smoke' }),
       ]
     case 'pre-push':
       return [

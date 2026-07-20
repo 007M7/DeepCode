@@ -32,6 +32,7 @@ Swappable LLM, bash, filesystem, and other capability providers remain in the le
 | `toolTasks` | owner defaults | Background-task control-tool config, or `false` |
 | `workspaceContext` | required | Workspace-instruction config, or `false` |
 | `persistenceRoot` | `./.sessions` | JSONL persistence root |
+| `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
 | `welcome` | `ready.` | TUI subtitle |
 | `ui` | owner defaults | TUI presentation settings such as reasoning, color, and card height |
 | `resumeSessionId` | — | Exact persisted session to resume |

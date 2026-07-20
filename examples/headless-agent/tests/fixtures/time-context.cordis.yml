@@ -15,4 +15,5 @@
     model: time-context-mock
     persona: 'Test the time-context plugin.'
     persistenceRoot: './.sessions'
+    persistenceCompression: 'none'
     workspaceContext: false
