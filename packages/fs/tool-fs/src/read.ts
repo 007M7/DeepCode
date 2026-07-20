@@ -84,6 +84,8 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
       offset: { type: 'number', description: '1-based first line to return. Defaults to 1.' },
       limit: { type: 'number', description: `Maximum number of lines to return. Defaults to ${caps.limit}.` },
     },
+    // Observation races fail closed because guarded mutations re-check the version in-lock.
+    isConcurrencySafe: () => true,
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseReadArgs(args, caps.limit)
       const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec))

@@ -16,11 +16,11 @@ export const inject = ['llm']
 export const Config: z<Config> = z.object({ apiKey: z.string(), … })
 
 export function apply(ctx: Context, config: Config) {
-  ctx.llm.registerAdapter(['model-a', 'model-b'], new MyAdapter(…))
+  ctx.llm.registerAdapter(['my-provider'], new MyAdapter(…))
 }
 ```
 
-注册基于副作用（HMR 安全）；每个模型名称对应一个适配器，重复注册会抛出异常。密钥采用 Cordis 原生方式管理：schemastery Config 带环境变量回退，通过 cordis.yml 的 `!!js process.env.MY_KEY` 注入。代码中禁止临时读取密钥文件。
+注册基于副作用（HMR 安全）；每个提供方路由仅对应一个适配器，重复注册会抛出异常，多路由注册要么全部成功，要么全部失败。`options.provider` 用于选择适配器，`options.model` 是提供方模型 ID，因此动态模型目录适配器无需重新配置生命周期即可提供新模型。密钥采用 Cordis 原生方式管理：schemastery Config 带环境变量回退，通过 cordis.yml 的 `!!js process.env.MY_KEY` 注入。代码中禁止临时读取密钥文件。
 
 ## 协议义务（两个实现共同验证的契约）
 
@@ -30,6 +30,7 @@ export function apply(ctx: Context, config: Config) {
 - 错误有且仅有两条合法路径：从 `stream()` **抛出**（传输与协议故障——使用带稳定 code 的 `LlmError`），或以 `finish {kind: 'error' | 'aborted'}` 结束流（提供方带内故障）。消费方两者都处理；按故障类别选择路径并加以文档化。
 - 遵守 `options.signal`（将其传递给 fetch 或你的 SDK）。
 - 如果 `GenerateOptions` 中某个字段你的提供方无法支持（例如提供方不支持 stop sequences 时收到 `stop` 列表）：抛出 `LlmError(..., 'UNSUPPORTED')`，而非静默丢弃。
+- 如果提供方在后续调用中需要响应 ID、签名或其他原生元数据，请将其最小无损 JSON 投影作为 `finish.replayState` 发出。重建历史时验证该状态。只有历史提供方路由和目标提供方路由当前由完全相同的适配器实例拥有时，`LlmService` 才会传递该状态；由适配器决定同模型、跨模型或跨提供方恢复是否合法。状态缺失时，切勿仅根据提供方/模型名称推断原生回放。
 
 提供方特有的请求旋钮（thinking 模式、effort 级别）放在**适配器**的 Config 中，而非 `GenerateOptions` 中——核心词汇保持提供方无关。
 
@@ -41,5 +42,5 @@ export function apply(ctx: Context, config: Config) {
 
 - **单元测试：mock 提供方，而非 harness。** 用脚本化的 `node:http` 服务器模拟提供方的协议格式，覆盖正常路径、所有错误状态码、畸形载荷、连接提前关闭和中止——无需网络，且能满足 100% 逐文件覆盖率门禁。对基于 SDK 的适配器同样适用（将 SDK 的 baseURL 指向 mock 服务器）。
 - **恶意分帧测试。** 在任意字节位置（包括 UTF-8 字符中间）切割流载荷——真实网络环境正是如此。
-- **E2E：`tests/*.e2e.ts`**，通过 `pnpm run test:e2e` 运行，以 `describe.skipIf(!process.env.MY_KEY)` 守卫，确保无密钥的 CI 保持绿色。覆盖你映射的每个模型 × 每种提供方模式（thinking 开/关、effort 级别）、一次包含后续轮次（历史中带工具结果）的工具调用往返，以及仅做宽松断言（子串/结构匹配、有界的 maxTokens——真实模型是非确定性的）。
+- **E2E：`tests/*.e2e.ts`**，通过 `pnpm run test:e2e` 运行，以 `describe.skipIf(!process.env.MY_KEY)` 守卫，确保无密钥的 CI 保持绿色。覆盖具有代表性的模型/提供方/API 系列以及你映射的每种提供方模式、一次包含后续轮次（历史中带工具结果）的工具调用往返，以及仅做宽松断言（子串/结构匹配、有界的 maxTokens——真实模型是非确定性的）。
 - 在 `knip.json` 中注册 e2e 文件模式（per-workspace `entry` 覆盖），否则 knip 会将其标记为未使用。

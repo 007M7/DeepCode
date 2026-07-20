@@ -4,7 +4,6 @@ import Loader from '@cordisjs/plugin-loader'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { WorkflowRunId, WorkflowService } from '@deepseek-ai/dsh-workflow'
 import type { WorkflowResult, WorkflowRun, WorkflowStartRequest } from '@deepseek-ai/dsh-workflow'
@@ -12,6 +11,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
 import * as toolWorkflow from '../src/index.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 /** A controllable engine standing in behind ctx.workflows (the tool's only seam). */
 class StubEngine extends WorkflowService {
@@ -51,7 +51,7 @@ async function setup(config?: { toolName?: string; maxResultChars?: number }) {
   await ctx.plugin(StubEngine)
   await ctx.plugin(toolWorkflow, config ?? {})
   const engine = ctx.workflows as StubEngine
-  const parent = { id: AgentId('caller'), options: {} } as unknown as Agent
+  const parent = { id: SessionId('caller'), options: {} } as unknown as Agent
   return { ctx, engine, parent }
 }
 
@@ -232,7 +232,7 @@ describe('dsh-tool-workflow', () => {
       await ctx.plugin(SubagentService)
       await ctx.plugin(WorkerWorkflowEngine, { disposeGraceMs: 30 })
       await ctx.plugin(toolWorkflow, {})
-      const parent = { id: AgentId('caller'), options: {} } as unknown as Agent
+      const parent = { id: SessionId('caller'), options: {} } as unknown as Agent
       const controller = new AbortController()
       const pending = execute(ctx, {
         script: 'await new Promise(() => {})\nreturn 1',

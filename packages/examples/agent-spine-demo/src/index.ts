@@ -25,11 +25,14 @@ import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as toolTasks from '@deepseek-ai/dsh-tool-tasks'
 import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agent-loop'
+import { resolveDshHome } from '@deepseek-ai/dsh-home'
 
 export const name = 'agent-spine-demo'
 
 /** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
 export interface SkillConfig {
+  /** Mount the bundled local skill provider and model-facing skill tool (default true). */
+  enabled?: boolean
   /** Registry-level discovery cache settings. */
   registry?: SkillRegistryConfig
   /** Local filesystem skill provider settings. */
@@ -44,35 +47,41 @@ export interface SkillConfig {
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
  * order), the `tools` object to the tool registry (its presentation `mode`),
- * `skills` to the skill registry/local provider/tool consumer,
- * `workspaceContext` to the workspace-context loader, and
- * `toolBash`/`toolTasks` to the model-facing tool plugins this bundle owns.
- * Owner schemas supply defaults for optional input; workspace context instead
- * requires an explicit byte budget or `false` because it changes model-visible
- * input. Producer opt-in stays producer-local: `toolBash` configures bash only;
- * independently composed producers keep their own config.
+ * `dshHome` to bash environment and local skill discovery, `skills` to the
+ * skill registry/local provider/tool consumer, `workspaceContext` to the
+ * workspace-context loader, and `toolBash`/`toolTasks` to the model-facing tool
+ * plugins this bundle owns. Owner schemas supply defaults for optional input;
+ * workspace context instead requires an explicit byte budget or `false` because
+ * it changes model-visible input. Producer opt-in stays producer-local:
+ * `toolBash` configures bash only; independently composed producers keep their
+ * own config.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
   agents?: AgentLoopConfig['agents']
+  /** Agent-loop concurrency cap; `1` is serial. */
+  maxParallelToolCalls?: AgentLoopConfig['maxParallelToolCalls']
   /** The deployment persona (see dsh-system-prompt's `Config`). */
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
   toolOrder?: SystemPromptConfig['toolOrder']
   /** The tool registry's config — its presentation `mode` (see dsh-tools' `Config`). */
   tools?: ToolsConfig
+  /** DeepSeek Harness home directory shared by shell context and local skill discovery. */
+  dshHome?: string
   /** Workspace-context loader controls with an explicit byte budget; set `false` for hermetic prompts. */
   workspaceContext: workspaceContext.Config | false
   /** Skill registry, local provider, and model-facing consumer config. */
   skills?: SkillConfig
   /** Model-facing bash tool config, including this producer's background opt-in. */
   toolBash?: toolBash.Config
-  /** Generic background-task control-tool wait bounds. */
-  toolTasks?: toolTasks.Config
+  /** Generic background-task controls; set false to keep the task service without model-facing task tools. */
+  toolTasks?: toolTasks.Config | false
 }
 
 /** The skill config schema exported for app packages that forward `skills`. */
 export const SkillConfigSchema: z<SkillConfig> = z.object({
+  enabled: z.boolean().default(true),
   registry: SkillService.Config,
   local: SkillLocal.Config,
   tool: toolSkill.Config,
@@ -90,11 +99,12 @@ export const Config = z.intersect([
   SystemPrompt.Config,
   z.object({
     tools: ToolRegistry.Config,
+    dshHome: z.string(),
     skills: SkillConfigSchema,
     workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
     toolBash: ToolBashConfigSchema,
-    toolTasks: ToolTasksConfigSchema,
-  }) as unknown as z<Pick<Config, 'tools' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks'>>,
+    toolTasks: z.union([z.const(false), ToolTasksConfigSchema]),
+  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks'>>,
 ]) as unknown as z<Config>
 
 /**
@@ -104,9 +114,11 @@ export const Config = z.intersect([
  */
 export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'agents'> {
   return {
+    ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
     ...config.tools !== undefined ? { tools: config.tools } : {},
+    ...config.dshHome !== undefined ? { dshHome: config.dshHome } : {},
     workspaceContext: config.workspaceContext,
     ...config.skills !== undefined ? { skills: config.skills } : {},
     ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
@@ -125,6 +137,13 @@ export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'a
  * seams, then the loop that drives them.
  */
 export function apply(ctx: Context, config: Config): void {
+  const nestedDshHome = config.skills?.local?.dshHome
+  if (config.dshHome !== undefined && nestedDshHome !== undefined
+    && resolveDshHome(config.dshHome) !== resolveDshHome(nestedDshHome)) {
+    throw new Error('agent-core: dshHome and skills.local.dshHome must resolve to the same directory')
+  }
+  const dshHome = resolveDshHome(config.dshHome ?? nestedDshHome)
+
   ctx.plugin(Timer)
   ctx.plugin(LlmService)
   ctx.plugin(SessionStore)
@@ -134,18 +153,24 @@ export function apply(ctx: Context, config: Config): void {
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
   })
   ctx.plugin(ToolRegistry, config.tools ?? {})
-  ctx.plugin(SkillService, config.skills?.registry ?? {})
-  ctx.plugin(SkillLocal, config.skills?.local ?? {})
+  const skillsEnabled = config.skills?.enabled ?? true
+  if (skillsEnabled) {
+    ctx.plugin(SkillService, config.skills?.registry ?? {})
+    ctx.plugin(SkillLocal, Object.assign({}, config.skills?.local, { dshHome }))
+  }
   ctx.plugin(AgentRegistry)
   ctx.plugin(TaskService)
   ctx.plugin(invariants)
-  ctx.plugin(toolBash, config.toolBash ?? {})
+  ctx.plugin(toolBash, Object.assign({}, config.toolBash, { dshHome }))
   if (config.workspaceContext !== false) {
     ctx.plugin(workspaceContext, config.workspaceContext)
   }
   // Both plugins prepend session-prefix messages. Registration order is the
   // rendered order, so workspace instructions must precede the skill catalog.
-  ctx.plugin(toolSkill, config.skills?.tool ?? {})
-  ctx.plugin(toolTasks, config.toolTasks ?? {})
-  ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
+  if (skillsEnabled) ctx.plugin(toolSkill, config.skills?.tool ?? {})
+  if (config.toolTasks !== false) ctx.plugin(toolTasks, config.toolTasks ?? {})
+  ctx.plugin(AgentLoop, {
+    agents: config.agents ?? [],
+    ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},
+  })
 }

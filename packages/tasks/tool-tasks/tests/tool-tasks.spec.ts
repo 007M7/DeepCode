@@ -5,6 +5,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import TaskService from '@deepseek-ai/dsh-tasks'
 import type { TaskHooks, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
@@ -23,17 +24,17 @@ async function setup(config: ToolTasks.Config = {}) {
 }
 
 /**
- * A fake agent whose session token is `sessionId`, registered in `ctx.agents`.
- * The agent id is deliberately different so session authorization and exact
- * lifecycle ownership cannot be confused in tests.
+ * A fake agent with the shared agent/session identity, registered in
+ * `ctx.agents` with a dedicated lifecycle scope.
  */
 function fakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void = () => {}): Agent {
   const scopeFiber = ctx.plugin(() => {})
+  const id = SessionId(sessionId)
   const agent = {
-    id: `agent-${sessionId}`,
+    id,
     ctx: scopeFiber.ctx,
     inject,
-    session: { header: { version: 0, id: sessionId, createdAt: 0 } },
+    session: { id, header: { version: 0, id, createdAt: 0 } },
   } as unknown as Agent
   agentRegistryDisposers.set(agent, ctx.agents.register(agent))
   return agent
@@ -276,7 +277,7 @@ describe('completion notices', () => {
     await tick()
 
     // Disposed owner: inject throws the disposed message — contained.
-    const inject = vi.fn(() => { throw new Error('agent "agent-sess-1" is disposed') })
+    const inject = vi.fn(() => { throw new Error('agent "sess-1" is disposed') })
     const owner = fakeAgent(ctx, 'sess-1', inject)
     const p = producer({ owner })
     ctx.tasks.start(p.spec)
@@ -287,7 +288,7 @@ describe('completion notices', () => {
 
   it('does not route an old owner completion notice to a same-session replacement', async () => {
     const { ctx } = await setup()
-    const oldInject = vi.fn(() => { throw new Error('agent "agent-shared" is disposed') })
+    const oldInject = vi.fn(() => { throw new Error('agent "shared" is disposed') })
     const oldOwner = fakeAgent(ctx, 'shared', oldInject)
     const p = producer({ owner: oldOwner })
     ctx.tasks.start(p.spec)

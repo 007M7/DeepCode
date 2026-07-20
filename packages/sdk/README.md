@@ -2,7 +2,7 @@
 
 Developer tooling for creating, editing, building, and running DeepSeek Harness projects.
 
-The [feature RFC](../../docs/rfc/proposed/feature/2026-07-14-sdk-developer-projects.md) owns the developer workflow; the [architecture RFC](../../docs/rfc/proposed/architecture/2026-07-15-sdk-project-editing-architecture.md) owns the package and project-editing boundaries.
+The [feature Agent Note](../../.agents/notes/proposed/feature/2026-07-14-sdk-developer-projects.md) owns the developer workflow; the [architecture Agent Note](../../.agents/notes/proposed/architecture/2026-07-15-sdk-project-editing-architecture.md) owns the package and project-editing boundaries.
 
 | Package | Role |
 |---|---|

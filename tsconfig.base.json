@@ -54,6 +54,7 @@
         "./packages/tasks/*/src",
         "./packages/workflow/*/src",
         "./packages/web/*/src",
+        "./packages/spill/*/src",
         "./packages/timeout/*/src",
         "./packages/todo/*/src",
         "./packages/cordis/*/src",

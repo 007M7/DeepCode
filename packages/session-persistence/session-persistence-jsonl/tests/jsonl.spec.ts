@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import { appendFile, mkdtemp, mkdir, open, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import type { FileHandle } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { encodeSegment, logPath, scanLog, sessionDir } from '../src/format.ts'
+import { encodeSegment, logPath, scanLog, sessionDir, toHeaderLine } from '../src/format.ts'
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
@@ -40,8 +41,24 @@ async function freshRoot(): Promise<string> {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
+
+async function rejectDirectorySync(code: string): Promise<void> {
+  const handle = await open(root, 'r')
+  const proto = Object.getPrototypeOf(handle) as { sync: () => Promise<void> }
+  await handle.close()
+  const realSync = proto.sync
+  vi.spyOn(proto, 'sync').mockImplementation(async function (this: FileHandle) {
+    if ((await this.stat()).isDirectory()) {
+      const error = new Error(`simulated directory fsync ${code}`) as NodeJS.ErrnoException
+      error.code = code
+      throw error
+    }
+    return realSync.call(this)
+  })
+}
 
 function appendClosedTurn(session: Session): void {
   session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -112,6 +129,19 @@ describe('SessionPersistenceJsonl: format helpers', () => {
   it('encodeSegment rejects an empty id', () => {
     expect(() => encodeSegment('')).toThrow(/empty/)
   })
+
+  it('resolves a relative custom root before locating a session', async () => {
+    const absoluteRoot = await freshRoot()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceJsonl, { root: relative(process.cwd(), absoluteRoot) })
+    const m = meta('relative-location', '/work')
+    expect(ctx.sessionPersistence.locate(m)).toEqual({
+      kind: 'jsonl',
+      path: logPath(resolve(absoluteRoot), '/work', m.id),
+    })
+    await fiber.dispose()
+  })
 })
 
 describe('SessionPersistenceJsonl: durability and crash semantics', () => {
@@ -126,8 +156,13 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
 
   it('lazy materialization: create() writes no file until the first append', async () => {
     const m = meta('lazy', '/work')
+    const location = ctx.sessionPersistence.locate(m)
+    expect(location).toEqual({ kind: 'jsonl', path: logPath(root, '/work', m.id) })
+    expect(isAbsolute(location!.path)).toBe(true)
+
     await ctx.sessionPersistence.create(m)
-    // nothing on disk yet
+    // locate() is a pure target-path calculation: neither it nor create()
+    // materializes a file before the first append.
     const dir = sessionDir(root, '/work')
     await expect(stat(logPath(root, '/work', m.id))).rejects.toThrow()
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(m.id)
@@ -139,6 +174,26 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     void dir
   })
 
+  it('keeps the same location on resume and gives a fork its own location', async () => {
+    const parent = meta('location-parent', '/work')
+    const parentLocation = ctx.sessionPersistence.locate(parent)
+    await ctx.sessionPersistence.create(parent)
+    await ctx.sessionPersistence.append(parent.id, oneTurnLog())
+
+    const loaded = await ctx.sessionPersistence.load(parent.id)
+    expect(ctx.sessionPersistence.locate(loaded.meta)).toEqual(parentLocation)
+
+    const child = {
+      ...loaded.meta,
+      id: SessionId('location-child'),
+      parentSession: parent.id,
+      seedLength: loaded.events.length,
+    }
+    const childLocation = ctx.sessionPersistence.locate(child)
+    expect(childLocation?.path).not.toBe(parentLocation?.path)
+    expect(childLocation).toEqual({ kind: 'jsonl', path: logPath(root, '/work', child.id) })
+  })
+
   it('round-trip is byte-identical (incl. assistant/chunk verbatim)', async () => {
     const m = meta('chunks')
     const log: SessionEvent[] = [
@@ -146,7 +201,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
       { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
       { type: 'assistant/chunk', seq: 2, time: 3, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'he' } } },
       { type: 'assistant/chunk', seq: 3, time: 4, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'llo' } } },
-      { type: 'assistant/message', seq: 4, time: 5, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] }, surfaceOp: 'append', sourceEventSeqs: [2, 3] },
+      { type: 'assistant/message', seq: 4, time: 5, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append', sourceEventSeqs: [2, 3] },
       { type: 'step/end', seq: 5, time: 6, data: { turn: 1, step: 1 } },
       { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
@@ -154,6 +209,40 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await ctx.sessionPersistence.append(m.id, log)
     const loaded = await ctx.sessionPersistence.load(m.id)
     expect(loaded.events).toEqual(log) // chunks preserved, contiguous seqs
+  })
+
+  it('rejects a stored v0 log containing a legacy request/header-delta event', async () => {
+    const m = meta('legacy-header-delta', '/legacy')
+    const path = logPath(root, m.cwd, m.id)
+    await mkdir(sessionDir(root, m.cwd), { recursive: true })
+    await writeFile(path, [
+      JSON.stringify(toHeaderLine(m)),
+      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+      JSON.stringify({ type: 'request/header-delta', seq: 1, time: 2, data: { config: { model: 'legacy' } } }),
+      JSON.stringify({ type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } }),
+      '',
+    ].join('\n'))
+
+    await expect(ctx.sessionPersistence.load(m.id)).rejects.toThrow(/unsupported legacy request\/header-delta event at seq 1/)
+  })
+
+  it('rejects a stored v0 full header carrying the legacy fallback reason', async () => {
+    const m = meta('legacy-header-fallback', '/legacy')
+    const path = logPath(root, m.cwd, m.id)
+    await mkdir(sessionDir(root, m.cwd), { recursive: true })
+    await writeFile(path, [
+      JSON.stringify(toHeaderLine(m)),
+      JSON.stringify({
+        type: 'request/header',
+        seq: 0,
+        time: 1,
+        data: { header: { config: { model: 'legacy' } }, reason: 'fallback' },
+      }),
+      '',
+    ].join('\n'))
+
+    await expect(ctx.sessionPersistence.load(m.id))
+      .rejects.toThrow(/unsupported legacy request\/header reason "fallback" at seq 0/)
   })
 
   it('persists a forked child seed through the existing session write path', async () => {
@@ -262,6 +351,28 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await ctx.sessionPersistence.append(m.id, turn2)
     const loaded = await ctx.sessionPersistence.load(m.id)
     expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+  })
+
+  it('keeps file fsync mandatory while tolerating unsupported Windows directory fsync', async () => {
+    await rejectDirectorySync('EPERM')
+    const backend = ctx.sessionPersistence as SessionPersistenceJsonl
+    backend.internals.platform = 'win32'
+    const m = meta('windows-directory-sync')
+    await ctx.sessionPersistence.create(m)
+    await expect(ctx.sessionPersistence.append(m.id, oneTurnLog())).resolves.toBeUndefined()
+    expect((await ctx.sessionPersistence.load(m.id)).events).toEqual(oneTurnLog())
+  })
+
+  it.each([
+    ['linux', 'EPERM'],
+    ['win32', 'EIO'],
+  ] as const)('surfaces directory fsync errors on %s with %s', async (platform, code) => {
+    await rejectDirectorySync(code)
+    const backend = ctx.sessionPersistence as SessionPersistenceJsonl
+    backend.internals.platform = platform
+    const m = meta(`directory-sync-${platform}-${code}`)
+    await ctx.sessionPersistence.create(m)
+    await expect(ctx.sessionPersistence.append(m.id, oneTurnLog())).rejects.toMatchObject({ code })
   })
 
   it('load returns a meta copy: mutating it does not corrupt backend pathing', async () => {
