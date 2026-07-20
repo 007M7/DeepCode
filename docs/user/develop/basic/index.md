@@ -1,0 +1,151 @@
+# Your first plugin
+
+English | [中文](index.zh.md)
+
+This guide creates a minimal Harness plugin and loads it into an agent.
+
+## What is a plugin?
+
+In Harness, a plugin is a TypeScript module that exports an `apply` function. The framework calls `apply` when loading the plugin and passes a `ctx` context object through which the plugin registers capabilities:
+
+```ts
+import type { Context } from 'cordis'
+
+export const name = 'my-plugin'
+
+export function apply(ctx: Context) {
+  // Register capabilities here.
+}
+```
+
+That is the complete shape.
+
+## Create the plugin file
+
+Create `src/my-plugin.ts` in your project:
+
+```ts
+import type { Context } from 'cordis'
+
+export const name = 'hello-plugin'
+
+export function apply(ctx: Context) {
+  // Required dependencies are ready before apply runs.
+  console.log('[hello-plugin] plugin loaded!')
+}
+```
+
+## Register it in cordis.yml
+
+Add an entry to `cordis.yml`:
+
+```yaml
+- id: hello
+  name: './src/my-plugin.ts'
+```
+
+After startup, the console prints `[hello-plugin] plugin loaded!`.
+
+## Automatic cleanup
+
+Anything registered through `ctx`—event listeners, tools, or timers—is cleaned up when the plugin unloads. You do not need to call removeListener or clearInterval manually.
+
+For a resource that needs explicit cleanup, such as a network connection, use `ctx.effect()` to provide its disposer:
+
+```ts
+import type { Context } from 'cordis'
+
+export function apply(ctx: Context) {
+  ctx.effect(() => {
+    const timer = setInterval(() => {
+      console.log('heartbeat')
+    }, 5000)
+
+    // The returned function runs when the plugin unloads.
+    return () => clearInterval(timer)
+  })
+}
+```
+
+## Declare dependencies
+
+If the plugin consumes another service such as `tools` or `llm`, declare it in `inject`:
+
+```ts ignore-check
+import type { Context } from 'cordis'
+
+export const name = 'my-tool-plugin'
+export const inject = ['tools']
+
+export function apply(ctx: Context) {
+  // ctx.tools is ready here.
+  ctx.tools.register(/* ... */)
+}
+```
+
+The framework waits for every required service before loading the plugin.
+
+## Three plugin forms
+
+In addition to a function module, a plugin can use object or class form.
+
+### Object form
+
+```ts
+import type { Context } from 'cordis'
+
+export default {
+  name: 'my-plugin',
+  inject: ['tools'],
+  apply(ctx: Context) {
+    // ...
+  },
+}
+```
+
+### Class form
+
+```ts
+import { Service, type Context } from 'cordis'
+
+export default class MyService extends Service {
+  static inject = ['tools']
+
+  constructor(ctx: Context) {
+    super(ctx, 'myService')
+    // Perform synchronous initialization in the constructor.
+  }
+}
+```
+
+Function form is sufficient in most cases. Use class form when the plugin provides a service to other plugins; see [services and dependencies](../framework/service.md).
+
+## Complete example
+
+`examples/echo-agent/src/echo-tool.ts` is a plugin that registers a tool:
+
+```ts
+import type { Context } from 'cordis'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+
+export const name = 'echo-tool'
+export const inject = ['tools']
+
+export function apply(ctx: Context) {
+  ctx.tools.register(defineTool({
+    name: 'echo',
+    description: 'Echo the given text back, uppercased.',
+    parameters: {
+      text: { type: 'string', required: true },
+    },
+    async execute(args) {
+      return [{ type: 'text', text: `ECHO: ${args.text.toUpperCase()}` }]
+    },
+  }))
+}
+```
+
+## Next steps
+
+- [Build a tool](./tool.md) — learn the tool definition DSL
+- [Plugin configuration](./config.md) — accept user configuration
