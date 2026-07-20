@@ -241,7 +241,7 @@ describe('agent/prompt-submit', () => {
     send(agent, 'second')
     await idle
     expect(errors.map(e => e.message)).toEqual(['prompt hook broke'])
-    // The failed prompt owns one balanced error turn; the adjacent prompt owns
+    // The failed prompt forms one balanced error turn; the adjacent prompt forms
     // the following normal turn without an intermediate idle transition.
     const log = events(agent)
     expect(log.filter(e => e.type === 'turn/start')).toHaveLength(2)

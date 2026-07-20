@@ -120,7 +120,7 @@ describe('agent loop scheduling properties', () => {
 
           // No message lost: every send appears as a user/message, in order.
           expect(userMessageTexts(agent)).toEqual(texts)
-          // This failure-free fixture claims every item into an independent turn.
+          // This failure-free fixture maps every item to an independent turn.
           expect(turnNumbers(agent)).toEqual(texts.map((_, i) => i + 1))
           expect(turnEndNumbers(agent)).toEqual(texts.map((_, i) => i + 1))
           expect(userMessageCountsByTurn(agent)).toEqual(texts.map(() => 1))
@@ -178,7 +178,7 @@ describe('agent loop scheduling properties', () => {
 
           // No message is lost or reordered, regardless of driver timing.
           expect(userMessageTexts(agent)).toEqual(steps.map(s => s.text))
-          // Every item is claimed and therefore owns one FIFO-ordered turn.
+          // Every item forms one FIFO-ordered turn containing only that message.
           const turns = turnNumbers(agent)
           expect(turns).toEqual(steps.map((_, i) => i + 1))
           expect(turnEndNumbers(agent)).toEqual(turns)

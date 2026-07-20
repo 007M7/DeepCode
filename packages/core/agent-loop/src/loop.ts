@@ -91,7 +91,7 @@ export interface LoopHandle {
   cancelReason(): string
   /** Clear the cancel marker (called once per iteration after the turn returns). */
   clearCancel(): void
-  /** Settle idle waiters when pre-running cancellation finds the status already idle. */
+  /** Settle idle waiters before pre-running cancellation publishes idle. */
   settleIdle(): void
   /** Run an active tool-call batch, accepting post-tool context into the FIFO drained before settlement. */
   readonly withToolBatch: <T>(run: (acceptContext: (context: HookContext) => void) => Promise<T>) => Promise<T>
@@ -118,6 +118,17 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
   const events = agentEvents(ctx, agent)
 
   while (!handle.isDisposed()) {
+    // An idle listener can enqueue and cancel replacement work before the next
+    // wait is installed. Consume that empty marker before parking the driver.
+    if (handle.isCancelled()) {
+      handle.clearCancel()
+      if (!handle.inbox.hasQueued) {
+        handle.settleIdle()
+        handle.setStatus('idle')
+        continue
+      }
+    }
+
     await handle.inbox.waitForQueued(handle.disposed)
     if (handle.isDisposed()) break
 
@@ -126,10 +137,10 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
     if (handle.isCancelled()) {
       handle.clearCancel()
       if (!handle.inbox.hasQueued) {
-        // setStatus settles running→idle; the explicit settle covers the
-        // already-idle pre-start path where that transition is deduplicated.
-        handle.setStatus('idle')
+        // Settle before publishing idle: the already-idle path has no status
+        // transition, while an idle listener can register waiters for new work.
         handle.settleIdle()
+        handle.setStatus('idle')
         continue
       }
     }
