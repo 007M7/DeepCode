@@ -29,7 +29,7 @@ Every field is validated and defaulted; `maxOutputBytes` is a safe integer of at
 
 ## The worker entry, unbuilt and built
 
-Source mode loads erasable-only `src/worker.ts` through Node's native type stripping. Built mode passes the sibling `lib/worker.cjs` as a filesystem path because pkg's VFS Worker hook expects CommonJS; the same path works under ordinary Node. `tests/built-lib.e2e.ts` pins the real load path required by [docs/testing.md](../../../docs/testing.md).
+Source mode loads erasable-only `src/worker.ts` through Node's native type stripping. Its transitive runtime closure contains only Node built-ins and relative source modules, so a fresh checkout never requires a sibling workspace package's unbuilt `lib/` export. The worker-local JSON snapshotter is parity-tested against the session-owned canonical boundary; the host repeats canonical validation after structured clone. Built mode passes the sibling `lib/worker.cjs` as a filesystem path because pkg's VFS Worker hook expects CommonJS; the same path works under ordinary Node. `tests/built-lib.e2e.ts` pins the real load path required by [docs/testing.md](../../../docs/testing.md).
 
 The SDK surface is the default/named `WorkerCodeRuntime` class plus `Config`. The operational `./worker` subpath exists only as the packaged spawn entry; the wire protocol and bootstrap helpers are source-private implementation details.
 
