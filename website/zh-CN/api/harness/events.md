@@ -28,7 +28,7 @@ Effective broad cancellation was requested, before queued/steering work is clear
 - `agent` — the agent whose current work is being cancelled.
 - `reason` — resolved cancellation reason, including the default. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L186)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L189)
 
 ### agent/created
 
@@ -52,7 +52,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 - `agent` — the newly registered agent with its live session and completed setup. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L148)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L151)
 
 ### agent/disposed
 
@@ -74,7 +74,7 @@ An agent left the registry; AgentLoop emits this after driver quiescence but bef
 
 - `agent` — the exact agent removed from the registry. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L157)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L160)
 
 ### agent/error
 
@@ -101,7 +101,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 - `step` — the step at which the failure surfaced.
 - `error` — the failure, verbatim. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L322)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L325)
 
 ### agent/post-step
 
@@ -129,7 +129,7 @@ Awaited serial checkpoint after the response, real or synthetic tool results, in
 - `step` — the open step number.
 - `signal` — the turn abort signal. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L275)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L278)
 
 ### agent/pre-step
 
@@ -157,7 +157,7 @@ Awaited serial checkpoint before `step/start`; appends land outside the pending 
 - `step` — the pending step number.
 - `signal` — the turn abort signal.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L215)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L218)
 
 ### agent/prompt-submit
 
@@ -182,7 +182,7 @@ Allow, rewrite, or block one drained prompt before it becomes a user message. Ca
 - `content` — the drained message's blocks, as queued.
 - `source` — the message's resolved source. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L225)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L228)
 
 ### agent/queued
 
@@ -207,7 +207,7 @@ Detached, frozen content entered the agent's inbox. Source defaults have already
 - `content` — the accepted content blocks retained by the inbox.
 - `info` — the accepted source plus whether it entered as steering. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L176)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L179)
 
 ### agent/request
 
@@ -235,7 +235,7 @@ Replace the frozen call configuration. Model-visible content must use logged cha
 - `step` — the step whose request this is.
 - `config` — the config the loop would use (frozen); return a replacement to switch. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L237)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L240)
 
 ### agent/request-error
 
@@ -267,7 +267,7 @@ Recover a model-request failure after its failed step has closed. `retry` opens 
 - `retryAttempt` — zero-based number of prior recovery retries.
 - `signal` — the turn abort signal. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L289)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L292)
 
 ### agent/session-prefix
 
@@ -297,7 +297,7 @@ Compose request-only messages placed before derived history. The frozen result i
 - `prefix` — the frozen seed; return an extended replacement.
 - `signal` — aborts composition when the step is torn down.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L252)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L255)
 
 ### agent/session-start
 
@@ -322,7 +322,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 - `agent` — the agent whose session lifecycle began.
 - `source` — why the session started (fresh startup, resume, …). Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L199)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L202)
 
 ### agent/status
 
@@ -345,7 +345,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does no
 - `agent` — the agent whose status flipped.
 - `status` — the status just entered (the transition's destination). Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L166)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L169)
 
 ### agent/step-result
 
@@ -372,7 +372,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 - `step` — the step that produced the message.
 - `message` — the assistant message as assembled from the stream. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L263)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L266)
 
 ### agent/turn-continuation
 
@@ -397,7 +397,7 @@ Override whether the turn continues. The default continues after tool calls or s
 - `turn` — the turn being continued or stopped.
 - `defaultDecision` — what the loop would do absent an override. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L299)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L302)
 
 ### agent/turn-stop
 
@@ -421,7 +421,7 @@ Monotonic terminal-stop checkpoint after continuation and steering are folded; a
 - `agent` — the agent whose composed continuation outcome may be stopped.
 - `turn` — the turn at its terminal-stop checkpoint. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L309)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/core/agent/src/types.ts#L312)
 
 ## agent-loop/*
 
@@ -482,14 +482,15 @@ Ask composed answerers for one decision. Return an outcome to claim the request 
 /**
  * A command was registered or unregistered. This is an unfiltered registry
  * notification because a global or scoped change may affect any UI view.
+ * Observer failures are contained and cannot veto the registry mutation.
  * @mode emit
  */
 'commands/change'(): void
 ```
 
-A command was registered or unregistered. This is an unfiltered registry notification because a global or scoped change may affect any UI view.
+A command was registered or unregistered. This is an unfiltered registry notification because a global or scoped change may affect any UI view. Observer failures are contained and cannot veto the registry mutation.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L93)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L94)
 
 ## fs/*
 

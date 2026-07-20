@@ -62,7 +62,11 @@ export function goalToolExecution(ctx: Context, exec: ToolRunContext): GoalToolE
   return { agent, ...openTurn(agent) }
 }
 
-/** Whether an accepted human message appears in the current root-agent turn. */
+/**
+ * Whether host-attested human input appears in the current root-agent turn.
+ * An omitted `Agent.send()` / `steer()` source resolves to `user`, so non-human
+ * producers must supply their own source rather than inheriting this authority.
+ */
 function hasDirectHumanInput(ctx: Context, execution: GoalToolExecution): boolean {
   if (!ctx.agents.roots().includes(execution.agent)) return false
   return execution.events.some(event =>

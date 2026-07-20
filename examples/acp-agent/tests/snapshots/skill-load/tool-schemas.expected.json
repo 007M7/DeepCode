@@ -57,7 +57,7 @@
           },
           "max_goal_rounds": {
             "type": "number",
-            "description": "Optional positive safe-integer cap; omission uses the goal-domain deployment default."
+            "description": "Optional positive safe-integer limit on automatic continuation rounds."
           }
         },
         "required": [
@@ -67,7 +67,7 @@
     },
     {
       "name": "get_goal",
-      "description": "Read the current same-session goal, including its exact id/revision, durable phase, admitted round count, cap, and live process-local activation. Call this before updating a goal.",
+      "description": "Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, and whether another continuation is armed. Call this before updating a goal.",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -231,7 +231,7 @@
     },
     {
       "name": "update_goal",
-      "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human turn. complete and blocked additionally accept the exact admitted goal round. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds.",
+      "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds.",
       "parameters": {
         "type": "object",
         "properties": {

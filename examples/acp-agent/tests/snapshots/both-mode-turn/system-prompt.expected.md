@@ -50,10 +50,10 @@ declare const tools: {
   create_goal(args: {
     /** The concrete completion objective inferred from the direct human request. */
     objective: string;
-    /** Optional positive safe-integer cap; omission uses the goal-domain deployment default. */
+    /** Optional positive safe-integer limit on automatic continuation rounds. */
     max_goal_rounds?: number;
   }): Promise<string>;
-  /** Read the current same-session goal, including its exact id/revision, durable phase, admitted round count, cap, and live process-local activation. Call this before updating a goal. */
+  /** Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, and whether another continuation is armed. Call this before updating a goal. */
   get_goal(args: Record<string, unknown>): Promise<string>;
   /** Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill. */
   skill(args: {
@@ -106,7 +106,7 @@ declare const tools: {
       status: "pending" | "in_progress" | "completed";
     })[];
   }): Promise<string>;
-  /** Update the exact current goal revision. edit, pause, and resume require a direct top-level human turn. complete and blocked additionally accept the exact admitted goal round. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds. */
+  /** Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds. */
   update_goal(args: {
     /** Exact id returned by get_goal. */
     goal_id: string;
