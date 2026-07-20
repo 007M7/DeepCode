@@ -206,6 +206,8 @@ export class LspConnection {
       return true
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
+      /* v8 ignore next -- POSIX reports an absent group as ESRCH, but child-reaping timing makes
+         whether lifecycle tests observe this branch platform-dependent. */
       if (code === 'ESRCH') return false
       /* v8 ignore start -- EPERM and non-POSIX negative-pid failures are platform defenses; CI runs
          process-group lifecycle tests on POSIX hosts where absence reports ESRCH. */
