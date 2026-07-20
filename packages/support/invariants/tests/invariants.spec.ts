@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import type { Events } from 'cordis'
 import { createScope, scopeTarget } from '@deepseek-ai/dsh-scope'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -900,6 +901,9 @@ describe('request cross-check ordering (prepend)', () => {
 })
 
 describe('scoped-dispatch invariants', () => {
+  type AgentEventName = Extract<keyof Events, `agent/${string}`>
+  type EventArgs<K extends keyof Events> = Events[K] extends (...args: infer Args) => unknown ? Args : never
+
   async function scopedCtx() {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -919,22 +923,30 @@ describe('scoped-dispatch invariants', () => {
     // Real Session objects keep the synthetic Agent handles structurally valid.
     const agent = { id: 'a1', session: new Session(SessionId('a1-s')) } as unknown as Agent
     const other = { id: 'a2', session: new Session(SessionId('a2-s')) } as unknown as Agent
-    // One dispatch per table row keeps every subject extractor covered: the
-    // matching carrier passes, the foreign-keyed one throws.
+    // Typed Agent rows keep their representative payloads aligned with the
+    // declarations while every subject extractor sees both carrier outcomes.
+    const signal = new AbortController().signal
+    const config = { provider: 'p', model: 'm' }
+    const message = { role: 'assistant' as const, content: [] }
+    const agentRows = {
+      'agent/created': [agent],
+      'agent/disposed': [agent],
+      'agent/status': [agent, 'idle'],
+      'agent/queued': [agent, [], { source: { kind: 'user' }, steering: false }],
+      'agent/session-start': [agent, 'startup'],
+      'agent/pre-step': [agent, 1, 1, signal],
+      'agent/post-step': [agent, 1, 1, signal],
+      'agent/prompt-submit': [agent, [], { kind: 'user' }, signal, () => Promise.resolve({ kind: 'allow' })],
+      'agent/request': [agent, 1, 1, config, signal, () => Promise.resolve(config)],
+      'agent/request-error': [agent, 1, 1, new Error('request failed'), 0, signal, () => Promise.resolve({ action: 'fail' })],
+      'agent/session-prefix': [agent, [], signal, () => Promise.resolve([])],
+      'agent/step-result': [agent, 1, 1, message, signal, () => Promise.resolve(message)],
+      'agent/turn-continuation': [agent, 1, { action: 'stop' }, signal, () => Promise.resolve({ action: 'stop' })],
+      'agent/turn-stop': [agent, 1, signal],
+      'agent/error': [agent, 1, 0, new Error('x')],
+    } satisfies { [K in AgentEventName]: EventArgs<K> }
     const rows: [string, unknown[]][] = [
-      ['agent/created', [agent]],
-      ['agent/disposed', [agent]],
-      ['agent/status', [agent, 'idle']],
-      ['agent/queued', [agent, [], { source: { kind: 'user' }, steering: false }]],
-      ['agent/session-start', [agent, 'startup']],
-      ['agent/pre-step', [agent, 1, 1, new AbortController().signal]],
-      ['agent/prompt-submit', [agent, [], { kind: 'user' }, new AbortController().signal, () => Promise.resolve({ kind: 'allow' })]],
-      ['agent/request', [agent, 1, 1, { model: 'm' }, () => Promise.resolve({ model: 'm' })]],
-      ['agent/session-prefix', [agent, [], new AbortController().signal, () => Promise.resolve([])]],
-      ['agent/step-result', [agent, 1, 1, { role: 'assistant', content: [] }, () => Promise.resolve({ role: 'assistant', content: [] })]],
-      ['agent/turn-continuation', [agent, 1, { action: 'stop' }, () => Promise.resolve({ action: 'stop' })]],
-      ['agent/turn-stop', [agent, 1]],
-      ['agent/error', [agent, 1, 0, new Error('x')]],
+      ...Object.entries(agentRows),
       ['approval/request', [{ agent, toolName: 'echo' }, () => Promise.resolve('unavailable')]],
       ['tools/pre-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ kind: 'allow' })]],
       ['tools/execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ content: [], isError: false })]],
