@@ -1,0 +1,14 @@
+{
+  "name": "@dsh-spike/echo-a",
+  "description": "Spike-only dual-side plugin: node half on the existing '.' main entry gated by the dsh-node condition, client + shared as added subpaths",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "dsh-node": "./src/node.ts"
+    },
+    "./client": "./src/client.ts",
+    "./shared": "./src/shared.ts"
+  }
+}

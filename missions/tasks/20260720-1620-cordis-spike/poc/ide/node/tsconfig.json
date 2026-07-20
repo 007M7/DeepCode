@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.shared.json",
+  "compilerOptions": {
+    "customConditions": ["dsh-node"]
+  },
+  "include": ["./**/*.ts"]
+}
