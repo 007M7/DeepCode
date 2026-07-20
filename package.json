@@ -83,7 +83,6 @@
     "demo:code-mode": "node scripts/demo-code-mode.mjs",
     "demo:cordis": "node --expose-internals --import tsx packages/examples/tui-demo/src/bin.ts examples/cordis-agent/cordis.yml",
     "demo:acp": "node --import tsx packages/examples/acp-demo/src/bin.ts --config examples/acp-agent/cordis.yml",
-    "demo:plan-acp": "node --import tsx packages/examples/acp-demo/src/bin.ts --config examples/plan-acp-agent/cordis.yml",
     "postinstall": "node scripts/install-lefthook.mjs"
   },
   "devDependencies": {

@@ -41,18 +41,22 @@ describe('dsh-tui-demo app', () => {
     })
 
     expect(calls.map(call => call.name)).toEqual([
+      'CommandService',
+      'command-goal',
       'SessionPersistenceJsonl',
       'UserInteractionService',
       'ui-tui',
       'agent-spine-demo',
       'tool-ask-user',
     ])
-    expect(calls[0]?.config).toEqual({ root: '/tmp/tui-sessions', compression: 'none' })
-    const tuiConfig = calls[2]?.config as { sessionId: string }
+    expect(calls[0]?.config).toBeUndefined()
+    expect(calls[2]?.config).toEqual({ root: '/tmp/tui-sessions', compression: 'none' })
+    const tuiConfig = calls[4]?.config as { sessionId: string }
     expect(tuiConfig).toMatchObject({ welcome: 'TUI ready', color: false, maxToolOutputLines: 3 })
     expect(tuiConfig.sessionId).toMatch(/^main-session-[0-9a-f-]{36}$/)
-    const spineConfig = calls[3]?.config as {
+    const spineConfig = calls[5]?.config as {
       readonly agents: Array<Record<string, unknown>>
+      readonly goals: Record<string, never>
       readonly maxParallelToolCalls: number
       readonly persona: string
       readonly toolOrder: string[]
@@ -63,6 +67,7 @@ describe('dsh-tui-demo app', () => {
       persona: 'test persona',
       toolOrder: ['zulu', TOOL_ORDER_REST],
       tools: { mode: 'code' },
+      goals: {},
     })
     expect(spineConfig.agents[0]).toMatchObject({
       id: 'main',
@@ -82,9 +87,9 @@ describe('dsh-tui-demo app', () => {
       workspaceContext: false,
     })
 
-    expect(calls[0]?.config).toEqual({ root: './.sessions' })
-    expect(calls[2]?.config).toEqual({ welcome: 'ready.', sessionId: 'persisted-session' })
-    expect((calls[3]?.config as { agents: Array<Record<string, unknown>> }).agents[0]).toMatchObject({
+    expect(calls[2]?.config).toEqual({ root: './.sessions' })
+    expect(calls[4]?.config).toEqual({ welcome: 'ready.', sessionId: 'persisted-session' })
+    expect((calls[5]?.config as { agents: Array<Record<string, unknown>> }).agents[0]).toMatchObject({
       id: 'main',
       resumeSessionId: 'persisted-session',
     })
@@ -96,13 +101,16 @@ describe('dsh-tui-demo app', () => {
       provider: 'mock',
       model: 'mock-model',
       resumeSessionId: '',
+      goals: false,
       workspaceContext: false,
     })
 
-    const tuiConfig = calls[2]?.config as { sessionId: string }
+    const tuiConfig = calls[3]?.config as { sessionId: string }
     expect(tuiConfig.sessionId).toMatch(/^main-session-[0-9a-f-]{36}$/)
-    expect((calls[3]?.config as { agents: Array<Record<string, unknown>> }).agents[0])
+    expect((calls[4]?.config as { agents: Array<Record<string, unknown>> }).agents[0])
       .toMatchObject({ sessionId: tuiConfig.sessionId })
+    expect(calls.map(call => call.name)).not.toContain('command-goal')
+    expect(calls[4]?.config).toMatchObject({ goals: false })
   })
 
   it('has the namespace-plugin export shape so the Loader keeps its schema', () => {

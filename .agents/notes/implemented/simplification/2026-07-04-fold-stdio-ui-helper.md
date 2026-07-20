@@ -12,9 +12,9 @@ The boundary bought package metadata, workspace and tsconfig references, module-
 
 ## Decision
 
-The helper moved into the now-removed `@deepseek-ai/dsh-stdio` package as its terminal-channel plugin: `createStdioChat`, its `StdioRuntime` test seam, and the `stdio.spec.ts` and `readline.spec.ts` unit suites moved with it, so EOF handling, rendering, disposal, and piped-vs-TTY behavior stayed unit-covered under the per-file coverage gate without hijacking process globals. The module retained the named `name`/`inject`/`Config`/`apply` export shape consumed by the app's `ctx.plugin(uiStdio, …)` mount, while keyless Loader-path smokes proved the composed tree booted through the real Loader; the plugin-shape unit suite pinned the explicit `unwrapExports` assertion because a bundle without `inject` could otherwise boot past a stray default rather than crash.
+At the time, the helper moved into `@deepseek-ai/dsh-stdio` as the terminal-channel plugin. `createStdioChat`, its `StdioRuntime` test seam, and its unit tests moved with it, keeping EOF handling, rendering, disposal, and piped-vs-TTY behavior under the per-file coverage gate without hijacking process globals. The module kept the named `name`/`inject`/`Config`/`apply` export shape consumed by the app mount, while the then-current Echo and REPL Loader smokes proved the composed tree and the plugin-shape suite pinned explicit `unwrapExports` behavior. The superseding removal note above owns the current package and example state.
 
-The `packages/support/ui-stdio` package is gone: manifest, tsconfig references, module-graph rows, and README rows deleted; the doc comments that named the package (the example e2e module docs, `packages/README.md`, the support and todo READMEs, [the ui group README](../../../../packages/ui/README.md)) describe the in-package module.
+The earlier support helper package was removed: its manifest, tsconfig references, module-graph rows, and README rows disappeared, while the remaining documentation described the in-package module.
 
 ## Alternatives considered
 

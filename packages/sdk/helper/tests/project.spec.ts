@@ -283,6 +283,7 @@ describe('SdkProject and ProjectEditSession', () => {
     edit.configureFeature(registry.get(featureId('app')), selection('app', ['acp']))
     const acp = (await edit.commit()).project
     expect(acp.profile.runInterface).toBe('acp')
+    expect(acp.cordis.entry('commands')).toMatchObject({ name: '@deepseek-ai/dsh-commands' })
     expect(acp.packageManifest().scripts).toMatchObject({
       dev: 'dsh-sdk dev index.ts',
       start: 'dsh-sdk start index.js',

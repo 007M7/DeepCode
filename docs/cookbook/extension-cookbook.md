@@ -98,7 +98,7 @@ Every product feature maps to a listener on a documented extension seam — the 
 | Product feature | Plugin mechanism |
 |---|---|
 | Hook system (user + project level) | listeners on `agent/session-start`, `agent/prompt-submit`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation` — each interception waterfall returns a typed Decision; the `dsh-hooks-claude` / `dsh-hooks-codex` bridges map hook config files onto these seams |
-| `/goal` | force-continue via `agent/turn-continuation` + `steer()` reminders |
+| `/goal` | `ctx.goals` owns durable state, `dsh-goal-session` schedules same-session rounds through the public `Agent`, and separate command/tool producers expose human/model control |
 | `/loop` | on the `turn/end` session event, `send()` the next iteration; or force-continue |
 | Dynamic workflow | `ctx.workflows` + the worker-thread engine + the `workflow` tool; structured in-process children enforce output with scoped prompt/tool registrations, a monotonic tool guard, final `tools/result` commit (including enclosing `run_code`), and terminal `agent/turn-stop` |
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |

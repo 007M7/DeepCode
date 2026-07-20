@@ -28,7 +28,7 @@ In plan mode, the required `plan` argument makes the review artifact durable: na
 
 ## Config
 
-The deployment must provide the complete plan-mode instructions in Cordis config; the package has no embedded plan prompt. See the [plan ACP example](../../../examples/plan-acp-agent/cordis.yml) for the maintained production-shaped instructions.
+The deployment must provide the complete plan-mode instructions in Cordis config; the package has no embedded plan prompt. See the [ACP example](../../../examples/acp-agent/cordis.yml) for the maintained production-shaped instructions.
 
 ```yaml
 - id: mode
@@ -48,7 +48,7 @@ The deployment must provide the complete plan-mode instructions in Cordis config
 
 #### What the model sees
 
-In `default`, no `mode:policy` text appears. In a configured mode, that definition's exact `section` text appears after persona and before tool guidance. The package does not own a stable prompt literal; the [example Cordis config](../../../examples/plan-acp-agent/cordis.yml) owns the plan instructions used by the shipped composition.
+In `default`, no `mode:policy` text appears. In a configured mode, that definition's exact `section` text appears after persona and before tool guidance. The package does not own a stable prompt literal; the [example Cordis config](../../../examples/acp-agent/cordis.yml) owns the plan instructions used by the shipped composition.
 
 #### Token effect
 

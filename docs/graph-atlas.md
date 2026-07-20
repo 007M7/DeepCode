@@ -16,7 +16,6 @@ The process decision behind this index is recorded in [the documentation graph A
 | [headless-agent app composition](../examples/headless-agent/composition.md) | `hybrid generated` |
 | [cordis-agent app composition](../examples/cordis-agent/composition.md) | `hybrid generated` |
 | [acp-agent app composition](../examples/acp-agent/composition.md) | `hybrid generated` |
-| [../examples/plan-acp-agent/composition.md](../examples/plan-acp-agent/composition.md) | `generated` |
 | [event producer/consumer matrix](event-producer-consumer.md) | `hybrid generated` |
 | [agent turn and step lifecycle](agent-lifecycle.md) | `curated` |
 | [tool execution pipeline](tool-execution-pipeline.md) | `curated` |

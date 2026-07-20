@@ -6,13 +6,13 @@ The implemented [TUI feature Agent Note](../../../.agents/notes/implemented/feat
 
 Interactive terminals on macOS, Linux, and Windows are supported. Windows uses pi-tui's native console VT-input handling, and the [Windows support Agent Note](../../../.agents/notes/implemented/feature/2026-07-20-windows-tui-support.md) owns the platform decision and ConPTY process verification.
 
-This package owns interactive terminal presentation and input only. It injects `agents`, `tools`, and `userInteraction`, then drives an agent created or resumed by app or developer code. Agent lifecycle, persistence, and the model-facing [`ask_user_question`](../tool-ask-user/README.md) tool remain separate composition entries.
+This package owns interactive terminal presentation and input only. It injects `agents`, [`commands`](../commands/README.md), `tools`, and `userInteraction`, then drives an agent created or resumed by app or developer code. Agent lifecycle, persistence, and the model-facing [`ask_user_question`](../tool-ask-user/README.md) tool remain separate composition entries.
 
 The TUI rebuilds resumed history from the active session surface, renders Markdown responses and reasoning, applies each tool's `presentCall` / `presentResult` intent to terminal, diff, or generic cards, keeps the latest `todo/write` plan above the editor, and presents `ctx.userInteraction` questions as keyboard-driven overlays. A durable `llm/retry` event retracts the failed step's live chunks and renders the scheduled retry count, delay, and failure in the transcript; success, exhaustion, and cancellation then settle through ordinary session events. The footer totals each logged model step's usage once, including failed attempts, while treating committed-message usage as a fallback for logs without a usage chunk. Surface replacement events rebuild the transcript so compacted history does not reappear.
 
 Before model output, session events, tool presenters, questions, configuration, or diagnostics reach pi-tui's ANSI-aware renderers or the terminal title, the TUI renders C0 and C1 controls other than line feeds as visible `\xNN` text. Those sources cannot add terminal control sequences; the TUI and pi-tui retain ownership of terminal rendering and styling.
 
-While the agent is running, editor submissions call `agent.steer()`; otherwise they call `agent.send()`. Ctrl+C or Escape cancels a running turn. Ctrl+O expands tool cards, Ctrl+R toggles reasoning, Ctrl+L redraws, and Ctrl+D exits while idle. `/help`, `/clear`, `/cancel`, `/reasoning`, `/tools`, `/redraw`, and `/exit` provide the same actions without key chords.
+While the agent is running, ordinary editor submissions call `agent.steer()`; otherwise they call `agent.send()`. A slash at the start of the submitted line enters `ctx.commands` instead: known commands execute directly, unknown commands produce a warning, and neither path reaches the model. The TUI registers `/help`, `/clear`, `/cancel`, `/reasoning`, `/tools`, `/redraw`, and `/exit` as agent-scoped definitions; every other effective command joins autocomplete and `/help` dynamically. Ctrl+C or Escape cancels a running turn. Ctrl+O expands tool cards, Ctrl+R toggles reasoning, Ctrl+L redraws, and Ctrl+D exits while idle.
 
 ## Config
 
@@ -39,7 +39,7 @@ While the agent is running, editor submissions call `agent.steer()`; otherwise t
     maxToolOutputLines: 12
 ```
 
-Startup fails before mounting when either process stream is not a TTY. The composing app must mount the TUI before its config-created agent so the front door can observe `agent-loop/config-start-failed`; a matching exact-session failure is written before fullscreen mode starts and exits with status 1 instead of leaving a blank terminal. Disposal stops loaders, rejects pending questions, drains terminal input, restores terminal state, unregisters event listeners and the user-interaction provider, and never exits a replacement process during HMR.
+Startup fails before mounting when either process stream is not a TTY. The composing app must mount the TUI before its config-created agent so the front door can observe `agent-loop/config-start-failed`; a matching exact-session failure is written before fullscreen mode starts and exits with status 1 instead of leaving a blank terminal. Disposal aborts running commands, removes the TUI definitions, stops loaders, rejects pending questions, drains terminal input, restores terminal state, unregisters event listeners and the user-interaction provider, and never exits a replacement process during HMR.
 
 ## Color
 
@@ -51,7 +51,7 @@ The palette uses the standard 16-color ANSI foregrounds and SGR attributes, whic
 
 #### What the model sees
 
-Each non-empty editor submission becomes one text block, sent with `agent.send()` while the target agent is idle and `agent.steer()` while it is running. Slash commands and keybindings are TUI-only.
+Each non-empty ordinary editor submission becomes one text block, sent with `agent.send()` while the target agent is idle and `agent.steer()` while it is running. Slash commands and keybindings are TUI-only; command results remain terminal notices.
 
 #### Token effect
 

@@ -199,6 +199,28 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'commands',
+    summary: 'Human-command registry.',
+    methods: [
+      {
+        signature: 'register(definition: CommandDefinition): () => void',
+        jsDoc: '/**\n * Register a global or calling-agent-scoped command.\n * @param definition - discovery metadata and direct UI handler.\n * @returns the exact effect disposer that unregisters this definition.\n */',
+      },
+      {
+        signature: 'list(agent: Agent): readonly CommandDescriptor[]',
+        jsDoc: '/**\n * List the effective immutable command descriptors for one agent.\n * @param agent - exact receiving agent and scoped-layer key.\n * @returns name-sorted descriptors after scoped shadowing.\n */',
+      },
+      {
+        signature: 'find(agent: Agent, name: string): CommandDefinition | undefined',
+        jsDoc: '/**\n * Resolve one effective command definition.\n * @param agent - exact receiving agent and scoped-layer key.\n * @param name - command name without a slash.\n * @returns the scoped shadow or global definition.\n */',
+      },
+      {
+        signature: 'async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>',
+        jsDoc: '/**\n * Parse and execute a known command without sending it to the model.\n * @param agent - exact receiving agent.\n * @param line - complete slash-command line.\n * @param signal - cancellation signal owned by the UI request.\n * @returns a detached result, or `undefined` when syntax or name does not resolve.\n */',
+      },
+    ],
+  },
+  {
     key: 'compact',
     summary: 'Abstract compaction service.',
     methods: [
@@ -247,6 +269,48 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsEditOutcome>',
         jsDoc: '/**\n * Atomically edit literal text. When supplied, the version guard is checked\n * before matching so stale content reports `FS_STALE_VERSION`; omission edits\n * the current content without a freshness precondition.\n * @param target - the resolved target to edit.\n * @param edit - the literal search/replace request.\n * @param expected - the version guard; omit for an unconditional edit.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxMode - the per-call sandbox mode this edit runs under; a\n *   sandboxing backend fences the edit by it, the bare backend ignores it.\n *   Omit to leave the backend its own default.\n * @returns the outcome, including the version the edit produced.\n */',
+      },
+    ],
+  },
+  {
+    key: 'goals',
+    summary: 'Goal service (`ctx.goals`) backed exclusively by the owning session log.',
+    methods: [
+      {
+        signature: 'get(agent: Agent): GoalView | undefined',
+        jsDoc: '/**\n * Read the current goal for one exact live agent.\n * @param agent - owning live agent.\n * @returns a fresh view or `undefined` when no goal is current.\n * @throws {@link GoalError} when the agent is not the registry\'s live instance.\n */',
+      },
+      {
+        signature: 'disarm(agent: Agent): GoalView | undefined',
+        jsDoc: '/**\n * Remove process-local continuation authority without changing durable goal\n * phase or revision. Lifecycle owners use this before unloading a driver;\n * a later human-authorized {@link resume} records the new activation edge.\n * @param agent - owning live agent.\n * @returns a fresh disarmed view, or `undefined` when no goal is current.\n */',
+      },
+      {
+        signature: 'create(agent: Agent, request: CreateGoalRequest): GoalView',
+        jsDoc: '/**\n * Create and arm a goal. A completed goal may be replaced; every other\n * current phase must be cleared or resumed instead.\n * @param agent - owning live agent.\n * @param request - objective and optional round cap.\n * @returns the created live view.\n */',
+      },
+      {
+        signature: 'edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView',
+        jsDoc: '/**\n * Edit objective and/or round cap without changing phase.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @param request - at least one replacement field.\n * @returns the edited view.\n */',
+      },
+      {
+        signature: 'pause(agent: Agent, ref: GoalRef): GoalView',
+        jsDoc: '/**\n * Pause an active goal and disarm automatic continuation.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the paused view.\n */',
+      },
+      {
+        signature: 'resume(agent: Agent, ref: GoalRef): GoalView',
+        jsDoc: '/**\n * Resume and arm a stopped goal, or rearm an active goal after a\n * session-start edge, while its round budget still has capacity.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the active view.\n */',
+      },
+      {
+        signature: 'complete(agent: Agent, ref: GoalRef): GoalView',
+        jsDoc: '/**\n * Mark a current non-complete goal complete and disarm it.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the completed view.\n */',
+      },
+      {
+        signature: 'block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView',
+        jsDoc: '/**\n * Mark an active goal blocked and disarm it.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @param reason - policy-owned stable code and human-readable explanation.\n * @returns the blocked view with its durable reason.\n */',
+      },
+      {
+        signature: 'clear(agent: Agent, ref: GoalRef): GoalRef',
+        jsDoc: '/**\n * Clear the current goal while retaining a durable tombstone and history.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the tombstone ref whose revision is one past the cleared snapshot.\n */',
       },
     ],
   },
@@ -655,6 +719,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A declarative agent entry failed before it could publish a live agent.',
   },
   {
+    name: 'agent/cancel-requested',
+    mode: 'emit',
+    signature: '\'agent/cancel-requested\'(this: Scoped<Agent>, agent: Agent, reason: string): void',
+    jsDoc: '/**\n * Effective broad cancellation was requested, before queued/steering work\n * is cleared or the active step is aborted. This observe-only notification\n * cannot veto cancellation; listener failures are contained.\n * @param agent - the agent whose current work is being cancelled.\n * @param reason - resolved cancellation reason, including the default.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'Effective broad cancellation was requested, before queued/steering work is cleared or the active step is aborted.',
+  },
+  {
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, agent: Agent): void',
@@ -767,6 +838,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Ask composed answerers for one decision.',
   },
   {
+    name: 'commands/change',
+    mode: 'emit',
+    signature: '\'commands/change\'(): void',
+    jsDoc: '/**\n * A command was registered or unregistered. This is an unfiltered registry\n * notification because a global or scoped change may affect any UI view.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
+    summary: 'A command was registered or unregistered.',
+  },
+  {
     name: 'fs/edit-intent',
     mode: 'waterfall',
     signature: '\'fs/edit-intent\'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>',
@@ -786,6 +864,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'fs/write-intent\'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>',
     jsDoc: '/**\n * Single-slot decision for the next {@link FileSystem.writeText}. Calling\n * `next()` yields the bare provider\'s unconditional write; the first listener\n * that returns an intent owns the decision rather than composing with peers.\n * @param target - the resolved target about to be written.\n * @param actor - the opaque tool-execution context the decider keys off.\n * @mode waterfall\n */',
     summary: 'Single-slot decision for the next FileSystem.writeText.',
+  },
+  {
+    name: 'goal/changed',
+    mode: 'emit',
+    signature: '\'goal/changed\'(this: import(\'@deepseek-ai/dsh-scope\').Scoped<Agent>, agent: Agent, change: GoalChanged): void',
+    jsDoc: '/**\n * Goal mutation accepted by one live agent. The matching context event is\n * already appended or queued in that agent\'s active tool-batch FIFO.\n * Listener failures are contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - agent whose session owns the goal.\n * @param change - fresh current projection or clear tombstone.\n * @mode emit\n */',
+    summary: 'Goal mutation accepted by one live agent.',
   },
   {
     name: 'llm/stream',
@@ -1082,6 +1167,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CollectedOutput {\n    text: string;\n    truncated: boolean;\n    spillPath?: string;\n}',
   },
   {
+    name: 'CommandDefinition',
+    declaration: 'export interface CommandDefinition {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n    readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>;\n}',
+  },
+  {
+    name: 'CommandDescriptor',
+    declaration: 'export interface CommandDescriptor {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n}',
+  },
+  {
+    name: 'CommandInputDescriptor',
+    declaration: 'export interface CommandInputDescriptor {\n    readonly hint: string;\n}',
+  },
+  {
+    name: 'CommandInvocation',
+    declaration: 'export interface CommandInvocation {\n    readonly agent: Agent;\n    readonly rawInput: string;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'CommandResult',
+    declaration: 'export type CommandResult = {\n    readonly kind: \'success\';\n    readonly text?: string;\n} | {\n    readonly kind: \'error\';\n    readonly text: string;\n};',
+  },
+  {
     name: 'CompactAgentContext',
     declaration: 'export interface CompactAgentContext {\n    session: Session;\n    options: {\n        provider?: string;\n        model?: string;\n    };\n}',
   },
@@ -1114,6 +1219,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
   {
+    name: 'CreateGoalRequest',
+    declaration: 'export interface CreateGoalRequest {\n    readonly objective: string;\n    readonly maxGoalRounds?: number;\n}',
+  },
+  {
     name: 'CreateSessionOptions',
     declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n}',
   },
@@ -1132,6 +1241,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DshEnvironmentKey',
     declaration: 'export type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`;',
+  },
+  {
+    name: 'EditGoalRequest',
+    declaration: 'export interface EditGoalRequest {\n    readonly objective?: string;\n    readonly maxGoalRounds?: number;\n}',
   },
   {
     name: 'EpochHeader',
@@ -1204,6 +1317,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'GenericResultView',
     declaration: 'export interface GenericResultView {\n    card: \'generic\';\n    title?: string;\n    content?: ContentBlock[];\n}',
+  },
+  {
+    name: 'GoalActivation',
+    declaration: 'export type GoalActivation = \'armed\' | \'disarmed\';',
+  },
+  {
+    name: 'GoalBlockReason',
+    declaration: 'export interface GoalBlockReason {\n    readonly code: string;\n    readonly message: string;\n}',
+  },
+  {
+    name: 'GoalId',
+    declaration: 'export type GoalId = Branded<\'GoalId\'>;',
+  },
+  {
+    name: 'GoalPhase',
+    declaration: 'export type GoalPhase = \'active\' | \'paused\' | \'blocked\' | \'complete\';',
+  },
+  {
+    name: 'GoalRef',
+    declaration: 'export interface GoalRef {\n    readonly id: GoalId;\n    readonly revision: number;\n}',
+  },
+  {
+    name: 'GoalSnapshot',
+    declaration: 'export interface GoalSnapshot extends GoalRef {\n    readonly objective: string;\n    readonly phase: GoalPhase;\n    readonly blockedReason?: GoalBlockReason;\n    readonly maxGoalRounds: number;\n}',
+  },
+  {
+    name: 'GoalView',
+    declaration: 'export interface GoalView extends GoalSnapshot {\n    readonly roundsStarted: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly activation: GoalActivation;\n}',
   },
   {
     name: 'HookContext',
@@ -1687,7 +1828,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WorkflowStartRequest',
-    declaration: 'export interface WorkflowStartRequest {\n    script: string;\n    meta: WorkflowMeta;\n    args?: unknown;\n    parent: Agent;\n    signal?: AbortSignal;\n}',
+    declaration: 'export interface WorkflowStartRequest {\n    script: string;\n    meta: WorkflowMeta;\n    args?: unknown;\n    subagentProvider?: string;\n    maxTotalAgents?: number;\n    parent: Agent;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'WorkflowStopReason',
