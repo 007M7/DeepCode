@@ -1,5 +1,5 @@
-# Code Mode workspace-context snapshot recording overlay. The scenario needs
-# filesystem tools to trigger nested instruction discovery after a read.
+# Code Mode workspace-context snapshot recording overlay. The default filesystem
+# tools trigger nested instruction discovery after a read.
 - id: base
   name: '@cordisjs/plugin-include'
   config:

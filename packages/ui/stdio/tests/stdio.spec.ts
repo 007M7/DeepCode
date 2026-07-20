@@ -367,6 +367,43 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toContain('[tool result] file.txt')
   })
 
+  it('renders one full-fidelity result whether the event feed is live or replayed', async () => {
+    const { ctx, out } = await setup()
+    const session = makeSession('main')
+    const original = {
+      type: 'tool/result',
+      seq: 2,
+      time: 0,
+      data: {
+        turn: 1,
+        step: 1,
+        callId: 'c1',
+        content: [{ type: 'text', text: 'full terminal output' }],
+        isError: false,
+        meta: { terminal: { output: 'full terminal output' } },
+      },
+      surfaceOp: 'append',
+    } as SessionEvent
+    const replacement = {
+      ...original,
+      seq: 3,
+      data: {
+        ...original.data,
+        content: [{ type: 'text', text: '[... tool result middle pruned ...]' }],
+      },
+      surfaceOp: { op: 'replace', start: 2, end: 2 },
+      sourceEventSeqs: [2],
+    } as SessionEvent
+
+    // Stdio consumes the same session/event shape whether a host forwards a
+    // live append or replays a stored log through the rendering feed.
+    for (const event of [original, replacement]) ctx.emit('session/event', session, event)
+
+    expect(out.text().match(/\[tool result\]/g)).toHaveLength(1)
+    expect(out.text()).toContain('full terminal output')
+    expect(out.text()).not.toContain('tool result middle pruned')
+  })
+
   it('renders a todo/write session event as a glyphed checklist', async () => {
     const { ctx, out } = await setup()
     const session = {} as Session

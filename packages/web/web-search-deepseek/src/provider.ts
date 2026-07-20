@@ -127,7 +127,7 @@ export function mapAnthropicResponse(response: AnthropicResponse): WebSearchResu
   return { sources, truncated: false }
 }
 
-/** The DeepSeek-backed search provider. */
+/** The DeepSeek-backed search provider; HTTP redirects fail as `WEB_PROVIDER_ERROR`. */
 export class DeepSeekSearchProvider implements WebSearchProvider {
   readonly id = DEEPSEEK_PROVIDER_ID
 
@@ -145,6 +145,7 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
     try {
       response = await fetch(`${this.options.baseURL}/messages`, {
         method: 'POST',
+        redirect: 'error',
         headers: {
           // Official DeepSeek expects `x-api-key`; an Anthropic-compatible proxy
           // may expect `Authorization: Bearer` — send both so either resolves.
