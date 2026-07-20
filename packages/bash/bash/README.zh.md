@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**bash 执行器 seam**：抽象 `BashExecutor` 服务（`ctx.bash`）定义 bash 后端做什么，即运行前台命令与启动后台进程，但不规定如何实现。task id、所有权、收集、取消与通知属于通用 `ctx.tasks` 运行时。
+**`BashExecutor`**（`ctx.bash`）定义 bash 后端做什么，即运行前台命令与启动后台进程，但不规定如何实现。task id、所有权、收集、取消与通知属于通用 `ctx.tasks` 运行时。
 
 本包是 bash 能力中负责接口的四分之一，各项职责因此可以独立演进（和替换）：
 

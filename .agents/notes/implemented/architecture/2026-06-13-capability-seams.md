@@ -22,6 +22,10 @@ Implementation and consumer then evolve independently: a sandboxed executor repl
 
 The split is not mandatory when the parts are genuinely one concern: the LLM seam folds interface + consumer into `dsh-llm` (the consumer is the loop itself, not a swappable schema surface) with adapters as the implementation packages. Don't split preemptively — a capability with one conceivable implementation and one consumer stays one package until a second appears.
 
+## Terminology: "seam" names the trio, not the interface
+
+A **seam** is the whole capability — the three roles together: a **Service Definition** (the Cordis `Service` that owns `ctx.<key>` and the vocabulary; an abstract class such as `BashExecutor`, or a concrete registry such as `WebService`), one or more **Service providers** (implementations that register a backend), and a **Consumer** (the model- or plugin-facing surface). `packages/bash` is the canonical example — `dsh-bash` / `dsh-bash-local`+`dsh-bash-sandbox` / `dsh-tool-bash`. The interface package alone is the *Service Definition*, one member — not the seam. The Service Definition is never a TypeScript `interface`; where prose must name it, use the class name or `abstract class`, never `interface`. Reserving "seam" strictly for the trio and realigning the many existing "the X seam" usages is deferred to a follow-up; the [glossary](../../../../docs/glossary.md#capability-seam) is the canonical entry.
+
 ## Alternatives considered
 
 - **One combined package** — rejected because it recouples the three rates of change the split exists to separate (the whole point).

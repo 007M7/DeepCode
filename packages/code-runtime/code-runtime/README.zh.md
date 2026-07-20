@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-这是**代码执行 seam**：抽象的 `CodeRuntime` 服务（`ctx.codeRuntime`）只定义代码运行时做什么，即针对宿主提供的一组异步绑定运行一段模型编写的程序，并报告 `{ value, logs, error? }`，而不规定如何实现。
+**`CodeRuntime`**（`ctx.codeRuntime`）定义代码运行时做什么，即针对宿主提供的一组异步绑定运行一段模型编写的程序，并报告 `{ value, logs, error? }`，而不规定如何实现。
 
 此包承担该能力三个组成部分中的接口职责（以 bash 三包结构为模板，参见[能力 seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)）：实现通过继承 `CodeRuntime` 并注册服务接入；消费方是工具注册表的 Code Mode，它生成面向模型的 SDK，并桥接工具分发。这两项职责均由 [Code Mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) 规定，首个实现是 Node worker 线程后端。运行时不了解工具或会话：调用方只向它提供具名异步函数与程序字符串；所有与工具有关的内容都留在消费方。
 

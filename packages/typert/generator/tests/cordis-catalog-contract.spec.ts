@@ -259,7 +259,7 @@ export class FixService {
   it('extracts a well-formed service with its methods and class JSDoc', () => {
     const services = collectServices(makeService(WELL_FORMED))
     expect(services).toHaveLength(1)
-    expect(services[0]).toMatchObject({ key: 'fix', type: 'FixService', abstract: false, doc: 'Fixture service.' })
+    expect(services[0]).toMatchObject({ key: 'fix', type: 'FixService', doc: 'Fixture service.' })
     expect(services[0]?.methods).toHaveLength(3)
     expect(services[0]?.methods[0]).toEqual({
       signature: 'run(id: string): string',

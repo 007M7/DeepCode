@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The **web access seam**: an abstract `WebService` (`ctx.web`) defining WHAT web access the harness has — search the web, fetch a URL — over multiple providers, without binding the model contract to one vendor's API shape.
+The **`WebService`** (`ctx.web`) defines WHAT web access the harness has — search the web, fetch a URL — over multiple providers, without binding the model contract to one vendor's API shape.
 
 This package is the interface third of the web capability. Unlike bash/fs it spans two capabilities (search and fetch) on one seam, with potentially multiple providers each:
 

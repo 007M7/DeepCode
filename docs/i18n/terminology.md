@@ -55,7 +55,7 @@
 | Round | Round | | 回合、目标回合、Ralph 回合 | 外层策略使用 Round 时，领域层级为 Session > Round > Turn（轮次） > Step（步骤）；Round 是可选的外层策略迭代，并非每个会话轮次都具有的通用层级。Goal Round 与 Ralph Round 均保留英文。一个 Round 承载一个轮次，步骤隶属于该轮次；明确的零步骤轮次仍保持原义。 |
 | schema | schema | | | |
 | schema DSL | schema DSL | | | |
-| seam | seam | | 接缝 | 本仓库的命名架构概念，正文保留英文；与 `extension point` 是不同概念 |
+| seam | seam | | 接缝 | 一个可替换能力的三包整体（Service Definition / Service provider 实现 / Consumer），以 `packages/bash` 为范例；Service Definition 是 Cordis `Service`（抽象类或具体 registry 服务），不是 TypeScript interface，且不能单独称为 seam。本仓库正文保留英文；与 `extension point` 是不同概念 |
 | skill | skill | skill（技能） | | |
 | slot | slot | | 坑位、孔位 | 客户端架构中的具名可注册位置，保留英文 |
 | spill | spill | | | 工具输出超限落盘机制；组合词写 `spill 文件`、`spill 路径` |

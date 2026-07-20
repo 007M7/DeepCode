@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**压缩（compaction） seam**：抽象 `CompactService`（`ctx.compact`）定义压缩做什么，即判定历史记录是否过大，并将较早范围摘要为单个表层节点，但不规定如何实现。
+**`CompactService`**（`ctx.compact`）定义压缩做什么，即判定历史记录是否过大，并将较早范围摘要为单个表层节点，但不规定如何实现。
 
 这个包是压缩能力的接口层，因此各项职责均可独立演进，也可独立替换：
 

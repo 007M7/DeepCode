@@ -200,7 +200,7 @@ interface SessionPersistenceSnapshot {
 
 ## 后端
 
-两者都实现同一个抽象 `SessionPersistence`（在 `SessionEvent` 上执行 locate/create/append/prepare/load/inspect/readFrom/list/listSnapshots，观察方法可选支持取消），并通过 `runPersistenceContract`，证明该 seam 确实与后端无关：
+两者都实现同一个抽象 `SessionPersistence`（在 `SessionEvent` 上执行 locate/create/append/prepare/load/inspect/readFrom/list/listSnapshots，观察方法可选支持取消），并通过 `runPersistenceContract`：
 
 - **[dsh-session-persistence-jsonl](../../packages/session/session-persistence-jsonl)**——每个会话一份仅追加的逻辑 JSONL 日志，默认存储为带 checksum 的连续 Zstandard frame，也可配置为原始行；支持崩溃安全的原子写入、被中断轮次的恢复以及读取/回放路径。
 - **[dsh-session-persistence-sqlite](../../packages/session/session-persistence-sqlite)**：基于 `node:sqlite`，每个 `SessionEvent` 一行。行结构 `(session_id, seq, type, time, data, source_event_seqs, surface_op)` 与事件 1:1 映射（包含可选的 surface 元数据），因此没有需要保持同步的并行持久化 schema。
@@ -213,9 +213,9 @@ interface SessionPersistenceSnapshot {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxsessionpersistence--sessionpersistence-abstract-seam"></a>
+<a id="ctxsessionpersistence--sessionpersistence"></a>
 
-### `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
+### `ctx.sessionPersistence` — `SessionPersistence`
 
 Durable append-only session storage. Implementations preserve contiguous, losslessly JSON-serializable events; append resolves only after durability, and load balances a complete interrupted tail without rewriting committed events.
 

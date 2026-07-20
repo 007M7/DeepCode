@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**web 访问 seam**：抽象 `WebService`（`ctx.web`）定义 harness 具备哪些 web 访问能力（搜索 web、抓取 URL），并通过多个提供方实现，不把模型约定绑定到某个厂商的 API 形状。
+**`WebService`**（`ctx.web`）定义 harness 具备哪些 web 访问能力（搜索 web、抓取 URL），并通过多个提供方实现，不把模型契约绑定到某个厂商的 API 形状。
 
 该包是 web 能力中负责接口的三分之一。与 bash/fs 不同，它在一个 seam 上跨越搜索与抓取两种能力，每种能力都可能有多个提供方：
 

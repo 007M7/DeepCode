@@ -4,6 +4,10 @@ English | [中文](glossary.zh.md)
 
 Domain vocabulary for the DeepSeek Harness SDK uses one canonical term per concept. Terms link to their entries with standard Markdown anchors; implementation detail stays in package READMEs and Agent Notes.
 
+## capability-seam
+
+- **seam** — a *swappable capability* packaged as a trio: a **Service Definition** (the Cordis `Service` that owns its `ctx.<key>` and vocabulary types — an abstract class such as `BashExecutor`, or a concrete registry such as `WebService`, never a TypeScript `interface`), one or more **Service providers** (the implementation plugins that register a backend), and a **Consumer** (the model- or plugin-facing surface that injects the service). `packages/bash` is the canonical example: `dsh-bash` (Service Definition), `dsh-bash-local` / `dsh-bash-sandbox` (providers), `dsh-tool-bash` (consumer). The seam is all three together; the interface package alone is the *Service Definition*, one member — calling it "the seam" is the misuse this entry names. Fold roles only when they are genuinely one concern (`dsh-llm` folds the Service Definition and consumer); never split preemptively.
+
 ## agent-scope
 
 - **scope** — the unit of per-agent registration: a contribution (tool, prompt section, variable, restriction, listener) is either *global* (visible to every agent) or *scoped* (owned by exactly one [scope key](#scope-key)). Two levels, flat: scoped registrations do not inherit down to subagents; subtree behavior is expressed with [lineage](#lineage) data, never scope structure.

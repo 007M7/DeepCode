@@ -156,7 +156,9 @@ idle inject:
 
 ### 能力模式
 
-能力分为**接口／实现／消费方**三层。文件系统与进程管理提供方共同定义一个执行世界；Bash、PTY 和 LSP 都在其中运行，无需提供方专用 fork。参见[能力图](capability-seams.md)。
+一个 **seam** 是跨三个包的一项可替换能力：**Service Definition**（拥有自身 `ctx` key 和词汇的 Cordis `Service`）、**Service provider**（实现插件）和 **Consumer**。Service Definition 本身只是服务，不是 seam。Bash 是参考；[能力图](capability-seams.md)展示每个家族。
+
+文件系统与进程管理提供方共同定义一个执行世界；Bash、PTY 和 LSP 都在其中运行，无需提供方专用 fork。
 
 例外情况包括 LLM（大语言模型）接口／消费方合并、文件系统策略、web 注册表，以及具名 skill/subagent 提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀、使用 ACP（Agent Client Protocol）子 agent，或将一个独立完整的轮次委派给 Codex 等真实产品提供方（[subagent.md](subsystems/subagent.md)）。
 

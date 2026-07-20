@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**文件系统提供方 seam**：抽象 `FileSystem` 服务（`ctx.fs`），定义同一个执行世界中的存储原语，包括解析路径、公开规范化进程路径与文件 URI、检查包含关系、完整或流式读取文本、检查／列出元数据、原子写入和应用字面量编辑，但不规定实现方式。两个变更操作都**可选**接收版本防护，因此 `ctx.fs` 本身就是完整且不受约束的文本存储 seam。本包还拥有由工具分派、策略插件监听的 `fs/*` 策略事件词汇。
+**`FileSystem`**（`ctx.fs`）定义同一个执行世界中的存储原语，包括解析路径、公开规范化进程路径与文件 URI、检查包含关系、完整或流式读取文本、检查／列出元数据、原子写入和应用字面量编辑，但不规定实现方式。两个变更操作都**可选**接收版本防护，因此 `ctx.fs` 本身就是完整且不受约束的文本存储 seam。本包还拥有由工具分派、策略插件监听的 `fs/*` 策略事件词汇。
 
 本包是四层文件系统栈中的提供方 seam 层；该拆分使每个关注点可以独立演进和替换（见[能力 seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)、[文件系统能力 seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-17-filesystem-capability-seam.md)、[拆分文件系统 seam Agent Note](../../../.agents/notes/implemented/simplification/2026-06-26-fsspec-style-fs-seam.md)和[文件上下文事件门禁 Agent Note](../../../.agents/notes/implemented/architecture/2026-06-26-file-context-as-event-gate.md)）：
 

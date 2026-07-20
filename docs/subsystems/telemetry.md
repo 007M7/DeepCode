@@ -105,7 +105,7 @@ interface TelemetryBackend {
 }
 ```
 
-`Telemetry` (`ctx.telemetry`, [signatures](#ctxtelemetry--telemetry-abstract-seam)) is the contract's loadable form — one implementation per context, duplicate load throws — and a backend composes the seam's `TelemetryCoordinator` in its constructor to install the capture side.
+`Telemetry` (`ctx.telemetry`, [signatures](#ctxtelemetry--telemetry)) is the contract's loadable form — one implementation per context, duplicate load throws — and a backend composes the seam's `TelemetryCoordinator` in its constructor to install the capture side.
 
 ## The redact waterfall: `telemetry/record`
 
@@ -119,9 +119,9 @@ Every record passes the `telemetry/record` [waterfall](../cordis-primer.md#cordi
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxtelemetry--telemetry-abstract-seam"></a>
+<a id="ctxtelemetry--telemetry"></a>
 
-### `ctx.telemetry` — `Telemetry` (abstract seam)
+### `ctx.telemetry` — `Telemetry`
 
 The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
 

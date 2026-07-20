@@ -22,6 +22,10 @@ harness 具有可替换的能力：当前是 bash 执行，未来会有沙箱化
 
 当各部分确实属于同一个关注点时，三分并非强制：LLM（大语言模型） seam 将接口 + 消费方合并为 `dsh-llm`（消费方是 agent loop（智能体循环）本身，而非可替换的 schema 接口），适配器作为实现包。不要预防性地拆分——如果一项能力只有一种可设想的实现和一个消费方，就保持为一个包，直到出现第二种实现或第二个消费方。
 
+## 术语：seam 指三者组合，而非接口
+
+一个 **seam** 是完整的能力——三个角色合在一起：**Service Definition**（拥有 `ctx.<key>` 和词汇的 Cordis `Service`；可以是 `BashExecutor` 这样的抽象类，也可以是 `WebService` 这样的具体注册表）、一个或多个 **Service provider**（注册后端的实现）和 **Consumer**（面向模型或插件的表面）。`packages/bash` 是规范范例——`dsh-bash` / `dsh-bash-local`+`dsh-bash-sandbox` / `dsh-tool-bash`。接口包本身只是 *Service Definition*，是其中一个成员——不是 seam。Service Definition 从不是 TypeScript `interface`；在正文必须命名它时，使用类名或 `abstract class`，永远不要用 `interface`。严格把「seam」保留给三者组合，并校准现有大量「X seam」用法的工作推迟到后续；[术语表](../../../../docs/glossary.md#capability-seam)是规范条目。
+
 ## 曾考虑的替代方案
 
 - **单一合并包**：否决。因为它重新耦合了三分设计本要分离的三种变化速率（这正是拆分的意义所在）。

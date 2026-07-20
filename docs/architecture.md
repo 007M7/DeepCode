@@ -156,7 +156,9 @@ Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is on
 
 ### Capability Pattern
 
-Capabilities separate **interface / implementation / consumer** layers. Filesystem and subprocess providers define one execution world; Bash, PTY, and LSP run there without provider forks. See the [capability graph](capability-seams.md).
+A **seam** is a swappable capability across three packages: a **Service Definition** (the Cordis `Service` owning its `ctx` key and vocabulary), a **Service provider** (the implementation plugin), and a **Consumer**. The Service Definition alone is the service, not the seam. Bash is the reference; the [capability graph](capability-seams.md) shows every family.
+
+Filesystem and subprocess providers define one execution world; Bash, PTY, and LSP run there without provider forks.
 
 Exceptions combine LLM interface/consumer, filesystem policy, web registries, and named skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, use ACP children, or delegate one self-contained turn to a real product provider such as Codex ([subagent.md](subsystems/subagent.md)).
 

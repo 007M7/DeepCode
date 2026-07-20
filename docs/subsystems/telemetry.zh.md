@@ -105,7 +105,7 @@ interface TelemetryBackend {
 }
 ```
 
-`Telemetry`（`ctx.telemetry`，[签名](#ctxtelemetry--telemetry-abstract-seam)）是该约定的可加载形态：每个上下文只允许一个实现，重复加载会抛出异常；后端在其构造函数中组合 seam 的 `TelemetryCoordinator`，以此装配捕获侧。
+`Telemetry`（`ctx.telemetry`，[签名](#ctxtelemetry--telemetry)）是该契约的可加载形态：每个上下文只允许一个实现，重复加载会抛出异常；后端在其构造函数中组合 seam 的 `TelemetryCoordinator`，以此装配捕获侧。
 
 ## 脱敏 waterfall：`telemetry/record`
 
@@ -119,9 +119,9 @@ interface TelemetryBackend {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxtelemetry--telemetry-abstract-seam"></a>
+<a id="ctxtelemetry--telemetry"></a>
 
-### `ctx.telemetry` — `Telemetry` (abstract seam)
+### `ctx.telemetry` — `Telemetry`
 
 The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
 

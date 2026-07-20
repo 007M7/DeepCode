@@ -161,9 +161,9 @@ The abstract [`TaskService`](../../packages/tasks/tasks/src/index.ts) seam defin
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxtasks--taskservice-abstract-seam"></a>
+<a id="ctxtasks--taskservice"></a>
 
-### `ctx.tasks` — `TaskService` (abstract seam)
+### `ctx.tasks` — `TaskService`
 
 Abstract background task registry. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.tasks` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
 

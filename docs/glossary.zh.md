@@ -4,6 +4,10 @@
 
 DeepSeek Harness SDK 的领域词汇为每个概念规定一个规范术语。各术语通过标准 Markdown 锚点链接到相应条目；实现细节留在各包的 README 与 Agent Note 中。
 
+## capability-seam
+
+- **seam**：一种*可替换能力*，以三者组合的形式打包：**Service Definition**（拥有自身 `ctx.<key>` 和词汇类型的 Cordis `Service`——可以是 `BashExecutor` 这样的抽象类，也可以是 `WebService` 这样的具体注册表，从不是 TypeScript `interface`）、一个或多个 **Service provider**（注册后端的实现插件）以及 **Consumer**（注入该服务、面向模型或插件的表面）。`packages/bash` 是规范范例：`dsh-bash`（Service Definition）、`dsh-bash-local` / `dsh-bash-sandbox`（提供方）、`dsh-tool-bash`（消费方）。seam 是三者整体；接口包本身只是 *Service Definition*，是其中一个成员——把它称为「seam」正是本条目指出的误用。只有在角色确实属于同一个关注点时才合并角色（`dsh-llm` 合并 Service Definition 和消费方）；永远不要预防性地拆分。
+
 ## agent-scope
 
 - **scope**：按 agent（智能体）划分的注册单位。一项贡献（工具、提示词片段、变量、限制、监听器）要么是*全局的*（对所有 agent 可见），要么是*带作用域的*（归属于恰好一个 [scope key](#scope-key)）。只有两层，采用扁平结构：带作用域的注册不会向下继承给 subagent；子树行为通过 [lineage](#lineage) 数据表达，从不通过 scope 结构。

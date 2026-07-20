@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**spill 存储 seam**：抽象的 `SpillStore` 服务（`ctx.spillStore`）定义 spill 后端做什么，即持久化某个工具过大的文本，并返回面向模型的定位信息与取回指引；它不规定如何实现。
+**`SpillStore`**（`ctx.spillStore`）定义 spill 后端做什么，即持久化某个工具过大的文本，并返回面向模型的定位信息与取回指引；它不规定如何实现。
 
 该包是 spill 能力的三个组成部分之一。拆分后，各项关注点可独立演进和替换：
 
