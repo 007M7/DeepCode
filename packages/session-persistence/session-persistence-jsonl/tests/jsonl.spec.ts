@@ -748,15 +748,12 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.fiber.dispose()
   })
 
-  it('list surfaces a non-ENOENT root error (ENOTDIR) instead of reporting no sessions', async () => {
-    // A durable backend must not collapse a storage fault to "no sessions". Making the root a
-    // regular file forces ENOTDIR from `readdir`, which must propagate.
+  it('plugin load rejects an existing root that is not a directory', async () => {
     const filePath = join(root, 'not-a-dir')
     await writeFile(filePath, 'x')
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
-    await ctx2.plugin(SessionPersistenceJsonl, { root: filePath })
-    await expect(ctx2.sessionPersistence.list()).rejects.toThrow(/ENOTDIR/)
+    await expect(ctx2.plugin(SessionPersistenceJsonl, { root: filePath })).rejects.toThrow(/ENOTDIR/)
     await ctx2.fiber.dispose()
   })
 

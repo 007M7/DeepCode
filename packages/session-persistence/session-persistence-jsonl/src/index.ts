@@ -8,6 +8,7 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
+import { readdirSync } from 'node:fs'
 import { open, mkdir, readFile, readdir, link, rm, truncate } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
@@ -25,7 +26,9 @@ export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of
    * `process.cwd()` would scatter session files as the process's cwd changes
-   * (bash calls, subprocesses). Sessions group under per-cwd subdirectories.
+   * (bash calls, subprocesses). Sessions group under per-cwd subdirectories. An
+   * existing root must be a readable directory; an absent root is created on
+   * first materialization.
    */
   root: string
 }
@@ -64,6 +67,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     super(ctx)
     // Resolve once so later process.cwd() changes cannot split one backend across roots.
     this.root = resolve(config.root)
+    this.assertUsableRoot()
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this)
   }
 
@@ -302,6 +306,16 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       throw new Error(`duplicate JSONL session id "${id}" appears in multiple cwd buckets`)
     }
     return matches[0]
+  }
+
+  /** Require an existing configured root to be a readable directory. */
+  private assertUsableRoot(): void {
+    try {
+      readdirSync(this.root)
+    } catch (error) {
+      if (isENOENT(error)) return
+      throw error
+    }
   }
 
   /** Reject metadata that does not identify the selected physical log. */
