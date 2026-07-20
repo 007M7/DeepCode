@@ -20,7 +20,7 @@ interface AskUserQuestionOption {
 
 ## Question item
 
-`AskUserQuestionItem` is one question in a request. The model supplies a stable `id`, which is echoed back with the answer so batched questions remain routable.
+`AskUserQuestionItem` is one question in a request. The model supplies a stable `id`, which is echoed back with the answer so batched questions remain routable. Optional `detail` carries supporting text that providers render with the question but keep out of selectable option labels.
 
 ```ts type-equiv
 /** One question in an ask_user_question request. */
@@ -29,6 +29,8 @@ interface AskUserQuestionItem {
   id: string
   /** The question to display. */
   question: string
+  /** Optional supporting detail rendered with the question but kept out of option labels. */
+  detail?: string
   /** Optional short heading/group label. */
   header?: string
   /** Optional choices the UI can render as a menu. */
