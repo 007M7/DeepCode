@@ -22,6 +22,8 @@ Approval prompts are disabled in this session: actions that require approval are
 
 Use the workflow tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.
 
+Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop or fresh-agent iterative execution. Each Ralph round starts a fresh child with no conversation seed and uses the shared workspace as durable memory. Completion and blockers are worker reports, not independent evaluation. Use same-session goal tools for ordinary long-running objectives, and plain subagents or workflows for bounded delegation and fan-out.
+
 ## Writing code for run_code
 
 Pass `run_code` the body of an async TypeScript function (erasable syntax only — no `enum` or namespaces; type annotations are advisory, the code runs type-stripped). Inside the program:
@@ -93,6 +95,13 @@ declare const tools: {
   }): Promise<string>;
   /** Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal. */
   get_goal(args: Record<string, unknown>): Promise<string>;
+  /** Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools. */
+  ralph(args: {
+    /** The immutable completion objective for every fresh Ralph round. */
+    objective: string;
+    /** Optional positive safe-integer round cap, bounded by the deployment ceiling. */
+    maxRounds?: number;
+  }): Promise<string>;
   /** Read a UTF-8 text file and return line-numbered content. */
   read(args: {
     /** Path to read, resolved by the filesystem backend. */
