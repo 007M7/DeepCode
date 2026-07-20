@@ -20,12 +20,13 @@ FIXME(glossary-completeness): Expand this glossary before the first release so i
 
 - **goal** — one durable completion objective attached to an existing session, with a revisioned `active` / `paused` / `blocked` / `complete` phase and a goal-round cap; `blocked` retains a policy code and explanation. A goal is state, not a scheduler or a separate conversation; the session log remains its source of truth.
 - **goal round** — one continuation cycle admitted for the current goal. The same-session driver materializes a goal round as one goal-sourced [turn](#turn), which can contain multiple steps; unrelated human turns in the same session do not consume the goal-round cap. <a id="goal-round"></a>
-- **goal activation** — process-local permission for a continuation consumer to admit another goal round. Activation is either `armed` or `disarmed`; it is deliberately absent from durable replay, so resume and fork require a later explicit resume mutation before automatic work.
+- **goal activation** — process-local permission for a continuation consumer to admit another goal round. Activation is either `armed` or `disarmed`; it is deliberately absent from durable replay, so resume and fork require a later human-authorized resume mutation through `/goal` or the model tool before automatic work.
 
 ## human command
 
 - **human command** — a slash-prefixed instruction interpreted and executed by a human-facing adapter through `ctx.commands`, without becoming a model message. It is distinct from a model-facing tool and from shell command execution through `ctx.bash`.
 - **command plane** — discovery, parsing, dispatch, cancellation, and result rendering owned by UI adapters and command plugins. Command output is UI state unless the handler separately mutates a durable domain.
+- **goal command** — the `/goal` human command contributed by `dsh-command-goal`; it observes or mutates the current goal directly while the goal domain owns every durable, model-visible record.
 
 ## loop hierarchy
 
