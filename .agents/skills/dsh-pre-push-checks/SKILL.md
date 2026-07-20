@@ -41,7 +41,7 @@ Why `test:coverage`, not only `test`: CI enforces per-file 100% coverage. A bran
 
 ## Add Gates By Touched Surface
 
-Run `pnpm run doc-sync` and `pnpm run verify-module-graph` when the diff touches Markdown docs, package manifests, package imports/exports, generated catalogs, RFCs, architecture docs, translation pairs, Mermaid diagrams, or comments that cite docs/packages.
+Run `pnpm run doc-sync` and `pnpm run verify-module-graph` when the diff touches Markdown docs, package manifests, package imports/exports, generated catalogs, Agent Notes, architecture docs, translation pairs, Mermaid diagrams, or comments that cite docs/packages.
 
 Run `pnpm run build` and `pnpm run hygiene` when the diff touches any package `package.json`, dependency graph, public exports, build config, declaration surface, bundled runtime path, or code that will be consumed from built `lib/`.
 
@@ -54,7 +54,7 @@ pnpm run test:snapshot
 Run built-bin smoke tests after `pnpm run build` when app packages, app boot, package runtime imports, bin entries, loader behavior, or published artifact paths change.
 
 ```sh
-pnpm exec vitest run --config vitest.e2e.config.ts packages/examples/stdio-demo/tests/built-bin.e2e.ts packages/examples/acp-demo/tests/built-bin.e2e.ts
+pnpm exec vitest run --config vitest.e2e.config.ts packages/examples/stdio-demo/tests/built-bin.e2e.ts packages/examples/cli-demo/tests/built-bin.e2e.ts packages/examples/acp-demo/tests/built-bin.e2e.ts
 ```
 
 Run real e2e when behavior depends on a real model/API, tool-use loop, ACP integration, prompt injection, or end-to-end agent UX. If `.env` is available, use it; do not print secrets.

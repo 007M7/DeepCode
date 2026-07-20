@@ -12,7 +12,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { computeHunkDiffs, diffsFromMeta, type FsDiffMeta } from './diff.ts'
-import { sessionCwd } from './session-cwd.ts'
+import { sessionResolveOptions } from './session-cwd.ts'
 import type { FsSandboxSurface } from './sandbox.ts'
 
 /** Validated `edit` arguments after defaulting. */
@@ -95,8 +95,7 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxSurface): void {
       // Resolve the per-call sandbox mode (escalation grant > session override
       // > backend default) BEFORE anything executes.
       const sandboxMode = await sandbox.stampMode('edit', args, exec)
-      const cwd = sessionCwd(exec)
-      const target = await ctx.fs.resolve(input.filePath, cwd !== undefined ? { cwd } : undefined)
+      const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec))
       // Single-slot decision: the policy plugin returns { version: vObserved } or
       // throws FS_NOT_OBSERVED; the bare default is undefined (unconditional edit).
       // No stat — the bare default never manufactures a version basis.

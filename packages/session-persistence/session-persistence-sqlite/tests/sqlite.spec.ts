@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
@@ -153,6 +153,48 @@ describe('scanRows', () => {
 })
 
 describe('SessionPersistenceSqlite: durability and crash semantics', () => {
+  it('rejects a stored v0 log containing a legacy request/header-delta event', async () => {
+    const path = await freshDbPath()
+    const m = meta('legacy-header-delta', '/legacy')
+    const db = openDatabase(path, 'wal')
+    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length) VALUES (?, ?, ?, ?, NULL, NULL)')
+      .run(m.id, m.version, m.createdAt, m.cwd ?? null)
+    const insert = db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
+    insert.run(m.id, 0, 'turn/start', 1, JSON.stringify({ turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } }))
+    insert.run(m.id, 1, 'request/header-delta', 2, JSON.stringify({ config: { model: 'legacy' } }))
+    insert.run(m.id, 2, 'turn/end', 3, JSON.stringify({ turn: 1, reason: { kind: 'completed' } }))
+    db.close()
+
+    const mounted = await backend(path)
+    await expect(mounted.ctx.sessionPersistence.load(m.id)).rejects.toThrow(/unsupported legacy request\/header-delta event at seq 1/)
+    await mounted.dispose()
+  })
+
+  it('rejects a stored v0 full header carrying the legacy fallback reason', async () => {
+    const path = await freshDbPath()
+    const m = meta('legacy-header-fallback', '/legacy')
+    const db = openDatabase(path, 'wal')
+    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length) VALUES (?, ?, ?, ?, NULL, NULL)')
+      .run(m.id, m.version, m.createdAt, m.cwd ?? null)
+    db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
+      .run(m.id, 0, 'request/header', 1, JSON.stringify({
+        header: { config: { model: 'legacy' } },
+        reason: 'fallback',
+      }))
+    db.close()
+
+    const mounted = await backend(path)
+    await expect(mounted.ctx.sessionPersistence.load(m.id))
+      .rejects.toThrow(/unsupported legacy request\/header reason "fallback" at seq 0/)
+    await mounted.dispose()
+  })
+
+  it('has no independent per-session log location', async () => {
+    const { ctx, dispose } = await backend()
+    expect(ctx.sessionPersistence.locate(meta('sqlite-location'))).toBeUndefined()
+    await dispose()
+  })
+
   it('an interrupted turn (rows after the last turn/end) is PRESERVED and closed during load', async () => {
     const path = await freshDbPath()
     const m = meta('crash')
@@ -348,6 +390,61 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
+  it('creates a new database and WAL sidecars with owner-only modes without changing its parent mode', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    const dir = dirname(path)
+    await chmod(dir, 0o755)
+
+    const b = await backend(path)
+    await b.ctx.sessionPersistence.list()
+
+    expect((await stat(dir)).mode & 0o777).toBe(0o755)
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-wal`)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-shm`)).mode & 0o777).toBe(0o600)
+    await b.dispose()
+  })
+
+  it('creates a persistent rollback journal with owner-only mode', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path, journalMode: 'persist' })
+    const m = meta('persist-permissions')
+
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-journal`)).mode & 0o777).toBe(0o600)
+    await fiber.dispose()
+  })
+
+  it('preserves the mode of an existing database file', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    await writeFile(path, '', { mode: 0o644 })
+    await chmod(path, 0o644)
+
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path, journalMode: 'delete' })
+    await ctx.sessionPersistence.list()
+
+    expect((await stat(path)).mode & 0o777).toBe(0o644)
+    await fiber.dispose()
+  })
+
+  it('surfaces an invalid database path during pre-creation', async () => {
+    const path = await freshDbPath()
+    const b = await backend(`${path}\0`)
+
+    await expect(b.ctx.sessionPersistence.list()).rejects.toMatchObject({ code: 'ERR_INVALID_ARG_VALUE' })
+    await b.dispose()
+  })
+
   it('append rolls back and rethrows when an event INSERT fails inside the transaction', async () => {
     const path = await freshDbPath()
     const m = meta('rollback-insert')
@@ -471,7 +568,7 @@ describe('surface field round-trip', () => {
     const session = ctx.sessions.create(SessionId('roundtrip-surface'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [0] })
+    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [0] })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.parallel('session/flush', session)
     const loaded = await ctx.sessionPersistence.load(SessionId('roundtrip-surface'))

@@ -1,4 +1,6 @@
 import { existsSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
@@ -16,11 +18,13 @@ describe('runLoaderSmoke', () => {
       binScript: fixture('success'),
       configPath,
       tsconfigPath,
+      mode: 'src',
       env: { LOADER_SMOKE_MARKER: 'present' },
       stdinLines: ['one', 'two'],
     })
     const output = JSON.parse(result.stdout) as {
       configPath: string
+      args: string[]
       cwd: string
       dshHome: string
       agentsHome: string
@@ -29,6 +33,7 @@ describe('runLoaderSmoke', () => {
     }
     expect(output).toMatchObject({
       configPath,
+      args: [configPath],
       marker: 'present',
       input: 'one\ntwo\n',
     })
@@ -38,11 +43,36 @@ describe('runLoaderSmoke', () => {
     expect(existsSync(output.cwd)).toBe(false)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
+  it('passes an arbitrary bin argv and inspects world state before cleanup', async () => {
+    let inspected = ''
+    let marker = ''
+    const result = await runLoaderSmoke({
+      label: 'argv fixture',
+      tempDirPrefix: 'loader-smoke-argv-',
+      binScript: fixture('success'),
+      libBinScript: fixture('success'),
+      configPath,
+      binArgs: ['--config', configPath, '--output-format', 'json', 'task with spaces'],
+      tsconfigPath,
+      prepare: cwd => writeFile(join(cwd, 'marker.txt'), 'prepared'),
+      inspect: async (cwd) => {
+        inspected = cwd
+        marker = await readFile(join(cwd, 'marker.txt'), 'utf8')
+      },
+    })
+    const output = JSON.parse(result.stdout) as { args: string[]; cwd: string }
+    expect(output.args).toEqual(['--config', configPath, '--output-format', 'json', 'task with spaces'])
+    expect(canonicalTempPath(inspected)).toBe(canonicalTempPath(output.cwd))
+    expect(marker).toBe('prepared')
+    expect(existsSync(inspected)).toBe(false)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('rejects a non-zero exit with captured diagnostics', async () => {
     await expect(runLoaderSmoke({
       label: 'failure fixture',
       tempDirPrefix: 'loader-smoke-fail-',
       binScript: fixture('fail'),
+      libBinScript: fixture('fail'),
       configPath,
       tsconfigPath,
     })).rejects.toThrow('failure fixture exited 7. stdout:\n\nstderr:\nfixture failed')
@@ -53,6 +83,7 @@ describe('runLoaderSmoke', () => {
       label: 'hanging fixture',
       tempDirPrefix: 'loader-smoke-hang-',
       binScript: fixture('hang'),
+      libBinScript: fixture('hang'),
       configPath,
       tsconfigPath,
       processTimeoutMs: 100,

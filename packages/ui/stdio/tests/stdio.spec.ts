@@ -4,7 +4,7 @@ import { Context } from 'cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { createStdioChat, mountStdio, type Config, type StdioRuntime } from '../src/index.ts'
 
@@ -57,17 +57,23 @@ function makeAgent(id: string, status: AgentStatus = 'idle'): Agent & {
     status,
     sent,
     steered,
-    // A minimal session stub: the UI reads only `session.header.id` (to map the
-    // session back to its agent id for the turn-boundary label).
-    session: { header: { id: `${id}-session` } },
+    // A minimal session stub with the agent's shared durable identity.
+    session: { id, header: { id } },
     send: (content: ContentBlock[]) => void sent.push(content),
     steer: (content: ContentBlock[]) => void steered.push(content),
   } as never
 }
 
+/** Register a fake configured agent and cross the supported startup-work boundary. */
+function registerReady(ctx: Context, agent: Agent, source: 'startup' | 'resume' = 'startup'): () => void {
+  const dispose = ctx.agents.register(agent)
+  ctx.emit('agent/session-start', agent, source)
+  return dispose
+}
+
 /** A session stub whose `header.id` matches an agent's, for `session/event` emits. */
-function makeSession(agentId: string): Session {
-  return { header: { id: `${agentId}-session` } } as Session
+function makeSession(id: string): Session {
+  return { id, header: { id } } as Session
 }
 
 /** An `assistant/chunk` session event carrying one raw stream chunk. */
@@ -75,7 +81,11 @@ function chunkEvent(chunk: StreamChunk): SessionEvent {
   return { type: 'assistant/chunk', seq: 0, time: 0, data: { turn: 1, step: 0, chunk } }
 }
 
-const CONFIG: Config = { welcome: 'hi there', agent: 'main' }
+const CONFIG: Config = { welcome: 'hi there', sessionId: 'main' }
+
+function unrenderableFailure(): unknown {
+  return { [Symbol.toPrimitive](): never { throw new Error('coercion escaped') } }
+}
 
 async function setup(config: Config = CONFIG, runtimeOver: Partial<StdioRuntime> = {}) {
   const ctx = new Context()
@@ -94,7 +104,7 @@ function flushExit(): Promise<void> {
 }
 
 describe('mountStdio readiness', () => {
-  it('leaves stdin untouched until the configured agent is created', async () => {
+  it('opens before the configured agent is created so startup input can queue', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserInteractionService)
@@ -103,9 +113,9 @@ describe('mountStdio readiness', () => {
       mountStdio(inner, CONFIG, runtime)
     }, { inject: ['agents', 'userInteraction'] }))
 
-    expect(out.text()).toBe('')
+    expect(out.text()).toBe('hi there\n> ')
     ctx.agents.register(makeAgent('other'))
-    expect(out.text()).toBe('')
+    expect(out.text()).toBe('hi there\n> ')
     ctx.agents.register(makeAgent('main'))
     expect(out.text()).toBe('hi there\n> ')
     await fiber.dispose()
@@ -125,7 +135,7 @@ describe('mountStdio readiness', () => {
     await fiber.dispose()
   })
 
-  it('waits for main when no target agent is configured', async () => {
+  it('opens for the default main identity when no target is configured', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserInteractionService)
@@ -134,8 +144,9 @@ describe('mountStdio readiness', () => {
       mountStdio(inner, { welcome: 'ready' }, runtime)
     }, { inject: ['agents', 'userInteraction'] }))
 
+    expect(out.text()).toBe('ready\n> ')
     ctx.agents.register(makeAgent('other'))
-    expect(out.text()).toBe('')
+    expect(out.text()).toBe('ready\n> ')
     ctx.agents.register(makeAgent('main'))
     expect(out.text()).toBe('ready\n> ')
     await fiber.dispose()
@@ -148,12 +159,11 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toBe('hi there\n> ')
   })
 
-  it('falls back to default welcome/agent when called with empty config', async () => {
+  it('falls back to the default welcome when called with empty config', async () => {
     // createStdioChat is exported and may be driven directly (bypassing the
-    // Loader's schemastery validation), so it must default welcome/agent itself.
+    // Loader's schemastery validation), so it must default the welcome itself.
     const { out } = await setup({})
     expect(out.text()).toBe('ready.\n> ')
-    // And it drives the default agent id 'main'.
   })
 
   it('detects readline terminal mode from both stream TTY flags', async () => {
@@ -205,9 +215,8 @@ describe('createStdioChat rendering', () => {
   it('renders turn/start and turn/end markers from the session feed', async () => {
     const { ctx, out } = await setup()
     const agent = makeAgent('main')
-    // agent/created populates the session-id → agent-id label map.
-    ctx.emit('agent/created', agent)
-    const session = makeSession('main')
+    ctx.agents.register(agent)
+    const session = agent.session
     ctx.emit('session/event', session, {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 3, trigger: { kind: 'message' } },
     } as SessionEvent)
@@ -218,33 +227,57 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toContain('\n> ')
   })
 
-  it('falls back to the session id as the label when no agent is mapped', async () => {
+  it('uses the session id as the label for a non-target session', async () => {
     const { ctx, out } = await setup()
-    // No agent/created emitted, so the label map is empty — the header id shows.
+    // No target exists, so the event's durable identity is the label.
     ctx.emit('session/event', makeSession('orphan'), {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 1, trigger: { kind: 'message' } },
     } as SessionEvent)
-    expect(out.text()).toContain('[orphan-session turn 1] ')
+    expect(out.text()).toContain('[orphan turn 1] ')
   })
 
-  it('seeds labels for agents already registered before the UI installs', async () => {
-    // The pre-created `main` agent (and any agent surviving an HMR reload of just this fiber)
-    // fired its `agent/created` before the UI's listener existed, so the live listener alone
-    // would miss it. Seeding from `ctx.agents.list()` preserves the `[main turn N]` label instead
-    // of falling back to the raw session id.
+  it('uses an agent already registered before the UI installs as its target', async () => {
+    // The pre-created `main` agent (and any agent surviving an HMR reload of just
+    // this fiber) fired its `agent/created` before the UI's listener existed, so
+    // the live listener alone would miss it. Seeding from `ctx.agents.list()` at
+    // install time preserves the terminal's fixed `[main turn N]` label.
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserInteractionService)
     const agent = makeAgent('main')
+    // Durable lineage does not imply runtime child ownership: the stdio app
+    // may explicitly resume a persisted fork as its one configured agent.
+    ;(agent.session.header as { parentSession?: string }).parentSession = 'persisted-parent'
     ctx.agents.register(agent) // registered BEFORE the UI plugin below
     const { runtime, out } = makeRuntime()
     await ctx.plugin(Object.assign((inner: Context) => {
       createStdioChat(inner, CONFIG, runtime)
     }, { inject: ['agents', 'userInteraction'] }))
-    ctx.emit('session/event', makeSession('main'), {
+    ctx.emit('session/event', agent.session, {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 5, trigger: { kind: 'message' } },
     } as SessionEvent)
     expect(out.text()).toContain('[main turn 5] ')
+  })
+
+  it('buffers input for a lineage-bearing configured agent until its session starts', async () => {
+    const { ctx, input } = await setup({ welcome: 'hi there', sessionId: 'resumed' })
+    input.feed('continue')
+    await new Promise(resolve => setImmediate(resolve))
+
+    const unrelated = makeAgent('unrelated')
+    ctx.agents.register(unrelated)
+    ctx.emit('agent/session-start', unrelated, 'startup')
+    const resumed = makeAgent('resumed')
+    ;(resumed.session.header as { parentSession?: string }).parentSession = 'persisted-parent'
+    ctx.agents.register(resumed)
+    await new Promise(resolve => setImmediate(resolve))
+    expect(resumed.sent).toEqual([])
+
+    ctx.emit('agent/session-start', resumed, 'resume')
+    await new Promise(resolve => setImmediate(resolve))
+
+    expect(unrelated.sent).toEqual([])
+    expect(resumed.sent).toEqual([[{ type: 'text', text: 'continue' }]])
   })
 
   it('resets dim styling at turn/end if a turn ends mid-reasoning', async () => {
@@ -257,17 +290,63 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toContain('\x1B[2mmid\x1B[0m')
   })
 
-  it('drops the label mapping on agent/disposed', async () => {
+  it('drops the target object on agent/disposed', async () => {
     const { ctx, out } = await setup()
     const agent = makeAgent('main')
-    ctx.emit('agent/created', agent)
-    ctx.emit('agent/disposed', agent)
-    // After disposal the map no longer resolves the agent id — fall back to the
-    // session header id.
-    ctx.emit('session/event', makeSession('main'), {
+    const dispose = ctx.agents.register(agent)
+    dispose()
+    // After disposal the event belongs to a non-target session, so its durable
+    // identity is rendered directly.
+    ctx.emit('session/event', agent.session, {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 1, trigger: { kind: 'message' } },
     } as SessionEvent)
-    expect(out.text()).toContain('[main-session turn 1] ')
+    expect(out.text()).toContain('[main turn 1] ')
+  })
+
+  it('keeps the target when a different agent is disposed', async () => {
+    const { ctx, out } = await setup()
+    const target = makeAgent('main')
+    ctx.agents.register(target)
+    ctx.emit('agent/disposed', makeAgent('other'))
+    ctx.emit('session/event', target.session, {
+      type: 'turn/start', seq: 1, time: 0, data: { turn: 1, trigger: { kind: 'message' } },
+    } as SessionEvent)
+    expect(out.text()).toContain('[main turn 1] ')
+  })
+
+  it('retargets only the exact identity after loop HMR recreation', async () => {
+    const { ctx, input } = await setup({ welcome: 'hi there', sessionId: 'main-session-fixed' })
+    const oldRoot = makeAgent('main-session-fixed')
+    const prefixCollision = makeAgent('main-session-unrelated')
+    const disposeOld = ctx.agents.register(oldRoot)
+    ctx.agents.register(prefixCollision)
+    disposeOld()
+    const replacement = makeAgent('main-session-fixed')
+    ctx.agents.register(replacement)
+    input.feed('after hmr')
+    await new Promise(resolve => setImmediate(resolve))
+    expect(replacement.sent).toEqual([])
+    ctx.emit('agent/session-start', replacement, 'resume')
+    await new Promise(resolve => setImmediate(resolve))
+
+    expect(prefixCollision.sent).toEqual([])
+    expect(replacement.sent).toEqual([[{ type: 'text', text: 'after hmr' }]])
+  })
+
+  it('does not retarget stdin to an unrelated root after the configured agent is disposed', async () => {
+    const { ctx, input } = await setup()
+    const unrelated = makeAgent('unrelated')
+    ctx.agents.register(unrelated)
+    const configured = makeAgent('main')
+    const disposeConfigured = registerReady(ctx, configured)
+    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
+
+    disposeConfigured()
+    input.feed('must not leak')
+    await new Promise(resolve => setImmediate(resolve))
+
+    expect(unrelated.sent).toEqual([])
+    expect(error).toHaveBeenCalledWith('ui-stdio: main agent is not running')
   })
 
   it('renders tool/call and tool/result session events', async () => {
@@ -683,7 +762,7 @@ describe('createStdioChat input', () => {
   it('sends a typed line to an idle agent', async () => {
     const { ctx, input } = await setup()
     const agent = makeAgent('main', 'idle')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('do a thing')
     await new Promise(r => setImmediate(r))
     expect(agent.sent).toEqual([[{ type: 'text', text: 'do a thing' }]])
@@ -693,7 +772,7 @@ describe('createStdioChat input', () => {
   it('steers a typed line into a running agent', async () => {
     const { ctx, input } = await setup()
     const agent = makeAgent('main', 'running')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('steer me')
     await new Promise(r => setImmediate(r))
     expect(agent.steered).toEqual([[{ type: 'text', text: 'steer me' }]])
@@ -709,22 +788,57 @@ describe('createStdioChat input', () => {
     expect(agent.sent).toEqual([])
   })
 
-  it('logs and drops a line when the target agent is not running', async () => {
+  it('buffers a line until the initial target session starts', async () => {
     const { ctx, input } = await setup()
     const spy = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
     input.feed('nobody home')
     await new Promise(r => setImmediate(r))
-    expect(spy).toHaveBeenCalledWith('ui-stdio: agent "%s" is not running', 'main')
+    expect(spy).not.toHaveBeenCalled()
+
+    const agent = makeAgent('main')
+    ctx.agents.register(agent)
+    await new Promise(r => setImmediate(r))
+    expect(agent.sent).toEqual([])
+    ctx.emit('agent/session-start', agent, 'startup')
+    await new Promise(r => setImmediate(r))
+    expect(agent.sent).toEqual([[{ type: 'text', text: 'nobody home' }]])
   })
 
-  it('drives the agent named in config, not a hardcoded id', async () => {
-    const { ctx, input } = await setup({ welcome: 'w', agent: 'worker' })
+  it('drops later input after the configured startup fails', async () => {
+    const { ctx, input } = await setup()
+    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
+    const failure = unrenderableFailure()
+    ctx.emit('agent-loop/config-start-failed', SessionId('main'), failure)
+
+    input.feed('cannot run')
+    await new Promise(r => setImmediate(r))
+
+    expect(error).toHaveBeenCalledWith(
+      'ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): <unrenderable thrown value>',
+    )
+  })
+
+  it('ignores a stale config-start failure after the exact target is ready', async () => {
+    const { ctx, input } = await setup()
+    const agent = makeAgent('main')
+    registerReady(ctx, agent)
+    ctx.emit('agent-loop/config-start-failed', SessionId('main'), new Error('stale'))
+
+    input.feed('still live')
+    await new Promise(r => setImmediate(r))
+
+    expect(agent.sent).toEqual([[{ type: 'text', text: 'still live' }]])
+  })
+
+  it('drives the exact app-configured resumed session', async () => {
+    const { ctx, input } = await setup({ welcome: 'w', sessionId: 'worker' })
     const agent = makeAgent('worker')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent, 'resume')
     input.feed('hi')
     await new Promise(r => setImmediate(r))
     expect(agent.sent).toHaveLength(1)
   })
+
 })
 
 describe('createStdioChat EOF exit', () => {
@@ -738,7 +852,7 @@ describe('createStdioChat EOF exit', () => {
   it('waits for the agent to settle idle after running before exiting', async () => {
     const { ctx, input, exit } = await setup()
     const agent = makeAgent('main', 'idle')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('work')
     await new Promise(r => setImmediate(r))
     input.finish()
@@ -753,10 +867,50 @@ describe('createStdioChat EOF exit', () => {
     expect(exit).toHaveBeenCalledWith(0)
   })
 
+  it('keeps piped EOF pending until buffered startup input runs', async () => {
+    const { ctx, input, exit } = await setup()
+    input.feed('work')
+    input.finish()
+    await flushExit()
+    expect(exit).not.toHaveBeenCalled()
+
+    const agent = makeAgent('main', 'idle')
+    ctx.agents.register(agent)
+    await new Promise(r => setImmediate(r))
+    expect(agent.sent).toEqual([])
+    ctx.emit('agent/session-start', agent, 'startup')
+    await new Promise(r => setImmediate(r))
+    expect(agent.sent).toEqual([[{ type: 'text', text: 'work' }]])
+    ctx.emit('agent/status', agent, 'running')
+    ;(agent as { status: AgentStatus }).status = 'idle'
+    ctx.emit('agent/status', agent, 'idle')
+    await flushExit()
+    expect(exit).toHaveBeenCalledWith(0)
+  })
+
+  it('drains buffered piped input and exits when configured startup fails', async () => {
+    const { ctx, input, exit } = await setup()
+    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
+    input.feed('work')
+    input.finish()
+    await new Promise(r => setImmediate(r))
+    ctx.emit('agent-loop/config-start-failed', SessionId('other'), new Error('unrelated'))
+    await flushExit()
+    expect(exit).not.toHaveBeenCalled()
+
+    ctx.emit('agent-loop/config-start-failed', SessionId('main'), unrenderableFailure())
+    await flushExit()
+
+    expect(error).toHaveBeenCalledWith(
+      'ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): <unrenderable thrown value>',
+    )
+    expect(exit).toHaveBeenCalledWith(0)
+  })
+
   it('schedules the exit only once when idle fires repeatedly', async () => {
     const { ctx, input, exit } = await setup()
     const agent = makeAgent('main', 'running')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('work')
     await new Promise(r => setImmediate(r))
     ctx.emit('agent/status', agent, 'running') // sawRunning = true
@@ -774,7 +928,7 @@ describe('createStdioChat EOF exit', () => {
   it('does not exit on an idle transition for a different agent', async () => {
     const { ctx, input, exit } = await setup()
     const agent = makeAgent('main', 'idle')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('work')
     await new Promise(r => setImmediate(r))
     input.finish()
@@ -788,7 +942,7 @@ describe('createStdioChat EOF exit', () => {
   it('does not exit while a turn is still running at EOF', async () => {
     const { ctx, input, exit } = await setup()
     const agent = makeAgent('main', 'idle')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('work')
     await new Promise(r => setImmediate(r))
     ctx.emit('agent/status', agent, 'running')
@@ -837,7 +991,7 @@ describe('createStdioChat disposal (HMR safety)', () => {
   it('removes the agent/status listener on dispose', async () => {
     const { ctx, fiber, input, exit } = await setup()
     const agent = makeAgent('main', 'idle')
-    ctx.agents.register(agent)
+    registerReady(ctx, agent)
     input.feed('work')
     await new Promise(r => setImmediate(r))
     await fiber.dispose()

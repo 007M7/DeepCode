@@ -175,9 +175,13 @@ describe('cordis_mount', () => {
     // The registered schema is canonical JSON Schema derived from the DSL:
     // the required array survived, integer became number, extra is optional.
     const schema = ctx.tools.schemas().find(s => s.name === 'json_schema_tool')!
-    const parameters = schema.parameters as { properties: Record<string, { type: string; enum?: string[] }>; required?: string[] }
+    const parameters = schema.parameters as {
+      properties: Record<string, { type: string; enum?: string[]; default?: unknown }>
+      required?: string[]
+    }
     expect(parameters.required).toEqual(['text'])
     expect(parameters.properties.count!.type).toBe('number')
+    expect(parameters.properties.count!.default).toBe(1)
     expect(parameters.properties.mode!.enum).toEqual(['fast', 'slow'])
     // Arg validation enforces the normalized spec: text required, extra not.
     expect((await call(ctx, 'json_schema_tool', { count: 2 })).isError).toBe(true)

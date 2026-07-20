@@ -1,19 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as fork from '../src/index.ts'
 import { STRUCTURED_OUTPUT_TOOL } from '@deepseek-ai/dsh-subagent-inprocess'
-import { completedTurnPrefix } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -33,45 +30,19 @@ const emptyStop: StreamChunk[] = [{ type: 'finish', reason: { kind: 'stop' } }]
  */
 async function setup(script: Script) {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(Invariants)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
   await ctx.plugin(fork, { providerName: 'fork' })
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
-  const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+  const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
   return { ctx, parent }
 }
 
 function text(blocks: { type: string; text?: string }[]): string {
   return blocks.filter(b => b.type === 'text').map(b => b.text).join('')
 }
-
-describe('completedTurnPrefix', () => {
-  it('returns an empty prefix for a parent that has never completed a turn', async () => {
-    const { parent } = await setup([])
-    expect(completedTurnPrefix(parent)).toEqual([])
-  })
-
-  it('returns the balanced prefix up to and including the last turn/end', async () => {
-    const { parent } = await setup([textResponse('first'), textResponse('second')])
-    parent.send([{ type: 'text', text: 'q1' }])
-    await parent.whenIdle()
-    parent.send([{ type: 'text', text: 'q2' }])
-    await parent.whenIdle()
-
-    const prefix = completedTurnPrefix(parent)
-    // Ends exactly at the last turn/end; seq is contiguous from 0.
-    expect(prefix.at(-1)?.type).toBe('turn/end')
-    expect(prefix.map(e => e.seq)).toEqual(prefix.map((_, i) => i))
-    // Both completed turns are present.
-    expect(prefix.filter(e => e.type === 'turn/end')).toHaveLength(2)
-  })
-})
 
 describe('dsh-subagent-fork', () => {
   it('emits subagent/start only after the seeded child is published', async () => {
@@ -95,7 +66,6 @@ describe('dsh-subagent-fork', () => {
     // The parent has never completed a turn → empty prefix → the provider omits
     // the seed → the child runs fresh. Exercises the `seed.length > 0` false arm.
     const { ctx, parent } = await setup([textResponse('fresh child')])
-    expect(completedTurnPrefix(parent)).toEqual([])
     const run = await start(ctx, 'fork', { prompt: [{ type: 'text', text: 'child q' }], parent })
     const result = await run.result
     expect(result.stopReason).toBe('completed')
@@ -103,6 +73,24 @@ describe('dsh-subagent-fork', () => {
     const child = ctx.agents.get(run.id)!
     // Only the child's own turn — no seeded parent turns.
     expect(child.session.events.filter(e => e.type === 'turn/end')).toHaveLength(1)
+    expect(child.session.header.seedLength).toBeUndefined()
+    await run.dispose()
+  })
+
+  it('seeds every completed parent turn through the last turn/end', async () => {
+    const { ctx, parent } = await setup([textResponse('first'), textResponse('second'), textResponse('child')])
+    parent.send([{ type: 'text', text: 'q1' }])
+    await parent.whenIdle()
+    parent.send([{ type: 'text', text: 'q2' }])
+    await parent.whenIdle()
+    const parentPrefixLen = parent.session.events.length
+
+    const run = await start(ctx, 'fork', { prompt: [{ type: 'text', text: 'child q' }], parent })
+    await run.result
+    const child = ctx.agents.get(run.id)!
+    expect(child.session.header.seedLength).toBe(parentPrefixLen)
+    expect(child.session.events.slice(0, parentPrefixLen).at(-1)?.type).toBe('turn/end')
+    expect(child.session.events.slice(0, parentPrefixLen).filter(e => e.type === 'turn/end')).toHaveLength(2)
     await run.dispose()
   })
 

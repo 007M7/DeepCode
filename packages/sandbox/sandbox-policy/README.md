@@ -4,7 +4,7 @@ The single owner of the deployment's sandbox policy: the file-effect [`SandboxMo
 
 ## Why a shared home
 
-Two families enforce the same mode vocabulary: the sandboxed bash executor (`@deepseek-ai/dsh-bash-sandbox`) and the sandboxed filesystem provider (`@deepseek-ai/dsh-fs-sandbox`). If each held its own `mode` + `workspaceRoot` config, the two could drift into a split world — bash confined to one root while fs fences another, exactly what [the sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md) warns against. Both inject `ctx.sandboxPolicy` and read the SAME default instead. The [cross-family fs sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-14-cross-family-fs-sandbox.md) records the decision.
+Two families enforce the same mode vocabulary: the sandboxed bash executor (`@deepseek-ai/dsh-bash-sandbox`) and the sandboxed filesystem provider (`@deepseek-ai/dsh-fs-sandbox`). If each held its own `mode` + `workspaceRoot` config, the two could drift into a split world — bash confined to one root while fs fences another, exactly what [the sandbox RFC](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md) warns against. Both inject `ctx.sandboxPolicy` and read the SAME default instead. The [cross-family fs sandbox RFC](../../../.agents/notes/implemented/feature/2026-07-14-cross-family-fs-sandbox.md) records the decision.
 
 ## Config
 
@@ -25,6 +25,10 @@ A runtime switch (an ACP `session/set_config_option`, a test scenario) is one lo
 ## Model Experience
 
 Indirectly, through `dsh-tool-bash` and `dsh-tool-fs`, which render the effective mode this service holds in their `[sandbox: …]` denial markers and escalation prompts; the `sandbox/mode` event itself never reaches the model.
+
+#### KV Cache effect
+
+No direct invalidation; the named consumers own any request-prefix changes, and the mode is deliberately absent from the prompt.
 
 ## Known Limitations and Deferred Work
 
