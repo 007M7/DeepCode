@@ -942,6 +942,13 @@ describe('terminal mounting', () => {
     // Initial render uses dark-optimised palette: SGR 2 (dim) for dim text.
     expect(result.terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
 
+    // A report matching the current scheme is a no-op: no palette rebuild or
+    // re-render (ESC [?997;1n = dark, the startup default).
+    const beforeSameScheme = result.terminal.output.length
+    result.terminal.send('\x1b[?997;1n')
+    await tick()
+    expect(result.terminal.output.length).toBe(beforeSameScheme)
+
     // Simulate the terminal responding with a light color scheme report
     // (ESC [?997;2n = light, ESC [?997;1n = dark).
     result.terminal.send('\x1b[?997;2n')
@@ -962,5 +969,24 @@ describe('terminal mounting', () => {
     // After switching back, a new write uses SGR 2 for the header detail.
     expect(result.terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
     await dispose(result)
+  })
+
+  it('keeps the dark palette when the terminal rejects the color-scheme query', async () => {
+    class QueryFailTerminal extends FakeTerminal {
+      override write(data: string): void {
+        // The device-status query is the only write that fails; the promise
+        // rejects and the swallowed `.catch` leaves the dark palette in place.
+        if (data === '\x1b[?996n') throw new Error('query write failed')
+        super.write(data)
+      }
+    }
+    const terminal = new QueryFailTerminal()
+    const result = await createTuiTestHarness(terminal, vi.fn(), {
+      config: { color: true },
+      cwd: process.cwd(),
+    })
+    await tick()
+    expect(terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
+    await disposeTuiTestHarness(result)
   })
 })

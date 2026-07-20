@@ -1134,24 +1134,23 @@ export function createTuiChat(
     currentScheme = scheme
     Object.assign(palette, createPalette(resolved.color, scheme))
     Object.assign(mdTheme, markdownTheme(palette))
-    editor.borderColor = text => palette.dim(text)
     rebuildTranscript(false)
     setStatus(agent.status)
     requestRender()
   }
   let currentScheme: TerminalColorScheme = 'dark'
 
-  // Detect the terminal's color scheme via device-status report. Most terminals
-  // do not respond, so the promise settles with `undefined` and we keep the
-  // dark-optimised palette.
-  ui.queryTerminalColorScheme({ timeoutMs: 2000 }).then((scheme) => {
-    if (scheme !== undefined) applyColorScheme(scheme)
-  }).catch(() => {
-    // Timeout or query failure — keep dark default.
-  })
-
-  // Live-update when the user switches their terminal theme behind us.
+  // Apply any color scheme the terminal reports. Registering before the query
+  // below means even a synchronous reply reaches `applyColorScheme`; in practice
+  // the startup query's reply is the only report, since dsh-tui leaves
+  // unsolicited color-scheme notifications disabled.
   const disposeSchemeListener = ui.onTerminalColorSchemeChange(applyColorScheme)
+
+  // Ask the terminal for its color scheme via device-status report; the reply,
+  // if any, arrives through the listener above. Most terminals do not respond,
+  // so we keep the dark-optimised palette. Swallow a query-write failure for the
+  // same reason.
+  ui.queryTerminalColorScheme({ timeoutMs: 2000 }).catch(() => {})
 
   const toggleTools = (): void => {
     toolsExpanded = !toolsExpanded
