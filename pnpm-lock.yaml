@@ -143,6 +143,12 @@ importers:
       '@deepseek-ai/dsh-llm-replay':
         specifier: workspace:*
         version: link:../packages/support/llm-replay
+      '@deepseek-ai/dsh-lsp':
+        specifier: workspace:*
+        version: link:../packages/lsp/lsp
+      '@deepseek-ai/dsh-lsp-local':
+        specifier: workspace:*
+        version: link:../packages/lsp/lsp-local
       '@deepseek-ai/dsh-permission':
         specifier: workspace:*
         version: link:../packages/ui/permission
@@ -191,6 +197,9 @@ importers:
       '@deepseek-ai/dsh-tool-fs-search':
         specifier: workspace:*
         version: link:../packages/fs/tool-fs-search
+      '@deepseek-ai/dsh-tool-lsp':
+        specifier: workspace:*
+        version: link:../packages/lsp/tool-lsp
       '@deepseek-ai/dsh-tool-subagent':
         specifier: workspace:*
         version: link:../packages/subagent/tool-subagent
