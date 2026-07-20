@@ -1,7 +1,7 @@
 {"type":"session","version":0,"id":"df041acb-2f14-4d5f-b6e2-2fb6b9eb6427","createdAt":1783860666204,"cwd":"/var/folders/2g/b32ct0qn1d728l_v6tdkjytr0000gn/T/acp-snap-cwd-4oJKT4"}
 {"type":"turn/start","seq":0,"time":1783860666206,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"permission/preset","seq":1,"time":1783962244578,"data":{"preset":"workspace-write"}}
-{"type":"bash/sandbox-mode","seq":2,"time":1783962244578,"data":{"mode":"workspace-write"}}
+{"type":"sandbox/mode","seq":2,"time":1784518115721,"data":{"mode":"workspace-write"}}
 {"type":"approval/policy","seq":3,"time":1783962244578,"data":{"policy":"ask"}}
 {"type":"user/message","seq":4,"time":1783962244578,"data":{"content":[{"type":"text","text":"Use the bash tool to run exactly this one command in a single call: printf 'before\\n' > out.txt && cat out.txt. Then reply with the single word DONE and stop."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":5,"time":1783962244579,"data":{"turn":1,"step":1}}
@@ -102,7 +102,7 @@
 {"type":"turn/end","seq":100,"time":1783962244601,"data":{"turn":1,"reason":{"kind":"completed"}}}
 {"type":"turn/start","seq":101,"time":1783962244623,"data":{"turn":2,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"permission/preset","seq":102,"time":1783962244624,"data":{"preset":"danger-full-access"}}
-{"type":"bash/sandbox-mode","seq":103,"time":1783962244624,"data":{"mode":"danger-full-access"}}
+{"type":"sandbox/mode","seq":103,"time":1784518115842,"data":{"mode":"danger-full-access"}}
 {"type":"approval/policy","seq":104,"time":1783962244624,"data":{"policy":"never"}}
 {"type":"user/message","seq":105,"time":1783962244624,"data":{"content":[{"type":"text","text":"Use the bash tool to run exactly: cat out.txt. Then reply with the single word DONE and stop."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"context/message","seq":106,"time":1783962244624,"data":{"content":[{"type":"text","text":"The approval policy changed from \"ask\" to \"never\" (changed by the user)."}],"source":{"kind":"plugin","plugin":"user-approval"}},"surfaceOp":"append"}

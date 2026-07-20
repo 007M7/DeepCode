@@ -10,17 +10,25 @@
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
 
-# The default composition confines bash to the workspace and asks before a
-# wider retry. Snapshots use danger-full-access; DSH_PERMISSION_MODE overrides
-# both mode and approval policy for deployments and tests.
+# The default composition confines bash AND the filesystem tools to the
+# workspace and asks before a wider retry. Snapshot runs select
+# danger-full-access so the established scenarios remain runner-independent;
+# DSH_PERMISSION_MODE provides the same explicit deployment/test override
+# outside the snapshot harness. The sandbox mode + workspace root live on
+# ctx.sandboxPolicy — the one home both enforcing families (bash, fs) read.
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: !!js "process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')"
+    workspaceRoot: !!js process.cwd()
+
 - id: bash
   name: '@deepseek-ai/dsh-bash-sandbox'
   config:
     timeoutMs: 60000
-    mode: !!js "process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')"
-    workspaceRoot: !!js process.cwd()
 
 - id: approval
   name: '@deepseek-ai/dsh-user-approval'
@@ -111,6 +119,22 @@
 # thresholds [3, 5, 8]. Only the repeat-tool-guard snapshot scenario reaches them.
 - id: repeat-tool-guard
   name: '@deepseek-ai/dsh-repeat-tool-guard'
+
+# The filesystem stack rides the SAME sandbox policy as bash: dsh-fs-sandbox
+# replaces dsh-fs-local behind ctx.fs and fences write/edit by the effective
+# mode (read-only denies, workspace-write contains to the workspace + temp
+# roots, danger-full-access passes through), so read/write/edit are available
+# under every mode. fs-policy (read-before-edit) composes orthogonally on top.
+- id: fs-sandbox
+  name: '@deepseek-ai/dsh-fs-sandbox'
+  config:
+    cwd: !!js process.cwd()
+
+- id: fs-policy
+  name: '@deepseek-ai/dsh-fs-policy'
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
 
 # `configPath` is read once at load and resolves from the server launch cwd, not
 # `session/new.cwd`; one `hooks.json` therefore applies to every session and a

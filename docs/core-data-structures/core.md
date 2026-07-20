@@ -338,13 +338,11 @@ The fourteen event variants (`turn/start`, `turn/end`, `step/start`, `step/end`,
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`InjectOptions` extends ordinary message attribution with context-only framing and durable model-hidden JSON metadata:
+`InjectOptions` extends ordinary message attribution with durable model-hidden JSON metadata:
 
 ```ts type-equiv
 /** Options specific to durable synthetic context injection. */
 interface InjectOptions extends SendOptions {
-  /** Keep the canonical context tag, or send caller-owned framing verbatim. */
-  envelope?: ContextEnvelope
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }
@@ -407,7 +405,7 @@ The process-local initiator carried by `ctx.agents` is the exact `Agent` above, 
 
 ## Interception decisions
 
-Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. Prompt and post-tool decisions share one model-facing context shape, `HookContext`, which is `inject()`ed as a `context/message` and therefore carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt). Its optional `envelope` selects the canonical context tag or caller-owned raw framing, while JSON `meta` persists plugin state without exposing it to the model. Both decisions carry `additionalContexts[]` so every entry preserves its own provenance, framing, and metadata. Continuation reasons are steering messages instead and deliberately use the narrower content/source shape.
+Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. Prompt and post-tool decisions share one model-facing context shape, `HookContext`, which is `inject()`ed as a `context/message` and therefore carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt). Its `content` reaches the model verbatim as a user-role message, while JSON `meta` persists plugin state without exposing it to the model. Both decisions carry `additionalContexts[]` so every entry preserves its own provenance and metadata. Continuation reasons are steering messages instead and deliberately use the narrower content/source shape.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -416,8 +414,6 @@ Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types
 interface HookContext {
   content: ContentBlock[]
   source: MessageSource
-  /** Keep the canonical context tag, or use caller-owned framing verbatim. */
-  envelope?: ContextEnvelope
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }
@@ -436,7 +432,7 @@ type PromptDecision =
   | { kind: 'block'; reason: string }
 ```
 
-`agent/turn-continuation` returns a `ContinuationDecision` (the loop's default is `continue` when the step had tool calls or steering was injected, else `stop`; a `continue` `reason` is recorded as next-step steering in the same turn and therefore carries no context envelope or metadata — the typed `/goal` pattern):
+`agent/turn-continuation` returns a `ContinuationDecision` (the loop's default is `continue` when the step had tool calls or steering was injected, else `stop`; a `continue` `reason` is recorded as next-step steering in the same turn and therefore carries no context metadata — the typed `/goal` pattern):
 
 ```ts type-equiv
 /** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */
