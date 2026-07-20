@@ -1088,7 +1088,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-fs-search/src/index.ts:59`](../packages/fs/tool-fs-search/src/index.ts)
+Source: [`packages/fs/tool-fs-search/src/index.ts:62`](../packages/fs/tool-fs-search/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-skill`
 
