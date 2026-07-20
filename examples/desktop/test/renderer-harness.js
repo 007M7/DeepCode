@@ -348,8 +348,11 @@ async function loadRenderer(customStubs = {}, options = {}) {
   const documentStub = {
     body: makeElement('body'),
     _byId: new Map(),
-    createElement(tag) { return makeElement(tag) },
-    createElementNS(_ns, tag) { return makeElement(tag) },
+    // Real DOM nodes always expose `ownerDocument`; modules that build their
+    // own subtree (e.g. session-log-view.js) resolve the document off the
+    // container's ownerDocument. Stamp it so those modules find a document.
+    createElement(tag) { const e = makeElement(tag); e.ownerDocument = documentStub; return e },
+    createElementNS(_ns, tag) { const e = makeElement(tag); e.ownerDocument = documentStub; return e },
     createTextNode(txt) {
       // A text node is a leaf with no children — mirror the API surface
       // just enough for `append(inp, document.createTextNode(...))`.
@@ -366,6 +369,7 @@ async function loadRenderer(customStubs = {}, options = {}) {
       // later via document.getElementById(id).
       const el = makeElement('div')
       el.setAttribute('id', id)
+      el.ownerDocument = documentStub
       this._byId.set(id, el)
       documentStub.body.appendChild(el)
       return el
@@ -414,6 +418,12 @@ async function loadRenderer(customStubs = {}, options = {}) {
     ['trace-aggregator.js', '__dshTraceAgg'],
     ['trace-timeline.js', '__dshTraceTimeline'],
     ['trace-detail-pane.js', '__dshTraceDetailPane'],
+    // lane-p1-tabs: the Chat pane's Trace/时序/Log tabs read these three.
+    // trace-tri-view wraps the timeline/graph projections; session-log-view
+    // owns the full-history Log tab. Both are guarded on read in renderer.js,
+    // but preloading lets renderer-harness tests exercise the tab helpers.
+    ['trace-tri-view.js', '__dshTraceTriView'],
+    ['session-log-view.js', '__dshSessionLogView'],
     ['edit-rerun-header.js', '__dshEditRerunHeader'],
     ['panels-c.js', '__dshPanelsC'],
     ['tool-cards.js', '__dshToolCards'],

@@ -12533,11 +12533,154 @@ details.devtools-row[open] > .devtools-row-summary::before { transform: rotate(9
   stroke-width: 2;
 }
 
-/* Stream shows only for [data-chat-view="list"], graph only for
- * [data-chat-view="graph"]. The pane is the parent that carries the
- * data attribute so a single toggle switches both children. */
-.pane[data-pane="chat"][data-chat-view="graph"] .stream { display: none; }
-.pane[data-pane="chat"][data-chat-view="list"] .chat-session-graph { display: none; }
+/* Stream shows only for [data-chat-view="list"]; each alternate view shows
+ * only when its own data-chat-view value is active. The pane is the parent
+ * that carries the data attribute so a single toggle switches all children.
+ * lane-p1-tabs expanded this from a 2-way (list/graph) toggle to 5 views. */
+.chat-session-timeline,
+.chat-session-trace,
+.chat-session-log { display: none; }
+.pane[data-pane="chat"][data-chat-view="graph"]    .stream { display: none; }
+.pane[data-pane="chat"][data-chat-view="timeline"] .stream { display: none; }
+.pane[data-pane="chat"][data-chat-view="trace"]    .stream { display: none; }
+.pane[data-pane="chat"][data-chat-view="log"]      .stream { display: none; }
+.pane[data-pane="chat"]:not([data-chat-view="graph"])    .chat-session-graph    { display: none; }
+.pane[data-pane="chat"][data-chat-view="timeline"] .chat-session-timeline { display: block; }
+.pane[data-pane="chat"][data-chat-view="trace"]    .chat-session-trace    { display: flex; }
+.pane[data-pane="chat"][data-chat-view="log"]      .chat-session-log      { display: flex; }
+
+/* lane-p1-tabs: 时序 / Trace / Log full-pane containers share the graph's
+ * scroll+padding shell. Trace + Log are flex-column so their inner toolbar
+ * pins while the body scrolls. */
+.chat-session-timeline {
+  padding: 20px;
+  overflow: auto;
+  height: 100%;
+}
+.chat-session-trace,
+.chat-session-log {
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+  min-height: 0;
+}
+.chat-session-view-empty {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 40px 20px;
+}
+.chat-session-trace .trace-tri-view { padding: 12px 20px; overflow: auto; min-height: 0; }
+
+/* lane-p1-tabs: Log view (session-log-view.js). Header (search + count),
+ * chip row, scrolling list of expandable rows, footer "Load more". Grammar
+ * mirrors the devtools panel so the two logs read as one family. */
+.session-log-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--divider);
+  flex: 0 0 auto;
+}
+.session-log-search {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm, 6px);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 9px;
+}
+.session-log-count { font-size: 12px; white-space: nowrap; }
+.session-log-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--divider);
+  flex: 0 0 auto;
+  max-height: 92px;
+  overflow-y: auto;
+}
+.session-log-chips-empty { font-size: 12px; }
+.session-log-chip {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 9px;
+  cursor: pointer;
+}
+.session-log-chip:hover { color: var(--text); }
+.session-log-chip.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.session-log-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 6px 12px 20px;
+}
+.session-log-row {
+  border-bottom: 1px solid var(--divider);
+}
+.session-log-row-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.session-log-row-summary::-webkit-details-marker { display: none; }
+.session-log-seq {
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 44px;
+  text-align: right;
+  flex: 0 0 auto;
+}
+.session-log-type {
+  color: var(--accent);
+  font-size: 11.5px;
+  flex: 0 0 auto;
+}
+.session-log-summary {
+  color: var(--text);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.session-log-row-body { padding: 0 8px 8px 62px; }
+.session-log-payload {
+  background: var(--bg-elev);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm, 6px);
+  color: var(--text);
+  font-size: 11.5px;
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.session-log-empty { font-size: 12.5px; padding: 24px 8px; text-align: center; }
+.session-log-more {
+  align-self: center;
+  margin: 8px auto 16px;
+  flex: 0 0 auto;
+}
 
 /* Give the pane a positioning context so the absolute drawer anchors
  * inside it, not against the viewport root. */

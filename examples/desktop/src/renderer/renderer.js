@@ -602,6 +602,14 @@ async function selectSession(id) {
   // Per-session queue: repaint the strip for the session we just switched to.
   // Strict isolation — the strip only ever shows the active session's queue.
   renderMsgQueueStrip()
+  // lane-p1-tabs: re-point whichever alternate Chat view is on-screen at the
+  // session we just switched to. The graph path already refreshed via
+  // refreshSessionGraphIfActive during replay ticks, but timeline/trace/log
+  // key off the active session and must rebuild on switch even when no live
+  // event follows. setChatView is cheap and idempotent for the current view.
+  if (chatPaneEl && chatPaneEl.dataset.chatView && chatPaneEl.dataset.chatView !== 'list') {
+    setChatView(chatPaneEl.dataset.chatView)
+  }
 }
 
 async function replayHistory(id) {
@@ -2604,6 +2612,24 @@ function deepLinkToSeq(seq) {
   setTimeout(function () { target.classList.remove('trace-deep-link-flash') }, 1400)
 }
 if (typeof window !== 'undefined') window.__dshDeepLinkToSeq = deepLinkToSeq
+
+// lane-p1-tabs: cross-page bridge for the Tracing-page demotion. Drilling a
+// row on the Tracing page no longer swaps the table for inline tri-view
+// panels — it navigates to the Chat pane, selects that session, and opens the
+// session-scoped Trace tab (one call). This is the single navigation seam
+// tracing-page.openDrill calls; it keeps all session-switch bookkeeping
+// (replay, meter, queue) in renderer.js rather than duplicating it there.
+async function openSessionTrace(sessionId) {
+  if (!sessionId) return
+  try {
+    if (window.__dshTabs && typeof window.__dshTabs.switchTo === 'function') {
+      window.__dshTabs.switchTo('chat')
+    }
+    await selectSession(sessionId)
+    setChatView('trace')
+  } catch (_) { /* stale session id / offline — swallow, nav is best-effort */ }
+}
+if (typeof window !== 'undefined') window.__dshOpenSessionTrace = openSessionTrace
 
 // expose a direct-dispatch seam so the tri-view CDP shoot driver
 // can play fixtures without booting a daemon (offline env where tsx
@@ -4615,6 +4641,12 @@ const chatSideDrawerEl = document.getElementById('chat-side-drawer')
 const chatSideDrawerBodyEl = document.getElementById('chat-side-drawer-body')
 const chatSideDrawerCloseBtn = document.getElementById('chat-side-drawer-close')
 const chatSessionGraphEl = document.getElementById('chat-session-graph')
+// lane-p1-tabs: full-pane 时序 / Trace / Log mounts. Timeline + Trace reuse
+// the trace tri-view modules over the active session's aggregate; Log is
+// owned by session-log-view.js (full-history replay + live merge).
+const chatSessionTimelineEl = document.getElementById('chat-session-timeline')
+const chatSessionTraceEl = document.getElementById('chat-session-trace')
+const chatSessionLogEl = document.getElementById('chat-session-log')
 const chatViewTabEls = document.querySelectorAll('.chat-view-tab')
 
 // Default the pane to List. The absence of the attribute would leave the
@@ -4691,9 +4723,14 @@ if (chatSideDrawerCloseBtn) {
   chatSideDrawerCloseBtn.addEventListener('click', () => setChatDrawerOpen(false))
 }
 
+// lane-p1-tabs: the Chat pane view strip is now five-way —
+// list | graph | timeline | trace | log — all scoped to the ACTIVE session.
+// list/graph keep their prior behavior; timeline/trace mount the trace
+// tri-view modules full-pane; log mounts session-log-view.js.
+const CHAT_VIEWS = ['list', 'graph', 'timeline', 'trace', 'log']
 function setChatView(view) {
   if (!chatPaneEl) return
-  const v = view === 'graph' ? 'graph' : 'list'
+  const v = CHAT_VIEWS.includes(view) ? view : 'list'
   chatPaneEl.dataset.chatView = v
   for (const btn of chatViewTabEls) {
     const active = btn.dataset.chatViewTab === v
@@ -4701,6 +4738,91 @@ function setChatView(view) {
     btn.setAttribute('aria-selected', active ? 'true' : 'false')
   }
   if (v === 'graph') refreshSessionGraph()
+  else if (v === 'timeline') refreshSessionTimeline()
+  else if (v === 'trace') refreshSessionTrace()
+  else if (v === 'log') refreshSessionLog()
+}
+// Aggregate the active session's cached events into trace step-records — the
+// same derivation the per-turn footer tri-view and the Tracing-page drill use
+// (trace-tri-view.sessionTraceRecords → trace-aggregator.aggregateSteps).
+function activeSessionTraceRecords() {
+  const Tri = window.__dshTraceTriView
+  if (!Tri || typeof Tri.sessionTraceRecords !== 'function') return []
+  const meta = state.activeSessionId ? state.sessions.get(state.activeSessionId) : null
+  const events = (meta && Array.isArray(meta.cachedEvents)) ? meta.cachedEvents : []
+  return Tri.sessionTraceRecords(events)
+}
+function activeSessionHeader() {
+  const meta = state.activeSessionId ? state.sessions.get(state.activeSessionId) : null
+  return (meta && meta.header) ? meta.header : null
+}
+// 时序 tab: mount the tri-view's Timeline projection full-pane for the active
+// session. Rebuilt on every entry/session-switch/tick so a live turn extends
+// the Gantt as steps close. Reuses trace-timeline.js via renderTimeline.
+function refreshSessionTimeline() {
+  if (!chatSessionTimelineEl) return
+  const T = window.__dshTraceTimeline
+  chatSessionTimelineEl.textContent = ''
+  const records = activeSessionTraceRecords()
+  if (!T || typeof T.renderTimeline !== 'function' || records.length === 0) {
+    const empty = document.createElement('div')
+    empty.className = 'chat-session-view-empty'
+    empty.textContent = records.length === 0
+      ? 'No steps to plot yet. Send a message on this session.'
+      : 'trace-timeline.js not loaded.'
+    chatSessionTimelineEl.appendChild(empty)
+    return
+  }
+  const el = T.renderTimeline(document, records, {
+    width: 860,
+    onSeqClick: (seq) => deepLinkToSeq(seq),
+  })
+  chatSessionTimelineEl.appendChild(el)
+}
+// Trace tab: mount the tri-view full-pane (Tree | Timeline | Graph sub-chips)
+// for the active session, defaulting to the Tree projection. Reuses
+// trace-tri-view.buildTriView — no duplicated view code. The session-scope
+// tri-view omits a pre-rendered tree card (that belongs to a single turn's
+// footer), so Tree falls through to its session-scope stub while Timeline /
+// Graph render from the aggregate; this is the same shape the Tracing-page
+// drill used before its demotion.
+function refreshSessionTrace() {
+  if (!chatSessionTraceEl) return
+  const Tri = window.__dshTraceTriView
+  chatSessionTraceEl.textContent = ''
+  const records = activeSessionTraceRecords()
+  if (!Tri || typeof Tri.buildTriView !== 'function' || records.length === 0) {
+    const empty = document.createElement('div')
+    empty.className = 'chat-session-view-empty'
+    empty.textContent = records.length === 0
+      ? 'No trace steps yet. Send a message on this session.'
+      : 'trace-tri-view.js not loaded.'
+    chatSessionTraceEl.appendChild(empty)
+    return
+  }
+  const tri = Tri.buildTriView(document, {
+    records,
+    scope: 'session',
+    defaultView: 'graph',
+    sessionId: state.activeSessionId || null,
+    sessionHeader: activeSessionHeader(),
+    onSeqClick: (seq) => deepLinkToSeq(seq),
+  })
+  chatSessionTraceEl.appendChild(tri)
+}
+// Log tab: full-history replay of the active session, owned by
+// session-log-view.js. Points the log at the active session (re-runs the
+// sessionEvents window walk); live events merge in via refreshSessionLogLive.
+function refreshSessionLog() {
+  if (!chatSessionLogEl) return
+  const L = window.__dshSessionLogView
+  if (!L || typeof L.renderSessionLog !== 'function') return
+  // Seed from the in-memory cache so the log paints immediately even for a
+  // live-only session the daemon hasn't persisted; the sessionEvents walk
+  // supersedes it when the wire has more.
+  const meta = state.activeSessionId ? state.sessions.get(state.activeSessionId) : null
+  const seedEvents = (meta && Array.isArray(meta.cachedEvents)) ? meta.cachedEvents : []
+  L.renderSessionLog(chatSessionLogEl, { sessionId: state.activeSessionId || null, seedEvents })
 }
 function refreshSessionGraph() {
   if (!chatSessionGraphEl) return
@@ -4742,7 +4864,22 @@ function refreshSessionGraph() {
   })
 }
 function refreshSessionGraphIfActive() {
-  if (chatPaneEl && chatPaneEl.dataset.chatView === 'graph') refreshSessionGraph()
+  // lane-p1-tabs: keep whichever alternate view is on-screen live. Timeline
+  // and Trace re-derive from the aggregate on each tick; Log merges the one
+  // live event that just arrived (cheaper than a full history re-walk).
+  const view = chatPaneEl && chatPaneEl.dataset.chatView
+  if (view === 'graph') refreshSessionGraph()
+  else if (view === 'timeline') refreshSessionTimeline()
+  else if (view === 'trace') refreshSessionTrace()
+}
+// Merge one just-arrived live event into an open Log view. Called from
+// onSessionEvent's coalesced surface refresh with the raw event so the log
+// tails without re-walking history. No-op unless the Log tab is on-screen.
+function refreshSessionLogLive(sessionId, event) {
+  if (!chatPaneEl || chatPaneEl.dataset.chatView !== 'log') return
+  const L = window.__dshSessionLogView
+  if (!L || typeof L.ingestLiveEvent !== 'function' || !chatSessionLogEl) return
+  L.ingestLiveEvent(chatSessionLogEl, sessionId, event)
 }
 for (const btn of chatViewTabEls) {
   btn.addEventListener('click', () => setChatView(btn.dataset.chatViewTab))
@@ -5107,6 +5244,10 @@ function onSessionEvent(sessionId, event) {
   // switched to Graph yet. Coalesced via rAF so long sessions don't take
   // an O(N²) hit from the O(N) derives.
   refreshChatSurfacesCoalesced()
+  // lane-p1-tabs: the Log view needs the specific event (the coalesced rAF
+  // refresh above re-derives from cache and can't carry it), so merge it
+  // directly here. No-op unless the Log tab is on-screen for this session.
+  refreshSessionLogLive(sessionId, event)
 
   // §2.3 (batch 6) template triggers: pure module decides whether the event
   // qualifies for a template card (T2 error recovery / T4 artifact preview /
@@ -8597,6 +8738,12 @@ window.__dshRenderer = {
   compactNow,
   confirmDialog,
   notifyDialog,
+  // lane-p1-tabs: expose the Chat-pane view switcher + the session-scoped
+  // Trace navigation bridge so unit tests + QA can drive the five-way strip
+  // (list | graph | timeline | trace | log) without synthetic click events.
+  setChatView,
+  openSessionTrace,
+  getChatView: () => (chatPaneEl ? chatPaneEl.dataset.chatView : null),
   // Batch 6 (§2.2): expose steer-card injector so demo drivers can drop a
   // non-blocking steer card into the active session without a real
   // session/interrupt round-trip.

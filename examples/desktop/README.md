@@ -115,6 +115,19 @@ per-session (switching sessions shows that session's queue), survives a
 cancelled turn, and is cleared with a notice if the runtime restarts or you
 switch profiles.
 
+A view strip at the top of the pane offers five reads of the **active**
+session, all sharing the composer + status bar: **List** (the transcript
+above), **Graph** (a turn DAG with fork/interrupt edges), **时序** (a
+full-pane step timeline — the trace waterfall over the whole session),
+**Trace** (the Tree / Timeline / Graph tri-view over the session's aggregate),
+and **Log** (the session's *complete* event history — a `session/events`
+replay merged with live events, not the global 500-entry devtools ring). The
+Log carries type-filter chips + a text search box (the same grammar as the
+Devtools panel) and expands each `seq · type · summary` row to its payload,
+with a `{ }` badge that opens the unified inspector anchored to that event;
+large sessions page in by seq. Every turn's footer still has its own inline
+trace drawer for reading a single turn in place.
+
 ![](docs/readme-shots/03-chat.png)
 
 #### Session Tree
@@ -146,11 +159,12 @@ outcomes) and honestly labels the rest.
 The project-wide runs table — every session across every profile in a
 single eight-column aggregate: **Name / Most Recent Run / Trace Count /
 Error Rate / P50 / P99 / Total Tokens / Total Cost**. Clicking a row
-opens a tri-view drawer (Tree / Timeline / Graph — see Feature
-highlights) that recursively unfolds a single session's event tree,
-LLM/tool timing spans, and callgraph. Meant for the "which of my 200
-sessions actually cost me tokens this afternoon" question, backed by
-the same `session/list` projection the Chat sidebar reads.
+navigates to the Chat pane and opens that session's **Trace** tab (the
+Tree / Timeline / Graph tri-view — see Feature highlights), so the table
+stays a pure scanning surface and the per-session drill has one home. Meant
+for the "which of my 200 sessions actually cost me tokens this afternoon"
+question, backed by the same `session/list` projection the Chat sidebar
+reads.
 
 ### Iteration
 
@@ -309,8 +323,9 @@ becomes a visualiser of the runtime's actual state.
   reprojections of the same event stream. Tree is the recursive event
   hierarchy (turn → tool call → sub-events). Timeline is a Gantt-style
   span chart with LLM latency and tool latency on separate lanes.
-  Graph is a callgraph over `parentSession` + subagent edges. Wired
-  from the Tracing table and from any assistant bubble's ⋯ menu.
+  Graph is a callgraph over `parentSession` + subagent edges. Reachable
+  full-pane from the Chat pane's **Trace** tab (and via a Tracing-table
+  row click), per-turn from any turn footer's inline trace drawer.
 - **Recursive collapsible Fields tree.** Every event payload — no
   matter how deep — renders as a folder-tree of `field: value` rows
   you can twist open one level at a time. No "click to expand JSON in

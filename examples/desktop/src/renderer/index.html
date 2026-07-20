@@ -393,15 +393,26 @@
             </div>
           </div>
         </header>
-        <!-- feat/chat-triple-view: view switcher tabs (List | Graph).
-             The `data-chat-view` attribute on the parent .pane[data-pane="chat"]
-             swaps which child (stream vs graph container) is visible. Default
-             is "list" so first-paint stays identical to previous versions. -->
+        <!-- feat/chat-triple-view + lane-p1-tabs: view switcher tabs
+             (List | Graph | 时序 | Trace | Log). The `data-chat-view`
+             attribute on the parent .pane[data-pane="chat"] swaps which child
+             (stream / graph / timeline / trace / log container) is visible.
+             Default is "list" so first-paint stays identical to before.
+             时序 / Trace reuse the trace tri-view modules (trace-timeline.js,
+             trace-tri-view.js) full-pane over the ACTIVE session's events; Log
+             is a full-history replay (session-log-view.js) — see renderer.js
+             setChatView + the refreshSession{Timeline,Trace,Log} helpers. -->
         <div class="chat-view-tabs" role="tablist" aria-label="Chat view">
           <button class="chat-view-tab active" data-chat-view-tab="list"
                   role="tab" aria-selected="true" type="button">List</button>
           <button class="chat-view-tab" data-chat-view-tab="graph"
                   role="tab" aria-selected="false" type="button">Graph</button>
+          <button class="chat-view-tab" data-chat-view-tab="timeline"
+                  role="tab" aria-selected="false" type="button">时序</button>
+          <button class="chat-view-tab" data-chat-view-tab="trace"
+                  role="tab" aria-selected="false" type="button">Trace</button>
+          <button class="chat-view-tab" data-chat-view-tab="log"
+                  role="tab" aria-selected="false" type="button">Log</button>
         </div>
         <section id="stream" class="stream" aria-live="polite">
           <!-- Fresh-eyes P0 (2026-07-18): the empty-welcome block used to
@@ -617,6 +628,31 @@
         <div class="chat-session-graph" id="chat-session-graph" role="region"
              aria-label="Session graph">
           <div class="chat-session-graph-empty">Switch to Graph to see this session's turn DAG.</div>
+        </div>
+        <!-- lane-p1-tabs: full-pane 时序 (Timeline) mount. Painted by
+             renderer.js refreshSessionTimeline() via trace-timeline.js over
+             the active session's aggregate step records. Shown only for
+             [data-chat-view="timeline"]. -->
+        <div class="chat-session-timeline" id="chat-session-timeline" role="region"
+             aria-label="Session timeline">
+          <div class="chat-session-view-empty">Switch to 时序 to see this session's step timeline.</div>
+        </div>
+        <!-- lane-p1-tabs: full-pane Trace mount. Painted by renderer.js
+             refreshSessionTrace() via the trace tri-view module (Tree / Graph
+             sub-chips) over the active session's aggregate. Shown only for
+             [data-chat-view="trace"]. -->
+        <div class="chat-session-trace" id="chat-session-trace" role="region"
+             aria-label="Session trace">
+          <div class="chat-session-view-empty">Switch to Trace to see this session's step tree.</div>
+        </div>
+        <!-- lane-p1-tabs: full-pane Log mount. Owned by session-log-view.js —
+             a full-history replay (window.dsh.sessionEvents) of the active
+             session merged with live events, with type-filter chips + text
+             search + per-row { } inspector badge. Shown only for
+             [data-chat-view="log"]. -->
+        <div class="chat-session-log" id="chat-session-log" role="region"
+             aria-label="Session log">
+          <div class="chat-session-view-empty">Switch to Log to replay this session's full event history.</div>
         </div>
         <!-- feat/chat-triple-view: right-side detail drawer. Rendered by
              chat-side-drawer.js on toggle. `.hidden` class collapses; the
@@ -1541,6 +1577,7 @@
   <script src="./assistant-turn.js"></script><!-- task #162 rec 22-bis: assistant-turn container (consumes the three above) -->
   <script src="./chat-side-drawer.js"></script><!-- feat/chat-triple-view: right-side turn/session detail drawer -->
   <script src="./chat-session-graph.js"></script><!-- feat/chat-triple-view: session DAG (turn nodes + fork/interrupt edges) -->
+  <script src="./session-log-view.js"></script><!-- lane-p1-tabs: full-history Log view (sessionEvents replay + live merge + filter/inspector) -->
   <script src="./chat-refresh-throttle.js"></script><!-- fix/code-bugs-batch P1-3: rAF-coalesced throttle for drawer/graph refresh -->
 
   <script src="./event-filter.js"></script>

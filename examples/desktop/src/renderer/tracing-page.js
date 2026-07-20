@@ -17,10 +17,14 @@
 //   - Columns menu: checkbox per column, persisted to localStorage under
 //     `dsh.tracing.columns.v1`. New columns land visible by default so a
 //     later release doesn't come up mysteriously narrow for old users.
-//   - Row click: pulls the session's cachedEvents through
-//     __dshTraceTriView.sessionTraceRecords(), swaps the table for the
-//     tri-view panels (Timeline / Graph default; Tree stub notes per-turn
-//     scope), and shows a breadcrumb Back to the table.
+//   - Row click: navigates to the Chat pane and opens that session's Trace
+//     tab (lane-p1-tabs demotion — window.__dshOpenSessionTrace). The
+//     eight-column cross-session table is the Tracing page's whole job; the
+//     per-session tri-view now lives on the Chat pane's Trace tab, so a drill
+//     is a one-call navigation rather than an inline table swap. The former
+//     inline drill (breadcrumb + #tracing-page-detail tri-view) is retained
+//     only as a fallback for when the Chat-pane bridge is unavailable (lean
+//     test env); see openDrill.
 //
 // Layer contract per docs/design-refs/density-layering-spec.md §7:
 //   - Numeric columns right-align with `tabular-nums` (see style.css).
@@ -330,7 +334,27 @@
     }
   }
 
+  // Row click / rubric-cell-jump entry point. lane-p1-tabs demotion: prefer
+  // the Chat-pane Trace tab (window.__dshOpenSessionTrace) so a drill is a
+  // single navigation and the per-session tri-view has one home. Falls back
+  // to the legacy inline tri-view (openDrillInline) only when the bridge is
+  // absent — e.g. a lean unit-test env that mounts tracing-page.js without
+  // the full renderer. `name` is unused on the nav path (the Chat pane owns
+  // its own title) but kept for the inline fallback signature.
   function openDrill (sessionId, name) {
+    if (!sessionId) return
+    if (typeof window.__dshOpenSessionTrace === 'function') {
+      try { void window.__dshOpenSessionTrace(sessionId) } catch (_) { /* nav best-effort */ }
+      return
+    }
+    openDrillInline(sessionId, name)
+  }
+
+  // Legacy inline drill — swaps the table for a session-scoped tri-view with
+  // a Back breadcrumb. Retained as the no-bridge fallback (see openDrill).
+  // Fully reachable only when window.__dshOpenSessionTrace is undefined; in
+  // the shipped app the Chat-pane Trace tab supersedes it.
+  function openDrillInline (sessionId, name) {
     if (!els || !sessionId) return
     const Chat = window.__dshChat
     const Tri = window.__dshTraceTriView
