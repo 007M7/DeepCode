@@ -1074,10 +1074,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ContentBlockType = keyof ContentBlockMap;',
   },
   {
-    name: 'ContextEnvelope',
-    declaration: 'export type ContextEnvelope = \'context\' | \'raw\';',
-  },
-  {
     name: 'CreateAgentOptions',
     declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
@@ -1175,11 +1171,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'HookContext',
-    declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n    envelope?: ContextEnvelope;\n    meta?: JsonValue;\n}',
+    declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n    meta?: JsonValue;\n}',
   },
   {
     name: 'InjectOptions',
-    declaration: 'export interface InjectOptions extends SendOptions {\n    envelope?: ContextEnvelope;\n    meta?: JsonValue;\n}',
+    declaration: 'export interface InjectOptions extends SendOptions {\n    meta?: JsonValue;\n}',
   },
   {
     name: 'JsonValue',
@@ -1263,7 +1259,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        envelope?: ContextEnvelope;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': {\n        turn: number;\n        content: ContentBlock[];\n        source: MessageSource; /* …truncated — full shape in source */',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': {\n        turn: number;\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'todo/write\': {\n         /* …truncated — full shape in source */',
   },
   {
     name: 'SessionEventReadRequest',
