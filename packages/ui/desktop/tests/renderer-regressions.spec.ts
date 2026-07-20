@@ -41,10 +41,15 @@ describe('desktop live content', () => {
 })
 
 describe('desktop shell layout', () => {
-  it('pins the composer to its intrinsic bottom row', async () => {
+  it('pins the docks and composer to their explicit bottom rows', async () => {
     const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
     expect(css).toMatch(/\.session-canvas,\s*\.module-canvas\s*{\s*grid-row: 3;/)
-    expect(css).toMatch(/\.composer\s*{\s*grid-row: 4;/)
+    // Every dock needs an explicit row: auto placement once floated the queue
+    // to the top of the main pane.
+    expect(css).toMatch(/#interactionDock\s*{\s*grid-row: 4;/)
+    expect(css).toMatch(/#queueDock\s*{\s*grid-row: 5;/)
+    expect(css).toMatch(/#planDock\s*{\s*grid-row: 6;/)
+    expect(css).toMatch(/\.composer\s*{\s*grid-row: 7;/)
   })
 
   it('does not launch Electron after a strict-port Vite failure', async () => {

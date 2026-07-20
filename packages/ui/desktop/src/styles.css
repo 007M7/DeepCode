@@ -391,7 +391,8 @@ kbd {
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: 58px auto minmax(0, 1fr) auto;
+  /* topbar / notice / canvas / interaction / queue / plan / composer */
+  grid-template-rows: 58px auto minmax(0, 1fr) auto auto auto auto;
   background: var(--paper);
 }
 
@@ -408,8 +409,20 @@ kbd {
   grid-row: 3;
 }
 
-.composer {
+#interactionDock {
   grid-row: 4;
+}
+
+#queueDock {
+  grid-row: 5;
+}
+
+#planDock {
+  grid-row: 6;
+}
+
+.composer {
+  grid-row: 7;
 }
 
 .topbar {

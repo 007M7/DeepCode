@@ -666,7 +666,7 @@ function renderLiveTurn(): void {
     const label = row.querySelector<HTMLElement>('summary strong')
     if (label !== null) label.textContent = tool.title
     const statusEl = row.querySelector<HTMLElement>('summary span')
-    if (statusEl !== null) statusEl.textContent = tool.status === 'failed' ? t('chat.toolFailed') : t('chat.toolUse')
+    if (statusEl !== null) statusEl.textContent = tool.status === 'failed' ? t('chat.toolFailed') : verbForKind(state.liveToolMeta.get(tool.callId)?.kind)
     const body = row.querySelector<HTMLElement>('.activity-body pre')
     if (body !== null) body.textContent = tool.detail
     row.classList.toggle('failed', tool.status === 'failed')
@@ -1088,7 +1088,7 @@ function renderInteractionDock(): void {
       <div class="interaction-actions">
         ${request.kind === 'elicitation' ? `<button type="button" class="allow" data-respond-accept="${escapeHtml(request.id)}">${escapeHtml(t('interaction.accept'))}</button>` : ''}
         ${request.options.map(option => `<button type="button" class="${option.kind.startsWith('allow') ? 'allow' : 'reject'}" data-respond-option="${escapeHtml(option.optionId)}" data-respond-id="${escapeHtml(request.id)}">${escapeHtml(option.name)}</button>`).join('')}
-        <button type="button" data-respond-cancel="${escapeHtml(request.id)}">${escapeHtml(t('interaction.dismiss'))}</button>
+        ${request.options.some(option => option.kind.startsWith('reject')) ? '' : `<button type="button" data-respond-cancel="${escapeHtml(request.id)}">${escapeHtml(t('interaction.dismiss'))}</button>`}
       </div>
     </section>
   `).join('')
@@ -1170,7 +1170,10 @@ function liveToolTitle(target: TraceTarget): string | undefined {
 
 /** Verb label for a tool row: the streamed ACP kind beats the generic noun. */
 function toolVerbLabel(target: TraceTarget): string {
-  const kind = liveToolMetaOf(target).kind
+  return verbForKind(liveToolMetaOf(target).kind)
+}
+
+function verbForKind(kind: string | undefined): string {
   if (kind === 'read') return t('kind.verb.read')
   if (kind === 'edit') return t('kind.verb.edit')
   if (kind === 'delete') return t('kind.verb.delete')
