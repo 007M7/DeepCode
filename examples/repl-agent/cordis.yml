@@ -111,9 +111,10 @@
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
 
-# Bash-backed discovery tools (glob/grep): fixed ripgrep commands through the
-# local bash executor above — not ctx.fs. Capped results save the complete
-# formatted list through the spill backend below (ctx.spillStore, optional).
+# Bash-backed discovery tools (glob/grep): if the local bash executor above
+# can find rg, register fixed ripgrep commands — not ctx.fs. Capped results
+# save the complete formatted list through the spill backend below
+# (ctx.spillStore, optional).
 - id: tool-fs-search
   name: '@deepseek-ai/dsh-tool-fs-search'
 
