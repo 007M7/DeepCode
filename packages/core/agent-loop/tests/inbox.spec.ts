@@ -8,17 +8,17 @@ function resolverPair() {
 }
 
 describe('Inbox', () => {
-  it('enqueues and drains queued messages in FIFO order', () => {
+  it('dequeues one queued message at a time in FIFO order', () => {
     const inbox = new Inbox()
     inbox.enqueue({ content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } })
     inbox.enqueue({ content: [{ type: 'text', text: 'second' }], source: { kind: 'user' } })
     expect(inbox.hasQueued).toBe(true)
 
-    const drained = inbox.drainQueued()
-    expect(drained).toHaveLength(2)
-    expect(drained[0]!.content[0]).toMatchObject({ text: 'first' })
-    expect(drained[1]!.content[0]).toMatchObject({ text: 'second' })
+    expect(inbox.dequeueQueued()?.content[0]).toMatchObject({ text: 'first' })
+    expect(inbox.hasQueued).toBe(true)
+    expect(inbox.dequeueQueued()?.content[0]).toMatchObject({ text: 'second' })
     expect(inbox.hasQueued).toBe(false)
+    expect(inbox.dequeueQueued()).toBeUndefined()
   })
 
   it('pushes and drains steering messages separately from queued', () => {

@@ -384,7 +384,7 @@ describe('ToolRegistry', () => {
       parameters: {},
       async execute(_args, exec) {
         exec.deferContext({ content: [{ type: 'text', text: 'nested-1' }], source: { kind: 'plugin', plugin: 'nested-1' }, meta: { n: 1 } })
-        exec.deferContext({ content: [{ type: 'text', text: 'nested-2' }], source: { kind: 'plugin', plugin: 'nested-2' }, envelope: 'raw' })
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-2' }], source: { kind: 'plugin', plugin: 'nested-2' } })
         return [{ type: 'text', text: 'done' }]
       },
     }))
@@ -418,7 +418,6 @@ describe('ToolRegistry', () => {
       { kind: 'plugin', plugin: 'post' },
     ])
     expect(result.additionalContexts?.[0]?.meta).toEqual({ n: 1 })
-    expect(result.additionalContexts?.[1]?.envelope).toBe('raw')
   })
 
   it('keeps deferred contexts when a composite tool throws, but drops them when the outer call is blocked', async () => {

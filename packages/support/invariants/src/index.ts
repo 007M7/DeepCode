@@ -151,6 +151,16 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
       break
     }
     case 'tool/result': {
+      // Session has already validated a provenance-backed content rewrite.
+      // It is durable turn work, not a second execution of the original call.
+      if (event.surfaceOp !== 'append') {
+        if (trace.openTurn === null) {
+          throw new InvariantError(
+            'tool/result surface replacement appended outside any open turn',
+          )
+        }
+        break
+      }
       requireOpenStep(trace, 'tool/result', event.data.turn, event.data.step)
       // A result needs a prior matching call in the same step. (The converse
       // does NOT hold: a call may have no result — a throwing tool-execution
