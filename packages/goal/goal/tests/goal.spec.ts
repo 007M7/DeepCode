@@ -111,17 +111,13 @@ function appendRound(session: Session, ref: GoalRef, round: number): void {
 }
 
 describe('GoalService creation and replay', () => {
-  it('resolves the configured default and writes one balanced raw context snapshot', async () => {
+  it('applies the configured default and writes one balanced raw context snapshot', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_700_000_000_000)
     const { ctx, agent, session } = await harness({ defaultMaxGoalRounds: 17 })
     const seen: string[] = []
     ctx.on('goal/changed', (_subject, change) => { seen.push(change.operation) })
 
-    expect(ctx.goals.resolveCreate({ objective: '  finish the feature  ' })).toEqual({
-      objective: 'finish the feature',
-      maxGoalRounds: 17,
-    })
     const goal = ctx.goals.create(agent, { objective: '  finish the feature  ' })
 
     expect(goal).toMatchObject({
@@ -151,18 +147,19 @@ describe('GoalService creation and replay', () => {
     vi.useRealTimers()
   })
 
-  it('uses 256 rounds by default and validates create input at the owning resolver', async () => {
+  it('uses 256 rounds by default and validates create input inside create', async () => {
     const { ctx, agent } = await harness()
-    expect(ctx.goals.resolveCreate({ objective: 'x' })).toEqual({ objective: 'x', maxGoalRounds: 256 })
-    expect(() => ctx.goals.resolveCreate({ objective: '   ' })).toThrow(expect.objectContaining({
+    expect(() => ctx.goals.create(agent, { objective: '   ' })).toThrow(expect.objectContaining({
       code: 'GOAL_INVALID_OBJECTIVE',
     }))
-    expect(() => ctx.goals.resolveCreate({ objective: 'x', maxGoalRounds: 0 })).toThrow(expect.objectContaining({
+    expect(() => ctx.goals.create(agent, { objective: 'x', maxGoalRounds: 0 })).toThrow(expect.objectContaining({
       code: 'GOAL_INVALID_MAX_ROUNDS',
     }))
-    expect(() => ctx.goals.resolveCreate({ objective: 'x', maxGoalRounds: 1.5 })).toThrow(GoalError)
-    expect(() => ctx.goals.resolveCreate({ objective: 'x', maxGoalRounds: 1.5 })).toThrow(HarnessError)
-    expect(() => ctx.goals.resolveCreate({ objective: 'x', maxGoalRounds: Number.MAX_SAFE_INTEGER + 1 })).toThrow(GoalError)
+    expect(() => ctx.goals.create(agent, { objective: 'x', maxGoalRounds: 1.5 })).toThrow(GoalError)
+    expect(() => ctx.goals.create(agent, { objective: 'x', maxGoalRounds: 1.5 })).toThrow(HarnessError)
+    expect(() => ctx.goals.create(agent, {
+      objective: 'x', maxGoalRounds: Number.MAX_SAFE_INTEGER + 1,
+    })).toThrow(GoalError)
     expect(ctx.goals.create(agent, { objective: 'x' }).maxGoalRounds).toBe(256)
   })
 
@@ -170,9 +167,10 @@ describe('GoalService creation and replay', () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     const goals = new GoalService(ctx)
-    expect(goals.resolveCreate({ objective: 'direct' })).toEqual({
-      objective: 'direct',
-      maxGoalRounds: 256,
+    const stub = stubAgent('goal-direct-construction')
+    ctx.agents.register(stub.agent)
+    expect(goals.create(stub.agent, { objective: 'direct' })).toMatchObject({
+      objective: 'direct', maxGoalRounds: 256,
     })
   })
 
@@ -287,18 +285,19 @@ describe('GoalService mutations', () => {
     }))
   })
 
-  it('supports pause, resume, block, usage-limit, and completion transitions', async () => {
+  it('supports pause, resume, block, and completion transitions', async () => {
     const { ctx, agent } = await harness()
     let goal = ctx.goals.create(agent, { objective: 'lifecycle' })
     goal = ctx.goals.pause(agent, goal)
     expect(goal).toMatchObject({ phase: 'paused', activation: 'disarmed', revision: 2 })
     goal = ctx.goals.resume(agent, goal)
     expect(goal).toMatchObject({ phase: 'active', activation: 'armed', revision: 3 })
-    goal = ctx.goals.block(agent, goal)
-    expect(goal).toMatchObject({ phase: 'blocked', activation: 'disarmed' })
-    goal = ctx.goals.resume(agent, goal)
-    goal = ctx.goals.markUsageLimited(agent, goal)
-    expect(goal.phase).toBe('usage-limited')
+    goal = ctx.goals.block(agent, goal, { code: 'needs-input', message: 'A choice is required.' })
+    expect(goal).toMatchObject({
+      phase: 'blocked',
+      blockedReason: { code: 'needs-input', message: 'A choice is required.' },
+      activation: 'disarmed',
+    })
     goal = ctx.goals.resume(agent, goal)
     goal = ctx.goals.pause(agent, goal)
     goal = ctx.goals.complete(agent, goal)
@@ -307,15 +306,13 @@ describe('GoalService mutations', () => {
   })
 
   it('allows completion from every stopped phase and replacement only after completion', async () => {
-    const phases = ['paused', 'blocked', 'usage-limited'] as const
+    const phases = ['paused', 'blocked'] as const
     for (const phase of phases) {
       const { ctx, agent } = await harness()
       let goal = ctx.goals.create(agent, { objective: phase })
       goal = phase === 'paused'
         ? ctx.goals.pause(agent, goal)
-        : phase === 'blocked'
-          ? ctx.goals.block(agent, goal)
-          : ctx.goals.markUsageLimited(agent, goal)
+        : ctx.goals.block(agent, goal, { code: 'test-blocker', message: 'Blocked for the test.' })
       const complete = ctx.goals.complete(agent, goal)
       const replacement = ctx.goals.create(agent, { objective: `after ${phase}` })
       expect(complete.phase).toBe('complete')
@@ -333,32 +330,45 @@ describe('GoalService mutations', () => {
     expect(() => ctx.goals.resume(agent, goal)).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_TRANSITION' }))
     const paused = ctx.goals.pause(agent, goal)
     expect(() => ctx.goals.pause(agent, paused)).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_TRANSITION' }))
-    expect(() => ctx.goals.block(agent, paused)).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_TRANSITION' }))
-    expect(() => ctx.goals.markUsageLimited(agent, paused)).toThrow(expect.objectContaining({
-      code: 'GOAL_INVALID_TRANSITION',
-    }))
-    expect(() => ctx.goals.markBudgetLimited(agent, paused)).toThrow(expect.objectContaining({
+    expect(() => ctx.goals.block(agent, paused, {
+      code: 'test-blocker', message: 'Blocked for the test.',
+    })).toThrow(expect.objectContaining({
       code: 'GOAL_INVALID_TRANSITION',
     }))
   })
 
-  it('enforces the goal-round cap before budget limiting and resuming', async () => {
+  it('records canonical blocker reasons and enforces the round cap on resume', async () => {
     const { ctx, agent, session } = await harness()
     let goal = ctx.goals.create(agent, { objective: 'bounded', maxGoalRounds: 2 })
+    for (const reason of [null, [], { code: 1, message: 'invalid code' }, { code: 'round-limit', message: 1 }]) {
+      expect(() => ctx.goals.block(agent, goal, reason as never)).toThrow(expect.objectContaining({
+        code: 'GOAL_INVALID_BLOCK_REASON',
+      }))
+    }
+    expect(() => ctx.goals.block(agent, goal, {
+      code: 'Not Canonical', message: 'invalid code',
+    })).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_BLOCK_REASON' }))
+    expect(() => ctx.goals.block(agent, goal, {
+      code: 'round-limit', message: '   ',
+    })).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_BLOCK_REASON' }))
     appendRound(session, goal, 1)
     expect(ctx.goals.get(agent)?.roundsStarted).toBe(1)
-    expect(() => ctx.goals.markBudgetLimited(agent, goal)).toThrow(expect.objectContaining({
-      code: 'GOAL_INVALID_TRANSITION',
-    }))
     appendRound(session, goal, 2)
-    goal = ctx.goals.markBudgetLimited(agent, goal)
-    expect(goal).toMatchObject({ phase: 'budget-limited', roundsStarted: 2, activation: 'disarmed' })
+    goal = ctx.goals.block(agent, goal, { code: 'round-limit', message: '  Goal round limit reached.  ' })
+    expect(goal).toMatchObject({
+      phase: 'blocked',
+      blockedReason: { code: 'round-limit', message: 'Goal round limit reached.' },
+      roundsStarted: 2,
+      activation: 'disarmed',
+    })
     expect(() => ctx.goals.resume(agent, goal)).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_TRANSITION' }))
     goal = ctx.goals.edit(agent, goal, { maxGoalRounds: 3 })
+    expect(goal.blockedReason).toEqual({ code: 'round-limit', message: 'Goal round limit reached.' })
     goal = ctx.goals.resume(agent, goal)
     expect(goal).toMatchObject({ phase: 'active', maxGoalRounds: 3, activation: 'armed' })
+    expect(goal.blockedReason).toBeUndefined()
     appendRound(session, goal, 3)
-    goal = ctx.goals.markBudgetLimited(agent, goal)
+    goal = ctx.goals.block(agent, goal, { code: 'round-limit', message: 'Goal round limit reached.' })
     expect(ctx.goals.complete(agent, goal).phase).toBe('complete')
   })
 
@@ -598,7 +608,16 @@ describe('goal replay validation', () => {
     return {
       ...current,
       operation,
-      goal: { ...current.goal, revision: current.goal.revision + 1, phase },
+      goal: {
+        id: current.goal.id,
+        revision: current.goal.revision + 1,
+        objective: current.goal.objective,
+        phase,
+        ...phase === 'blocked'
+          ? { blockedReason: { code: 'test-blocker', message: 'Blocked for replay validation.' } }
+          : {},
+        maxGoalRounds: current.goal.maxGoalRounds,
+      },
       updatedAt: current.updatedAt + 1,
       ...overrides,
     }
@@ -694,9 +713,6 @@ describe('goal replay validation', () => {
       mutation(base, 'resume', 'paused'),
       mutation(base, 'complete', 'active'),
       mutation(base, 'block', 'active'),
-      mutation(base, 'mark-usage-limited', 'active'),
-      mutation(base, 'mark-budget-limited', 'active'),
-      mutation(base, 'mark-budget-limited', 'budget-limited'),
     ]
     for (const change of invalid) expect(() => foldPair(base, change)).toThrow()
 
@@ -782,6 +798,12 @@ describe('goal replay validation', () => {
       { ...base.goal, objective: ' ' },
       { ...base.goal, objective: ' padded ' },
       { ...base.goal, phase: 'unknown' },
+      { ...base.goal, blockedReason: { code: 'unexpected', message: 'Only blocked goals have reasons.' } },
+      { ...base.goal, phase: 'blocked' },
+      { ...base.goal, phase: 'blocked', blockedReason: null },
+      { ...base.goal, phase: 'blocked', blockedReason: { code: 'test-blocker', message: 'Valid.', extra: true } },
+      { ...base.goal, phase: 'blocked', blockedReason: { code: 'NOT_CANONICAL', message: 'Bad code.' } },
+      { ...base.goal, phase: 'blocked', blockedReason: { code: 'test-blocker', message: ' padded ' } },
       { ...base.goal, revision: 0 },
       { ...base.goal, maxGoalRounds: -1 },
     ]

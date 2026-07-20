@@ -24,9 +24,19 @@ type GoalPhase =
   | 'active'
   | 'paused'
   | 'blocked'
-  | 'usage-limited'
-  | 'budget-limited'
   | 'complete'
+```
+
+Blocking is the single durable stopped-by-a-problem state. Its policy-owned reason carries a stable lower-kebab-case code for routing and a free-form explanation for humans and models.
+
+```ts type-equiv
+/** Machine-routable and human-readable explanation for a blocked goal. */
+interface GoalBlockReason {
+  /** Stable lower-kebab-case classification chosen by the blocking policy. */
+  readonly code: string
+  /** Non-empty explanation shown to humans and models. */
+  readonly message: string
+}
 ```
 
 ```ts type-equiv
@@ -36,6 +46,8 @@ interface GoalSnapshot extends GoalRef {
   readonly objective: string
   /** Durable lifecycle phase. */
   readonly phase: GoalPhase
+  /** Present exactly while `phase` is `blocked`. */
+  readonly blockedReason?: GoalBlockReason
   /** Total admitted goal-round cap. */
   readonly maxGoalRounds: number
 }
@@ -98,21 +110,13 @@ interface GoalMessageSource {
 
 ## Requests and notifications
 
-Creation separates caller omission from the resolved deployment choice. An edit is a partial replacement whose runtime validator requires at least one field. Every mutation notification carries the accepted operation and exact revision; clear omits `goal`.
+Creation separates caller omission from the deployment choice, which `create()` resolves internally. An edit is a partial replacement whose runtime validator requires at least one field. Every mutation notification carries the accepted operation and exact revision; clear omits `goal`.
 
 ```ts type-equiv
 /** Input whose omitted round cap is resolved by the service configuration. */
 interface CreateGoalRequest {
   readonly objective: string
   readonly maxGoalRounds?: number
-}
-```
-
-```ts type-equiv
-/** Validated create input with every deployment default materialized. */
-interface CreateGoalSpec {
-  readonly objective: string
-  readonly maxGoalRounds: number
 }
 ```
 

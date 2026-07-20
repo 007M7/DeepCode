@@ -6,6 +6,7 @@ import { renderGoalChange } from './render.ts'
 import { GOAL_CHANGE_VERSION, GoalId } from './runtime.ts'
 import type {
   FoldedGoal,
+  GoalBlockReason,
   GoalChangeMeta,
   GoalClearChangeMeta,
   GoalMessageSource,
@@ -25,17 +26,8 @@ const SNAPSHOT_OPERATIONS: ReadonlySet<Exclude<GoalOperation, 'clear'>> = new Se
   'resume',
   'complete',
   'block',
-  'mark-usage-limited',
-  'mark-budget-limited',
 ])
-const PHASES: ReadonlySet<GoalPhase> = new Set([
-  'active',
-  'paused',
-  'blocked',
-  'usage-limited',
-  'budget-limited',
-  'complete',
-])
+const PHASES: ReadonlySet<GoalPhase> = new Set(['active', 'paused', 'blocked', 'complete'])
 
 /** Mutable accumulator kept private to the pure fold. */
 export interface GoalFoldState {
@@ -83,13 +75,24 @@ function nonNegativeInteger(value: unknown, field: string): number {
   return value
 }
 
+/** Decode one canonical blocker explanation. */
+function decodeBlockReason(value: unknown): GoalBlockReason {
+  if (!isRecord(value) || Object.keys(value).sort().join(',') !== 'code,message') {
+    throw new Error('goal change goal.blockedReason has an invalid shape')
+  }
+  if (typeof value['code'] !== 'string' || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value['code'])) {
+    throw new Error('goal change goal.blockedReason.code must be lower-kebab-case')
+  }
+  if (typeof value['message'] !== 'string' || value['message'].trim().length === 0
+    || value['message'] !== value['message'].trim()) {
+    throw new Error('goal change goal.blockedReason.message must be non-empty and normalized')
+  }
+  return { code: value['code'], message: value['message'] }
+}
+
 /** Decode and validate one snapshot. */
 function decodeSnapshot(value: unknown): GoalSnapshot {
   if (!isRecord(value)) throw new Error('goal change goal must be a record')
-  const keys = Object.keys(value).sort()
-  if (keys.join(',') !== 'id,maxGoalRounds,objective,phase,revision') {
-    throw new Error('goal change goal has an invalid shape')
-  }
   if (typeof value['id'] !== 'string' || value['id'].length === 0) {
     throw new Error('goal change goal.id must be a non-empty string')
   }
@@ -100,12 +103,20 @@ function decodeSnapshot(value: unknown): GoalSnapshot {
   if (typeof value['phase'] !== 'string' || !PHASES.has(value['phase'] as GoalPhase)) {
     throw new Error('goal change goal.phase is invalid')
   }
+  const phase = value['phase'] as GoalPhase
+  const expectedKeys = phase === 'blocked'
+    ? 'blockedReason,id,maxGoalRounds,objective,phase,revision'
+    : 'id,maxGoalRounds,objective,phase,revision'
+  if (Object.keys(value).sort().join(',') !== expectedKeys) {
+    throw new Error('goal change goal has an invalid shape')
+  }
   return {
     id: GoalId(value['id']),
     revision: positiveInteger(value['revision'], 'goal.revision'),
     objective: value['objective'],
-    phase: value['phase'] as GoalPhase,
+    phase,
     maxGoalRounds: positiveInteger(value['maxGoalRounds'], 'goal.maxGoalRounds'),
+    ...phase === 'blocked' ? { blockedReason: decodeBlockReason(value['blockedReason']) } : {},
   }
 }
 
@@ -208,7 +219,10 @@ function validateSnapshotTransition(
   }
   switch (change.operation) {
     case 'edit':
-      if (next.phase !== current.phase) throw new Error('goal edit cannot change phase')
+      if (next.phase !== current.phase
+        || JSON.stringify(next.blockedReason) !== JSON.stringify(current.blockedReason)) {
+        throw new Error('goal edit cannot change phase or blocked reason')
+      }
       break
     case 'pause':
       requireSameDefinition(current, next, change.operation)
@@ -220,8 +234,6 @@ function validateSnapshotTransition(
         'active',
         'paused',
         'blocked',
-        'usage-limited',
-        'budget-limited',
       ])
       if (!resumable.has(current.phase) || next.phase !== 'active' || state.roundsStarted >= next.maxGoalRounds) {
         throw new Error('goal resume has an invalid phase transition or exhausted round budget')
@@ -235,19 +247,6 @@ function validateSnapshotTransition(
     case 'block':
       requireSameDefinition(current, next, change.operation)
       if (current.phase !== 'active' || next.phase !== 'blocked') throw new Error('goal block has an invalid phase transition')
-      break
-    case 'mark-usage-limited':
-      requireSameDefinition(current, next, change.operation)
-      if (current.phase !== 'active' || next.phase !== 'usage-limited') {
-        throw new Error('goal mark-usage-limited has an invalid phase transition')
-      }
-      break
-    case 'mark-budget-limited':
-      requireSameDefinition(current, next, change.operation)
-      if (current.phase !== 'active' || next.phase !== 'budget-limited'
-        || state.roundsStarted < next.maxGoalRounds) {
-        throw new Error('goal mark-budget-limited has an invalid phase transition or remaining round budget')
-      }
       break
     /* v8 ignore start -- the caller excludes create and GoalOperation is closed; these arms retain fail-loud exhaustiveness */
     case 'create':
