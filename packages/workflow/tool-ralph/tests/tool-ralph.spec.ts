@@ -82,6 +82,7 @@ async function setup(options?: SetupOptions) {
   if (options?.config?.subagentProvider !== undefined) config.subagentProvider = options.config.subagentProvider
   if (options?.config?.maxRounds !== undefined) config.maxRounds = options.config.maxRounds
   if (options?.config?.maxHandoffChars !== undefined) config.maxHandoffChars = options.config.maxHandoffChars
+  if (options?.config?.maxResultChars !== undefined) config.maxResultChars = options.config.maxResultChars
   const fiber = await ctx.plugin(toolRalph, config)
   const parent = { id: SessionId('caller'), options: {} } as unknown as Agent
   return { ctx, engine: ctx.workflows as StubEngine, parent, fiber }
@@ -145,6 +146,7 @@ describe('dsh-tool-ralph', () => {
       meta: { name: 'ralph-loop' },
       args: { objective: 'Finish the migration.', maxRounds: 4, maxHandoffChars: 9000 },
       subagentProvider: 'fresh',
+      maxTotalAgents: 4,
       parent,
     })
     expect(engine.requests[0]!.script).toContain("status: 'budget-limited'")
@@ -154,7 +156,8 @@ describe('dsh-tool-ralph', () => {
       report: COMPLETE,
     })
     expect(result.isError).toBe(false)
-    expect((result.content[0] as { text: string }).text).toContain('Ralph completed after 1 round.')
+    expect((result.content[0] as { text: string }).text)
+      .toContain('Ralph worker reported completion after 1 round.')
     expect((result.content[0] as { text: string }).text).toContain('All required gates pass.')
     expect(engine.disposed).toBe(1)
   })
@@ -167,7 +170,8 @@ describe('dsh-tool-ralph', () => {
       roundsStarted: 2,
       report: BLOCKED,
     }, 2)
-    expect((blockedResult.content[0] as { text: string }).text).toContain('Ralph blocked after 2 rounds.')
+    expect((blockedResult.content[0] as { text: string }).text)
+      .toContain('Ralph worker reported a blocker after 2 rounds.')
 
     const limited = execute(ctx, { objective: 'Ship it.' }, { agent: parent })
     await vi.waitFor(() => { expect(engine.requests).toHaveLength(2) })
@@ -177,7 +181,54 @@ describe('dsh-tool-ralph', () => {
       report: CONTINUE,
     }, 2)
     expect((limitedResult.content[0] as { text: string }).text)
-      .toContain('Ralph reached its 2 rounds limit with work remaining.')
+      .toContain('Ralph reached its 2 rounds limit; the worker reported work remaining.')
+  })
+
+  it('bounds the complete parent result and labels worker-reported completion', async () => {
+    const { ctx, engine, parent } = await setup({ config: { maxResultChars: 160 } })
+    const pending = execute(ctx, { objective: 'Ship it.' }, { agent: parent })
+    const result = await settleCompleted(engine, pending, {
+      status: 'complete',
+      roundsStarted: 1,
+      report: { ...COMPLETE, evidence: ['x'.repeat(500)] },
+    })
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toHaveLength(160)
+    expect(text).toContain('Ralph worker reported completion after 1 round.')
+    expect(text).toMatch(/… \[truncated\]$/)
+  })
+
+  it('honors a result limit shorter than the truncation marker', async () => {
+    const { ctx, engine, parent } = await setup({ config: { maxResultChars: 5 } })
+    const result = await settleCompleted(engine, execute(ctx, { objective: 'Ship it.' }, { agent: parent }), {
+      status: 'complete',
+      roundsStarted: 1,
+      report: COMPLETE,
+    })
+    expect((result.content[0] as { text: string }).text).toBe('\n… [t')
+  })
+
+  it('reports an ordinary child failure with the failed round and last durable handoff', async () => {
+    const { ctx, engine, parent } = await setup({ config: { maxRounds: 2 } })
+    const first = execute(ctx, { objective: 'Ship it.', maxRounds: 2 }, { agent: parent })
+    const firstResult = await settleCompleted(engine, first, {
+      status: 'round-failed',
+      roundsStarted: 1,
+      lastReport: null,
+    })
+    expect(firstResult.isError).toBe(true)
+    expect((firstResult.content[0] as { text: string }).text).toContain('Ralph round 1 child failed')
+    expect((firstResult.content[0] as { text: string }).text).toContain('No previous handoff was available.')
+
+    const later = execute(ctx, { objective: 'Ship it.', maxRounds: 2 }, { agent: parent })
+    const laterResult = await settleCompleted(engine, later, {
+      status: 'round-failed',
+      roundsStarted: 2,
+      lastReport: CONTINUE,
+    })
+    expect(laterResult.isError).toBe(true)
+    expect((laterResult.content[0] as { text: string }).text).toContain('Ralph round 2 child failed')
+    expect((laterResult.content[0] as { text: string }).text).toContain('Implemented the first slice.')
   })
 
   it('maps workflow error and cancellation reasons to tool errors and always disposes', async () => {
@@ -251,6 +302,7 @@ describe('dsh-tool-ralph', () => {
     expect(() => { toolRalph.apply(new Context(), { subagentProvider: ' ' }) }).toThrow('non-empty normalized')
     expect(() => { toolRalph.apply(new Context(), { maxRounds: 0 }) }).toThrow('positive safe integer')
     expect(() => { toolRalph.apply(new Context(), { maxHandoffChars: 1.5 }) }).toThrow('positive safe integer')
+    expect(() => { toolRalph.apply(new Context(), { maxResultChars: 0 }) }).toThrow('positive safe integer')
   })
 
   it('turns malformed fixed-workflow terminal values and reports into errors', async () => {
@@ -261,11 +313,18 @@ describe('dsh-tool-ralph', () => {
       { value: { status: 'mystery', roundsStarted: 1, report: COMPLETE }, message: 'unknown terminal status' },
       { value: { status: 'budget-limited', roundsStarted: 1, report: CONTINUE }, message: 'before the round limit', config: { maxRounds: 2 } },
       { value: { status: 'complete', roundsStarted: 1, report: null }, message: 'malformed round report' },
+      { value: { status: 'complete', roundsStarted: 1, report: COMPLETE, extra: true }, message: 'malformed terminal result' },
+      { value: { status: 'blocked', roundsStarted: 1, report: BLOCKED, extra: true }, message: 'malformed terminal result' },
+      { value: { status: 'budget-limited', roundsStarted: 1, report: CONTINUE, extra: true }, message: 'malformed terminal result', config: { maxRounds: 1 } },
       { value: { status: 'complete', roundsStarted: 1, report: { ...COMPLETE, status: 'continue' } }, message: 'malformed round report' },
       { value: { status: 'budget-limited', roundsStarted: 1, report: { ...CONTINUE, nextSteps: [] } }, message: 'invalid continuing report', config: { maxRounds: 1 } },
       { value: { status: 'complete', roundsStarted: 1, report: { ...COMPLETE, evidence: [] } }, message: 'invalid completion report' },
       { value: { status: 'blocked', roundsStarted: 1, report: { ...BLOCKED, blocker: '' } }, message: 'invalid blocked report' },
       { value: { status: 'complete', roundsStarted: 1, report: { ...COMPLETE, summary: 'x'.repeat(500) } }, message: 'oversized handoff', config: { maxHandoffChars: 100 } },
+      { value: { status: 'round-failed', roundsStarted: 1 }, message: 'malformed terminal result' },
+      { value: { status: 'round-failed', roundsStarted: 1, lastReport: CONTINUE }, message: 'invalid first-round failure' },
+      { value: { status: 'round-failed', roundsStarted: 2, lastReport: null }, message: 'without its last handoff', config: { maxRounds: 2 } },
+      { value: { status: 'round-failed', roundsStarted: 2, lastReport: { ...CONTINUE, nextSteps: [] } }, message: 'invalid continuing report', config: { maxRounds: 2 } },
     ]
     for (const testCase of cases) {
       const { ctx, engine, parent } = await setup(
@@ -294,7 +353,9 @@ describe('dsh-tool-ralph', () => {
     const { ctx, fiber } = await setup()
     const section = (await ctx.systemPrompt.assemble()).sections.find(candidate => candidate.name === 'tool:ralph')
     expect(section?.text).toContain('ONLY when the direct human explicitly asks')
+    expect(section?.text).toContain('worker reports, not independent evaluation')
     const tool = ctx.tools.get('ralph')!
+    expect(tool.description).toContain('worker reports completion')
     expect(tool.presentCall!({ objective: 'Finish it.' })).toEqual({
       card: 'generic',
       title: 'ralph',

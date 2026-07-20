@@ -1146,6 +1146,8 @@ export interface Config {
   maxRounds?: number
   /** Maximum serialized characters in one structured handoff (default 16384). */
   maxHandoffChars?: number
+  /** Maximum characters in a successful parent-facing terminal text (default 16384). */
+  maxResultChars?: number
 }
 ```
 

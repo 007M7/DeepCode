@@ -26,6 +26,8 @@ export interface Config {
   maxRounds?: number
   /** Maximum serialized characters in one structured handoff (default 16384). */
   maxHandoffChars?: number
+  /** Maximum characters in a successful parent-facing terminal text (default 16384). */
+  maxResultChars?: number
 }
 
 /** Schemastery configuration for the Ralph tool. */
@@ -33,12 +35,14 @@ export const Config: z<Config> = z.object({
   subagentProvider: z.string().default('spawn'),
   maxRounds: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(256),
   maxHandoffChars: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(16_384),
+  maxResultChars: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(16_384),
 })
 
 interface ResolvedConfig {
   readonly subagentProvider: string
   readonly maxRounds: number
   readonly maxHandoffChars: number
+  readonly maxResultChars: number
 }
 
 type RalphRoundStatus = 'continue' | 'complete' | 'blocked'
@@ -58,6 +62,14 @@ interface RalphRunResult {
   readonly roundsStarted: number
   readonly report: RalphRoundReport
 }
+
+interface RalphRoundFailure {
+  readonly status: 'round-failed'
+  readonly roundsStarted: number
+  readonly lastReport?: RalphRoundReport
+}
+
+type RalphTerminalResult = RalphRunResult | RalphRoundFailure
 
 interface RalphCallArgs {
   objective: string
@@ -136,8 +148,8 @@ function validateReport(report) {
 }
 
 let previous
+phase('Fresh-agent rounds')
 for (let round = 1; round <= args.maxRounds; round += 1) {
-  phase('Fresh-agent rounds')
   const prior = previous === undefined ? '(none — this is the first round)' : JSON.stringify(previous)
   const prompt = [
     'You are one fresh worker in a foreground Ralph loop. You receive no parent conversation and no prior child session. Do not call the ralph tool: this round already is its worker.',
@@ -147,11 +159,15 @@ for (let round = 1; round <= args.maxRounds; round += 1) {
     'Previous structured handoff:\n' + prior,
     'Return one report with exact normalized strings. Use status continue with at least one nextSteps entry while useful work remains; complete only with concrete evidence and no nextSteps; blocked only when no meaningful progress is possible without human input or an external-state change. blocker must be empty unless blocked.',
   ].join('\n\n')
-  const report = validateReport(await agent(prompt, {
+  const rawReport = await agent(prompt, {
     label: 'Ralph round ' + round,
     phase: 'Fresh-agent rounds',
     schema: reportSchema,
-  }))
+  })
+  if (rawReport === null) {
+    return { status: 'round-failed', roundsStarted: round, lastReport: previous ?? null }
+  }
+  const report = validateReport(rawReport)
   if (report.status === 'complete') return { status: 'complete', roundsStarted: round, report }
   if (report.status === 'blocked') return { status: 'blocked', roundsStarted: round, report }
   previous = report
@@ -162,8 +178,8 @@ return { status: 'budget-limited', roundsStarted: args.maxRounds, report: previo
 const DESCRIPTION = 'Run a foreground fresh-agent Ralph loop toward one immutable objective. '
   + 'Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round '
   + 'opens a new child with no parent conversation or prior child session; the shared workspace is '
-  + 'long-term memory, and only a bounded structured report crosses rounds. The call returns on '
-  + 'completion, a concrete blocker, or the round limit. Ordinary long-running same-session work '
+  + 'long-term memory, and only a bounded structured report crosses rounds. The call returns when '
+  + 'a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work '
   + 'belongs to goal tools.'
 
 /** Validate defaults even when a caller invokes apply() without Loader normalization. */
@@ -171,6 +187,7 @@ function resolveConfig(config: Config): ResolvedConfig {
   const subagentProvider = config.subagentProvider ?? 'spawn'
   const maxRounds = config.maxRounds ?? 256
   const maxHandoffChars = config.maxHandoffChars ?? 16_384
+  const maxResultChars = config.maxResultChars ?? 16_384
   if (subagentProvider.length === 0 || subagentProvider !== subagentProvider.trim()) {
     throw new TypeError('subagentProvider must be a non-empty normalized string')
   }
@@ -180,7 +197,10 @@ function resolveConfig(config: Config): ResolvedConfig {
   if (!Number.isSafeInteger(maxHandoffChars) || maxHandoffChars < 1) {
     throw new TypeError('maxHandoffChars must be a positive safe integer')
   }
-  return { subagentProvider, maxRounds, maxHandoffChars }
+  if (!Number.isSafeInteger(maxResultChars) || maxResultChars < 1) {
+    throw new TypeError('maxResultChars must be a positive safe integer')
+  }
+  return { subagentProvider, maxRounds, maxHandoffChars, maxResultChars }
 }
 
 /** Resolve one model-selected cap against the deployment ceiling. */
@@ -259,9 +279,8 @@ function readReport(value: unknown, expectedStatus: RalphRoundStatus, maxChars: 
 }
 
 /** Defensively decode the fixed script's terminal value. */
-function readRunResult(value: unknown, maxRounds: number, maxHandoffChars: number): RalphRunResult {
+function readRunResult(value: unknown, maxRounds: number, maxHandoffChars: number): RalphTerminalResult {
   if (!isRecord(value)
-    || Object.keys(value).sort().join(',') !== 'report,roundsStarted,status'
     || typeof value['roundsStarted'] !== 'number'
     || !Number.isSafeInteger(value['roundsStarted'])
     || value['roundsStarted'] < 1
@@ -271,14 +290,42 @@ function readRunResult(value: unknown, maxRounds: number, maxHandoffChars: numbe
   const roundsStarted = value['roundsStarted']
   switch (value['status']) {
     case 'complete':
+      if (Object.keys(value).sort().join(',') !== 'report,roundsStarted,status') {
+        throw new Error('Ralph workflow returned a malformed terminal result')
+      }
       return { status: 'complete', roundsStarted, report: readReport(value['report'], 'complete', maxHandoffChars) }
     case 'blocked':
+      if (Object.keys(value).sort().join(',') !== 'report,roundsStarted,status') {
+        throw new Error('Ralph workflow returned a malformed terminal result')
+      }
       return { status: 'blocked', roundsStarted, report: readReport(value['report'], 'blocked', maxHandoffChars) }
     case 'budget-limited':
+      if (Object.keys(value).sort().join(',') !== 'report,roundsStarted,status') {
+        throw new Error('Ralph workflow returned a malformed terminal result')
+      }
       if (roundsStarted !== maxRounds) {
         throw new Error('Ralph workflow returned budget-limited before the round limit')
       }
       return { status: 'budget-limited', roundsStarted, report: readReport(value['report'], 'continue', maxHandoffChars) }
+    case 'round-failed': {
+      if (Object.keys(value).sort().join(',') !== 'lastReport,roundsStarted,status') {
+        throw new Error('Ralph workflow returned a malformed terminal result')
+      }
+      if (roundsStarted === 1) {
+        if (value['lastReport'] !== null) {
+          throw new Error('Ralph workflow returned an invalid first-round failure')
+        }
+        return { status: 'round-failed', roundsStarted }
+      }
+      if (value['lastReport'] === null) {
+        throw new Error('Ralph workflow returned a round failure without its last handoff')
+      }
+      return {
+        status: 'round-failed',
+        roundsStarted,
+        lastReport: readReport(value['lastReport'], 'continue', maxHandoffChars),
+      }
+    }
     default:
       throw new Error('Ralph workflow returned an unknown terminal status')
   }
@@ -300,17 +347,40 @@ function stopReasonError(result: WorkflowResult): string | undefined {
   }
 }
 
-/** Render the fixed terminal envelope without dropping the bounded report. */
-function renderResult(result: RalphRunResult): string {
+const TRUNCATION_NOTICE = '\n… [truncated]'
+
+/** Bound complete parent-facing text, including its envelope and truncation marker. */
+function boundResult(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text
+  if (maxChars <= TRUNCATION_NOTICE.length) return TRUNCATION_NOTICE.slice(0, maxChars)
+  return `${text.slice(0, maxChars - TRUNCATION_NOTICE.length)}${TRUNCATION_NOTICE}`
+}
+
+/** Render the fixed terminal envelope without presenting self-report as certification. */
+function renderResult(result: RalphRunResult, maxChars: number): string {
   const rounds = `${result.roundsStarted} round${result.roundsStarted === 1 ? '' : 's'}`
+  let text: string
   switch (result.status) {
     case 'complete':
-      return `Ralph completed after ${rounds}.\nFinal report:\n${JSON.stringify(result.report, null, 2)}`
+      text = `Ralph worker reported completion after ${rounds}.\nFinal report:\n${JSON.stringify(result.report, null, 2)}`
+      break
     case 'blocked':
-      return `Ralph blocked after ${rounds}.\nFinal report:\n${JSON.stringify(result.report, null, 2)}`
+      text = `Ralph worker reported a blocker after ${rounds}.\nFinal report:\n${JSON.stringify(result.report, null, 2)}`
+      break
     case 'budget-limited':
-      return `Ralph reached its ${rounds} limit with work remaining.\nFinal report:\n${JSON.stringify(result.report, null, 2)}`
+      text = `Ralph reached its ${rounds} limit; the worker reported work remaining.\nFinal report:\n${JSON.stringify(result.report, null, 2)}`
+      break
   }
+  return boundResult(text, maxChars)
+}
+
+/** Render an ordinary child failure with the most recent durable handoff. */
+function renderRoundFailure(result: RalphRoundFailure, maxChars: number): string {
+  const header = `Ralph round ${result.roundsStarted} child failed before producing a structured report.`
+  const text = result.lastReport === undefined
+    ? `${header}\nNo previous handoff was available.`
+    : `${header}\nLast successful handoff:\n${JSON.stringify(result.lastReport, null, 2)}`
+  return boundResult(text, maxChars)
 }
 
 function presentCall(args: RalphCallArgs): ToolCallView {
@@ -329,7 +399,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.systemPrompt.section({
     name: 'tool:ralph',
     order: 116,
-    text: 'Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop or fresh-agent iterative execution. Each Ralph round starts a fresh child with no conversation seed and uses the shared workspace as durable memory. Use same-session goal tools for ordinary long-running objectives, and plain subagents or workflows for bounded delegation and fan-out.',
+    text: 'Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop or fresh-agent iterative execution. Each Ralph round starts a fresh child with no conversation seed and uses the shared workspace as durable memory. Completion and blockers are worker reports, not independent evaluation. Use same-session goal tools for ordinary long-running objectives, and plain subagents or workflows for bounded delegation and fan-out.',
   })
   ctx.tools.register(defineTool({
     name: 'ralph',
@@ -360,6 +430,7 @@ export function apply(ctx: Context, config: Config): void {
         meta: RALPH_META,
         args: { objective, maxRounds, maxHandoffChars: resolved.maxHandoffChars },
         subagentProvider: resolved.subagentProvider,
+        maxTotalAgents: maxRounds,
         parent,
         ...exec.signal === undefined ? {} : { signal: exec.signal },
       })
@@ -372,7 +443,8 @@ export function apply(ctx: Context, config: Config): void {
         const error = stopReasonError(settled)
         if (error !== undefined) throw new Error(error)
         const value = readRunResult(settled.value, maxRounds, resolved.maxHandoffChars)
-        return [{ type: 'text', text: renderResult(value) }]
+        if (value.status === 'round-failed') throw new Error(renderRoundFailure(value, resolved.maxResultChars))
+        return [{ type: 'text', text: renderResult(value, resolved.maxResultChars) }]
       } finally {
         exec.signal?.removeEventListener('abort', onAbort)
         await run.dispose()
