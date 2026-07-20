@@ -72,6 +72,7 @@ declare module '@deepseek-ai/dsh-agent' {
  * let it delegate as if it were top-level.
  * @param agent - the agent whose header and options carry the depth.
  * @returns its non-negative safe-integer depth.
+ * @throws if the runtime `AgentOptions.subagentDepth` is not a non-negative safe integer.
  */
 export function delegationDepthOf(agent: Agent): number {
   const runtime = agent.options.subagentDepth
