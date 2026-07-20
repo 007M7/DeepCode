@@ -21,7 +21,7 @@ When an answer includes `custom`, `selected` is empty; custom text is an overrid
 
 ## Role
 
-This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; UI front doors such as the interactive `dsh-tui`, line-oriented `dsh-stdio`, and structured `dsh-acp` channels provide the provider. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
+This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; the interactive `dsh-tui` and structured `dsh-acp` front doors provide the provider. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
 
 ## Model Experience
 

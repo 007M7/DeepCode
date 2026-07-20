@@ -51,7 +51,7 @@ function selection(id: string, options: readonly string[], secrets?: Record<stri
 function request(
   extra: readonly FeatureSelection[] = [],
   plugins: readonly LocalPluginBlueprint[] = [],
-  app: 'acp' | 'stdio' | 'embed' = 'stdio',
+  app: 'acp' | 'tui' | 'embed' = 'tui',
   bash: 'local' | 'sandbox' = 'local',
 ): ProjectCreationRequest {
   return {
@@ -115,16 +115,16 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(acp.readEnvironment('.env', 'KEY')).toBe('value')
     expect(() => acp.readEnvironment('.env.example', 'KEY')).not.toThrow()
     expect(acp.document('tsconfig.json')).toBeInstanceOf(TextProjectFile)
-    const stdio = await make('dsh-open-stdio', {}, `- id: provider
+    const tui = await make('dsh-open-tui', {}, `- id: provider
   name: '@deepseek-ai/dsh-llm-deepseek'
   config: { models: [provider-model] }
-- id: stdio
-  name: '@deepseek-ai/dsh-stdio'
+- id: tui
+  name: '@deepseek-ai/dsh-tui'
 `, { 'yarn.lock': '' })
-    expect(stdio.profile.runInterface).toBe('stdio')
-    expect(stdio.profile.runtime.model).toBe('provider-model')
-    expect(stdio.profile.packageManager.name).toBe('yarn')
-    expect(stdio.profile.name).toBe(stdio.root.split('/').at(-1))
+    expect(tui.profile.runInterface).toBe('tui')
+    expect(tui.profile.runtime.model).toBe('provider-model')
+    expect(tui.profile.packageManager.name).toBe('yarn')
+    expect(tui.profile.name).toBe(tui.root.split('/').at(-1))
     const pnpm = await make('dsh-open-pnpm', { name: 'pnpm' }, '[]\n', { 'pnpm-lock.yaml': '' })
     expect(pnpm.profile.packageManager.name).toBe('pnpm')
     const defaults = await make('dsh-open-default', { name: 'default', packageManager: 'npm@10.0.0' }, '[]\n')
@@ -134,8 +134,8 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(() => SdkProject.create(defaults.root, { ...request(), features: [] })).toThrow('requires one app')
     await expect(make('dsh-open-invalid-manager', { name: 'bad', packageManager: 'bad' }, '[]\n'))
       .rejects.toThrow('invalid packageManager field')
-    const providerFallback = await make('dsh-open-provider-fallback', { name: 'fallback' }, `- id: stdio
-  name: '@deepseek-ai/dsh-stdio'
+    const providerFallback = await make('dsh-open-provider-fallback', { name: 'fallback' }, `- id: tui
+  name: '@deepseek-ai/dsh-tui'
   config: { model: '' }
 - id: provider
   name: '@deepseek-ai/dsh-llm-deepseek'
@@ -172,7 +172,7 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(index).toContain('process.env.DSH_SDK_SESSION_ID = sessionId')
     expect(index).toContain('resumeSessionId: sessionId')
     expect(index).toContain('await ctx.fiber.dispose()')
-    expect(index).toContain("new AggregateError([error, disposeError], 'stdio startup and cleanup failed')")
+    expect(index).toContain("new AggregateError([error, disposeError], 'TUI startup and cleanup failed')")
     expect(project.packageManifest().scripts).toEqual({
       dev: 'dsh-sdk dev index.ts -- --model="deepseek-v4-flash"',
       build: 'dsh-sdk build',
@@ -181,12 +181,12 @@ describe('SdkProject and ProjectEditSession', () => {
       config: 'dsh-sdk config',
     })
     expect(await readFile(join(project.root, '.env.example'), 'utf8')).toContain('EXA_API_KEY=')
-    expect(project.cordis.entry('stdio')?.config?.sessionId).toMatchObject({
+    expect(project.cordis.entry('tui')?.config?.sessionId).toMatchObject({
       source: 'process.env.DSH_SDK_SESSION_ID',
     })
     expect(await readFile(join(project.root, 'cordis.yml'), 'utf8'))
       .toContain('sessionId: !!js process.env.DSH_SDK_SESSION_ID')
-    expect(project.cordis.entry('stdio')?.config).not.toHaveProperty('model')
+    expect(project.cordis.entry('tui')?.config).not.toHaveProperty('model')
     expect(project.cordis.entry('agent-loop')?.config).toEqual({ agents: [] })
     expect(project.cordis.entry('system-prompt')?.config?.persona).toContain('{{cwd}}')
     expect(project.packageManifest().dependencies?.['@cordisjs/plugin-timer']).toBe('^1.1.2')
@@ -211,13 +211,13 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(app.selection).toEqual(selection('app', ['embed']))
     expect(committed.cordis.entry('agent-loop')?.config).toEqual({ agents: [] })
     expect(committed.cordis.entry('acp')).toBeUndefined()
-    expect(committed.cordis.entry('stdio')).toBeUndefined()
+    expect(committed.cordis.entry('tui')).toBeUndefined()
   })
 
   it('emits the sandbox workspace-write example as inactive Cordis config', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-sandbox-bash-'))
     temporary.push(root)
-    const creation = request([], [], 'stdio', 'sandbox')
+    const creation = request([], [], 'tui', 'sandbox')
     const project = SdkProject.create(root, creation)
     const registry = createBuiltinRegistry(project.profile)
     const edit = project.edit(registry)
@@ -306,7 +306,7 @@ describe('SdkProject and ProjectEditSession', () => {
     const modifiedRegistry = createBuiltinRegistry(modified.profile)
     expect(() => { modified.edit(modifiedRegistry).configureFeature(
       modifiedRegistry.get(featureId('app')),
-      selection('app', ['stdio']),
+      selection('app', ['tui']),
     ) }).toThrow('feature-owned file was modified: README.md')
 
     const manifest = PackageJsonFile.parse(await readFile(join(embed.root, 'package.json'), 'utf8'))
@@ -349,7 +349,7 @@ describe('SdkProject and ProjectEditSession', () => {
     const edit = project.edit(registry)
     edit.setCustomPluginDisabled('sample', true)
     expect(edit.cordisConfigEntries().find(entry => entry.id === 'sample')?.disabled).toBe(true)
-    expect(() => { edit.setCustomPluginDisabled('stdio', true) }).toThrow('builtin feature')
+    expect(() => { edit.setCustomPluginDisabled('tui', true) }).toThrow('builtin feature')
     const next = (await edit.commit()).project
     const enable = next.edit(createBuiltinRegistry(next.profile))
     enable.setCustomPluginDisabled('sample', false)
@@ -444,8 +444,8 @@ describe('SdkProject and ProjectEditSession', () => {
     }
     const internals = edit as unknown as Internals
     const collidingEntry: ProjectResource = {
-      kind: 'cordis-config-entry', key: resourceKey('cordis-config-entry:stdio'),
-      entry: { id: 'stdio', name: 'other-package' }, ownedConfigKeys: [],
+      kind: 'cordis-config-entry', key: resourceKey('cordis-config-entry:tui'),
+      entry: { id: 'tui', name: 'other-package' }, ownedConfigKeys: [],
     }
     expect(() => { internals.applyResource(collidingEntry, undefined) }).toThrow('is owned by')
     const existingFile: ProjectResource = {
@@ -797,7 +797,7 @@ describe('extension points', () => {
     })
     expect(exclusive.defaultOptions(profile)).toEqual(['one'])
     expect(exclusive.isApplicable(profile)).toBe(true)
-    expect(exclusive.isApplicable({ ...profile, runInterface: 'stdio' })).toBe(false)
+    expect(exclusive.isApplicable({ ...profile, runInterface: 'tui' })).toBe(false)
     expect(exclusive.requirements(selection('defined', ['one']))).toEqual([
       { id: 'base' }, { id: 'option', options: ['required'] },
     ])
@@ -811,7 +811,7 @@ describe('extension points', () => {
     expect(entry?.validateConfig?.({ nested: { value: 2 }, list: ['a', 'b'], nullable: null })).toEqual([])
     expect(entry?.validateConfig?.({ nested: [], list: 'bad' })).toHaveLength(3)
     expect(() => exclusive.normalizeSelection(selection('other', ['one']), profile)).toThrow('does not belong')
-    expect(() => exclusive.normalizeSelection(selection('defined', ['one']), { ...profile, runInterface: 'stdio' }))
+    expect(() => exclusive.normalizeSelection(selection('defined', ['one']), { ...profile, runInterface: 'tui' }))
       .toThrow('not available')
     expect(() => exclusive.normalizeSelection(selection('defined', ['missing']), profile)).toThrow('unknown')
     expect(() => exclusive.normalizeSelection(selection('defined', ['one', 'two']), profile)).toThrow('exactly one')
@@ -819,7 +819,7 @@ describe('extension points', () => {
       id: 'fixed', summary: 'Fixed', mode: 'single', options: [option],
     }])).toHaveLength(2)
     expect(() => new FeatureRegistry([], profile).get(featureId('missing'))).toThrow('unknown feature')
-    expect(new FeatureRegistry([exclusive], profile).ownerOfPackage('one-package', { ...profile, runInterface: 'stdio' }))
+    expect(new FeatureRegistry([exclusive], profile).ownerOfPackage('one-package', { ...profile, runInterface: 'tui' }))
       .toBeUndefined()
     class Unsupported extends FixedFeature {
       override readonly id = featureId('unsupported')
@@ -897,10 +897,10 @@ describe('extension points', () => {
         resource.kind === 'cordis-config-entry' && resource.entry.id === 'acp')
     expect(acpEntry?.entry.id).toBe('acp')
     expect(acpEntry?.validateConfig?.({ model: '' })).toHaveLength(1)
-    const stdioEntry = builtins.get(featureId('app')).contribution(selection('app', ['stdio']), profile).resources
+    const tuiEntry = builtins.get(featureId('app')).contribution(selection('app', ['tui']), profile).resources
       .find((resource): resource is CordisConfigEntryResource =>
-        resource.kind === 'cordis-config-entry' && resource.entry.id === 'stdio')
-    expect(stdioEntry?.validateConfig?.({ welcome: 'ready', sessionId: 1 })).toEqual([
+        resource.kind === 'cordis-config-entry' && resource.entry.id === 'tui')
+    expect(tuiEntry?.validateConfig?.({ welcome: 'ready', sessionId: 1 })).toEqual([
       'sessionId must be a non-empty string',
     ])
     const embedOption = app.options.find(option => option.id === 'embed')
@@ -910,7 +910,7 @@ describe('extension points', () => {
     ])
     expect(embedOption?.matchesConfigEntries([
       { id: 'agent-loop', name: '@deepseek-ai/dsh-agent-loop' },
-      { id: 'stdio', name: '@deepseek-ai/dsh-stdio' },
+      { id: 'tui', name: '@deepseek-ai/dsh-tui' },
     ], profile)).toBe(false)
     const spineAgentLoop = builtins.get(featureId('spine')).contribution(selection('spine', ['default']), profile).resources
       .find((resource): resource is CordisConfigEntryResource =>

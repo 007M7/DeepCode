@@ -51,12 +51,14 @@ describe('dsh-cli-demo app composition', () => {
       persona: 'Headless.',
       tools: { mode: 'native' },
       persistenceRoot: root,
+      persistenceCompression: 'none',
       skills: await skillConfig(),
       workspaceContext: false,
     })
     const [agent] = ctx.get('agents')?.roots() ?? []
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
+    expect((ctx.get('sessionPersistence') as unknown as { config: { compression?: string } }).config.compression).toBe('none')
     expect(agent?.session.header.cwd).toBe(process.cwd())
     expect(ctx.get('userInteraction')).toBeUndefined()
     expect(ctx.get('tools')?.get('ask_user_question')).toBeUndefined()
