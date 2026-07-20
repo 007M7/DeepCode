@@ -29,6 +29,12 @@
   const rootId = 'runtimes-pane'
   let currentTab = 'rubric-grid'
   let fusionSeeded = false
+  // Shared Evals-pane rubric selector filter (lane-evals-merge). null =
+  // "All rubrics"; a rubric id scopes the grid to a single card so a
+  // researcher can compare that rubric's rollout matrix in isolation
+  // when the Rubrics tab is showing its detail and Runtime tab is
+  // still hydrating the same choice.
+  let sharedRubricFilter = null
 
   function fusion() {
     return typeof window !== 'undefined' ? window.__dshRubricFusion : null
@@ -378,10 +384,16 @@
       host.appendChild(muted('Rubric fusion store not loaded.'))
       return
     }
-    const rubrics = f.listRubrics()
+    let rubrics = f.listRubrics()
     if (!rubrics.length) {
       host.appendChild(muted('No rubrics registered. Author one under Rubrics → Create from scratch, or load the fusion fixture.'))
       return
+    }
+    // If the shared Evals selector picked a rubric, scope the grid to
+    // that one. Otherwise show a card per rubric (default behaviour).
+    if (sharedRubricFilter) {
+      const scoped = rubrics.filter(r => r.id === sharedRubricFilter)
+      if (scoped.length) rubrics = scoped
     }
     // Header row: one card per rubric.
     for (const rubric of rubrics) {
@@ -489,6 +501,24 @@
     s.className = cls
     s.textContent = text
     return s
+  }
+
+  // Shared Evals-pane rubric selector (lane-evals-merge, 2026-07-19).
+  // When the researcher picks a rubric from the top selector, scope
+  // the rollout grid to that rubric only; "All rubrics" restores the
+  // per-rubric card view.
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('dsh:evals-rubric-change', (ev) => {
+      const rid = ev && ev.detail && ev.detail.rubricId
+      sharedRubricFilter = rid || null
+      // Only repaint when the Runtime tab is what the user is looking
+      // at; otherwise the next setEvalsActiveTab('runtime') call in
+      // renderer.js triggers refresh() and the filter takes effect.
+      const evalsPane = document.querySelector('.pane[data-pane="evals"]')
+      if (evalsPane && evalsPane.dataset.evalsActive === 'runtime') {
+        try { void show() } catch (_) {}
+      }
+    })
   }
 
   if (typeof window !== 'undefined') {

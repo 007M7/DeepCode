@@ -12971,3 +12971,85 @@ button.artifact-version:hover {
 .tool-block:not([open]) > summary .tool-edit-rerun-trigger {
   display: none;
 }
+
+/* Evals pane (lane-evals-merge, 2026-07-19)
+ * Three former panes — Rubrics, Growth, Runtimes — collapse into one
+ * .pane[data-pane="evals"]. The outer .pane[data-pane="evals"] flex column
+ * layout is inherited from `.main .pane`. Inside, header + tab strip sit
+ * at the top; only one .evals-tab-pane is rendered at a time based on
+ * [data-evals-active] on the outer .pane.
+ *
+ * The inner .evals-tab-pane sections keep their `.pane` class so
+ * page-scoped CSS in this file (.pane[data-pane="growth"] {…} etc.)
+ * still applies without a rewrite. The `hidden` attribute is what
+ * hides inactive tabs; JS in renderer.js flips it on tab click. */
+.pane[data-pane="evals"] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.pane[data-pane="evals"] > .evals-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.evals-shared-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.evals-shared-label {
+  white-space: nowrap;
+}
+.evals-shared-select {
+  min-width: 180px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+.evals-tab-strip {
+  display: flex;
+  gap: 4px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.evals-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  padding: 8px 14px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.evals-tab:hover {
+  color: var(--fg);
+}
+.evals-tab.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+.evals-tab-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.evals-tab-body > .evals-tab-pane {
+  flex: 1;
+  min-height: 0;
+}
+/* When the pane is hidden the browser handles it via [hidden]; when a
+ * tab is inactive its inner section is hidden the same way. */
+.evals-tab-body > .evals-tab-pane[hidden] {
+  display: none;
+}

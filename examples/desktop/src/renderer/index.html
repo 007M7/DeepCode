@@ -104,34 +104,30 @@
           </button>
         </div>
 
-        <div class="nav-group" data-nav-group="runtime" data-item-count="6">
+        <div class="nav-group" data-nav-group="runtime" data-item-count="4">
           <div class="nav-group-header">runtime</div>
-          <!-- lane-rubrics slot — live as of NAV delta merge (feat/lane-rubrics-annotation
-               @ 70293ba already merged as a13e020; this merge is the flip point per team-
-               lead rule "hub+rubrics flip in NAV delta since neither NAV nor RUB touched
-               index.html on the merge path"). data-fixture-tier stays because the 28-task
-               rubric catalog is still fixture-backed until the annotation-store producer
-               wires up; the "· demo" chip decorateNav() paints from it stays truthful. -->
-          <button class="tab-btn nav-item" data-tab="rubrics" data-fixture-tier="true"
-                  title="Rubrics — catalog-first scoring rubric library, 28-task groups (fixture-tier)">
+          <!-- Evals entry (lane-evals-merge, 2026-07-19). Three former nav
+               items — Rubrics, Growth, Runtimes — are collapsed into a
+               single Evals door because they already share one rubric
+               scoring event log (rubric-fusion-model.js) and mean much
+               less on their own than they do together. Inner surfaces are
+               unchanged; the pane just grows a top tab strip that mounts
+               each existing controller under [ Rubrics | Growth | Runtime ].
+               data-fixture-tier stays: the fusion event log is still
+               fixture-backed (rubric-fusion-seed.js) until the annotation
+               store and rubric library seams wire up. -->
+          <button class="tab-btn nav-item" data-tab="evals" data-fixture-tier="true"
+                  title="Evals — three views over the shared rubric scoring event log (Rubrics catalog · Growth timeline · Runtime rollout grid).">
             <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M4 5h12M4 10h12M4 15h8M14 14l2 2 3-3"/></svg>
-            <span>Rubrics</span>
+            <span>Evals</span>
           </button>
           <button class="tab-btn nav-item" data-tab="plugins" title="Plugins">
             <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M7 3v3H4v4a2 2 0 0 0 2 2h1v4h3v-4h2v4h3v-4a2 2 0 0 0 2-2V6h-3V3h-3v3h-2V3z"/></svg>
             <span>Plugins</span>
           </button>
-          <button class="tab-btn nav-item" data-tab="runtimes" title="Local runtime profiles + isolated daemons">
-            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M3 5h14v4H3zM3 11h14v4H3zM6 7h.01M6 13h.01M9 7h.01M9 13h.01"/></svg>
-            <span>Runtimes</span>
-          </button>
           <button class="tab-btn nav-item" data-tab="mission" title="Missions">
             <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="10" r="2" fill="currentColor"/><path stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M10 1.5V4M10 16v2.5M1.5 10H4M16 10h2.5"/></svg>
             <span>Missions</span>
-          </button>
-          <button class="tab-btn nav-item" data-tab="growth" title="Growth (self-evolution log)">
-            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M3 16.5h14M4.5 16V12M8 16V8.5M12 16V5M15.5 16V10M4.5 12l3.5-3.5L12 5l3.5 5"/></svg>
-            <span>Growth</span>
           </button>
           <button class="tab-btn nav-item" data-tab="prs" title="Pull Requests">
             <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="5" cy="4" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="16" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="15" cy="16" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path fill="none" stroke="currentColor" stroke-width="1.5" d="M5 5.8v8.4M5 6.5c0 4 5 4 5 6.5V6M15 14.2V9l-2 2M15 9l2 2"/></svg>
@@ -237,35 +233,34 @@
         </div>
       </div>
 
-      <!-- Runtimes sidebar — page owns its own body; the sidebar just
-           orients + provides a refresh button. See runtimes-page.js. -->
-      <div class="tab-panel" data-tab-panel="runtimes" hidden>
+      <!-- Evals sidebar (lane-evals-merge, 2026-07-19). Rubrics / Growth /
+           Runtimes were three siblings until 2026-07-19; each had its own
+           sidebar panel. They're now one door because the three views
+           project the same rubric scoring event log. This single panel
+           orients the researcher to the three tabs (top of the pane) and
+           preserves both the rubrics-catalog Refresh button and the
+           Export annotations action from the old Rubrics sidebar so no
+           deeplink from Chat header / Recent rows loses its target. The
+           Runtimes refresh button is preserved under the same id so
+           runtimes-page.js click handlers keep working. -->
+      <div class="tab-panel" data-tab-panel="evals" hidden>
         <div class="sidebar-section-head">
-          <span class="section-label">Runtimes</span>
-          <button id="runtimes-refresh" class="icon-btn ghost" title="Reread profile list + status" aria-label="Refresh">
+          <span class="section-label">Evals</span>
+          <button id="rubrics-refresh" class="icon-btn ghost" title="Reload the rubric catalog + fusion store" aria-label="Refresh">
             <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M15.5 4.5v4h-4M4.5 15.5v-4h4M5.2 7.6a6 6 0 0 1 10 .4M14.8 12.4a6 6 0 0 1-10-.4"/></svg>
           </button>
         </div>
-        <div class="runtimes-sidebar-note muted">
-          Local profiles, adapters, and any isolated daemon currently up. Composed
-          locally until <code>runtime/list</code> lands on the wire (gap G8).
-        </div>
-      </div>
-
-      <!-- Rubrics sidebar (task #188) — orients the user to the catalog. -->
-      <div class="tab-panel" data-tab-panel="rubrics" hidden>
-        <div class="sidebar-section-head">
-          <span class="section-label">Rubrics</span>
-          <button id="rubrics-refresh" class="icon-btn ghost" title="Reload the catalog" aria-label="Refresh">
-            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M15.5 4.5v4h-4M4.5 15.5v-4h4M5.2 7.6a6 6 0 0 1 10 .4M14.8 12.4a6 6 0 0 1-10-.4"/></svg>
-          </button>
-        </div>
-        <div class="rubrics-sidebar-note muted">
-          Evaluator library — one SKILL.md file per rubric, grouped by task category.
-          Every rubric attaches to Bench for scoring runs; "Create from scratch"
-          lives at the bottom of the page as a fallback CTA.
+        <div class="evals-sidebar-note muted">
+          One rubric scoring event log, three views. Rubrics = catalog, Growth =
+          timeline over sessions, Runtime = per-rubric rollout grid. Pick a rubric
+          from the top selector to keep them in sync.
         </div>
         <div class="sidebar-foot">
+          <!-- Runtimes refresh handler still bound by id; keeps the sidebar
+               button contract stable for runtimes-page.js's click handler
+               and any deeplink that targeted it. -->
+          <button id="runtimes-refresh" class="ghost small" title="Reread profile list + status (Runtime tab).">Reload runtimes</button>
+          <button id="growth-refresh" class="ghost small" title="Reread the growth log (Growth tab).">Reload growth</button>
           <button id="rubrics-annotate-open" class="ghost small" title="Open the export drawer for annotated sessions">Export annotations</button>
         </div>
       </div>
@@ -281,20 +276,11 @@
         </div>
       </div>
 
-      <!-- Growth sidebar (kept minimal — this page is a self-contained page,
-           the sidebar just orients the user to what it's for). -->
-      <div class="tab-panel" data-tab-panel="growth" hidden>
-        <div class="sidebar-section-head">
-          <span class="section-label">Growth</span>
-          <button id="growth-refresh" class="icon-btn ghost" title="Reread the growth log" aria-label="Refresh">
-            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M15.5 4.5v4h-4M4.5 15.5v-4h4M5.2 7.6a6 6 0 0 1 10 .4M14.8 12.4a6 6 0 0 1-10-.4"/></svg>
-          </button>
-        </div>
-        <div class="growth-sidebar-note muted">
-          Every entry links to a real event — plugin install, overlay apply, vibe
-          session. This is an audit trail, not a persona.
-        </div>
-      </div>
+      <!-- Growth sidebar folded into the Evals sidebar above (2026-07-19,
+           lane-evals-merge). The growth-refresh button lives in the new
+           Evals sidebar-foot so growth-v2.js listeners keep binding by id.
+           If a future lane splits Growth back out, restore this block
+           with the original heading + refresh icon. -->
     </aside>
     <main class="main">
       <!-- Chat pane -->
@@ -937,13 +923,67 @@
         </div>
       </section>
 
-      <!-- Rubrics pane (task #188) — catalog-first evaluator library.
+      <!-- Evals pane (lane-evals-merge, 2026-07-19). Wraps three sub-panes —
+           Rubrics catalog, Growth timeline, Runtime rollout grid — that
+           share the same rubric scoring event log (rubric-fusion-model.js).
+           The outer .pane is what switchTo('evals') toggles; only one of
+           the three inner sub-panes shows at a time based on the
+           data-evals-tab strip below. The inner sub-panes keep their
+           original data-pane values because rubrics-page.js / growth-v2.js
+           / runtimes-page.js all query them by that selector — the
+           renderer.js switchTo() loop is updated to iterate direct main
+           children only so nested data-pane doesn't fight the outer
+           hidden flag. Shared selector (rubric picker) sits above the
+           tab strip so choosing a rubric syncs all three views. -->
+      <section class="pane" data-pane="evals" hidden>
+        <header class="header evals-header">
+          <div class="header-lead">
+            <div class="page-title">
+              Evals
+              <span class="demo-tier-chip" title="The rubric scoring event log is still fixture-backed (rubric-fusion-seed.js). User-authored rubrics and real annotation results land as the G1 library seam and the annotation-store producer wire up.">demo · G1 pending</span>
+            </div>
+            <div class="page-sub muted">Rubric library, evolution over time, and per-rubric rollout grid — three views over one scoring event log.</div>
+          </div>
+          <!-- Shared rubric selector. Populated on show() by
+               renderer.js/evals-shared-selector from window.__dshRubricFusion.
+               Empty by default so first paint is stable and the "all rubrics"
+               scope is honest. Emits `dsh:evals-rubric-change` when the user
+               picks — each inner page listens and re-scopes its view. -->
+          <div class="evals-shared-selector" role="group" aria-label="Shared rubric selector">
+            <label class="evals-shared-label muted small" for="evals-shared-rubric">Rubric focus</label>
+            <select id="evals-shared-rubric" class="evals-shared-select"
+                    title="Filter Rubrics catalog · Growth curves · Runtime grid to one rubric. 'All rubrics' keeps the default per-page view.">
+              <option value="">All rubrics</option>
+            </select>
+          </div>
+        </header>
+        <!-- Inner tab strip. Only one .evals-tab-pane is visible at a time;
+             visibility is driven by [data-evals-active] on this .pane
+             (CSS in style.css matches the attribute so no JS querySelector
+             per pane is needed). Rubrics is the default because it's the
+             catalog entry point new researchers see first. -->
+        <div class="evals-tab-strip" role="tablist" aria-label="Evals view">
+          <button type="button" class="evals-tab active" data-evals-tab="rubrics"
+                  role="tab" aria-selected="true"
+                  title="Catalog of scoring rubrics grouped by task class.">Rubrics</button>
+          <button type="button" class="evals-tab" data-evals-tab="growth"
+                  role="tab" aria-selected="false"
+                  title="Score curves over harness versions / models / data mixes.">Growth</button>
+          <button type="button" class="evals-tab" data-evals-tab="runtime"
+                  role="tab" aria-selected="false"
+                  title="Rollout × rubric-dim red/green grid for the current runtime.">Runtime</button>
+        </div>
+        <div class="evals-tab-body">
+      <!-- Rubrics sub-pane (task #188) — catalog-first evaluator library.
            Rendered by src/renderer/rubrics-page.js; the pure model lives at
            rubrics-model.js and the fixture blobs are inlined via
            rubrics-seed.js. The detail drawer sits fixed to the right; the
            annotation flow (task #191) lives in annotation-panel.js and is
-           reachable from Chat header + Recent list rows. -->
-      <section class="pane" data-pane="rubrics" hidden>
+           reachable from Chat header + Recent list rows. Kept as
+           data-pane="rubrics" so page controllers that query it by that
+           selector still bind; the class no longer includes 'pane' because
+           only the outer wrapper is the main-child pane. -->
+      <section class="evals-tab-pane" data-pane="rubrics" data-evals-tab-pane="rubrics">
         <header class="header">
           <div class="header-lead">
             <div class="page-title">
@@ -976,10 +1016,15 @@
         </aside>
       </section>
 
-      <!-- Growth pane. Rendered by src/renderer/growth-v2.js — the
-           compact-window "harness evolution log" for researchers. See the
-           header of growth-v2.js for pane structure + data source. -->
-      <section class="pane" data-pane="growth" hidden>
+      <!-- Growth sub-pane (2026-07-19, lane-evals-merge). Rendered by
+           src/renderer/growth-v2.js — the compact-window "harness evolution
+           log" for researchers. Section keeps data-pane="growth" so
+           growth-v2.js's `document.querySelector('.pane[data-pane="growth"]')`
+           still binds; the .pane class is preserved for the same reason
+           (growth-v2.js scopes CSS on `.pane[data-pane="growth"]`). The
+           outer .pane[data-pane="evals"] toggles overall visibility; this
+           section shows only when data-evals-active="growth" via CSS. -->
+      <section class="pane evals-tab-pane" data-pane="growth" data-evals-tab-pane="growth" hidden>
         <header class="header">
           <div class="header-lead">
             <div class="page-title">Growth</div>
@@ -1020,14 +1065,17 @@
         </section>
       </section>
 
-      <!-- Runtimes pane (task #189 / IA §3 Runtimes one-pager). Rendered by
-           src/renderer/runtimes-page.js on switchTo('runtimes'). Body has
-           two sections: the profile list (one row per registered profile,
-           expandable into a capability matrix) and the isolated-daemon
-           section (any Playground scratch daemon currently up). The
-           legend chip up top names the wire seam this composes locally
-           until `runtime/list` (G8) lands. -->
-      <section class="pane" data-pane="runtimes" hidden id="runtimes-pane">
+      <!-- Runtimes sub-pane (task #189 / IA §3 Runtimes one-pager), now
+           the Runtime tab inside the Evals pane. Rendered by
+           src/renderer/runtimes-page.js on switchTo('evals') + Runtime tab
+           active. Body has two sections: the profile list (one row per
+           registered profile, expandable into a capability matrix) and
+           the isolated-daemon section (any Playground scratch daemon
+           currently up). Section keeps data-pane="runtimes" + id so
+           runtimes-page.js's `document.getElementById('runtimes-pane')`
+           still finds it. .pane class preserved so the CSS geometry
+           (flex column + min-height) still applies. -->
+      <section class="pane evals-tab-pane" data-pane="runtimes" data-evals-tab-pane="runtime" hidden id="runtimes-pane">
         <header class="header">
           <div class="header-lead">
             <div class="page-title">Runtimes</div>
@@ -1044,6 +1092,8 @@
           <div class="runtimes-isolated" data-runtimes-isolated></div>
         </section>
       </section>
+        </div><!-- /.evals-tab-body -->
+      </section><!-- /.pane[data-pane="evals"] -->
 
       <!-- Settings pane (task #193). Two sections: Model pricing (editable
            table seeded from price-table.js DEFAULT_PRICE_TABLE, edits

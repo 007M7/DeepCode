@@ -37,8 +37,37 @@ test('resolveHiddenPages: empty array → show everything', () => {
 
 test('resolveHiddenPages: custom list → honored as-is', () => {
   assert.deepStrictEqual(
-    M.resolveHiddenPages({ hiddenPages: ['prs', 'growth'] }),
-    ['prs', 'growth']
+    M.resolveHiddenPages({ hiddenPages: ['prs', 'bench'] }),
+    ['prs', 'bench']
+  )
+})
+
+test('resolveHiddenPages: legacy rubrics/growth/runtimes ids remap to evals (lane-evals-merge)', () => {
+  // 2026-07-19: three separate nav items were merged into one Evals
+  // door. Old config values must keep hiding what the user asked for —
+  // if they'd hidden Rubrics before, they should still see no Rubrics
+  // surface after upgrade (which means Evals stays hidden).
+  assert.deepStrictEqual(
+    M.resolveHiddenPages({ hiddenPages: ['rubrics'] }),
+    ['evals']
+  )
+  assert.deepStrictEqual(
+    M.resolveHiddenPages({ hiddenPages: ['growth'] }),
+    ['evals']
+  )
+  assert.deepStrictEqual(
+    M.resolveHiddenPages({ hiddenPages: ['runtimes'] }),
+    ['evals']
+  )
+  // Multiple legacy ids collapse to a single 'evals' entry.
+  assert.deepStrictEqual(
+    M.resolveHiddenPages({ hiddenPages: ['rubrics', 'growth', 'runtimes'] }),
+    ['evals']
+  )
+  // Legacy ids mixed with unrelated ids preserve the unrelated ids.
+  assert.deepStrictEqual(
+    M.resolveHiddenPages({ hiddenPages: ['prs', 'growth', 'bench'] }),
+    ['prs', 'evals', 'bench']
   )
 })
 
@@ -50,8 +79,8 @@ test('resolveHiddenPages: non-array garbage → falls back to defaults (safe)', 
 
 test('resolveHiddenPages: filters out non-string / blank entries', () => {
   assert.deepStrictEqual(
-    M.resolveHiddenPages({ hiddenPages: ['prs', '', null, 42, 'growth'] }),
-    ['prs', 'growth']
+    M.resolveHiddenPages({ hiddenPages: ['prs', '', null, 42, 'bench'] }),
+    ['prs', 'bench']
   )
 })
 
@@ -219,13 +248,13 @@ function makeSidebar() {
     makeBtn('hub'),
     makeBtn('bench'),
   ])
-  // "runtime" group — mission (default hidden) sits here.
+  // "runtime" group — mission (default hidden) sits here. Post
+  // lane-evals-merge (2026-07-19) rubrics/growth/runtimes fold into
+  // a single 'evals' button; the sidebar shim mirrors that new shape.
   makeGroup([
-    makeBtn('rubrics'),
+    makeBtn('evals'),
     makeBtn('plugins'),
-    makeBtn('runtimes'),
     makeBtn('mission'),
-    makeBtn('growth'),
     makeBtn('prs'),
   ])
   return { buttons, groups }
@@ -263,11 +292,13 @@ test('DOM filter (case 2): empty array → nothing hidden (all pages show)', () 
 
 test('DOM filter (case 3): custom list → matching buttons hidden, others untouched', () => {
   const sb = makeSidebar()
+  // 'growth' remaps to 'evals' via LEGACY_ID_ALIAS (lane-evals-merge);
+  // 'prs' passes through unchanged. Both target actual sidebar buttons.
   applyFilter(sb, { hiddenPages: ['prs', 'growth'] })
   const hidden = sb.buttons.filter((b) => b.classList.contains('nav-item--hidden'))
   assert.deepStrictEqual(
     hidden.map((b) => b.dataset.tab).sort(),
-    ['growth', 'prs']
+    ['evals', 'prs']
   )
   // Playground + mission are NOT hidden because the researcher opted them in
   // via an explicit list; only the ids in the list are hidden.

@@ -7436,6 +7436,27 @@ if (runtimesRefreshBtn) {
   })
 }
 
+// Evals sidebar rubric-refresh + growth-refresh (lane-evals-merge,
+// 2026-07-19). These ids used to belong to per-page sidebars; after
+// the merge they live in the shared Evals sidebar-foot. Forwarding
+// from here keeps the page controllers unchanged.
+const evalsRubricsRefreshBtn = document.getElementById('rubrics-refresh')
+if (evalsRubricsRefreshBtn) {
+  evalsRubricsRefreshBtn.addEventListener('click', () => {
+    if (window.__dshRubrics && typeof window.__dshRubrics.refresh === 'function') {
+      void window.__dshRubrics.refresh()
+    }
+  })
+}
+const evalsGrowthRefreshBtn = document.getElementById('growth-refresh')
+if (evalsGrowthRefreshBtn) {
+  evalsGrowthRefreshBtn.addEventListener('click', () => {
+    if (window.__dshGrowthV2 && typeof window.__dshGrowthV2.show === 'function') {
+      void window.__dshGrowthV2.show()
+    }
+  })
+}
+
 // Populate profile selector and reflect current status.
 async function bootUi() {
   // instantiate the subagent lineage store once
@@ -7626,8 +7647,34 @@ async function bootUi() {
   // sibling modules (plugins-ui.js calls `switchTo` after vibe).
   const tabButtons = document.querySelectorAll('.tab-btn')
   const tabPanels = document.querySelectorAll('[data-tab-panel]')
-  const mainPanes = document.querySelectorAll('.main .pane')
+  // Direct-child pane list, not descendants: the Evals pane
+  // (lane-evals-merge) nests three sub-panes that still carry .pane +
+  // data-pane, and iterating descendants would let their `hidden`
+  // toggle fight the outer wrapper's. Direct child scope means the
+  // outer Evals pane is the only main-level match; inner sub-panes are
+  // managed by the tab strip below.
+  const mainEl = document.querySelector('.main')
+  const mainPanes = mainEl ? mainEl.querySelectorAll(':scope > .pane') : document.querySelectorAll('.main > .pane')
+  // Legacy tab id → new evals tab mapping. Callers that still pass
+  // 'rubrics' / 'growth' / 'runtimes' land on the Evals pane with the
+  // correct inner tab active — no dead nav routes after the merge.
+  const EVALS_TAB_ALIAS = Object.freeze({
+    rubrics: 'rubrics',
+    growth: 'growth',
+    runtimes: 'runtime',
+  })
   function switchTo(name) {
+    // Alias legacy ids to the new evals door + inner tab. Keeps every
+    // preexisting switchTo('rubrics'|'growth'|'runtimes') call site
+    // wired without hunting them all down.
+    if (EVALS_TAB_ALIAS[name]) {
+      const innerTab = EVALS_TAB_ALIAS[name]
+      const originalName = name
+      name = 'evals'
+      // Pre-set the inner tab so the show() branch below activates it.
+      state._pendingEvalsTab = innerTab
+      state._evalsLegacyAlias = originalName
+    }
     // Bug D layer 5 (2026-07-18, team-lead directive from layout-audit
     // 187824e): three drawers historically stayed open across tab
     // switches — `.fork-compare-drawer`, `.playground-compare-drawer`,
@@ -7676,17 +7723,38 @@ async function bootUi() {
       // one tab is reflected the next time the researcher visits Hub.
       void window.__dshHub.show()
     }
-    if (name === 'growth' && window.__dshGrowthV2) {
-      // Growth v2: reads the compact-window history fixture +
-      // any user-written rubrics/errors under ~/.dsh/growth/. No session-
-      // list dependency — the page owns its own data source now.
-      void window.__dshGrowthV2.show()
-    }
-    if (name === 'runtimes' && window.__dshRuntimes) {
-      // local composition — reads listProfiles + runtimeStatus
-      // + serverCapabilities + Playground list. Async so the profile
-      // fetch can complete before the row list paints.
-      void window.__dshRuntimes.show()
+    if (name === 'evals') {
+      // Evals door (lane-evals-merge, 2026-07-19). Mounts the three inner
+      // pages that share the rubric scoring event log:
+      //   - Rubrics catalog (rubrics-page.js)
+      //   - Growth timeline (growth-v2.js)
+      //   - Runtime rollout grid (runtimes-page.js)
+      // Each sub-page's show() paints into its own [data-pane] section;
+      // the tab strip decides which one the researcher sees. All three
+      // are called on entry so switching tabs is a visibility toggle
+      // (no re-mount cost). Pending-tab from the legacy-alias branch or
+      // the shared-selector's last pick overrides the default 'rubrics'
+      // when set. mountEvalsTabStrip() is idempotent and installs the
+      // tab click + shared selector listeners on first switch.
+      const evalsPane = document.querySelector('.pane[data-pane="evals"]')
+      mountEvalsTabStrip(evalsPane)
+      populateEvalsSharedSelector()
+      const pending = state._pendingEvalsTab
+      state._pendingEvalsTab = null
+      const initialTab = pending || (evalsPane && evalsPane.dataset.evalsActive) || 'rubrics'
+      setEvalsActiveTab(evalsPane, initialTab)
+      // Mount all three so the first tab flip after this doesn't have to
+      // wait on a fetch/paint. Rubrics is synchronous; Growth+Runtimes
+      // fire-and-forget.
+      if (window.__dshRubrics && typeof window.__dshRubrics.show === 'function') {
+        try { window.__dshRubrics.show() } catch (_) { /* defensive: never let one page crash the door */ }
+      }
+      if (window.__dshGrowthV2 && typeof window.__dshGrowthV2.show === 'function') {
+        try { void window.__dshGrowthV2.show() } catch (_) {}
+      }
+      if (window.__dshRuntimes && typeof window.__dshRuntimes.show === 'function') {
+        try { void window.__dshRuntimes.show() } catch (_) {}
+      }
     }
     if (name === 'settings' && window.__dshSettings) {
       // pricing table + key-presence chart. Reads the
@@ -7694,12 +7762,10 @@ async function bootUi() {
       // and merges any localStorage overrides via settings-model.
       void window.__dshSettings.show()
     }
-    if (name === 'rubrics' && window.__dshRubrics) {
-      // Rubrics catalog. Reads fixture SKILL.md blobs via
-      // window.__dshRubricsSeed; user overlay rubrics from .dsh/rubrics/
-      // wait on the G1 library/put seam.
-      window.__dshRubrics.show()
-    }
+    // The legacy 'rubrics' / 'growth' / 'runtimes' branches were folded
+    // into the 'evals' door above (2026-07-19, lane-evals-merge). The
+    // EVALS_TAB_ALIAS lookup at the top of switchTo() remaps any lingering
+    // caller to 'evals' with the correct inner tab pre-set.
     if (name === 'bench' && window.__dshBench) {
       // Bench (#187): local-lite researcher experiment platform. The page
       // owns its own data source (inlined fixture batch); no session-list
@@ -7758,7 +7824,88 @@ async function bootUi() {
     }
     switchTo(tab)
   })
-  window.__dshTabs = { switchTo }
+  window.__dshTabs = { switchTo, EVALS_TAB_ALIAS }
+
+  // --- Evals pane machinery (lane-evals-merge, 2026-07-19) --------------
+  // Three helpers install the inner tab strip, the shared rubric picker,
+  // and the active-tab visibility toggle. Kept in renderer.js because
+  // they need to reach into window.__dshRubricFusion + the sub-page show()
+  // functions without introducing a new script file (keeps the load-
+  // order graph in index.html unchanged, gates cleaner).
+  let _evalsTabStripMounted = false
+  function mountEvalsTabStrip(paneEl) {
+    if (_evalsTabStripMounted || !paneEl) return
+    const strip = paneEl.querySelector('.evals-tab-strip')
+    if (!strip) return
+    strip.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-evals-tab]')
+      if (!btn) return
+      const tab = btn.dataset.evalsTab
+      setEvalsActiveTab(paneEl, tab)
+    })
+    // Shared selector emits a custom event so each sub-page can react
+    // without a direct dependency on renderer.js internals. Fires once
+    // on mount so first paint sees the current pick.
+    const sel = paneEl.querySelector('#evals-shared-rubric')
+    if (sel) {
+      sel.addEventListener('change', () => {
+        const rubricId = sel.value || null
+        try {
+          window.dispatchEvent(new CustomEvent('dsh:evals-rubric-change', { detail: { rubricId } }))
+        } catch (_) { /* CustomEvent absent (older Electron) — swallow */ }
+      })
+    }
+    _evalsTabStripMounted = true
+  }
+  function setEvalsActiveTab(paneEl, tab) {
+    if (!paneEl || !tab) return
+    paneEl.dataset.evalsActive = tab
+    for (const b of paneEl.querySelectorAll('.evals-tab')) {
+      const on = b.dataset.evalsTab === tab
+      b.classList.toggle('active', on)
+      b.setAttribute('aria-selected', on ? 'true' : 'false')
+    }
+    for (const p of paneEl.querySelectorAll('.evals-tab-body > .evals-tab-pane')) {
+      p.hidden = p.dataset.evalsTabPane !== tab
+    }
+    // When the Runtime tab activates, kick a repaint — the page may
+    // have painted while hidden and its measured metrics could be zero.
+    if (tab === 'runtime' && window.__dshRuntimes && typeof window.__dshRuntimes.refresh === 'function') {
+      try { void window.__dshRuntimes.refresh() } catch (_) {}
+    }
+  }
+  function populateEvalsSharedSelector() {
+    const sel = document.getElementById('evals-shared-rubric')
+    if (!sel) return
+    const fusion = window.__dshRubricFusion
+    if (!fusion || typeof fusion.listRubrics !== 'function') return
+    // Seed the fusion store once if the sub-pages haven't gotten to it
+    // yet (opening Evals as the first surface). Uses the same fixture
+    // ref they read from — the store's WeakSet dedupe means repeated
+    // seeds are idempotent.
+    if (typeof fusion.loadFixture === 'function' && window.__dshRubricFusionSeed) {
+      try { fusion.loadFixture(window.__dshRubricFusionSeed) } catch (_) {}
+    }
+    const rubrics = fusion.listRubrics()
+    const currentValue = sel.value
+    // Rebuild the option list. Preserves "All rubrics" as the sentinel
+    // first option; the sub-pages treat null/"" as "no shared filter".
+    sel.innerHTML = ''
+    const allOpt = document.createElement('option')
+    allOpt.value = ''
+    allOpt.textContent = 'All rubrics'
+    sel.appendChild(allOpt)
+    for (const r of rubrics) {
+      const opt = document.createElement('option')
+      opt.value = r.id
+      opt.textContent = r.group ? `${r.group} · ${r.name}` : r.name
+      sel.appendChild(opt)
+    }
+    // Restore the previous pick if the id still exists.
+    if (currentValue && rubrics.some(r => r.id === currentValue)) {
+      sel.value = currentValue
+    }
+  }
 
   // Left-nav hidden-pages filter (lane-nav-optional). Reads the shell
   // config's `hiddenPages` array through the nav IPC and toggles a

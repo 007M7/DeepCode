@@ -41,10 +41,28 @@ test('no lane still carries pending — all four slots flipped', () => {
     `all four coordinated slots should be flipped (found ${buttonPending.length} still-pending)`)
 })
 
-test('Runtimes tab and pane exist', () => {
-  assert.match(HTML, /data-tab="runtimes"/)
-  assert.match(HTML, /data-pane="runtimes"/)
-  assert.match(HTML, /id="runtimes-pane"/)
+test('Runtimes surface preserved inside the Evals pane', () => {
+  // Post lane-evals-merge (2026-07-19), Runtimes is a tab inside the
+  // Evals door, not its own top-level nav. The nav button is 'evals';
+  // the runtimes-pane id + data-pane="runtimes" stay because
+  // runtimes-page.js queries them by that selector.
+  assert.match(HTML, /data-tab="evals"/, 'Evals nav button missing')
+  assert.match(HTML, /data-pane="runtimes"/, 'runtimes sub-pane still keeps its data-pane hook')
+  assert.match(HTML, /id="runtimes-pane"/, 'runtimes-pane id preserved for runtimes-page.js binding')
+  assert.match(HTML, /data-evals-tab-pane="runtime"/, 'Runtime tab pane marker present')
+})
+
+test('Evals door hosts Rubrics/Growth/Runtime as tabs', () => {
+  // Sanity: the three sub-pane markers are present and reachable via
+  // their evals-tab id. Guards against a future edit that silently
+  // orphans a tab pane.
+  assert.match(HTML, /data-evals-tab="rubrics"/, 'Rubrics tab button present')
+  assert.match(HTML, /data-evals-tab="growth"/, 'Growth tab button present')
+  assert.match(HTML, /data-evals-tab="runtime"/, 'Runtime tab button present')
+  assert.match(HTML, /data-evals-tab-pane="rubrics"/, 'Rubrics tab pane present')
+  assert.match(HTML, /data-evals-tab-pane="growth"/, 'Growth tab pane present')
+  assert.match(HTML, /data-evals-tab-pane="runtime"/, 'Runtime tab pane present')
+  assert.match(HTML, /id="evals-shared-rubric"/, 'Shared rubric selector present')
 })
 
 test('Settings tab and pane exist', () => {

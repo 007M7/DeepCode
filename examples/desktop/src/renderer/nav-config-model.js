@@ -22,6 +22,19 @@
 
 const DEFAULT_HIDDEN = Object.freeze(['playground-shim', 'mission'])
 
+// Legacy ids that were merged into the single 'evals' door on 2026-07-19
+// (lane-evals-merge). Any of these appearing in a user's persisted
+// hiddenPages array is remapped so their old config keeps hiding the
+// Evals door — otherwise a user who previously chose "hide Rubrics"
+// would see Evals reappear on the next launch, effectively rolling
+// their preference back. The keys must match the ORIGINAL data-tab
+// values as they existed pre-merge; the value is the new door id.
+const LEGACY_ID_ALIAS = Object.freeze({
+  rubrics: 'evals',
+  growth: 'evals',
+  runtimes: 'evals',
+})
+
 // Page ids that a user can opt into from the Settings > Optional pages
 // section. Kept as a small explicit list rather than "everything in the
 // default hidden set" because the Settings section is meant to be a
@@ -44,7 +57,19 @@ function resolveHiddenPages(cfg) {
   // every optional page in. Filter out non-strings/blanks defensively so
   // a malformed entry can't crash the renderer filter.
   const cleaned = raw.filter((x) => typeof x === 'string' && x.length > 0)
-  return cleaned
+  // Remap legacy ids merged into 'evals' (lane-evals-merge, 2026-07-19).
+  // Deduplicates so a config that hides all three of rubrics/growth/
+  // runtimes still yields a single 'evals' entry in the resolved set.
+  const out = []
+  const seen = new Set()
+  for (const id of cleaned) {
+    const mapped = LEGACY_ID_ALIAS[id] || id
+    if (!seen.has(mapped)) {
+      seen.add(mapped)
+      out.push(mapped)
+    }
+  }
+  return out
 }
 
 // Small helper the Settings page uses to compute the next hiddenPages
@@ -57,7 +82,7 @@ function toggleOptionalPage(current, pageId, enable) {
   return Array.from(set)
 }
 
-const navConfigApi = { DEFAULT_HIDDEN, OPTIONAL_PAGES, resolveHiddenPages, toggleOptionalPage }
+const navConfigApi = { DEFAULT_HIDDEN, OPTIONAL_PAGES, LEGACY_ID_ALIAS, resolveHiddenPages, toggleOptionalPage }
 if (typeof module !== 'undefined' && module.exports) module.exports = navConfigApi
 if (typeof window !== 'undefined') window.__dshNavConfigModel = navConfigApi
 

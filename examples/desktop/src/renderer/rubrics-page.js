@@ -690,6 +690,25 @@
     }
   }
 
+  // Shared Evals-pane rubric selector (lane-evals-merge, 2026-07-19).
+  // When the researcher picks a rubric from the top selector, open that
+  // rubric's detail drawer so the catalog view reflects the shared pick.
+  // "All rubrics" (empty value) closes any open drawer to reset scope.
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('dsh:evals-rubric-change', (ev) => {
+      const rid = ev && ev.detail && ev.detail.rubricId
+      if (!rid) {
+        try { closeDetail() } catch (_) {}
+        return
+      }
+      // Only act when the Rubrics tab is the active Evals tab, otherwise
+      // opening the drawer would flash behind another tab's body.
+      const evalsPane = document.querySelector('.pane[data-pane="evals"]')
+      if (evalsPane && evalsPane.dataset.evalsActive !== 'rubrics') return
+      try { openDetail(rid) } catch (_) {}
+    })
+  }
+
   if (typeof window !== 'undefined') {
     window.__dshRubrics = { mount, show, refresh, renderCatalog, openDetail, closeDetail, openCreateForm, closeCreateForm, _state: state }
     if (document.readyState === 'loading') {
