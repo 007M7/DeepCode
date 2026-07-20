@@ -231,6 +231,20 @@ describe('GoalService creation and replay', () => {
     expect(() => foldGoal(session.events)).not.toThrow()
   })
 
+  it('lets a lifecycle owner disarm without writing a durable revision', async () => {
+    const { ctx, agent, session } = await harness()
+    const goal = ctx.goals.create(agent, { objective: 'survive driver reload' })
+    const before = session.events.length
+    expect(ctx.goals.disarm(agent)).toMatchObject({
+      id: goal.id,
+      revision: goal.revision,
+      phase: 'active',
+      activation: 'disarmed',
+    })
+    expect(session.events).toHaveLength(before)
+    expect(ctx.goals.resume(agent, goal)).toMatchObject({ revision: 2, activation: 'armed' })
+  })
+
   it('removes the service and its session-start listener with the providing fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)

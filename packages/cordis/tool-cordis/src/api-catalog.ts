@@ -259,6 +259,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Read the current goal for one exact live agent.\n * @param agent - owning live agent.\n * @returns a fresh view or `undefined` when no goal is current.\n * @throws {@link GoalError} when the agent is not the registry\'s live instance.\n */',
       },
       {
+        signature: 'disarm(agent: Agent): GoalView | undefined',
+        jsDoc: '/**\n * Remove process-local continuation authority without changing durable goal\n * phase or revision. Lifecycle owners use this before unloading a driver;\n * a later human-authorized {@link resume} records the new activation edge.\n * @param agent - owning live agent.\n * @returns a fresh disarmed view, or `undefined` when no goal is current.\n */',
+      },
+      {
         signature: 'create(agent: Agent, request: CreateGoalRequest): GoalView',
         jsDoc: '/**\n * Create and arm a goal. A completed goal may be replaced; every other\n * current phase must be cleared or resumed instead.\n * @param agent - owning live agent.\n * @param request - objective and optional round cap.\n * @returns the created live view.\n */',
       },
@@ -673,6 +677,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'agent-loop/config-start-failed\'(sessionId: SessionId, error: unknown): void',
     jsDoc: '/**\n * A declarative agent entry failed before it could publish a live agent.\n * Consumers that buffer work for the configured identity use this\n * transient signal to reject that work instead of waiting forever. Normal\n * factory teardown suppresses failures from the cancelled startup attempt.\n * @param sessionId - exact shared agent/session identity that failed startup.\n * @param error - persistence, setup, or publication failure.\n * @mode emit\n */',
     summary: 'A declarative agent entry failed before it could publish a live agent.',
+  },
+  {
+    name: 'agent/cancel-requested',
+    mode: 'emit',
+    signature: '\'agent/cancel-requested\'(this: Scoped<Agent>, agent: Agent, reason: string): void',
+    jsDoc: '/**\n * Effective broad cancellation was requested, before queued/steering work\n * is cleared or the active step is aborted. This observe-only notification\n * cannot veto cancellation; listener failures are contained.\n * @param agent - the agent whose current work is being cancelled.\n * @param reason - resolved cancellation reason, including the default.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'Effective broad cancellation was requested, before queued/steering work is cleared or the active step is aborted.',
   },
   {
     name: 'agent/created',

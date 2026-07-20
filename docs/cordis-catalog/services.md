@@ -499,6 +499,15 @@ Goal service (`ctx.goals`) backed exclusively by the owning session log.
 get(agent: Agent): GoalView | undefined
 
 /**
+ * Remove process-local continuation authority without changing durable goal
+ * phase or revision. Lifecycle owners use this before unloading a driver;
+ * a later human-authorized {@link resume} records the new activation edge.
+ * @param agent - owning live agent.
+ * @returns a fresh disarmed view, or `undefined` when no goal is current.
+ */
+disarm(agent: Agent): GoalView | undefined
+
+/**
  * Create and arm a goal. A completed goal may be replaced; every other
  * current phase must be cleared or resumed instead.
  * @param agent - owning live agent.

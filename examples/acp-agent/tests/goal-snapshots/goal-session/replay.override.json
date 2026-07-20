@@ -3,8 +3,8 @@
     "kind": "chunks",
     "chunks": [
       { "type": "block-start", "index": 0, "blockType": "tool-call" },
-      { "type": "tool-call-delta", "index": 0, "id": "call_goal_create", "name": "create_goal", "argumentsDelta": "{\"objective\":\"Finish the headless goal-tool snapshot proof\",\"max_goal_rounds\":7}" },
-      { "type": "block-end", "index": 0, "block": { "type": "tool-call", "id": "call_goal_create", "name": "create_goal", "arguments": "{\"objective\":\"Finish the headless goal-tool snapshot proof\",\"max_goal_rounds\":7}" } },
+      { "type": "tool-call-delta", "index": 0, "id": "call_goal_create", "name": "create_goal", "argumentsDelta": "{\"objective\":\"Finish the ACP goal-session snapshot proof\",\"max_goal_rounds\":2}" },
+      { "type": "block-end", "index": 0, "block": { "type": "tool-call", "id": "call_goal_create", "name": "create_goal", "arguments": "{\"objective\":\"Finish the ACP goal-session snapshot proof\",\"max_goal_rounds\":2}" } },
       { "type": "usage", "usage": { "inputTokens": 20, "outputTokens": 8 } },
       { "type": "finish", "reason": { "kind": "tool-calls" } }
     ]
@@ -28,5 +28,16 @@
       { "type": "usage", "usage": { "inputTokens": 35, "outputTokens": 2 } },
       { "type": "finish", "reason": { "kind": "stop" } }
     ]
-  }
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      { "type": "block-start", "index": 0, "blockType": "text" },
+      { "type": "text-delta", "index": 0, "text": "GOAL ROUND ONE" },
+      { "type": "block-end", "index": 0, "block": { "type": "text", "text": "GOAL ROUND ONE" } },
+      { "type": "usage", "usage": { "inputTokens": 40, "outputTokens": 3 } },
+      { "type": "finish", "reason": { "kind": "stop" } }
+    ]
+  },
+  { "kind": "hang" }
 ]

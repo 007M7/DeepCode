@@ -15,7 +15,7 @@ Event-sourced same-session goal state. The service retains one current completio
 
 ## Service contract
 
-`ctx.goals` accepts only the exact live `Agent` instance registered under its id. `get()` returns a detached `GoalView`; mutations use a `GoalRef { id, revision }` compare-and-set fence and reject stale refs. The service exposes create, edit, pause, resume, complete, block, and clear verbs through the generated [service catalog](../../../docs/cordis-catalog/services.md). Creation default resolution is an internal implementation step, not an additional public verb.
+`ctx.goals` accepts only the exact live `Agent` instance registered under its id. `get()` returns a detached `GoalView`; mutations use a `GoalRef { id, revision }` compare-and-set fence and reject stale refs. The service exposes create, edit, pause, resume, complete, block, and clear verbs through the generated [service catalog](../../../docs/cordis-catalog/services.md). Creation default resolution is internal. `disarm()` is the lifecycle-only exception: it removes process-local continuation authority without writing a revision or emitting a mutation.
 
 At most one goal is current. Creation produces an active revision-one goal and arms it. A non-complete goal must be edited, transitioned, or cleared; a completed goal may be replaced by a globally fresh id. Edits retain phase, blocker reason, and activation. Pause, completion, blocking, and clear disarm activation. A block records a policy-owned lower-kebab-case code plus a normalized free-form explanation; provider limits, configured budgets, execution errors, and requests for human input all use this one durable phase rather than multiplying lifecycle states. Resume accepts a stopped phase or a disarmed active goal only while the configured round cap has remaining capacity; it clears any former blocker reason. An active armed goal rejects the redundant operation.
 
@@ -23,7 +23,7 @@ Every non-clear mutation appends a complete versioned snapshot through `agent.in
 
 Injection may append immediately or wait in an active tool-batch FIFO. The service overlays accepted pending changes in memory and reconciles each exact payload when it enters the log, so consecutive model-tool mutations see their own latest revisions without treating an unlogged cache as durable state. Reentrant append observers see each accepted mutation exactly once, and incremental replay retains its cursor at the first corrupt event. `goal/changed` fires after the append or enqueue succeeds; listener failures are contained.
 
-Activation is never persisted. A fresh cache and every `agent/session-start` edge disarm it even when replay finds an active durable phase. Session resume and fork therefore retain the objective, phase, revisions, and admitted-round count without initiating work; a later explicit resume mutation must arm continuation.
+Activation is never persisted. A fresh cache and every `agent/session-start` edge disarm it even when replay finds an active durable phase. A continuation driver also calls `disarm()` before unload or after durability uncertainty. Session resume, fork, and driver replacement therefore retain the objective, phase, revisions, and admitted-round count without initiating work; a later explicit resume mutation must arm continuation.
 
 ## Extension points
 

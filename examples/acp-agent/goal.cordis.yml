@@ -1,4 +1,4 @@
-# Add the persisted goal domain and its model-facing tools to the real one-shot app.
+# Add the persisted same-session goal stack to the shipped ACP app.
 - id: base
   name: '@cordisjs/plugin-include'
   config:
@@ -9,3 +9,5 @@
             name: '@deepseek-ai/dsh-goal'
           - id: tool-goal
             name: '@deepseek-ai/dsh-tool-goal'
+          - id: goal-session
+            name: '@deepseek-ai/dsh-goal-session'
