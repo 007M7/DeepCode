@@ -90,12 +90,12 @@ function staleRefreshFixtures(dir: string): void {
   writeFileSync(plainBehaviorFile, `${JSON.stringify(plainBehavior, null, 2)}\n`)
 
   writeFileSync(join(dir, 'blocked-log', 'session.jsonl'), [
-    '{"type":"session","id":"99999999-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/blocked-cwd"}',
+    '{"type":"session","id":"99999999-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/blocked-cwd","delegationDepth":0}',
     '{"type":"hook/result","seq":1,"time":13,"data":{"decision":"stale","durationMs":99}}',
     '',
   ].join('\n'))
   writeFileSync(join(dir, 'authored-error', 'session.jsonl'), [
-    '{"type":"session","id":"77777777-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/error-cwd"}',
+    '{"type":"session","id":"77777777-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/error-cwd","delegationDepth":0}',
     '{"type":"turn/end","seq":1,"time":9,"data":{"error":"stale"}}',
     '',
   ].join('\n'))

@@ -1187,8 +1187,7 @@ export interface Config {
   /**
    * Tool filter applied to every child. Filtered tools disappear from its
    * prompt and reject execution. Requires the provider's `toolFilter`
-   * capability; unknown names fail startup. Children otherwise see this tool,
-   * so deny it or set `maxDepth` to bound recursion.
+   * capability; unknown names fail startup.
    */
   toolFilter?: {
     /** Global tool names the child keeps; everything else is removed. */
@@ -1197,10 +1196,15 @@ export interface Config {
     deny?: string[]
   }
   /**
-   * Maximum child depth. Requires the provider's `depthLimit` capability and a
-   * non-negative safe integer. Omission is unbounded.
+   * Maximum child depth: a non-negative safe integer (default `3`; `0` forbids
+   * delegation entirely), or `'provider-managed'` to send no cap. A numeric cap
+   * requires the provider's `depthLimit` capability (mount fails loud
+   * otherwise). The provider checks the calling agent's current depth at every
+   * start; the tool remains model-visible so runtime policy owns rejection.
+   * `'provider-managed'` is for an out-of-process provider (ACP) whose
+   * recursion budget belongs to the child harness's own deployment.
    */
-  maxDepth?: number
+  maxDepth?: number | 'provider-managed'
 }
 ```
 
