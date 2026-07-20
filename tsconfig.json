@@ -42,6 +42,7 @@
     { "path": "./packages/goal/goal" },
     { "path": "./packages/goal/tool-goal" },
     { "path": "./packages/goal/goal-session" },
+    { "path": "./packages/goal/command-goal" },
     { "path": "./packages/context/time-context" },
     { "path": "./packages/ui/user-interaction" },
     { "path": "./packages/ui/user-approval" },

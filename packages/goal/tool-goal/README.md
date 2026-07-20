@@ -71,6 +71,6 @@ Schemas are prefix-stable while their definitions and visibility are unchanged. 
 
 - **Semantic intent remains model judgment** — execution can prove direct human provenance, not whether a request is substantial enough to merit a goal.
 - **Same-condition blocking remains model judgment** — the runtime enforces distinct admitted-round count, not semantic equivalence of obstacles; an independent evaluator is deferred.
-- **No scheduling or UI commands** — these tools mutate state only; the same-session driver and human command surfaces are separate stack layers.
+- **No scheduling or direct human rendering** — these tools mutate state only; the same-session driver and [`dsh-command-goal`](../command-goal/README.md) are independent consumers of the same domain.
 - **Goal-round authority requires a driver** — the autonomous `complete`/`blocked` path is dormant unless a continuation driver admits goal-sourced user turns; mounting this tool package alone does not create them.
 - **Prompt registration is independent of filtering** — a scope may hide the tools while retaining their guidance unless the deployment scopes both registrations together.
