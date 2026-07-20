@@ -68,6 +68,8 @@ Replace an over-budget text middle while retaining rich-block order. Text slicin
  * and points at the shadowed node for durable provenance and replay.
  * @param session - session whose current surface is rewritten.
  * @returns landed replacements and aggregate Unicode-code-point savings.
+ * @throws when the session rejects a replacement; replacements committed
+ * earlier in the pass remain durable.
  */
 pruneSession(session: Session): PruneResult
 ```
@@ -78,4 +80,4 @@ Prune every over-budget tool result from one stable current-surface snapshot. Ea
 
 **Returns** landed replacements and aggregate Unicode-code-point savings.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact-tool-result-prune/src/index.ts#L122)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/compact/compact-tool-result-prune/src/index.ts#L124)

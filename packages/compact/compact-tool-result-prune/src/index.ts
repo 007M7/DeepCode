@@ -118,6 +118,8 @@ export class ToolResultPruneService extends Service {
    * and points at the shadowed node for durable provenance and replay.
    * @param session - session whose current surface is rewritten.
    * @returns landed replacements and aggregate Unicode-code-point savings.
+   * @throws when the session rejects a replacement; replacements committed
+   * earlier in the pass remain durable.
    */
   pruneSession(session: Session): PruneResult {
     const candidates: SnapshotCandidate[] = []
