@@ -47,6 +47,12 @@ export interface SessionHeader {
    * boundary lets resume and replay distinguish parent history from child work.
    */
   readonly seedLength?: number
+  /**
+   * Delegation depth: absent (zero) for a top-level session, parent depth + 1
+   * for a subagent child. Persisted so a recursion budget survives restart and
+   * resume — a runtime-only depth would reset a resumed child to top-level.
+   */
+  readonly delegationDepth?: number
 }
 
 /**
@@ -66,6 +72,7 @@ export interface CreateSessionOptions {
     readonly parentSession?: SessionId
     readonly createdAt?: number
     readonly seedLength?: number
+    readonly delegationDepth?: number
   }
 }
 

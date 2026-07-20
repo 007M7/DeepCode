@@ -10,7 +10,7 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
     <encoded-id>.jsonl           # header line + one storage record per line
 ```
 
-- The first `.jsonl` line is the immutable `SessionHeader` tagged `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength? }`; every subsequent line is one storage record. `assistant/chunk` events are never dropped, and `seq` stays contiguous across the decoded log.
+- The first `.jsonl` line is the immutable `SessionHeader` tagged `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength?, delegationDepth }`. `delegationDepth` is required on disk and is `0` for a top-level session; a missing or invalid value rejects the log. Every subsequent line is one storage record; `assistant/chunk` events are never dropped, and `seq` stays contiguous across the decoded log (`events[i].seq === i`).
 - A storage record is a `SessionEvent` JSON verbatim, or — written only under `packChunks` — a **packed chunk row** (`text-chunks` / `reasoning-chunks` / `tool-call-chunks`; bare slash-less tags like the header's `session`, so row tags cannot be confused with event types): one line holding a run of ≥3 consecutive same-block `assistant/chunk` delta events, `seq0`/`time0` plus per-member `dt` gaps reconstructing every member's `seq`/`time` exactly. The lossless codec lives in `@deepseek-ai/dsh-session` (`packChunkRuns`/`decodeStorageRecord`) and whitelists exact shapes — anything unrecognized stores verbatim. Reading is layout-blind: `load` always decodes rows, so packed, unpacked, and mixed files load identically.
 - Session ids are unvalidated branded strings, so they are percent-encoded to a single safe path segment before use (no traversal, no collision).
 

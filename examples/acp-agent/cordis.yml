@@ -94,12 +94,14 @@
   config:
     provider: spawn
     toolName: subagent
+    maxDepth: 1
 
 - id: tool-subagent-fork
   name: '@deepseek-ai/dsh-tool-subagent'
   config:
     provider: fork
     toolName: subagent_fork
+    maxDepth: 1
 
 
 # The worker-thread workflow engine fans a model-written JavaScript script's

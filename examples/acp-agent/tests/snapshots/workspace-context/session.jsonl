@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{cwd}}"}
+{"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783778297065,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783778297066,"data":{"content":[{"type":"text","text":"Read nested/task.txt with the read tool, then reply DONE."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1783778297069,"data":{"turn":1,"step":1}}

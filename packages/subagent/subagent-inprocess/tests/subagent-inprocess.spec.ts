@@ -58,6 +58,43 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
+  it('persists the child depth in its session header', async () => {
+    const { ctx, parent } = await setup([textResponse('child answer')])
+    const run = await startInProcessRun(request(parent), {})
+    await run.result
+    // The recursion budget is durable session data, not only runtime options —
+    // a depth that lived only in AgentOptions would reset to 0 on resume.
+    expect(ctx.agents.get(run.id)!.session.header.delegationDepth).toBe(1)
+    await run.dispose()
+  })
+
+  it('counts a RESUMED child by its persisted header depth, not the absent runtime depth', async () => {
+    // Resume rebuilds runtime options, so the durable header must keep this
+    // depth-1 child from delegating as though it were top-level.
+    const { ctx } = await setup([textResponse('unused')])
+    const resumed = (await ctx.agents.create({
+      sessionId: SessionId('resumed-child'),
+      meta: { parentSession: SessionId('root'), delegationDepth: 1 },
+      agentOptions: { provider: 'mock', model: 'mock' },
+      signal: new AbortController().signal,
+    })).agent
+    await expect(startInProcessRun({ ...request(resumed), maxDepth: 1 }, {}))
+      .rejects.toMatchObject({ name: 'SubagentDepthError', attemptedDepth: 2, maxDepth: 1 })
+  })
+
+  it('lets runtime options deepen but never lower the persisted depth', async () => {
+    const { ctx } = await setup([textResponse('unused')])
+    const parent = (await ctx.agents.create({
+      sessionId: SessionId('deep-parent'),
+      meta: { delegationDepth: 2 },
+      agentOptions: { provider: 'mock', model: 'mock', subagentDepth: 1 },
+      signal: new AbortController().signal,
+    })).agent
+    // Persisted 2 vs runtime 1: the child is depth 3, so maxDepth 2 rejects.
+    await expect(startInProcessRun({ ...request(parent), maxDepth: 2 }, {}))
+      .rejects.toMatchObject({ name: 'SubagentDepthError', attemptedDepth: 3, maxDepth: 2 })
+  })
+
   it('rejects invalid and exceeded depth before publication', async () => {
     const { parent } = await setup([])
     await expect(startInProcessRun({ ...request(parent), maxDepth: -1 }, {}))
@@ -65,11 +102,11 @@ describe('startInProcessRun', () => {
     await expect(startInProcessRun({ ...request(parent), maxDepth: 0 }, {}))
       .rejects.toMatchObject({ name: 'SubagentDepthError' })
     for (const value of [Number.NaN, 1.5, -1, -0, Number.MAX_SAFE_INTEGER + 1]) {
-      const malformed = { options: { subagentDepth: value } } as unknown as Agent
+      const malformed = { options: { subagentDepth: value }, session: { header: {} } } as unknown as Agent
       await expect(startInProcessRun(request(malformed), {}))
         .rejects.toThrow('agent subagentDepth must be a non-negative safe integer')
     }
-    const maxParent = { options: { subagentDepth: Number.MAX_SAFE_INTEGER } } as unknown as Agent
+    const maxParent = { options: { subagentDepth: Number.MAX_SAFE_INTEGER }, session: { header: {} } } as unknown as Agent
     await expect(startInProcessRun(request(maxParent), {})).rejects.toBeInstanceOf(RangeError)
   })
 
