@@ -675,8 +675,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/prompt-submit',
     mode: 'waterfall',
     signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
-    jsDoc: '/**\n * Allow, rewrite, or block one drained prompt before it becomes a user\n * message. Call `next()` for the unchanged default.\n * @param agent - the agent draining its inbox.\n * @param content - the drained message\'s blocks, as queued.\n * @param source - the message\'s resolved source.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
-    summary: 'Allow, rewrite, or block one drained prompt before it becomes a user message.',
+    jsDoc: '/**\n * Allow, rewrite, or block one claimed prompt before it becomes a user\n * message. Call `next()` for the unchanged default.\n * @param agent - the agent whose turn claimed the message.\n * @param content - the claimed message\'s blocks, as queued.\n * @param source - the message\'s resolved source.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    summary: 'Allow, rewrite, or block one claimed prompt before it becomes a user message.',
   },
   {
     name: 'agent/queued',
