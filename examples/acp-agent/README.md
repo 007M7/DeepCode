@@ -7,7 +7,7 @@ pnpm run demo:acp          # needs DEEPSEEK_API_KEY (repo-root .env or env)
 pnpm run demo:code-mode acp   # the same server in Code Mode: one wire tool, run_code
 ```
 
-The leaf config loads the ACP app, DeepSeek adapter, sandboxed bash, the sandboxed filesystem stack, approval and permission services, model-facing tools, and repeat guard. The app bundles the agent spine, JSONL persistence, and bridge, creates agents on `session/new`, and keeps stdout logger-free. [`fs.cordis.yml`](fs.cordis.yml) adds local tool-result spill storage for its dedicated scenarios; [`code-mode.cordis.yml`](code-mode.cordis.yml) adds `run_code` and its generated TypeScript SDK. See [Code Mode](../../packages/core/tools/README.md#code-mode).
+The leaf config loads the ACP app, DeepSeek adapter, session modes, sandboxed bash, the sandboxed filesystem stack, approval and permission services, model-facing tools, and repeat guard. The app bundles the agent spine, JSONL persistence, and bridge, creates agents on `session/new`, and keeps stdout logger-free. [`fs.cordis.yml`](fs.cordis.yml) adds local tool-result spill storage for its dedicated scenarios; [`code-mode.cordis.yml`](code-mode.cordis.yml) adds `run_code` and its generated TypeScript SDK. See [Code Mode](../../packages/core/tools/README.md#code-mode).
 
 ## stdout is the protocol
 
@@ -31,9 +31,13 @@ Add to your Zed `settings.json` under `agent_servers`:
 
 The editor sets each session's `cwd` to the project it opens, and bash uses that directory as its workdir. The current sandbox write boundary is nevertheless fixed when the server starts (`workspaceRoot: process.cwd()`), so launch the server from the workspace it should be allowed to modify; making that root session-scoped is deferred in the [sandbox Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md). The filesystem tools now ride the same sandbox policy through [`@deepseek-ai/dsh-fs-sandbox`](../../packages/fs/fs-sandbox/), so `read`/`write`/`edit` are available under every mode and confined to the same `workspaceRoot`.
 
+## Plan mode
+
+The same `demo:acp` server composes [`@deepseek-ai/dsh-mode`](../../packages/mode/mode/), so a capable client advertises `default` and `plan` in its mode picker. Plan mode adds its guidance section and the reviewed `exit_plan_mode` tool while leaving the complete coding toolset available; `ask_user_question` carries blocking decisions through ACP elicitation. Presenting a plan through `exit_plan_mode` renders the exact logged plan for approval, and a keep-planning response returns the reviewer's free-text feedback to the model. The mode picker and the permission select are independent: switching modes never changes sandbox or approval state, and deployments that need a hard read-only planning floor configure that independent policy rather than baking it into the mode. The [plan-mode Agent Note](../../.agents/notes/implemented/feature/2026-07-07-plan-mode.md) owns the state and review contract.
+
 ## Snapshot tests (record-once / replay-deterministic)
 
-This example hosts the ACP snapshot suite. It replays through `dsh-llm-replay`, which reconstructs model streams from `assistant/chunk` events in each scenario's session JSONL. Recording runs the real ACP agent and harvests its logs; refresh keeps the committed transcript as mock input and rewrites current replay outputs. `replay.override.json` covers throw and hang cases that chunks cannot express, and an optional `workspace/` seeds files. The [snapshot Agent Note](../../.agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md) owns the ACP harness design.
+This example hosts the ACP snapshot suite, including the picker advertisement and both plan-review branches. It replays through `dsh-llm-replay`, which reconstructs model streams from `assistant/chunk` events in each scenario's session JSONL. Recording runs the real ACP agent and harvests its logs; refresh keeps the committed transcript as mock input and rewrites current replay outputs. `replay.override.json` covers throw and hang cases that chunks cannot express, and an optional `workspace/` seeds files. The [snapshot Agent Note](../../.agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md) owns the ACP harness design.
 
 ## Permissions and sandboxing
 

@@ -30,10 +30,4 @@ An agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC
 
 Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mode acp` boots the same server in Code Mode via the `code-mode.cordis.yml` overlay. See [acp-agent/README.md](acp-agent/README.md) for the Zed setup and the snapshot-test design.
 
-The default `cordis.yml` composes [`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local), [`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox), [`@deepseek-ai/dsh-user-approval`](../packages/ui/user-approval), and [`@deepseek-ai/dsh-permission`](../packages/ui/permission). A capable client gets one `Permissions` select: `workspace-write` confines bash to the configured workspace and asks before a wider retry, while `danger-full-access` removes file confinement and disables approval prompts. A denied command can therefore surface a one-shot `session/request_permission` prompt in the editor; "Allow once" runs exactly that retry under the requested wider mode.
-
-## plan-acp-agent
-
-The ACP server with **session modes** composed ([`@deepseek-ai/dsh-mode`](../packages/mode/mode)) — the editor's mode picker switches the session into plan mode, the model works under the plan guidance section, and it leaves through the user-reviewed `exit_plan_mode` tool (the review arrives as an elicitation form). The mode picker and the sandbox/approval selects are independent axes on the same session — switching one never disturbs the other.
-
-Run with: `pnpm run demo:plan-acp` (needs `DEEPSEEK_API_KEY`). See [plan-acp-agent/README.md](plan-acp-agent/README.md).
+The default `cordis.yml` composes [`@deepseek-ai/dsh-mode`](../packages/mode/mode), [`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local), [`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox), [`@deepseek-ai/dsh-user-approval`](../packages/ui/user-approval), and [`@deepseek-ai/dsh-permission`](../packages/ui/permission). A capable client gets a `default` / `plan` mode picker plus one independent `Permissions` select: plan adds model guidance and the reviewed `exit_plan_mode` crossing without changing enforcement, while `workspace-write` confines bash to the configured workspace and asks before a wider retry. See [acp-agent/README.md](acp-agent/README.md#plan-mode) for the plan-review and elicitation flow.

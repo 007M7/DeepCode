@@ -58,6 +58,17 @@
 
       Verify your work by running the code or tests. Keep answers brief and factual.
 
+# Collaboration modes are additive to the canonical ACP server. The ACP bridge
+# advertises the picker, while dsh-mode owns the logged state, plan guidance,
+# and reviewed exit; sandbox and approval remain independent session options.
+- id: mode
+  name: '@deepseek-ai/dsh-mode'
+
+# Blocking plan decisions and ordinary clarifications share ACP's elicitation
+# provider through the model-facing question tool.
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
 # Replay-aware request pressure with one service-wide context window.
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'
