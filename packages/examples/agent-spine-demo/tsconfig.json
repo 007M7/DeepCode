@@ -24,6 +24,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session-title/session-title"
+    },
+    {
       "path": "../../core/system-prompt"
     },
     {

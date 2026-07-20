@@ -1,0 +1,556 @@
+/**
+ * Log-backed session title service, deterministic fallback, and provider seam.
+ * @module @deepseek-ai/dsh-session-title
+ */
+
+import { Context, Service } from 'cordis'
+import z from 'schemastery'
+import type { Branded } from '@deepseek-ai/dsh-brand'
+import { deepFreeze } from '@deepseek-ai/dsh-llm'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { fallbackSessionTitle, normalizeSessionTitle } from './normalize.ts'
+
+export { fallbackSessionTitle, normalizeSessionTitle, truncateTitleUtf8 } from './normalize.ts'
+
+/** Identifies one session-title provider registration. */
+export type SessionTitleProviderId = Branded<'SessionTitleProviderId'>
+
+/**
+ * Brand a raw provider id.
+ * @param id - stable non-empty provider identifier supplied by a plugin.
+ * @returns the same string with the session-title provider brand.
+ */
+export function SessionTitleProviderId(id: string): SessionTitleProviderId {
+  return id as SessionTitleProviderId
+}
+
+/** Exact auxiliary model route that produced a title. */
+export interface SessionTitleModelProvenance {
+  /** Registered LLM provider route. */
+  readonly provider: string
+  /** Provider model id. */
+  readonly model: string
+}
+
+/** Durable ownership record for an accepted session title. */
+export type SessionTitleSource =
+  | { readonly kind: 'fallback' }
+  | {
+    readonly kind: 'provider'
+    readonly provider: SessionTitleProviderId
+    readonly model?: SessionTitleModelProvenance
+  }
+
+/** Payload of the log-only `session/title` event. */
+export interface SessionTitleEventData {
+  /** Normalized non-empty title text. */
+  readonly title: string
+  /** Exact human `user/message` seqs used to derive this title. */
+  readonly messageSeqs: number[]
+  /** Built-in fallback or registered-provider provenance. */
+  readonly source: SessionTitleSource
+}
+
+/** Latest folded title plus the title event's durable envelope facts. */
+export interface SessionTitleSnapshot extends SessionTitleEventData {
+  /** Seq of the latest `session/title` event. */
+  readonly eventSeq: number
+  /** Timestamp of the latest `session/title` event. */
+  readonly updatedAt: number
+}
+
+/** Required deterministic fallback and accepted-title limits. */
+export interface Config {
+  /** Maximum whitespace-delimited words in the built-in fallback. */
+  readonly fallbackMaxWords: number
+  /** Maximum UTF-8 bytes in the built-in fallback. */
+  readonly fallbackMaxBytes: number
+  /** Maximum UTF-8 bytes in any accepted title. */
+  readonly maxTitleBytes: number
+}
+
+declare module 'cordis' {
+  interface Context {
+    sessionTitle: SessionTitleService
+  }
+}
+
+declare module '@deepseek-ai/dsh-session' {
+  interface TurnTriggerMap {
+    /** Zero-step turn opened only to durably append a late title update. */
+    'session-title': { kind: 'session-title' }
+  }
+
+  interface SessionEventMap {
+    /**
+     * Latest-wins session title snapshot. Log-only: it never enters the model
+     * surface or derived history.
+     */
+    'session/title': SessionTitleEventData
+  }
+
+  interface OutOfBandSessionEventMap {
+    'session/title': true
+  }
+}
+
+/** One eligible human text message exposed to title providers. */
+export interface SessionTitleUserMessage {
+  /** Source `user/message` event seq. */
+  readonly seq: number
+  /** Exact concatenated text-block content. */
+  readonly text: string
+}
+
+/** Automatic generation cadence owned by a registered provider. */
+export type SessionTitleAutomaticMode = 'first-message' | 'all-user-messages'
+
+/** Immutable input supplied to one title-provider call. */
+export interface SessionTitleProviderRequest {
+  /** Live session being titled. */
+  readonly session: Session
+  /** All eligible human messages through this generation revision. */
+  readonly messages: readonly SessionTitleUserMessage[]
+  /** Exact current logged main-request route, when one has been recorded. */
+  readonly route?: SessionTitleModelProvenance
+  /** Cancellation for supersession, disposal, timeout composition, or the explicit caller. */
+  readonly signal: AbortSignal
+}
+
+/** Provider output before service-owned normalization and durable acceptance. */
+export interface SessionTitleProviderResult {
+  /** Proposed title text. */
+  readonly title: string
+  /** Exact seqs from `request.messages` used by this result. */
+  readonly messageSeqs: readonly number[]
+  /** Auxiliary LLM route, when generation used a model. */
+  readonly model?: SessionTitleModelProvenance
+}
+
+/** One optional asynchronous title implementation registered with the service. */
+export interface SessionTitleProvider {
+  /** Stable provider identity recorded in title provenance. */
+  readonly id: SessionTitleProviderId
+  /** When new human prompts start automatic generation. */
+  readonly automatic: SessionTitleAutomaticMode
+  /**
+   * Produce one title revision.
+   * @param request - message snapshot, current route, session, and cancellation.
+   * @returns proposed title plus exact input seqs and optional model provenance.
+   */
+  generate(request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult>
+}
+
+/**
+ * Collect human text-bearing user messages in log order.
+ * @param events - session log or persisted replay.
+ * @param throughSeq - optional inclusive event boundary.
+ * @returns eligible messages with exact source seqs.
+ */
+export function collectSessionTitleMessages(
+  events: readonly SessionEvent[],
+  throughSeq?: number,
+): SessionTitleUserMessage[] {
+  const messages: SessionTitleUserMessage[] = []
+  for (const event of events) {
+    if (throughSeq !== undefined && event.seq > throughSeq) break
+    if (event.type !== 'user/message' || event.data.source.kind !== 'user') continue
+    const text = event.data.content
+      .filter((block): block is Extract<(typeof event.data.content)[number], { type: 'text' }> => block.type === 'text')
+      .map(block => block.text)
+      .join('\n')
+    if (normalizeSessionTitle(text, Number.MAX_SAFE_INTEGER).length === 0) continue
+    messages.push({ seq: event.seq, text })
+  }
+  return messages
+}
+
+/**
+ * Fold the latest logged title without consulting mutable metadata.
+ * @param events - live or persisted session log.
+ * @returns the latest immutable title snapshot, or `undefined`.
+ */
+export function foldSessionTitle(events: readonly SessionEvent[]): SessionTitleSnapshot | undefined {
+  const event = events.findLast(item => item.type === 'session/title')
+  if (event === undefined) return undefined
+  return deepFreeze({
+    title: event.data.title,
+    messageSeqs: [...event.data.messageSeqs],
+    source: event.data.source.kind === 'fallback'
+      ? { kind: 'fallback' }
+      : {
+        kind: 'provider',
+        provider: event.data.source.provider,
+        ...(event.data.source.model === undefined
+          ? {}
+          : { model: { ...event.data.source.model } }),
+      },
+    eventSeq: event.seq,
+    updatedAt: event.time,
+  })
+}
+
+/** Service-owned resolved limits. */
+interface ResolvedConfig {
+  readonly fallbackMaxWords: number
+  readonly fallbackMaxBytes: number
+  readonly maxTitleBytes: number
+}
+
+/** One exact provider registration generation. */
+interface ProviderRegistration {
+  readonly provider: SessionTitleProvider
+}
+
+/** Automatic work waiting for the matching main-request header. */
+interface PendingAutomaticWork {
+  readonly registration: ProviderRegistration
+  readonly revision: number
+  readonly throughSeq: number
+}
+
+/** Provider call currently allowed to commit for one session. */
+interface ActiveProviderWork extends PendingAutomaticWork {
+  readonly controller: AbortController
+  readonly signal: AbortSignal
+}
+
+/** Mutable concurrency state scoped to one live session. */
+interface SessionTitleWorkState {
+  revision: number
+  pending?: PendingAutomaticWork
+  active?: ActiveProviderWork
+}
+
+/** Validate one positive integer configuration field. */
+function assertPositiveInteger(name: keyof Config, value: number): void {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`session-title: ${name} must be a positive integer`)
+  }
+}
+
+/** Log-backed title fold plus asynchronous fallback generation. */
+export class SessionTitleService extends Service {
+  static inject = ['sessions']
+  static Config: z<Config> = z.object({
+    fallbackMaxWords: z.number().step(1).min(1).required(),
+    fallbackMaxBytes: z.number().step(1).min(1).required(),
+    maxTitleBytes: z.number().step(1).min(1).required(),
+  })
+
+  private readonly config: ResolvedConfig
+  private registration: ProviderRegistration | undefined
+  private readonly work = new Map<Session, SessionTitleWorkState>()
+
+  constructor(ctx: Context, config: Config) {
+    super(ctx, 'sessionTitle')
+    const candidate: unknown = config
+    if (candidate === null || typeof candidate !== 'object') {
+      throw new Error('session-title: configuration is required')
+    }
+    const value = candidate as Config
+    assertPositiveInteger('fallbackMaxWords', value.fallbackMaxWords)
+    assertPositiveInteger('fallbackMaxBytes', value.fallbackMaxBytes)
+    assertPositiveInteger('maxTitleBytes', value.maxTitleBytes)
+    if (value.fallbackMaxBytes > value.maxTitleBytes) {
+      throw new Error('session-title: fallbackMaxBytes must not exceed maxTitleBytes')
+    }
+    this.config = deepFreeze({ ...value })
+
+    ctx.on('session/event', (session, event) => {
+      switch (event.type) {
+        case 'user/message':
+          this.onUserMessage(session, event)
+          break
+        case 'request/header':
+          this.onRequestHeader(session, event)
+          break
+        default:
+          break
+      }
+    })
+    ctx.on('session/disposed', (session) => {
+      const state = this.work.get(session)
+      if (state === undefined) return
+      state.active?.controller.abort(new Error('session disposed during title generation'))
+      this.work.delete(session)
+    })
+  }
+
+  /**
+   * Read the latest folded title from one live or replayed session.
+   * @param session - session whose log is the title source of truth.
+   * @returns latest title snapshot, or `undefined` before eligible input.
+   */
+  get(session: Session): SessionTitleSnapshot | undefined {
+    return foldSessionTitle(session.events)
+  }
+
+  /**
+   * Explicitly retry the registered provider, or materialize the built-in
+   * fallback when no provider is registered.
+   * @param session - exact live session to refresh.
+   * @param signal - optional caller cancellation.
+   * @returns latest accepted title, or `undefined` when no eligible text exists.
+   */
+  async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined> {
+    signal?.throwIfAborted()
+    if (this.ctx.sessions.get(session.id) !== session) {
+      throw new Error(`session "${session.id}" is not live in this store`)
+    }
+    const fallback = await this.ensureFallback(session)
+    const registration = this.registration
+    if (registration === undefined) return fallback
+    const messages = collectSessionTitleMessages(session.events)
+    const latest = messages.at(-1)
+    if (latest === undefined) return fallback
+    const state = this.stateFor(session)
+    const revision = this.supersede(state, 'explicit title refresh superseded older generation')
+    const work = this.activate({
+      registration,
+      revision,
+      throughSeq: latest.seq,
+    }, state, signal)
+    const config = session.requestHeader()?.config
+    const route = config === undefined ? undefined : { provider: config.provider, model: config.model }
+    return this.runProvider(session, work, route)
+  }
+
+  /**
+   * Register the sole optional title provider. Disposal aborts its pending and
+   * active work before another provider may register.
+   * @param provider - provider identity, cadence, and generation function.
+   * @returns exact Cordis effect disposer for HMR-safe unregistration.
+   */
+  register(provider: SessionTitleProvider): () => void {
+    this.validateProvider(provider)
+    if (this.registration !== undefined) {
+      throw new Error(`session-title provider "${this.registration.provider.id}" is already registered`)
+    }
+    const registration: ProviderRegistration = {
+      provider,
+    }
+    const dispose = this.ctx.effect(function* (this: SessionTitleService) {
+      this.registration = registration
+      yield () => {
+        this.registration = undefined
+        for (const state of this.work.values()) {
+          delete state.pending
+          state.active?.controller.abort(new Error(`session-title provider "${provider.id}" was disposed`))
+        }
+      }
+    }.bind(this), 'sessionTitle.register()')
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- exact effect disposer preserves owner teardown ordering
+    return dispose
+  }
+
+  /** Schedule fallback creation and any provider cadence for one eligible event. */
+  private onUserMessage(session: Session, event: Extract<SessionEvent, { type: 'user/message' }>): void {
+    if (event.data.source.kind !== 'user' || collectSessionTitleMessages([event]).length === 0) return
+    const registration = this.registration
+    if (registration !== undefined) {
+      const messages = collectSessionTitleMessages(session.events, event.seq)
+      const shouldSchedule = registration.provider.automatic === 'all-user-messages'
+        || (session.header.parentSession === undefined && messages.length === 1 && this.get(session) === undefined)
+      if (shouldSchedule) {
+        const state = this.stateFor(session)
+        const revision = this.supersede(state, 'newer user message superseded title generation')
+        state.pending = { registration, revision, throughSeq: event.seq }
+      }
+    }
+    queueMicrotask(() => {
+      void this.ensureFallback(session).catch((error: unknown) => {
+        this.ctx.logger.warn(`session "${session.id}": fallback title update failed: ${String(error)}`)
+      })
+    })
+  }
+
+  /** Start pending automatic work only after its exact main-request route is logged. */
+  private onRequestHeader(session: Session, event: Extract<SessionEvent, { type: 'request/header' }>): void {
+    const state = this.work.get(session)
+    const pending = state?.pending
+    if (state === undefined || pending === undefined || pending.throughSeq >= event.seq) return
+    delete state.pending
+    const route = {
+      provider: event.data.header.config.provider,
+      model: event.data.header.config.model,
+    }
+    queueMicrotask(() => {
+      if (this.registration !== pending.registration || state.revision !== pending.revision) return
+      const work = this.activate(pending, state)
+      void this.runProvider(session, work, route).catch((error: unknown) => {
+        if (work.signal.aborted) return
+        this.ctx.logger.warn(`session "${session.id}": automatic title generation failed: ${String(error)}`)
+      })
+    })
+  }
+
+  /** Execute and durably accept one current provider revision. */
+  private async runProvider(
+    session: Session,
+    work: ActiveProviderWork,
+    route?: SessionTitleModelProvenance,
+  ): Promise<SessionTitleSnapshot | undefined> {
+    try {
+      await this.ensureFallback(session)
+      this.assertCurrent(session, work)
+      const messages = collectSessionTitleMessages(session.events, work.throughSeq)
+      const result = await work.registration.provider.generate({
+        session,
+        messages,
+        ...route === undefined ? {} : { route },
+        signal: work.signal,
+      })
+      this.assertCurrent(session, work)
+      const accepted = this.validateResult(result, messages)
+      await this.ctx.sessions.appendOutOfBand(session, 'session/title', {
+        title: accepted.title,
+        messageSeqs: [...accepted.messageSeqs],
+        source: {
+          kind: 'provider',
+          provider: work.registration.provider.id,
+          ...accepted.model === undefined ? {} : { model: accepted.model },
+        },
+      }, { kind: 'session-title' })
+      return this.get(session)
+    } finally {
+      const state = this.work.get(session)
+      if (state?.active === work) delete state.active
+    }
+  }
+
+  /** Validate and normalize provider output against the supplied message snapshot. */
+  private validateResult(
+    result: unknown,
+    messages: readonly SessionTitleUserMessage[],
+  ): SessionTitleProviderResult {
+    if (result === null || typeof result !== 'object') {
+      throw new Error('session-title provider returned an invalid result')
+    }
+    const candidate = result as Record<string, unknown>
+    if (typeof candidate.title !== 'string') throw new Error('session-title provider title must be a string')
+    const title = normalizeSessionTitle(candidate.title, this.config.maxTitleBytes)
+    if (title.length === 0) throw new Error('session-title provider returned an empty title')
+    if (!Array.isArray(candidate.messageSeqs) || candidate.messageSeqs.length === 0) {
+      throw new Error('session-title provider must identify at least one source message seq')
+    }
+    const messageSeqs: number[] = []
+    const order = new Map(messages.map((message, index) => [message.seq, index]))
+    let previous = -1
+    for (const seq of candidate.messageSeqs as unknown[]) {
+      if (typeof seq !== 'number') {
+        throw new Error('session-title provider messageSeqs must be unique, ordered seqs from the request')
+      }
+      const index = order.get(seq)
+      if (!Number.isSafeInteger(seq) || seq < 0 || index === undefined || index <= previous) {
+        throw new Error('session-title provider messageSeqs must be unique, ordered seqs from the request')
+      }
+      messageSeqs.push(seq)
+      previous = index
+    }
+    const modelCandidate = candidate.model
+    let model: SessionTitleModelProvenance | undefined
+    if (modelCandidate !== undefined) {
+      if (modelCandidate === null || typeof modelCandidate !== 'object') {
+        throw new Error('session-title provider model provenance requires non-empty provider and model')
+      }
+      const record = modelCandidate as Record<string, unknown>
+      if (typeof record.provider !== 'string' || record.provider.length === 0
+        || typeof record.model !== 'string' || record.model.length === 0) {
+        throw new Error('session-title provider model provenance requires non-empty provider and model')
+      }
+      model = { provider: record.provider, model: record.model }
+    }
+    return {
+      title,
+      messageSeqs,
+      ...(model === undefined ? {} : { model }),
+    }
+  }
+
+  /** Fail a completion whose provider, revision, session, or signal is stale. */
+  private assertCurrent(session: Session, work: ActiveProviderWork): void {
+    work.signal.throwIfAborted()
+    const state = this.work.get(session)
+    /* v8 ignore next -- every supported supersession, provider disposal, and session disposal aborts
+     * the work signal before changing this state. */
+    if (this.registration !== work.registration
+      || state?.active !== work
+      || state.revision !== work.revision
+      || this.ctx.sessions.get(session.id) !== session) {
+      throw new Error('session title generation state changed without cancellation')
+    }
+  }
+
+  /** Create and publish an active provider call from one fixed revision. */
+  private activate(
+    pending: PendingAutomaticWork,
+    state: SessionTitleWorkState,
+    upstream?: AbortSignal,
+  ): ActiveProviderWork {
+    const controller = new AbortController()
+    const signal = upstream === undefined
+      ? controller.signal
+      : AbortSignal.any([controller.signal, upstream])
+    const work: ActiveProviderWork = { ...pending, controller, signal }
+    state.active = work
+    return work
+  }
+
+  /** Abort older active work and reserve the next session-local revision. */
+  private supersede(state: SessionTitleWorkState, reason: string): number {
+    state.active?.controller.abort(new Error(reason))
+    delete state.pending
+    state.revision += 1
+    return state.revision
+  }
+
+  /** Return mutable work state for one session. */
+  private stateFor(session: Session): SessionTitleWorkState {
+    let state = this.work.get(session)
+    if (state === undefined) {
+      state = { revision: 0 }
+      this.work.set(session, state)
+    }
+    return state
+  }
+
+  /** Reject malformed provider registrations before publishing an effect. */
+  private validateProvider(provider: unknown): asserts provider is SessionTitleProvider {
+    if (provider === null || typeof provider !== 'object') {
+      throw new Error('session-title provider must be an object')
+    }
+    const candidate = provider as Record<string, unknown>
+    if (typeof candidate.id !== 'string' || candidate.id.length === 0) {
+      throw new Error('session-title provider id must be a non-empty string')
+    }
+    if (candidate.automatic !== 'first-message' && candidate.automatic !== 'all-user-messages') {
+      throw new Error('session-title provider automatic mode is invalid')
+    }
+    if (typeof candidate.generate !== 'function') {
+      throw new Error(`session-title provider "${candidate.id}" requires generate()`)
+    }
+  }
+
+  /** Create the first deterministic fallback if the session still lacks a title. */
+  private async ensureFallback(session: Session): Promise<SessionTitleSnapshot | undefined> {
+    const current = this.get(session)
+    if (current !== undefined) return current
+    const [first] = collectSessionTitleMessages(session.events)
+    if (first === undefined) return undefined
+    const title = fallbackSessionTitle(
+      first.text,
+      this.config.fallbackMaxWords,
+      this.config.fallbackMaxBytes,
+    )
+    if (title.length === 0) return undefined
+    await this.ctx.sessions.appendOutOfBand(session, 'session/title', {
+      title,
+      messageSeqs: [first.seq],
+      source: { kind: 'fallback' },
+    }, { kind: 'session-title' })
+    return this.get(session)
+  }
+}
+
+export default SessionTitleService
