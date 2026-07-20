@@ -227,6 +227,41 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toContain('\n> ')
   })
 
+  it('renders failure turn/end reasons so a failed turn is not silent', async () => {
+    const { ctx, out } = await setup()
+    const session = makeSession('main')
+    ctx.emit('session/event', session, {
+      type: 'turn/end', seq: 1, time: 0,
+      data: { turn: 1, reason: { kind: 'error', step: 1, message: 'fetch failed: connect ECONNREFUSED', code: 'NETWORK' } },
+    } as SessionEvent)
+    expect(out.text()).toContain('[turn failed NETWORK] fetch failed: connect ECONNREFUSED')
+    ctx.emit('session/event', session, {
+      type: 'turn/end', seq: 2, time: 0,
+      data: { turn: 2, reason: { kind: 'error', step: 1, message: 'uncoded failure' } },
+    } as SessionEvent)
+    expect(out.text()).toContain('[turn failed] uncoded failure')
+    ctx.emit('session/event', session, {
+      type: 'turn/end', seq: 3, time: 0, data: { turn: 3, reason: { kind: 'aborted', reason: 'user cancelled' } },
+    } as SessionEvent)
+    expect(out.text()).toContain('[turn aborted] user cancelled')
+    ctx.emit('session/event', session, {
+      type: 'turn/end', seq: 4, time: 0, data: { turn: 4, reason: { kind: 'aborted' } },
+    } as SessionEvent)
+    expect(out.text()).toContain('[turn aborted]\n> ')
+    ctx.emit('session/event', session, {
+      type: 'turn/end', seq: 5, time: 0, data: { turn: 5, reason: { kind: 'rejected', reason: 'policy veto' } },
+    } as SessionEvent)
+    expect(out.text()).toContain('[turn rejected] policy veto')
+    ctx.emit('session/event', session, {
+      type: 'turn/end', seq: 6, time: 0, data: { turn: 6, reason: { kind: 'max-tokens' } },
+    } as SessionEvent)
+    expect(out.text()).toContain('[turn hit the output-token limit]')
+    ctx.emit('session/event', session, {
+      type: 'turn/end', seq: 7, time: 0, data: { turn: 7, reason: { kind: 'interrupted' } },
+    } as SessionEvent)
+    expect(out.text()).toContain('[turn interrupted by a previous process exit]')
+  })
+
   it('uses the session id as the label for a non-target session', async () => {
     const { ctx, out } = await setup()
     // No target exists, so the event's durable identity is the label.
@@ -851,7 +886,7 @@ describe('createStdioChat input', () => {
     await new Promise(r => setImmediate(r))
 
     expect(error).toHaveBeenCalledWith(
-      'ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): <unrenderable thrown value>',
+      'ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): <unrenderable value>',
     )
   })
 
@@ -939,7 +974,7 @@ describe('createStdioChat EOF exit', () => {
     await flushExit()
 
     expect(error).toHaveBeenCalledWith(
-      'ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): <unrenderable thrown value>',
+      'ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): <unrenderable value>',
     )
     expect(exit).toHaveBeenCalledWith(0)
   })
