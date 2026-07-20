@@ -31,4 +31,4 @@ node --expose-internals --import tsx packages/examples/stdio-demo/src/bin.ts exa
 
 Type a message and press Enter. "echo <text>" triggers a tool call round-trip (the mock model requests the `echo` tool, which echoes the text uppercased, and the next model step acknowledges it).
 
-The session is persisted under `.sessions/` relative to the directory you launch the demo from. `pnpm run demo:echo` runs from the repo root, so the logs land in `<repo-root>/.sessions/cwd-<hash>/` (one `.jsonl` log per session). Clean up with: `rm -rf .sessions`
+The session is persisted under `.sessions/` relative to the directory you launch the demo from. `pnpm run demo:echo` runs from the repo root, so the logs land in `<repo-root>/.sessions/cwd-<hash>/` (one `.jsonl.zstd` log per session). Clean up with: `rm -rf .sessions`

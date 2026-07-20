@@ -13,6 +13,7 @@
           provider: deepseek
           model: deepseek-v4-flash
           persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+          persistenceCompression: 'none'
           workspaceContext:
             maxBytes: 65536
           tools:
