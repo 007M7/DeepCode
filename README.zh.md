@@ -11,12 +11,11 @@
 ```sh
 pnpm install
 pnpm run test          # vitest
-pnpm run demo:echo     # keyless mock-model REPL
-pnpm run demo:repl     # readline coding agent (needs DEEPSEEK_API_KEY)
-pnpm run demo:tui      # full-screen TUI coding agent (needs DEEPSEEK_API_KEY)
-pnpm run demo:headless -- "task" # one-shot coding agent (needs DEEPSEEK_API_KEY)
-pnpm run demo:cordis   # self-referential agent demo (needs DEEPSEEK_API_KEY)
-pnpm run demo:acp      # ACP server agent demo (needs DEEPSEEK_API_KEY)
+# Agent demos require DEEPSEEK_API_KEY.
+pnpm run demo:tui      # full-screen TUI coding agent
+pnpm run demo:headless "task" # one-shot coding agent
+pnpm run demo:cordis   # self-referential agent demo
+pnpm run demo:acp      # ACP server agent demo
 ```
 
 面向开发者：先读[开发指南](docs/development.md)，了解本地环境搭建、钩子、环境变量与质量门禁，动手改 package 之前再读[架构设计](docs/architecture.md)和[文档关系图索引](docs/graph-atlas.md)。局部上下文见 [packages/](packages/) 与 [vendor/](vendor/)。

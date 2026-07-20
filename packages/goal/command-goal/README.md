@@ -30,7 +30,7 @@ The producer injects `commands` and `goals`. A custom app mounts their owners pl
   name: '@deepseek-ai/dsh-command-goal'
 ```
 
-The TUI and ACP demo apps enable the complete persisted-goal stack and this command by default; `goals: false` removes both. The terminal app's readline mode keeps the model-mediated goal stack but does not mount this producer because that front door does not consume commands. The UI-less `agent-spine-demo` requires an explicit `goals: {}` so headless one-shot callers do not silently change from one physical turn to a multi-round operation.
+The TUI and ACP demo apps enable the complete persisted-goal stack and this command by default; `goals: false` removes both. The UI-less `agent-spine-demo` requires an explicit `goals: {}` so headless one-shot callers do not silently change from one physical turn to a multi-round operation.
 
 ## Model Experience
 
@@ -53,4 +53,4 @@ Command discovery and direct output do not affect the cache. A mutation appends 
 - **Plain-text interaction only** — the generic command registry has no modal edit form or replacement-confirmation callback; inline edit and explicit clear keep destructive intent deterministic on both TUI and ACP.
 - **No per-command round-cap argument** — `defaultMaxGoalRounds` remains deployment config, while a direct human request may ask the model to edit `max_goal_rounds` through the separately authorized goal tool.
 - **No continuous status widget** — bare `/goal` is the portable observation surface; adapter-specific badges and reconnectable command output remain future UI work.
-- **TUI and ACP only** — the line-oriented stdio and JSON-RPC adapters do not consume `ctx.commands`. Their ordinary human prompts can still authorize the model-facing goal tools when those are composed.
+- **TUI and ACP only** — the headless CLI and JSON-RPC adapters do not consume `ctx.commands`. Ordinary human prompts can still authorize the model-facing goal tools when those are composed.
